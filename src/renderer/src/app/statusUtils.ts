@@ -44,6 +44,10 @@ export function mergeAuthStatus(statuses: AuthFlowStatus[], nextStatus: AuthFlow
   return [...filtered, nextStatus];
 }
 
+export function shouldShowLoginGuidance(status: AuthFlowStatus | undefined): status is AuthFlowStatus {
+  return status !== undefined && status.state !== "failed";
+}
+
 export function formatAuthFlowState(status: AuthFlowStatus, t: Translator): string {
   switch (status.state) {
     case "opening_chrome":

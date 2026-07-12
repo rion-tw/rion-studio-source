@@ -8,9 +8,11 @@ import { Button } from "./components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { Surface } from "./components/ui/patterns";
 import RoleModal from "./features/roles/RoleModal";
+import LoginGuideModal from "./features/roles/LoginGuideModal";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import WorkspaceModal from "./features/workspaces/WorkspaceModal";
 import { toMessage } from "./app/errorUtils";
+import { shouldShowLoginGuidance } from "./app/statusUtils";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
@@ -184,7 +186,7 @@ export function App(): JSX.Element {
                     onEdit={roleWorkflow.startEdit}
                     onFilterChange={roleWorkflow.setActiveFilter}
                     onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
-                    onLogin={(roleId) => void roleWorkflow.handleSystemLogin(roleId)}
+                    onLogin={roleWorkflow.requestSystemLogin}
                     onNewRole={roleWorkflow.startCreate}
                     onQueryChange={roleWorkflow.setQuery}
                     onStop={(roleId) => void roleWorkflow.handleStop(roleId)}
@@ -265,15 +267,34 @@ export function App(): JSX.Element {
 
       {hasBridge && roleWorkflow.isRoleModalOpen ? (
         <RoleModal
+          authStatus={
+            roleWorkflow.selectedRole
+              ? data.authStatusByRole.get(roleWorkflow.selectedRole.id)
+              : undefined
+          }
           form={roleWorkflow.form}
+          isLoginBusy={Boolean(
+            roleWorkflow.selectedRole &&
+              (roleWorkflow.busyRoleId === roleWorkflow.selectedRole.id ||
+                shouldShowLoginGuidance(data.authStatusByRole.get(roleWorkflow.selectedRole.id)))
+          )}
           isSaving={roleWorkflow.isSaving}
           selectedRole={roleWorkflow.selectedRole}
           t={preferences.t}
           onCancel={roleWorkflow.closeRoleModal}
           onChange={roleWorkflow.setForm}
           onError={data.setError}
-          onRelogin={(roleId) => void roleWorkflow.handleSystemLogin(roleId)}
+          onRelogin={roleWorkflow.requestSystemLogin}
           onSubmit={roleWorkflow.handleSubmit}
+        />
+      ) : null}
+
+      {hasBridge && roleWorkflow.loginGuideRole ? (
+        <LoginGuideModal
+          role={roleWorkflow.loginGuideRole}
+          t={preferences.t}
+          onCancel={roleWorkflow.cancelSystemLogin}
+          onConfirm={() => void roleWorkflow.confirmSystemLogin()}
         />
       ) : null}
 

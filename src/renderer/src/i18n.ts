@@ -244,6 +244,7 @@ const en = {
   "role.login": "Login",
   "role.actions": "Role actions",
   "role.edit": "Edit",
+  "role.relogin": "Re-login",
   "role.delete": "Delete",
 
   "preset.balanced": "Balanced",
@@ -284,6 +285,21 @@ const en = {
   "roleForm.cancel": "Cancel",
   "roleForm.saveChanges": "Save changes",
   "roleForm.createRole": "Create role",
+
+  "loginGuide.aria.close": "Close login instructions",
+  "loginGuide.modalTitle": "Before opening Chrome",
+  "loginGuide.modalDescription": "Set up the saved login session for \"{name}\" by completing every step below.",
+  "loginGuide.title": "Complete every login step",
+  "loginGuide.activeTitle": "Finish login for \"{name}\"",
+  "loginGuide.description":
+    "Rion Studio records the session only after the target character enters its game screen.",
+  "loginGuide.step.account": "Complete account login in Chrome.",
+  "loginGuide.step.character": "On character selection, choose the game character for \"{name}\".",
+  "loginGuide.step.game": "Wait until that character enters the game, then close Chrome.",
+  "loginGuide.warning":
+    "Signing in only, stopping at character selection, or closing Chrome too early will not record the session.",
+  "loginGuide.cancel": "Cancel",
+  "loginGuide.confirm": "I understand, open Chrome",
 
   "auth.openingChrome": "Waiting for Chrome",
   "auth.waitingForLogin": "Waiting for login",
@@ -601,6 +617,7 @@ const zhTw: Record<TranslationKey, string> = {
   "role.login": "登入",
   "role.actions": "角色操作",
   "role.edit": "編輯",
+  "role.relogin": "重新登入",
   "role.delete": "刪除",
 
   "preset.balanced": "平衡",
@@ -641,6 +658,19 @@ const zhTw: Record<TranslationKey, string> = {
   "roleForm.cancel": "取消",
   "roleForm.saveChanges": "儲存變更",
   "roleForm.createRole": "建立角色",
+
+  "loginGuide.aria.close": "關閉登入引導",
+  "loginGuide.modalTitle": "開啟 Chrome 前請先確認",
+  "loginGuide.modalDescription": "請完成以下所有步驟，才能為「{name}」記錄登入工作階段。",
+  "loginGuide.title": "請完成所有登入步驟",
+  "loginGuide.activeTitle": "請完成「{name}」的登入",
+  "loginGuide.description": "目標遊戲角色進入遊戲畫面後，Rion Studio 才能記錄此 session。",
+  "loginGuide.step.account": "在 Chrome 完成帳號登入。",
+  "loginGuide.step.character": "在角色選擇畫面，點擊要綁定到「{name}」的目標遊戲角色。",
+  "loginGuide.step.game": "等待該角色進入遊戲畫面後，再關閉 Chrome。",
+  "loginGuide.warning": "只完成帳號登入、停在角色選擇畫面，或過早關閉 Chrome，session 將不會被記錄。",
+  "loginGuide.cancel": "取消",
+  "loginGuide.confirm": "我知道了，開啟 Chrome",
 
   "auth.openingChrome": "等待 Chrome",
   "auth.waitingForLogin": "等待登入",

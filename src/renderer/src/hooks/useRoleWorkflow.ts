@@ -33,10 +33,15 @@ export function useRoleWorkflow({
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
+  const [loginGuideRoleId, setLoginGuideRoleId] = useState<string | null>(null);
 
   const selectedRole = useMemo(() => {
     return roles.find((role) => role.id === form.id);
   }, [roles, form.id]);
+
+  const loginGuideRole = useMemo(() => {
+    return roles.find((role) => role.id === loginGuideRoleId);
+  }, [roles, loginGuideRoleId]);
 
   const filteredRoles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -153,6 +158,26 @@ export function useRoleWorkflow({
     }
   }
 
+  function requestSystemLogin(roleId: string): void {
+    setError(null);
+    setLoginGuideRoleId(roleId);
+  }
+
+  function cancelSystemLogin(): void {
+    setLoginGuideRoleId(null);
+  }
+
+  async function confirmSystemLogin(): Promise<void> {
+    const roleId = loginGuideRoleId;
+
+    if (!roleId) {
+      return;
+    }
+
+    setLoginGuideRoleId(null);
+    await handleSystemLogin(roleId);
+  }
+
   async function handleDelete(role: Role): Promise<void> {
     const confirmed = window.confirm(t("confirm.deleteRole").replace("{name}", role.name));
 
@@ -212,6 +237,8 @@ export function useRoleWorkflow({
   return {
     activeFilter,
     busyRoleId,
+    cancelSystemLogin,
+    confirmSystemLogin,
     filteredRoles,
     form,
     handleDelete,
@@ -221,7 +248,9 @@ export function useRoleWorkflow({
     handleSystemLogin,
     isRoleModalOpen,
     isSaving,
+    loginGuideRole,
     query,
+    requestSystemLogin,
     selectedRole,
     setActiveFilter,
     setForm,

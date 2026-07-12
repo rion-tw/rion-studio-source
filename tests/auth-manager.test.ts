@@ -75,6 +75,47 @@ describe("AuthManager", () => {
     expect(manager.listStatuses()).toEqual([]);
   });
 
+  it("explains every required session step while waiting for login", async () => {
+    const monitor = createDeferred<LoginWindowMonitorResult>();
+    const updatedRole: Role = { ...role, authState: "authenticated" };
+    const loginSession = createLoginSession({ monitor: monitor.promise });
+    const roleStore = {
+      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
+    };
+    const browserManager = {
+      stop: vi.fn().mockResolvedValue(undefined),
+      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
+    };
+    const manager = new AuthManager(
+      roleStore,
+      browserManager,
+      { openLoginWindow: vi.fn().mockResolvedValue(loginSession) },
+      { check: vi.fn().mockResolvedValue({ authState: "authenticated" }) },
+      { waitForRelease: vi.fn().mockResolvedValue(undefined) }
+    );
+
+    manager.startLogin(role);
+
+    await vi.waitFor(() => {
+      expect(manager.listStatuses()[0]).toMatchObject({
+        roleId: role.id,
+        state: "waiting_for_login",
+        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
+      });
+    });
+
+    monitor.resolve({
+      state: "login_completed",
+      port: 9222,
+      targetId: "target-1",
+      url: role.launchUrl
+    });
+
+    await vi.waitFor(() => {
+      expect(browserManager.launch).toHaveBeenCalledWith(updatedRole);
+    });
+  });
+
   it("checks the session and launches automatically after the user closes Chrome first", async () => {
     const closed = createDeferred<void>();
     const updatedRole: Role = { ...role, authState: "authenticated" };
@@ -82,7 +123,7 @@ describe("AuthManager", () => {
       closed: closed.promise,
       monitor: Promise.resolve({
         state: "manual",
-        message: "Complete login in Chrome, then close the Chrome window."
+        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
       })
     });
     const roleStore = {
@@ -116,7 +157,7 @@ describe("AuthManager", () => {
       expect(manager.listStatuses()[0]).toMatchObject({
         roleId: role.id,
         state: "waiting_for_chrome_close",
-        message: "Complete login in Chrome, then close the Chrome window."
+        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
       });
     });
     expect(authSessionChecker.check).not.toHaveBeenCalled();
@@ -215,7 +256,7 @@ describe("AuthManager", () => {
         roleId: role.id,
         state: "waiting_for_chrome_close",
         message:
-          "Complete login in Chrome, then close the window. Timed out while waiting for login storage to be ready: storage_not_ready"
+          "Complete account login, select the target character, enter its game screen, then close Chrome. Timed out while waiting for login storage to be ready: storage_not_ready"
       });
     });
 
@@ -276,7 +317,7 @@ describe("AuthManager", () => {
       closed: closed.promise,
       monitor: Promise.resolve({
         state: "manual",
-        message: "Complete login in Chrome, then close the Chrome window."
+        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
       })
     });
     const roleStore = {

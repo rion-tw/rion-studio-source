@@ -54,7 +54,11 @@ export class AuthManager extends EventEmitter<AuthManagerEvents> {
     try {
       await this.browserManager.stop(role.id);
       const loginSession = await this.systemChromeLauncher.openLoginWindow(role);
-      this.setStatus(role.id, "waiting_for_login", "Complete login in Chrome, then close the Chrome window.");
+      this.setStatus(
+        role.id,
+        "waiting_for_login",
+        "Complete account login, select the target character, enter its game screen, then close Chrome."
+      );
       const monitorResult = await loginSession.monitor;
 
       if (monitorResult.state === "login_completed") {
@@ -112,10 +116,10 @@ function toManualCloseMessage(monitorResult: LoginWindowMonitorResult): string {
   }
 
   if ("message" in monitorResult) {
-    return `Complete login in Chrome, then close the window. ${monitorResult.message}`;
+    return `Complete account login, select the target character, enter its game screen, then close Chrome. ${monitorResult.message}`;
   }
 
-  return "Complete login in Chrome, then close the window.";
+  return "Complete account login, select the target character, enter its game screen, then close Chrome.";
 }
 
 function toMessage(error: unknown): string {

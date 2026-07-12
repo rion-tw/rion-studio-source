@@ -4,9 +4,10 @@ import {
   createRoleStats,
   mergeAuthStatus,
   mergeStatus,
-  mergeStatuses
+  mergeStatuses,
+  shouldShowLoginGuidance
 } from "../src/renderer/src/app/statusUtils";
-import type { AuthFlowStatus, Role, RoleStatus } from "../src/shared/types";
+import type { AuthFlowState, AuthFlowStatus, Role, RoleStatus } from "../src/shared/types";
 
 describe("renderer role status helpers", () => {
   it("summarizes role state from roles, process statuses, and auth statuses", () => {
@@ -75,6 +76,25 @@ describe("renderer role status helpers", () => {
       authStatus({ roleId: "p2", state: "checking_session" }),
       authStatus({ roleId: "p1", state: "failed", message: "Login failed" })
     ]);
+  });
+
+  it("shows persistent login guidance for every active auth state and hides it after failure", () => {
+    const activeStates: AuthFlowState[] = [
+      "opening_chrome",
+      "waiting_for_login",
+      "closing_login_window",
+      "waiting_for_chrome_close",
+      "waiting_for_user_data_release",
+      "checking_session",
+      "launching"
+    ];
+
+    for (const state of activeStates) {
+      expect(shouldShowLoginGuidance(authStatus({ state }))).toBe(true);
+    }
+
+    expect(shouldShowLoginGuidance(authStatus({ state: "failed" }))).toBe(false);
+    expect(shouldShowLoginGuidance(undefined)).toBe(false);
   });
 });
 

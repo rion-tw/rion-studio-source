@@ -23,8 +23,9 @@ import { localizeErrorMessage, type Language, type TranslationKey, type Translat
 import { cn } from "../../lib/utils";
 import type { AuthFlowStatus, Role, RoleStatus } from "../../../../shared/types";
 import type { AppStats, SidebarFilter } from "../../app/types";
-import { formatAuthFlowState } from "../../app/statusUtils";
+import { formatAuthFlowState, shouldShowLoginGuidance } from "../../app/statusUtils";
 import { createDominantLaunchButtonStyle, createRoleCardStyle } from "./roleCardStyle";
+import { LoginSessionGuide } from "./LoginSessionGuide";
 
 const filterLabelKeys: Record<SidebarFilter, TranslationKey> = {
   all: "roles.filter.all",
@@ -84,6 +85,10 @@ function RolesView({
     stopped: roleStats.stopped,
     needsLogin: roleStats.needsLogin
   };
+  const activeLoginGuides = roles.flatMap((role) => {
+    const authStatus = authStatusByRole.get(role.id);
+    return shouldShowLoginGuidance(authStatus) ? [{ role, authStatus }] : [];
+  });
 
   return (
     <PageFrame>
@@ -118,6 +123,10 @@ function RolesView({
           </>
         }
       />
+
+      {activeLoginGuides.map(({ role, authStatus }) => (
+        <LoginSessionGuide key={role.id} authStatus={authStatus} roleName={role.name} t={t} />
+      ))}
 
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <RoleFilterTabs
@@ -262,11 +271,13 @@ function RoleCard({
 
       <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <RoleActionMenu
+          canRelogin={isAuthenticated}
           isBusy={isBusy}
           isOnCover={hasCoverImage}
           t={t}
           onDelete={onDelete}
           onEdit={onEdit}
+          onRelogin={onLogin}
         />
       </div>
 
@@ -392,14 +403,24 @@ function LoginButton({ className, isBusy, onLogin, t }: LoginButtonProps): JSX.E
 }
 
 interface RoleActionMenuProps {
+  canRelogin: boolean;
   isBusy: boolean;
   isOnCover?: boolean;
   onDelete: () => void;
   onEdit: () => void;
+  onRelogin: () => void;
   t: Translator;
 }
 
-function RoleActionMenu({ isBusy, isOnCover = false, onDelete, onEdit, t }: RoleActionMenuProps): JSX.Element {
+function RoleActionMenu({
+  canRelogin,
+  isBusy,
+  isOnCover = false,
+  onDelete,
+  onEdit,
+  onRelogin,
+  t
+}: RoleActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -441,6 +462,11 @@ function RoleActionMenu({ isBusy, isOnCover = false, onDelete, onEdit, t }: Role
     onDelete();
   }
 
+  function handleRelogin(): void {
+    setIsOpen(false);
+    onRelogin();
+  }
+
   return (
     <div ref={menuRef} className="relative shrink-0">
       <Button
@@ -473,6 +499,18 @@ function RoleActionMenu({ isBusy, isOnCover = false, onDelete, onEdit, t }: Role
             <Pencil size={14} />
             <span>{t("role.edit")}</span>
           </button>
+          {canRelogin ? (
+            <button
+              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              type="button"
+              role="menuitem"
+              onClick={handleRelogin}
+              disabled={isBusy}
+            >
+              <LogIn size={14} />
+              <span>{t("role.relogin")}</span>
+            </button>
+          ) : null}
           <button
             className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             type="button"

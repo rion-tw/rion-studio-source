@@ -267,7 +267,7 @@ export class SystemChromeLauncher {
       closed,
       monitor: Promise.resolve({
         state: "manual",
-        message: "Complete login in Chrome, then close the Chrome window."
+        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
       }),
       close: async () => {
         if (isClosed) {

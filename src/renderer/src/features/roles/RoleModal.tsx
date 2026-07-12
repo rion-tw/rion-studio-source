@@ -9,14 +9,18 @@ import { FieldHeader, Surface } from "../../components/ui/patterns";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { launchUrlOptions } from "../../app/constants";
+import { shouldShowLoginGuidance } from "../../app/statusUtils";
 import type { RoleFormState } from "../../app/types";
 import type { Translator } from "../../i18n";
-import type { LaunchPreset, Role } from "../../../../shared/types";
+import type { AuthFlowStatus, LaunchPreset, Role } from "../../../../shared/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { createCoverImageDataUrl } from "./roleCover";
+import { LoginSessionGuide } from "./LoginSessionGuide";
 
 interface RoleFormProps {
+  authStatus?: AuthFlowStatus;
   form: RoleFormState;
+  isLoginBusy: boolean;
   isSaving: boolean;
   selectedRole?: Role;
   t: Translator;
@@ -65,7 +69,9 @@ function RoleModal(props: RoleFormProps): JSX.Element {
 }
 
 function RoleForm({
+  authStatus,
   form,
+  isLoginBusy,
   isSaving,
   selectedRole,
   t,
@@ -290,14 +296,19 @@ function RoleForm({
                 />
               </Label>
 
+              {selectedRole && shouldShowLoginGuidance(authStatus) ? (
+                <LoginSessionGuide authStatus={authStatus} roleName={selectedRole.name} t={t} />
+              ) : null}
+
               {selectedRole?.authState === "authenticated" ? (
                 <Button
                   type="button"
                   variant="secondary"
                   className="w-full"
                   onClick={() => onRelogin(selectedRole.id)}
+                  disabled={isSaving || isLoginBusy}
                 >
-                  <LogIn size={17} />
+                  {isLoginBusy ? <Loader2 className="spin" size={17} /> : <LogIn size={17} />}
                   {t("roleForm.relogin")}
                 </Button>
               ) : null}

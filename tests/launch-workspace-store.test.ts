@@ -86,6 +86,35 @@ describe("LaunchWorkspaceStore", () => {
     expect(trimmed.slots).toHaveLength(1);
   });
 
+  it("creates and persists a resizable three-column workspace", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Three roles",
+      template: "three_columns",
+      slots: [
+        { roleId: "role-1", rect: { x: 0, y: 0, width: 0.2, height: 1 } },
+        { roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.35, height: 1 } },
+        { roleId: "role-3", rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
+      ]
+    });
+
+    expect(workspace.slots).toEqual([
+      { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.2, height: 1 } },
+      { id: "slot-2", roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.35, height: 1 } },
+      { id: "slot-3", roleId: "role-3", rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
+    ]);
+    await expect(store.getWorkspace(workspace.id)).resolves.toEqual(workspace);
+  });
+
+  it("uses three equal columns when no custom slots are provided", async () => {
+    const workspace = await store.createWorkspace({ name: "Equal thirds", template: "three_columns" });
+
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual([
+      { x: 0, y: 0, width: 1 / 3, height: 1 },
+      { x: 1 / 3, y: 0, width: 1 / 3, height: 1 },
+      { x: 2 / 3, y: 0, width: 1 / 3, height: 1 }
+    ]);
+  });
+
   it("creates and persists a resizable four-column workspace", async () => {
     const workspace = await store.createWorkspace({
       name: "Four roles",
@@ -131,6 +160,16 @@ describe("LaunchWorkspaceStore", () => {
         name: "Solo",
         template: "single",
         slots: [{ roleId: "role-1" }, { roleId: "role-2" }]
+      })
+    ).rejects.toMatchObject({
+      code: "WORKSPACE_SLOT_OUTSIDE_LAYOUT"
+    });
+
+    await expect(
+      store.createWorkspace({
+        name: "Three plus one",
+        template: "three_columns",
+        slots: [{ roleId: "role-1" }, { roleId: "role-2" }, { roleId: "role-3" }, { roleId: "role-4" }]
       })
     ).rejects.toMatchObject({
       code: "WORKSPACE_SLOT_OUTSIDE_LAYOUT"

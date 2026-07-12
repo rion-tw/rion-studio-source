@@ -133,6 +133,32 @@ describe("registerIpcHandlers workspace handlers", () => {
     });
   });
 
+  it("launches three-column workspace roles with each saved column bound", async () => {
+    const threeColumnWorkspace: LaunchWorkspace = {
+      ...workspace,
+      id: "workspace-3",
+      template: "three_columns",
+      slots: [
+        { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.2, height: 1 } },
+        { id: "slot-2", roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.35, height: 1 } },
+        { id: "slot-3", roleId: "role-3", rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
+      ]
+    };
+    workspaceStore.getWorkspace = vi.fn().mockResolvedValue(threeColumnWorkspace);
+
+    await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, threeColumnWorkspace.id);
+
+    expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
+      bounds: { x: 100, y: 50, width: 200, height: 800 }
+    });
+    expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
+      bounds: { x: 300, y: 50, width: 350, height: 800 }
+    });
+    expect(browserManager.launch).toHaveBeenNthCalledWith(3, expect.objectContaining({ id: "role-3" }), {
+      bounds: { x: 650, y: 50, width: 450, height: 800 }
+    });
+  });
+
   it("launches four-column workspace roles with each saved column bound", async () => {
     const fourColumnWorkspace: LaunchWorkspace = {
       ...workspace,

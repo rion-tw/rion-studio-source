@@ -99,6 +99,7 @@ rectangle. Supported layout templates are:
 
 - `single`
 - `two_columns`
+- `three_columns`
 - `main_left_stack_right`
 - `quad`
 - `four_columns`

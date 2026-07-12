@@ -293,7 +293,7 @@ function WorkspaceLayoutFormEditor({
     <Surface className="grid gap-4" padding="lg" variant="inset">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FieldHeader title={t("workspaces.layout")} description={t("workspaces.layoutDescription")} />
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-5 gap-2">
           {workspaceLayoutTemplates.map((template) => {
             const Icon = workspaceTemplateIcons[template];
             const isActive = form.template === template;

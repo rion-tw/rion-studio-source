@@ -19,6 +19,10 @@ export type WorkspaceSplitAxis = keyof WorkspaceSplits;
 
 const EXISTING_LAYOUT_MIN_SPLIT_SIZE = 0.2;
 
+function isMultiColumnTemplate(template: WorkspaceLayoutTemplate): boolean {
+  return template === "three_columns" || template === "four_columns";
+}
+
 export function createWorkspaceName(workspaces: LaunchWorkspace[], t: Translator): string {
   const baseName = t("workspaces.defaultName");
   const names = new Set(workspaces.map((workspace) => workspace.name.toLocaleLowerCase()));
@@ -149,10 +153,11 @@ export function getWorkspaceSplits(
       return { horizontal: [secondRect.height], vertical: [firstRect.width] };
     case "quad":
       return { horizontal: [firstRect.height], vertical: [firstRect.width] };
+    case "three_columns":
     case "four_columns":
       return {
         horizontal: [],
-        vertical: defaultRects.slice(0, 3).map((defaultRect, index) => {
+        vertical: defaultRects.slice(0, -1).map((defaultRect, index) => {
           const rect = slots[index]?.rect ?? defaultRect;
           return rect.x + rect.width;
         })
@@ -202,6 +207,7 @@ export function createWorkspaceRectsFromSplits(
         { x: 0, y: splitY, width: splitX, height: 1 - splitY },
         { x: splitX, y: splitY, width: 1 - splitX, height: 1 - splitY }
       ];
+    case "three_columns":
     case "four_columns": {
       const boundaries = [0, ...defaultSplits.vertical.map((value, index) => splits.vertical[index] ?? value), 1];
 
@@ -222,7 +228,9 @@ export function getWorkspaceSplitRange(
   splitIndex: number
 ): { min: number; max: number } {
   const positions = splits[axis];
-  const minimumSize = template === "four_columns" ? MIN_WORKSPACE_SLOT_SIZE : EXISTING_LAYOUT_MIN_SPLIT_SIZE;
+  const minimumSize = isMultiColumnTemplate(template)
+    ? MIN_WORKSPACE_SLOT_SIZE
+    : EXISTING_LAYOUT_MIN_SPLIT_SIZE;
 
   return {
     min: (positions[splitIndex - 1] ?? 0) + minimumSize,

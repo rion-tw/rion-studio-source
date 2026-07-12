@@ -258,6 +258,7 @@ function WorkspaceLayoutPreview({
             </div>
           </div>
         );
+      case "three_columns":
       case "four_columns":
         return (
           <div className="flex h-full min-h-0 gap-2">

@@ -6,6 +6,7 @@ export type LaunchPreset = "balanced" | "performance";
 export type WorkspaceLayoutTemplate =
   | "single"
   | "two_columns"
+  | "three_columns"
   | "main_left_stack_right"
   | "quad"
   | "four_columns";

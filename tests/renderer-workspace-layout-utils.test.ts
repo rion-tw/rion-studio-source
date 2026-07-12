@@ -65,6 +65,26 @@ describe("renderer workspace layout helpers", () => {
     ]);
   });
 
+  it("adjusts one three-column divider while preserving the other boundary", () => {
+    const initialSlots = applyWorkspaceTemplate([], "three_columns");
+    const initialSplits = getWorkspaceSplits("three_columns", initialSlots);
+    const slots = applyWorkspaceSplits("three_columns", initialSlots, {
+      ...initialSplits,
+      vertical: [0.45, 2 / 3]
+    });
+
+    expect(initialSplits).toEqual({ horizontal: [], vertical: [1 / 3, 2 / 3] });
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0, y: 0, width: 0.45, height: 1 },
+      { x: 0.45, y: 0, width: 2 / 3 - 0.45, height: 1 },
+      { x: 2 / 3, y: 0, width: 1 - 2 / 3, height: 1 }
+    ]);
+    expect(getWorkspaceSplitRange("three_columns", initialSplits, "vertical", 0)).toEqual({
+      min: 0.12,
+      max: 2 / 3 - 0.12
+    });
+  });
+
   it("adjusts one four-column divider while preserving the other boundaries", () => {
     const initialSlots = applyWorkspaceTemplate([], "four_columns");
     const initialSplits = getWorkspaceSplits("four_columns", initialSlots);

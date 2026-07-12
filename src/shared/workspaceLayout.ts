@@ -6,6 +6,7 @@ export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns"
 
 export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "two_columns",
+  "three_columns",
   "main_left_stack_right",
   "quad",
   "four_columns"
@@ -19,6 +20,7 @@ export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate)
       return 1;
     case "two_columns":
       return 2;
+    case "three_columns":
     case "main_left_stack_right":
       return 3;
     case "quad":
@@ -36,6 +38,8 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
         { x: 0, y: 0, width: 0.5, height: 1 },
         { x: 0.5, y: 0, width: 0.5, height: 1 }
       ];
+    case "three_columns":
+      return createEqualColumnRects(3);
     case "main_left_stack_right":
       return [
         { x: 0, y: 0, width: 0.5, height: 1 },
@@ -50,13 +54,17 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
         { x: 0.5, y: 0.5, width: 0.5, height: 0.5 }
       ];
     case "four_columns":
-      return [
-        { x: 0, y: 0, width: 0.25, height: 1 },
-        { x: 0.25, y: 0, width: 0.25, height: 1 },
-        { x: 0.5, y: 0, width: 0.25, height: 1 },
-        { x: 0.75, y: 0, width: 0.25, height: 1 }
-      ];
+      return createEqualColumnRects(4);
   }
+}
+
+function createEqualColumnRects(columnCount: number): NormalizedRect[] {
+  return Array.from({ length: columnCount }, (_value, index) => ({
+    x: index / columnCount,
+    y: 0,
+    width: 1 / columnCount,
+    height: 1
+  }));
 }
 
 export function createDefaultWorkspaceSlots(template: WorkspaceLayoutTemplate): LaunchWorkspaceSlot[] {

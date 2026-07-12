@@ -1,10 +1,11 @@
-import { LayoutDashboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
+import { LayoutDashboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
+import { SearchField } from "../../components/SearchField";
 import { launchUrlOptions } from "../../app/constants";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -38,6 +39,25 @@ function LaunchWorkspacesView({
   onStopWorkspace
 }: LaunchWorkspacesViewProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
+  const [query, setQuery] = useState("");
+  const filteredWorkspaces = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return workspaces;
+    }
+
+    return workspaces.filter((workspace) => {
+      const assignedRoleNames = workspace.slots
+        .map((slot) => (slot.roleId ? roleById.get(slot.roleId)?.name : ""))
+        .filter(Boolean);
+
+      return [workspace.name, t(workspaceTemplateLabelKeys[workspace.template]), ...assignedRoleNames]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    });
+  }, [query, roleById, t, workspaces]);
 
   return (
     <PageFrame>
@@ -46,10 +66,18 @@ function LaunchWorkspacesView({
         title={t("workspaces.title")}
         description={t("workspaces.description")}
         actions={
-          <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onCreateWorkspace}>
-            <Plus size={14} />
-            {t("workspaces.newWorkspace")}
-          </Button>
+          <>
+            <SearchField
+              className="w-full sm:w-44 lg:w-48"
+              placeholder={t("workspaces.searchPlaceholder")}
+              value={query}
+              onChange={setQuery}
+            />
+            <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onCreateWorkspace}>
+              <Plus size={14} />
+              {t("workspaces.newWorkspace")}
+            </Button>
+          </>
         }
       />
 
@@ -61,9 +89,17 @@ function LaunchWorkspacesView({
           actionLabel={t("workspaces.empty.action")}
           onAction={onCreateWorkspace}
         />
+      ) : filteredWorkspaces.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title={t("workspaces.noMatches.title")}
+          description={t("workspaces.noMatches.description")}
+          actionLabel={t("workspaces.noMatches.action")}
+          onAction={() => setQuery("")}
+        />
       ) : (
         <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-3 2xl:grid-cols-4">
-          {workspaces.map((workspace) => (
+          {filteredWorkspaces.map((workspace) => (
             <WorkspaceCard
               key={workspace.id}
               busyWorkspaceId={busyWorkspaceId}

@@ -1,9 +1,10 @@
-import { Keyboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
+import { Keyboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
 import { type CSSProperties, type JSX, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { EmptyState } from "../../components/EmptyState";
 import { RoleRunDot } from "../../components/RoleRunDot";
+import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
@@ -50,6 +51,29 @@ function MacrosRoute({
 }: MacrosRouteProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const runningCount = macroStatuses.filter((status) => status.state === "running").length;
+  const [query, setQuery] = useState("");
+  const filteredMacros = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return macros;
+    }
+
+    return macros.filter((macro) => {
+      const roleName = macro.roleId ? roleById.get(macro.roleId)?.name : t("macros.noRoles");
+
+      return [
+        macro.name,
+        roleName,
+        formatMacroShortcut(macro.trigger, t),
+        formatMacroRepeat(macro.repeat, t),
+        summarizeMacroSteps(macro.steps, t)
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    });
+  }, [macros, query, roleById, t]);
 
   return (
     <PageFrame>
@@ -58,10 +82,18 @@ function MacrosRoute({
         title={t("macros.title")}
         description={t("macros.description")}
         actions={
-          <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNewMacro}>
-            <Plus size={14} />
-            {t("macros.newMacro")}
-          </Button>
+          <>
+            <SearchField
+              className="w-full sm:w-44 lg:w-48"
+              placeholder={t("macros.searchPlaceholder")}
+              value={query}
+              onChange={setQuery}
+            />
+            <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNewMacro}>
+              <Plus size={14} />
+              {t("macros.newMacro")}
+            </Button>
+          </>
         }
       />
 
@@ -80,6 +112,14 @@ function MacrosRoute({
           actionLabel={t("macros.empty.action")}
           onAction={onNewMacro}
         />
+      ) : filteredMacros.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title={t("macros.noMatches.title")}
+          description={t("macros.noMatches.description")}
+          actionLabel={t("macros.noMatches.action")}
+          onAction={() => setQuery("")}
+        />
       ) : (
         <Surface className="mac-list-surface overflow-hidden" variant="panel">
           <div className="overflow-auto">
@@ -95,7 +135,7 @@ function MacrosRoute({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/45 text-[13px] leading-5">
-                {macros.map((macro) => (
+                {filteredMacros.map((macro) => (
                   <tr key={macro.id} className="align-baseline">
                     <td className="max-w-[240px] px-4 py-2.5 align-baseline">
                       <button

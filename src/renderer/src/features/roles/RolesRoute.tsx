@@ -15,9 +15,9 @@ import { type JSX, useEffect, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
-import { Input } from "../../components/ui/input";
 import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
+import { SearchField } from "../../components/SearchField";
 import { launchUrlOptions } from "../../app/constants";
 import { localizeErrorMessage, type Language, type TranslationKey, type Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -98,18 +98,12 @@ function RolesView({
         description={t("roles.description")}
         actions={
           <>
-            <div className="relative min-w-0 flex-1 xl:w-72 xl:flex-none">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-                size={14}
-              />
-              <Input
-                className="pl-8 text-xs"
-                placeholder={t("roles.searchPlaceholder")}
-                value={query}
-                onChange={(event) => onQueryChange(event.target.value)}
-              />
-            </div>
+            <SearchField
+              className="w-full sm:w-44 lg:w-48"
+              placeholder={t("roles.searchPlaceholder")}
+              value={query}
+              onChange={onQueryChange}
+            />
             <Button
               className="flex-1 gap-1.5 px-2.5 sm:flex-none"
               type="button"

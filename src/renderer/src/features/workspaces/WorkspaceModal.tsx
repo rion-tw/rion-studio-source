@@ -518,9 +518,16 @@ function WorkspaceSlotDropZone({
   rect,
   t
 }: WorkspaceSlotDropZoneProps): JSX.Element {
+  const slotInsetStyle = {
+    top: rect.y > 0 ? 10 : 0,
+    right: rect.x + rect.width < 0.999 ? 10 : 0,
+    bottom: rect.y + rect.height < 0.999 ? 10 : 0,
+    left: rect.x > 0 ? 10 : 0
+  };
+
   return (
     <div
-      className="absolute p-2.5"
+      className="absolute"
       style={rectToPreviewStyle(rect)}
       onDragEnter={(event) => {
         event.preventDefault();
@@ -531,19 +538,19 @@ function WorkspaceSlotDropZone({
     >
       <button
         className={cn(
-          "group/slot relative flex h-full min-h-0 w-full flex-col justify-between overflow-hidden rounded-lg border bg-cover bg-center p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150",
+          "group/slot absolute flex min-h-0 flex-col justify-between overflow-hidden rounded-lg border bg-cover bg-center p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150",
           role
             ? "border-border/70 bg-card/72 shadow-sm"
             : "border-border/40 bg-card/35 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/50",
-          isSelected && "border-primary/60 shadow-[0_0_0_2px_hsl(var(--primary)/0.16),0_8px_22px_hsl(var(--glass-shadow))]",
-          isDropTarget && "border-primary/70 bg-primary/8 shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
+          isSelected && "border-primary/60 bg-primary/[0.035] shadow-none",
+          isDropTarget && "border-primary/75 bg-primary/10 shadow-none"
         )}
         type="button"
         aria-pressed={isSelected}
         data-workspace-assigned-role-id={role?.id ?? ""}
         data-workspace-slot-index={index}
         disabled={isSaving}
-        style={createWorkspaceSlotBackground(role)}
+        style={{ ...slotInsetStyle, ...createWorkspaceSlotBackground(role) }}
         onClick={onClick}
       >
         {role?.coverImageDataUrl ? <div className="absolute inset-0 bg-black/10" /> : null}

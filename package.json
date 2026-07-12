@@ -11,8 +11,8 @@
     "typecheck": "tsc --build --force",
     "lint": "eslint .",
     "test": "vitest run",
-    "package": "pnpm run build && electron-builder --dir",
-    "dist": "pnpm run build && electron-builder",
+    "package": "pnpm run build && electron-builder --config electron-builder.config.mjs --dir",
+    "dist": "pnpm run build && electron-builder --config electron-builder.config.mjs",
     "release": "semantic-release"
   },
   "keywords": [

@@ -311,6 +311,13 @@ describe("MacHiddenBrowserHost", () => {
     ).toBe(
       "/Users/aron/Library/Caches/ms-playwright/chromium/chrome-mac/Google Chrome for Testing.app"
     );
+    expect(
+      getMacAppBundlePathFromExecutable(
+        String.raw`C:\Users\runneradmin\AppData\Local\ms-playwright\chromium\chrome-win\Google Chrome for Testing.app\Contents\MacOS\Google Chrome for Testing`
+      )
+    ).toBe(
+      String.raw`C:\Users\runneradmin\AppData\Local\ms-playwright\chromium\chrome-win\Google Chrome for Testing.app`
+    );
     expect(getMacAppBundlePathFromExecutable("/usr/bin/chromium")).toBeUndefined();
   });
 });

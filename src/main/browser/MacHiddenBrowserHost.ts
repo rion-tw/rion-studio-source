@@ -137,14 +137,8 @@ export class MacHiddenBrowserHost {
 }
 
 export function getMacAppBundlePathFromExecutable(executablePath: string): string | undefined {
-  const marker = ".app/Contents/MacOS/";
-  const markerIndex = executablePath.indexOf(marker);
-
-  if (markerIndex === -1) {
-    return undefined;
-  }
-
-  return executablePath.slice(0, markerIndex + ".app".length);
+  const match = /^(.*\.app)[/\\]Contents[/\\]MacOS[/\\][^/\\]+$/u.exec(executablePath);
+  return match?.[1];
 }
 
 type PlistValue = { type: "string"; value: string } | { type: "boolean"; value: boolean } | { type: "remove" };

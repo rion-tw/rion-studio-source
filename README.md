@@ -11,12 +11,12 @@ actions while you stay actively in control of play.
 
 ## Download
 
-- [Download for Windows](https://github.com/rion-tw/rion-studio/releases/latest)
-- [Download for macOS](https://github.com/rion-tw/rion-studio/releases/latest)
+- [Download for macOS](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion%20Studio-mac.dmg)
+- [Download for Windows](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion%20Studio-win.exe)
 
-Open the latest release and choose the asset that matches your platform. Windows
-users should select the Windows or `.exe` installer. macOS users should select
-the macOS or `.dmg` installer.
+These links point to the installer assets attached to the latest GitHub release.
+If a download returns 404, open the [latest release](https://github.com/rion-tw/rion-studio/releases/latest)
+and confirm the release has finished uploading assets.
 
 ## Why Rion Studio
 

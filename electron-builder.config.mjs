@@ -1,6 +1,6 @@
 import process from "node:process";
 
-const [githubOwner, githubRepo] = (process.env.GITHUB_REPOSITORY ?? "rion-studio/rion-studio").split("/");
+const [githubOwner, githubRepo] = (process.env.GITHUB_REPOSITORY ?? "rion-tw/rion-studio").split("/");
 
 /**
  * @type {import("electron-builder").Configuration}
@@ -8,7 +8,7 @@ const [githubOwner, githubRepo] = (process.env.GITHUB_REPOSITORY ?? "rion-studio
 const config = {
   appId: "com.rionstudio.launcher",
   productName: "Rion Studio",
-  artifactName: "${productName}-${version}-${os}-${arch}.${ext}",
+  artifactName: "${productName}-${os}.${ext}",
   directories: {
     output: "release/${version}"
   },
@@ -28,7 +28,8 @@ const config = {
     {
       provider: "github",
       owner: githubOwner,
-      repo: githubRepo
+      repo: githubRepo,
+      releaseType: "release"
     }
   ],
   electronUpdaterCompatibility: ">=2.16",

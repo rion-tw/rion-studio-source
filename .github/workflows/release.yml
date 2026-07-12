@@ -72,14 +72,20 @@ jobs:
       - name: Apply release version
         run: pnpm version ${{ needs.semantic-release.outputs.release_version }} --no-git-tag-version
 
-      - name: Validate
-        run: |
-          pnpm run typecheck
-          pnpm run test
-          pnpm run lint
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Build app
+        run: pnpm run build
 
       - name: Build platform artifacts
-        run: pnpm run dist -- ${{ matrix.build_target }} --publish always
+        run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.build_target }} --publish always
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,6 @@
 {
   "name": "rion-studio",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A desktop browser role launcher and automation host.",
   "main": "./out/main/index.js",
   "type": "module",

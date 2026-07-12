@@ -1,0 +1,21 @@
+node_modules/
+.pnpm-store/
+out/
+dist/
+release/
+coverage/
+.vite/
+.DS_Store
+*.log
+pnpm-debug.log*
+*.tsbuildinfo
+
+# Local runtime data
+/profiles/
+/profile-data/
+/user-data/
+
+# Environment
+.env
+.env.*
+!.env.example

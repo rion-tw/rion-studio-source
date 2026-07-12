@@ -1,0 +1,96 @@
+import { contextBridge, ipcRenderer } from "electron";
+
+import { IPC_CHANNELS } from "../shared/ipc";
+import type { RionStudioApi } from "../shared/api";
+import type { AppUpdateStatus, AuthFlowStatus, MacroCreateRequest, MacroRunStatus, RoleStatus } from "../shared/types";
+
+const api: RionStudioApi = {
+  listRoles: () => ipcRenderer.invoke(IPC_CHANNELS.rolesList),
+  createRole: (input) => ipcRenderer.invoke(IPC_CHANNELS.rolesCreate, input),
+  updateRole: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.rolesUpdate, id, input),
+  deleteRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesDelete, id),
+  getRolePaths: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesPaths, id),
+  startLogin: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesStartLogin, id),
+  listAuthStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.rolesAuthStatuses),
+  launchRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesLaunch, id),
+  openSystemLoginWindow: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesOpenSystemLogin, id),
+  stopRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesStop, id),
+  listRoleStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.rolesStatuses),
+  listLaunchWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.workspacesList),
+  createLaunchWorkspace: (input) => ipcRenderer.invoke(IPC_CHANNELS.workspacesCreate, input),
+  updateLaunchWorkspace: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.workspacesUpdate, id, input),
+  deleteLaunchWorkspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.workspacesDelete, id),
+  launchWorkspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.workspacesLaunch, id),
+  stopLaunchWorkspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.workspacesStop, id),
+  listMacros: () => ipcRenderer.invoke(IPC_CHANNELS.macrosList),
+  createMacro: (input) => ipcRenderer.invoke(IPC_CHANNELS.macrosCreate, input),
+  updateMacro: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.macrosUpdate, id, input),
+  deleteMacro: (id) => ipcRenderer.invoke(IPC_CHANNELS.macrosDelete, id),
+  startMacro: (roleId, macroId) => ipcRenderer.invoke(IPC_CHANNELS.macrosStart, roleId, macroId),
+  stopMacro: (roleId, macroId) => ipcRenderer.invoke(IPC_CHANNELS.macrosStop, roleId, macroId),
+  listMacroStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.macrosStatuses),
+  consumePendingMacroCreateRequest: () => ipcRenderer.invoke(IPC_CHANNELS.macrosConsumeCreateRequest),
+  setOverlayLanguage: (language) => ipcRenderer.invoke(IPC_CHANNELS.preferencesSetOverlayLanguage, language),
+  getAppVersion: () => ipcRenderer.invoke(IPC_CHANNELS.appVersion),
+  getUpdateStatus: () => ipcRenderer.invoke(IPC_CHANNELS.updatesStatus),
+  checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.updatesCheck),
+  openUpdateDownload: () => ipcRenderer.invoke(IPC_CHANNELS.updatesOpenDownload),
+  installDownloadedUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.updatesInstall),
+  onRoleStatusChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, statuses: RoleStatus[]) => {
+      callback(statuses);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.rolesStatusChanged, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.rolesStatusChanged, listener);
+    };
+  },
+  onAuthStatusChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, statuses: AuthFlowStatus[]) => {
+      callback(statuses);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.rolesAuthStatusChanged, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.rolesAuthStatusChanged, listener);
+    };
+  },
+  onMacroStatusChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, statuses: MacroRunStatus[]) => {
+      callback(statuses);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.macrosStatusChanged, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.macrosStatusChanged, listener);
+    };
+  },
+  onMacroCreateRequested: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: MacroCreateRequest) => {
+      callback(request);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.macrosCreateRequested, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.macrosCreateRequested, listener);
+    };
+  },
+  onUpdateStatusChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: AppUpdateStatus) => {
+      callback(status);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.updatesStatusChanged, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.updatesStatusChanged, listener);
+    };
+  }
+};
+
+contextBridge.exposeInMainWorld("rionStudio", api);

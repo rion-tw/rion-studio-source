@@ -1,0 +1,50 @@
+import type { Language, TranslationKey } from "../i18n";
+import {
+  DEFAULT_LAUNCH_URL,
+  DEFAULT_ROLE_WINDOW_HEIGHT,
+  DEFAULT_ROLE_WINDOW_WIDTH,
+  type LaunchPreset
+} from "../../../shared/types";
+import type { RoleFormState, ResolvedTheme, ThemeMode } from "./types";
+
+export const THEME_STORAGE_KEY = "rion-studio-theme";
+export const LANGUAGE_STORAGE_KEY = "rion-studio-language";
+
+export const themeModes: ThemeMode[] = ["system", "light", "dark"];
+
+export const emptyForm: RoleFormState = {
+  name: "",
+  launchUrl: DEFAULT_LAUNCH_URL,
+  windowWidth: DEFAULT_ROLE_WINDOW_WIDTH,
+  windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT,
+  notes: "",
+  launchPreset: "performance"
+};
+
+export const launchUrlOptions = [
+  {
+    labelKey: "roleForm.launchUrl.flyffUniverse",
+    value: DEFAULT_LAUNCH_URL
+  }
+] as const satisfies Array<{ labelKey: TranslationKey; value: string }>;
+
+export const presetLabelKeys: Record<LaunchPreset, TranslationKey> = {
+  balanced: "preset.balanced",
+  performance: "preset.performance"
+};
+
+export const themeLabelKeys: Record<ThemeMode, TranslationKey> = {
+  system: "theme.system",
+  light: "theme.light",
+  dark: "theme.dark"
+};
+
+export const resolvedThemeLabelKeys: Record<ResolvedTheme, TranslationKey> = {
+  light: "theme.resolved.light",
+  dark: "theme.resolved.dark"
+};
+
+export const languageLabelKeys: Record<Language, TranslationKey> = {
+  en: "language.en",
+  "zh-TW": "language.zhTW"
+};

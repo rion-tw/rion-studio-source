@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "types": ["node", "electron", "vitest"]
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/renderer/src/app/statusUtils.ts",
+    "src/renderer/src/app/types.ts",
+    "src/renderer/src/features/macros/macroUtils.ts",
+    "src/renderer/src/features/settings/settingsNavigation.ts",
+    "src/renderer/src/features/workspaces/workspaceLayoutUtils.ts",
+    "src/renderer/src/i18n.ts",
+    "src/shared/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}

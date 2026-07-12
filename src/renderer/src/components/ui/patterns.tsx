@@ -150,6 +150,60 @@ export function Field({ children, className, description, title, ...props }: Fie
   );
 }
 
+export interface FormFieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+  children: ReactNode;
+  description?: ReactNode;
+  htmlFor?: string;
+  label: ReactNode;
+}
+
+export function FormField({
+  children,
+  className,
+  description,
+  htmlFor,
+  label,
+  ...props
+}: FormFieldProps) {
+  const labelClassName = "text-xs font-semibold leading-4 text-foreground";
+
+  return (
+    <div className={cn("grid min-w-0 content-start gap-1.5", className)} {...props}>
+      {htmlFor ? (
+        <label className={labelClassName} htmlFor={htmlFor}>
+          {label}
+        </label>
+      ) : (
+        <p className={labelClassName}>{label}</p>
+      )}
+      {children}
+      {description ? (
+        <p className="text-[11px] font-medium leading-4 text-muted-foreground">{description}</p>
+      ) : null}
+    </div>
+  );
+}
+
+export interface FormGridProps extends HTMLAttributes<HTMLDivElement> {
+  columns?: 1 | 2 | 3;
+}
+
+export function FormGrid({ children, className, columns = 1, ...props }: FormGridProps) {
+  return (
+    <div
+      className={cn(
+        "grid min-w-0 gap-x-3 gap-y-3.5",
+        columns === 2 && "md:grid-cols-2",
+        columns === 3 && "md:grid-cols-3",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
+
 interface CountPillProps {
   children: ReactNode;
   className?: string;

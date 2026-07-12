@@ -2,7 +2,6 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  Command,
   Keyboard,
   ListChecks,
   Loader2,
@@ -10,18 +9,21 @@ import {
   Repeat,
   Save,
   Trash2,
-  User,
-  type LucideIcon,
   X
 } from "lucide-react";
 import { type FormEvent, type JSX, type ReactNode, useEffect, useMemo, useState } from "react";
 
-import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
-import { FieldHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
+import {
+  FieldHeader,
+  FormField,
+  FormGrid,
+  SegmentedControl,
+  Surface
+} from "../../components/ui/patterns";
 import type { MacroFormState } from "../../app/types";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -30,7 +32,6 @@ import {
   commonMacroKeyCodes,
   createClientId,
   formatMacroCode,
-  formatMacroRepeat,
   formatMacroShortcut,
   isPureModifierCode
 } from "./macroUtils";
@@ -63,7 +64,7 @@ function MacroModal(props: MacroModalProps): JSX.Element {
   }, [onCancel]);
 
   return (
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center p-5">
+    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center p-4">
       <button
         className="app-modal-backdrop absolute inset-0 cursor-default"
         type="button"
@@ -85,14 +86,11 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
   );
   const isAssignedRoleMissing = Boolean(form.roleId) && !assignedRole;
   const canSubmit = Boolean(form.roleId) && form.steps.length > 0 && !isSaving;
-  const assignedRoleLabel = assignedRole?.name ?? t("macroForm.noRoleSelected");
   const saveHint = !form.roleId
     ? t("macroForm.saveHint.needsRole")
     : form.steps.length === 0
       ? t("macroForm.saveHint.needsStep")
       : t("macroForm.saveHint.ready");
-  const repeatLabel = formatMacroRepeat(form.repeat, t);
-  const shortcutLabel = formatMacroShortcut(form.trigger, t);
 
   function update(updater: (current: MacroFormState) => MacroFormState): void {
     onChange(updater);
@@ -139,19 +137,13 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
   }
 
   return (
-    <Surface className="flex max-h-[calc(100vh-4rem)] flex-col overflow-hidden text-card-foreground" radius="lg" variant="modal">
+    <Surface className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden text-card-foreground" radius="lg" variant="modal">
       <CardHeader className="glass-divider flex-row items-start justify-between gap-4 border-b">
         <div className="min-w-0">
           <CardTitle id="macro-form-title">{form.id ? t("macroForm.title.edit") : t("macroForm.title.new")}</CardTitle>
           <CardDescription className="mt-1">
             {form.id ? t("macroForm.description.edit") : t("macroForm.description.new")}
           </CardDescription>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            <MacroSummaryItem icon={User} label={t("macroForm.roles")} value={assignedRoleLabel} />
-            <MacroSummaryItem icon={ListChecks} label={t("macroForm.steps")} value={String(form.steps.length)} />
-            <MacroSummaryItem icon={Command} label={t("macroForm.shortcut")} value={shortcutLabel} />
-            <MacroSummaryItem icon={Repeat} label={t("macroForm.repeat")} value={repeatLabel} />
-          </div>
         </div>
         <Button type="button" variant="ghost" size="icon" title={t("macroForm.cancelTitle")} onClick={onCancel} disabled={isSaving}>
           <X size={17} />
@@ -159,34 +151,35 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
       </CardHeader>
 
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => onSubmit(event)}>
-        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid-cols-[360px_minmax(0,1fr)] xl:p-5">
-          <aside className="grid content-start gap-4">
-            <Surface className="grid gap-4" padding="md" variant="inset">
-              <FieldHeader title={t("macroForm.name")} description={t("macroForm.nameDescription")} />
-              <Input
-                value={form.name}
-                onChange={(event) => update((current) => ({ ...current, name: event.target.value }))}
-                required
-                maxLength={80}
-                placeholder={t("macroForm.namePlaceholder")}
-              />
-            </Surface>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 md:p-5">
+          <Surface padding="lg" variant="inset">
+            <FormGrid columns={2}>
+              <FormField
+                htmlFor="macro-name"
+                label={t("macroForm.name")}
+                description={t("macroForm.nameDescription")}
+              >
+                <Input
+                  id="macro-name"
+                  value={form.name}
+                  onChange={(event) => update((current) => ({ ...current, name: event.target.value }))}
+                  required
+                  maxLength={80}
+                  placeholder={t("macroForm.namePlaceholder")}
+                />
+              </FormField>
 
-            <Surface className="grid gap-3" padding="md" variant="inset">
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <FieldHeader title={t("macroForm.roles")} description={t("macroForm.rolesDescription")} />
-                <Badge variant={form.roleId ? "secondary" : "muted"} className="max-w-[160px] justify-start">
-                  <span className="truncate">{assignedRoleLabel}</span>
-                </Badge>
-              </div>
-
-              {roles.length > 0 ? (
-                <InlineControl label={t("macroForm.roleAvailable")}>
+              <FormField
+                htmlFor={roles.length > 0 ? "macro-role" : undefined}
+                label={t("macroForm.roles")}
+                description={t("macroForm.rolesDescription")}
+              >
+                {roles.length > 0 ? (
                   <Select
+                    id="macro-role"
                     value={form.roleId}
                     onChange={(event) => updateRoleId(event.target.value)}
                     disabled={isSaving}
-                    aria-label={t("macroForm.roleAvailable")}
                   >
                     <option value="" disabled>
                       {t("macroForm.noRoleSelected")}
@@ -200,63 +193,67 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
                       </option>
                     ))}
                   </Select>
-                </InlineControl>
-              ) : (
-                <p className="text-xs leading-5 text-muted-foreground">{t("macroForm.noRoles")}</p>
-              )}
-            </Surface>
+                ) : (
+                  <div className="glass-control flex h-[30px] items-center rounded-md px-2.5 text-xs text-muted-foreground">
+                    {t("macroForm.noRoles")}
+                  </div>
+                )}
+              </FormField>
 
-            <Surface className="grid gap-4" padding="md" variant="inset">
-              <FieldHeader title={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")} />
-              <ShortcutRecorder
-                trigger={form.trigger}
-                t={t}
-                onChange={(trigger) => update((current) => ({ ...current, trigger }))}
-              />
-            </Surface>
-
-            <Surface className="grid gap-4" padding="md" variant="inset">
-              <FieldHeader title={t("macroForm.repeat")} description={t("macroForm.repeatDescription")} />
-              <SegmentedControl<MacroRepeat["type"]>
-                className={cn("grid-cols-2", isSaving && "pointer-events-none opacity-45")}
-                aria-disabled={isSaving}
-                items={[
-                  { value: "once", label: t("macros.repeat.once"), icon: Check },
-                  { value: "loop", label: t("macroForm.repeat.loop"), icon: Repeat }
-                ]}
-                value={form.repeat.type}
-                onValueChange={(repeatType) => {
-                  if (isSaving) {
-                    return;
-                  }
-
-                  updateRepeat(
-                    repeatType === "loop"
-                      ? { type: "loop", intervalMs: form.repeat.type === "loop" ? form.repeat.intervalMs : 1000 }
-                      : { type: "once" }
-                  );
-                }}
-              />
-              <InlineControl
-                className={cn(form.repeat.type !== "loop" && "opacity-60")}
-                label={t("macroForm.intervalMs")}
-                suffix="ms"
-              >
-                <Input
-                  type="number"
-                  min={0}
-                  max={600000}
-                  value={form.repeat.type === "loop" ? form.repeat.intervalMs : 0}
-                  onChange={(event) => updateRepeat({ type: "loop", intervalMs: Number(event.target.value) })}
-                  disabled={isSaving || form.repeat.type !== "loop"}
-                  aria-label={t("macroForm.intervalMs")}
+              <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
+                <ShortcutRecorder
+                  trigger={form.trigger}
+                  t={t}
+                  onChange={(trigger) => update((current) => ({ ...current, trigger }))}
                 />
-              </InlineControl>
-            </Surface>
-          </aside>
+              </FormField>
 
-          <Surface className="grid min-h-[360px] content-start gap-4" padding="lg" variant="inset">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+              <FormField label={t("macroForm.repeat")} description={t("macroForm.repeatDescription")}>
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(120px,0.65fr)]">
+                  <SegmentedControl<MacroRepeat["type"]>
+                    className={cn(
+                      "grid-cols-2 p-0.5 [&>button]:h-6",
+                      isSaving && "pointer-events-none opacity-45"
+                    )}
+                    aria-disabled={isSaving}
+                    items={[
+                      { value: "once", label: t("macros.repeat.once"), icon: Check },
+                      { value: "loop", label: t("macroForm.repeat.loop"), icon: Repeat }
+                    ]}
+                    value={form.repeat.type}
+                    onValueChange={(repeatType) => {
+                      if (isSaving) {
+                        return;
+                      }
+
+                      updateRepeat(
+                        repeatType === "loop"
+                          ? {
+                              type: "loop",
+                              intervalMs: form.repeat.type === "loop" ? form.repeat.intervalMs : 1000
+                            }
+                          : { type: "once" }
+                      );
+                    }}
+                  />
+                  <AffixedInput
+                    aria-label={t("macroForm.intervalMs")}
+                    disabled={isSaving || form.repeat.type !== "loop"}
+                    max={600000}
+                    min={0}
+                    prefix={t("macroForm.intervalMs")}
+                    suffix="ms"
+                    value={form.repeat.type === "loop" ? form.repeat.intervalMs : 0}
+                    widthClassName={cn("h-[30px] w-full", form.repeat.type !== "loop" && "opacity-60")}
+                    onChange={(intervalMs) => updateRepeat({ type: "loop", intervalMs })}
+                  />
+                </div>
+              </FormField>
+            </FormGrid>
+          </Surface>
+
+          <Surface className="grid min-h-[300px] content-start gap-4" padding="lg" variant="inset">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-start gap-3">
                 <div className="glass-control grid size-[30px] shrink-0 place-items-center rounded-md text-muted-foreground">
                   <ListChecks size={17} />
@@ -344,22 +341,6 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
   );
 }
 
-interface MacroSummaryItemProps {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-}
-
-function MacroSummaryItem({ icon: Icon, label, value }: MacroSummaryItemProps): JSX.Element {
-  return (
-    <span className="glass-control inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-md px-2.5 text-[11px] font-semibold leading-none text-muted-foreground">
-      <Icon size={13} />
-      <span className="shrink-0">{label}</span>
-      <span className="min-w-0 truncate text-foreground">{value}</span>
-    </span>
-  );
-}
-
 interface InlineControlProps {
   children: ReactNode;
   className?: string;
@@ -409,22 +390,18 @@ function AffixedInput({
   return (
     <label
       className={cn(
-        "glass-control relative block h-8 overflow-hidden rounded-md focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-ring/20",
+        "glass-control flex h-8 min-w-0 items-center overflow-hidden rounded-md focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-ring/20",
         widthClassName
       )}
     >
       {prefix ? (
-        <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs font-semibold text-muted-foreground">
+        <span className="pointer-events-none shrink-0 pl-2.5 text-[11px] font-semibold text-muted-foreground">
           {prefix}
         </span>
       ) : null}
       <input
         aria-label={ariaLabel}
-        className={cn(
-          "h-full w-full bg-transparent px-3 text-[13px] font-semibold leading-none text-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45",
-          prefix && "pl-6",
-          suffix && "pr-8"
-        )}
+        className="h-full min-w-0 flex-1 bg-transparent px-2 text-[13px] font-semibold leading-none text-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45"
         type="number"
         min={min}
         max={max}
@@ -433,7 +410,7 @@ function AffixedInput({
         disabled={disabled}
       />
       {suffix ? (
-        <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs font-semibold text-muted-foreground">
+        <span className="pointer-events-none shrink-0 pr-2.5 text-[11px] font-semibold text-muted-foreground">
           {suffix}
         </span>
       ) : null}
@@ -527,7 +504,7 @@ function MacroStepEditor({
   t
 }: MacroStepEditorProps): JSX.Element {
   return (
-    <div className="glass-control grid gap-2 rounded-md p-2.5 lg:grid-cols-[auto_128px_minmax(0,1fr)_auto] lg:items-center">
+    <div className="glass-control grid gap-2 rounded-md p-2.5 md:grid-cols-[auto_128px_minmax(0,1fr)_auto] md:items-center">
       <span className="grid size-7 shrink-0 place-items-center rounded-md bg-background/35 text-[11px] font-bold text-muted-foreground">
         {index + 1}
       </span>
@@ -606,7 +583,7 @@ function MacroStepFields({
 }): JSX.Element {
   if (step.type === "key") {
     return (
-      <div className="flex min-w-0 flex-wrap items-center gap-2 lg:flex-nowrap">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
         <Select
           className="h-8 w-28 flex-none"
           value={step.code}
@@ -637,7 +614,7 @@ function MacroStepFields({
 
   if (step.type === "click") {
     return (
-      <div className="flex min-w-0 flex-wrap items-center gap-2 lg:flex-nowrap">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
         <AffixedInput
           aria-label={t("macroForm.clickX")}
           disabled={isSaving}

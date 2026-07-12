@@ -13,10 +13,9 @@ import {
 import { Button } from "../../components/ui/button";
 import { CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
 import { Select } from "../../components/ui/select";
 import { RoleRunDot } from "../../components/RoleRunDot";
-import { FieldHeader, Surface } from "../../components/ui/patterns";
+import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
 import type { WorkspaceFormState } from "../../app/types";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -78,7 +77,7 @@ function WorkspaceModal(props: WorkspaceModalProps): JSX.Element {
   }, [onCancel]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-5">
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
       <button
         className="app-modal-backdrop absolute inset-0 cursor-default"
         type="button"
@@ -108,7 +107,7 @@ function WorkspaceForm({
   t
 }: WorkspaceModalProps): JSX.Element {
   return (
-    <Surface className="flex max-h-[calc(100vh-4rem)] flex-col overflow-hidden text-card-foreground" radius="lg" variant="modal">
+    <Surface className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden text-card-foreground" radius="lg" variant="modal">
       <CardHeader className="glass-divider flex-row items-start justify-between gap-3 border-b">
         <div className="min-w-0">
           <CardTitle id="workspace-form-title">
@@ -131,20 +130,7 @@ function WorkspaceForm({
       </CardHeader>
 
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => onSubmit(event)}>
-        <div className="grid gap-4 overflow-auto p-5">
-          <Surface className="grid gap-2" padding="md" variant="inset">
-            <Label className="max-w-2xl">
-              <span>{t("workspaceForm.name")}</span>
-              <Input
-                value={form.name}
-                onChange={(event) => onChange({ ...form, name: event.target.value })}
-                required
-                maxLength={80}
-                placeholder={t("workspaceForm.namePlaceholder")}
-              />
-            </Label>
-          </Surface>
-
+        <div className="grid gap-4 overflow-auto p-4 md:p-5">
           <WorkspaceLayoutFormEditor
             form={form}
             isSaving={isSaving}
@@ -304,63 +290,77 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <Surface className="grid gap-4" padding="lg" variant="inset">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <FieldHeader title={t("workspaces.layout")} description={t("workspaces.layoutDescription")} />
-        <div className="grid grid-cols-5 gap-2">
-          {workspaceLayoutTemplates.map((template) => {
-            const Icon = workspaceTemplateIcons[template];
-            const isActive = form.template === template;
+      <FormGrid
+        columns={3}
+        className="md:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]"
+      >
+        <FormField htmlFor="workspace-name" label={t("workspaceForm.name")}>
+          <Input
+            id="workspace-name"
+            value={form.name}
+            onChange={(event) => onChange({ ...form, name: event.target.value })}
+            required
+            maxLength={80}
+            placeholder={t("workspaceForm.namePlaceholder")}
+          />
+        </FormField>
 
-            return (
-              <button
-                key={template}
-                className={cn(
-                  "glass-control flex h-[30px] w-8 items-center justify-center rounded-md text-muted-foreground transition-colors",
-                  isActive && "border-primary/35 bg-primary/10 text-foreground"
-                )}
-                type="button"
-                title={t(workspaceTemplateLabelKeys[template])}
-                aria-label={t(workspaceTemplateLabelKeys[template])}
-                aria-pressed={isActive}
-                onClick={() => handleTemplateChange(template)}
-                disabled={isSaving}
-              >
-                <Icon size={18} />
-              </button>
-            );
-          })}
-        </div>
-      </div>
+        <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
+          <div className="grid grid-cols-5 gap-1.5">
+            {workspaceLayoutTemplates.map((template) => {
+              const Icon = workspaceTemplateIcons[template];
+              const isActive = form.template === template;
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <FieldHeader
-          title={t("workspaces.browserZoom")}
+              return (
+                <button
+                  key={template}
+                  className={cn(
+                    "glass-control flex h-[30px] min-w-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
+                    isActive && "border-primary/35 bg-primary/10 text-foreground"
+                  )}
+                  type="button"
+                  title={t(workspaceTemplateLabelKeys[template])}
+                  aria-label={t(workspaceTemplateLabelKeys[template])}
+                  aria-pressed={isActive}
+                  onClick={() => handleTemplateChange(template)}
+                  disabled={isSaving}
+                >
+                  <Icon size={17} />
+                </button>
+              );
+            })}
+          </div>
+        </FormField>
+
+        <FormField
+          htmlFor="workspace-browser-zoom"
+          label={t("workspaces.browserZoom")}
           description={t("workspaces.browserZoomDescription")}
-        />
-        <Select
-          className="w-full sm:w-[132px]"
-          value={form.browserZoomPercent}
-          aria-label={t("workspaces.browserZoom")}
-          disabled={isSaving}
-          onChange={(event) =>
-            onChange({
-              ...form,
-              browserZoomPercent: Number(event.target.value) as WorkspaceBrowserZoomPercent
-            })
-          }
         >
-          {workspaceBrowserZoomPercents.map((zoomPercent) => (
-            <option key={zoomPercent} value={zoomPercent}>
-              {zoomPercent}%
-            </option>
-          ))}
-        </Select>
-      </div>
+          <Select
+            id="workspace-browser-zoom"
+            value={form.browserZoomPercent}
+            disabled={isSaving}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                browserZoomPercent: Number(event.target.value) as WorkspaceBrowserZoomPercent
+              })
+            }
+          >
+            {workspaceBrowserZoomPercents.map((zoomPercent) => (
+              <option key={zoomPercent} value={zoomPercent}>
+                {zoomPercent}%
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      </FormGrid>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_270px]">
         <div
           ref={previewRef}
-          className="relative aspect-[16/9] min-h-[340px] overflow-hidden rounded-md border border-border/60 bg-background/30"
+          className="relative aspect-[16/9] min-h-[280px] overflow-hidden rounded-md border border-border/60 bg-background/30"
         >
           {slots.map((slot, index) => {
             const role = slot.roleId ? roleById.get(slot.roleId) : undefined;

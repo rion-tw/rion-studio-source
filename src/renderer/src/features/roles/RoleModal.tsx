@@ -4,8 +4,7 @@ import { type ChangeEvent, type FormEvent, type JSX, useEffect, useRef } from "r
 import { Button } from "../../components/ui/button";
 import { CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
-import { FieldHeader, Surface } from "../../components/ui/patterns";
+import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { launchUrlOptions } from "../../app/constants";
@@ -49,7 +48,7 @@ function RoleModal(props: RoleFormProps): JSX.Element {
   }, [onCancel]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-5">
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
       <button
         className="app-modal-backdrop absolute inset-0 cursor-default"
         type="button"
@@ -117,7 +116,7 @@ function RoleForm({
 
   return (
     <Surface
-      className="flex max-h-[calc(100vh-4rem)] flex-col overflow-hidden text-card-foreground"
+      className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden text-card-foreground"
       radius="lg"
       variant="modal"
     >
@@ -143,7 +142,7 @@ function RoleForm({
       </CardHeader>
 
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => onSubmit(event)}>
-        <div className="grid gap-5 overflow-auto p-5 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] lg:items-start">
+        <div className="grid gap-4 overflow-auto p-4 md:grid-cols-[240px_minmax(0,1fr)] md:items-start md:p-5 xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
           <div className="grid gap-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between lg:flex-col lg:items-stretch">
               <FieldHeader title={t("roleForm.cover")} description={t("roleForm.coverDescription")} />
@@ -204,50 +203,52 @@ function RoleForm({
             )}
           </div>
 
-          <div className="grid gap-5">
-            <section className="grid gap-4">
+          <div className="grid gap-4">
+            <section className="grid gap-3">
               <FieldHeader
                 title={t("roleForm.section.identity")}
                 description={t("roleForm.section.identityDescription")}
               />
-              <Label>
-                <span>{t("roleForm.name")}</span>
-                <Input
-                  value={form.name}
-                  onChange={(event) => onChange((current) => ({ ...current, name: event.target.value }))}
-                  required
-                  maxLength={80}
-                  placeholder={t("roleForm.namePlaceholder")}
-                />
-              </Label>
-              <Label>
-                <span>{t("roleForm.launchUrl")}</span>
-                <Select
-                  value={form.launchUrl}
-                  onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))}
-                  required
-                >
-                  {launchUrlOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {t(option.labelKey)}
-                    </option>
-                  ))}
-                  {launchUrlOptions.some((option) => option.value === form.launchUrl) ? null : (
-                    <option value={form.launchUrl}>{t("roleForm.launchUrl.current")}</option>
-                  )}
-                </Select>
-              </Label>
+              <FormGrid columns={2}>
+                <FormField htmlFor="role-name" label={t("roleForm.name")}>
+                  <Input
+                    id="role-name"
+                    value={form.name}
+                    onChange={(event) => onChange((current) => ({ ...current, name: event.target.value }))}
+                    required
+                    maxLength={80}
+                    placeholder={t("roleForm.namePlaceholder")}
+                  />
+                </FormField>
+                <FormField htmlFor="role-launch-url" label={t("roleForm.launchUrl")}>
+                  <Select
+                    id="role-launch-url"
+                    value={form.launchUrl}
+                    onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))}
+                    required
+                  >
+                    {launchUrlOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {t(option.labelKey)}
+                      </option>
+                    ))}
+                    {launchUrlOptions.some((option) => option.value === form.launchUrl) ? null : (
+                      <option value={form.launchUrl}>{t("roleForm.launchUrl.current")}</option>
+                    )}
+                  </Select>
+                </FormField>
+              </FormGrid>
             </section>
 
-            <section className="glass-divider grid gap-4 border-t pt-4">
+            <section className="glass-divider grid gap-3 border-t pt-4">
               <FieldHeader
                 title={t("roleForm.section.launch")}
                 description={t("roleForm.section.launchDescription")}
               />
-              <div className="grid grid-cols-2 gap-3">
-                <Label>
-                  <span>{t("roleForm.width")}</span>
+              <FormGrid columns={3}>
+                <FormField htmlFor="role-window-width" label={t("roleForm.width")}>
                   <Input
+                    id="role-window-width"
                     type="number"
                     min={640}
                     max={7680}
@@ -256,10 +257,10 @@ function RoleForm({
                       onChange((current) => ({ ...current, windowWidth: Number(event.target.value) }))
                     }
                   />
-                </Label>
-                <Label>
-                  <span>{t("roleForm.height")}</span>
+                </FormField>
+                <FormField htmlFor="role-window-height" label={t("roleForm.height")}>
                   <Input
+                    id="role-window-height"
                     type="number"
                     min={640}
                     max={7680}
@@ -268,33 +269,32 @@ function RoleForm({
                       onChange((current) => ({ ...current, windowHeight: Number(event.target.value) }))
                     }
                   />
-                </Label>
-              </div>
-
-              <Label>
-                <span>{t("roleForm.launchPreset")}</span>
-                <Select
-                  value={form.launchPreset}
-                  onChange={(event) =>
-                    onChange((current) => ({ ...current, launchPreset: event.target.value as LaunchPreset }))
-                  }
-                >
-                  <option value="performance">{t("preset.performance")}</option>
-                  <option value="balanced">{t("preset.balanced")}</option>
-                </Select>
-              </Label>
+                </FormField>
+                <FormField htmlFor="role-launch-preset" label={t("roleForm.launchPreset")}>
+                  <Select
+                    id="role-launch-preset"
+                    value={form.launchPreset}
+                    onChange={(event) =>
+                      onChange((current) => ({ ...current, launchPreset: event.target.value as LaunchPreset }))
+                    }
+                  >
+                    <option value="performance">{t("preset.performance")}</option>
+                    <option value="balanced">{t("preset.balanced")}</option>
+                  </Select>
+                </FormField>
+              </FormGrid>
             </section>
 
-            <section className="glass-divider grid gap-4 border-t pt-4">
-              <Label>
-                <span>{t("roleForm.notes")}</span>
+            <section className="glass-divider grid gap-3 border-t pt-4">
+              <FormField htmlFor="role-notes" label={t("roleForm.notes")}>
                 <Textarea
+                  id="role-notes"
                   value={form.notes}
                   onChange={(event) => onChange((current) => ({ ...current, notes: event.target.value }))}
-                  rows={5}
+                  rows={4}
                   placeholder={t("roleForm.notesPlaceholder")}
                 />
-              </Label>
+              </FormField>
 
               {selectedRole && shouldShowLoginGuidance(authStatus) ? (
                 <LoginSessionGuide authStatus={authStatus} roleName={selectedRole.name} t={t} />

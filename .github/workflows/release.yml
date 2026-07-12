@@ -10,15 +10,23 @@ permissions:
   issues: write
   pull-requests: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   validate-release:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-15
-          - windows-latest
+        include:
+          - os: macos-15
+            build_target: --mac zip
+            installer_name: Rion.Studio-mac.zip
+          - os: windows-latest
+            build_target: --win
+            installer_name: Rion.Studio-win.exe
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -45,7 +53,23 @@ jobs:
         run: pnpm run lint
 
       - name: Build app
-        run: pnpm run build
+        run: pnpm exec electron-vite build
+
+      - name: Build platform preflight artifact
+        run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.build_target }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Verify platform preflight artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          artifact="release/0.0.0-development/${{ matrix.installer_name }}"
+          if [[ ! -f "${artifact}" ]]; then
+            find release -maxdepth 2 -type f -print || true
+            exit 1
+          fi
 
   semantic-release:
     needs: validate-release
@@ -86,8 +110,12 @@ jobs:
         include:
           - os: macos-15
             build_target: --mac zip
+            installer_name: Rion.Studio-mac.zip
+            metadata_name: latest-mac.yml
           - os: windows-latest
             build_target: --win
+            installer_name: Rion.Studio-win.exe
+            metadata_name: latest.yml
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -117,8 +145,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Upload macOS release assets
-        if: matrix.os == 'macos-15'
+      - name: Upload release assets
         shell: bash
         run: |
           set -euo pipefail
@@ -126,56 +153,23 @@ jobs:
           version="${{ needs.semantic-release.outputs.release_version }}"
           tag="v${version}"
           release_dir="release/${version}"
-          installer="${release_dir}/Rion.Studio-mac.zip"
+          installer="${release_dir}/${{ matrix.installer_name }}"
 
           if [[ ! -f "${installer}" ]]; then
-            ls -la "${release_dir}"
+            find "${release_dir}" -maxdepth 1 -type f -print || true
             exit 1
           fi
 
           assets=("${installer}")
           for optional_asset in \
-            "${release_dir}/Rion.Studio-mac.zip.blockmap" \
-            "${release_dir}/latest-mac.yml" \
-            "${release_dir}/Rion.Studio-mac.dmg.blockmap" \
-            "${release_dir}/Rion.Studio-mac.dmg"; do
+            "${installer}.blockmap" \
+            "${release_dir}/${{ matrix.metadata_name }}"; do
             if [[ -f "${optional_asset}" ]]; then
               assets+=("${optional_asset}")
             fi
           done
 
           gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
-          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "Rion.Studio-mac.zip"
+          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "${{ matrix.installer_name }}"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Windows release assets
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          version="${{ needs.semantic-release.outputs.release_version }}"
-          tag="v${version}"
-          release_dir="release/${version}"
-          installer="${release_dir}/Rion.Studio-win.exe"
-
-          if [[ ! -f "${installer}" ]]; then
-            ls -la "${release_dir}"
-            exit 1
-          fi
-
-          assets=("${installer}")
-          for optional_asset in \
-            "${release_dir}/Rion.Studio-win.exe.blockmap" \
-            "${release_dir}/latest.yml"; do
-            if [[ -f "${optional_asset}" ]]; then
-              assets+=("${optional_asset}")
-            fi
-          done
-
-          gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
-          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "Rion.Studio-win.exe"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

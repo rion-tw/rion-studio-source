@@ -18,10 +18,6 @@ const config = {
     {
       from: "build/icon.png",
       to: "icon.png"
-    },
-    {
-      from: "build/icon.icns",
-      to: "icon.icns"
     }
   ],
   publish: [

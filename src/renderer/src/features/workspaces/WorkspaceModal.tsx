@@ -534,7 +534,7 @@ function WorkspaceSlotDropZone({
     >
       <button
         className={cn(
-          "group/slot absolute flex min-h-0 flex-col justify-between overflow-hidden rounded-lg border bg-cover bg-center p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150",
+          "group/slot absolute isolate flex min-h-0 flex-col justify-between overflow-hidden rounded-lg border bg-cover bg-center p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 [--workspace-slot-radius:0.5rem] [contain:paint]",
           role
             ? "border-border/70 bg-card/72 shadow-sm"
             : "border-border/40 bg-card/35 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/50",

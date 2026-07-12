@@ -286,7 +286,7 @@ function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSl
   return (
     <div
       className={cn(
-        "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden rounded-sm bg-cover bg-center bg-clip-padding",
+        "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden rounded-sm bg-cover bg-center bg-clip-padding [--workspace-slot-radius:0.125rem]",
         role ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
       )}
       style={createWorkspaceSlotBackground(role)}

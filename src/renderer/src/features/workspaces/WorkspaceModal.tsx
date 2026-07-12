@@ -14,7 +14,7 @@ import { Button } from "../../components/ui/button";
 import { CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
-import { RoleRunDot } from "../../components/RoleRunDot";
+import { launchUrlOptions } from "../../app/constants";
 import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
 import type { WorkspaceFormState } from "../../app/types";
 import type { Translator } from "../../i18n";
@@ -382,7 +382,6 @@ function WorkspaceLayoutFormEditor({
               <WorkspaceSlotDropZone
                 key={slot.id}
                 index={index}
-                isActive={role ? statusByRole.has(role.id) : false}
                 isDropTarget={index === dropTargetSlotIndex}
                 isSelected={index === selectedSlotIndex}
                 isSaving={isSaving}
@@ -433,7 +432,7 @@ function WorkspaceLayoutFormEditor({
                 const isAssigned = assignedSlotIndex !== undefined;
                 const isSelectedSlotRole = selectedSlot?.roleId === role.id;
                 const status = statusByRole.get(role.id);
-                const isActive = Boolean(status);
+                const launchGameName = resolveWorkspaceRoleLaunchGameName(role.launchUrl, t);
 
                 return (
                   <button
@@ -456,14 +455,12 @@ function WorkspaceLayoutFormEditor({
                       style={createWorkspaceSlotBackground(role)}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="flex min-w-0 items-center gap-1.5 text-xs font-semibold">
-                        <RoleRunDot
-                          isActive={isActive}
-                          label={t(isActive ? "role.statusDot.active" : "role.statusDot.inactive")}
-                        />
+                      <p className="min-w-0 truncate text-xs font-semibold">
                         <span className="min-w-0 truncate">{role.name}</span>
                       </p>
                       <p className="mt-0.5 truncate text-[11px] font-medium text-muted-foreground">
+                        {launchGameName}
+                        {" · "}
                         {role.authState === "authenticated" ? t("role.auth.authenticated") : t("role.auth.needsLogin")}
                         {status ? ` · ${t("status.running")}` : ""}
                       </p>
@@ -487,7 +484,6 @@ function WorkspaceLayoutFormEditor({
 
 interface WorkspaceSlotDropZoneProps {
   index: number;
-  isActive: boolean;
   isDropTarget: boolean;
   isSelected: boolean;
   isSaving: boolean;
@@ -504,7 +500,6 @@ interface WorkspaceSlotDropZoneProps {
 
 function WorkspaceSlotDropZone({
   index,
-  isActive,
   isDropTarget,
   isSelected,
   isSaving,
@@ -518,6 +513,7 @@ function WorkspaceSlotDropZone({
   rect,
   t
 }: WorkspaceSlotDropZoneProps): JSX.Element {
+  const launchGameName = role ? resolveWorkspaceRoleLaunchGameName(role.launchUrl, t) : "";
   const slotInsetStyle = {
     top: rect.y > 0 ? 10 : 0,
     right: rect.x + rect.width < 0.999 ? 10 : 0,
@@ -577,13 +573,11 @@ function WorkspaceSlotDropZone({
 
         {role ? (
           <div className="workspace-slot-caption">
-            <p className="workspace-slot-name-chip flex min-w-0 items-center gap-1.5 px-2 py-1 text-sm font-semibold">
-              <RoleRunDot
-                className="size-2 border-white/75"
-                isActive={isActive}
-                label={t(isActive ? "role.statusDot.active" : "role.statusDot.inactive")}
-              />
-              <span className="min-w-0 truncate">{role.name}</span>
+            <p className="workspace-slot-name-chip flex min-w-0 text-sm font-semibold">
+              <span className="workspace-role-chip-text">
+                <span className="min-w-0 truncate">{role.name}</span>
+                <span className="workspace-role-game-label min-w-0 truncate">{launchGameName}</span>
+              </span>
             </p>
           </div>
         ) : (
@@ -658,6 +652,20 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
       ))}
     </>
   );
+}
+
+function resolveWorkspaceRoleLaunchGameName(launchUrl: string, t: Translator): string {
+  const option = launchUrlOptions.find((launchOption) => launchOption.value === launchUrl);
+
+  if (option) {
+    return "labelKey" in option ? t(option.labelKey) : option.label;
+  }
+
+  try {
+    return new URL(launchUrl).hostname;
+  } catch {
+    return t("roleForm.launchUrl.current");
+  }
 }
 
 export default WorkspaceModal;

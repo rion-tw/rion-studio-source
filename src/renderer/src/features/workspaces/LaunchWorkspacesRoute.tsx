@@ -3,9 +3,9 @@ import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } fr
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
-import { RoleRunDot } from "../../components/RoleRunDot";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
+import { launchUrlOptions } from "../../app/constants";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { LaunchWorkspace, LaunchWorkspaceSlot, Role, RoleStatus, WorkspaceLayoutTemplate } from "../../../../shared/types";
@@ -118,7 +118,6 @@ function WorkspaceCard({
         className="aspect-[4/3] p-2"
         roleById={roleById}
         slots={workspace.slots}
-        statusByRole={statusByRole}
         t={t}
         template={workspace.template}
       />
@@ -167,7 +166,6 @@ interface WorkspaceLayoutPreviewProps {
   className?: string;
   roleById: Map<string, Role>;
   slots: LaunchWorkspaceSlot[];
-  statusByRole: Map<string, RoleStatus>;
   t: Translator;
   template: WorkspaceLayoutTemplate;
 }
@@ -176,7 +174,6 @@ function WorkspaceLayoutPreview({
   className,
   roleById,
   slots,
-  statusByRole,
   t,
   template
 }: WorkspaceLayoutPreviewProps): JSX.Element {
@@ -190,13 +187,11 @@ function WorkspaceLayoutPreview({
     }
 
     const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
-    const isActive = role ? statusByRole.has(role.id) : false;
 
     return (
       <WorkspaceLayoutPreviewSlot
         key={slot.id}
         index={index}
-        isActive={isActive}
         role={role}
         t={t}
       />
@@ -281,12 +276,13 @@ function WorkspaceLayoutPreview({
 
 interface WorkspaceLayoutPreviewSlotProps {
   index: number;
-  isActive: boolean;
   role: Role | undefined;
   t: Translator;
 }
 
-function WorkspaceLayoutPreviewSlot({ index, isActive, role, t }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
+function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
+  const launchGameName = role ? resolveWorkspaceRoleLaunchGameName(role.launchUrl, t) : "";
+
   return (
     <div
       className={cn(
@@ -298,14 +294,10 @@ function WorkspaceLayoutPreviewSlot({ index, isActive, role, t }: WorkspaceLayou
       <div className="workspace-slot-caption">
         <p className="workspace-slot-caption-title gap-1.5 text-[11px] font-semibold leading-4">
           {role ? (
-            <>
-              <RoleRunDot
-                className="size-2 border-white/75"
-                isActive={isActive}
-                label={t(isActive ? "role.statusDot.active" : "role.statusDot.inactive")}
-              />
+            <span className="workspace-role-chip-text">
               <span className="min-w-0 truncate">{role.name}</span>
-            </>
+              <span className="workspace-role-game-label min-w-0 truncate">{launchGameName}</span>
+            </span>
           ) : (
             t("workspaces.emptySlot")
           )}
@@ -325,6 +317,20 @@ function createPreviewFlexStyle(weight: number): CSSProperties {
     flexBasis: 0,
     flexGrow: Math.max(weight, 0.001)
   };
+}
+
+function resolveWorkspaceRoleLaunchGameName(launchUrl: string, t: Translator): string {
+  const option = launchUrlOptions.find((launchOption) => launchOption.value === launchUrl);
+
+  if (option) {
+    return "labelKey" in option ? t(option.labelKey) : option.label;
+  }
+
+  try {
+    return new URL(launchUrl).hostname;
+  } catch {
+    return t("roleForm.launchUrl.current");
+  }
 }
 
 interface WorkspaceActionMenuProps {

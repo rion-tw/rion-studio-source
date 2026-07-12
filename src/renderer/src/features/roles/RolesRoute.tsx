@@ -244,8 +244,9 @@ function RoleCard({
   const isAuthFlowRunning = Boolean(authStatus && authStatus.state !== "failed");
   const isAuthenticated = role.authState === "authenticated";
   const hasCoverImage = Boolean(role.coverImageDataUrl);
-  const canLaunchFromOverlay = isAuthenticated && !isActive && !isAuthFlowRunning;
-  const hasBottomAction = isActive || isAuthFlowRunning || !isAuthenticated;
+  const canUsePrimaryOverlayAction = isAuthenticated && !isAuthFlowRunning;
+  const hasBottomAction = isAuthFlowRunning || !isAuthenticated;
+  const primaryActionLabel = isActive ? t("role.stop") : t("role.launch");
   const cardStyle = createRoleCardStyle({
     color: role.coverImageDominantColor,
     hasCoverImage,
@@ -282,24 +283,32 @@ function RoleCard({
         />
       </div>
 
-      {canLaunchFromOverlay ? (
+      {canUsePrimaryOverlayAction ? (
         <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
           <Button
             className={cn(
-              "pointer-events-auto size-16 rounded-full p-0 opacity-0 shadow-lg transition-[opacity,transform,background-color] duration-150",
-              "group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100",
+              "pointer-events-auto size-16 rounded-full p-0 shadow-lg transition-[opacity,transform,background-color] duration-150",
+              isActive
+                ? "opacity-100"
+                : "opacity-0 group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100",
               hasCoverImage
                 ? "border border-white/35 bg-black/35 text-white backdrop-blur-md hover:bg-black/50 hover:text-white"
                 : "border border-border/60 bg-background/80 text-foreground backdrop-blur-md hover:bg-background"
             )}
             type="button"
             variant="secondary"
-            title={t("role.launch")}
-            aria-label={t("role.launch")}
-            onClick={onLaunch}
+            title={primaryActionLabel}
+            aria-label={primaryActionLabel}
+            onClick={isActive ? onStop : onLaunch}
             disabled={isBusy}
           >
-            {isBusy ? <Loader2 className="spin" size={30} /> : <Play className="ml-0.5" size={34} fill="currentColor" />}
+            {isBusy ? (
+              <Loader2 className="spin" size={30} />
+            ) : isActive ? (
+              <Square size={30} fill="currentColor" />
+            ) : (
+              <Play className="ml-0.5" size={34} fill="currentColor" />
+            )}
           </Button>
         </div>
       ) : null}
@@ -348,22 +357,7 @@ function RoleCard({
               </p>
               </div>
             </div>
-            {isActive ? (
-              <Button
-                className={cn(
-                  "h-7 min-w-[76px] shrink-0 gap-1.5 px-2 text-[11px]",
-                  hasCoverImage && "rounded-full text-white shadow-none hover:text-white"
-                )}
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={onStop}
-                disabled={isBusy}
-              >
-                {isBusy ? <Loader2 className="spin" size={14} /> : <Square size={14} />}
-                {t("role.stop")}
-              </Button>
-            ) : isAuthFlowRunning && authStatus ? (
+            {isAuthFlowRunning && authStatus ? (
               <Button
                 className={cn(
                   "h-7 min-w-[88px] shrink-0 gap-1.5 px-2 text-[11px]",

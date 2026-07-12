@@ -45,14 +45,14 @@
     --card-foreground: 222 15% 10%;
     --popover: 0 0% 99%;
     --popover-foreground: 222 15% 10%;
-    --primary: 211 100% 48%;
+    --primary: 0 0% 14%;
     --primary-foreground: 0 0% 100%;
     --secondary: 218 20% 90%;
     --secondary-foreground: 222 14% 14%;
     --muted: 218 22% 90%;
     --muted-foreground: 222 8% 39%;
-    --accent: 214 30% 88%;
-    --accent-foreground: 222 15% 12%;
+    --accent: 0 0% 84%;
+    --accent-foreground: 0 0% 12%;
     --destructive: 358 67% 43%;
     --destructive-foreground: 0 0% 100%;
     --success: 150 38% 91%;
@@ -61,7 +61,7 @@
     --warning-foreground: 37 70% 28%;
     --border: 220 18% 82%;
     --input: 220 18% 80%;
-    --ring: 211 100% 48%;
+    --ring: 0 0% 28%;
     --sidebar: 214 24% 88%;
     --sidebar-foreground: 222 15% 13%;
     --sidebar-accent: 0 0% 100%;
@@ -69,9 +69,8 @@
     --app-material: 216 24% 94% / 0.38;
     --app-material-strong: 216 26% 96% / 0.5;
     --app-edge: 0 0% 100% / 0.36;
-    --table-surface: 0 0% 100% / 0.26;
-    --table-header: 220 18% 84% / 0.34;
-    --table-row-hover: 211 100% 48% / 0.055;
+    --table-surface: 0 0% 100% / 0.3;
+    --table-row-hover: 0 0% 11% / 0.045;
     --glass-panel: 0 0% 100% / 0.3;
     --glass-panel-strong: 0 0% 100% / 0.38;
     --glass-panel-muted: 0 0% 100% / 0.25;
@@ -88,7 +87,7 @@
     --glass-shadow: 222 28% 18% / 0.055;
     --glass-shadow-strong: 222 32% 14% / 0.075;
     --glass-inner-shadow: 222 24% 12% / 0.03;
-    --glass-focus: 211 100% 48% / 0.18;
+    --glass-focus: 222 16% 11% / 0.12;
     --liquid-background:
       linear-gradient(180deg, hsl(var(--background) / 0.42) 0%, hsl(var(--background) / 0.28) 100%);
     --liquid-sheen:
@@ -112,14 +111,14 @@
     --card-foreground: 220 14% 90%;
     --popover: 228 13% 15%;
     --popover-foreground: 220 14% 90%;
-    --primary: 211 100% 50%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 0 0% 92%;
+    --primary-foreground: 230 13% 10%;
     --secondary: 226 11% 22%;
     --secondary-foreground: 220 14% 90%;
     --muted: 226 10% 21%;
     --muted-foreground: 225 7% 66%;
-    --accent: 226 11% 24%;
-    --accent-foreground: 220 14% 92%;
+    --accent: 0 0% 26%;
+    --accent-foreground: 0 0% 92%;
     --destructive: 358 74% 62%;
     --destructive-foreground: 0 0% 8%;
     --success: 150 28% 18%;
@@ -128,7 +127,7 @@
     --warning-foreground: 42 72% 72%;
     --border: 226 10% 25%;
     --input: 226 10% 28%;
-    --ring: 211 100% 68%;
+    --ring: 0 0% 78%;
     --sidebar: 226 16% 11%;
     --sidebar-foreground: 220 14% 88%;
     --sidebar-accent: 0 0% 100%;
@@ -136,9 +135,8 @@
     --app-material: 230 14% 12% / 0.48;
     --app-material-strong: 230 14% 13% / 0.58;
     --app-edge: 0 0% 100% / 0.09;
-    --table-surface: 230 12% 13% / 0.5;
-    --table-header: 230 11% 9% / 0.46;
-    --table-row-hover: 211 100% 60% / 0.045;
+    --table-surface: 0 0% 100% / 0.05;
+    --table-row-hover: 0 0% 100% / 0.045;
     --glass-panel: 0 0% 100% / 0.05;
     --glass-panel-strong: 0 0% 100% / 0.068;
     --glass-panel-muted: 0 0% 100% / 0.04;
@@ -155,7 +153,7 @@
     --glass-shadow: 0 0% 0% / 0.12;
     --glass-shadow-strong: 0 0% 0% / 0.18;
     --glass-inner-shadow: 0 0% 0% / 0.14;
-    --glass-focus: 211 100% 68% / 0.2;
+    --glass-focus: 0 0% 100% / 0.12;
     --liquid-background:
       linear-gradient(180deg, hsl(228 16% 14% / 0.52) 0%, hsl(230 13% 12% / 0.4) 100%);
     --liquid-sheen:
@@ -323,7 +321,7 @@
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 72%),
       hsl(var(--glass-control-selected));
-    color: hsl(var(--primary));
+    color: hsl(var(--sidebar-foreground));
     box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
@@ -331,12 +329,12 @@
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 72%),
       hsl(var(--glass-control-hover));
-    color: hsl(var(--primary));
+    color: hsl(var(--sidebar-foreground));
   }
 
   .nav-item-active .count-pill {
-    border-color: hsl(var(--primary) / 0.22);
-    color: hsl(var(--primary));
+    border-color: hsl(var(--sidebar-foreground) / 0.14);
+    color: hsl(var(--sidebar-foreground));
   }
 
   .app-page {
@@ -359,7 +357,7 @@
   }
 
   .app-page-kicker {
-    color: hsl(var(--primary));
+    color: hsl(var(--muted-foreground));
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0;
@@ -391,7 +389,7 @@
   }
 
   .mac-list-table thead {
-    background: hsl(var(--table-header));
+    background: transparent;
   }
 
   .mac-list-table tbody tr:hover {
@@ -400,9 +398,13 @@
       hsl(var(--table-row-hover));
   }
 
-  .mac-list-surface {
+  .mac-list-surface.glass-panel {
     border-color: hsl(var(--glass-border-muted));
-    background: hsl(var(--table-surface));
+    background:
+      linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 42%),
+      hsl(var(--table-surface));
+    -webkit-backdrop-filter: blur(24px) saturate(1.08);
+    backdrop-filter: blur(24px) saturate(1.08);
     box-shadow:
       inset 0 1px 0 hsl(var(--glass-highlight-muted)),
       0 1px 3px hsl(var(--glass-shadow));

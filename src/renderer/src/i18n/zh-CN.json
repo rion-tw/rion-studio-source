@@ -203,7 +203,7 @@
   "settings.updateDownloaded": "版本 {version} 已下载完成，可以安装。",
   "settings.updateDownloading": "正在下载更新，已完成 {progress}%。",
   "settings.updateAvailable": "版本 {version} 可用，将会自動下载。",
-  "settings.updateManualAvailable": "版本 {version} 可用。请打开 DMG、将 Rion Studio 拖到 Applications；若 macOS 阻止运行，请按照 Install Help 操作。",
+  "settings.updateManualAvailable": "版本 {version} 可用。请打开 DMG 并将 Rion Studio 拖到 Applications。若 macOS 阻止运行，请先尝试打开一次，再前往“系统设置 > 隐私与安全性 > 仍要打开”。",
   "settings.updateError": "检查更新失敗：{error}",
   "settings.updateErrorUnknown": "未知错误",
   "settings.updateState.unsupported": "只有封裝后的正式版本支援更新。",

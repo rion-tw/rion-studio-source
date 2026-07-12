@@ -79,6 +79,17 @@ jobs:
             fi
           done
 
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            app_path="${release_dir}/mac-arm64/Rion Studio.app"
+            codesign --verify --deep --strict --verbose=2 "${app_path}"
+
+            signature_info="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
+            grep -Fx "Identifier=com.rionstudio.launcher" <<< "${signature_info}"
+            grep -Fx "Signature=adhoc" <<< "${signature_info}"
+            grep -Fx "TeamIdentifier=not set" <<< "${signature_info}"
+            grep -E '^Sealed Resources version=[0-9]+' <<< "${signature_info}"
+          fi
+
   semantic-release:
     needs: validate-release
     runs-on: ubuntu-latest
@@ -154,6 +165,21 @@ jobs:
         run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.build_target }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Verify macOS app signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app_path="release/${{ needs.semantic-release.outputs.release_version }}/mac-arm64/Rion Studio.app"
+          codesign --verify --deep --strict --verbose=2 "${app_path}"
+
+          signature_info="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
+          grep -Fx "Identifier=com.rionstudio.launcher" <<< "${signature_info}"
+          grep -Fx "Signature=adhoc" <<< "${signature_info}"
+          grep -Fx "TeamIdentifier=not set" <<< "${signature_info}"
+          grep -E '^Sealed Resources version=[0-9]+' <<< "${signature_info}"
 
       - name: Upload release assets
         shell: bash

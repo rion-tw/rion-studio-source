@@ -28,6 +28,7 @@ const config = {
     }
   ],
   electronUpdaterCompatibility: ">=2.16",
+  afterPack: "build/afterPack.mjs",
   mac: {
     icon: "build/icon.icns",
     category: "public.app-category.utilities",

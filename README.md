@@ -20,14 +20,18 @@ and confirm the release has finished uploading assets.
 
 ### macOS Installation
 
-The macOS build is unsigned. Open the DMG, drag Rion Studio to Applications, then run this
-one-time command if macOS reports that the app is damaged:
+The macOS build uses an ad-hoc signature rather than a paid Developer ID. Open the DMG,
+drag Rion Studio to Applications, and try to open it once. If macOS blocks it, open
+**System Settings > Privacy & Security**, then click **Open Anyway** for Rion Studio.
+
+If **Open Anyway** is unavailable, use this one-time fallback in Terminal:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
 ```
 
-This removes quarantine only from Rion Studio. It does not disable Gatekeeper system-wide.
+This fallback removes quarantine only from Rion Studio. It does not disable Gatekeeper
+system-wide.
 
 ## Why Rion Studio
 
@@ -134,12 +138,14 @@ from the edit panel.
 Packaged builds do not include Chromium. Playwright controls the user's installed
 Google Chrome with isolated per-role browser profiles.
 
-macOS packaging explicitly uses unsigned mode without hardened runtime. A paid Developer ID
-Application certificate and Apple notarization would be required for warning-free Gatekeeper
-launches.
+macOS packaging uses a complete ad-hoc signature without hardened runtime. Release validation
+requires the app bundle and its nested code to pass strict `codesign` verification. A paid
+Developer ID Application certificate and Apple notarization would still be required for
+warning-free Gatekeeper launches.
 
-Unsigned macOS builds use a manual update flow. The app checks GitHub Releases, opens the
+Ad-hoc-signed macOS builds use a manual update flow. The app checks GitHub Releases, opens the
 matching DMG when an update is available, and guides users to drag the app to Applications.
-The DMG includes `Install Help.txt` with the one-time quarantine command. Set
+The DMG includes `Install Help.txt` with the Privacy & Security approval flow and a scoped
+quarantine-removal fallback. Set
 `RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at
 runtime if release assets are hosted outside the default repository.

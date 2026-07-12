@@ -4,6 +4,7 @@ import type {
   MacroRepeat,
   MacroStep,
   MacroTrigger,
+  WorkspaceBrowserZoomPercent,
   WorkspaceLayoutTemplate
 } from "../../../shared/types";
 
@@ -23,6 +24,7 @@ export interface WorkspaceFormState {
   id?: string;
   name: string;
   template: WorkspaceLayoutTemplate;
+  browserZoomPercent: WorkspaceBrowserZoomPercent;
   slots: LaunchWorkspaceSlot[];
 }
 

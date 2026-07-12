@@ -8,13 +8,17 @@ import type {
   LaunchWorkspaceSlot,
   NormalizedRect,
   UpdateLaunchWorkspaceInput,
+  WorkspaceBrowserZoomPercent,
   WorkspaceLayoutTemplate
 } from "../../shared/types";
 import {
   createDefaultWorkspaceSlots,
+  DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT,
   DEFAULT_WORKSPACE_TEMPLATE,
+  getDefaultWorkspaceBrowserZoomPercent,
   getDefaultWorkspaceRects,
   getWorkspaceTemplateSlotCount,
+  isWorkspaceBrowserZoomPercent,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
   MIN_WORKSPACE_SLOT_SIZE
@@ -26,6 +30,11 @@ interface LaunchWorkspacesFile {
 
 type StoredLaunchWorkspaceSlot = Partial<LaunchWorkspaceSlot> & {
   [key: string]: unknown;
+};
+
+type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserZoomPercent" | "slots"> & {
+  browserZoomPercent?: unknown;
+  slots: StoredLaunchWorkspaceSlot[];
 };
 
 const LEGACY_ROLE_ID_FIELD = "profile" + "Id";
@@ -68,6 +77,10 @@ export class LaunchWorkspaceStore {
     const now = new Date().toISOString();
     const name = this.normalizeName(input.name);
     const template = this.normalizeTemplate(input.template);
+    const browserZoomPercent = this.normalizeBrowserZoomPercent(
+      input.browserZoomPercent,
+      getDefaultWorkspaceBrowserZoomPercent(template)
+    );
 
     this.ensureUniqueName(file.workspaces, name);
 
@@ -75,6 +88,7 @@ export class LaunchWorkspaceStore {
       id: randomUUID(),
       name,
       template,
+      browserZoomPercent,
       slots: this.normalizeSlots(template, input.slots),
       createdAt: now,
       updatedAt: now
@@ -97,6 +111,10 @@ export class LaunchWorkspaceStore {
     const current = file.workspaces[index];
     const name = input.name === undefined ? current.name : this.normalizeName(input.name);
     const template = input.template === undefined ? current.template : this.normalizeTemplate(input.template);
+    const browserZoomPercent = this.normalizeBrowserZoomPercent(
+      input.browserZoomPercent,
+      current.browserZoomPercent
+    );
     const sourceSlots =
       input.slots ??
       (input.template === undefined ? current.slots : current.slots.slice(0, getWorkspaceTemplateSlotCount(template)));
@@ -107,6 +125,7 @@ export class LaunchWorkspaceStore {
       ...current,
       name,
       template,
+      browserZoomPercent,
       slots: this.normalizeSlots(template, sourceSlots),
       updatedAt: new Date().toISOString()
     };
@@ -167,7 +186,9 @@ export class LaunchWorkspaceStore {
 
       const didMigrate = parsed.workspaces.some(hasLegacyRoleSlotReference);
       const file = {
-        workspaces: parsed.workspaces.map((workspace) => this.normalizeStoredWorkspace(workspace))
+        workspaces: parsed.workspaces.map((workspace) =>
+          this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
+        )
       };
 
       if (didMigrate) {
@@ -191,13 +212,17 @@ export class LaunchWorkspaceStore {
     await rename(tmpPath, this.workspacesPath);
   }
 
-  private normalizeStoredWorkspace(workspace: LaunchWorkspace): LaunchWorkspace {
+  private normalizeStoredWorkspace(workspace: StoredLaunchWorkspace): LaunchWorkspace {
     const template = this.normalizeTemplate(workspace.template);
 
     return {
       id: typeof workspace.id === "string" && workspace.id.trim() ? workspace.id : randomUUID(),
       name: this.normalizeName(workspace.name),
       template,
+      browserZoomPercent: this.normalizeBrowserZoomPercent(
+        workspace.browserZoomPercent,
+        DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
+      ),
       slots: this.normalizeSlots(template, workspace.slots as StoredLaunchWorkspaceSlot[]),
       createdAt: typeof workspace.createdAt === "string" ? workspace.createdAt : new Date().toISOString(),
       updatedAt: typeof workspace.updatedAt === "string" ? workspace.updatedAt : new Date().toISOString()
@@ -231,6 +256,24 @@ export class LaunchWorkspaceStore {
     }
 
     return template;
+  }
+
+  private normalizeBrowserZoomPercent(
+    value: unknown,
+    fallback: WorkspaceBrowserZoomPercent
+  ): WorkspaceBrowserZoomPercent {
+    if (value === undefined) {
+      return fallback;
+    }
+
+    if (!isWorkspaceBrowserZoomPercent(value)) {
+      throw new LaunchWorkspaceStoreError(
+        "WORKSPACE_BROWSER_ZOOM_INVALID",
+        "Launch workspace browser zoom is invalid."
+      );
+    }
+
+    return value;
   }
 
   private normalizeSlots(

@@ -202,7 +202,12 @@ export function registerIpcHandlers(
     const statuses: RoleStatus[] = [];
 
     for (const { role, slot } of launchItems) {
-      statuses.push(await browserManager.launch(role, { bounds: normalizedRectToPixelBounds(slot.rect, workArea) }));
+      statuses.push(
+        await browserManager.launch(role, {
+          bounds: normalizedRectToPixelBounds(slot.rect, workArea),
+          zoomFactor: workspace.browserZoomPercent / 100
+        })
+      );
     }
 
     return statuses;

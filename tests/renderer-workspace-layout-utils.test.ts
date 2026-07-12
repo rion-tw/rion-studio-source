@@ -1,17 +1,43 @@
 import { describe, expect, it } from "vitest";
 
 import type { LaunchWorkspaceSlot } from "../src/shared/types";
-import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
+import {
+  getDefaultWorkspaceBrowserZoomPercent,
+  getDefaultWorkspaceRects
+} from "../src/shared/workspaceLayout";
 import {
   applyWorkspaceSplits,
   applyWorkspaceTemplate,
   assignRoleToWorkspaceSlot,
+  createWorkspaceFormState,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
   swapWorkspaceSlotRoles
 } from "../src/renderer/src/features/workspaces/workspaceLayoutUtils";
 
 describe("renderer workspace layout helpers", () => {
+  it("uses compact-layout browser zoom defaults", () => {
+    expect(getDefaultWorkspaceBrowserZoomPercent("three_columns")).toBe(90);
+    expect(getDefaultWorkspaceBrowserZoomPercent("quad")).toBe(90);
+    expect(getDefaultWorkspaceBrowserZoomPercent("four_columns")).toBe(90);
+    expect(getDefaultWorkspaceBrowserZoomPercent("two_columns")).toBe(100);
+    expect(getDefaultWorkspaceBrowserZoomPercent("main_left_stack_right")).toBe(100);
+  });
+
+  it("loads the saved browser zoom into the workspace form", () => {
+    expect(
+      createWorkspaceFormState({
+        id: "workspace-1",
+        name: "Party",
+        template: "three_columns",
+        browserZoomPercent: 125,
+        slots: applyWorkspaceTemplate([], "three_columns"),
+        createdAt: "2026-07-10T00:00:00.000Z",
+        updatedAt: "2026-07-10T00:00:00.000Z"
+      })
+    ).toMatchObject({ browserZoomPercent: 125, template: "three_columns" });
+  });
+
   it("applies a template while preserving slot ids and assigned roles by index", () => {
     expect(
       applyWorkspaceTemplate(

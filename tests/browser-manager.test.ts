@@ -169,6 +169,71 @@ describe("BrowserManager", () => {
     expect(context.page.bringToFront).toHaveBeenCalledTimes(2);
   });
 
+  it("applies workspace browser zoom before navigating and keeps it for future documents", async () => {
+    const context = createBrowserContext([createStorageSnapshot({ cookies: { sid: "session-1" } })]);
+    const launcher = vi.fn().mockResolvedValue(context.context);
+    const store = createRoleStore();
+    const manager = new BrowserManager(store, launcher);
+
+    await manager.launch(role, { zoomFactor: 0.9 });
+
+    expect(context.browserContext.newCDPSession).toHaveBeenCalledWith(context.page);
+    expect(context.cdpSession.send).toHaveBeenCalledWith("Page.enable");
+    expect(context.cdpSession.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
+      source: expect.stringContaining('root.style.setProperty("zoom", String(0.9), "important")')
+    });
+    expect(context.cdpSession.send).toHaveBeenCalledWith("Runtime.evaluate", {
+      expression: expect.stringContaining('root.style.setProperty("zoom", String(0.9), "important")')
+    });
+    expect(context.cdpSession.send.mock.invocationCallOrder[2]).toBeLessThan(
+      context.page.goto.mock.invocationCallOrder[0]
+    );
+    expect(context.cdpSession.detach).not.toHaveBeenCalled();
+  });
+
+  it("replaces workspace browser zoom on an existing session", async () => {
+    const context = createBrowserContext([
+      createStorageSnapshot({ cookies: { sid: "session-1" } }),
+      createStorageSnapshot({ cookies: { sid: "session-1" } })
+    ]);
+    const launcher = vi.fn().mockResolvedValue(context.context);
+    const store = createRoleStore();
+    const manager = new BrowserManager(store, launcher);
+
+    await manager.launch(role, { zoomFactor: 0.9 });
+    await manager.launch(role, { zoomFactor: 0.8 });
+
+    expect(launcher).toHaveBeenCalledTimes(1);
+    expect(context.browserContext.newCDPSession).toHaveBeenCalledTimes(1);
+    expect(context.cdpSession.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
+      identifier: "zoom-script-1"
+    });
+    expect(context.cdpSession.send).toHaveBeenLastCalledWith("Runtime.evaluate", {
+      expression: expect.stringContaining('root.style.setProperty("zoom", String(0.8), "important")')
+    });
+  });
+
+  it("resets workspace browser zoom when an existing role is launched standalone", async () => {
+    const context = createBrowserContext([
+      createStorageSnapshot({ cookies: { sid: "session-1" } }),
+      createStorageSnapshot({ cookies: { sid: "session-1" } })
+    ]);
+    const launcher = vi.fn().mockResolvedValue(context.context);
+    const store = createRoleStore();
+    const manager = new BrowserManager(store, launcher);
+
+    await manager.launch(role, { zoomFactor: 0.9 });
+    await manager.launch(role);
+
+    expect(context.cdpSession.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
+      identifier: "zoom-script-1"
+    });
+    expect(context.cdpSession.send).toHaveBeenLastCalledWith("Runtime.evaluate", {
+      expression: expect.stringContaining("delete root[stateKey]")
+    });
+    expect(context.cdpSession.detach).toHaveBeenCalledTimes(1);
+  });
+
   it("launches when localStorage has persisted auth evidence", async () => {
     const context = createBrowserContext([createStorageSnapshot({ localStorage: { authToken: "token-1" } })]);
     const launcher = vi.fn().mockResolvedValue(context.context);
@@ -361,8 +426,20 @@ function createBrowserContext(snapshots: LoginStorageSnapshot[]): {
     }),
     newCDPSession: vi.fn()
   };
+  let zoomScriptCount = 0;
   const cdpSession = {
-    send: vi.fn(async (method: string) => (method === "Browser.getWindowForTarget" ? { windowId: 7 } : {})),
+    send: vi.fn(async (method: string) => {
+      if (method === "Browser.getWindowForTarget") {
+        return { windowId: 7 };
+      }
+
+      if (method === "Page.addScriptToEvaluateOnNewDocument") {
+        zoomScriptCount += 1;
+        return { identifier: `zoom-script-${zoomScriptCount}` };
+      }
+
+      return {};
+    }),
     detach: vi.fn().mockResolvedValue(undefined)
   };
   browserContext.newCDPSession.mockResolvedValue(cdpSession);

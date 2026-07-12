@@ -35,6 +35,7 @@ export interface BrowserManagerOptions {
 
 export interface BrowserLaunchOptions {
   bounds?: PixelBounds;
+  zoomFactor?: number;
 }
 
 export interface BrowserAutomationSession {
@@ -72,7 +73,13 @@ interface BrowserSession {
   launchedAt?: string;
   context?: BrowserContext;
   page?: Page;
+  zoomCdpSession?: CDPSession;
+  zoomFactor?: number;
+  zoomScriptIdentifier?: string;
 }
+
+const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
+const WORKSPACE_ZOOM_STATE_KEY = "__rionStudioWorkspaceZoomState";
 
 export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly sessions = new Map<string, BrowserSession>();
@@ -126,6 +133,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (options.bounds) {
         await this.applyWindowBounds(existing, options.bounds);
       }
+      await this.applyPageZoom(existing, options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR);
       if (existing.page) {
         await this.installMacroOverlay(role, existing.page);
       }
@@ -152,6 +160,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         this.deleteSession(role.id);
       });
 
+      await this.applyPageZoom(session, options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR);
       await page.goto(role.launchUrl, { waitUntil: "domcontentloaded" });
       if (options.bounds) {
         await this.applyWindowBounds(session, options.bounds);
@@ -209,6 +218,57 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     await applyWindowBoundsToPage(session.page, bounds);
+  }
+
+  private async applyPageZoom(session: BrowserSession, zoomFactor: number): Promise<void> {
+    if (!session.page || session.zoomFactor === zoomFactor) {
+      return;
+    }
+
+    if (zoomFactor === DEFAULT_BROWSER_ZOOM_FACTOR && !session.zoomCdpSession) {
+      session.zoomFactor = zoomFactor;
+      return;
+    }
+
+    const cdpSession = session.zoomCdpSession ?? (await session.page.context().newCDPSession(session.page));
+    const isNewCdpSession = !session.zoomCdpSession;
+
+    try {
+      if (isNewCdpSession) {
+        await cdpSession.send("Page.enable");
+        session.zoomCdpSession = cdpSession;
+      }
+
+      if (session.zoomScriptIdentifier) {
+        await cdpSession.send("Page.removeScriptToEvaluateOnNewDocument", {
+          identifier: session.zoomScriptIdentifier
+        });
+        session.zoomScriptIdentifier = undefined;
+      }
+
+      const source = createPageZoomSource(zoomFactor);
+
+      if (zoomFactor !== DEFAULT_BROWSER_ZOOM_FACTOR) {
+        const result = (await cdpSession.send("Page.addScriptToEvaluateOnNewDocument", {
+          source
+        })) as { identifier: string };
+        session.zoomScriptIdentifier = result.identifier;
+      }
+
+      await cdpSession.send("Runtime.evaluate", { expression: source });
+      session.zoomFactor = zoomFactor;
+
+      if (zoomFactor === DEFAULT_BROWSER_ZOOM_FACTOR) {
+        await detachCdpSession(cdpSession);
+        session.zoomCdpSession = undefined;
+      }
+    } catch (error) {
+      await detachCdpSession(cdpSession);
+      session.zoomCdpSession = undefined;
+      session.zoomFactor = undefined;
+      session.zoomScriptIdentifier = undefined;
+      throw error;
+    }
   }
 
   private async installMacroOverlay(role: Role, page: Page): Promise<void> {
@@ -426,6 +486,48 @@ async function applyWindowBoundsToPage(page: Page, bounds: PixelBounds): Promise
   } finally {
     await detachCdpSession(session);
   }
+}
+
+function createPageZoomSource(zoomFactor: number): string {
+  const serializedZoomFactor = JSON.stringify(zoomFactor);
+  const serializedStateKey = JSON.stringify(WORKSPACE_ZOOM_STATE_KEY);
+
+  return `(() => {
+    const apply = () => {
+      const root = document.documentElement;
+      if (!root) return false;
+      const stateKey = ${serializedStateKey};
+      const existingState = root[stateKey];
+      if (${serializedZoomFactor} === 1) {
+        if (existingState) {
+          if (existingState.value) {
+            root.style.setProperty("zoom", existingState.value, existingState.priority);
+          } else {
+            root.style.removeProperty("zoom");
+          }
+          delete root[stateKey];
+        }
+        return true;
+      }
+      if (!existingState) {
+        Object.defineProperty(root, stateKey, {
+          configurable: true,
+          value: {
+            value: root.style.getPropertyValue("zoom"),
+            priority: root.style.getPropertyPriority("zoom")
+          }
+        });
+      }
+      root.style.setProperty("zoom", String(${serializedZoomFactor}), "important");
+      return true;
+    };
+    if (!apply()) {
+      const observer = new MutationObserver(() => {
+        if (apply()) observer.disconnect();
+      });
+      observer.observe(document, { childList: true });
+    }
+  })()`;
 }
 
 async function detachCdpSession(session: CDPSession): Promise<void> {

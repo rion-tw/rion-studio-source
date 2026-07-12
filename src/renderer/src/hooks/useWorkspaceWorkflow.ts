@@ -8,7 +8,10 @@ import {
   createWorkspaceFormState,
   createWorkspaceName
 } from "../features/workspaces/workspaceLayoutUtils";
-import { DEFAULT_WORKSPACE_TEMPLATE } from "../../../shared/workspaceLayout";
+import {
+  DEFAULT_WORKSPACE_TEMPLATE,
+  getDefaultWorkspaceBrowserZoomPercent
+} from "../../../shared/workspaceLayout";
 import type { LaunchWorkspace, RoleStatus } from "../../../shared/types";
 
 interface UseWorkspaceWorkflowOptions {
@@ -50,6 +53,7 @@ export function useWorkspaceWorkflow({
         const workspace = await window.rionStudio.updateLaunchWorkspace(workspaceForm.id, {
           name: workspaceForm.name,
           template: workspaceForm.template,
+          browserZoomPercent: workspaceForm.browserZoomPercent,
           slots: workspaceForm.slots
         });
         setWorkspaces((current) => current.map((item) => (item.id === workspace.id ? workspace : item)));
@@ -57,6 +61,7 @@ export function useWorkspaceWorkflow({
         const workspace = await window.rionStudio.createLaunchWorkspace({
           name: workspaceForm.name,
           template: workspaceForm.template,
+          browserZoomPercent: workspaceForm.browserZoomPercent,
           slots: workspaceForm.slots
         });
         setWorkspaces((current) => [...current, workspace]);
@@ -78,6 +83,7 @@ export function useWorkspaceWorkflow({
     setWorkspaceForm({
       name: createWorkspaceName(workspaces, t),
       template: DEFAULT_WORKSPACE_TEMPLATE,
+      browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(DEFAULT_WORKSPACE_TEMPLATE),
       slots: applyWorkspaceTemplate([], DEFAULT_WORKSPACE_TEMPLATE)
     });
     setIsWorkspaceModalOpen(true);

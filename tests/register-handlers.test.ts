@@ -48,6 +48,7 @@ const workspace: LaunchWorkspace = {
   id: "workspace-1",
   name: "Party",
   template: "two_columns",
+  browserZoomPercent: 100,
   slots: [
     {
       id: "slot-1",
@@ -126,10 +127,12 @@ describe("registerIpcHandlers workspace handlers", () => {
       { roleId: "role-2", state: "running" }
     ]);
     expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
-      bounds: { x: 100, y: 50, width: 500, height: 800 }
+      bounds: { x: 100, y: 50, width: 500, height: 800 },
+      zoomFactor: 1
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
-      bounds: { x: 600, y: 50, width: 500, height: 800 }
+      bounds: { x: 600, y: 50, width: 500, height: 800 },
+      zoomFactor: 1
     });
   });
 
@@ -138,6 +141,7 @@ describe("registerIpcHandlers workspace handlers", () => {
       ...workspace,
       id: "workspace-3",
       template: "three_columns",
+      browserZoomPercent: 90,
       slots: [
         { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.2, height: 1 } },
         { id: "slot-2", roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.35, height: 1 } },
@@ -149,13 +153,16 @@ describe("registerIpcHandlers workspace handlers", () => {
     await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, threeColumnWorkspace.id);
 
     expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
-      bounds: { x: 100, y: 50, width: 200, height: 800 }
+      bounds: { x: 100, y: 50, width: 200, height: 800 },
+      zoomFactor: 0.9
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
-      bounds: { x: 300, y: 50, width: 350, height: 800 }
+      bounds: { x: 300, y: 50, width: 350, height: 800 },
+      zoomFactor: 0.9
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(3, expect.objectContaining({ id: "role-3" }), {
-      bounds: { x: 650, y: 50, width: 450, height: 800 }
+      bounds: { x: 650, y: 50, width: 450, height: 800 },
+      zoomFactor: 0.9
     });
   });
 
@@ -164,6 +171,7 @@ describe("registerIpcHandlers workspace handlers", () => {
       ...workspace,
       id: "workspace-4",
       template: "four_columns",
+      browserZoomPercent: 90,
       slots: [
         { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.2, height: 1 } },
         { id: "slot-2", roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.3, height: 1 } },
@@ -176,16 +184,20 @@ describe("registerIpcHandlers workspace handlers", () => {
     await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, fourColumnWorkspace.id);
 
     expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
-      bounds: { x: 100, y: 50, width: 200, height: 800 }
+      bounds: { x: 100, y: 50, width: 200, height: 800 },
+      zoomFactor: 0.9
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
-      bounds: { x: 300, y: 50, width: 300, height: 800 }
+      bounds: { x: 300, y: 50, width: 300, height: 800 },
+      zoomFactor: 0.9
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(3, expect.objectContaining({ id: "role-3" }), {
-      bounds: { x: 600, y: 50, width: 180, height: 800 }
+      bounds: { x: 600, y: 50, width: 180, height: 800 },
+      zoomFactor: 0.9
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(4, expect.objectContaining({ id: "role-4" }), {
-      bounds: { x: 780, y: 50, width: 320, height: 800 }
+      bounds: { x: 780, y: 50, width: 320, height: 800 },
+      zoomFactor: 0.9
     });
   });
 

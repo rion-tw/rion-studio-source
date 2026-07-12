@@ -14,13 +14,25 @@ import { Button } from "../../components/ui/button";
 import { CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { Select } from "../../components/ui/select";
 import { RoleRunDot } from "../../components/RoleRunDot";
 import { FieldHeader, Surface } from "../../components/ui/patterns";
 import type { WorkspaceFormState } from "../../app/types";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
-import type { LaunchWorkspaceSlot, NormalizedRect, Role, RoleStatus, WorkspaceLayoutTemplate } from "../../../../shared/types";
-import { workspaceLayoutTemplates } from "../../../../shared/workspaceLayout";
+import type {
+  LaunchWorkspaceSlot,
+  NormalizedRect,
+  Role,
+  RoleStatus,
+  WorkspaceBrowserZoomPercent,
+  WorkspaceLayoutTemplate
+} from "../../../../shared/types";
+import {
+  getDefaultWorkspaceBrowserZoomPercent,
+  workspaceBrowserZoomPercents,
+  workspaceLayoutTemplates
+} from "../../../../shared/workspaceLayout";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 import {
   applyWorkspaceSplits,
@@ -203,6 +215,7 @@ function WorkspaceLayoutFormEditor({
     onChange({
       ...form,
       template,
+      browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(template),
       slots: nextSlots
     });
     setSelectedSlotIndex((current) => Math.min(current, Math.max(nextSlots.length - 1, 0)));
@@ -317,6 +330,31 @@ function WorkspaceLayoutFormEditor({
             );
           })}
         </div>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <FieldHeader
+          title={t("workspaces.browserZoom")}
+          description={t("workspaces.browserZoomDescription")}
+        />
+        <Select
+          className="w-full sm:w-[132px]"
+          value={form.browserZoomPercent}
+          aria-label={t("workspaces.browserZoom")}
+          disabled={isSaving}
+          onChange={(event) =>
+            onChange({
+              ...form,
+              browserZoomPercent: Number(event.target.value) as WorkspaceBrowserZoomPercent
+            })
+          }
+        >
+          {workspaceBrowserZoomPercents.map((zoomPercent) => (
+            <option key={zoomPercent} value={zoomPercent}>
+              {zoomPercent}%
+            </option>
+          ))}
+        </Select>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">

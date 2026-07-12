@@ -25,7 +25,8 @@ describe("LaunchWorkspaceStore", () => {
 
     expect(workspace).toMatchObject({
       name: "Boss run",
-      template: "two_columns"
+      template: "two_columns",
+      browserZoomPercent: 100
     });
     expect(workspace.slots).toEqual([
       {
@@ -102,6 +103,7 @@ describe("LaunchWorkspaceStore", () => {
       { id: "slot-2", roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.35, height: 1 } },
       { id: "slot-3", roleId: "role-3", rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
     ]);
+    expect(workspace.browserZoomPercent).toBe(90);
     await expect(store.getWorkspace(workspace.id)).resolves.toEqual(workspace);
   });
 
@@ -133,7 +135,40 @@ describe("LaunchWorkspaceStore", () => {
       { id: "slot-3", roleId: "role-3", rect: { x: 0.5, y: 0, width: 0.18, height: 1 } },
       { id: "slot-4", roleId: "role-4", rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
     ]);
+    expect(workspace.browserZoomPercent).toBe(90);
     await expect(store.getWorkspace(workspace.id)).resolves.toEqual(workspace);
+  });
+
+  it.each(["three_columns", "quad", "four_columns"] as const)(
+    "defaults %s workspaces to 90 percent browser zoom",
+    async (template) => {
+      const workspace = await store.createWorkspace({ name: `${template} zoom`, template });
+
+      expect(workspace.browserZoomPercent).toBe(90);
+    }
+  );
+
+  it("persists, updates, and validates a custom browser zoom", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Custom zoom",
+      browserZoomPercent: 125
+    });
+
+    expect(workspace.browserZoomPercent).toBe(125);
+
+    const preserved = await store.updateWorkspace(workspace.id, {
+      name: "Custom zoom renamed",
+      template: "three_columns"
+    });
+    expect(preserved.browserZoomPercent).toBe(125);
+
+    const updated = await store.updateWorkspace(workspace.id, { browserZoomPercent: 80 });
+    expect(updated.browserZoomPercent).toBe(80);
+    await expect(store.getWorkspace(workspace.id)).resolves.toEqual(updated);
+
+    await expect(
+      store.updateWorkspace(workspace.id, { browserZoomPercent: 95 as never })
+    ).rejects.toMatchObject({ code: "WORKSPACE_BROWSER_ZOOM_INVALID" });
   });
 
   it("uses four equal columns when no custom slots are provided", async () => {
@@ -210,7 +245,10 @@ describe("LaunchWorkspaceStore", () => {
     );
 
     const workspace = await store.getWorkspace("workspace-1");
+    const unchanged = await readFile(join(baseDir, "launch-workspaces.json"), "utf8");
 
+    expect(workspace.browserZoomPercent).toBe(100);
+    expect(unchanged).not.toContain("browserZoomPercent");
     expect(workspace.slots).toMatchObject([
       { id: "a", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 0.5 } },
       { id: "b", rect: { x: 0.5, y: 0, width: 0.5, height: 0.5 } },

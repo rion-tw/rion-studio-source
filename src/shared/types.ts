@@ -10,6 +10,7 @@ export type WorkspaceLayoutTemplate =
   | "main_left_stack_right"
   | "quad"
   | "four_columns";
+export type WorkspaceBrowserZoomPercent = 80 | 90 | 100 | 110 | 125;
 export type AppLanguage = "en" | "zh-TW";
 export type AuthState = "unknown" | "login_required" | "authenticated" | "auth_failed";
 export type AuthFlowState =
@@ -163,6 +164,7 @@ export interface LaunchWorkspace {
   id: string;
   name: string;
   template: WorkspaceLayoutTemplate;
+  browserZoomPercent: WorkspaceBrowserZoomPercent;
   slots: LaunchWorkspaceSlot[];
   createdAt: string;
   updatedAt: string;
@@ -171,6 +173,7 @@ export interface LaunchWorkspace {
 export interface CreateLaunchWorkspaceInput {
   name: string;
   template?: WorkspaceLayoutTemplate;
+  browserZoomPercent?: WorkspaceBrowserZoomPercent;
   slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "rect">>>;
 }
 

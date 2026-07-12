@@ -8,7 +8,8 @@ export default {
     [
       "@semantic-release/exec",
       {
-        prepareCmd: "pnpm version ${nextRelease.version} --no-git-tag-version",
+        prepareCmd:
+          "pnpm version ${nextRelease.version} --no-git-tag-version --no-git-checks",
         successCmd: "echo release_version=${nextRelease.version} >> $GITHUB_OUTPUT"
       }
     ],

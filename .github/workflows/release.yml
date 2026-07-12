@@ -85,7 +85,69 @@ jobs:
         run: pnpm run build
 
       - name: Build platform artifacts
-        run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.build_target }} --publish always
+        run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.build_target }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload macOS release assets
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ needs.semantic-release.outputs.release_version }}"
+          tag="v${version}"
+          release_dir="release/${version}"
+          installer="${release_dir}/Rion Studio-mac.dmg"
+
+          if [[ ! -f "${installer}" ]]; then
+            ls -la "${release_dir}"
+            exit 1
+          fi
+
+          assets=("${installer}")
+          for optional_asset in \
+            "${release_dir}/Rion Studio-mac.dmg.blockmap" \
+            "${release_dir}/Rion Studio-mac.zip" \
+            "${release_dir}/Rion Studio-mac.zip.blockmap" \
+            "${release_dir}/latest-mac.yml"; do
+            if [[ -f "${optional_asset}" ]]; then
+              assets+=("${optional_asset}")
+            fi
+          done
+
+          gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "Rion Studio-mac.dmg"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows release assets
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ needs.semantic-release.outputs.release_version }}"
+          tag="v${version}"
+          release_dir="release/${version}"
+          installer="${release_dir}/Rion Studio-win.exe"
+
+          if [[ ! -f "${installer}" ]]; then
+            ls -la "${release_dir}"
+            exit 1
+          fi
+
+          assets=("${installer}")
+          for optional_asset in \
+            "${release_dir}/Rion Studio-win.exe.blockmap" \
+            "${release_dir}/latest.yml"; do
+            if [[ -f "${optional_asset}" ]]; then
+              assets+=("${optional_asset}")
+            fi
+          done
+
+          gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "Rion Studio-win.exe"
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

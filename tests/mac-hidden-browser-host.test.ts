@@ -148,19 +148,18 @@ describe("MacHiddenBrowserHost", () => {
       join(userDataDir, "browser-host", "Rion Studio Browser.app", "Contents", "MacOS", "Rion Studio Browser")
     );
 
-    await expect(
-      readlink(
-        join(
-          userDataDir,
-          "browser-host",
-          "Rion Studio Browser.app",
-          "Contents",
-          "Frameworks",
-          "Fake.framework",
-          "Resources"
-        )
+    const copiedLink = await readlink(
+      join(
+        userDataDir,
+        "browser-host",
+        "Rion Studio Browser.app",
+        "Contents",
+        "Frameworks",
+        "Fake.framework",
+        "Resources"
       )
-    ).resolves.toBe("Versions/Current/Resources");
+    );
+    expect(copiedLink.replaceAll("\\", "/")).toBe("Versions/Current/Resources");
   });
 
   it("recopies helpers that were prepared before the current patch version", async () => {

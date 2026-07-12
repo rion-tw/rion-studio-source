@@ -5,7 +5,6 @@ import { app, BrowserWindow, nativeImage, nativeTheme, screen, shell } from "ele
 
 import { AuthManager } from "./auth/AuthManager";
 import { AuthSessionChecker } from "./auth/AuthSessionChecker";
-import { MacHiddenBrowserHost } from "./browser/MacHiddenBrowserHost";
 import { BrowserManager } from "./browser/BrowserManager";
 import { BrowserUserDataLockWatcher } from "./browser/BrowserUserDataLockWatcher";
 import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
@@ -25,7 +24,7 @@ import {
   waitForPreparedRenderer,
   type StartupPageState
 } from "./startup/startupWindow";
-import { SystemChromeLauncher } from "./system-browser/SystemChromeLauncher";
+import { findSystemChromeExecutable, SystemChromeLauncher } from "./system-browser/SystemChromeLauncher";
 import { AppUpdateManager } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
 import { IPC_CHANNELS } from "../shared/ipc";
@@ -51,14 +50,6 @@ function getAppIconPath(): string {
   }
 
   return join(__dirname, "../../build/icon.png");
-}
-
-function getAppIcnsPath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, "icon.icns");
-  }
-
-  return join(__dirname, "../../build/icon.icns");
 }
 
 function loadAppIcon() {
@@ -239,12 +230,8 @@ function initializeApplication(): void {
       process.env.RION_STUDIO_RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY ?? "rion-studio/rion-studio",
     openExternal: (url) => shell.openExternal(url)
   });
-  const hiddenBrowserHost = new MacHiddenBrowserHost(userDataDir, {
-    appIconPath: getAppIcnsPath()
-  });
   browserManager = new BrowserManager(roleStore, {
-    executablePathResolver: () => hiddenBrowserHost.resolveExecutablePath(),
-    allowVisibleFallback: process.platform !== "darwin"
+    executablePathResolver: async () => findSystemChromeExecutable()
   });
   const macroManager = new MacroManager(browserManager, macroStore);
   const macroOverlayInjector = new MacroOverlayInjector(macroStore, macroManager, requestMacroEditorFromOverlay);
@@ -256,7 +243,9 @@ function initializeApplication(): void {
     roleStore,
     browserManager,
     new SystemChromeLauncher(roleStore),
-    new AuthSessionChecker(roleStore),
+    new AuthSessionChecker(roleStore, {
+      executablePathResolver: findSystemChromeExecutable
+    }),
     new BrowserUserDataLockWatcher()
   );
 

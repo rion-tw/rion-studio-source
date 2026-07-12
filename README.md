@@ -76,7 +76,7 @@ responsible for how you use it.
 
 - Electron + React + TypeScript
 - Electron Vite for main/preload/renderer builds
-- Playwright bundled Chromium for isolated browser windows
+- Playwright Core controlling system Chrome for isolated browser windows
 - Vitest for unit tests
 
 ### Commands
@@ -91,8 +91,9 @@ pnpm run build
 pnpm run package
 ```
 
-`pnpm install` runs `scripts/install-playwright-browsers.mjs`, which installs Chromium with
-`PLAYWRIGHT_BROWSERS_PATH=0` so packaged builds can bundle the browser.
+Rion Studio requires Google Chrome on the user's machine. Set
+`RION_STUDIO_CHROME_PATH` or `CHROME_PATH` when Chrome is installed in a
+non-standard location.
 
 ### Runtime Data
 
@@ -111,7 +112,7 @@ Google can block sign-in from browsers that are controlled by automation. Use th
 `Login` button on a role to open the same role directory in system Chrome
 without Playwright control or remote debugging flags. After signing in, close the temporary
 Chrome window manually; Rion Studio then checks the session and automatically launches the
-normal automation-ready Chromium window when login is confirmed.
+normal automation-ready Chrome window when login is confirmed.
 
 Roles that have a confirmed login show `Launch` as the primary card action. The card
 hides `Login` until the session check fails or the role is explicitly re-logged
@@ -119,11 +120,8 @@ from the edit panel.
 
 ### Packaging Notes
 
-Playwright browser binaries are unpacked with Electron Builder via:
-
-```json
-"asarUnpack": ["node_modules/playwright-core/.local-browsers/**"]
-```
+Packaged builds do not include Chromium. Playwright controls the user's installed
+Google Chrome with isolated per-role browser profiles.
 
 macOS packaging works locally, but signing is skipped until a valid Developer ID Application
 certificate is configured.

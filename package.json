@@ -5,7 +5,6 @@
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/install-playwright-browsers.mjs",
     "dev": "electron-vite dev",
     "build": "pnpm run typecheck && electron-vite build",
     "typecheck": "tsc --build --force",
@@ -34,7 +33,7 @@
     "clsx": "^2.1.1",
     "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",
-    "playwright": "^1.50.0",
+    "playwright-core": "^1.50.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^8.2.0",

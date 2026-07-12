@@ -1,11 +1,11 @@
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Page } from "playwright-core";
 
-import { configurePlaywrightBrowsersPath } from "../browser/BrowserManager";
 import {
   BROWSER_USER_DATA_LOCK_TIMEOUT_MESSAGE,
   BrowserUserDataLockTimeoutError
 } from "../browser/BrowserUserDataLockWatcher";
 import { withPlaywrightUserDataLockRetry } from "../browser/playwrightUserDataRetry";
+import { findSystemChromeExecutable } from "../system-browser/SystemChromeLauncher";
 import type { RoleStore } from "../roles/RoleStore";
 import type { Role } from "../../shared/types";
 import {
@@ -20,24 +20,38 @@ import {
 export { classifyAuthSession } from "./authSessionClassification";
 export type { AuthSessionCheckResult } from "./authSessionClassification";
 
-type PlaywrightChromium = typeof import("playwright")["chromium"];
+type PlaywrightChromium = typeof import("playwright-core")["chromium"];
 type LaunchPersistentContextOptions = NonNullable<Parameters<PlaywrightChromium["launchPersistentContext"]>[1]>;
 
 export type LaunchPersistentContext = (
   userDataDir: string,
   options: LaunchPersistentContextOptions
 ) => Promise<BrowserContext>;
+export type BrowserExecutablePathResolver = () => string | Promise<string>;
+
+export interface AuthSessionCheckerOptions {
+  launchPersistentContext?: LaunchPersistentContext;
+  executablePathResolver?: BrowserExecutablePathResolver;
+}
 
 export class AuthSessionChecker {
+  private readonly launchPersistentContext: LaunchPersistentContext;
+  private readonly executablePathResolver?: BrowserExecutablePathResolver;
+
   constructor(
     private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">,
-    private readonly launchPersistentContext: LaunchPersistentContext = launchCheckContext
-  ) {}
+    options: AuthSessionCheckerOptions | LaunchPersistentContext = {}
+  ) {
+    const normalizedOptions = typeof options === "function" ? { launchPersistentContext: options } : options;
+    this.launchPersistentContext = normalizedOptions.launchPersistentContext ?? launchCheckContext;
+    this.executablePathResolver = normalizedOptions.executablePathResolver;
+  }
 
   async check(role: Role): Promise<AuthSessionCheckResult> {
     const browserUserDataDir = await this.roleStore.ensureBrowserUserDataDir(role.id);
+    const executablePath = await this.resolveExecutablePath();
     const context = await withPlaywrightUserDataLockRetry(() =>
-      this.launchPersistentContext(browserUserDataDir, buildCheckOptions(role))
+      this.launchPersistentContext(browserUserDataDir, buildCheckOptions(role, executablePath))
     ).catch((error) => {
       if (error instanceof BrowserUserDataLockTimeoutError) {
         return undefined;
@@ -69,10 +83,18 @@ export class AuthSessionChecker {
       await context.close().catch(() => undefined);
     }
   }
+
+  private async resolveExecutablePath(): Promise<string | undefined> {
+    if (!this.executablePathResolver) {
+      return undefined;
+    }
+
+    return await this.executablePathResolver();
+  }
 }
 
-function buildCheckOptions(role: Role): LaunchPersistentContextOptions {
-  return {
+function buildCheckOptions(role: Role, executablePath?: string): LaunchPersistentContextOptions {
+  const options: LaunchPersistentContextOptions = {
     headless: true,
     viewport: {
       width: role.windowWidth,
@@ -85,15 +107,28 @@ function buildCheckOptions(role: Role): LaunchPersistentContextOptions {
       "--disable-background-networking"
     ]
   };
+
+  if (executablePath) {
+    options.executablePath = executablePath;
+  }
+
+  return options;
 }
 
 async function launchCheckContext(
   userDataDir: string,
   options: LaunchPersistentContextOptions
 ): Promise<BrowserContext> {
-  configurePlaywrightBrowsersPath();
-  const { chromium } = await import("playwright");
+  const { chromium } = await import("playwright-core");
   return chromium.launchPersistentContext(userDataDir, options);
+}
+
+export function createSystemChromeAuthSessionChecker(
+  roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">
+): AuthSessionChecker {
+  return new AuthSessionChecker(roleStore, {
+    executablePathResolver: findSystemChromeExecutable
+  });
 }
 
 async function getOrCreatePage(context: BrowserContext): Promise<Page> {

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  BrowserHiddenHelperError,
   BrowserLaunchAuthError,
   BrowserManager,
   buildChromiumArgs,
@@ -302,66 +301,51 @@ describe("BrowserManager", () => {
     expect(manager.listStatuses()).toEqual([]);
   });
 
-  it("falls back to bundled Chromium when an executable override launch fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("launches with the resolved system Chrome executable", async () => {
     const context = createBrowserContext([createStorageSnapshot({ cookies: { sid: "session-1" } })]);
-    const launcher = vi.fn().mockRejectedValueOnce(new Error("helper blocked")).mockResolvedValue(context.context);
+    const launcher = vi.fn().mockResolvedValue(context.context);
     const store = createRoleStore();
     const manager = new BrowserManager(store, {
       launchPersistentContext: launcher,
-      executablePathResolver: vi.fn().mockResolvedValue("/tmp/Rion Studio Browser.app/Contents/MacOS/Chromium")
+      executablePathResolver: vi.fn().mockResolvedValue("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     });
 
-    try {
-      await manager.launch(role);
+    await manager.launch(role);
 
-      expect(launcher).toHaveBeenCalledTimes(2);
-      expect(launcher.mock.calls[0][1]).toMatchObject({
-        executablePath: "/tmp/Rion Studio Browser.app/Contents/MacOS/Chromium"
-      });
-      expect(launcher.mock.calls[1][1]).not.toHaveProperty("executablePath");
-      expect(context.page.goto).toHaveBeenCalledWith(role.launchUrl, { waitUntil: "domcontentloaded" });
-    } finally {
-      warn.mockRestore();
-    }
+    expect(launcher).toHaveBeenCalledTimes(1);
+    expect(launcher.mock.calls[0][1]).toMatchObject({
+      executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    });
+    expect(context.page.goto).toHaveBeenCalledWith(role.launchUrl, { waitUntil: "domcontentloaded" });
   });
 
-  it("does not fall back to visible Chromium when fallback is disabled", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("does not fall back to bundled Chromium when system Chrome launch fails", async () => {
     const launcher = vi.fn().mockRejectedValue(new Error("helper blocked"));
     const store = createRoleStore();
     const manager = new BrowserManager(store, {
       launchPersistentContext: launcher,
-      executablePathResolver: vi.fn().mockResolvedValue("/tmp/Rion Studio Browser.app/Contents/MacOS/Chromium"),
-      allowVisibleFallback: false
+      executablePathResolver: vi.fn().mockResolvedValue("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     });
 
-    try {
-      await expect(manager.launch(role)).rejects.toThrow(BrowserHiddenHelperError);
+    await expect(manager.launch(role)).rejects.toThrow("helper blocked");
 
-      expect(launcher).toHaveBeenCalledTimes(1);
-      expect(launcher.mock.calls[0][1]).toMatchObject({
-        executablePath: "/tmp/Rion Studio Browser.app/Contents/MacOS/Chromium"
-      });
-      expect(warn).toHaveBeenCalledWith(
-        "Failed to launch hidden Rion Studio browser helper.",
-        expect.any(Error)
-      );
-    } finally {
-      warn.mockRestore();
-    }
+    expect(launcher).toHaveBeenCalledTimes(1);
+    expect(launcher.mock.calls[0][1]).toMatchObject({
+      executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    });
   });
 
-  it("does not launch visible Chromium when executable resolution fails and fallback is disabled", async () => {
+  it("does not launch when system Chrome resolution fails", async () => {
     const launcher = vi.fn();
     const store = createRoleStore();
     const manager = new BrowserManager(store, {
       launchPersistentContext: launcher,
-      executablePathResolver: vi.fn().mockResolvedValue(undefined),
-      allowVisibleFallback: false
+      executablePathResolver: vi.fn().mockResolvedValue(undefined)
     });
 
-    await expect(manager.launch(role)).rejects.toThrow(BrowserHiddenHelperError);
+    await expect(manager.launch(role)).rejects.toThrow(
+      "Google Chrome was not found. Install Chrome or set RION_STUDIO_CHROME_PATH to the Chrome executable."
+    );
 
     expect(launcher).not.toHaveBeenCalled();
   });

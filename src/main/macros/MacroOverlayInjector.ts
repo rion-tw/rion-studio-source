@@ -1,4 +1,4 @@
-import type { Frame, Page } from "playwright";
+import type { Frame, Page } from "playwright-core";
 
 import type { AppLanguage, Macro, MacroEditorRequest, MacroRunStatus, Role } from "../../shared/types";
 import type { MacroManager } from "./MacroManager";

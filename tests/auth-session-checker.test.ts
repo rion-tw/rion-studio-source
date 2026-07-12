@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { BrowserContext } from "playwright";
+import type { BrowserContext } from "playwright-core";
 
 import { AuthSessionChecker, classifyAuthSession } from "../src/main/auth/AuthSessionChecker";
 import {
@@ -144,6 +144,23 @@ describe("AuthSessionChecker", () => {
     expect(harness.page.evaluate).toHaveBeenCalledWith(LOGIN_STORAGE_EXPRESSION);
     expect(harness.context.close).toHaveBeenCalledTimes(1);
   });
+
+  it("checks the role storage with a resolved system Chrome executable", async () => {
+    const harness = createCheckHarness(createStorageSnapshot({ cookies: { sid: "session-1" } }), role.launchUrl, {
+      executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    });
+
+    await expect(harness.checker.check(role)).resolves.toMatchObject({
+      authState: "authenticated"
+    });
+    expect(harness.launchPersistentContext).toHaveBeenCalledWith(
+      "/tmp/rion-studio/role-1/browser",
+      expect.objectContaining({
+        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        headless: true
+      })
+    );
+  });
 });
 
 function classifyStorageSnapshot(snapshot: LoginStorageSnapshot): ReturnType<typeof classifyAuthSession> {
@@ -165,11 +182,18 @@ function createStorageSnapshot(overrides: Partial<LoginStorageSnapshot> = {}): L
   };
 }
 
-function createCheckHarness(snapshot: LoginStorageSnapshot, finalUrl = role.launchUrl): {
+function createCheckHarness(
+  snapshot: LoginStorageSnapshot,
+  finalUrl = role.launchUrl,
+  options: {
+    executablePath?: string;
+  } = {}
+): {
   checker: AuthSessionChecker;
   roleStore: {
     ensureBrowserUserDataDir: ReturnType<typeof vi.fn>;
   };
+  launchPersistentContext: ReturnType<typeof vi.fn>;
   browserContext: {
     cookies: ReturnType<typeof vi.fn>;
   };
@@ -210,8 +234,12 @@ function createCheckHarness(snapshot: LoginStorageSnapshot, finalUrl = role.laun
   const launchPersistentContext = vi.fn().mockResolvedValue(context as unknown as BrowserContext);
 
   return {
-    checker: new AuthSessionChecker(roleStore, launchPersistentContext),
+    checker: new AuthSessionChecker(roleStore, {
+      launchPersistentContext,
+      executablePathResolver: options.executablePath ? vi.fn().mockResolvedValue(options.executablePath) : undefined
+    }),
     roleStore,
+    launchPersistentContext,
     browserContext,
     page,
     context

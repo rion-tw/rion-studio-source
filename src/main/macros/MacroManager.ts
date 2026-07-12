@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import type { CDPSession, Page } from "playwright";
+import type { CDPSession, Page } from "playwright-core";
 
 import type { Macro, MacroRunStatus, MacroStep } from "../../shared/types";
 import type { BrowserManager } from "../browser/BrowserManager";

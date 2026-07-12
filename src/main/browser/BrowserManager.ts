@@ -1,7 +1,6 @@
 import { EventEmitter } from "node:events";
-import { join } from "node:path";
 
-import type { BrowserContext, CDPSession, Page } from "playwright";
+import type { BrowserContext, CDPSession, Page } from "playwright-core";
 
 import {
   classifyAuthSession,
@@ -25,12 +24,9 @@ export type LaunchPersistentContext = (
 ) => Promise<BrowserContext>;
 export type BrowserExecutablePathResolver = () => Promise<string | undefined>;
 
-export const HIDDEN_BROWSER_HELPER_UNAVAILABLE_MESSAGE = "Unable to start the hidden Rion Studio browser helper.";
-
 export interface BrowserManagerOptions {
   launchPersistentContext?: LaunchPersistentContext;
   executablePathResolver?: BrowserExecutablePathResolver;
-  allowVisibleFallback?: boolean;
 }
 
 export interface BrowserLaunchOptions {
@@ -55,16 +51,7 @@ export class BrowserLaunchAuthError extends Error {
   }
 }
 
-export class BrowserHiddenHelperError extends Error {
-  readonly code = "HIDDEN_BROWSER_HELPER_UNAVAILABLE";
-
-  constructor() {
-    super(HIDDEN_BROWSER_HELPER_UNAVAILABLE_MESSAGE);
-    this.name = "BrowserHiddenHelperError";
-  }
-}
-
-type PlaywrightChromium = typeof import("playwright")["chromium"];
+type PlaywrightChromium = typeof import("playwright-core")["chromium"];
 type LaunchPersistentContextOptions = NonNullable<Parameters<PlaywrightChromium["launchPersistentContext"]>[1]>;
 
 interface BrowserSession {
@@ -85,7 +72,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly launchPersistentContext: LaunchPersistentContext;
   private readonly executablePathResolver?: BrowserExecutablePathResolver;
-  private readonly allowVisibleFallback: boolean;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
 
   constructor(
@@ -94,9 +80,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   ) {
     super();
     const normalizedOptions = typeof options === "function" ? { launchPersistentContext: options } : options;
-    this.launchPersistentContext = normalizedOptions.launchPersistentContext ?? launchBundledChromium;
+    this.launchPersistentContext = normalizedOptions.launchPersistentContext ?? launchSystemChrome;
     this.executablePathResolver = normalizedOptions.executablePathResolver;
-    this.allowVisibleFallback = normalizedOptions.allowVisibleFallback ?? true;
   }
 
   setMacroOverlayInstaller(installer: BrowserMacroOverlayInstaller): void {
@@ -325,29 +310,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   ): Promise<BrowserContext> {
     const executablePath = await this.resolveExecutablePath();
 
-    if (!executablePath && !this.allowVisibleFallback) {
-      throw new BrowserHiddenHelperError();
+    if (this.executablePathResolver && !executablePath) {
+      throw new Error("Google Chrome was not found. Install Chrome or set RION_STUDIO_CHROME_PATH to the Chrome executable.");
     }
 
     const launchOptions = buildLaunchOptions(role, executablePath, options);
 
-    try {
-      return await withPlaywrightUserDataLockRetry(() => this.launchPersistentContext(browserUserDataDir, launchOptions));
-    } catch (error) {
-      if (!executablePath) {
-        throw error;
-      }
-
-      if (!this.allowVisibleFallback) {
-        console.warn("Failed to launch hidden Rion Studio browser helper.", error);
-        throw new BrowserHiddenHelperError();
-      }
-
-      console.warn("Failed to launch hidden Rion Studio browser helper. Falling back to visible Chromium.", error);
-      return withPlaywrightUserDataLockRetry(() =>
-        this.launchPersistentContext(browserUserDataDir, buildLaunchOptions(role, undefined, options))
-      );
-    }
+    return await withPlaywrightUserDataLockRetry(() => this.launchPersistentContext(browserUserDataDir, launchOptions));
   }
 
   private async resolveExecutablePath(): Promise<string | undefined> {
@@ -355,20 +324,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return undefined;
     }
 
-    try {
-      return await this.executablePathResolver();
-    } catch (error) {
-      console.warn(this.getExecutableResolutionWarning(), error);
-      return undefined;
-    }
-  }
-
-  private getExecutableResolutionWarning(): string {
-    if (this.allowVisibleFallback) {
-      return "Unable to resolve Rion Studio browser executable. Falling back to visible Chromium.";
-    }
-
-    return "Unable to resolve Rion Studio browser executable.";
+    return await this.executablePathResolver();
   }
 
   private emitChange(): void {
@@ -390,32 +346,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 }
 
-async function launchBundledChromium(
+async function launchSystemChrome(
   userDataDir: string,
   options: LaunchPersistentContextOptions
 ): Promise<BrowserContext> {
-  configurePlaywrightBrowsersPath();
-  const { chromium } = await import("playwright");
+  const { chromium } = await import("playwright-core");
   return chromium.launchPersistentContext(userDataDir, options);
-}
-
-export function configurePlaywrightBrowsersPath(): void {
-  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    return;
-  }
-
-  if (process.versions.electron && !process.defaultApp) {
-    process.env.PLAYWRIGHT_BROWSERS_PATH = join(
-      process.resourcesPath,
-      "app.asar.unpacked",
-      "node_modules",
-      "playwright-core",
-      ".local-browsers"
-    );
-    return;
-  }
-
-  process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
 }
 
 export function buildLaunchOptions(

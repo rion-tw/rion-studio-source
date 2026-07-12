@@ -71,6 +71,7 @@ describe("registerIpcHandlers workspace handlers", () => {
   let browserManager: Pick<BrowserManager, "launch" | "listStatuses" | "on" | "stop">;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let onOverlayLanguageChanged: ReturnType<typeof vi.fn>;
+  let onRendererReady: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     handlers.clear();
@@ -97,6 +98,7 @@ describe("registerIpcHandlers workspace handlers", () => {
       on: vi.fn()
     };
     onOverlayLanguageChanged = vi.fn();
+    onRendererReady = vi.fn();
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -105,7 +107,8 @@ describe("registerIpcHandlers workspace handlers", () => {
       authManager as AuthManager,
       {
         getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1000, height: 800 }),
-        onOverlayLanguageChanged
+        onOverlayLanguageChanged,
+        onRendererReady
       }
     );
   });
@@ -116,6 +119,17 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(onOverlayLanguageChanged).toHaveBeenCalledWith("zh-TW");
     expect(() => handlers.get(IPC_CHANNELS.preferencesSetOverlayLanguage)?.({}, "fr")).toThrow(
       "Language setting is invalid."
+    );
+  });
+
+  it("accepts renderer readiness only for valid settled states", async () => {
+    await handlers.get(IPC_CHANNELS.appRendererReady)?.({ sender: { id: 42 } }, "ready");
+    await handlers.get(IPC_CHANNELS.appRendererReady)?.({ sender: { id: 43 } }, "failed");
+
+    expect(onRendererReady).toHaveBeenNthCalledWith(1, 42, "ready");
+    expect(onRendererReady).toHaveBeenNthCalledWith(2, 43, "failed");
+    expect(() => handlers.get(IPC_CHANNELS.appRendererReady)?.({ sender: { id: 44 } }, "loading")).toThrow(
+      "Renderer readiness state is invalid."
     );
   });
 

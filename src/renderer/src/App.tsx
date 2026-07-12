@@ -13,6 +13,7 @@ import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import WorkspaceModal from "./features/workspaces/WorkspaceModal";
 import { toMessage } from "./app/errorUtils";
 import { shouldShowLoginGuidance } from "./app/statusUtils";
+import { scheduleAfterTwoAnimationFrames } from "./app/rendererReady";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
@@ -129,6 +130,38 @@ export function App(): JSX.Element {
       unsubscribe();
     };
   }, [hasBridge, initialLoadState, macros, navigateToMacros, setError, setMacros, startCreateMacro, startEditMacro]);
+
+  useEffect(() => {
+    if (!hasBridge || initialLoadState === "loading") {
+      return;
+    }
+
+    let isDisposed = false;
+    let cancelScheduledPaint = (): void => undefined;
+    const notifyAfterSettledPaint = (): void => {
+      cancelScheduledPaint = scheduleAfterTwoAnimationFrames(() => {
+        if (isDisposed) {
+          return;
+        }
+
+        if (document.querySelector("[data-renderer-pending]")) {
+          notifyAfterSettledPaint();
+          return;
+        }
+
+        void window.rionStudio.notifyAppReady(initialLoadState).catch((readyError) => {
+          console.error("Failed to notify the main process that the renderer is ready.", readyError);
+        });
+      });
+    };
+
+    notifyAfterSettledPaint();
+
+    return () => {
+      isDisposed = true;
+      cancelScheduledPaint();
+    };
+  }, [hasBridge, initialLoadState]);
 
   if (hasBridge && data.initialLoadState !== "ready") {
     return (
@@ -401,7 +434,7 @@ function BootLoadingScreen({
 
 function RouteFallback({ t }: { t: Translator }): JSX.Element {
   return (
-    <div className="grid h-full place-items-center p-6" aria-label={t("loading.route")}>
+    <div className="grid h-full place-items-center p-6" aria-label={t("loading.route")} data-renderer-pending>
       <Surface className="grid size-12 place-items-center boot-card" padding="sm" variant="strong">
         <Loader2 className="spin text-muted-foreground" size={20} />
       </Surface>

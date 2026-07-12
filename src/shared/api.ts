@@ -1,6 +1,7 @@
 import type {
   AuthFlowStatus,
   AppLanguage,
+  AppRendererReadyState,
   AppUpdateStatus,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
@@ -18,6 +19,7 @@ import type {
 } from "./types";
 
 export interface RionStudioApi {
+  notifyAppReady: (state: AppRendererReadyState) => Promise<void>;
   listRoles: () => Promise<Role[]>;
   createRole: (input: CreateRoleInput) => Promise<Role>;
   updateRole: (id: string, input: UpdateRoleInput) => Promise<Role>;

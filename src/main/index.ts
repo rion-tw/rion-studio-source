@@ -18,8 +18,11 @@ import {
   createStartupPageUrl,
   loadRendererPage,
   loadWindowAndReveal,
-  runStartupSequence,
+  RendererReadyGate,
+  RendererReadyTimeoutError,
   showStartupWindow,
+  swapPreparedWindows,
+  waitForPreparedRenderer,
   type StartupPageState
 } from "./startup/startupWindow";
 import { SystemChromeLauncher } from "./system-browser/SystemChromeLauncher";
@@ -31,12 +34,16 @@ import type { MacroEditorRequest } from "../shared/types";
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
 
 let mainWindow: BrowserWindow | null = null;
+let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let dockRoleMenu: MacDockRoleMenu | null = null;
 let pendingMacroEditorRequest: MacroEditorRequest | null = null;
 let appInitialized = false;
-let startupFailed = false;
+let initializationFailed = false;
+let mainWindowReady = false;
 let startupPromise: Promise<void> | null = null;
+const rendererReadyGate = new RendererReadyGate();
+const RENDERER_READY_TIMEOUT_MS = 15_000;
 
 function getAppIconPath(): string {
   if (app.isPackaged) {
@@ -65,7 +72,13 @@ function loadAppIcon() {
   return icon.isEmpty() ? undefined : icon;
 }
 
-function createWindow(): BrowserWindow {
+function createWindow({
+  bounds,
+  kind
+}: {
+  bounds?: Electron.Rectangle;
+  kind: "renderer" | "startup";
+}): BrowserWindow {
   const appIcon = loadAppIcon();
   const macWindowOptions =
     process.platform === "darwin"
@@ -83,8 +96,7 @@ function createWindow(): BrowserWindow {
       : {};
 
   const window = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...(bounds ?? { width: 1440, height: 900 }),
     minWidth: 960,
     minHeight: 640,
     title: "Rion Studio",
@@ -93,28 +105,53 @@ function createWindow(): BrowserWindow {
     ...(appIcon ? { icon: appIcon } : {}),
     ...macWindowOptions,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.cjs"),
+      ...(kind === "renderer" ? { preload: join(__dirname, "../preload/index.cjs") } : {}),
+      backgroundThrottling: kind !== "renderer",
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true
     }
   });
 
-  mainWindow = window;
-
-  window.webContents.on("preload-error", (_event, preloadPath, error) => {
-    console.error(`Failed to load preload script: ${preloadPath}`, error);
-  });
-
-  window.on("closed", () => {
-    if (mainWindow === window) {
-      mainWindow = null;
-    }
-  });
+  if (kind === "renderer") {
+    window.webContents.on("preload-error", (_event, preloadPath, error) => {
+      console.error(`Failed to load preload script: ${preloadPath}`, error);
+    });
+  }
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  return window;
+}
+
+function createStartupWindow(): BrowserWindow {
+  const window = createWindow({ kind: "startup" });
+  startupWindow = window;
+
+  window.on("closed", () => {
+    if (startupWindow === window) {
+      startupWindow = null;
+    }
+  });
+
+  return window;
+}
+
+function createRendererWindow(bounds: Electron.Rectangle): BrowserWindow {
+  const window = createWindow({ bounds, kind: "renderer" });
+  const webContentsId = window.webContents.id;
+  mainWindow = window;
+  mainWindowReady = false;
+
+  window.on("closed", () => {
+    rendererReadyGate.cancel(webContentsId);
+    if (mainWindow === window) {
+      mainWindow = null;
+      mainWindowReady = false;
+    }
   });
 
   return window;
@@ -149,30 +186,19 @@ async function showStartupFailure(window: BrowserWindow): Promise<void> {
   await loadWindowAndReveal(window, loadFailurePage);
 }
 
-async function openRendererWindow(): Promise<void> {
-  const window = createWindow();
-
-  try {
-    await loadWindowAndReveal(window, () => loadMainRenderer(window));
-  } catch (error) {
-    console.error("Failed to load the Rion Studio renderer.", error);
-    if (!window.isDestroyed()) {
-      await showStartupFailure(window).catch((failureError) => {
-        console.error("Failed to show the startup failure page.", failureError);
-      });
-    }
-  }
-}
-
 function showMainWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    if (appInitialized) {
-      void openRendererWindow();
+  if (startupWindow && !startupWindow.isDestroyed() && !mainWindowReady) {
+    if (startupWindow.isMinimized()) {
+      startupWindow.restore();
     }
+
+    startupWindow.show();
+    startupWindow.focus();
     return;
   }
 
-  if (!mainWindow) {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindowReady) {
+    ensureApplicationStarted();
     return;
   }
 
@@ -188,7 +214,7 @@ function requestMacroEditorFromOverlay(request: MacroEditorRequest): void {
   pendingMacroEditorRequest = request;
   showMainWindow();
 
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindowReady) {
     return;
   }
 
@@ -246,6 +272,9 @@ function initializeApplication(): void {
     onOverlayLanguageChanged: (language) => {
       macroOverlayInjector.setLanguage(language);
     },
+    onRendererReady: (senderId, state) => {
+      rendererReadyGate.notify(senderId, state);
+    },
     onRolesChanged: () => {
       dockRoleMenu?.scheduleRefresh();
     }
@@ -276,30 +305,114 @@ function initializeApplication(): void {
   void updateManager.checkForUpdates();
 }
 
-async function startApplication(): Promise<void> {
-  const startupWindow = createWindow();
-  const result = await runStartupSequence({
-    showStartup: () => showStartupWindow(startupWindow, getStartupPageOptions()),
-    initialize: () => {
-      initializeApplication();
-      appInitialized = true;
-    },
-    isWindowAvailable: () => mainWindow === startupWindow && !startupWindow.isDestroyed(),
-    loadRenderer: async ({ revealWhenReady }) => {
-      if (revealWhenReady) {
-        await loadWindowAndReveal(startupWindow, () => loadMainRenderer(startupWindow));
-        return;
-      }
-
-      await loadMainRenderer(startupWindow);
-    },
-    showFailure: () => showStartupFailure(startupWindow),
-    onError: (phase, error) => {
-      console.error(`Rion Studio ${phase} phase failed.`, error);
-    }
+async function prepareRendererWindow(loadingWindow: BrowserWindow): Promise<void> {
+  const rendererWindow = createRendererWindow(loadingWindow.getBounds());
+  const webContentsId = rendererWindow.webContents.id;
+  let preparationTimeout: ReturnType<typeof setTimeout> | undefined;
+  const preparationTimeoutPromise = new Promise<never>((_resolve, reject) => {
+    preparationTimeout = setTimeout(() => {
+      reject(new RendererReadyTimeoutError(RENDERER_READY_TIMEOUT_MS));
+    }, RENDERER_READY_TIMEOUT_MS);
   });
+  let removePreloadErrorListener = (): void => undefined;
+  const preloadFailurePromise = new Promise<never>((_resolve, reject) => {
+    const onPreloadError = (_event: Electron.Event, preloadPath: string, error: Error): void => {
+      reject(new Error(`Failed to load preload script: ${preloadPath}`, { cause: error }));
+    };
 
-  startupFailed = result === "failed";
+    removePreloadErrorListener = () => {
+      rendererWindow.webContents.removeListener("preload-error", onPreloadError);
+    };
+    rendererWindow.webContents.once("preload-error", onPreloadError);
+  });
+  const cancelForClosedStartup = (): void => {
+    if (mainWindowReady) {
+      return;
+    }
+
+    rendererReadyGate.cancel(webContentsId);
+    if (!rendererWindow.isDestroyed()) {
+      rendererWindow.destroy();
+    }
+  };
+
+  loadingWindow.once("closed", cancelForClosedStartup);
+
+  try {
+    const rendererState = await Promise.race([
+      waitForPreparedRenderer(
+        rendererWindow,
+        () => loadMainRenderer(rendererWindow),
+        rendererReadyGate.wait(webContentsId, RENDERER_READY_TIMEOUT_MS)
+      ),
+      preloadFailurePromise,
+      preparationTimeoutPromise
+    ]);
+
+    if (!rendererState || loadingWindow.isDestroyed() || rendererWindow.isDestroyed()) {
+      return;
+    }
+
+    mainWindowReady = true;
+    rendererWindow.webContents.setBackgroundThrottling(true);
+    if (!swapPreparedWindows(loadingWindow, rendererWindow)) {
+      mainWindowReady = false;
+      throw new Error("Prepared renderer window could not replace the startup window.");
+    }
+  } catch (error) {
+    mainWindowReady = false;
+    rendererReadyGate.cancel(webContentsId);
+    if (!rendererWindow.isDestroyed()) {
+      rendererWindow.destroy();
+    }
+    throw error;
+  } finally {
+    if (preparationTimeout) {
+      clearTimeout(preparationTimeout);
+    }
+    removePreloadErrorListener();
+    loadingWindow.removeListener("closed", cancelForClosedStartup);
+  }
+}
+
+async function startApplication(): Promise<void> {
+  const loadingWindow = createStartupWindow();
+
+  try {
+    const startupShown = await showStartupWindow(loadingWindow, getStartupPageOptions());
+    if (!startupShown || loadingWindow.isDestroyed()) {
+      return;
+    }
+
+    if (initializationFailed) {
+      await showStartupFailure(loadingWindow);
+      return;
+    }
+
+    if (!appInitialized) {
+      try {
+        initializeApplication();
+        appInitialized = true;
+      } catch (error) {
+        initializationFailed = true;
+        throw error;
+      }
+    }
+
+    if (loadingWindow.isDestroyed()) {
+      return;
+    }
+
+    await prepareRendererWindow(loadingWindow);
+  } catch (error) {
+    console.error("Rion Studio startup failed.", error);
+
+    if (!loadingWindow.isDestroyed()) {
+      await showStartupFailure(loadingWindow).catch((failureError) => {
+        console.error("Failed to show the startup failure page.", failureError);
+      });
+    }
+  }
 }
 
 function ensureApplicationStarted(): void {
@@ -317,19 +430,6 @@ app.whenReady().then(() => {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length !== 0) {
-      return;
-    }
-
-    if (appInitialized) {
-      void openRendererWindow();
-      return;
-    }
-
-    if (startupFailed) {
-      const failureWindow = createWindow();
-      void showStartupFailure(failureWindow).catch((error) => {
-        console.error("Failed to reopen the startup failure page.", error);
-      });
       return;
     }
 

@@ -114,7 +114,6 @@ function RolesView({
               className="flex-1 gap-1.5 px-2.5 sm:flex-none"
               type="button"
               variant="outline"
-              size="sm"
               onClick={onNewRole}
             >
               <Plus size={14} />

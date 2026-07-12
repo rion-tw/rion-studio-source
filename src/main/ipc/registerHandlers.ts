@@ -3,6 +3,7 @@ import { BrowserWindow, ipcMain, screen } from "electron";
 import { IPC_CHANNELS } from "../../shared/ipc";
 import type {
   AppLanguage,
+  AppRendererReadyState,
   AppUpdateStatus,
   AuthFlowStatus,
   CreateLaunchWorkspaceInput,
@@ -33,6 +34,7 @@ interface RegisterIpcHandlersOptions {
   consumePendingMacroEditorRequest?: () => MacroEditorRequest | null;
   onMacrosChanged?: () => void;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
+  onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
 }
@@ -55,6 +57,14 @@ export function registerIpcHandlers(
   });
   options.updateManager?.on("change", (status) => {
     broadcastUpdateStatusChange(status);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.appRendererReady, (event, state: AppRendererReadyState) => {
+    if (!isAppRendererReadyState(state)) {
+      throw new Error("Renderer readiness state is invalid.");
+    }
+
+    options.onRendererReady?.(event.sender.id, state);
   });
 
   ipcMain.handle(IPC_CHANNELS.preferencesSetOverlayLanguage, (_event, language: AppLanguage) => {
@@ -267,6 +277,10 @@ export function registerIpcHandlers(
 
     ipcMain.handle(IPC_CHANNELS.macrosStatuses, () => macroManager.listStatuses());
   }
+}
+
+function isAppRendererReadyState(value: unknown): value is AppRendererReadyState {
+  return value === "ready" || value === "failed";
 }
 
 function isAppLanguage(value: unknown): value is AppLanguage {

@@ -5,7 +5,11 @@ import {
   createStartupPageUrl,
   loadRendererPage,
   loadWindowAndReveal,
-  runStartupSequence,
+  RendererReadyCancelledError,
+  RendererReadyGate,
+  RendererReadyTimeoutError,
+  swapPreparedWindows,
+  waitForPreparedRenderer,
   type RevealableWindow
 } from "../src/main/startup/startupWindow";
 
@@ -103,6 +107,32 @@ describe("loadWindowAndReveal", () => {
   });
 });
 
+describe("waitForPreparedRenderer", () => {
+  it("waits for both the native first frame and the renderer readiness signal", async () => {
+    const window = new FakeWindow();
+    let resolveRenderer: (state: "ready") => void = () => undefined;
+    const rendererReady = new Promise<"ready">((resolve) => {
+      resolveRenderer = resolve;
+    });
+    let settled = false;
+    const preparation = waitForPreparedRenderer(
+      window,
+      () => window.loadURL("http://renderer.test"),
+      rendererReady
+    ).then((state) => {
+      settled = true;
+      return state;
+    });
+
+    window.emit("ready-to-show");
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveRenderer("ready");
+    await expect(preparation).resolves.toBe("ready");
+  });
+});
+
 describe("loadRendererPage", () => {
   it("loads the development renderer URL when provided", async () => {
     const window = {
@@ -129,87 +159,72 @@ describe("loadRendererPage", () => {
   });
 });
 
-describe("runStartupSequence", () => {
-  it("loads the renderer only after initialization completes", async () => {
+describe("RendererReadyGate", () => {
+  it("resolves only the matching renderer readiness signal", async () => {
+    const gate = new RendererReadyGate();
+    const readiness = gate.wait(42, 1_000);
+
+    expect(gate.notify(7, "ready")).toBe(false);
+    expect(gate.notify(42, "failed")).toBe(true);
+    await expect(readiness).resolves.toBe("failed");
+  });
+
+  it("times out when the renderer never reports readiness", async () => {
+    vi.useFakeTimers();
+    const gate = new RendererReadyGate();
+    const assertion = expect(gate.wait(42, 1_000)).rejects.toBeInstanceOf(RendererReadyTimeoutError);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await assertion;
+    vi.useRealTimers();
+  });
+
+  it("rejects a readiness wait when its renderer is cancelled", async () => {
+    const gate = new RendererReadyGate();
+    const readiness = gate.wait(42, 1_000);
+
+    expect(gate.cancel(42)).toBe(true);
+    await expect(readiness).rejects.toBeInstanceOf(RendererReadyCancelledError);
+  });
+});
+
+describe("swapPreparedWindows", () => {
+  it("shows the prepared renderer before closing the startup window", () => {
     const order: string[] = [];
-    const onError = vi.fn();
+    const bounds = { height: 900, width: 1440, x: 20, y: 30 };
+    const startup = {
+      close: vi.fn(() => order.push("startup:close")),
+      focus: vi.fn(),
+      getBounds: vi.fn(() => bounds),
+      isDestroyed: vi.fn(() => false),
+      setBounds: vi.fn(),
+      show: vi.fn()
+    };
+    const renderer = {
+      close: vi.fn(),
+      focus: vi.fn(() => order.push("renderer:focus")),
+      getBounds: vi.fn(() => bounds),
+      isDestroyed: vi.fn(() => false),
+      setBounds: vi.fn((_bounds, _animate) => order.push("renderer:bounds")),
+      show: vi.fn(() => order.push("renderer:show"))
+    };
 
-    const result = await runStartupSequence({
-      showStartup: async () => {
-        order.push("startup");
-        return true;
-      },
-      initialize: async () => {
-        order.push("initialize");
-      },
-      isWindowAvailable: () => true,
-      loadRenderer: async ({ revealWhenReady }) => {
-        order.push(`renderer:${String(revealWhenReady)}`);
-      },
-      showFailure: vi.fn(),
-      onError
-    });
-
-    expect(result).toBe("ready");
-    expect(order).toEqual(["startup", "initialize", "renderer:false"]);
-    expect(onError).not.toHaveBeenCalled();
+    expect(swapPreparedWindows(startup, renderer)).toBe(true);
+    expect(renderer.setBounds).toHaveBeenCalledWith(bounds, false);
+    expect(order).toEqual(["renderer:bounds", "renderer:show", "renderer:focus", "startup:close"]);
   });
 
-  it("reveals the renderer when the startup page could not be shown", async () => {
-    const phases: string[] = [];
+  it("does not swap when either window was destroyed", () => {
+    const window = {
+      close: vi.fn(),
+      focus: vi.fn(),
+      getBounds: vi.fn(() => ({ height: 900, width: 1440, x: 0, y: 0 })),
+      isDestroyed: vi.fn(() => true),
+      setBounds: vi.fn(),
+      show: vi.fn()
+    };
 
-    const result = await runStartupSequence({
-      showStartup: async () => {
-        throw new Error("startup load failed");
-      },
-      initialize: () => undefined,
-      isWindowAvailable: () => true,
-      loadRenderer: async ({ revealWhenReady }) => {
-        expect(revealWhenReady).toBe(true);
-      },
-      showFailure: vi.fn(),
-      onError: (phase) => phases.push(phase)
-    });
-
-    expect(result).toBe("ready");
-    expect(phases).toEqual(["startup"]);
-  });
-
-  it("shows the failure page when initialization fails", async () => {
-    const showFailure = vi.fn(async () => undefined);
-    const onError = vi.fn();
-
-    const result = await runStartupSequence({
-      showStartup: async () => true,
-      initialize: () => {
-        throw new Error("initialization failed");
-      },
-      isWindowAvailable: () => true,
-      loadRenderer: vi.fn(),
-      showFailure,
-      onError
-    });
-
-    expect(result).toBe("failed");
-    expect(onError).toHaveBeenCalledWith("initialize", expect.any(Error));
-    expect(showFailure).toHaveBeenCalledOnce();
-  });
-
-  it("finishes initialization without loading the renderer after the window closes", async () => {
-    const initialize = vi.fn();
-    const loadRenderer = vi.fn();
-
-    const result = await runStartupSequence({
-      showStartup: async () => false,
-      initialize,
-      isWindowAvailable: () => false,
-      loadRenderer,
-      showFailure: vi.fn(),
-      onError: vi.fn()
-    });
-
-    expect(result).toBe("closed");
-    expect(initialize).toHaveBeenCalledOnce();
-    expect(loadRenderer).not.toHaveBeenCalled();
+    expect(swapPreparedWindows(window, window)).toBe(false);
+    expect(window.show).not.toHaveBeenCalled();
   });
 });

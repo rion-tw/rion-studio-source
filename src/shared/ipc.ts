@@ -1,4 +1,5 @@
 export const IPC_CHANNELS = {
+  appRendererReady: "app:renderer-ready",
   rolesList: "roles:list",
   rolesCreate: "roles:create",
   rolesUpdate: "roles:update",

@@ -1,3 +1,5 @@
+import type { AppRendererReadyState } from "../../shared/types";
+
 export type StartupPageState = "failed" | "loading";
 export type StartupTheme = "dark" | "light";
 
@@ -21,16 +23,81 @@ export interface RendererLoadingWindow {
   loadURL(url: string): Promise<void>;
 }
 
-export type StartupSequencePhase = "initialize" | "renderer" | "startup";
-export type StartupSequenceResult = "closed" | "failed" | "ready";
+export interface SwappableWindow {
+  close(): void;
+  focus(): void;
+  getBounds(): WindowBounds;
+  isDestroyed(): boolean;
+  setBounds(bounds: WindowBounds, animate?: boolean): void;
+  show(): void;
+}
 
-interface StartupSequenceOptions {
-  initialize: () => void | Promise<void>;
-  isWindowAvailable: () => boolean;
-  loadRenderer: (options: { revealWhenReady: boolean }) => Promise<void>;
-  onError: (phase: StartupSequencePhase, error: unknown) => void;
-  showFailure: () => Promise<void>;
-  showStartup: () => Promise<boolean>;
+export interface WindowBounds {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
+interface PendingRendererReady {
+  reject: (error: Error) => void;
+  resolve: (state: AppRendererReadyState) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+export class RendererReadyCancelledError extends Error {
+  constructor() {
+    super("Renderer readiness wait was cancelled.");
+    this.name = "RendererReadyCancelledError";
+  }
+}
+
+export class RendererReadyTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Renderer did not become ready within ${timeoutMs}ms.`);
+    this.name = "RendererReadyTimeoutError";
+  }
+}
+
+export class RendererReadyGate {
+  private readonly pendingByWebContentsId = new Map<number, PendingRendererReady>();
+
+  wait(webContentsId: number, timeoutMs: number): Promise<AppRendererReadyState> {
+    this.cancel(webContentsId);
+
+    return new Promise<AppRendererReadyState>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingByWebContentsId.delete(webContentsId);
+        reject(new RendererReadyTimeoutError(timeoutMs));
+      }, timeoutMs);
+
+      this.pendingByWebContentsId.set(webContentsId, { reject, resolve, timeout });
+    });
+  }
+
+  notify(webContentsId: number, state: AppRendererReadyState): boolean {
+    const pending = this.pendingByWebContentsId.get(webContentsId);
+    if (!pending) {
+      return false;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingByWebContentsId.delete(webContentsId);
+    pending.resolve(state);
+    return true;
+  }
+
+  cancel(webContentsId: number): boolean {
+    const pending = this.pendingByWebContentsId.get(webContentsId);
+    if (!pending) {
+      return false;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingByWebContentsId.delete(webContentsId);
+    pending.reject(new RendererReadyCancelledError());
+    return true;
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -217,7 +284,7 @@ export function loadRendererPage(
   return window.loadFile(rendererHtmlPath);
 }
 
-export async function loadWindowAndReveal(
+export async function loadWindowUntilReady(
   window: RevealableWindow,
   load: () => Promise<void>
 ): Promise<boolean> {
@@ -249,11 +316,6 @@ export async function loadWindowAndReveal(
   });
   const ready = await readyPromise;
 
-  if (ready && !window.isDestroyed()) {
-    window.show();
-    window.focus();
-  }
-
   await loadPromise;
 
   if (loadError && !window.isDestroyed()) {
@@ -263,49 +325,42 @@ export async function loadWindowAndReveal(
   return ready && !window.isDestroyed();
 }
 
+export async function loadWindowAndReveal(
+  window: RevealableWindow,
+  load: () => Promise<void>
+): Promise<boolean> {
+  const ready = await loadWindowUntilReady(window, load);
+
+  if (ready && !window.isDestroyed()) {
+    window.show();
+    window.focus();
+    return true;
+  }
+
+  return false;
+}
+
+export async function waitForPreparedRenderer(
+  window: RevealableWindow,
+  load: () => Promise<void>,
+  rendererReady: Promise<AppRendererReadyState>
+): Promise<AppRendererReadyState | null> {
+  const [windowReady, state] = await Promise.all([loadWindowUntilReady(window, load), rendererReady]);
+  return windowReady ? state : null;
+}
+
+export function swapPreparedWindows(startupWindow: SwappableWindow, rendererWindow: SwappableWindow): boolean {
+  if (startupWindow.isDestroyed() || rendererWindow.isDestroyed()) {
+    return false;
+  }
+
+  rendererWindow.setBounds(startupWindow.getBounds(), false);
+  rendererWindow.show();
+  rendererWindow.focus();
+  startupWindow.close();
+  return true;
+}
+
 export function showStartupWindow(window: RevealableWindow, options: StartupPageOptions): Promise<boolean> {
   return loadWindowAndReveal(window, () => window.loadURL(createStartupPageUrl(options)));
-}
-
-async function safelyShowFailure(options: StartupSequenceOptions): Promise<void> {
-  if (!options.isWindowAvailable()) {
-    return;
-  }
-
-  try {
-    await options.showFailure();
-  } catch (error) {
-    options.onError("startup", error);
-  }
-}
-
-export async function runStartupSequence(options: StartupSequenceOptions): Promise<StartupSequenceResult> {
-  let startupShown = false;
-
-  try {
-    startupShown = await options.showStartup();
-  } catch (error) {
-    options.onError("startup", error);
-  }
-
-  try {
-    await options.initialize();
-  } catch (error) {
-    options.onError("initialize", error);
-    await safelyShowFailure(options);
-    return "failed";
-  }
-
-  if (!options.isWindowAvailable()) {
-    return "closed";
-  }
-
-  try {
-    await options.loadRenderer({ revealWhenReady: !startupShown });
-    return "ready";
-  } catch (error) {
-    options.onError("renderer", error);
-    await safelyShowFailure(options);
-    return "failed";
-  }
 }

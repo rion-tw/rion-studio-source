@@ -173,7 +173,9 @@ function WorkspaceLayoutFormEditor({
   t
 }: WorkspaceLayoutFormEditorProps): JSX.Element {
   const [dragSlots, setDragSlots] = useState<LaunchWorkspaceSlot[] | null>(null);
+  const [dropTargetSlotIndex, setDropTargetSlotIndex] = useState<number | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(0);
+  const dragPayloadRef = useRef<{ roleId?: string; slotIndex?: number } | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const slots = dragSlots ?? form.slots;
@@ -216,12 +218,14 @@ function WorkspaceLayoutFormEditor({
   }
 
   function handleSlotDragStart(event: ReactDragEvent, slotIndex: number): void {
+    dragPayloadRef.current = { slotIndex };
     event.dataTransfer.setData("application/x-rion-workspace-slot", String(slotIndex));
     event.dataTransfer.setData("text/plain", `slot:${slotIndex}`);
     event.dataTransfer.effectAllowed = "move";
   }
 
   function handleRoleDragStart(event: ReactDragEvent, roleId: string): void {
+    dragPayloadRef.current = { roleId };
     event.dataTransfer.setData("application/x-rion-role", roleId);
     event.dataTransfer.setData("text/plain", `role:${roleId}`);
     event.dataTransfer.effectAllowed = "copyMove";
@@ -231,8 +235,10 @@ function WorkspaceLayoutFormEditor({
     event.preventDefault();
     event.stopPropagation();
     setSelectedSlotIndex(slotIndex);
-    const sourceSlotIndex = readWorkspaceSlotDragIndex(event);
-    const roleId = readRoleDragId(event);
+    setDropTargetSlotIndex(null);
+    const sourceSlotIndex = readWorkspaceSlotDragIndex(event) ?? dragPayloadRef.current?.slotIndex;
+    const roleId = readRoleDragId(event) ?? dragPayloadRef.current?.roleId;
+    dragPayloadRef.current = null;
 
     if (sourceSlotIndex !== undefined) {
       updateSlots(swapWorkspaceSlotRoles(slots, sourceSlotIndex, slotIndex));
@@ -242,6 +248,11 @@ function WorkspaceLayoutFormEditor({
     if (roleId) {
       updateSlots(assignRoleToWorkspaceSlot(slots, slotIndex, roleId));
     }
+  }
+
+  function handleDragEnd(): void {
+    dragPayloadRef.current = null;
+    setDropTargetSlotIndex(null);
   }
 
   function startResize(
@@ -359,10 +370,10 @@ function WorkspaceLayoutFormEditor({
         </FormGrid>
       </Surface>
 
-      <Surface className="grid gap-4 md:grid-cols-[minmax(0,1fr)_270px]" padding="md" variant="inset">
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_270px]">
         <div
           ref={previewRef}
-          className="workspace-layout-preview relative aspect-[16/9] min-h-[280px] overflow-hidden rounded-lg border border-border/50"
+          className="relative aspect-[16/9] min-h-[280px] overflow-hidden"
         >
           {slots.map((slot, index) => {
             const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
@@ -372,12 +383,20 @@ function WorkspaceLayoutFormEditor({
                 key={slot.id}
                 index={index}
                 isActive={role ? statusByRole.has(role.id) : false}
+                isDropTarget={index === dropTargetSlotIndex}
                 isSelected={index === selectedSlotIndex}
                 isSaving={isSaving}
                 role={role}
                 rect={slot.rect}
                 t={t}
                 onClick={() => setSelectedSlotIndex(index)}
+                onDragEnd={handleDragEnd}
+                onDragEnter={() => setDropTargetSlotIndex(index)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = dragPayloadRef.current?.slotIndex === undefined ? "copy" : "move";
+                  setDropTargetSlotIndex(index);
+                }}
                 onDrop={(event) => handleSlotDrop(event, index)}
                 onSlotDragStart={(event) => handleSlotDragStart(event, index)}
               />
@@ -419,6 +438,7 @@ function WorkspaceLayoutFormEditor({
                 return (
                   <button
                     key={role.id}
+                    data-workspace-role-id={role.id}
                     className={cn(
                       "glass-control flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors",
                       isSelectedSlotRole && "border-primary/45 bg-primary/12 text-foreground",
@@ -428,6 +448,7 @@ function WorkspaceLayoutFormEditor({
                     draggable={!isSaving}
                     disabled={isSaving}
                     onClick={() => handleRoleSelect(role.id)}
+                    onDragEnd={handleDragEnd}
                     onDragStart={(event) => handleRoleDragStart(event, role.id)}
                   >
                     <div
@@ -459,7 +480,7 @@ function WorkspaceLayoutFormEditor({
             )}
           </div>
         </Surface>
-      </Surface>
+      </div>
     </div>
   );
 }
@@ -467,9 +488,13 @@ function WorkspaceLayoutFormEditor({
 interface WorkspaceSlotDropZoneProps {
   index: number;
   isActive: boolean;
+  isDropTarget: boolean;
   isSelected: boolean;
   isSaving: boolean;
   onClick: () => void;
+  onDragEnd: () => void;
+  onDragEnter: () => void;
+  onDragOver: (event: ReactDragEvent) => void;
   onDrop: (event: ReactDragEvent) => void;
   onSlotDragStart: (event: ReactDragEvent) => void;
   role?: Role;
@@ -480,9 +505,13 @@ interface WorkspaceSlotDropZoneProps {
 function WorkspaceSlotDropZone({
   index,
   isActive,
+  isDropTarget,
   isSelected,
   isSaving,
   onClick,
+  onDragEnd,
+  onDragEnter,
+  onDragOver,
   onDrop,
   onSlotDragStart,
   role,
@@ -491,13 +520,13 @@ function WorkspaceSlotDropZone({
 }: WorkspaceSlotDropZoneProps): JSX.Element {
   return (
     <div
-      className="absolute p-2"
+      className="absolute p-2.5"
       style={rectToPreviewStyle(rect)}
-      onDragEnter={(event) => event.preventDefault()}
-      onDragOver={(event) => {
+      onDragEnter={(event) => {
         event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
+        onDragEnter();
       }}
+      onDragOver={onDragOver}
       onDrop={onDrop}
     >
       <button
@@ -506,35 +535,48 @@ function WorkspaceSlotDropZone({
           role
             ? "border-border/70 bg-card/72 shadow-sm"
             : "border-border/40 bg-card/35 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/50",
-          isSelected && "border-primary/60 shadow-[0_0_0_2px_hsl(var(--primary)/0.16),0_8px_22px_hsl(var(--glass-shadow))]"
+          isSelected && "border-primary/60 shadow-[0_0_0_2px_hsl(var(--primary)/0.16),0_8px_22px_hsl(var(--glass-shadow))]",
+          isDropTarget && "border-primary/70 bg-primary/8 shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
         )}
         type="button"
         aria-pressed={isSelected}
-        draggable={Boolean(role) && !isSaving}
+        data-workspace-assigned-role-id={role?.id ?? ""}
+        data-workspace-slot-index={index}
         disabled={isSaving}
         style={createWorkspaceSlotBackground(role)}
         onClick={onClick}
-        onDragStart={onSlotDragStart}
       >
         {role?.coverImageDataUrl ? <div className="absolute inset-0 bg-black/10" /> : null}
-        <div className="relative z-10 flex min-w-0 items-start justify-between gap-2">
+        <div className="relative z-10 flex min-w-0 items-start gap-2">
           <p className="rounded-md border border-border/35 bg-background/45 px-2 py-1 text-[11px] font-semibold leading-none text-muted-foreground backdrop-blur-md">
             {t("workspaces.slot").replace("{index}", String(index + 1))}
           </p>
-          <span className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 transition-colors group-hover/slot:bg-background/35 group-hover/slot:text-muted-foreground">
+        </div>
+
+        {role ? (
+          <span
+            data-workspace-slot-drag-handle
+            className="glass-popover absolute right-2.5 top-2.5 z-20 grid size-7 cursor-grab place-items-center rounded-md text-muted-foreground opacity-0 shadow-sm transition-[opacity,color,transform] hover:text-foreground active:cursor-grabbing active:scale-95 group-hover/slot:opacity-100"
+            draggable={!isSaving}
+            onDragEnd={onDragEnd}
+            onDragStart={(event) => {
+              event.stopPropagation();
+              onSlotDragStart(event);
+            }}
+          >
             <GripVertical size={14} />
           </span>
-        </div>
+        ) : null}
 
         {role ? (
           <div className="workspace-slot-caption">
             <p className="workspace-slot-name-chip flex min-w-0 items-center gap-1.5 px-2 py-1 text-sm font-semibold">
-                <RoleRunDot
-                  className="size-2 border-white/75"
-                  isActive={isActive}
-                  label={t(isActive ? "role.statusDot.active" : "role.statusDot.inactive")}
-                />
-                <span className="min-w-0 truncate">{role.name}</span>
+              <RoleRunDot
+                className="size-2 border-white/75"
+                isActive={isActive}
+                label={t(isActive ? "role.statusDot.active" : "role.statusDot.inactive")}
+              />
+              <span className="min-w-0 truncate">{role.name}</span>
             </p>
           </div>
         ) : (
@@ -565,6 +607,9 @@ interface WorkspaceResizeHandlesProps {
 function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceResizeHandlesProps): JSX.Element | null {
   const splits = getWorkspaceSplits(template, slots);
   const splitX = splits.vertical[0] ?? 1;
+  const verticalHandleY = template === "quad" ? 0.25 : 0.5;
+  const horizontalHandleX =
+    template === "quad" ? 0.25 : template === "main_left_stack_right" ? splitX + (1 - splitX) / 2 : 0.5;
 
   if (splits.vertical.length === 0 && splits.horizontal.length === 0) {
     return null;
@@ -575,18 +620,13 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
       {splits.vertical.map((position, index) => (
         <button
           key={`vertical-${index}`}
-          className="group/resize absolute top-0 z-20 h-full w-5 -translate-x-1/2 cursor-col-resize bg-transparent focus-visible:outline-none"
+          className="group/resize absolute z-20 grid h-12 w-6 -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
           type="button"
           aria-label={`Resize columns ${index + 1}`}
-          style={{ left: `${position * 100}%` }}
+          style={{ left: `${position * 100}%`, top: `${verticalHandleY * 100}%` }}
           onPointerDown={(event) => onResizeStart(event, "vertical", index)}
         >
-          <span
-            className={cn(
-              "glass-popover absolute left-1/2 grid h-10 w-4 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-hover/resize:scale-105 group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
-              template === "quad" ? "top-1/4" : "top-1/2"
-            )}
-          >
+          <span className="glass-popover grid h-9 w-3.5 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25">
             <GripVertical size={12} />
           </span>
         </button>
@@ -595,22 +635,16 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
       {splits.horizontal.map((position, index) => (
         <button
           key={`horizontal-${index}`}
-          className="group/resize absolute z-20 h-5 -translate-y-1/2 cursor-row-resize bg-transparent focus-visible:outline-none"
+          className="group/resize absolute z-20 grid h-6 w-12 -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
           type="button"
           aria-label={`Resize rows ${index + 1}`}
           style={{
-            left: template === "main_left_stack_right" ? `${splitX * 100}%` : 0,
-            top: `${position * 100}%`,
-            width: template === "main_left_stack_right" ? `${(1 - splitX) * 100}%` : "100%"
+            left: `${horizontalHandleX * 100}%`,
+            top: `${position * 100}%`
           }}
           onPointerDown={(event) => onResizeStart(event, "horizontal", index)}
         >
-          <span
-            className={cn(
-              "glass-popover absolute top-1/2 grid h-4 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-hover/resize:scale-105 group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
-              template === "quad" ? "left-1/4" : "left-1/2"
-            )}
-          >
+          <span className="glass-popover grid h-3.5 w-9 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25">
             <GripHorizontal size={12} />
           </span>
         </button>

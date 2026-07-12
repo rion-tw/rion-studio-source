@@ -247,6 +247,11 @@ export function readWorkspaceSlotDragIndex(event: ReactDragEvent): number | unde
   const customValue = event.dataTransfer.getData("application/x-rion-workspace-slot");
   const plainValue = event.dataTransfer.getData("text/plain");
   const rawValue = customValue || (plainValue.startsWith("slot:") ? plainValue.slice("slot:".length) : "");
+
+  if (!rawValue.trim()) {
+    return undefined;
+  }
+
   const index = Number(rawValue);
 
   return Number.isInteger(index) && index >= 0 ? index : undefined;

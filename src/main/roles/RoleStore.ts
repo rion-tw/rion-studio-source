@@ -20,6 +20,7 @@ interface RolesFile {
 
 const MAX_COVER_IMAGE_DATA_URL_LENGTH = 1_500_000;
 const MAX_LAUNCH_URL_LENGTH = 2_048;
+const INVALID_LAUNCH_GAME_MESSAGE = "Launch game must use a valid HTTP or HTTPS URL.";
 const COVER_IMAGE_DATA_URL_PATTERN = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 const COVER_IMAGE_DOMINANT_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 const LEGACY_ROLES_FIELD = "profile" + "s";
@@ -331,11 +332,11 @@ export class RoleStore {
     const rawValue = value === undefined ? fallback : value.trim();
 
     if (!rawValue) {
-      throw new RoleStoreError("ROLE_LAUNCH_URL_INVALID", "Launch URL must be a valid HTTP or HTTPS URL.");
+      throw new RoleStoreError("ROLE_LAUNCH_URL_INVALID", INVALID_LAUNCH_GAME_MESSAGE);
     }
 
     if (rawValue.length > MAX_LAUNCH_URL_LENGTH) {
-      throw new RoleStoreError("ROLE_LAUNCH_URL_INVALID", "Launch URL must be a valid HTTP or HTTPS URL.");
+      throw new RoleStoreError("ROLE_LAUNCH_URL_INVALID", INVALID_LAUNCH_GAME_MESSAGE);
     }
 
     try {
@@ -347,7 +348,7 @@ export class RoleStore {
 
       return url.toString();
     } catch {
-      throw new RoleStoreError("ROLE_LAUNCH_URL_INVALID", "Launch URL must be a valid HTTP or HTTPS URL.");
+      throw new RoleStoreError("ROLE_LAUNCH_URL_INVALID", INVALID_LAUNCH_GAME_MESSAGE);
     }
   }
 

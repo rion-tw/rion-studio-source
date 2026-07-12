@@ -16,9 +16,9 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
-import { RoleRunDot } from "../../components/RoleRunDot";
 import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
+import { launchUrlOptions } from "../../app/constants";
 import { localizeErrorMessage, type Language, type TranslationKey, type Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { AuthFlowStatus, Role, RoleStatus } from "../../../../shared/types";
@@ -300,15 +300,16 @@ function RoleCard({
               hasCoverImage ? "role-cover-actions" : "glass-divider border-t pt-3"
             )}
           >
-            <div className="flex min-w-0 items-center gap-2 pl-2">
-              <RoleRunDot
-                className={hasCoverImage ? "border-white/75" : undefined}
-                isActive={isActive}
-                label={t(isActive ? "role.statusDot.active" : "role.statusDot.inactive")}
-              />
-              <CardTitle className={cn("min-w-0 flex-1 truncate", hasCoverImage && "role-cover-title text-white")}>
-                {role.name}
-              </CardTitle>
+            <div className="min-w-0 pl-2">
+              <CardTitle className={cn("truncate", hasCoverImage && "role-cover-title text-white")}>{role.name}</CardTitle>
+              <p
+                className={cn(
+                  "mt-0.5 truncate text-[10px] font-medium leading-3 text-muted-foreground",
+                  hasCoverImage && "text-white/78"
+                )}
+              >
+                {resolveLaunchGameName(role.launchUrl, t)}
+              </p>
             </div>
             {isActive ? (
               <Button
@@ -375,6 +376,20 @@ function RoleCard({
       </div>
     </Card>
   );
+}
+
+function resolveLaunchGameName(launchUrl: string, t: Translator): string {
+  const option = launchUrlOptions.find((launchOption) => launchOption.value === launchUrl);
+
+  if (option) {
+    return "label" in option ? option.label : t(option.labelKey);
+  }
+
+  try {
+    return new URL(launchUrl).hostname;
+  } catch {
+    return t("roleForm.launchUrl.current");
+  }
 }
 
 interface LoginButtonProps {

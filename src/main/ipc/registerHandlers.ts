@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, screen } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc";
 import type {
@@ -9,11 +9,11 @@ import type {
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
   CreateRoleInput,
+  GameStageLayout,
   MacroEditorRequest,
   MacroRunStatus,
-  NormalizedRect,
-  PixelBounds,
   RoleStatus,
+  UpdateGameStageBoundsInput,
   UpdateLaunchWorkspaceInput,
   UpdateMacroInput,
   UpdateRoleInput
@@ -21,6 +21,7 @@ import type {
 import type { AuthManager } from "../auth/AuthManager";
 import type { BrowserManager } from "../browser/BrowserManager";
 import type { MacroManager } from "../macros/MacroManager";
+import type { MacroOverlayRequest } from "../macros/MacroOverlayInjector";
 import type { MacroStore } from "../macros/MacroStore";
 import { RoleStore } from "../roles/RoleStore";
 import type { AppUpdateManager } from "../updates/AppUpdateManager";
@@ -33,6 +34,7 @@ interface RegisterIpcHandlersOptions {
   updateManager?: AppUpdateManager;
   consumePendingMacroEditorRequest?: () => MacroEditorRequest | null;
   onMacrosChanged?: () => void;
+  onMacroOverlayRequest?: (webContentsId: number, request: MacroOverlayRequest) => Promise<unknown>;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   onRolesChanged?: () => void;
@@ -48,6 +50,9 @@ export function registerIpcHandlers(
 ): void {
   browserManager.on("change", (statuses) => {
     broadcastStatusChange(statuses);
+  });
+  browserManager.on("layoutChange", (layout) => {
+    broadcastGameStageLayoutChange(layout);
   });
   authManager.on("change", (statuses) => {
     broadcastAuthStatusChange(statuses);
@@ -76,6 +81,14 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.macrosConsumeEditorRequest, () => options.consumePendingMacroEditorRequest?.() ?? null);
+
+  ipcMain.handle(IPC_CHANNELS.macrosOverlayRequest, (event, request: MacroOverlayRequest) => {
+    if (!options.onMacroOverlayRequest || !isMacroOverlayRequest(request)) {
+      throw new Error("Macro overlay request is invalid.");
+    }
+
+    return options.onMacroOverlayRequest(event.sender.id, request);
+  });
 
   ipcMain.handle(IPC_CHANNELS.appVersion, () => options.updateManager?.getStatus().currentVersion ?? "");
 
@@ -165,6 +178,16 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.rolesStatuses, () => browserManager.listStatuses());
 
+  ipcMain.handle(IPC_CHANNELS.gameStageLayout, () => browserManager.getActiveLayout());
+
+  ipcMain.handle(IPC_CHANNELS.gameStageUpdateBounds, (_event, input: UpdateGameStageBoundsInput) => {
+    if (!isUpdateGameStageBoundsInput(input)) {
+      throw new Error("Game stage bounds are invalid.");
+    }
+
+    browserManager.updateViewBounds(input);
+  });
+
   ipcMain.handle(IPC_CHANNELS.workspacesList, () => workspaceStore.listWorkspaces());
 
   ipcMain.handle(IPC_CHANNELS.workspacesCreate, async (_event, input: CreateLaunchWorkspaceInput) => {
@@ -208,13 +231,18 @@ export function registerIpcHandlers(
       throw new Error("Login required. Use Login before launching every role in this workspace.");
     }
 
-    const workArea = options.getLaunchWorkArea?.() ?? screen.getPrimaryDisplay().workArea;
+    browserManager.setActiveLayout({
+      id: workspace.id,
+      mode: "workspace",
+      name: workspace.name,
+      slots: launchItems.map(({ role, slot }) => ({ roleId: role.id, rect: slot.rect }))
+    });
     const statuses: RoleStatus[] = [];
 
-    for (const { role, slot } of launchItems) {
+    for (const { role } of launchItems) {
       statuses.push(
         await browserManager.launch(role, {
-          bounds: normalizedRectToPixelBounds(slot.rect, workArea),
+          preserveLayout: true,
           zoomFactor: workspace.browserZoomPercent / 100
         })
       );
@@ -293,6 +321,12 @@ function broadcastStatusChange(statuses: RoleStatus[]): void {
   });
 }
 
+function broadcastGameStageLayoutChange(layout: GameStageLayout | null): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.gameStageLayoutChanged, layout);
+  });
+}
+
 function broadcastAuthStatusChange(statuses: AuthFlowStatus[]): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.rolesAuthStatusChanged, statuses);
@@ -311,11 +345,60 @@ function broadcastUpdateStatusChange(status: AppUpdateStatus): void {
   });
 }
 
-function normalizedRectToPixelBounds(rect: NormalizedRect, workArea: Electron.Rectangle): PixelBounds {
-  return {
-    x: Math.round(workArea.x + rect.x * workArea.width),
-    y: Math.round(workArea.y + rect.y * workArea.height),
-    width: Math.max(1, Math.round(rect.width * workArea.width)),
-    height: Math.max(1, Math.round(rect.height * workArea.height))
-  };
+function isUpdateGameStageBoundsInput(value: unknown): value is UpdateGameStageBoundsInput {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const input = value as Partial<UpdateGameStageBoundsInput>;
+  return (
+    typeof input.visible === "boolean" &&
+    Array.isArray(input.views) &&
+    input.views.length <= 4 &&
+    input.views.every(
+      (item) =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof item.roleId === "string" &&
+        item.roleId.length > 0 &&
+        isPixelBounds(item.bounds)
+    )
+  );
+}
+
+function isPixelBounds(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const bounds = value as Record<string, unknown>;
+  return (
+    typeof bounds.x === "number" &&
+    typeof bounds.y === "number" &&
+    typeof bounds.width === "number" &&
+    typeof bounds.height === "number" &&
+    Number.isFinite(bounds.x) &&
+    Number.isFinite(bounds.y) &&
+    Number.isFinite(bounds.width) &&
+    Number.isFinite(bounds.height) &&
+    Number(bounds.width) >= 1 &&
+    Number(bounds.height) >= 1
+  );
+}
+
+function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequest {
+  if (typeof value !== "object" || value === null || !("type" in value)) {
+    return false;
+  }
+
+  const request = value as { macroId?: unknown; type?: unknown };
+  if (request.type === "list" || request.type === "create") {
+    return true;
+  }
+
+  return (
+    (request.type === "edit" || request.type === "start" || request.type === "stop") &&
+    typeof request.macroId === "string" &&
+    request.macroId.length > 0
+  );
 }

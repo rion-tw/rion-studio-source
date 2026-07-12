@@ -1,4 +1,4 @@
-import type { Frame, Page } from "playwright-core";
+import type { WebContents } from "electron";
 
 import type { AppLanguage, Macro, MacroEditorRequest, MacroRunStatus, Role } from "../../shared/types";
 import type { MacroManager } from "./MacroManager";
@@ -10,7 +10,7 @@ interface MacroOverlayState {
   statuses: MacroRunStatus[];
 }
 
-type MacroOverlayRequest =
+export type MacroOverlayRequest =
   | {
       type: "list";
     }
@@ -30,12 +30,10 @@ type MacroOverlayRequest =
       type: "stop";
     };
 
-const MACRO_OVERLAY_BINDING = "rionStudioMacroOverlay";
-
 export class MacroOverlayInjector {
-  private readonly installedPages = new Set<Page>();
-  private readonly initializedPages = new WeakSet<Page>();
-  private readonly pageRoleIds = new WeakMap<Page, string>();
+  private readonly installedContents = new Set<WebContents>();
+  private readonly initializedContents = new WeakSet<WebContents>();
+  private readonly contentRoleIds = new WeakMap<WebContents, string>();
   private language: AppLanguage | undefined;
 
   constructor(
@@ -44,26 +42,26 @@ export class MacroOverlayInjector {
     private readonly onMacroEditorRequested?: (request: MacroEditorRequest) => void | Promise<void>
   ) {}
 
-  async install(role: Role, page: Page): Promise<void> {
-    this.trackInstalledPage(role.id, page);
-    await this.exposeBinding(role.id, page);
+  async install(role: Role, webContents: WebContents): Promise<void> {
+    this.trackInstalledContents(role.id, webContents);
 
-    if (!this.initializedPages.has(page)) {
-      this.initializedPages.add(page);
-      await page.addInitScript({ content: MACRO_OVERLAY_SCRIPT });
-      this.registerFrameInstallers(page);
+    if (!this.initializedContents.has(webContents)) {
+      this.initializedContents.add(webContents);
+      webContents.on("did-finish-load", () => {
+        void this.installContents(webContents);
+      });
     }
 
-    await Promise.all(page.frames().map((frame) => this.installFrame(frame)));
+    await this.installContents(webContents);
   }
 
   refreshInstalledOverlays(roleId?: string): void {
-    this.installedPages.forEach((page) => {
-      if (roleId && this.pageRoleIds.get(page) !== roleId) {
+    this.installedContents.forEach((webContents) => {
+      if (roleId && this.contentRoleIds.get(webContents) !== roleId) {
         return;
       }
 
-      void this.refreshPageOverlay(page);
+      void this.refreshContentsOverlay(webContents);
     });
   }
 
@@ -72,89 +70,65 @@ export class MacroOverlayInjector {
     this.refreshInstalledOverlays();
   }
 
-  private trackInstalledPage(roleId: string, page: Page): void {
-    const wasTracked = this.installedPages.has(page);
-    this.installedPages.add(page);
-    this.pageRoleIds.set(page, roleId);
+  async handleRequest(roleId: string, request: MacroOverlayRequest): Promise<MacroOverlayState> {
+    switch (request.type) {
+      case "list":
+        break;
+      case "create":
+        await this.onMacroEditorRequested?.({ roleId });
+        break;
+      case "edit":
+        await this.onMacroEditorRequested?.({ macroId: request.macroId, roleId });
+        break;
+      case "start":
+        await this.macroManager.start(roleId, request.macroId);
+        break;
+      case "stop":
+        await this.macroManager.stop(roleId, request.macroId);
+        break;
+    }
+
+    return this.getOverlayState(roleId);
+  }
+
+  private trackInstalledContents(roleId: string, webContents: WebContents): void {
+    const wasTracked = this.installedContents.has(webContents);
+    this.installedContents.add(webContents);
+    this.contentRoleIds.set(webContents, roleId);
 
     if (wasTracked) {
       return;
     }
 
-    const trackedPage = page as Page & { once?: Page["once"] };
-    if (typeof trackedPage.once === "function") {
-      trackedPage.once("close", () => {
-        this.installedPages.delete(page);
-      });
-    }
+    webContents.once("destroyed", () => {
+      this.installedContents.delete(webContents);
+    });
   }
 
-  private async refreshPageOverlay(page: Page): Promise<void> {
+  private async refreshContentsOverlay(webContents: WebContents): Promise<void> {
     try {
-      await page.evaluate(() => {
-        const controller = (
-          window as Window & {
-            __rionStudioMacroOverlay?: {
-              refresh?: (options?: { renderAfter?: boolean }) => Promise<void>;
-            };
-          }
-        ).__rionStudioMacroOverlay;
-
-        return controller?.refresh?.({ renderAfter: true });
-      });
+      await webContents.executeJavaScript(
+        "window.__rionStudioMacroOverlay?.refresh?.({ renderAfter: true })"
+      );
     } catch (error) {
       if (!isBenignFrameInstallError(error)) {
         console.warn("Failed to refresh Rion Studio macro overlay.", error);
       }
 
-      this.installedPages.delete(page);
+      this.installedContents.delete(webContents);
     }
   }
 
-  private async exposeBinding(roleId: string, page: Page): Promise<void> {
-    try {
-      await page.exposeBinding(MACRO_OVERLAY_BINDING, async (_source, request: MacroOverlayRequest) => {
-        switch (request.type) {
-          case "list":
-            return this.getOverlayState(roleId);
-          case "create":
-            await this.onMacroEditorRequested?.({ roleId });
-            return this.getOverlayState(roleId);
-          case "edit":
-            await this.onMacroEditorRequested?.({ macroId: request.macroId, roleId });
-            return this.getOverlayState(roleId);
-          case "start":
-            await this.macroManager.start(roleId, request.macroId);
-            return this.getOverlayState(roleId);
-          case "stop":
-            await this.macroManager.stop(roleId, request.macroId);
-            return this.getOverlayState(roleId);
-        }
-      });
-    } catch (error) {
-      if (error instanceof Error && /already|registered/i.test(error.message)) {
-        return;
-      }
-
-      throw error;
+  private async installContents(webContents: WebContents): Promise<void> {
+    if (webContents.isDestroyed()) {
+      return;
     }
-  }
 
-  private registerFrameInstallers(page: Page): void {
-    const installFrame = (frame: Frame) => {
-      void this.installFrame(frame);
-    };
-
-    page.on("frameattached", installFrame);
-    page.on("framenavigated", installFrame);
-  }
-
-  private async installFrame(frame: Frame): Promise<void> {
     try {
-      await frame.evaluate(MACRO_OVERLAY_SCRIPT);
+      await webContents.executeJavaScript(MACRO_OVERLAY_SCRIPT);
     } catch (error) {
       if (!isBenignFrameInstallError(error)) {
-        console.warn("Failed to install Rion Studio macro overlay in frame.", error);
+        console.warn("Failed to install Rion Studio macro overlay.", error);
       }
     }
   }

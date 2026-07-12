@@ -15,6 +15,7 @@ export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppRendererReadyState = "failed" | "ready";
 export type AuthState = "unknown" | "login_required" | "authenticated" | "auth_failed";
 export type AuthFlowState =
+  | "opening_app"
   | "opening_chrome"
   | "waiting_for_login"
   | "closing_login_window"
@@ -185,6 +186,30 @@ export interface PixelBounds {
   y: number;
   width: number;
   height: number;
+}
+
+export type GameStageMode = "login" | "role" | "workspace";
+
+export interface GameStageSlot {
+  roleId: string;
+  rect: NormalizedRect;
+}
+
+export interface GameStageLayout {
+  id: string;
+  mode: GameStageMode;
+  name: string;
+  slots: GameStageSlot[];
+}
+
+export interface GameStageViewBounds {
+  roleId: string;
+  bounds: PixelBounds;
+}
+
+export interface UpdateGameStageBoundsInput {
+  visible: boolean;
+  views: GameStageViewBounds[];
 }
 
 export interface AppErrorPayload {

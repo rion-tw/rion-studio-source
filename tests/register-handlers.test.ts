@@ -68,7 +68,10 @@ const workspace: LaunchWorkspace = {
 describe("registerIpcHandlers workspace handlers", () => {
   let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
-  let browserManager: Pick<BrowserManager, "launch" | "listStatuses" | "on" | "stop">;
+  let browserManager: Pick<
+    BrowserManager,
+    "getActiveLayout" | "launch" | "listStatuses" | "on" | "setActiveLayout" | "stop" | "updateViewBounds"
+  >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let onOverlayLanguageChanged: ReturnType<typeof vi.fn>;
   let onRendererReady: ReturnType<typeof vi.fn>;
@@ -88,10 +91,13 @@ describe("registerIpcHandlers workspace handlers", () => {
       getWorkspace: vi.fn().mockResolvedValue(workspace)
     };
     browserManager = {
+      getActiveLayout: vi.fn(() => null),
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
       listStatuses: vi.fn(() => []),
       on: vi.fn(),
-      stop: vi.fn().mockResolvedValue(undefined)
+      setActiveLayout: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined),
+      updateViewBounds: vi.fn()
     };
     authManager = {
       listStatuses: vi.fn(() => []),
@@ -133,19 +139,44 @@ describe("registerIpcHandlers workspace handlers", () => {
     );
   });
 
-  it("launches workspace roles with display-relative bounds", async () => {
+  it("validates and forwards game stage view bounds", async () => {
+    const input = {
+      visible: true,
+      views: [{ roleId: "role-1", bounds: { x: 248, y: 72, width: 700, height: 520 } }]
+    };
+
+    await handlers.get(IPC_CHANNELS.gameStageUpdateBounds)?.({}, input);
+    expect(browserManager.updateViewBounds).toHaveBeenCalledWith(input);
+    expect(() =>
+      handlers.get(IPC_CHANNELS.gameStageUpdateBounds)?.({}, {
+        visible: true,
+        views: [{ roleId: "role-1", bounds: { x: 0, y: 0, width: 0, height: 100 } }]
+      })
+    ).toThrow("Game stage bounds are invalid.");
+  });
+
+  it("launches workspace roles into one managed in-app layout", async () => {
     const result = await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id);
 
     expect(result).toEqual([
       { roleId: "role-1", state: "running" },
       { roleId: "role-2", state: "running" }
     ]);
+    expect(browserManager.setActiveLayout).toHaveBeenCalledWith({
+      id: workspace.id,
+      mode: "workspace",
+      name: workspace.name,
+      slots: [
+        { roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+        { roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+      ]
+    });
     expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
-      bounds: { x: 100, y: 50, width: 500, height: 800 },
+      preserveLayout: true,
       zoomFactor: 1
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
-      bounds: { x: 600, y: 50, width: 500, height: 800 },
+      preserveLayout: true,
       zoomFactor: 1
     });
   });
@@ -166,16 +197,21 @@ describe("registerIpcHandlers workspace handlers", () => {
 
     await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, threeColumnWorkspace.id);
 
+    expect(browserManager.setActiveLayout).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "workspace-3", slots: expect.arrayContaining([
+        { roleId: "role-3", rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
+      ]) })
+    );
     expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
-      bounds: { x: 100, y: 50, width: 200, height: 800 },
+      preserveLayout: true,
       zoomFactor: 0.9
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
-      bounds: { x: 300, y: 50, width: 350, height: 800 },
+      preserveLayout: true,
       zoomFactor: 0.9
     });
     expect(browserManager.launch).toHaveBeenNthCalledWith(3, expect.objectContaining({ id: "role-3" }), {
-      bounds: { x: 650, y: 50, width: 450, height: 800 },
+      preserveLayout: true,
       zoomFactor: 0.9
     });
   });
@@ -197,20 +233,14 @@ describe("registerIpcHandlers workspace handlers", () => {
 
     await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, fourColumnWorkspace.id);
 
-    expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
-      bounds: { x: 100, y: 50, width: 200, height: 800 },
-      zoomFactor: 0.9
-    });
-    expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
-      bounds: { x: 300, y: 50, width: 300, height: 800 },
-      zoomFactor: 0.9
-    });
-    expect(browserManager.launch).toHaveBeenNthCalledWith(3, expect.objectContaining({ id: "role-3" }), {
-      bounds: { x: 600, y: 50, width: 180, height: 800 },
-      zoomFactor: 0.9
-    });
+    expect(browserManager.setActiveLayout).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "workspace-4", slots: expect.arrayContaining([
+        { roleId: "role-4", rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
+      ]) })
+    );
+    expect(browserManager.launch).toHaveBeenCalledTimes(4);
     expect(browserManager.launch).toHaveBeenNthCalledWith(4, expect.objectContaining({ id: "role-4" }), {
-      bounds: { x: 780, y: 50, width: 320, height: 800 },
+      preserveLayout: true,
       zoomFactor: 0.9
     });
   });

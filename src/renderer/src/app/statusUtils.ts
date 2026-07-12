@@ -50,6 +50,8 @@ export function shouldShowLoginGuidance(status: AuthFlowStatus | undefined): sta
 
 export function formatAuthFlowState(status: AuthFlowStatus, t: Translator): string {
   switch (status.state) {
+    case "opening_app":
+      return t("auth.openingApp");
     case "opening_chrome":
       return t("auth.openingChrome");
     case "waiting_for_login":

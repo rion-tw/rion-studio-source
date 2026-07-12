@@ -38,43 +38,29 @@ const otherMacro: Macro = {
 };
 
 describe("MacroOverlayInjector", () => {
-  it("exposes the overlay binding and installs the script into current frames", async () => {
-    const mainFrame = createFrame();
-    const childFrame = createFrame();
-    const page = createPage([mainFrame, childFrame]);
+  it("installs the overlay script into embedded web contents", async () => {
+    const page = createPage();
     const injector = createInjector();
 
     await injector.install(role, page.page as never);
 
-    expect(page.page.exposeBinding).toHaveBeenCalledWith("rionStudioMacroOverlay", expect.any(Function));
-    expect(page.page.addInitScript).toHaveBeenCalledWith({ content: MACRO_OVERLAY_SCRIPT });
-    expect(mainFrame.evaluate).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT);
-    expect(childFrame.evaluate).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT);
+    expect(page.page.executeJavaScript).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT);
   });
 
-  it("installs into future frames and keeps page setup idempotent", async () => {
-    const mainFrame = createFrame();
-    const attachedFrame = createFrame();
-    const navigatedFrame = createFrame();
-    const page = createPage([mainFrame], { rejectDuplicateBinding: true });
+  it("reinstalls after navigation and keeps event setup idempotent", async () => {
+    const page = createPage();
     const injector = createInjector();
 
     await injector.install(role, page.page as never);
     await injector.install(role, page.page as never);
+    page.handlers.didFinishLoad?.();
 
-    page.handlers.frameattached?.(attachedFrame as never);
-    page.handlers.framenavigated?.(navigatedFrame as never);
-
-    await vi.waitFor(() => expect(attachedFrame.evaluate).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT));
-    await vi.waitFor(() => expect(navigatedFrame.evaluate).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT));
-
-    expect(page.page.addInitScript).toHaveBeenCalledTimes(1);
-    expect(page.page.on).toHaveBeenCalledTimes(2);
-    expect(page.page.exposeBinding).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(page.page.executeJavaScript).toHaveBeenCalledTimes(3));
+    expect(page.page.on).toHaveBeenCalledTimes(1);
   });
 
   it("filters overlay state and routes start and stop requests", async () => {
-    const page = createPage([createFrame()]);
+    const page = createPage();
     const statuses: MacroRunStatus[] = [
       {
         roleId: "role-1",
@@ -101,9 +87,9 @@ describe("MacroOverlayInjector", () => {
     await injector.install(role, page.page as never);
     injector.setLanguage("zh-TW");
 
-    const listState = await page.binding?.({}, { type: "list" });
-    const startState = await page.binding?.({}, { type: "start", macroId: "macro-1" });
-    await page.binding?.({}, { type: "stop", macroId: "macro-1" });
+    const listState = await injector.handleRequest(role.id, { type: "list" });
+    const startState = await injector.handleRequest(role.id, { type: "start", macroId: "macro-1" });
+    await injector.handleRequest(role.id, { type: "stop", macroId: "macro-1" });
 
     expect(listState).toMatchObject({
       language: "zh-TW",
@@ -118,14 +104,14 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("routes create and edit requests with the installed role id", async () => {
-    const page = createPage([createFrame()]);
+    const page = createPage();
     const onMacroEditorRequested = vi.fn();
     const injector = createInjector({ onMacroEditorRequested });
 
     await injector.install(role, page.page as never);
 
-    await page.binding?.({}, { type: "create" });
-    await page.binding?.({}, { type: "edit", macroId: "macro-1" });
+    await injector.handleRequest(role.id, { type: "create" });
+    await injector.handleRequest(role.id, { type: "edit", macroId: "macro-1" });
 
     expect(onMacroEditorRequested).toHaveBeenNthCalledWith(1, { roleId: "role-1" });
     expect(onMacroEditorRequested).toHaveBeenNthCalledWith(2, {
@@ -135,13 +121,17 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("can proactively refresh installed overlay pages", async () => {
-    const page = createPage([createFrame()]);
+    const page = createPage();
     const injector = createInjector();
 
     await injector.install(role, page.page as never);
     injector.refreshInstalledOverlays(role.id);
 
-    await vi.waitFor(() => expect(page.page.evaluate).toHaveBeenCalledWith(expect.any(Function)));
+    await vi.waitFor(() =>
+      expect(page.page.executeJavaScript).toHaveBeenCalledWith(
+        "window.__rionStudioMacroOverlay?.refresh?.({ renderAfter: true })"
+      )
+    );
   });
 
   it("keeps the overlay script wired for physical-code shortcuts and menu toggle", () => {
@@ -349,66 +339,18 @@ function createInjector({
   );
 }
 
-function createPage(
-  frames: Array<ReturnType<typeof createFrame>>,
-  options: { rejectDuplicateBinding?: boolean } = {}
-): {
-  binding?: (source: unknown, request: unknown) => Promise<unknown>;
-  handlers: {
-    frameattached?: (frame: unknown) => void;
-    framenavigated?: (frame: unknown) => void;
-  };
-  page: {
-    addInitScript: ReturnType<typeof vi.fn>;
-    evaluate: ReturnType<typeof vi.fn>;
-    exposeBinding: ReturnType<typeof vi.fn>;
-    frames: ReturnType<typeof vi.fn>;
-    on: ReturnType<typeof vi.fn>;
-    once: ReturnType<typeof vi.fn>;
-  };
-} {
-  const handlers: {
-    frameattached?: (frame: unknown) => void;
-    framenavigated?: (frame: unknown) => void;
-  } = {};
-  const result: {
-    binding?: (source: unknown, request: unknown) => Promise<unknown>;
-    handlers: typeof handlers;
-    page: {
-      addInitScript: ReturnType<typeof vi.fn>;
-      evaluate: ReturnType<typeof vi.fn>;
-      exposeBinding: ReturnType<typeof vi.fn>;
-      frames: ReturnType<typeof vi.fn>;
-      on: ReturnType<typeof vi.fn>;
-      once: ReturnType<typeof vi.fn>;
-    };
-  } = {
-    handlers,
-    page: {
-      addInitScript: vi.fn().mockResolvedValue(undefined),
-      evaluate: vi.fn().mockResolvedValue(undefined),
-      exposeBinding: vi.fn(async (_name: string, callback: (source: unknown, request: unknown) => Promise<unknown>) => {
-        if (options.rejectDuplicateBinding && result.binding) {
-          throw new Error("Binding already registered");
-        }
-
-        result.binding = callback;
-      }),
-      frames: vi.fn(() => frames),
-      on: vi.fn((event: "frameattached" | "framenavigated", handler: (frame: unknown) => void) => {
-        handlers[event] = handler;
-      }),
-      once: vi.fn()
-    }
+function createPage() {
+  const handlers: { didFinishLoad?: () => void } = {};
+  const page = {
+    executeJavaScript: vi.fn().mockResolvedValue(undefined),
+    isDestroyed: vi.fn(() => false),
+    on: vi.fn((event: string, handler: () => void) => {
+      if (event === "did-finish-load") {
+        handlers.didFinishLoad = handler;
+      }
+    }),
+    once: vi.fn()
   };
 
-  return result;
-}
-
-function createFrame(): {
-  evaluate: ReturnType<typeof vi.fn>;
-} {
-  return {
-    evaluate: vi.fn().mockResolvedValue(undefined)
-  };
+  return { handlers, page };
 }

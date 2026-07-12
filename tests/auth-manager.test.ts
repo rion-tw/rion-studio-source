@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { AuthManager } from "../src/main/auth/AuthManager";
-import { BrowserUserDataLockTimeoutError } from "../src/main/browser/BrowserUserDataLockWatcher";
-import type { LoginWindowMonitorResult, SystemChromeLoginSession } from "../src/main/system-browser/SystemChromeLauncher";
+import { BrowserLoginCancelledError } from "../src/main/browser/BrowserManager";
 import type { Role } from "../src/shared/types";
 
 const role: Role = {
@@ -18,429 +17,106 @@ const role: Role = {
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
 
-describe("AuthManager", () => {
-  it("closes the temporary Chrome window and launches automatically after login is detected", async () => {
-    const updatedRole: Role = { ...role, authState: "authenticated" };
-    const loginSession = createLoginSession({
-      monitor: Promise.resolve({
-        state: "login_completed",
-        port: 9222,
-        targetId: "target-1",
-        url: role.launchUrl
-      })
-    });
-    const roleStore = {
-      ensureBrowserUserDataDir: vi.fn().mockResolvedValue("/tmp/rion-studio/role-1/browser"),
-      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
-    };
+describe("AuthManager embedded login", () => {
+  it("opens the role in the app and waits for embedded authentication", async () => {
+    const authentication = deferred<{ authState: "authenticated"; finalUrl: string }>();
+    const roleStore = createRoleStore();
     const browserManager = {
-      stop: vi.fn().mockResolvedValue(undefined),
-      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
+      startLogin: vi.fn().mockResolvedValue(undefined),
+      waitForAuthentication: vi.fn(() => authentication.promise)
     };
-    const systemChromeLauncher = {
-      openLoginWindow: vi.fn().mockResolvedValue(loginSession)
-    };
-    const authSessionChecker = {
-      check: vi.fn().mockResolvedValue({ authState: "authenticated" })
-    };
-    const userDataLockWatcher = {
-      waitForRelease: vi.fn().mockResolvedValue(undefined)
-    };
-    const manager = new AuthManager(
-      roleStore,
-      browserManager,
-      systemChromeLauncher,
-      authSessionChecker,
-      userDataLockWatcher
-    );
+    const manager = new AuthManager(roleStore, browserManager);
 
-    manager.startLogin(role);
+    expect(manager.startLogin(role)).toMatchObject({ roleId: role.id, state: "opening_app" });
+    await vi.waitFor(() => expect(manager.listStatuses()[0]?.state).toBe("waiting_for_login"));
+    expect(browserManager.startLogin).toHaveBeenCalledWith(role);
 
-    await vi.waitFor(() => {
-      expect(browserManager.launch).toHaveBeenCalledWith(updatedRole);
-    });
-
-    expect(browserManager.stop).toHaveBeenCalledWith(role.id);
-    expect(systemChromeLauncher.openLoginWindow).toHaveBeenCalledWith(role);
-    expect(loginSession.close).toHaveBeenCalledTimes(1);
-    expect(userDataLockWatcher.waitForRelease).toHaveBeenCalledWith(loginSession.userDataDir);
-    expect(loginSession.close.mock.invocationCallOrder[0]).toBeLessThan(
-      userDataLockWatcher.waitForRelease.mock.invocationCallOrder[0]
-    );
-    expect(userDataLockWatcher.waitForRelease.mock.invocationCallOrder[0]).toBeLessThan(
-      authSessionChecker.check.mock.invocationCallOrder[0]
-    );
-    expect(authSessionChecker.check).toHaveBeenCalledWith(role);
-    expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "authenticated");
-    expect(manager.listStatuses()).toEqual([]);
-  });
-
-  it("explains every required session step while waiting for login", async () => {
-    const monitor = createDeferred<LoginWindowMonitorResult>();
-    const updatedRole: Role = { ...role, authState: "authenticated" };
-    const loginSession = createLoginSession({ monitor: monitor.promise });
-    const roleStore = {
-      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
-    };
-    const browserManager = {
-      stop: vi.fn().mockResolvedValue(undefined),
-      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
-    };
-    const manager = new AuthManager(
-      roleStore,
-      browserManager,
-      { openLoginWindow: vi.fn().mockResolvedValue(loginSession) },
-      { check: vi.fn().mockResolvedValue({ authState: "authenticated" }) },
-      { waitForRelease: vi.fn().mockResolvedValue(undefined) }
-    );
-
-    manager.startLogin(role);
-
-    await vi.waitFor(() => {
-      expect(manager.listStatuses()[0]).toMatchObject({
-        roleId: role.id,
-        state: "waiting_for_login",
-        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
-      });
-    });
-
-    monitor.resolve({
-      state: "login_completed",
-      port: 9222,
-      targetId: "target-1",
-      url: role.launchUrl
-    });
-
-    await vi.waitFor(() => {
-      expect(browserManager.launch).toHaveBeenCalledWith(updatedRole);
-    });
-  });
-
-  it("checks the session and launches automatically after the user closes Chrome first", async () => {
-    const closed = createDeferred<void>();
-    const updatedRole: Role = { ...role, authState: "authenticated" };
-    const loginSession = createLoginSession({
-      closed: closed.promise,
-      monitor: Promise.resolve({
-        state: "manual",
-        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
-      })
-    });
-    const roleStore = {
-      ensureBrowserUserDataDir: vi.fn().mockResolvedValue("/tmp/rion-studio/role-1/browser"),
-      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
-    };
-    const browserManager = {
-      stop: vi.fn().mockResolvedValue(undefined),
-      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
-    };
-    const systemChromeLauncher = {
-      openLoginWindow: vi.fn().mockResolvedValue(loginSession)
-    };
-    const authSessionChecker = {
-      check: vi.fn().mockResolvedValue({ authState: "authenticated" })
-    };
-    const userDataLockWatcher = {
-      waitForRelease: vi.fn().mockResolvedValue(undefined)
-    };
-    const manager = new AuthManager(
-      roleStore,
-      browserManager,
-      systemChromeLauncher,
-      authSessionChecker,
-      userDataLockWatcher
-    );
-
-    manager.startLogin(role);
-
-    await vi.waitFor(() => {
-      expect(manager.listStatuses()[0]).toMatchObject({
-        roleId: role.id,
-        state: "waiting_for_chrome_close",
-        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
-      });
-    });
-    expect(authSessionChecker.check).not.toHaveBeenCalled();
-    closed.resolve();
-
-    await vi.waitFor(() => {
-      expect(browserManager.launch).toHaveBeenCalledWith(updatedRole);
-    });
-
-    expect(loginSession.close).not.toHaveBeenCalled();
-    expect(authSessionChecker.check).toHaveBeenCalledWith(role);
-    expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "authenticated");
-    expect(manager.listStatuses()).toEqual([]);
-  });
-
-  it("falls back to waiting for Chrome to close when login monitoring is unavailable", async () => {
-    const updatedRole: Role = { ...role, authState: "authenticated" };
-    const loginSession = createLoginSession({
-      monitor: Promise.resolve({ state: "unavailable", message: "Unable to find Chrome DevTools port." })
-    });
-    const roleStore = {
-      ensureBrowserUserDataDir: vi.fn().mockResolvedValue("/tmp/rion-studio/role-1/browser"),
-      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
-    };
-    const browserManager = {
-      stop: vi.fn().mockResolvedValue(undefined),
-      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
-    };
-    const systemChromeLauncher = {
-      openLoginWindow: vi.fn().mockResolvedValue(loginSession)
-    };
-    const authSessionChecker = {
-      check: vi.fn().mockResolvedValue({ authState: "authenticated" })
-    };
-    const userDataLockWatcher = {
-      waitForRelease: vi.fn().mockResolvedValue(undefined)
-    };
-    const manager = new AuthManager(
-      roleStore,
-      browserManager,
-      systemChromeLauncher,
-      authSessionChecker,
-      userDataLockWatcher
-    );
-
-    manager.startLogin(role);
-
-    await vi.waitFor(() => {
-      expect(browserManager.launch).toHaveBeenCalledWith(updatedRole);
-    });
-
-    expect(loginSession.close).not.toHaveBeenCalled();
-    expect(authSessionChecker.check).toHaveBeenCalledWith(role);
+    authentication.resolve({ authState: "authenticated", finalUrl: role.launchUrl });
+    await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
     expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "authenticated");
   });
 
-  it("keeps the monitor timeout reason while waiting for manual Chrome close", async () => {
-    const closed = createDeferred<void>();
-    const updatedRole: Role = { ...role, authState: "authenticated" };
-    const loginSession = createLoginSession({
-      closed: closed.promise,
-      monitor: Promise.resolve({
-        state: "timed_out",
-        message: "Timed out while waiting for login storage to be ready: storage_not_ready"
-      })
-    });
-    const roleStore = {
-      ensureBrowserUserDataDir: vi.fn().mockResolvedValue("/tmp/rion-studio/role-1/browser"),
-      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
-    };
+  it("surfaces an embedded browser rejection as auth_failed", async () => {
+    const roleStore = createRoleStore();
     const browserManager = {
-      stop: vi.fn().mockResolvedValue(undefined),
-      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
-    };
-    const systemChromeLauncher = {
-      openLoginWindow: vi.fn().mockResolvedValue(loginSession)
-    };
-    const authSessionChecker = {
-      check: vi.fn().mockResolvedValue({ authState: "authenticated" })
-    };
-    const userDataLockWatcher = {
-      waitForRelease: vi.fn().mockResolvedValue(undefined)
-    };
-    const manager = new AuthManager(
-      roleStore,
-      browserManager,
-      systemChromeLauncher,
-      authSessionChecker,
-      userDataLockWatcher
-    );
-
-    manager.startLogin(role);
-
-    await vi.waitFor(() => {
-      expect(manager.listStatuses()[0]).toMatchObject({
-        roleId: role.id,
-        state: "waiting_for_chrome_close",
-        message:
-          "Complete account login, select the target character, enter its game screen, then close Chrome. Timed out while waiting for login storage to be ready: storage_not_ready"
-      });
-    });
-
-    expect(loginSession.close).not.toHaveBeenCalled();
-    closed.resolve();
-
-    await vi.waitFor(() => {
-      expect(browserManager.launch).toHaveBeenCalledWith(updatedRole);
-    });
-    expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "authenticated");
-  });
-
-  it("does not launch when the session check fails", async () => {
-    const updatedRole: Role = { ...role, authState: "login_required" };
-    const roleStore = {
-      ensureBrowserUserDataDir: vi.fn().mockResolvedValue("/tmp/rion-studio/role-1/browser"),
-      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
-    };
-    const browserManager = {
-      stop: vi.fn().mockResolvedValue(undefined),
-      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
-    };
-    const systemChromeLauncher = {
-      openLoginWindow: vi.fn().mockResolvedValue(createLoginSession())
-    };
-    const authSessionChecker = {
-      check: vi.fn().mockResolvedValue({ authState: "login_required", message: "Login is still required." })
-    };
-    const userDataLockWatcher = {
-      waitForRelease: vi.fn().mockResolvedValue(undefined)
-    };
-    const manager = new AuthManager(
-      roleStore,
-      browserManager,
-      systemChromeLauncher,
-      authSessionChecker,
-      userDataLockWatcher
-    );
-
-    manager.startLogin(role);
-
-    await vi.waitFor(() => {
-      expect(manager.listStatuses()[0]).toMatchObject({
-        roleId: role.id,
-        state: "failed",
-        message: "Login is still required."
-      });
-    });
-
-    expect(browserManager.launch).not.toHaveBeenCalled();
-    expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
-  });
-
-  it("does not launch after manual Chrome close when no persisted session is found", async () => {
-    const closed = createDeferred<void>();
-    const updatedRole: Role = { ...role, authState: "login_required" };
-    const loginSession = createLoginSession({
-      closed: closed.promise,
-      monitor: Promise.resolve({
-        state: "manual",
-        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
-      })
-    });
-    const roleStore = {
-      ensureBrowserUserDataDir: vi.fn().mockResolvedValue("/tmp/rion-studio/role-1/browser"),
-      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
-    };
-    const browserManager = {
-      stop: vi.fn().mockResolvedValue(undefined),
-      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
-    };
-    const systemChromeLauncher = {
-      openLoginWindow: vi.fn().mockResolvedValue(loginSession)
-    };
-    const authSessionChecker = {
-      check: vi.fn().mockResolvedValue({
-        authState: "login_required",
-        message: "Login is still required. No persisted login session was found."
+      startLogin: vi.fn().mockResolvedValue(undefined),
+      waitForAuthentication: vi.fn().mockResolvedValue({
+        authState: "auth_failed" as const,
+        finalUrl: "https://accounts.google.com/",
+        message: "Google rejected this browser during session check."
       })
     };
-    const userDataLockWatcher = {
-      waitForRelease: vi.fn().mockResolvedValue(undefined)
-    };
-    const manager = new AuthManager(
-      roleStore,
-      browserManager,
-      systemChromeLauncher,
-      authSessionChecker,
-      userDataLockWatcher
-    );
+    const manager = new AuthManager(roleStore, browserManager);
 
     manager.startLogin(role);
 
-    await vi.waitFor(() => {
-      expect(manager.listStatuses()[0]).toMatchObject({
-        roleId: role.id,
-        state: "waiting_for_chrome_close"
-      });
-    });
-    closed.resolve();
-
-    await vi.waitFor(() => {
-      expect(manager.listStatuses()[0]).toMatchObject({
-        roleId: role.id,
-        state: "failed",
-        message: "Login is still required. No persisted login session was found."
-      });
-    });
-
-    expect(browserManager.launch).not.toHaveBeenCalled();
-    expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
-  });
-
-  it("does not launch when Chrome keeps the browser user data locked", async () => {
-    const updatedRole: Role = { ...role, authState: "auth_failed" };
-    const roleStore = {
-      ensureBrowserUserDataDir: vi.fn().mockResolvedValue("/tmp/rion-studio/role-1/browser"),
-      updateAuthState: vi.fn().mockResolvedValue(updatedRole)
-    };
-    const browserManager = {
-      stop: vi.fn().mockResolvedValue(undefined),
-      launch: vi.fn().mockResolvedValue({ roleId: role.id, state: "running" })
-    };
-    const systemChromeLauncher = {
-      openLoginWindow: vi.fn().mockResolvedValue(createLoginSession())
-    };
-    const authSessionChecker = {
-      check: vi.fn().mockResolvedValue({ authState: "authenticated" })
-    };
-    const userDataLockWatcher = {
-      waitForRelease: vi.fn().mockRejectedValue(new BrowserUserDataLockTimeoutError())
-    };
-    const manager = new AuthManager(
-      roleStore,
-      browserManager,
-      systemChromeLauncher,
-      authSessionChecker,
-      userDataLockWatcher
-    );
-
-    manager.startLogin(role);
-
-    await vi.waitFor(() => {
-      expect(manager.listStatuses()[0]).toMatchObject({
-        roleId: role.id,
-        state: "failed",
-        message: "Chrome is still using this role's browser data. Quit the Chrome login window and try again."
-      });
-    });
-
-    expect(authSessionChecker.check).not.toHaveBeenCalled();
-    expect(browserManager.launch).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(manager.listStatuses()[0]?.state).toBe("failed"));
+    expect(manager.listStatuses()[0]?.message).toContain("Google rejected");
     expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "auth_failed");
+  });
+
+  it("marks unexpected embedded login failures without storing credentials", async () => {
+    const roleStore = createRoleStore();
+    const browserManager = {
+      startLogin: vi.fn().mockRejectedValue(new Error("Embedded page failed to load.")),
+      waitForAuthentication: vi.fn()
+    };
+    const manager = new AuthManager(roleStore, browserManager);
+
+    manager.startLogin(role);
+
+    await vi.waitFor(() => expect(manager.listStatuses()[0]?.state).toBe("failed"));
+    expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "auth_failed");
+    expect(manager.listStatuses()[0]?.message).toBe("Embedded page failed to load.");
+  });
+
+  it("removes a cancelled flow without changing auth metadata", async () => {
+    const roleStore = createRoleStore();
+    const browserManager = {
+      startLogin: vi.fn().mockResolvedValue(undefined),
+      waitForAuthentication: vi.fn().mockRejectedValue(new BrowserLoginCancelledError())
+    };
+    const manager = new AuthManager(roleStore, browserManager);
+
+    manager.startLogin(role);
+
+    await vi.waitFor(() => expect(browserManager.waitForAuthentication).toHaveBeenCalled());
+    await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
+    expect(roleStore.updateAuthState).not.toHaveBeenCalled();
+  });
+
+  it("returns the active flow when login is requested twice", async () => {
+    const authentication = deferred<{ authState: "authenticated" }>();
+    const browserManager = {
+      startLogin: vi.fn().mockResolvedValue(undefined),
+      waitForAuthentication: vi.fn(() => authentication.promise)
+    };
+    const manager = new AuthManager(createRoleStore(), browserManager);
+
+    const first = manager.startLogin(role);
+    const second = manager.startLogin(role);
+
+    expect(second).toEqual(first);
+    expect(browserManager.startLogin).toHaveBeenCalledTimes(1);
+    authentication.resolve({ authState: "authenticated" });
   });
 });
 
-function createLoginSession(
-  overrides: Partial<Omit<SystemChromeLoginSession, "close">> = {}
-): SystemChromeLoginSession & { close: ReturnType<typeof vi.fn> } {
+function createRoleStore() {
   return {
-    userDataDir: "/tmp/rion-studio/role-1/browser",
-    closed: Promise.resolve(),
-    monitor: Promise.resolve({
-      state: "login_completed",
-      port: 9222,
-      targetId: "target-1",
-      url: role.launchUrl
-    } satisfies LoginWindowMonitorResult),
-    ...overrides,
-    close: vi.fn().mockResolvedValue(undefined)
+    updateAuthState: vi.fn().mockImplementation(async (_roleId: string, authState: Role["authState"]) => ({
+      ...role,
+      authState
+    }))
   };
 }
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T | PromiseLike<T>) => void;
-} {
-  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
-  const promise = new Promise<T>((nextResolve) => {
-    resolve = nextResolve;
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
   });
-
-  return {
-    promise,
-    resolve
-  };
+  return { promise, reject, resolve };
 }

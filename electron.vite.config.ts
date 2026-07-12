@@ -17,7 +17,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: resolve(__dirname, "src/preload/index.ts"),
+        input: {
+          embedded: resolve(__dirname, "src/preload/embedded.ts"),
+          index: resolve(__dirname, "src/preload/index.ts")
+        },
         output: {
           format: "cjs",
           entryFileNames: "[name].cjs"

@@ -1,46 +1,56 @@
 import { EventEmitter } from "node:events";
 
-import type { BrowserContext, CDPSession, Page } from "playwright-core";
+import type {
+  BrowserWindow,
+  BrowserWindowConstructorOptions,
+  WebContents,
+  WebContentsView,
+  WebContentsViewConstructorOptions
+} from "electron";
 
 import {
   classifyAuthSession,
-  NO_PERSISTED_LOGIN_SESSION_MESSAGE
+  NO_PERSISTED_LOGIN_SESSION_MESSAGE,
+  type AuthSessionCheckResult
 } from "../auth/authSessionClassification";
 import {
+  createLoginStorageSnapshot,
   isPersistedLoginStorageReady,
-  readPlaywrightLoginStorageSnapshot
+  LOGIN_STORAGE_EXPRESSION
 } from "../auth/loginEvidence";
 import type { RoleStore } from "../roles/RoleStore";
-import type { PixelBounds, Role, RoleStatus } from "../../shared/types";
-import { withPlaywrightUserDataLockRetry } from "./playwrightUserDataRetry";
+import type {
+  GameStageLayout,
+  PixelBounds,
+  Role,
+  RoleStatus,
+  UpdateGameStageBoundsInput
+} from "../../shared/types";
+import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 
 export interface BrowserManagerEvents {
   change: [RoleStatus[]];
-}
-
-export type LaunchPersistentContext = (
-  userDataDir: string,
-  options: LaunchPersistentContextOptions
-) => Promise<BrowserContext>;
-export type BrowserExecutablePathResolver = () => Promise<string | undefined>;
-
-export interface BrowserManagerOptions {
-  launchPersistentContext?: LaunchPersistentContext;
-  executablePathResolver?: BrowserExecutablePathResolver;
+  layoutChange: [GameStageLayout | null];
 }
 
 export interface BrowserLaunchOptions {
-  bounds?: PixelBounds;
+  preserveLayout?: boolean;
   zoomFactor?: number;
 }
 
 export interface BrowserAutomationSession {
-  context: BrowserContext;
-  page: Page;
   role: Role;
+  target: BrowserAutomationTarget;
 }
 
-export type BrowserMacroOverlayInstaller = (role: Role, page: Page) => Promise<void>;
+export type BrowserMacroOverlayInstaller = (role: Role, webContents: WebContents) => Promise<void>;
+
+export interface BrowserManagerOptions {
+  createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
+  embeddedPreloadPath: string;
+  getHostWindow: () => BrowserWindow | null;
+  loginPollIntervalMs?: number;
+}
 
 export class BrowserLaunchAuthError extends Error {
   readonly code = "LOGIN_REQUIRED_AFTER_LAUNCH";
@@ -51,37 +61,38 @@ export class BrowserLaunchAuthError extends Error {
   }
 }
 
-type PlaywrightChromium = typeof import("playwright-core")["chromium"];
-type LaunchPersistentContextOptions = NonNullable<Parameters<PlaywrightChromium["launchPersistentContext"]>[1]>;
+export class BrowserLoginCancelledError extends Error {
+  constructor() {
+    super("Login flow was cancelled.");
+    this.name = "BrowserLoginCancelledError";
+  }
+}
 
 interface BrowserSession {
-  role: Role;
-  state: RoleStatus["state"];
+  hostWindow: BrowserWindow;
   launchedAt?: string;
-  context?: BrowserContext;
-  page?: Page;
-  zoomCdpSession?: CDPSession;
-  zoomFactor?: number;
-  zoomScriptIdentifier?: string;
+  role: Role;
+  popupViews: Set<WebContentsView>;
+  state: RoleStatus["state"];
+  target: BrowserAutomationTarget;
+  view: WebContentsView;
 }
 
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
-const WORKSPACE_ZOOM_STATE_KEY = "__rionStudioWorkspaceZoomState";
+const HIDDEN_VIEW_BOUNDS: PixelBounds = { x: -10_000, y: -10_000, width: 1, height: 1 };
 
 export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly sessions = new Map<string, BrowserSession>();
-  private readonly launchPersistentContext: LaunchPersistentContext;
-  private readonly executablePathResolver?: BrowserExecutablePathResolver;
+  private readonly viewBounds = new Map<string, PixelBounds>();
+  private activeLayout: GameStageLayout | null = null;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
+  private stageVisible = false;
 
   constructor(
-    private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir" | "updateAuthState">,
-    options: BrowserManagerOptions | LaunchPersistentContext = {}
+    private readonly roleStore: Pick<RoleStore, "updateAuthState">,
+    private readonly options: BrowserManagerOptions
   ) {
     super();
-    const normalizedOptions = typeof options === "function" ? { launchPersistentContext: options } : options;
-    this.launchPersistentContext = normalizedOptions.launchPersistentContext ?? launchSystemChrome;
-    this.executablePathResolver = normalizedOptions.executablePathResolver;
   }
 
   setMacroOverlayInstaller(installer: BrowserMacroOverlayInstaller): void {
@@ -89,82 +100,132 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   listStatuses(): RoleStatus[] {
-    return [...this.sessions.entries()].map(([roleId, session]) => ({
-      roleId,
-      state: session.state,
-      launchedAt: session.launchedAt
-    }));
+    return [...this.sessions.entries()].map(([roleId, session]) => this.toStatus(roleId, session));
+  }
+
+  getActiveLayout(): GameStageLayout | null {
+    return this.activeLayout ? structuredClone(this.activeLayout) : null;
+  }
+
+  getRoleIdForWebContents(webContentsId: number): string | undefined {
+    return [...this.sessions.entries()].find(([, session]) => session.view.webContents.id === webContentsId)?.[0];
   }
 
   getAutomationSession(roleId: string): BrowserAutomationSession | undefined {
     const session = this.sessions.get(roleId);
 
-    if (session?.state !== "running" || !session.context || !session.page) {
+    if (session?.state !== "running" || session.view.webContents.isDestroyed()) {
       return undefined;
     }
 
     return {
-      context: session.context,
-      page: session.page,
-      role: session.role
+      role: session.role,
+      target: session.target
     };
   }
 
-  async launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus> {
-    const existing = this.sessions.get(role.id);
+  setActiveLayout(layout: GameStageLayout | null): void {
+    this.activeLayout = layout ? structuredClone(layout) : null;
+    this.stageVisible = false;
+    this.viewBounds.clear();
+    this.sessions.forEach((session) => session.view.setVisible(false));
+    this.emit("layoutChange", this.getActiveLayout());
+  }
 
+  updateViewBounds(input: UpdateGameStageBoundsInput): void {
+    this.stageVisible = input.visible;
+    this.viewBounds.clear();
+
+    for (const item of input.views) {
+      this.viewBounds.set(item.roleId, item.bounds);
+    }
+
+    this.sessions.forEach((session, roleId) => this.applyRequestedBounds(roleId, session));
+  }
+
+  async launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus> {
+    if (!options.preserveLayout) {
+      this.setActiveLayout(createSingleRoleLayout(role, "role"));
+    }
+
+    const existing = this.sessions.get(role.id);
     if (existing) {
+      existing.role = role;
+      await this.applyZoom(existing, options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR);
       await this.ensureSessionAuthenticated(role, existing);
-      if (options.bounds) {
-        await this.applyWindowBounds(existing, options.bounds);
-      }
-      await this.applyPageZoom(existing, options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR);
-      if (existing.page) {
-        await this.installMacroOverlay(role, existing.page);
-      }
+      await this.installMacroOverlay(role, existing.view.webContents);
       await this.focusSession(existing);
       return this.toStatus(role.id, existing);
     }
 
-    const session: BrowserSession = {
-      role,
-      state: "launching"
-    };
+    const session = this.createSession(role);
     this.sessions.set(role.id, session);
     this.emitChange();
 
     try {
-      const browserUserDataDir = await this.roleStore.ensureBrowserUserDataDir(role.id);
-      const context = await this.launchBrowserContext(browserUserDataDir, role, options);
-      const page = await getOrCreatePage(context);
-
-      session.context = context;
-      session.page = page;
-
-      context.once("close", () => {
-        this.deleteSession(role.id);
-      });
-
-      await this.applyPageZoom(session, options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR);
-      await page.goto(role.launchUrl, { waitUntil: "domcontentloaded" });
-      if (options.bounds) {
-        await this.applyWindowBounds(session, options.bounds);
-      }
-      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+      await this.applyZoom(session, options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR);
+      await session.view.webContents.loadURL(role.launchUrl);
       await this.ensureSessionAuthenticated(role, session);
-
-      session.role = role;
       session.state = "running";
       session.launchedAt = new Date().toISOString();
-      await this.installMacroOverlay(role, page);
+      await this.installMacroOverlay(role, session.view.webContents);
       await this.focusSession(session);
       this.emitChange();
-
       return this.toStatus(role.id, session);
     } catch (error) {
-      await session.context?.close().catch(() => undefined);
-      this.deleteSession(role.id);
+      await this.destroySession(role.id, session);
       throw error;
+    }
+  }
+
+  async startLogin(role: Role): Promise<void> {
+    this.setActiveLayout(createSingleRoleLayout(role, "login"));
+    let session = this.sessions.get(role.id);
+
+    if (!session) {
+      session = this.createSession(role);
+      this.sessions.set(role.id, session);
+      this.emitChange();
+    } else {
+      session.role = role;
+      session.state = "launching";
+      session.launchedAt = undefined;
+      this.emitChange();
+    }
+
+    await this.applyZoom(session, DEFAULT_BROWSER_ZOOM_FACTOR);
+
+    const currentUrl = session.view.webContents.getURL();
+    if (!currentUrl || currentUrl === "about:blank") {
+      await session.view.webContents.loadURL(role.launchUrl);
+    }
+
+    await this.focusSession(session);
+  }
+
+  async waitForAuthentication(roleId: string): Promise<AuthSessionCheckResult> {
+    while (true) {
+      const session = this.sessions.get(roleId);
+
+      if (!session || session.view.webContents.isDestroyed()) {
+        throw new BrowserLoginCancelledError();
+      }
+
+      const result = await this.checkSessionAuthentication(session.role, session);
+
+      if (result.authState === "authenticated") {
+        session.state = "running";
+        session.launchedAt = new Date().toISOString();
+        await this.installMacroOverlay(session.role, session.view.webContents);
+        this.emitChange();
+        return result;
+      }
+
+      if (result.authState === "auth_failed") {
+        return result;
+      }
+
+      await delay(this.options.loginPollIntervalMs ?? 1_500);
     }
   }
 
@@ -172,169 +233,211 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const session = this.sessions.get(roleId);
 
     if (!session) {
+      this.removeRoleFromActiveLayout(roleId);
       return;
     }
 
     session.state = "stopping";
     this.emitChange();
-
-    try {
-      await session.context?.close();
-    } finally {
-      this.deleteSession(roleId);
-    }
+    await this.destroySession(roleId, session);
   }
 
   async stopAll(): Promise<void> {
     await Promise.all([...this.sessions.keys()].map((roleId) => this.stop(roleId)));
+    this.setActiveLayout(null);
   }
 
-  private async focusSession(session: BrowserSession): Promise<void> {
-    try {
-      await session.page?.bringToFront();
-    } catch {
-      // A closed page will be cleaned up by the context close handler.
-    }
-  }
+  private createSession(role: Role): BrowserSession {
+    const hostWindow = this.options.getHostWindow();
 
-  private async applyWindowBounds(session: BrowserSession, bounds: PixelBounds): Promise<void> {
-    if (!session.page) {
-      return;
+    if (!hostWindow || hostWindow.isDestroyed()) {
+      throw new Error("The Rion Studio window is not available.");
     }
 
-    await applyWindowBoundsToPage(session.page, bounds);
-  }
-
-  private async applyPageZoom(session: BrowserSession, zoomFactor: number): Promise<void> {
-    if (!session.page || session.zoomFactor === zoomFactor) {
-      return;
-    }
-
-    if (zoomFactor === DEFAULT_BROWSER_ZOOM_FACTOR && !session.zoomCdpSession) {
-      session.zoomFactor = zoomFactor;
-      return;
-    }
-
-    const cdpSession = session.zoomCdpSession ?? (await session.page.context().newCDPSession(session.page));
-    const isNewCdpSession = !session.zoomCdpSession;
-
-    try {
-      if (isNewCdpSession) {
-        await cdpSession.send("Page.enable");
-        session.zoomCdpSession = cdpSession;
+    const view = this.options.createView({
+      webPreferences: {
+        backgroundThrottling: role.launchPreset !== "performance",
+        contextIsolation: true,
+        nodeIntegration: false,
+        partition: createRoleSessionPartition(role.id),
+        preload: this.options.embeddedPreloadPath,
+        sandbox: true
       }
+    });
 
-      if (session.zoomScriptIdentifier) {
-        await cdpSession.send("Page.removeScriptToEvaluateOnNewDocument", {
-          identifier: session.zoomScriptIdentifier
-        });
-        session.zoomScriptIdentifier = undefined;
+    view.setBounds(HIDDEN_VIEW_BOUNDS);
+    view.setVisible(false);
+    hostWindow.contentView.addChildView(view);
+    const session: BrowserSession = {
+      hostWindow,
+      popupViews: new Set(),
+      role,
+      state: "launching",
+      target: new ElectronAutomationTarget(view, view.webContents),
+      view
+    };
+
+    this.configureWindowOpenHandler(session, view.webContents);
+
+    view.webContents.once("destroyed", () => {
+      if (this.sessions.get(role.id) === session) {
+        this.sessions.delete(role.id);
+        this.removeRoleFromActiveLayout(role.id);
+        this.emitChange();
       }
+    });
 
-      const source = createPageZoomSource(zoomFactor);
-
-      if (zoomFactor !== DEFAULT_BROWSER_ZOOM_FACTOR) {
-        const result = (await cdpSession.send("Page.addScriptToEvaluateOnNewDocument", {
-          source
-        })) as { identifier: string };
-        session.zoomScriptIdentifier = result.identifier;
-      }
-
-      await cdpSession.send("Runtime.evaluate", { expression: source });
-      session.zoomFactor = zoomFactor;
-
-      if (zoomFactor === DEFAULT_BROWSER_ZOOM_FACTOR) {
-        await detachCdpSession(cdpSession);
-        session.zoomCdpSession = undefined;
-      }
-    } catch (error) {
-      await detachCdpSession(cdpSession);
-      session.zoomCdpSession = undefined;
-      session.zoomFactor = undefined;
-      session.zoomScriptIdentifier = undefined;
-      throw error;
-    }
-  }
-
-  private async installMacroOverlay(role: Role, page: Page): Promise<void> {
-    if (!this.macroOverlayInstaller) {
-      return;
-    }
-
-    try {
-      await this.macroOverlayInstaller(role, page);
-    } catch (error) {
-      console.warn("Failed to install Rion Studio macro overlay.", error);
-    }
+    this.applyRequestedBounds(role.id, session);
+    return session;
   }
 
   private async ensureSessionAuthenticated(role: Role, session: BrowserSession): Promise<void> {
-    if (!session.context || !session.page) {
-      throw new BrowserLaunchAuthError("Unable to verify login session after launch.");
-    }
-
-    const snapshot = await readPlaywrightLoginStorageSnapshot(session.page, role.launchUrl);
-    const result = classifyAuthSession(session.page.url(), snapshot.bodyText, isPersistedLoginStorageReady(snapshot));
+    const result = await this.checkSessionAuthentication(role, session);
 
     if (result.authState === "authenticated") {
       return;
     }
 
-    const message = result.message ?? NO_PERSISTED_LOGIN_SESSION_MESSAGE;
-    let updateError: unknown;
+    await this.roleStore.updateAuthState(role.id, result.authState);
+    throw new BrowserLaunchAuthError(result.message ?? NO_PERSISTED_LOGIN_SESSION_MESSAGE);
+  }
+
+  private async checkSessionAuthentication(
+    role: Role,
+    session: BrowserSession
+  ): Promise<AuthSessionCheckResult> {
+    const webContents = session.view.webContents;
 
     try {
-      await this.roleStore.updateAuthState(role.id, "login_required");
+      const [cookies, runtimeValue] = await Promise.all([
+        webContents.session.cookies.get({ url: role.launchUrl }),
+        webContents.executeJavaScript(LOGIN_STORAGE_EXPRESSION)
+      ]);
+      const snapshot = createLoginStorageSnapshot(cookies, runtimeValue);
+      return classifyAuthSession(webContents.getURL(), snapshot.bodyText, isPersistedLoginStorageReady(snapshot));
     } catch (error) {
-      updateError = error;
+      return {
+        authState: "auth_failed",
+        finalUrl: webContents.getURL(),
+        message: error instanceof Error ? error.message : "Unable to check embedded login session."
+      };
     }
-
-    await this.closeInvalidSession(role.id, session);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    throw new BrowserLaunchAuthError(message);
   }
 
-  private async closeInvalidSession(roleId: string, session: BrowserSession): Promise<void> {
-    await session.context?.close().catch(() => undefined);
-    this.deleteSession(roleId);
+  private applyRequestedBounds(roleId: string, session: BrowserSession): void {
+    const bounds = this.viewBounds.get(roleId);
+    const belongsToLayout = this.activeLayout?.slots.some((slot) => slot.roleId === roleId) ?? false;
+    const visible = this.stageVisible && belongsToLayout && Boolean(bounds);
+
+    if (bounds) {
+      session.view.setBounds(bounds);
+      session.popupViews.forEach((popupView) => popupView.setBounds(bounds));
+    }
+    session.view.setVisible(visible);
+    session.popupViews.forEach((popupView) => popupView.setVisible(visible));
   }
 
-  private async launchBrowserContext(
-    browserUserDataDir: string,
-    role: Role,
-    options: BrowserLaunchOptions
-  ): Promise<BrowserContext> {
-    const executablePath = await this.resolveExecutablePath();
-
-    if (this.executablePathResolver && !executablePath) {
-      throw new Error("Google Chrome was not found. Install Chrome or set RION_STUDIO_CHROME_PATH to the Chrome executable.");
-    }
-
-    const launchOptions = buildLaunchOptions(role, executablePath, options);
-
-    return await withPlaywrightUserDataLockRetry(() => this.launchPersistentContext(browserUserDataDir, launchOptions));
+  private configureWindowOpenHandler(session: BrowserSession, webContents: WebContents): void {
+    webContents.setWindowOpenHandler(() => ({
+      action: "allow",
+      createWindow: (windowOptions) => this.createPopupView(session, windowOptions).webContents
+    }));
   }
 
-  private async resolveExecutablePath(): Promise<string | undefined> {
-    if (!this.executablePathResolver) {
-      return undefined;
+  private createPopupView(
+    session: BrowserSession,
+    windowOptions: BrowserWindowConstructorOptions
+  ): WebContentsView {
+    const popupView = this.options.createView({
+      webPreferences: {
+        ...windowOptions.webPreferences,
+        contextIsolation: true,
+        nodeIntegration: false,
+        partition: createRoleSessionPartition(session.role.id),
+        sandbox: true
+      }
+    });
+
+    const bounds = this.viewBounds.get(session.role.id) ?? HIDDEN_VIEW_BOUNDS;
+    popupView.setBounds(bounds);
+    popupView.setVisible(this.stageVisible && this.viewBounds.has(session.role.id));
+    session.hostWindow.contentView.addChildView(popupView);
+    session.popupViews.add(popupView);
+    this.configureWindowOpenHandler(session, popupView.webContents);
+    popupView.webContents.once("destroyed", () => {
+      session.popupViews.delete(popupView);
+      if (!session.hostWindow.isDestroyed()) {
+        session.hostWindow.contentView.removeChildView(popupView);
+      }
+    });
+    return popupView;
+  }
+
+  private async applyZoom(session: BrowserSession, zoomFactor: number): Promise<void> {
+    session.view.webContents.setZoomFactor(zoomFactor);
+  }
+
+  private async focusSession(session: BrowserSession): Promise<void> {
+    if (session.hostWindow.isMinimized()) {
+      session.hostWindow.restore();
+    }
+    session.hostWindow.show();
+    session.hostWindow.focus();
+    await session.target.focus();
+  }
+
+  private async installMacroOverlay(role: Role, webContents: WebContents): Promise<void> {
+    if (!this.macroOverlayInstaller) {
+      return;
     }
 
-    return await this.executablePathResolver();
+    try {
+      await this.macroOverlayInstaller(role, webContents);
+    } catch (error) {
+      console.warn("Failed to install Rion Studio macro overlay.", error);
+    }
+  }
+
+  private async destroySession(roleId: string, session: BrowserSession): Promise<void> {
+    if (this.sessions.get(roleId) !== session) {
+      return;
+    }
+
+    this.sessions.delete(roleId);
+    this.viewBounds.delete(roleId);
+    this.removeRoleFromActiveLayout(roleId);
+
+    if (!session.hostWindow.isDestroyed()) {
+      session.hostWindow.contentView.removeChildView(session.view);
+      session.popupViews.forEach((popupView) => session.hostWindow.contentView.removeChildView(popupView));
+    }
+
+    session.popupViews.forEach((popupView) => {
+      if (!popupView.webContents.isDestroyed()) {
+        popupView.webContents.close();
+      }
+    });
+    session.popupViews.clear();
+
+    if (!session.view.webContents.isDestroyed()) {
+      session.view.webContents.close();
+    }
+
+    this.emitChange();
+  }
+
+  private removeRoleFromActiveLayout(roleId: string): void {
+    if (!this.activeLayout?.slots.some((slot) => slot.roleId === roleId)) {
+      return;
+    }
+
+    const slots = this.activeLayout.slots.filter((slot) => slot.roleId !== roleId);
+    this.activeLayout = slots.length > 0 ? { ...this.activeLayout, slots } : null;
+    this.emit("layoutChange", this.getActiveLayout());
   }
 
   private emitChange(): void {
     this.emit("change", this.listStatuses());
-  }
-
-  private deleteSession(roleId: string): void {
-    if (this.sessions.delete(roleId)) {
-      this.emitChange();
-    }
   }
 
   private toStatus(roleId: string, session: BrowserSession): RoleStatus {
@@ -346,131 +449,24 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 }
 
-async function launchSystemChrome(
-  userDataDir: string,
-  options: LaunchPersistentContextOptions
-): Promise<BrowserContext> {
-  const { chromium } = await import("playwright-core");
-  return chromium.launchPersistentContext(userDataDir, options);
+export function createRoleSessionPartition(roleId: string): string {
+  return `persist:rion-role-${roleId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
-export function buildLaunchOptions(
-  role: Role,
-  executablePath?: string,
-  launchOptions: BrowserLaunchOptions = {}
-): LaunchPersistentContextOptions {
-  const options: LaunchPersistentContextOptions = {
-    headless: false,
-    viewport: null,
-    args: buildChromiumArgs(role, launchOptions.bounds)
+function createSingleRoleLayout(role: Role, mode: "login" | "role"): GameStageLayout {
+  return {
+    id: `${mode}:${role.id}`,
+    mode,
+    name: role.name,
+    slots: [
+      {
+        roleId: role.id,
+        rect: { x: 0, y: 0, width: 1, height: 1 }
+      }
+    ]
   };
-
-  if (executablePath) {
-    options.executablePath = executablePath;
-  }
-
-  return options;
 }
 
-export function buildChromiumArgs(role: Role, bounds?: PixelBounds): string[] {
-  const windowWidth = bounds?.width ?? role.windowWidth;
-  const windowHeight = bounds?.height ?? role.windowHeight;
-  const args = [
-    `--app=${role.launchUrl}`,
-    `--window-size=${windowWidth},${windowHeight}`,
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-default-apps",
-    "--disable-extensions",
-    "--disable-component-extensions-with-background-pages",
-    "--disable-background-networking",
-    "--enable-gpu",
-    "--ignore-gpu-blocklist",
-    "--autoplay-policy=no-user-gesture-required"
-  ];
-
-  if (bounds) {
-    args.splice(2, 0, `--window-position=${bounds.x},${bounds.y}`);
-  }
-
-  if (role.launchPreset === "performance") {
-    args.push(
-      "--disable-background-timer-throttling",
-      "--disable-renderer-backgrounding",
-      "--disable-features=CalculateNativeWinOcclusion"
-    );
-  }
-
-  return args;
-}
-
-async function applyWindowBoundsToPage(page: Page, bounds: PixelBounds): Promise<void> {
-  const session = await page.context().newCDPSession(page);
-
-  try {
-    const { windowId } = (await session.send("Browser.getWindowForTarget")) as { windowId: number };
-    await session.send("Browser.setWindowBounds", {
-      windowId,
-      bounds: {
-        left: bounds.x,
-        top: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
-        windowState: "normal"
-      }
-    });
-  } finally {
-    await detachCdpSession(session);
-  }
-}
-
-function createPageZoomSource(zoomFactor: number): string {
-  const serializedZoomFactor = JSON.stringify(zoomFactor);
-  const serializedStateKey = JSON.stringify(WORKSPACE_ZOOM_STATE_KEY);
-
-  return `(() => {
-    const apply = () => {
-      const root = document.documentElement;
-      if (!root) return false;
-      const stateKey = ${serializedStateKey};
-      const existingState = root[stateKey];
-      if (${serializedZoomFactor} === 1) {
-        if (existingState) {
-          if (existingState.value) {
-            root.style.setProperty("zoom", existingState.value, existingState.priority);
-          } else {
-            root.style.removeProperty("zoom");
-          }
-          delete root[stateKey];
-        }
-        return true;
-      }
-      if (!existingState) {
-        Object.defineProperty(root, stateKey, {
-          configurable: true,
-          value: {
-            value: root.style.getPropertyValue("zoom"),
-            priority: root.style.getPropertyPriority("zoom")
-          }
-        });
-      }
-      root.style.setProperty("zoom", String(${serializedZoomFactor}), "important");
-      return true;
-    };
-    if (!apply()) {
-      const observer = new MutationObserver(() => {
-        if (apply()) observer.disconnect();
-      });
-      observer.observe(document, { childList: true });
-    }
-  })()`;
-}
-
-async function detachCdpSession(session: CDPSession): Promise<void> {
-  await session.detach().catch(() => undefined);
-}
-
-async function getOrCreatePage(context: BrowserContext): Promise<Page> {
-  const [page] = context.pages();
-  return page ?? context.newPage();
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

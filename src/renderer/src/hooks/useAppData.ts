@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { AuthFlowStatus, LaunchWorkspace, Macro, MacroRunStatus, Role, RoleStatus } from "../../../shared/types";
+import type {
+  AuthFlowStatus,
+  GameStageLayout,
+  LaunchWorkspace,
+  Macro,
+  MacroRunStatus,
+  Role,
+  RoleStatus
+} from "../../../shared/types";
 import { createRoleStats } from "../app/statusUtils";
 
 export type InitialLoadState = "loading" | "ready" | "failed";
@@ -12,6 +20,7 @@ export function useAppData() {
   const [statuses, setStatuses] = useState<RoleStatus[]>([]);
   const [authStatuses, setAuthStatuses] = useState<AuthFlowStatus[]>([]);
   const [macroStatuses, setMacroStatuses] = useState<MacroRunStatus[]>([]);
+  const [gameStageLayout, setGameStageLayout] = useState<GameStageLayout | null>(null);
   const [error, setError] = useState<unknown | null>(null);
   const [initialLoadState, setInitialLoadState] = useState<InitialLoadState>("loading");
 
@@ -45,13 +54,14 @@ export function useAppData() {
         throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
       }
 
-      const [nextRoles, nextStatuses, nextAuthStatuses, nextWorkspaces, nextMacros, nextMacroStatuses] = await Promise.all([
+      const [nextRoles, nextStatuses, nextAuthStatuses, nextWorkspaces, nextMacros, nextMacroStatuses, nextGameStageLayout] = await Promise.all([
         window.rionStudio.listRoles(),
         window.rionStudio.listRoleStatuses(),
         window.rionStudio.listAuthStatuses(),
         window.rionStudio.listLaunchWorkspaces(),
         window.rionStudio.listMacros(),
-        window.rionStudio.listMacroStatuses()
+        window.rionStudio.listMacroStatuses(),
+        window.rionStudio.getGameStageLayout()
       ]);
       setRoles(nextRoles);
       setStatuses(nextStatuses);
@@ -59,6 +69,7 @@ export function useAppData() {
       setWorkspaces(nextWorkspaces);
       setMacros(nextMacros);
       setMacroStatuses(nextMacroStatuses);
+      setGameStageLayout(nextGameStageLayout);
       if (options.markInitialLoad) {
         setInitialLoadState("ready");
       }
@@ -108,6 +119,14 @@ export function useAppData() {
       return;
     }
 
+    return window.rionStudio.onGameStageLayoutChanged(setGameStageLayout);
+  }, []);
+
+  useEffect(() => {
+    if (!window.rionStudio) {
+      return;
+    }
+
     return window.rionStudio.onMacroStatusChanged((nextStatuses) => {
       setMacroStatuses(nextStatuses);
       void window.rionStudio.listMacros().then(setMacros).catch((macroError) => {
@@ -120,6 +139,7 @@ export function useAppData() {
     authStatusByRole,
     authStatuses,
     error,
+    gameStageLayout,
     initialLoadState,
     loadData,
     macros,

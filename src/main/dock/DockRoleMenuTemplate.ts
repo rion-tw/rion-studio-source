@@ -103,6 +103,8 @@ function getRunStateLabel(state: RoleStatus["state"]): string {
 
 function getAuthFlowLabel(state: AuthFlowStatus["state"]): string {
   switch (state) {
+    case "opening_app":
+      return "Opening game view";
     case "opening_chrome":
       return "Opening Chrome";
     case "waiting_for_login":

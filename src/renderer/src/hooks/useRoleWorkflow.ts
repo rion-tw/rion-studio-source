@@ -9,6 +9,7 @@ import type { AuthFlowStatus, Role, RoleStatus } from "../../../shared/types";
 interface UseRoleWorkflowOptions {
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   navigateToRoles: () => void;
+  navigateToGame: () => void;
   roles: Role[];
   setAuthStatuses: Dispatch<SetStateAction<AuthFlowStatus[]>>;
   setError: (error: unknown | null) => void;
@@ -20,6 +21,7 @@ interface UseRoleWorkflowOptions {
 export function useRoleWorkflow({
   loadData,
   navigateToRoles,
+  navigateToGame,
   roles,
   setAuthStatuses,
   setError,
@@ -33,15 +35,10 @@ export function useRoleWorkflow({
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
-  const [loginGuideRoleId, setLoginGuideRoleId] = useState<string | null>(null);
 
   const selectedRole = useMemo(() => {
     return roles.find((role) => role.id === form.id);
   }, [roles, form.id]);
-
-  const loginGuideRole = useMemo(() => {
-    return roles.find((role) => role.id === loginGuideRoleId);
-  }, [roles, loginGuideRoleId]);
 
   const filteredRoles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -119,6 +116,7 @@ export function useRoleWorkflow({
     setError(null);
 
     try {
+      navigateToGame();
       const status = await window.rionStudio.launchRole(roleId);
       setStatuses((current) => mergeStatus(current, status));
     } catch (launchError) {
@@ -148,6 +146,7 @@ export function useRoleWorkflow({
     setError(null);
 
     try {
+      navigateToGame();
       const authStatus = await window.rionStudio.startLogin(roleId);
       setAuthStatuses((current) => mergeAuthStatus(current, authStatus));
       setStatuses((current) => current.filter((status) => status.roleId !== roleId));
@@ -156,26 +155,6 @@ export function useRoleWorkflow({
     } finally {
       setBusyRoleId(null);
     }
-  }
-
-  function requestSystemLogin(roleId: string): void {
-    setError(null);
-    setLoginGuideRoleId(roleId);
-  }
-
-  function cancelSystemLogin(): void {
-    setLoginGuideRoleId(null);
-  }
-
-  async function confirmSystemLogin(): Promise<void> {
-    const roleId = loginGuideRoleId;
-
-    if (!roleId) {
-      return;
-    }
-
-    setLoginGuideRoleId(null);
-    await handleSystemLogin(roleId);
   }
 
   async function handleDelete(role: Role): Promise<void> {
@@ -237,8 +216,6 @@ export function useRoleWorkflow({
   return {
     activeFilter,
     busyRoleId,
-    cancelSystemLogin,
-    confirmSystemLogin,
     filteredRoles,
     form,
     handleDelete,
@@ -248,9 +225,8 @@ export function useRoleWorkflow({
     handleSystemLogin,
     isRoleModalOpen,
     isSaving,
-    loginGuideRole,
     query,
-    requestSystemLogin,
+    requestSystemLogin: handleSystemLogin,
     selectedRole,
     setActiveFilter,
     setForm,

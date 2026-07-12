@@ -1,12 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { app, BrowserWindow, nativeImage, nativeTheme, screen, shell } from "electron";
+import { app, BrowserWindow, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
 
 import { AuthManager } from "./auth/AuthManager";
-import { AuthSessionChecker } from "./auth/AuthSessionChecker";
 import { BrowserManager } from "./browser/BrowserManager";
-import { BrowserUserDataLockWatcher } from "./browser/BrowserUserDataLockWatcher";
 import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
 import { registerIpcHandlers } from "./ipc/registerHandlers";
 import { MacroManager } from "./macros/MacroManager";
@@ -24,7 +22,6 @@ import {
   waitForPreparedRenderer,
   type StartupPageState
 } from "./startup/startupWindow";
-import { findSystemChromeExecutable, SystemChromeLauncher } from "./system-browser/SystemChromeLauncher";
 import { AppUpdateManager } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
 import { IPC_CHANNELS } from "../shared/ipc";
@@ -231,7 +228,9 @@ function initializeApplication(): void {
     openExternal: (url) => shell.openExternal(url)
   });
   browserManager = new BrowserManager(roleStore, {
-    executablePathResolver: async () => findSystemChromeExecutable()
+    createView: (options) => new WebContentsView(options),
+    embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
+    getHostWindow: () => mainWindow
   });
   const macroManager = new MacroManager(browserManager, macroStore);
   const macroOverlayInjector = new MacroOverlayInjector(macroStore, macroManager, requestMacroEditorFromOverlay);
@@ -239,15 +238,7 @@ function initializeApplication(): void {
   macroManager.on("change", () => {
     macroOverlayInjector.refreshInstalledOverlays();
   });
-  const authManager = new AuthManager(
-    roleStore,
-    browserManager,
-    new SystemChromeLauncher(roleStore),
-    new AuthSessionChecker(roleStore, {
-      executablePathResolver: findSystemChromeExecutable
-    }),
-    new BrowserUserDataLockWatcher()
-  );
+  const authManager = new AuthManager(roleStore, browserManager);
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
@@ -257,6 +248,14 @@ function initializeApplication(): void {
     updateManager,
     onMacrosChanged: () => {
       macroOverlayInjector.refreshInstalledOverlays();
+    },
+    onMacroOverlayRequest: async (webContentsId, request) => {
+      const roleId = browserManager?.getRoleIdForWebContents(webContentsId);
+      if (!roleId) {
+        throw new Error("Embedded game view is not associated with a role.");
+      }
+
+      return macroOverlayInjector.handleRequest(roleId, request);
     },
     onOverlayLanguageChanged: (language) => {
       macroOverlayInjector.setLanguage(language);

@@ -1,12 +1,13 @@
+import { EventEmitter } from "node:events";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
   BrowserLaunchAuthError,
   BrowserManager,
-  buildChromiumArgs,
-  buildLaunchOptions
+  createRoleSessionPartition
 } from "../src/main/browser/BrowserManager";
-import type { LoginStorageSnapshot } from "../src/main/auth/loginEvidence";
+import { LOGIN_STORAGE_EXPRESSION } from "../src/main/auth/loginEvidence";
 import type { Role } from "../src/shared/types";
 
 const role: Role = {
@@ -22,458 +23,248 @@ const role: Role = {
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
 
-describe("BrowserManager", () => {
-  it("launches with an adaptive page viewport", () => {
-    expect(buildLaunchOptions(role)).toMatchObject({
-      headless: false,
-      viewport: null
-    });
-    expect(buildLaunchOptions(role).args).toEqual(expect.arrayContaining(["--window-size=1280,720"]));
+describe("BrowserManager embedded views", () => {
+  it("creates a persistent isolated partition for each role", () => {
+    expect(createRoleSessionPartition("role:one/two")).toBe("persist:rion-role-role-one-two");
   });
 
-  it("includes an executable override when one is provided", () => {
-    expect(buildLaunchOptions(role, "/tmp/Rion Studio Browser.app/Contents/MacOS/Chromium")).toMatchObject({
-      executablePath: "/tmp/Rion Studio Browser.app/Contents/MacOS/Chromium"
-    });
-  });
-
-  it("builds minimal app-mode Chromium arguments", () => {
-    const args = buildChromiumArgs(role);
-
-    expect(args).toEqual(
-      expect.arrayContaining([
-        "--app=https://example.com/play",
-        "--window-size=1280,720",
-        "--disable-extensions",
-        "--enable-gpu",
-        "--autoplay-policy=no-user-gesture-required",
-        "--disable-background-timer-throttling"
-      ])
-    );
-    expect(args.some((arg) => arg.startsWith("--remote-debugging"))).toBe(false);
-  });
-
-  it("uses workspace bounds instead of role window size when provided", () => {
-    const args = buildChromiumArgs(role, { x: 40, y: 80, width: 960, height: 540 });
-
-    expect(args).toEqual(
-      expect.arrayContaining([
-        "--app=https://example.com/play",
-        "--window-size=960,540",
-        "--window-position=40,80"
-      ])
-    );
-    expect(args).not.toContain("--window-size=1280,720");
-  });
-
-  it("focuses an existing session instead of launching the same role twice", async () => {
-    const context = createBrowserContext([createStorageSnapshot({ cookies: { sid: "session-1" } })]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await manager.launch(role);
-    await manager.launch(role);
-
-    expect(launcher).toHaveBeenCalledTimes(1);
-    expect(store.ensureBrowserUserDataDir).toHaveBeenCalledTimes(1);
-    expect(context.page.goto).toHaveBeenCalledTimes(1);
-    expect(context.page.bringToFront).toHaveBeenCalledTimes(2);
-    expect(store.updateAuthState).not.toHaveBeenCalled();
-    expect(manager.listStatuses()).toMatchObject([{ roleId: role.id, state: "running" }]);
-  });
-
-  it("installs the macro overlay after a new launch", async () => {
-    const context = createBrowserContext([createStorageSnapshot({ cookies: { sid: "session-1" } })]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
+  it("launches an authenticated role inside a hidden WebContentsView", async () => {
+    const harness = createHarness();
     const overlayInstaller = vi.fn().mockResolvedValue(undefined);
-    manager.setMacroOverlayInstaller(overlayInstaller);
+    harness.manager.setMacroOverlayInstaller(overlayInstaller);
 
-    await manager.launch(role);
-
-    expect(overlayInstaller).toHaveBeenCalledWith(role, context.page);
-  });
-
-  it("reinstalls the macro overlay when focusing an existing session", async () => {
-    const context = createBrowserContext([
-      createStorageSnapshot({ cookies: { sid: "session-1" } }),
-      createStorageSnapshot({ cookies: { sid: "session-1" } })
-    ]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-    const overlayInstaller = vi.fn().mockResolvedValue(undefined);
-    manager.setMacroOverlayInstaller(overlayInstaller);
-
-    await manager.launch(role);
-    await manager.launch(role);
-
-    expect(launcher).toHaveBeenCalledTimes(1);
-    expect(overlayInstaller).toHaveBeenCalledTimes(2);
-    expect(overlayInstaller).toHaveBeenNthCalledWith(2, role, context.page);
-  });
-
-  it("applies workspace bounds to a newly launched browser window", async () => {
-    const context = createBrowserContext([createStorageSnapshot({ cookies: { sid: "session-1" } })]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await manager.launch(role, { bounds: { x: 10, y: 20, width: 700, height: 500 } });
-
-    expect(launcher.mock.calls[0][1].args).toEqual(
-      expect.arrayContaining(["--window-size=700,500", "--window-position=10,20"])
-    );
-    expect(context.browserContext.newCDPSession).toHaveBeenCalledWith(context.page);
-    expect(context.cdpSession.send).toHaveBeenCalledWith("Browser.getWindowForTarget");
-    expect(context.cdpSession.send).toHaveBeenCalledWith("Browser.setWindowBounds", {
-      windowId: 7,
-      bounds: {
-        left: 10,
-        top: 20,
-        width: 700,
-        height: 500,
-        windowState: "normal"
-      }
-    });
-    expect(context.cdpSession.detach).toHaveBeenCalledTimes(1);
-  });
-
-  it("repositions an existing session without launching it again", async () => {
-    const context = createBrowserContext([
-      createStorageSnapshot({ cookies: { sid: "session-1" } }),
-      createStorageSnapshot({ cookies: { sid: "session-1" } })
-    ]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await manager.launch(role);
-    await manager.launch(role, { bounds: { x: 100, y: 200, width: 800, height: 600 } });
-
-    expect(launcher).toHaveBeenCalledTimes(1);
-    expect(context.browserContext.newCDPSession).toHaveBeenCalledTimes(1);
-    expect(context.cdpSession.send).toHaveBeenCalledWith("Browser.setWindowBounds", {
-      windowId: 7,
-      bounds: {
-        left: 100,
-        top: 200,
-        width: 800,
-        height: 600,
-        windowState: "normal"
-      }
-    });
-    expect(context.page.bringToFront).toHaveBeenCalledTimes(2);
-  });
-
-  it("applies workspace browser zoom before navigating and keeps it for future documents", async () => {
-    const context = createBrowserContext([createStorageSnapshot({ cookies: { sid: "session-1" } })]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await manager.launch(role, { zoomFactor: 0.9 });
-
-    expect(context.browserContext.newCDPSession).toHaveBeenCalledWith(context.page);
-    expect(context.cdpSession.send).toHaveBeenCalledWith("Page.enable");
-    expect(context.cdpSession.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
-      source: expect.stringContaining('root.style.setProperty("zoom", String(0.9), "important")')
-    });
-    expect(context.cdpSession.send).toHaveBeenCalledWith("Runtime.evaluate", {
-      expression: expect.stringContaining('root.style.setProperty("zoom", String(0.9), "important")')
-    });
-    expect(context.cdpSession.send.mock.invocationCallOrder[2]).toBeLessThan(
-      context.page.goto.mock.invocationCallOrder[0]
-    );
-    expect(context.cdpSession.detach).not.toHaveBeenCalled();
-  });
-
-  it("replaces workspace browser zoom on an existing session", async () => {
-    const context = createBrowserContext([
-      createStorageSnapshot({ cookies: { sid: "session-1" } }),
-      createStorageSnapshot({ cookies: { sid: "session-1" } })
-    ]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await manager.launch(role, { zoomFactor: 0.9 });
-    await manager.launch(role, { zoomFactor: 0.8 });
-
-    expect(launcher).toHaveBeenCalledTimes(1);
-    expect(context.browserContext.newCDPSession).toHaveBeenCalledTimes(1);
-    expect(context.cdpSession.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
-      identifier: "zoom-script-1"
-    });
-    expect(context.cdpSession.send).toHaveBeenLastCalledWith("Runtime.evaluate", {
-      expression: expect.stringContaining('root.style.setProperty("zoom", String(0.8), "important")')
-    });
-  });
-
-  it("resets workspace browser zoom when an existing role is launched standalone", async () => {
-    const context = createBrowserContext([
-      createStorageSnapshot({ cookies: { sid: "session-1" } }),
-      createStorageSnapshot({ cookies: { sid: "session-1" } })
-    ]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await manager.launch(role, { zoomFactor: 0.9 });
-    await manager.launch(role);
-
-    expect(context.cdpSession.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
-      identifier: "zoom-script-1"
-    });
-    expect(context.cdpSession.send).toHaveBeenLastCalledWith("Runtime.evaluate", {
-      expression: expect.stringContaining("delete root[stateKey]")
-    });
-    expect(context.cdpSession.detach).toHaveBeenCalledTimes(1);
-  });
-
-  it("launches when localStorage has persisted auth evidence", async () => {
-    const context = createBrowserContext([createStorageSnapshot({ localStorage: { authToken: "token-1" } })]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await expect(manager.launch(role)).resolves.toMatchObject({
+    await expect(harness.manager.launch(role)).resolves.toMatchObject({
       roleId: role.id,
       state: "running"
     });
 
-    expect(context.page.waitForLoadState).toHaveBeenCalledWith("networkidle", { timeout: 5_000 });
-    expect(context.browserContext.cookies).toHaveBeenCalledWith(role.launchUrl);
-    expect(context.page.evaluate).toHaveBeenCalledTimes(1);
-    expect(context.context.close).not.toHaveBeenCalled();
-    expect(store.updateAuthState).not.toHaveBeenCalled();
-  });
-
-  it("closes the launched browser and resets auth state when no persisted session exists", async () => {
-    const context = createBrowserContext([createStorageSnapshot()]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await expect(manager.launch(role)).rejects.toThrow(BrowserLaunchAuthError);
-
-    expect(context.context.close).toHaveBeenCalled();
-    expect(store.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
-    expect(manager.listStatuses()).toEqual([]);
-  });
-
-  it("does not launch when a login prompt is still visible even with storage evidence", async () => {
-    const context = createBrowserContext([
-      createStorageSnapshot({
-        cookies: { sid: "session-1" },
-        bodyText: "Continue with Facebook"
+    expect(harness.createView).toHaveBeenCalledWith({
+      webPreferences: expect.objectContaining({
+        contextIsolation: true,
+        nodeIntegration: false,
+        partition: "persist:rion-role-role-1",
+        preload: "/app/out/preload/embedded.cjs",
+        sandbox: true
       })
-    ]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
-
-    await expect(manager.launch(role)).rejects.toThrow("Login is still required.");
-
-    expect(context.context.close).toHaveBeenCalled();
-    expect(store.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
-    expect(manager.listStatuses()).toEqual([]);
+    });
+    expect(harness.host.contentView.addChildView).toHaveBeenCalledWith(harness.views[0].view);
+    expect(harness.views[0].setVisible).toHaveBeenCalledWith(false);
+    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+    expect(harness.views[0].webContents.setZoomFactor).toHaveBeenCalledWith(1);
+    expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
   });
 
-  it("closes an existing session and resets auth state when focus validation fails", async () => {
-    const context = createBrowserContext([
-      createStorageSnapshot({ localStorage: { authToken: "token-1" } }),
-      createStorageSnapshot()
-    ]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, launcher);
+  it("focuses an existing role without creating a second view", async () => {
+    const harness = createHarness();
 
-    await manager.launch(role);
+    await harness.manager.launch(role);
+    await harness.manager.launch(role);
 
-    await expect(manager.launch(role)).rejects.toThrow(BrowserLaunchAuthError);
-
-    expect(launcher).toHaveBeenCalledTimes(1);
-    expect(context.context.close).toHaveBeenCalled();
-    expect(store.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
-    expect(manager.listStatuses()).toEqual([]);
+    expect(harness.createView).toHaveBeenCalledTimes(1);
+    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
+    expect(harness.host.focus).toHaveBeenCalledTimes(2);
   });
 
-  it("launches with the resolved system Chrome executable", async () => {
-    const context = createBrowserContext([createStorageSnapshot({ cookies: { sid: "session-1" } })]);
-    const launcher = vi.fn().mockResolvedValue(context.context);
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, {
-      launchPersistentContext: launcher,
-      executablePathResolver: vi.fn().mockResolvedValue("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-    });
+  it("hosts OAuth popups as another view inside the same app window", async () => {
+    const harness = createHarness();
+    await harness.manager.launch(role);
+    const handler = harness.views[0].webContents.setWindowOpenHandler.mock.calls[0][0] as () => {
+      action: string;
+      createWindow: (options: { webPreferences?: Record<string, unknown> }) => unknown;
+    };
 
-    await manager.launch(role);
+    const response = handler();
+    const popupContents = response.createWindow({ webPreferences: { javascript: true } });
 
-    expect(launcher).toHaveBeenCalledTimes(1);
-    expect(launcher.mock.calls[0][1]).toMatchObject({
-      executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    expect(response.action).toBe("allow");
+    expect(popupContents).toBe(harness.views[1].webContents);
+    expect(harness.createView).toHaveBeenNthCalledWith(2, {
+      webPreferences: expect.objectContaining({
+        contextIsolation: true,
+        nodeIntegration: false,
+        partition: "persist:rion-role-role-1",
+        sandbox: true
+      })
     });
-    expect(context.page.goto).toHaveBeenCalledWith(role.launchUrl, { waitUntil: "domcontentloaded" });
+    expect(harness.host.contentView.addChildView).toHaveBeenLastCalledWith(harness.views[1].view);
   });
 
-  it("does not fall back to bundled Chromium when system Chrome launch fails", async () => {
-    const launcher = vi.fn().mockRejectedValue(new Error("helper blocked"));
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, {
-      launchPersistentContext: launcher,
-      executablePathResolver: vi.fn().mockResolvedValue("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+  it("shows views only after the renderer reports stage bounds", async () => {
+    const harness = createHarness();
+    await harness.manager.launch(role);
+
+    harness.manager.updateViewBounds({
+      visible: true,
+      views: [{ roleId: role.id, bounds: { x: 260, y: 80, width: 700, height: 500 } }]
     });
 
-    await expect(manager.launch(role)).rejects.toThrow("helper blocked");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 260, y: 80, width: 700, height: 500 });
+    expect(harness.views[0].setVisible).toHaveBeenLastCalledWith(true);
 
-    expect(launcher).toHaveBeenCalledTimes(1);
-    expect(launcher.mock.calls[0][1]).toMatchObject({
-      executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    });
+    harness.manager.updateViewBounds({ visible: false, views: [] });
+    expect(harness.views[0].setVisible).toHaveBeenLastCalledWith(false);
   });
 
-  it("does not launch when system Chrome resolution fails", async () => {
-    const launcher = vi.fn();
-    const store = createRoleStore();
-    const manager = new BrowserManager(store, {
-      launchPersistentContext: launcher,
-      executablePathResolver: vi.fn().mockResolvedValue(undefined)
+  it("preserves workspace layout while launching multiple isolated views", async () => {
+    const harness = createHarness();
+    const secondRole = { ...role, id: "role-2", name: "Alt" };
+    harness.manager.setActiveLayout({
+      id: "workspace-1",
+      mode: "workspace",
+      name: "Party",
+      slots: [
+        { roleId: role.id, rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+        { roleId: secondRole.id, rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+      ]
     });
 
-    await expect(manager.launch(role)).rejects.toThrow(
-      "Google Chrome was not found. Install Chrome or set RION_STUDIO_CHROME_PATH to the Chrome executable."
+    await harness.manager.launch(role, { preserveLayout: true, zoomFactor: 0.9 });
+    await harness.manager.launch(secondRole, { preserveLayout: true, zoomFactor: 0.9 });
+
+    expect(harness.createView).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ webPreferences: expect.objectContaining({ partition: "persist:rion-role-role-1" }) })
     );
+    expect(harness.createView).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ webPreferences: expect.objectContaining({ partition: "persist:rion-role-role-2" }) })
+    );
+    expect(harness.views[0].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
+    expect(harness.views[1].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
+    expect(harness.manager.getActiveLayout()?.slots).toHaveLength(2);
+  });
 
-    expect(launcher).not.toHaveBeenCalled();
+  it("resets auth metadata and destroys a view when verification fails", async () => {
+    const harness = createHarness({ bodyText: "Log in with Google", localStorage: {} });
+
+    await expect(harness.manager.launch(role)).rejects.toBeInstanceOf(BrowserLaunchAuthError);
+
+    expect(harness.roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
+    expect(harness.host.contentView.removeChildView).toHaveBeenCalledWith(harness.views[0].view);
+    expect(harness.views[0].webContents.close).toHaveBeenCalledTimes(1);
+    expect(harness.manager.listStatuses()).toEqual([]);
+  });
+
+  it("keeps the embedded login view open until authentication evidence appears", async () => {
+    const harness = createHarness({
+      snapshots: [
+        { bodyText: "Log in with Google", localStorage: {} },
+        { bodyText: "Welcome", localStorage: { authToken: "token-1" } }
+      ]
+    });
+
+    await harness.manager.startLogin({ ...role, authState: "login_required" });
+    await expect(harness.manager.waitForAuthentication(role.id)).resolves.toMatchObject({
+      authState: "authenticated"
+    });
+    expect(harness.manager.listStatuses()).toMatchObject([{ roleId: role.id, state: "running" }]);
+  });
+
+  it("stops and removes the matching native view", async () => {
+    const harness = createHarness();
+    await harness.manager.launch(role);
+
+    await harness.manager.stop(role.id);
+
+    expect(harness.host.contentView.removeChildView).toHaveBeenCalledWith(harness.views[0].view);
+    expect(harness.views[0].webContents.close).toHaveBeenCalledTimes(1);
+    expect(harness.manager.getActiveLayout()).toBeNull();
   });
 });
 
-function createRoleStore(): {
-  ensureBrowserUserDataDir: ReturnType<typeof vi.fn>;
-  updateAuthState: ReturnType<typeof vi.fn>;
-} {
-  return {
-    ensureBrowserUserDataDir: vi.fn().mockResolvedValue("/tmp/rion-studio/role-1/browser"),
-    updateAuthState: vi.fn().mockResolvedValue({ ...role, authState: "login_required" })
-  };
-}
-
-function createBrowserContext(snapshots: LoginStorageSnapshot[]): {
-  context: {
-    pages: ReturnType<typeof vi.fn>;
-    once: ReturnType<typeof vi.fn>;
-    close: ReturnType<typeof vi.fn>;
-  };
-  browserContext: {
-    cookies: ReturnType<typeof vi.fn>;
-    newCDPSession: ReturnType<typeof vi.fn>;
-  };
-  cdpSession: {
-    detach: ReturnType<typeof vi.fn>;
-    send: ReturnType<typeof vi.fn>;
-  };
-  page: {
-    bringToFront: ReturnType<typeof vi.fn>;
-    goto: ReturnType<typeof vi.fn>;
-    waitForLoadState: ReturnType<typeof vi.fn>;
-    url: ReturnType<typeof vi.fn>;
-    context: ReturnType<typeof vi.fn>;
-    evaluate: ReturnType<typeof vi.fn>;
-  };
-} {
-  let readIndex = 0;
-  let currentSnapshot: LoginStorageSnapshot | undefined;
-  let closeListener: (() => void) | undefined;
-
-  const readSnapshot = (): LoginStorageSnapshot => {
-    const snapshot = currentSnapshot ?? snapshots[Math.min(readIndex, snapshots.length - 1)];
-
-    if (!currentSnapshot) {
-      readIndex += 1;
+function createHarness(options: {
+  bodyText?: string;
+  localStorage?: Record<string, string>;
+  snapshots?: Array<{ bodyText: string; localStorage: Record<string, string> }>;
+} = {}) {
+  const views: ReturnType<typeof createMockView>[] = [];
+  const snapshots = options.snapshots ?? [
+    {
+      bodyText: options.bodyText ?? "Welcome",
+      localStorage: options.localStorage ?? { authToken: "token-1" }
     }
-
-    currentSnapshot = snapshot;
-    return snapshot;
+  ];
+  let snapshotIndex = 0;
+  const createView = vi.fn(() => {
+    const view = createMockView(() => snapshots[Math.min(snapshotIndex++, snapshots.length - 1)]);
+    views.push(view);
+    return view.view as never;
+  });
+  const host = {
+    contentView: {
+      addChildView: vi.fn(),
+      removeChildView: vi.fn()
+    },
+    focus: vi.fn(),
+    isDestroyed: vi.fn(() => false),
+    isMinimized: vi.fn(() => false),
+    restore: vi.fn(),
+    show: vi.fn()
   };
-
-  const browserContext = {
-    cookies: vi.fn(async () => {
-      const snapshot = readSnapshot();
-
-      return Object.entries(snapshot.cookies).map(([name, value]) => ({
-        name,
-        value
-      }));
-    }),
-    newCDPSession: vi.fn()
+  const roleStore = {
+    updateAuthState: vi.fn().mockImplementation(async (_id: string, authState: Role["authState"]) => ({
+      ...role,
+      authState
+    }))
   };
-  let zoomScriptCount = 0;
-  const cdpSession = {
-    send: vi.fn(async (method: string) => {
-      if (method === "Browser.getWindowForTarget") {
-        return { windowId: 7 };
-      }
+  const manager = new BrowserManager(roleStore, {
+    createView,
+    embeddedPreloadPath: "/app/out/preload/embedded.cjs",
+    getHostWindow: () => host as never,
+    loginPollIntervalMs: 0
+  });
 
-      if (method === "Page.addScriptToEvaluateOnNewDocument") {
-        zoomScriptCount += 1;
-        return { identifier: `zoom-script-${zoomScriptCount}` };
-      }
-
-      return {};
-    }),
-    detach: vi.fn().mockResolvedValue(undefined)
-  };
-  browserContext.newCDPSession.mockResolvedValue(cdpSession);
-  const page = {
-    bringToFront: vi.fn().mockResolvedValue(undefined),
-    goto: vi.fn().mockResolvedValue(undefined),
-    waitForLoadState: vi.fn().mockResolvedValue(undefined),
-    url: vi.fn().mockReturnValue(role.launchUrl),
-    context: vi.fn().mockReturnValue(browserContext),
-    evaluate: vi.fn(async () => {
-      const snapshot = readSnapshot();
-      currentSnapshot = undefined;
-
-      return {
-        localStorage: snapshot.localStorage,
-        sessionStorage: snapshot.sessionStorage,
-        indexedDb: snapshot.indexedDb,
-        bodyText: snapshot.bodyText
-      };
-    })
-  };
-  const context = {
-    pages: vi.fn().mockReturnValue([page]),
-    once: vi.fn((event: string, listener: () => void) => {
-      if (event === "close") {
-        closeListener = listener;
-      }
-    }),
-    close: vi.fn(async () => {
-      const listener = closeListener;
-      closeListener = undefined;
-      listener?.();
-    })
-  };
-
-  return {
-    context,
-    browserContext,
-    cdpSession,
-    page
-  };
+  return { createView, host, manager, roleStore, views };
 }
 
-function createStorageSnapshot(overrides: Partial<LoginStorageSnapshot> = {}): LoginStorageSnapshot {
-  return {
-    cookies: {},
-    localStorage: {},
-    sessionStorage: {},
-    indexedDb: {},
-    bodyText: "",
-    ...overrides
+function createMockView(readSnapshot: () => { bodyText: string; localStorage: Record<string, string> }) {
+  const emitter = new EventEmitter();
+  let bounds = { x: -10_000, y: -10_000, width: 1, height: 1 };
+  let currentUrl = "about:blank";
+  let destroyed = false;
+  const webContents = Object.assign(emitter, {
+    id: Math.floor(Math.random() * 100_000),
+    close: vi.fn(() => {
+      destroyed = true;
+    }),
+    executeJavaScript: vi.fn(async (source: string) => {
+      if (source === LOGIN_STORAGE_EXPRESSION) {
+        const snapshot = readSnapshot();
+        return {
+          bodyText: snapshot.bodyText,
+          indexedDb: {},
+          localStorage: snapshot.localStorage,
+          sessionStorage: {}
+        };
+      }
+      return "";
+    }),
+    focus: vi.fn(),
+    getURL: vi.fn(() => currentUrl),
+    isDestroyed: vi.fn(() => destroyed),
+    loadURL: vi.fn(async (url: string) => {
+      currentUrl = url;
+    }),
+    mainFrame: { framesInSubtree: [] },
+    sendInputEvent: vi.fn(),
+    session: {
+      cookies: {
+        get: vi.fn().mockResolvedValue([])
+      }
+    },
+    setWindowOpenHandler: vi.fn(),
+    setZoomFactor: vi.fn()
+  });
+  const setBounds = vi.fn((nextBounds) => {
+    bounds = nextBounds;
+  });
+  const setVisible = vi.fn();
+  const view = {
+    getBounds: vi.fn(() => bounds),
+    setBounds,
+    setVisible,
+    webContents
   };
+
+  return { setBounds, setVisible, view, webContents };
 }

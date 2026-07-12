@@ -297,11 +297,11 @@ function resolveManualUpdateDownload(
   const releasePageUrl = options.repository
     ? `https://github.com/${options.repository}/releases/tag/${encodeURIComponent(tag)}`
     : undefined;
-  const dmgUrl = findDmgDownloadUrl(info, options.arch);
+  const downloadUrl = findMacDownloadUrl(info, options.arch);
 
   return {
-    downloadUrl: dmgUrl,
-    installerName: readInstallerName(dmgUrl) ?? `${options.productName}-${info.version}-mac-${options.arch}.dmg`,
+    downloadUrl,
+    installerName: readInstallerName(downloadUrl) ?? `${options.productName}-${info.version}-mac-${options.arch}.zip`,
     releasePageUrl
   };
 }
@@ -311,10 +311,10 @@ function readReleaseTag(info: UpdateInfo): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function findDmgDownloadUrl(info: UpdateInfo, arch: string): string | undefined {
+function findMacDownloadUrl(info: UpdateInfo, arch: string): string | undefined {
   const files = (info.files ?? [])
     .map((file) => toHttpUrl(file.url))
-    .filter((url): url is string => typeof url === "string" && url.toLowerCase().endsWith(".dmg"));
+    .filter((url): url is string => typeof url === "string" && isMacDownloadAssetName(url));
 
   return preferCurrentArch(files, arch) ?? files[0];
 }
@@ -395,7 +395,7 @@ async function fetchGitHubManualUpdateAsset(request: ManualUpdateAssetRequest): 
     assets?: unknown;
     html_url?: unknown;
   };
-  const asset = selectGitHubDmgAsset(payload.assets, request);
+  const asset = selectGitHubMacAsset(payload.assets, request);
 
   if (!asset) {
     return null;
@@ -408,7 +408,7 @@ async function fetchGitHubManualUpdateAsset(request: ManualUpdateAssetRequest): 
   };
 }
 
-function selectGitHubDmgAsset(
+function selectGitHubMacAsset(
   assets: unknown,
   request: Pick<ManualUpdateAssetRequest, "arch" | "productName">
 ): ManualUpdateAsset | null {
@@ -416,23 +416,28 @@ function selectGitHubDmgAsset(
     return null;
   }
 
-  const dmgAssets = assets
+  const macAssets = assets
     .map((asset) => readGitHubAsset(asset))
-    .filter((asset): asset is ManualUpdateAsset => asset !== null && asset.name.toLowerCase().endsWith(".dmg"));
+    .filter((asset): asset is ManualUpdateAsset => asset !== null && isMacDownloadAssetName(asset.name));
 
-  if (dmgAssets.length === 0) {
+  if (macAssets.length === 0) {
     return null;
   }
 
   const productName = request.productName.toLowerCase();
-  const productAssets = dmgAssets.filter((asset) => asset.name.toLowerCase().includes(productName));
-  const candidates = productAssets.length > 0 ? productAssets : dmgAssets;
+  const productAssets = macAssets.filter((asset) => asset.name.toLowerCase().includes(productName));
+  const candidates = productAssets.length > 0 ? productAssets : macAssets;
 
   return (
     candidates.find((asset) => fileNameMatchesArch(asset.name, request.arch)) ??
     candidates.find((asset) => !fileNameMatchesOtherArch(asset.name, request.arch)) ??
     candidates[0]
   );
+}
+
+function isMacDownloadAssetName(name: string): boolean {
+  const lowerName = name.toLowerCase();
+  return lowerName.endsWith(".zip") || lowerName.endsWith(".dmg");
 }
 
 function readGitHubAsset(asset: unknown): ManualUpdateAsset | null {

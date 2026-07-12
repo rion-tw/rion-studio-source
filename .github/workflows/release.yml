@@ -85,7 +85,7 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            build_target: --mac
+            build_target: --mac zip
           - os: windows-latest
             build_target: --win
     steps:
@@ -126,7 +126,7 @@ jobs:
           version="${{ needs.semantic-release.outputs.release_version }}"
           tag="v${version}"
           release_dir="release/${version}"
-          installer="${release_dir}/Rion Studio-mac.dmg"
+          installer="${release_dir}/Rion Studio-mac.zip"
 
           if [[ ! -f "${installer}" ]]; then
             ls -la "${release_dir}"
@@ -135,17 +135,17 @@ jobs:
 
           assets=("${installer}")
           for optional_asset in \
-            "${release_dir}/Rion Studio-mac.dmg.blockmap" \
-            "${release_dir}/Rion Studio-mac.zip" \
             "${release_dir}/Rion Studio-mac.zip.blockmap" \
-            "${release_dir}/latest-mac.yml"; do
+            "${release_dir}/latest-mac.yml" \
+            "${release_dir}/Rion Studio-mac.dmg.blockmap" \
+            "${release_dir}/Rion Studio-mac.dmg"; do
             if [[ -f "${optional_asset}" ]]; then
               assets+=("${optional_asset}")
             fi
           done
 
           gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
-          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "Rion Studio-mac.dmg"
+          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "Rion Studio-mac.zip"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

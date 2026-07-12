@@ -11,12 +11,23 @@ actions while you stay actively in control of play.
 
 ## Download
 
-- [Download for macOS](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion.Studio-mac.zip)
+- [Download for macOS](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion.Studio-mac.dmg)
 - [Download for Windows](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion.Studio-win.exe)
 
 These links point to the installer assets attached to the latest GitHub release.
 If a download returns 404, open the [latest release](https://github.com/rion-tw/rion-studio/releases/latest)
 and confirm the release has finished uploading assets.
+
+### macOS Installation
+
+The macOS build is unsigned. Open the DMG, drag Rion Studio to Applications, then run this
+one-time command if macOS reports that the app is damaged:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
+```
+
+This removes quarantine only from Rion Studio. It does not disable Gatekeeper system-wide.
 
 ## Why Rion Studio
 
@@ -123,10 +134,12 @@ from the edit panel.
 Packaged builds do not include Chromium. Playwright controls the user's installed
 Google Chrome with isolated per-role browser profiles.
 
-macOS packaging works locally, but signing is skipped until a valid Developer ID Application
-certificate is configured.
+macOS packaging explicitly uses unsigned mode without hardened runtime. A paid Developer ID
+Application certificate and Apple notarization would be required for warning-free Gatekeeper
+launches.
 
 Unsigned macOS builds use a manual update flow. The app checks GitHub Releases, opens the
-matching macOS download when an update is available, and guides users to open the app
-bundle. Set `RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at
+matching DMG when an update is available, and guides users to drag the app to Applications.
+The DMG includes `Install Help.txt` with the one-time quarantine command. Set
+`RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at
 runtime if release assets are hosted outside the default repository.

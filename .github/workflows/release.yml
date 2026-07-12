@@ -22,11 +22,15 @@ jobs:
       matrix:
         include:
           - os: macos-15
-            build_target: --mac zip
-            installer_name: Rion.Studio-mac.zip
+            build_target: --mac dmg zip --arm64
+            primary_asset: Rion.Studio-mac.dmg
+            required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
+            optional_assets: Rion.Studio-mac.dmg.blockmap
           - os: windows-latest
             build_target: --win
-            installer_name: Rion.Studio-win.exe
+            primary_asset: Rion.Studio-win.exe
+            required_assets: Rion.Studio-win.exe Rion.Studio-win.exe.blockmap latest.yml
+            optional_assets: ""
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -65,11 +69,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          artifact="release/0.0.0-development/${{ matrix.installer_name }}"
-          if [[ ! -f "${artifact}" ]]; then
-            find release -maxdepth 2 -type f -print || true
-            exit 1
-          fi
+          release_dir="release/0.0.0-development"
+          read -r -a required_assets <<< "${{ matrix.required_assets }}"
+
+          for asset_name in "${required_assets[@]}"; do
+            if [[ ! -f "${release_dir}/${asset_name}" ]]; then
+              find release -maxdepth 2 -type f -print || true
+              exit 1
+            fi
+          done
 
   semantic-release:
     needs: validate-release
@@ -109,13 +117,15 @@ jobs:
       matrix:
         include:
           - os: macos-15
-            build_target: --mac zip
-            installer_name: Rion.Studio-mac.zip
-            metadata_name: latest-mac.yml
+            build_target: --mac dmg zip --arm64
+            primary_asset: Rion.Studio-mac.dmg
+            required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
+            optional_assets: Rion.Studio-mac.dmg.blockmap
           - os: windows-latest
             build_target: --win
-            installer_name: Rion.Studio-win.exe
-            metadata_name: latest.yml
+            primary_asset: Rion.Studio-win.exe
+            required_assets: Rion.Studio-win.exe Rion.Studio-win.exe.blockmap latest.yml
+            optional_assets: ""
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -153,23 +163,27 @@ jobs:
           version="${{ needs.semantic-release.outputs.release_version }}"
           tag="v${version}"
           release_dir="release/${version}"
-          installer="${release_dir}/${{ matrix.installer_name }}"
+          read -r -a required_asset_names <<< "${{ matrix.required_assets }}"
+          read -r -a optional_asset_names <<< "${{ matrix.optional_assets }}"
+          assets=()
 
-          if [[ ! -f "${installer}" ]]; then
-            find "${release_dir}" -maxdepth 1 -type f -print || true
-            exit 1
-          fi
+          for asset_name in "${required_asset_names[@]}"; do
+            asset_path="${release_dir}/${asset_name}"
+            if [[ ! -f "${asset_path}" ]]; then
+              find "${release_dir}" -maxdepth 1 -type f -print || true
+              exit 1
+            fi
+            assets+=("${asset_path}")
+          done
 
-          assets=("${installer}")
-          for optional_asset in \
-            "${installer}.blockmap" \
-            "${release_dir}/${{ matrix.metadata_name }}"; do
-            if [[ -f "${optional_asset}" ]]; then
-              assets+=("${optional_asset}")
+          for asset_name in "${optional_asset_names[@]}"; do
+            asset_path="${release_dir}/${asset_name}"
+            if [[ -f "${asset_path}" ]]; then
+              assets+=("${asset_path}")
             fi
           done
 
           gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
-          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "${{ matrix.installer_name }}"
+          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "${{ matrix.primary_asset }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

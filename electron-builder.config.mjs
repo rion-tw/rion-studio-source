@@ -31,7 +31,38 @@ const config = {
   mac: {
     icon: "build/icon.icns",
     category: "public.app-category.utilities",
+    identity: null,
+    hardenedRuntime: false,
     target: ["dmg", "zip"]
+  },
+  dmg: {
+    title: "${productName} ${version}",
+    backgroundColor: "#f5f5f7",
+    iconSize: 80,
+    iconTextSize: 12,
+    window: {
+      width: 540,
+      height: 380
+    },
+    contents: [
+      {
+        x: 130,
+        y: 185,
+        type: "file"
+      },
+      {
+        x: 410,
+        y: 185,
+        type: "link",
+        path: "/Applications"
+      },
+      {
+        x: 270,
+        y: 310,
+        type: "file",
+        path: "build/Install Help.txt"
+      }
+    ]
   },
   win: {
     icon: "build/icon.ico",

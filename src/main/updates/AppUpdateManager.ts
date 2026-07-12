@@ -301,7 +301,7 @@ function resolveManualUpdateDownload(
 
   return {
     downloadUrl,
-    installerName: readInstallerName(downloadUrl) ?? `${options.productName}-${info.version}-mac-${options.arch}.zip`,
+    installerName: readInstallerName(downloadUrl) ?? `${options.productName}-${info.version}-mac-${options.arch}.dmg`,
     releasePageUrl
   };
 }
@@ -316,18 +316,22 @@ function findMacDownloadUrl(info: UpdateInfo, arch: string): string | undefined 
     .map((file) => toHttpUrl(file.url))
     .filter((url): url is string => typeof url === "string" && isMacDownloadAssetName(url));
 
-  return preferCurrentArch(files, arch) ?? files[0];
+  return preferMacInstaller(files, arch, (url) => readInstallerName(url) ?? url);
 }
 
-function preferCurrentArch(urls: string[], arch: string): string | undefined {
-  const matchingArch = urls.find((url) => fileNameMatchesArch(url, arch));
+function preferMacInstaller<T>(items: T[], arch: string, readName: (item: T) => string): T | undefined {
+  const matchingArch = items.filter((item) => fileNameMatchesArch(readName(item), arch));
 
-  if (matchingArch) {
-    return matchingArch;
+  if (matchingArch.length > 0) {
+    return preferDmg(matchingArch, readName);
   }
 
-  const compatible = urls.find((url) => !fileNameMatchesOtherArch(url, arch));
-  return compatible ?? urls[0];
+  const compatible = items.filter((item) => !fileNameMatchesOtherArch(readName(item), arch));
+  return preferDmg(compatible, readName) ?? preferDmg(items, readName);
+}
+
+function preferDmg<T>(items: T[], readName: (item: T) => string): T | undefined {
+  return items.find((item) => readName(item).toLowerCase().endsWith(".dmg")) ?? items[0];
 }
 
 function fileNameMatchesArch(url: string, arch: string): boolean {
@@ -427,11 +431,7 @@ function selectGitHubMacAsset(
   const productAssets = macAssets.filter((asset) => fileNameMatchesProductName(asset.name, request.productName));
   const candidates = productAssets.length > 0 ? productAssets : macAssets;
 
-  return (
-    candidates.find((asset) => fileNameMatchesArch(asset.name, request.arch)) ??
-    candidates.find((asset) => !fileNameMatchesOtherArch(asset.name, request.arch)) ??
-    candidates[0]
-  );
+  return preferMacInstaller(candidates, request.arch, (asset) => asset.name) ?? null;
 }
 
 function isMacDownloadAssetName(name: string): boolean {

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppUpdateManager } from "../src/main/updates/AppUpdateManager";
 
@@ -12,6 +12,10 @@ class FakeUpdater extends EventEmitter {
 }
 
 describe("AppUpdateManager", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("keeps update checks disabled outside packaged releases", async () => {
     const updater = new FakeUpdater();
     const manager = new AppUpdateManager({
@@ -91,8 +95,8 @@ describe("AppUpdateManager", () => {
     const updater = new FakeUpdater();
     const openExternal = vi.fn().mockResolvedValue(undefined);
     const fetchManualUpdateAsset = vi.fn().mockResolvedValue({
-      browserDownloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.zip",
-      name: "Rion.Studio-mac.zip",
+      browserDownloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
+      name: "Rion.Studio-mac.dmg",
       releasePageUrl: "https://github.com/rion-studio/rion-studio/releases/tag/v0.2.0"
     });
 
@@ -126,9 +130,9 @@ describe("AppUpdateManager", () => {
 
     await expect(manager.checkForUpdates()).resolves.toMatchObject({
       availableVersion: "0.2.0",
-      downloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.zip",
+      downloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
       installMode: "manual",
-      installerName: "Rion.Studio-mac.zip",
+      installerName: "Rion.Studio-mac.dmg",
       releasePageUrl: "https://github.com/rion-studio/rion-studio/releases/tag/v0.2.0",
       state: "available"
     });
@@ -144,7 +148,82 @@ describe("AppUpdateManager", () => {
 
     await manager.openUpdateDownload();
     expect(openExternal).toHaveBeenCalledWith(
-      "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.zip"
+      "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg"
     );
   });
+
+  it("prefers a DMG over a ZIP from GitHub release assets", async () => {
+    const updater = createManualUpdateUpdater();
+    const fetchMock = vi.fn().mockResolvedValue(
+      createGitHubReleaseResponse(["Rion.Studio-mac.zip", "Rion.Studio-mac.dmg"])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const manager = new AppUpdateManager({
+      arch: "arm64",
+      currentVersion: "0.1.0",
+      isPackaged: true,
+      manualUpdateRepository: "rion-studio/rion-studio",
+      platform: "darwin",
+      updater: updater as never
+    });
+
+    await expect(manager.checkForUpdates()).resolves.toMatchObject({
+      downloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
+      installerName: "Rion.Studio-mac.dmg"
+    });
+  });
+
+  it("falls back to a ZIP when a GitHub release has no DMG", async () => {
+    const updater = createManualUpdateUpdater();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createGitHubReleaseResponse(["Rion.Studio-mac.zip"])));
+
+    const manager = new AppUpdateManager({
+      arch: "arm64",
+      currentVersion: "0.1.0",
+      isPackaged: true,
+      manualUpdateRepository: "rion-studio/rion-studio",
+      platform: "darwin",
+      updater: updater as never
+    });
+
+    await expect(manager.checkForUpdates()).resolves.toMatchObject({
+      downloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.zip",
+      installerName: "Rion.Studio-mac.zip"
+    });
+  });
 });
+
+function createManualUpdateUpdater(): FakeUpdater {
+  const updater = new FakeUpdater();
+  updater.checkForUpdates.mockImplementation(async () => {
+    const updateInfo = {
+      files: [],
+      path: "",
+      releaseDate: "2026-07-12T00:00:00.000Z",
+      sha512: "",
+      tag: "v0.2.0",
+      version: "0.2.0"
+    };
+    updater.emit("update-available", updateInfo);
+    return {
+      isUpdateAvailable: true,
+      updateInfo,
+      versionInfo: updateInfo
+    };
+  });
+  return updater;
+}
+
+function createGitHubReleaseResponse(assetNames: string[]) {
+  return {
+    ok: true,
+    json: async () => ({
+      assets: assetNames.map((name) => ({
+        browser_download_url: `https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/${name}`,
+        name
+      })),
+      html_url: "https://github.com/rion-studio/rion-studio/releases/tag/v0.2.0"
+    })
+  };
+}

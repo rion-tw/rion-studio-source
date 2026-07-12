@@ -203,7 +203,7 @@
   "settings.updateDownloaded": "版本 {version} 已下載完成，可以安裝。",
   "settings.updateDownloading": "正在下載更新，已完成 {progress}%。",
   "settings.updateAvailable": "版本 {version} 可用，將會自動下載。",
-  "settings.updateManualAvailable": "版本 {version} 可用。請下載安裝檔，打開後將 Rion Studio 拖到 Applications。",
+  "settings.updateManualAvailable": "版本 {version} 可用。請打開 DMG、將 Rion Studio 拖到 Applications；若 macOS 阻擋，請依照 Install Help 操作。",
   "settings.updateError": "檢查更新失敗：{error}",
   "settings.updateErrorUnknown": "未知錯誤",
   "settings.updateState.unsupported": "只有封裝後的正式版本支援更新。",

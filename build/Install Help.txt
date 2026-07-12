@@ -1,0 +1,24 @@
+Rion Studio macOS installation
+
+1. Drag Rion Studio to the Applications folder.
+2. If macOS reports that Rion Studio is damaged, open Terminal and run:
+
+   xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
+
+3. Open Rion Studio from Applications.
+
+This command removes quarantine only from Rion Studio. It does not disable
+Gatekeeper system-wide.
+
+---
+
+Rion Studio macOS 安裝
+
+1. 將 Rion Studio 拖到 Applications 資料夾。
+2. 如果 macOS 顯示 Rion Studio 已損壞，請打開「終端機」並執行：
+
+   xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
+
+3. 從 Applications 打開 Rion Studio。
+
+此命令只會移除 Rion Studio 的隔離屬性，不會停用整個系統的 Gatekeeper。

@@ -203,7 +203,7 @@
   "settings.updateDownloaded": "Version {version} is downloaded and ready to install.",
   "settings.updateDownloading": "Downloading update, {progress}% complete.",
   "settings.updateAvailable": "Version {version} is available and will download automatically.",
-  "settings.updateManualAvailable": "Version {version} is available. Download the installer, open it, then drag Rion Studio to Applications.",
+  "settings.updateManualAvailable": "バージョン {version} を利用できます。DMG を開いて Rion Studio を Applications にドラッグし、macOS にブロックされた場合は Install Help に従ってください。",
   "settings.updateError": "Update check failed: {error}",
   "settings.updateErrorUnknown": "Unknown error",
   "settings.updateState.unsupported": "Updates are available only in packaged releases.",

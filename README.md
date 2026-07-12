@@ -1,5 +1,7 @@
 # Rion Studio
 
+English | [繁體中文](docs/README.zh-TW.md) | [简体中文](docs/README.zh-CN.md) | [日本語](docs/README.ja.md)
+
 ![Rion Studio banner showing isolated roles, browser workspaces, and assistive controls](.github/assets/rion-studio-github-preview-1280x640.jpg)
 
 **A cross-platform login launcher and assistive workspace for web games.**

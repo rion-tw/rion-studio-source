@@ -44,8 +44,9 @@ describe("startup page", () => {
     const html = buildStartupPage({ theme: "dark" });
 
     expect(html).toContain('<html lang="en" data-theme="dark">');
-    expect(html).toContain("Loading role workspace");
+    expect(html).toContain('aria-label="Loading Rion Studio"');
     expect(html).toContain("startup-spinner");
+    expect(html).not.toContain('<section class="startup-card">');
     expect(html).toContain('aria-busy="true"');
   });
 

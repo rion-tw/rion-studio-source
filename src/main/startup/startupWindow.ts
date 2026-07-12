@@ -48,13 +48,17 @@ export function buildStartupPage(options: StartupPageOptions): string {
   const icon = options.iconDataUrl
     ? `<img class="startup-icon" src="${escapeHtml(options.iconDataUrl)}" alt="" draggable="false" />`
     : '<div class="startup-icon startup-icon-fallback" aria-hidden="true">R</div>';
-  const statusTitle = isFailed ? "Unable to start Rion Studio" : "Loading role workspace";
-  const statusDescription = isFailed
-    ? "The application could not finish starting. Please quit and try again."
-    : "Preparing roles, sessions, and workspaces.";
-  const indicator = isFailed
-    ? '<div class="startup-error-mark" aria-hidden="true">!</div>'
-    : '<div class="startup-spinner" aria-hidden="true"></div><div class="startup-progress" aria-hidden="true"><span></span></div>';
+  const content = isFailed
+    ? `${icon}
+      <section class="startup-card">
+        <div class="startup-error-mark" aria-hidden="true">!</div>
+        <div class="startup-status">
+          <p class="startup-status-title">Unable to start Rion Studio</p>
+          <p class="startup-status-description">The application could not finish starting. Please quit and try again.</p>
+        </div>
+      </section>`
+    : `${icon}
+      <div class="startup-spinner" aria-hidden="true"></div>`;
 
   return `<!doctype html>
 <html lang="en" data-theme="${options.theme}">
@@ -73,8 +77,6 @@ export function buildStartupPage(options: StartupPageOptions): string {
         --border: 0 0% 100% / 0.38;
         --highlight: 0 0% 100% / 0.2;
         --shadow: 222 32% 14% / 0.08;
-        --track: 222 12% 45% / 0.16;
-        --progress: 222 12% 34% / 0.5;
         --error: 0 64% 48%;
       }
 
@@ -87,8 +89,6 @@ export function buildStartupPage(options: StartupPageOptions): string {
         --border: 0 0% 100% / 0.09;
         --highlight: 0 0% 100% / 0.03;
         --shadow: 0 0% 0% / 0.14;
-        --track: 0 0% 100% / 0.09;
-        --progress: 0 0% 72% / 0.52;
         --error: 0 72% 68%;
       }
 
@@ -140,10 +140,7 @@ export function buildStartupPage(options: StartupPageOptions): string {
         font-weight: 700;
       }
 
-      .startup-brand { display: grid; gap: 4px; }
       h1, p { margin: 0; }
-      h1 { font-size: 18px; font-weight: 650; line-height: 28px; }
-      .startup-tagline { color: hsl(var(--muted)); font-size: 13px; font-weight: 500; line-height: 20px; }
 
       .startup-card {
         display: grid;
@@ -173,24 +170,6 @@ export function buildStartupPage(options: StartupPageOptions): string {
         animation: startup-spin 0.9s linear infinite;
       }
 
-      .startup-progress {
-        position: relative;
-        width: min(240px, 100%);
-        height: 4px;
-        overflow: hidden;
-        border-radius: 999px;
-        background: hsl(var(--track));
-      }
-
-      .startup-progress span {
-        position: absolute;
-        inset: 0 auto 0 0;
-        width: 42%;
-        border-radius: inherit;
-        background: hsl(var(--progress));
-        animation: startup-progress 1.2s ease-in-out infinite;
-      }
-
       .startup-error-mark {
         display: grid;
         width: 28px;
@@ -204,14 +183,9 @@ export function buildStartupPage(options: StartupPageOptions): string {
       }
 
       @keyframes startup-spin { to { transform: rotate(360deg); } }
-      @keyframes startup-progress {
-        0% { transform: translateX(-120%); }
-        100% { transform: translateX(240%); }
-      }
 
       @media (prefers-reduced-motion: reduce) {
-        .startup-spinner, .startup-progress span { animation: none; }
-        .startup-progress span { width: 100%; opacity: 0.48; transform: none; }
+        .startup-spinner { animation: none; }
       }
 
       @media (max-width: 1040px) {
@@ -220,19 +194,8 @@ export function buildStartupPage(options: StartupPageOptions): string {
     </style>
   </head>
   <body>
-    <main role="${isFailed ? "alert" : "status"}" aria-live="polite" aria-busy="${String(!isFailed)}">
-      ${icon}
-      <div class="startup-brand">
-        <h1>Rion Studio</h1>
-        <p class="startup-tagline">Browser roles, ready when you are.</p>
-      </div>
-      <section class="startup-card">
-        ${indicator}
-        <div class="startup-status">
-          <p class="startup-status-title">${statusTitle}</p>
-          <p class="startup-status-description">${statusDescription}</p>
-        </div>
-      </section>
+    <main role="${isFailed ? "alert" : "status"}" aria-label="${isFailed ? "Rion Studio failed to start" : "Loading Rion Studio"}" aria-live="polite" aria-busy="${String(!isFailed)}">
+      ${content}
     </main>
   </body>
 </html>`;

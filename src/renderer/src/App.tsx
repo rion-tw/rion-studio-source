@@ -356,6 +356,7 @@ function BootLoadingScreen({
     <div className="liquid-app-shell app-drag grid h-screen place-items-center overflow-hidden p-6 text-foreground">
       <section
         aria-busy={!isFailed}
+        aria-label={!isFailed ? "Loading Rion Studio" : undefined}
         aria-live="polite"
         className="app-no-drag grid w-full max-w-[420px] justify-items-center gap-5 text-center"
       >
@@ -366,41 +367,33 @@ function BootLoadingScreen({
           aria-hidden="true"
           draggable={false}
         />
-        <div className="grid gap-1">
-          <h1 className="text-lg font-semibold leading-7">Rion Studio</h1>
-          <p className="text-sm font-medium text-muted-foreground">{t("app.tagline")}</p>
-        </div>
-
-        <Surface className="boot-card w-full p-5" variant="strong">
-          {isFailed ? (
-            <div className="grid gap-4 text-left">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="mt-0.5 shrink-0 text-destructive" size={18} />
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold leading-5">{t("loading.failedTitle")}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {error ? toMessage(error, language, t) : t("loading.failedDescription")}
-                  </p>
+        {isFailed ? (
+          <>
+            <div className="grid gap-1">
+              <h1 className="text-lg font-semibold leading-7">Rion Studio</h1>
+              <p className="text-sm font-medium text-muted-foreground">{t("app.tagline")}</p>
+            </div>
+            <Surface className="boot-card w-full p-5" variant="strong">
+              <div className="grid gap-4 text-left">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 shrink-0 text-destructive" size={18} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold leading-5">{t("loading.failedTitle")}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {error ? toMessage(error, language, t) : t("loading.failedDescription")}
+                    </p>
+                  </div>
                 </div>
+                <Button className="justify-self-start" type="button" onClick={onRetry}>
+                  <RefreshCw size={15} />
+                  {t("loading.retry")}
+                </Button>
               </div>
-              <Button className="justify-self-start" type="button" onClick={onRetry}>
-                <RefreshCw size={15} />
-                {t("loading.retry")}
-              </Button>
-            </div>
-          ) : (
-            <div className="grid justify-items-center gap-4">
-              <Loader2 className="spin text-muted-foreground" size={22} />
-              <div className="grid gap-1">
-                <p className="text-sm font-semibold leading-5">{t("loading.title")}</p>
-                <p className="text-xs leading-5 text-muted-foreground">{t("loading.description")}</p>
-              </div>
-              <div className="boot-progress" aria-hidden="true">
-                <span />
-              </div>
-            </div>
-          )}
-        </Surface>
+            </Surface>
+          </>
+        ) : (
+          <Loader2 className="spin text-muted-foreground" size={22} aria-hidden="true" />
+        )}
       </section>
     </div>
   );

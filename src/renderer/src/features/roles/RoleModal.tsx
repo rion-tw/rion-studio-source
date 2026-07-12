@@ -228,7 +228,7 @@ function RoleForm({
                   >
                     {launchUrlOptions.map((option) => (
                       <option key={option.value} value={option.value}>
-                        {t(option.labelKey)}
+                        {"label" in option ? option.label : t(option.labelKey)}
                       </option>
                     ))}
                     {launchUrlOptions.some((option) => option.value === form.launchUrl) ? null : (

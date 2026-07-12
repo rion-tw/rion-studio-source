@@ -25,8 +25,12 @@ export const launchUrlOptions = [
   {
     labelKey: "roleForm.launchUrl.flyffUniverse",
     value: DEFAULT_LAUNCH_URL
+  },
+  {
+    label: "飞飞：无限宇宙",
+    value: "https://ffcli.ruiwoo.cn/play"
   }
-] as const satisfies Array<{ labelKey: TranslationKey; value: string }>;
+] as const satisfies Array<({ labelKey: TranslationKey } | { label: string }) & { value: string }>;
 
 export const presetLabelKeys: Record<LaunchPreset, TranslationKey> = {
   balanced: "preset.balanced",

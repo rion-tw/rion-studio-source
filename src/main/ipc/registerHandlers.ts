@@ -284,7 +284,7 @@ function isAppRendererReadyState(value: unknown): value is AppRendererReadyState
 }
 
 function isAppLanguage(value: unknown): value is AppLanguage {
-  return value === "en" || value === "zh-TW";
+  return value === "en" || value === "zh-TW" || value === "zh-CN" || value === "ja";
 }
 
 function broadcastStatusChange(statuses: RoleStatus[]): void {

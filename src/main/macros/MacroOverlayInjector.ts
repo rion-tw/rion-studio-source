@@ -262,6 +262,44 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       stepsMore: "另有 {count} 個",
       triggerAria: "Rion Studio 巨集",
       triggerTitle: "Rion Studio 巨集 (Ctrl+Shift+M)"
+    },
+    "zh-CN": {
+      clickStep: "点击",
+      addMacro: "新增宏",
+      createError: "无法打开 Rion Studio。",
+      delayStep: "延迟",
+      empty: "此角色未分配宏。",
+      everyMs: "每 {ms} ms",
+      edit: "编辑",
+      editError: "无法在 Rion Studio 中打开此宏。",
+      keyStep: "按键",
+      loadError: "无法加载宏。",
+      noShortcut: "无快捷键",
+      noSteps: "无步骤",
+      once: "执行一次",
+      runError: "无法执行宏。",
+      stepsMore: "另有 {count} 个",
+      triggerAria: "Rion Studio 宏",
+      triggerTitle: "Rion Studio 宏 (Ctrl+Shift+M)"
+    },
+    ja: {
+      clickStep: "クリック",
+      addMacro: "マクロを追加",
+      createError: "Rion Studio を開けません。",
+      delayStep: "遅延",
+      empty: "このロールに割り当てられたマクロはありません。",
+      everyMs: "{ms} ms ごと",
+      edit: "編集",
+      editError: "このマクロを Rion Studio で開けません。",
+      keyStep: "キー",
+      loadError: "マクロを読み込めません。",
+      noShortcut: "ショートカットなし",
+      noSteps: "ステップなし",
+      once: "1回",
+      runError: "マクロを実行できません。",
+      stepsMore: "ほか {count} 件",
+      triggerAria: "Rion Studio マクロ",
+      triggerTitle: "Rion Studio マクロ (Ctrl+Shift+M)"
     }
   };
   const triggerIconMarkup = [
@@ -318,7 +356,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   }
 
   function normalizeOverlayLanguage(language) {
-    return language === "en" || language === "zh-TW" ? language : undefined;
+    return language === "en" || language === "zh-TW" || language === "zh-CN" || language === "ja"
+      ? language
+      : undefined;
   }
 
   function isRunning(macroId) {
@@ -425,6 +465,26 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     );
   }
 
+  function isSimplifiedChineseLocale(locale) {
+    const normalized = String(locale).toLowerCase();
+
+    return (
+      normalized === "zh" ||
+      normalized === "zh-hans" ||
+      normalized.startsWith("zh-hans-") ||
+      normalized === "zh-cn" ||
+      normalized.startsWith("zh-cn-") ||
+      normalized === "zh-sg" ||
+      normalized.startsWith("zh-sg-")
+    );
+  }
+
+  function isJapaneseLocale(locale) {
+    const normalized = String(locale).toLowerCase();
+
+    return normalized === "ja" || normalized.startsWith("ja-");
+  }
+
   function detectOverlayLanguage() {
     const navigatorLanguages = Array.isArray(navigator.languages) && navigator.languages.length > 0
       ? navigator.languages
@@ -432,7 +492,19 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     const documentLanguage = document.documentElement?.lang;
     const locales = [...navigatorLanguages, navigator.language, documentLanguage].filter(Boolean);
 
-    return locales.some(isTraditionalChineseLocale) ? "zh-TW" : "en";
+    if (locales.some(isJapaneseLocale)) {
+      return "ja";
+    }
+
+    if (locales.some(isTraditionalChineseLocale)) {
+      return "zh-TW";
+    }
+
+    if (locales.some(isSimplifiedChineseLocale)) {
+      return "zh-CN";
+    }
+
+    return "en";
   }
 
   function matchesShortcut(event, trigger) {

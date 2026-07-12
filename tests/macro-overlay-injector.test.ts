@@ -270,7 +270,10 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;");
     expect(MACRO_OVERLAY_SCRIPT).toContain("function detectOverlayLanguage()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("function isTraditionalChineseLocale(locale)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('return locales.some(isTraditionalChineseLocale) ? "zh-TW" : "en";');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("function isSimplifiedChineseLocale(locale)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("function isJapaneseLocale(locale)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('return "zh-CN";');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('return "ja";');
   });
 
   it("renders passive running macro badges at the top-center of the browser view", () => {

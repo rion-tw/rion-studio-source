@@ -2,7 +2,7 @@ import type { AppLanguage } from "../../shared/types";
 
 export type Language = AppLanguage;
 
-export const languages: Language[] = ["en", "zh-TW"];
+export const languages: Language[] = ["en", "zh-TW", "zh-CN", "ja"];
 
 const en = {
   "app.roles": "Roles",
@@ -234,6 +234,8 @@ const en = {
 
   "language.en": "English",
   "language.zhTW": "繁體中文",
+  "language.zhCN": "简体中文",
+  "language.ja": "日本語",
 
   "bridge.title": "Bridge unavailable",
   "bridge.description": "Rion Studio preload bridge is not available. Restart the app after rebuilding.",
@@ -615,6 +617,8 @@ const zhTw: Record<TranslationKey, string> = {
 
   "language.en": "English",
   "language.zhTW": "繁體中文",
+  "language.zhCN": "简体中文",
+  "language.ja": "日本語",
 
   "bridge.title": "橋接無法使用",
   "bridge.description": "Rion Studio preload 橋接無法使用。請重新建置後重啟應用程式。",
@@ -760,9 +764,192 @@ const zhTw: Record<TranslationKey, string> = {
   "error.unexpected": "未預期的應用程式錯誤。"
 };
 
+const zhCn: Record<TranslationKey, string> = simplifyChineseTranslations(zhTw);
+
+const ja: Record<TranslationKey, string> = {
+  ...en,
+  "app.roles": "ロール",
+  "app.workspaces": "ワークスペース",
+  "app.macros": "マクロ",
+  "app.settings": "設定",
+  "app.tagline": "ロールワークスペース",
+  "app.primaryNavigation": "メインナビゲーション",
+  "loading.title": "ロールワークスペースを読み込み中",
+  "loading.description": "ロール、セッション、ワークスペースを準備しています。",
+  "loading.route": "ビューを読み込み中",
+  "loading.failedTitle": "Rion Studio を読み込めません",
+  "loading.failedDescription": "アプリの読み込みを完了できませんでした。もう一度お試しください。",
+  "loading.retry": "再試行",
+  "roles.title": "ロール",
+  "roles.filter.all": "すべて",
+  "roles.filter.running": "実行中",
+  "roles.filter.stopped": "停止中",
+  "roles.filter.needsLogin": "未ログイン",
+  "roles.searchPlaceholder": "ロールを検索",
+  "roles.refresh": "更新",
+  "roles.newRole": "新規ロール",
+  "roles.empty.title": "ロールはまだありません",
+  "roles.empty.action": "ロールを作成",
+  "workspaces.title": "ワークスペース",
+  "workspaces.searchPlaceholder": "ワークスペースを検索",
+  "workspaces.newWorkspace": "新規ワークスペース",
+  "workspaces.defaultName": "ワークスペース",
+  "workspaces.launch": "ワークスペースを起動",
+  "workspaces.launchShort": "起動",
+  "workspaces.stop": "ワークスペースを停止",
+  "workspaces.stopShort": "停止",
+  "workspaces.edit": "編集",
+  "workspaces.delete": "削除",
+  "workspace.layout.single": "単一",
+  "workspace.layout.twoColumns": "2列",
+  "workspace.layout.threeColumns": "3列",
+  "workspace.layout.mainLeftStackRight": "左メイン、右スタック",
+  "workspace.layout.quad": "4分割",
+  "workspace.layout.fourColumns": "4列",
+  "workspaceForm.title.edit": "ワークスペースを編集",
+  "workspaceForm.title.new": "新規ワークスペース",
+  "workspaceForm.cancel": "キャンセル",
+  "workspaceForm.saveChanges": "変更を保存",
+  "workspaceForm.createWorkspace": "ワークスペースを作成",
+  "macros.title": "マクロ",
+  "macros.searchPlaceholder": "マクロを検索",
+  "macros.newMacro": "新規マクロ",
+  "macros.defaultName": "マクロ",
+  "macros.column.name": "名前",
+  "macros.column.roles": "ロール",
+  "macros.column.steps": "ステップ",
+  "macros.column.shortcut": "ショートカット",
+  "macros.column.repeat": "繰り返し",
+  "macros.column.status": "状態",
+  "macros.column.actions": "操作",
+  "macros.startShort": "開始",
+  "macros.stopShort": "停止",
+  "macros.edit": "編集",
+  "macros.delete": "削除",
+  "macro.step.key": "キー",
+  "macro.step.click": "クリック",
+  "macro.step.delay": "遅延",
+  "macroForm.title.edit": "マクロを編集",
+  "macroForm.title.new": "新規マクロ",
+  "macroForm.cancel": "キャンセル",
+  "macroForm.saveChanges": "変更を保存",
+  "macroForm.createMacro": "マクロを作成",
+  "settings.general": "一般",
+  "settings.backToApp": "アプリに戻る",
+  "settings.navigation": "設定ナビゲーション",
+  "settings.title": "設定",
+  "settings.description": "ロールデータを変更せずに、外観、言語、新規ロールの既定値を調整します。",
+  "settings.appearance": "外観",
+  "settings.preferences": "環境設定",
+  "settings.roleDefaults": "ロール既定値",
+  "settings.currentTheme": "テーマ",
+  "settings.currentLanguage": "言語",
+  "settings.configuredRoles": "ロール",
+  "settings.theme": "テーマ",
+  "settings.language": "言語",
+  "settings.languageDescription": "インターフェイスの言語を選択します。",
+  "settings.defaultWindow": "既定のウィンドウ",
+  "settings.defaultPreset": "既定の起動プリセット",
+  "settings.updates": "アプリ更新",
+  "settings.currentVersion": "現在のバージョン",
+  "settings.updateStatus": "更新状態",
+  "settings.checkUpdates": "更新を確認",
+  "settings.downloadUpdate": "インストーラをダウンロード",
+  "settings.installUpdate": "再起動して更新",
+  "theme.system": "システム",
+  "theme.light": "ライト",
+  "theme.dark": "ダーク",
+  "theme.resolved.light": "ライト",
+  "theme.resolved.dark": "ダーク",
+  "language.en": "English",
+  "language.zhTW": "繁體中文",
+  "language.zhCN": "简体中文",
+  "language.ja": "日本語",
+  "bridge.title": "ブリッジを使用できません",
+  "role.meta.window": "ウィンドウ",
+  "role.meta.preset": "プリセット",
+  "role.meta.updated": "更新日時",
+  "role.noNotes": "メモなし",
+  "role.auth.authenticated": "ログイン済み",
+  "role.auth.needsLogin": "ログインが必要",
+  "role.auth.failed": "ログイン失敗",
+  "role.stop": "停止",
+  "role.launch": "起動",
+  "role.login": "ログイン",
+  "role.actions": "ロール操作",
+  "role.edit": "編集",
+  "role.relogin": "再ログイン",
+  "role.delete": "削除",
+  "preset.balanced": "バランス",
+  "preset.performance": "パフォーマンス",
+  "status.launching": "起動中",
+  "status.running": "実行中",
+  "status.stopping": "停止中",
+  "status.stopped": "停止済み",
+  "roleForm.title.edit": "ロールを編集",
+  "roleForm.title.new": "新規ロール",
+  "roleForm.name": "名前",
+  "roleForm.launchUrl": "起動するゲーム",
+  "roleForm.launchUrl.current": "現在のゲーム",
+  "roleForm.cover": "カバー画像",
+  "roleForm.coverChoose": "画像を選択",
+  "roleForm.coverReplace": "置換",
+  "roleForm.coverRemove": "削除",
+  "roleForm.width": "幅",
+  "roleForm.height": "高さ",
+  "roleForm.launchPreset": "起動プリセット",
+  "roleForm.notes": "メモ",
+  "roleForm.relogin": "再ログイン",
+  "roleForm.cancel": "キャンセル",
+  "roleForm.saveChanges": "変更を保存",
+  "roleForm.createRole": "ロールを作成",
+  "loginGuide.cancel": "キャンセル",
+  "loginGuide.confirm": "理解しました。Chrome を開く",
+  "auth.openingChrome": "Chrome を待機中",
+  "auth.waitingForLogin": "ログイン待機中",
+  "auth.closingLoginWindow": "ログインウィンドウを閉じています",
+  "auth.waitingForChromeClose": "Chrome の終了を待機中",
+  "auth.waitingForUserDataRelease": "Chrome の終了を待機中",
+  "auth.checkingSession": "セッションを確認中",
+  "auth.launching": "起動中",
+  "auth.failed": "ログイン失敗",
+  "confirm.deleteRole": "ロール「{name}」とそのブラウザセッションデータを削除しますか？",
+  "confirm.deleteWorkspace": "ワークスペース「{name}」を削除しますか？",
+  "confirm.deleteMacro": "マクロ「{name}」を削除しますか？",
+  "error.preloadBridgeUnavailable": "Rion Studio preload ブリッジを使用できません。再ビルド後にアプリを再起動してください。",
+  "error.roleNotFound": "ロールが見つかりません。",
+  "error.roleDataInvalid": "ロールデータファイルが無効です。",
+  "error.roleNameRequired": "ロール名は必須です。",
+  "error.roleNameTooLong": "ロール名は 80 文字以内にしてください。",
+  "error.roleLaunchUrlInvalid": "起動するゲームには有効な HTTP または HTTPS URL が必要です。",
+  "error.rolePresetInvalid": "起動プリセットが無効です。",
+  "error.roleNameDuplicate": "同じ名前のロールが既に存在します。",
+  "error.workspaceNotFound": "ワークスペースが見つかりません。",
+  "error.workspaceNameRequired": "ワークスペース名は必須です。",
+  "error.workspaceNameDuplicate": "同じ名前のワークスペースが既に存在します。",
+  "error.macroNotFound": "マクロが見つかりません。",
+  "error.macroNameRequired": "マクロ名は必須です。",
+  "error.macroNameDuplicate": "同じ名前のマクロが既に存在します。",
+  "error.macroAlreadyRunning": "このロールではマクロが既に実行中です。",
+  "error.macroRoleNotRunning": "マクロを実行する前にこのロールを起動してください。",
+  "error.workspaceEmpty": "ワークスペースにロールがありません。",
+  "error.workspaceLoginRequired": "ログインが必要です。このワークスペースの全ロールを起動前にログインしてください。",
+  "error.loginRequired": "ログインが必要です。このロールを起動前にログインしてください。",
+  "error.chromeNotFound": "Google Chrome が見つかりません。Chrome をインストールするか、RION_STUDIO_CHROME_PATH に Chrome 実行ファイルを設定してください。",
+  "error.browserUserDataLockTimeout": "Chrome がまだこのロールのブラウザデータを使用しています。Chrome のログインウィンドウを終了してから再試行してください。",
+  "error.unableCheckSession": "ログインセッションを確認できません。",
+  "error.googleRejected": "セッション確認中に Google がこのブラウザを拒否しました。",
+  "error.loginStillRequired": "ログインがまだ必要です。",
+  "error.noPersistedLoginSession": "ログインがまだ必要です。保存されたログインセッションが見つかりません。",
+  "error.loginFailedSentence": "ログインに失敗しました。",
+  "error.unexpected": "予期しないアプリケーションエラーです。"
+};
+
 const translations: Record<Language, Record<TranslationKey, string>> = {
   en,
-  "zh-TW": zhTw
+  "zh-TW": zhTw,
+  "zh-CN": zhCn,
+  ja
 };
 
 const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
@@ -837,7 +1024,19 @@ export function detectSystemLanguage(): Language {
   }
 
   const locales = navigator.languages.length > 0 ? navigator.languages : [navigator.language];
-  return locales.some(isTraditionalChineseLocale) ? "zh-TW" : "en";
+  if (locales.some(isJapaneseLocale)) {
+    return "ja";
+  }
+
+  if (locales.some(isTraditionalChineseLocale)) {
+    return "zh-TW";
+  }
+
+  if (locales.some(isSimplifiedChineseLocale)) {
+    return "zh-CN";
+  }
+
+  return "en";
 }
 
 export function readStoredLanguage(storageKey: string): Language {
@@ -866,5 +1065,172 @@ function isTraditionalChineseLocale(locale: string): boolean {
     normalized.startsWith("zh-hk-") ||
     normalized === "zh-mo" ||
     normalized.startsWith("zh-mo-")
+  );
+}
+
+function isSimplifiedChineseLocale(locale: string): boolean {
+  const normalized = locale.toLowerCase();
+
+  return (
+    normalized === "zh" ||
+    normalized === "zh-hans" ||
+    normalized.startsWith("zh-hans-") ||
+    normalized === "zh-cn" ||
+    normalized.startsWith("zh-cn-") ||
+    normalized === "zh-sg" ||
+    normalized.startsWith("zh-sg-")
+  );
+}
+
+function isJapaneseLocale(locale: string): boolean {
+  const normalized = locale.toLowerCase();
+
+  return normalized === "ja" || normalized.startsWith("ja-");
+}
+
+function simplifyChineseTranslations(source: Record<TranslationKey, string>): Record<TranslationKey, string> {
+  return Object.fromEntries(
+    Object.entries(source).map(([key, value]) => [key, toSimplifiedChinese(value)])
+  ) as Record<TranslationKey, string>;
+}
+
+function toSimplifiedChinese(value: string): string {
+  const replacements: Record<string, string> = {
+    繁體中文: "繁體中文",
+    工作區: "工作区",
+    階段: "阶段",
+    專屬: "专属",
+    專案: "项目",
+    導覽: "导航",
+    載入: "加载",
+    應用程式: "应用程序",
+    無法: "无法",
+    無: "无",
+    請: "请",
+    試: "试",
+    角色: "角色",
+    瀏覽器: "浏览器",
+    執行: "执行",
+    執行中: "执行中",
+    啟動: "启动",
+    登入: "登录",
+    搜尋: "搜索",
+    總數: "总数",
+    目前: "当前",
+    顯示: "显示",
+    尚無: "暂无",
+    建立: "创建",
+    狀態: "状态",
+    篩選: "筛选",
+    清除: "清除",
+    組成: "组成",
+    視窗: "窗口",
+    排列: "排列",
+    選擇: "选择",
+    編輯: "编辑",
+    刪除: "删除",
+    填滿: "填满",
+    調整: "调整",
+    縮放: "缩放",
+    套用: "应用",
+    區塊: "区块",
+    預覽: "预览",
+    單一: "单一",
+    雙欄: "双栏",
+    三直欄: "三列",
+    四直欄: "四列",
+    關閉: "关闭",
+    表單: "表单",
+    儲存: "保存",
+    變更: "更改",
+    自動化: "自动化",
+    巨集: "宏",
+    實體: "实体",
+    按鍵: "按键",
+    點擊: "点击",
+    延遲: "延迟",
+    輪詢: "轮询",
+    動作: "动作",
+    名稱: "名称",
+    快捷鍵: "快捷键",
+    步驟: "步骤",
+    未知: "未知",
+    選取: "选取",
+    指派: "分配",
+    間隔: "间隔",
+    上移: "上移",
+    移除: "移除",
+    錄製: "录制",
+    設定: "设置",
+    一般: "常规",
+    返回: "返回",
+    偏好設定: "偏好设置",
+    預設值: "默认值",
+    預設: "默认",
+    語言: "语言",
+    主題: "主题",
+    淺色: "浅色",
+    深色: "深色",
+    檢查: "检查",
+    更新: "更新",
+    下載: "下载",
+    安裝: "安装",
+    錯誤: "错误",
+    橋接: "桥接",
+    備註: "备注",
+    重新: "重新",
+    效能: "性能",
+    寬度: "宽度",
+    高度: "高度",
+    圖片: "图片",
+    封面: "封面",
+    更換: "更换",
+    識別: "标识",
+    遊戲: "游戏",
+    引導: "引导",
+    記錄: "记录",
+    目標: "目标",
+    畫面: "画面",
+    帳號: "账号",
+    綁定: "绑定",
+    開啟: "打开",
+    檔案: "文件",
+    無效: "无效",
+    必填: "必填",
+    字元: "字符",
+    以內: "以内",
+    有效: "有效",
+    資料: "数据",
+    過大: "过大",
+    處理: "处理",
+    色碼: "色码",
+    相同: "相同",
+    矩形: "矩形",
+    仍: "仍",
+    找不到: "找不到",
+    隱藏: "隐藏",
+    輔助: "辅助",
+    拒絕: "拒绝",
+    保存: "保存",
+    未預期: "意外",
+    佈: "布",
+    資: "资",
+    與: "与",
+    於: "于",
+    為: "为",
+    個: "个",
+    後: "后",
+    將: "将",
+    會: "会",
+    這: "这",
+    該: "该",
+    對: "对",
+    點: "点",
+    時: "时"
+  };
+
+  return Object.entries(replacements).reduce(
+    (nextValue, [traditional, simplified]) => nextValue.replaceAll(traditional, simplified),
+    value
   );
 }

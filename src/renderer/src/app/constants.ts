@@ -54,5 +54,7 @@ export const resolvedThemeLabelKeys: Record<ResolvedTheme, TranslationKey> = {
 
 export const languageLabelKeys: Record<Language, TranslationKey> = {
   en: "language.en",
-  "zh-TW": "language.zhTW"
+  "zh-TW": "language.zhTW",
+  "zh-CN": "language.zhCN",
+  ja: "language.ja"
 };

@@ -36,7 +36,14 @@ export function usePreferences() {
   }, [themeMode]);
 
   useEffect(() => {
-    document.documentElement.lang = language === "zh-TW" ? "zh-Hant" : "en";
+    const htmlLanguages: Record<Language, string> = {
+      en: "en",
+      "zh-TW": "zh-Hant",
+      "zh-CN": "zh-Hans",
+      ja: "ja"
+    };
+
+    document.documentElement.lang = htmlLanguages[language];
     void window.rionStudio?.setOverlayLanguage?.(language)?.catch(() => undefined);
   }, [language]);
 

@@ -114,9 +114,9 @@ describe("registerIpcHandlers workspace handlers", () => {
   });
 
   it("syncs the overlay language preference", async () => {
-    await handlers.get(IPC_CHANNELS.preferencesSetOverlayLanguage)?.({}, "zh-TW");
+    await handlers.get(IPC_CHANNELS.preferencesSetOverlayLanguage)?.({}, "zh-CN");
 
-    expect(onOverlayLanguageChanged).toHaveBeenCalledWith("zh-TW");
+    expect(onOverlayLanguageChanged).toHaveBeenCalledWith("zh-CN");
     expect(() => handlers.get(IPC_CHANNELS.preferencesSetOverlayLanguage)?.({}, "fr")).toThrow(
       "Language setting is invalid."
     );

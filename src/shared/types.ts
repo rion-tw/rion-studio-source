@@ -11,7 +11,7 @@ export type WorkspaceLayoutTemplate =
   | "quad"
   | "four_columns";
 export type WorkspaceBrowserZoomPercent = 80 | 90 | 100 | 110 | 125;
-export type AppLanguage = "en" | "zh-TW";
+export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppRendererReadyState = "failed" | "ready";
 export type AuthState = "unknown" | "login_required" | "authenticated" | "auth_failed";
 export type AuthFlowState =

@@ -289,75 +289,77 @@ function WorkspaceLayoutFormEditor({
   }
 
   return (
-    <Surface className="grid gap-4" padding="lg" variant="inset">
-      <FormGrid
-        columns={3}
-        className="md:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]"
-      >
-        <FormField htmlFor="workspace-name" label={t("workspaceForm.name")}>
-          <Input
-            id="workspace-name"
-            value={form.name}
-            onChange={(event) => onChange({ ...form, name: event.target.value })}
-            required
-            maxLength={80}
-            placeholder={t("workspaceForm.namePlaceholder")}
-          />
-        </FormField>
-
-        <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
-          <div className="grid grid-cols-5 gap-1.5">
-            {workspaceLayoutTemplates.map((template) => {
-              const Icon = workspaceTemplateIcons[template];
-              const isActive = form.template === template;
-
-              return (
-                <button
-                  key={template}
-                  className={cn(
-                    "glass-control flex h-[30px] min-w-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
-                    isActive && "border-primary/35 bg-primary/10 text-foreground"
-                  )}
-                  type="button"
-                  title={t(workspaceTemplateLabelKeys[template])}
-                  aria-label={t(workspaceTemplateLabelKeys[template])}
-                  aria-pressed={isActive}
-                  onClick={() => handleTemplateChange(template)}
-                  disabled={isSaving}
-                >
-                  <Icon size={17} />
-                </button>
-              );
-            })}
-          </div>
-        </FormField>
-
-        <FormField
-          htmlFor="workspace-browser-zoom"
-          label={t("workspaces.browserZoom")}
-          description={t("workspaces.browserZoomDescription")}
+    <div className="grid gap-4">
+      <Surface padding="md" variant="inset">
+        <FormGrid
+          columns={3}
+          className="md:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]"
         >
-          <Select
-            id="workspace-browser-zoom"
-            value={form.browserZoomPercent}
-            disabled={isSaving}
-            onChange={(event) =>
-              onChange({
-                ...form,
-                browserZoomPercent: Number(event.target.value) as WorkspaceBrowserZoomPercent
-              })
-            }
-          >
-            {workspaceBrowserZoomPercents.map((zoomPercent) => (
-              <option key={zoomPercent} value={zoomPercent}>
-                {zoomPercent}%
-              </option>
-            ))}
-          </Select>
-        </FormField>
-      </FormGrid>
+          <FormField htmlFor="workspace-name" label={t("workspaceForm.name")}>
+            <Input
+              id="workspace-name"
+              value={form.name}
+              onChange={(event) => onChange({ ...form, name: event.target.value })}
+              required
+              maxLength={80}
+              placeholder={t("workspaceForm.namePlaceholder")}
+            />
+          </FormField>
 
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_270px]">
+          <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
+            <div className="grid grid-cols-5 gap-1.5">
+              {workspaceLayoutTemplates.map((template) => {
+                const Icon = workspaceTemplateIcons[template];
+                const isActive = form.template === template;
+
+                return (
+                  <button
+                    key={template}
+                    className={cn(
+                      "glass-control flex h-[30px] min-w-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
+                      isActive && "border-primary/35 bg-primary/10 text-foreground"
+                    )}
+                    type="button"
+                    title={t(workspaceTemplateLabelKeys[template])}
+                    aria-label={t(workspaceTemplateLabelKeys[template])}
+                    aria-pressed={isActive}
+                    onClick={() => handleTemplateChange(template)}
+                    disabled={isSaving}
+                  >
+                    <Icon size={17} />
+                  </button>
+                );
+              })}
+            </div>
+          </FormField>
+
+          <FormField
+            htmlFor="workspace-browser-zoom"
+            label={t("workspaces.browserZoom")}
+            description={t("workspaces.browserZoomDescription")}
+          >
+            <Select
+              id="workspace-browser-zoom"
+              value={form.browserZoomPercent}
+              disabled={isSaving}
+              onChange={(event) =>
+                onChange({
+                  ...form,
+                  browserZoomPercent: Number(event.target.value) as WorkspaceBrowserZoomPercent
+                })
+              }
+            >
+              {workspaceBrowserZoomPercents.map((zoomPercent) => (
+                <option key={zoomPercent} value={zoomPercent}>
+                  {zoomPercent}%
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        </FormGrid>
+      </Surface>
+
+      <Surface className="grid gap-4 md:grid-cols-[minmax(0,1fr)_270px]" padding="md" variant="inset">
         <div
           ref={previewRef}
           className="relative aspect-[16/9] min-h-[280px] overflow-hidden rounded-md border border-border/60 bg-background/30"
@@ -457,8 +459,8 @@ function WorkspaceLayoutFormEditor({
             )}
           </div>
         </Surface>
-      </div>
-    </Surface>
+      </Surface>
+    </div>
   );
 }
 

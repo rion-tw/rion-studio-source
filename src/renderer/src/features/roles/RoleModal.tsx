@@ -143,7 +143,7 @@ function RoleForm({
 
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => onSubmit(event)}>
         <div className="grid gap-4 overflow-auto p-4 md:grid-cols-[240px_minmax(0,1fr)] md:items-start md:p-5 xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
-          <div className="grid gap-3">
+          <Surface className="grid gap-3" padding="md" variant="inset">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between lg:flex-col lg:items-stretch">
               <FieldHeader title={t("roleForm.cover")} description={t("roleForm.coverDescription")} />
               <div className="flex shrink-0 gap-2">
@@ -151,7 +151,6 @@ function RoleForm({
                   className="flex-1"
                   type="button"
                   variant="outline"
-                  size="sm"
                   onClick={() => coverInputRef.current?.click()}
                   disabled={isSaving}
                 >
@@ -159,7 +158,7 @@ function RoleForm({
                   {hasCoverPreview ? t("roleForm.coverReplace") : t("roleForm.coverChoose")}
                 </Button>
                 {hasCoverPreview ? (
-                  <Button type="button" variant="ghost" size="sm" onClick={removeCoverImage} disabled={isSaving}>
+                  <Button type="button" variant="ghost" onClick={removeCoverImage} disabled={isSaving}>
                     <Trash2 size={15} />
                     {t("roleForm.coverRemove")}
                   </Button>
@@ -188,7 +187,7 @@ function RoleForm({
               </div>
             ) : (
               <button
-                className="glass-inset role-cover-empty-preview relative aspect-[4/5] w-full overflow-hidden rounded-lg text-left transition-colors"
+                className="glass-control role-cover-empty-preview relative aspect-[4/5] w-full overflow-hidden rounded-lg text-left transition-colors"
                 type="button"
                 onClick={() => coverInputRef.current?.click()}
                 disabled={isSaving}
@@ -201,10 +200,10 @@ function RoleForm({
                 </div>
               </button>
             )}
-          </div>
+          </Surface>
 
           <div className="grid gap-4">
-            <section className="grid gap-3">
+            <Surface className="grid gap-3" padding="md" variant="inset">
               <FieldHeader
                 title={t("roleForm.section.identity")}
                 description={t("roleForm.section.identityDescription")}
@@ -238,9 +237,9 @@ function RoleForm({
                   </Select>
                 </FormField>
               </FormGrid>
-            </section>
+            </Surface>
 
-            <section className="glass-divider grid gap-3 border-t pt-4">
+            <Surface className="grid gap-3" padding="md" variant="inset">
               <FieldHeader
                 title={t("roleForm.section.launch")}
                 description={t("roleForm.section.launchDescription")}
@@ -283,9 +282,9 @@ function RoleForm({
                   </Select>
                 </FormField>
               </FormGrid>
-            </section>
+            </Surface>
 
-            <section className="glass-divider grid gap-3 border-t pt-4">
+            <Surface className="grid gap-3" padding="md" variant="inset">
               <FormField htmlFor="role-notes" label={t("roleForm.notes")}>
                 <Textarea
                   id="role-notes"
@@ -312,7 +311,7 @@ function RoleForm({
                   {t("roleForm.relogin")}
                 </Button>
               ) : null}
-            </section>
+            </Surface>
           </div>
         </div>
 

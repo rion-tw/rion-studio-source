@@ -20,7 +20,6 @@ import { Select } from "../../components/ui/select";
 import {
   FieldHeader,
   FormField,
-  FormGrid,
   SegmentedControl,
   Surface
 } from "../../components/ui/patterns";
@@ -151,9 +150,9 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
       </CardHeader>
 
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => onSubmit(event)}>
-        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 md:p-5">
-          <Surface padding="lg" variant="inset">
-            <FormGrid columns={2}>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 md:grid-cols-[340px_minmax(0,1fr)] md:items-start md:p-5">
+          <aside className="grid content-start gap-3">
+            <Surface padding="md" variant="inset">
               <FormField
                 htmlFor="macro-name"
                 label={t("macroForm.name")}
@@ -168,7 +167,9 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
                   placeholder={t("macroForm.namePlaceholder")}
                 />
               </FormField>
+            </Surface>
 
+            <Surface padding="md" variant="inset">
               <FormField
                 htmlFor={roles.length > 0 ? "macro-role" : undefined}
                 label={t("macroForm.roles")}
@@ -199,7 +200,9 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
                   </div>
                 )}
               </FormField>
+            </Surface>
 
+            <Surface padding="md" variant="inset">
               <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
                 <ShortcutRecorder
                   trigger={form.trigger}
@@ -207,7 +210,9 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
                   onChange={(trigger) => update((current) => ({ ...current, trigger }))}
                 />
               </FormField>
+            </Surface>
 
+            <Surface padding="md" variant="inset">
               <FormField label={t("macroForm.repeat")} description={t("macroForm.repeatDescription")}>
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(120px,0.65fr)]">
                   <SegmentedControl<MacroRepeat["type"]>
@@ -249,10 +254,10 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
                   />
                 </div>
               </FormField>
-            </FormGrid>
-          </Surface>
+            </Surface>
+          </aside>
 
-          <Surface className="grid min-h-[300px] content-start gap-4" padding="lg" variant="inset">
+          <Surface className="grid min-h-[360px] content-start gap-4" padding="md" variant="inset">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-start gap-3">
                 <div className="glass-control grid size-[30px] shrink-0 place-items-center rounded-md text-muted-foreground">
@@ -267,7 +272,6 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
               <div className="grid gap-2 sm:grid-cols-[auto_auto] sm:items-center">
                 <InlineControl label={t("macroForm.stepType")} controlClassName="w-28 flex-none">
                   <Select
-                    className="h-8"
                     value={newStepType}
                     onChange={(event) => setNewStepType(event.target.value as MacroStep["type"])}
                     disabled={isSaving}
@@ -281,10 +285,8 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
                   </Select>
                 </InlineControl>
                 <Button
-                  className="h-8"
                   type="button"
                   variant="outline"
-                  size="sm"
                   onClick={() => addStep(newStepType)}
                   disabled={isSaving}
                 >
@@ -390,7 +392,7 @@ function AffixedInput({
   return (
     <label
       className={cn(
-        "glass-control flex h-8 min-w-0 items-center overflow-hidden rounded-md focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-ring/20",
+        "glass-control flex h-[30px] min-w-0 items-center overflow-hidden rounded-md focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-ring/20",
         widthClassName
       )}
     >
@@ -510,7 +512,6 @@ function MacroStepEditor({
       </span>
 
       <Select
-        className="h-8"
         value={step.type}
         onChange={(event) => onUpdate(createStep(event.target.value as MacroStep["type"], step.id))}
         disabled={isSaving}
@@ -527,7 +528,6 @@ function MacroStepEditor({
 
       <div className="flex justify-end gap-1">
         <Button
-          className="h-7 w-7"
           type="button"
           variant="ghost"
           size="icon"
@@ -538,7 +538,6 @@ function MacroStepEditor({
           <ChevronUp size={14} />
         </Button>
         <Button
-          className="h-7 w-7"
           type="button"
           variant="ghost"
           size="icon"
@@ -549,7 +548,6 @@ function MacroStepEditor({
           <ChevronDown size={14} />
         </Button>
         <Button
-          className="h-7 w-7"
           type="button"
           variant="ghost"
           size="icon"
@@ -585,7 +583,7 @@ function MacroStepFields({
     return (
       <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
         <Select
-          className="h-8 w-28 flex-none"
+          className="w-28 flex-none"
           value={step.code}
           onChange={(event) =>
             onUpdate({
@@ -692,10 +690,9 @@ function KeyRecorder({
 
   return (
     <Button
-      className={cn("h-8 w-auto min-w-[88px] shrink-0 px-2.5", isRecording && "glass-focus")}
+      className={cn("w-auto min-w-[88px] shrink-0 px-2.5", isRecording && "glass-focus")}
       type="button"
       variant="outline"
-      size="sm"
       onClick={() => setIsRecording(true)}
       disabled={disabled}
     >

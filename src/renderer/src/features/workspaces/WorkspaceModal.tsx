@@ -1,4 +1,4 @@
-import { Check, Eraser, GripVertical, Loader2, Save, X } from "lucide-react";
+import { Check, Eraser, GripHorizontal, GripVertical, Loader2, Plus, Save, X } from "lucide-react";
 import {
   type DragEvent as ReactDragEvent,
   type FormEvent,
@@ -362,7 +362,7 @@ function WorkspaceLayoutFormEditor({
       <Surface className="grid gap-4 md:grid-cols-[minmax(0,1fr)_270px]" padding="md" variant="inset">
         <div
           ref={previewRef}
-          className="relative aspect-[16/9] min-h-[280px] overflow-hidden rounded-md border border-border/60 bg-background/30"
+          className="workspace-layout-preview relative aspect-[16/9] min-h-[280px] overflow-hidden rounded-lg border border-border/50"
         >
           {slots.map((slot, index) => {
             const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
@@ -491,7 +491,7 @@ function WorkspaceSlotDropZone({
 }: WorkspaceSlotDropZoneProps): JSX.Element {
   return (
     <div
-      className="absolute p-1.5"
+      className="absolute p-2"
       style={rectToPreviewStyle(rect)}
       onDragEnter={(event) => event.preventDefault()}
       onDragOver={(event) => {
@@ -502,11 +502,14 @@ function WorkspaceSlotDropZone({
     >
       <button
         className={cn(
-          "relative flex h-full min-h-0 w-full flex-col justify-between overflow-hidden rounded-md border bg-card/72 bg-cover bg-center p-3 text-left shadow-sm transition-colors",
-          role ? "border-border" : "border-dashed border-muted-foreground/35",
-          isSelected && "border-primary/70 shadow-lg ring-2 ring-primary/35"
+          "group/slot relative flex h-full min-h-0 w-full flex-col justify-between overflow-hidden rounded-lg border bg-cover bg-center p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150",
+          role
+            ? "border-border/70 bg-card/72 shadow-sm"
+            : "border-border/40 bg-card/35 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/50",
+          isSelected && "border-primary/60 shadow-[0_0_0_2px_hsl(var(--primary)/0.16),0_8px_22px_hsl(var(--glass-shadow))]"
         )}
         type="button"
+        aria-pressed={isSelected}
         draggable={Boolean(role) && !isSaving}
         disabled={isSaving}
         style={createWorkspaceSlotBackground(role)}
@@ -515,28 +518,35 @@ function WorkspaceSlotDropZone({
       >
         {role?.coverImageDataUrl ? <div className="absolute inset-0 bg-black/10" /> : null}
         <div className="relative z-10 flex min-w-0 items-start justify-between gap-2">
-          <p className="rounded-sm bg-background/58 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-normal text-muted-foreground backdrop-blur-md">
+          <p className="rounded-md border border-border/35 bg-background/45 px-2 py-1 text-[11px] font-semibold leading-none text-muted-foreground backdrop-blur-md">
             {t("workspaces.slot").replace("{index}", String(index + 1))}
           </p>
-          <GripVertical className="shrink-0 text-muted-foreground" size={15} />
+          <span className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 transition-colors group-hover/slot:bg-background/35 group-hover/slot:text-muted-foreground">
+            <GripVertical size={14} />
+          </span>
         </div>
 
-        <div className="workspace-slot-caption">
-          <p className="workspace-slot-name-chip flex min-w-0 items-center gap-1.5 px-2 py-1 text-sm font-semibold">
-            {role ? (
-              <>
+        {role ? (
+          <div className="workspace-slot-caption">
+            <p className="workspace-slot-name-chip flex min-w-0 items-center gap-1.5 px-2 py-1 text-sm font-semibold">
                 <RoleRunDot
                   className="size-2 border-white/75"
                   isActive={isActive}
                   label={t(isActive ? "role.statusDot.active" : "role.statusDot.inactive")}
                 />
                 <span className="min-w-0 truncate">{role.name}</span>
-              </>
-            ) : (
-              <span className="min-w-0 truncate">{t("workspaces.emptySlot")}</span>
-            )}
-          </p>
-        </div>
+            </p>
+          </div>
+        ) : (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center p-10 text-center">
+            <div className="grid justify-items-center gap-2 text-muted-foreground/75 transition-colors group-hover/slot:text-muted-foreground">
+              <span className="glass-control grid size-9 place-items-center rounded-full border-border/35 bg-background/25 shadow-none">
+                <Plus size={17} />
+              </span>
+              <span className="text-xs font-semibold">{t("workspaces.emptySlot")}</span>
+            </div>
+          </div>
+        )}
       </button>
     </div>
   );
@@ -565,20 +575,27 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
       {splits.vertical.map((position, index) => (
         <button
           key={`vertical-${index}`}
-          className="absolute top-0 z-20 h-full w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
+          className="group/resize absolute top-0 z-20 h-full w-5 -translate-x-1/2 cursor-col-resize bg-transparent focus-visible:outline-none"
           type="button"
           aria-label={`Resize columns ${index + 1}`}
           style={{ left: `${position * 100}%` }}
           onPointerDown={(event) => onResizeStart(event, "vertical", index)}
         >
-          <span className="mx-auto block h-full w-0.5 rounded-full bg-primary/45" />
+          <span
+            className={cn(
+              "glass-popover absolute left-1/2 grid h-10 w-4 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-hover/resize:scale-105 group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
+              template === "quad" ? "top-1/4" : "top-1/2"
+            )}
+          >
+            <GripVertical size={12} />
+          </span>
         </button>
       ))}
 
       {splits.horizontal.map((position, index) => (
         <button
           key={`horizontal-${index}`}
-          className="absolute z-20 h-3 -translate-y-1/2 cursor-row-resize bg-transparent"
+          className="group/resize absolute z-20 h-5 -translate-y-1/2 cursor-row-resize bg-transparent focus-visible:outline-none"
           type="button"
           aria-label={`Resize rows ${index + 1}`}
           style={{
@@ -588,7 +605,14 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
           }}
           onPointerDown={(event) => onResizeStart(event, "horizontal", index)}
         >
-          <span className="block h-0.5 w-full rounded-full bg-primary/45" />
+          <span
+            className={cn(
+              "glass-popover absolute top-1/2 grid h-4 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-hover/resize:scale-105 group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
+              template === "quad" ? "left-1/4" : "left-1/2"
+            )}
+          >
+            <GripHorizontal size={12} />
+          </span>
         </button>
       ))}
     </>

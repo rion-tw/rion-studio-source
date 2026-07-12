@@ -22,7 +22,20 @@ import { cn } from "../../lib/utils";
 import type { LaunchWorkspaceSlot, NormalizedRect, Role, RoleStatus, WorkspaceLayoutTemplate } from "../../../../shared/types";
 import { workspaceLayoutTemplates } from "../../../../shared/workspaceLayout";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
-import { applyWorkspaceSplits, applyWorkspaceTemplate, assignRoleToWorkspaceSlot, clamp, createWorkspaceSlotBackground, getWorkspaceSplits, readRoleDragId, readWorkspaceSlotDragIndex, rectToPreviewStyle, swapWorkspaceSlotRoles } from "./workspaceLayoutUtils";
+import {
+  applyWorkspaceSplits,
+  applyWorkspaceTemplate,
+  assignRoleToWorkspaceSlot,
+  clamp,
+  createWorkspaceSlotBackground,
+  getWorkspaceSplitRange,
+  getWorkspaceSplits,
+  readRoleDragId,
+  readWorkspaceSlotDragIndex,
+  rectToPreviewStyle,
+  swapWorkspaceSlotRoles,
+  type WorkspaceSplitAxis
+} from "./workspaceLayoutUtils";
 
 interface WorkspaceModalProps {
   form: WorkspaceFormState;
@@ -232,7 +245,11 @@ function WorkspaceLayoutFormEditor({
     }
   }
 
-  function startResize(event: ReactPointerEvent<HTMLButtonElement>, axis: "horizontal" | "vertical"): void {
+  function startResize(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    axis: WorkspaceSplitAxis,
+    splitIndex: number
+  ): void {
     if (!previewRef.current) {
       return;
     }
@@ -240,19 +257,21 @@ function WorkspaceLayoutFormEditor({
     event.preventDefault();
     const previewBounds = previewRef.current.getBoundingClientRect();
     const initialSplits = getWorkspaceSplits(form.template, slots);
+    const splitRange = getWorkspaceSplitRange(form.template, initialSplits, axis, splitIndex);
     let nextSlots = slots;
 
     const handlePointerMove = (pointerEvent: PointerEvent): void => {
-      const splitX =
+      const pointerPosition =
         axis === "vertical"
-          ? clamp((pointerEvent.clientX - previewBounds.left) / previewBounds.width, 0.2, 0.8)
-          : initialSplits.splitX;
-      const splitY =
-        axis === "horizontal"
-          ? clamp((pointerEvent.clientY - previewBounds.top) / previewBounds.height, 0.2, 0.8)
-          : initialSplits.splitY;
+          ? (pointerEvent.clientX - previewBounds.left) / previewBounds.width
+          : (pointerEvent.clientY - previewBounds.top) / previewBounds.height;
+      const nextSplits = {
+        horizontal: [...initialSplits.horizontal],
+        vertical: [...initialSplits.vertical]
+      };
 
-      nextSlots = applyWorkspaceSplits(form.template, slots, splitX, splitY);
+      nextSplits[axis][splitIndex] = clamp(pointerPosition, splitRange.min, splitRange.max);
+      nextSlots = applyWorkspaceSplits(form.template, slots, nextSplits);
       setDragSlots(nextSlots);
     };
 
@@ -274,7 +293,7 @@ function WorkspaceLayoutFormEditor({
     <Surface className="grid gap-4" padding="lg" variant="inset">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FieldHeader title={t("workspaces.layout")} description={t("workspaces.layoutDescription")} />
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {workspaceLayoutTemplates.map((template) => {
             const Icon = workspaceTemplateIcons[template];
             const isActive = form.template === template;
@@ -484,45 +503,54 @@ function WorkspaceSlotDropZone({
 }
 
 interface WorkspaceResizeHandlesProps {
-  onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>, axis: "horizontal" | "vertical") => void;
+  onResizeStart: (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    axis: WorkspaceSplitAxis,
+    splitIndex: number
+  ) => void;
   slots: LaunchWorkspaceSlot[];
   template: WorkspaceLayoutTemplate;
 }
 
 function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceResizeHandlesProps): JSX.Element | null {
-  const { splitX, splitY } = getWorkspaceSplits(template, slots);
+  const splits = getWorkspaceSplits(template, slots);
+  const splitX = splits.vertical[0] ?? 1;
 
-  if (template === "single") {
+  if (splits.vertical.length === 0 && splits.horizontal.length === 0) {
     return null;
   }
 
   return (
     <>
-      <button
-        className="absolute top-0 z-20 h-full w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
-        type="button"
-        aria-label="Resize columns"
-        style={{ left: `${splitX * 100}%` }}
-        onPointerDown={(event) => onResizeStart(event, "vertical")}
-      >
-        <span className="mx-auto block h-full w-0.5 rounded-full bg-primary/45" />
-      </button>
-
-      {template === "main_left_stack_right" || template === "quad" ? (
+      {splits.vertical.map((position, index) => (
         <button
+          key={`vertical-${index}`}
+          className="absolute top-0 z-20 h-full w-3 -translate-x-1/2 cursor-col-resize bg-transparent"
+          type="button"
+          aria-label={`Resize columns ${index + 1}`}
+          style={{ left: `${position * 100}%` }}
+          onPointerDown={(event) => onResizeStart(event, "vertical", index)}
+        >
+          <span className="mx-auto block h-full w-0.5 rounded-full bg-primary/45" />
+        </button>
+      ))}
+
+      {splits.horizontal.map((position, index) => (
+        <button
+          key={`horizontal-${index}`}
           className="absolute z-20 h-3 -translate-y-1/2 cursor-row-resize bg-transparent"
           type="button"
-          aria-label="Resize rows"
+          aria-label={`Resize rows ${index + 1}`}
           style={{
             left: template === "main_left_stack_right" ? `${splitX * 100}%` : 0,
-            top: `${splitY * 100}%`,
+            top: `${position * 100}%`,
             width: template === "main_left_stack_right" ? `${(1 - splitX) * 100}%` : "100%"
           }}
-          onPointerDown={(event) => onResizeStart(event, "horizontal")}
+          onPointerDown={(event) => onResizeStart(event, "horizontal", index)}
         >
           <span className="block h-0.5 w-full rounded-full bg-primary/45" />
         </button>
-      ) : null}
+      ))}
     </>
   );
 }

@@ -86,6 +86,38 @@ describe("LaunchWorkspaceStore", () => {
     expect(trimmed.slots).toHaveLength(1);
   });
 
+  it("creates and persists a resizable four-column workspace", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Four roles",
+      template: "four_columns",
+      slots: [
+        { roleId: "role-1", rect: { x: 0, y: 0, width: 0.2, height: 1 } },
+        { roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.3, height: 1 } },
+        { roleId: "role-3", rect: { x: 0.5, y: 0, width: 0.18, height: 1 } },
+        { roleId: "role-4", rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
+      ]
+    });
+
+    expect(workspace.slots).toEqual([
+      { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.2, height: 1 } },
+      { id: "slot-2", roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.3, height: 1 } },
+      { id: "slot-3", roleId: "role-3", rect: { x: 0.5, y: 0, width: 0.18, height: 1 } },
+      { id: "slot-4", roleId: "role-4", rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
+    ]);
+    await expect(store.getWorkspace(workspace.id)).resolves.toEqual(workspace);
+  });
+
+  it("uses four equal columns when no custom slots are provided", async () => {
+    const workspace = await store.createWorkspace({ name: "Equal columns", template: "four_columns" });
+
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual([
+      { x: 0, y: 0, width: 0.25, height: 1 },
+      { x: 0.25, y: 0, width: 0.25, height: 1 },
+      { x: 0.5, y: 0, width: 0.25, height: 1 },
+      { x: 0.75, y: 0, width: 0.25, height: 1 }
+    ]);
+  });
+
   it("rejects duplicate names and roles outside the selected template", async () => {
     await store.createWorkspace({ name: "Party" });
 

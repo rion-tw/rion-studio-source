@@ -3,7 +3,12 @@ export const DEFAULT_ROLE_WINDOW_WIDTH = 1440;
 export const DEFAULT_ROLE_WINDOW_HEIGHT = 900;
 
 export type LaunchPreset = "balanced" | "performance";
-export type WorkspaceLayoutTemplate = "single" | "two_columns" | "main_left_stack_right" | "quad";
+export type WorkspaceLayoutTemplate =
+  | "single"
+  | "two_columns"
+  | "main_left_stack_right"
+  | "quad"
+  | "four_columns";
 export type AppLanguage = "en" | "zh-TW";
 export type AuthState = "unknown" | "login_required" | "authenticated" | "auth_failed";
 export type AuthFlowState =

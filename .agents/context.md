@@ -101,6 +101,7 @@ rectangle. Supported layout templates are:
 - `two_columns`
 - `main_left_stack_right`
 - `quad`
+- `four_columns`
 
 `two_columns` is the default workspace template. A launch workspace can contain
 at most four slots. A role can appear only once in the same launch workspace.

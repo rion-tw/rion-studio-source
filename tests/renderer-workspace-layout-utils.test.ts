@@ -6,6 +6,7 @@ import {
   applyWorkspaceSplits,
   applyWorkspaceTemplate,
   assignRoleToWorkspaceSlot,
+  getWorkspaceSplitRange,
   getWorkspaceSplits,
   swapWorkspaceSlotRoles
 } from "../src/renderer/src/features/workspaces/workspaceLayoutUtils";
@@ -50,15 +51,39 @@ describe("renderer workspace layout helpers", () => {
   });
 
   it("reads and applies custom split positions", () => {
-    const slots = applyWorkspaceSplits("quad", applyWorkspaceTemplate([], "quad"), 0.3, 0.7);
+    const slots = applyWorkspaceSplits("quad", applyWorkspaceTemplate([], "quad"), {
+      horizontal: [0.7],
+      vertical: [0.3]
+    });
 
-    expect(getWorkspaceSplits("quad", slots)).toEqual({ splitX: 0.3, splitY: 0.7 });
+    expect(getWorkspaceSplits("quad", slots)).toEqual({ horizontal: [0.7], vertical: [0.3] });
     expect(slots.map((item) => item.rect)).toEqual([
       { x: 0, y: 0, width: 0.3, height: 0.7 },
       { x: 0.3, y: 0, width: 0.7, height: 0.7 },
       { x: 0, y: 0.7, width: 0.3, height: 0.30000000000000004 },
       { x: 0.3, y: 0.7, width: 0.7, height: 0.30000000000000004 }
     ]);
+  });
+
+  it("adjusts one four-column divider while preserving the other boundaries", () => {
+    const initialSlots = applyWorkspaceTemplate([], "four_columns");
+    const initialSplits = getWorkspaceSplits("four_columns", initialSlots);
+    const slots = applyWorkspaceSplits("four_columns", initialSlots, {
+      ...initialSplits,
+      vertical: [0.25, 0.62, 0.75]
+    });
+
+    expect(initialSplits).toEqual({ horizontal: [], vertical: [0.25, 0.5, 0.75] });
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0, y: 0, width: 0.25, height: 1 },
+      { x: 0.25, y: 0, width: 0.37, height: 1 },
+      { x: 0.62, y: 0, width: 0.13, height: 1 },
+      { x: 0.75, y: 0, width: 0.25, height: 1 }
+    ]);
+    expect(getWorkspaceSplitRange("four_columns", initialSplits, "vertical", 1)).toEqual({
+      min: 0.37,
+      max: 0.63
+    });
   });
 });
 

@@ -16,7 +16,8 @@ import {
   getDefaultWorkspaceRects,
   getWorkspaceTemplateSlotCount,
   isWorkspaceLayoutTemplate,
-  MAX_WORKSPACE_SLOTS
+  MAX_WORKSPACE_SLOTS,
+  MIN_WORKSPACE_SLOT_SIZE
 } from "../../shared/workspaceLayout";
 
 interface LaunchWorkspacesFile {
@@ -30,8 +31,6 @@ type StoredLaunchWorkspaceSlot = Partial<LaunchWorkspaceSlot> & {
 const LEGACY_ROLE_ID_FIELD = "profile" + "Id";
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
-const MIN_NORMALIZED_SIZE = 0.12;
-
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
     readonly code: string,
@@ -323,8 +322,8 @@ export class LaunchWorkspaceStore {
     };
 
     if (
-      rect.width < MIN_NORMALIZED_SIZE ||
-      rect.height < MIN_NORMALIZED_SIZE ||
+      rect.width < MIN_WORKSPACE_SLOT_SIZE ||
+      rect.height < MIN_WORKSPACE_SLOT_SIZE ||
       rect.x + rect.width > 1.0001 ||
       rect.y + rect.height > 1.0001
     ) {

@@ -133,6 +133,36 @@ describe("registerIpcHandlers workspace handlers", () => {
     });
   });
 
+  it("launches four-column workspace roles with each saved column bound", async () => {
+    const fourColumnWorkspace: LaunchWorkspace = {
+      ...workspace,
+      id: "workspace-4",
+      template: "four_columns",
+      slots: [
+        { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.2, height: 1 } },
+        { id: "slot-2", roleId: "role-2", rect: { x: 0.2, y: 0, width: 0.3, height: 1 } },
+        { id: "slot-3", roleId: "role-3", rect: { x: 0.5, y: 0, width: 0.18, height: 1 } },
+        { id: "slot-4", roleId: "role-4", rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
+      ]
+    };
+    workspaceStore.getWorkspace = vi.fn().mockResolvedValue(fourColumnWorkspace);
+
+    await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, fourColumnWorkspace.id);
+
+    expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
+      bounds: { x: 100, y: 50, width: 200, height: 800 }
+    });
+    expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
+      bounds: { x: 300, y: 50, width: 300, height: 800 }
+    });
+    expect(browserManager.launch).toHaveBeenNthCalledWith(3, expect.objectContaining({ id: "role-3" }), {
+      bounds: { x: 600, y: 50, width: 180, height: 800 }
+    });
+    expect(browserManager.launch).toHaveBeenNthCalledWith(4, expect.objectContaining({ id: "role-4" }), {
+      bounds: { x: 780, y: 50, width: 320, height: 800 }
+    });
+  });
+
   it("blocks workspace launch when any role needs login", async () => {
     roleStore.getRole = vi.fn(async (id: string): Promise<Role> => ({
       ...authenticatedRole,

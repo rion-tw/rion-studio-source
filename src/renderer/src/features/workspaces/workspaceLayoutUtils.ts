@@ -3,7 +3,21 @@ import type { CSSProperties, DragEvent as ReactDragEvent } from "react";
 import type { Translator } from "../../i18n";
 import type { WorkspaceFormState } from "../../app/types";
 import type { LaunchWorkspace, LaunchWorkspaceSlot, NormalizedRect, Role, WorkspaceLayoutTemplate } from "../../../../shared/types";
-import { DEFAULT_WORKSPACE_TEMPLATE, getDefaultWorkspaceRects, getWorkspaceTemplateSlotCount } from "../../../../shared/workspaceLayout";
+import {
+  DEFAULT_WORKSPACE_TEMPLATE,
+  getDefaultWorkspaceRects,
+  getWorkspaceTemplateSlotCount,
+  MIN_WORKSPACE_SLOT_SIZE
+} from "../../../../shared/workspaceLayout";
+
+export interface WorkspaceSplits {
+  horizontal: number[];
+  vertical: number[];
+}
+
+export type WorkspaceSplitAxis = keyof WorkspaceSplits;
+
+const EXISTING_LAYOUT_MIN_SPLIT_SIZE = 0.2;
 
 export function createWorkspaceName(workspaces: LaunchWorkspace[], t: Translator): string {
   const baseName = t("workspaces.defaultName");
@@ -121,30 +135,37 @@ export function swapWorkspaceSlotRoles(
 export function getWorkspaceSplits(
   template: WorkspaceLayoutTemplate,
   slots: LaunchWorkspaceSlot[]
-): { splitX: number; splitY: number } {
+): WorkspaceSplits {
   const defaultRects = getDefaultWorkspaceRects(template);
   const firstRect = slots[0]?.rect ?? defaultRects[0];
   const secondRect = slots[1]?.rect ?? defaultRects[1] ?? defaultRects[0];
 
   switch (template) {
     case "single":
-      return { splitX: 1, splitY: 1 };
+      return { horizontal: [], vertical: [] };
     case "two_columns":
-      return { splitX: firstRect.width, splitY: 1 };
+      return { horizontal: [], vertical: [firstRect.width] };
     case "main_left_stack_right":
-      return { splitX: firstRect.width, splitY: secondRect.height };
+      return { horizontal: [secondRect.height], vertical: [firstRect.width] };
     case "quad":
-      return { splitX: firstRect.width, splitY: firstRect.height };
+      return { horizontal: [firstRect.height], vertical: [firstRect.width] };
+    case "four_columns":
+      return {
+        horizontal: [],
+        vertical: defaultRects.slice(0, 3).map((defaultRect, index) => {
+          const rect = slots[index]?.rect ?? defaultRect;
+          return rect.x + rect.width;
+        })
+      };
   }
 }
 
 export function applyWorkspaceSplits(
   template: WorkspaceLayoutTemplate,
   slots: LaunchWorkspaceSlot[],
-  splitX: number,
-  splitY: number
+  splits: WorkspaceSplits
 ): LaunchWorkspaceSlot[] {
-  const rects = createWorkspaceRectsFromSplits(template, splitX, splitY);
+  const rects = createWorkspaceRectsFromSplits(template, splits);
 
   return slots.slice(0, getWorkspaceTemplateSlotCount(template)).map((slot, index) => ({
     ...slot,
@@ -154,9 +175,12 @@ export function applyWorkspaceSplits(
 
 export function createWorkspaceRectsFromSplits(
   template: WorkspaceLayoutTemplate,
-  splitX: number,
-  splitY: number
+  splits: WorkspaceSplits
 ): NormalizedRect[] {
+  const defaultSplits = getWorkspaceSplits(template, []);
+  const splitX = splits.vertical[0] ?? defaultSplits.vertical[0] ?? 1;
+  const splitY = splits.horizontal[0] ?? defaultSplits.horizontal[0] ?? 1;
+
   switch (template) {
     case "single":
       return getDefaultWorkspaceRects(template);
@@ -178,7 +202,32 @@ export function createWorkspaceRectsFromSplits(
         { x: 0, y: splitY, width: splitX, height: 1 - splitY },
         { x: splitX, y: splitY, width: 1 - splitX, height: 1 - splitY }
       ];
+    case "four_columns": {
+      const boundaries = [0, ...defaultSplits.vertical.map((value, index) => splits.vertical[index] ?? value), 1];
+
+      return boundaries.slice(0, -1).map((x, index) => ({
+        x,
+        y: 0,
+        width: boundaries[index + 1] - x,
+        height: 1
+      }));
+    }
   }
+}
+
+export function getWorkspaceSplitRange(
+  template: WorkspaceLayoutTemplate,
+  splits: WorkspaceSplits,
+  axis: WorkspaceSplitAxis,
+  splitIndex: number
+): { min: number; max: number } {
+  const positions = splits[axis];
+  const minimumSize = template === "four_columns" ? MIN_WORKSPACE_SLOT_SIZE : EXISTING_LAYOUT_MIN_SPLIT_SIZE;
+
+  return {
+    min: (positions[splitIndex - 1] ?? 0) + minimumSize,
+    max: (positions[splitIndex + 1] ?? 1) - minimumSize
+  };
 }
 
 export function clamp(value: number, min: number, max: number): number {

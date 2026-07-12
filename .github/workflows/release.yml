@@ -11,7 +11,44 @@ permissions:
   pull-requests: write
 
 jobs:
+  validate-release:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Build app
+        run: pnpm run build
+
   semantic-release:
+    needs: validate-release
     runs-on: ubuntu-latest
     outputs:
       release_version: ${{ steps.semantic.outputs.release_version }}
@@ -72,17 +109,8 @@ jobs:
       - name: Apply release version
         run: pnpm version ${{ needs.semantic-release.outputs.release_version }} --no-git-tag-version
 
-      - name: Typecheck
-        run: pnpm run typecheck
-
-      - name: Test
-        run: pnpm run test
-
-      - name: Lint
-        run: pnpm run lint
-
       - name: Build app
-        run: pnpm run build
+        run: pnpm exec electron-vite build
 
       - name: Build platform artifacts
         run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.build_target }} --publish never

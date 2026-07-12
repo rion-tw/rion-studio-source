@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/rion-tw/rion-studio/compare/v1.0.0...v1.0.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* release workflow and update README download links ([105a1cc](https://github.com/rion-tw/rion-studio/commit/105a1cc54561d5b53cab6172e6392b8922a48ad6))
+
 # 1.0.0 (2026-07-12)
 
 

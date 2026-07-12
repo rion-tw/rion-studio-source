@@ -6,6 +6,8 @@ import {
   type LaunchPreset
 } from "../../../shared/types";
 import type { RoleFormState, ResolvedTheme, ThemeMode } from "./types";
+import feifeiInfiniteUniverseIcon from "../assets/games/feifei-infinite-universe.png";
+import flyffUniverseIcon from "../assets/games/flyff-universe.png";
 
 export const THEME_STORAGE_KEY = "rion-studio-theme";
 export const LANGUAGE_STORAGE_KEY = "rion-studio-language";
@@ -23,14 +25,16 @@ export const emptyForm: RoleFormState = {
 
 export const launchUrlOptions = [
   {
+    iconSrc: flyffUniverseIcon,
     labelKey: "roleForm.launchUrl.flyffUniverse",
     value: DEFAULT_LAUNCH_URL
   },
   {
+    iconSrc: feifeiInfiniteUniverseIcon,
     label: "飞飞：无限宇宙",
     value: "https://ffcli.ruiwoo.cn/play"
   }
-] as const satisfies Array<({ labelKey: TranslationKey } | { label: string }) & { value: string }>;
+] as const satisfies Array<({ labelKey: TranslationKey } | { label: string }) & { iconSrc?: string; value: string }>;
 
 export const presetLabelKeys: Record<LaunchPreset, TranslationKey> = {
   balanced: "preset.balanced",

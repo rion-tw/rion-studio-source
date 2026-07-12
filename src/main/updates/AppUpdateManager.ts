@@ -424,8 +424,7 @@ function selectGitHubMacAsset(
     return null;
   }
 
-  const productName = request.productName.toLowerCase();
-  const productAssets = macAssets.filter((asset) => asset.name.toLowerCase().includes(productName));
+  const productAssets = macAssets.filter((asset) => fileNameMatchesProductName(asset.name, request.productName));
   const candidates = productAssets.length > 0 ? productAssets : macAssets;
 
   return (
@@ -438,6 +437,14 @@ function selectGitHubMacAsset(
 function isMacDownloadAssetName(name: string): boolean {
   const lowerName = name.toLowerCase();
   return lowerName.endsWith(".zip") || lowerName.endsWith(".dmg");
+}
+
+function fileNameMatchesProductName(fileName: string, productName: string): boolean {
+  return normalizeAssetName(fileName).includes(normalizeAssetName(productName));
+}
+
+function normalizeAssetName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function readGitHubAsset(asset: unknown): ManualUpdateAsset | null {

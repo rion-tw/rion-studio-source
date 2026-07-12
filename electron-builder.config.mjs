@@ -8,7 +8,7 @@ const [githubOwner, githubRepo] = (process.env.GITHUB_REPOSITORY ?? "rion-tw/rio
 const config = {
   appId: "com.rionstudio.launcher",
   productName: "Rion Studio",
-  artifactName: "${productName}-${os}.${ext}",
+  artifactName: "Rion.Studio-${os}.${ext}",
   directories: {
     output: "release/${version}"
   },

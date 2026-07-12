@@ -11,8 +11,8 @@ actions while you stay actively in control of play.
 
 ## Download
 
-- [Download for macOS](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion%20Studio-mac.zip)
-- [Download for Windows](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion%20Studio-win.exe)
+- [Download for macOS](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion.Studio-mac.zip)
+- [Download for Windows](https://github.com/rion-tw/rion-studio/releases/latest/download/Rion.Studio-win.exe)
 
 These links point to the installer assets attached to the latest GitHub release.
 If a download returns 404, open the [latest release](https://github.com/rion-tw/rion-studio/releases/latest)

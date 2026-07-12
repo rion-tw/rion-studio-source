@@ -24,7 +24,7 @@ import { cn } from "../../lib/utils";
 import type { AuthFlowStatus, Role, RoleStatus } from "../../../../shared/types";
 import type { AppStats, SidebarFilter } from "../../app/types";
 import { formatAuthFlowState, shouldShowLoginGuidance } from "../../app/statusUtils";
-import { createDominantLaunchButtonStyle, createRoleCardStyle } from "./roleCardStyle";
+import { createRoleCardStyle } from "./roleCardStyle";
 import { LoginSessionGuide } from "./LoginSessionGuide";
 
 const filterLabelKeys: Record<SidebarFilter, TranslationKey> = {
@@ -244,12 +244,14 @@ function RoleCard({
   const isAuthFlowRunning = Boolean(authStatus && authStatus.state !== "failed");
   const isAuthenticated = role.authState === "authenticated";
   const hasCoverImage = Boolean(role.coverImageDataUrl);
+  const canLaunchFromOverlay = isAuthenticated && !isActive && !isAuthFlowRunning;
+  const hasBottomAction = isActive || isAuthFlowRunning || !isAuthenticated;
   const cardStyle = createRoleCardStyle({
     color: role.coverImageDominantColor,
     hasCoverImage,
     isActive
   });
-  const launchButtonStyle = createDominantLaunchButtonStyle(role.coverImageDominantColor);
+  const launchGame = resolveLaunchGame(role.launchUrl, t);
 
   return (
     <Card
@@ -280,8 +282,30 @@ function RoleCard({
         />
       </div>
 
-      <div className="relative z-10 flex h-full flex-col justify-end p-4">
-        <div className={cn("relative grid gap-3", hasCoverImage && "isolate")}>
+      {canLaunchFromOverlay ? (
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+          <Button
+            className={cn(
+              "pointer-events-auto size-16 rounded-full p-0 opacity-0 shadow-lg transition-[opacity,transform,background-color] duration-150",
+              "group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100",
+              hasCoverImage
+                ? "border border-white/35 bg-black/35 text-white backdrop-blur-md hover:bg-black/50 hover:text-white"
+                : "border border-border/60 bg-background/80 text-foreground backdrop-blur-md hover:bg-background"
+            )}
+            type="button"
+            variant="secondary"
+            title={t("role.launch")}
+            aria-label={t("role.launch")}
+            onClick={onLaunch}
+            disabled={isBusy}
+          >
+            {isBusy ? <Loader2 className="spin" size={30} /> : <Play className="ml-0.5" size={34} fill="currentColor" />}
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="relative z-10 flex h-full flex-col justify-end p-3">
+        <div className={cn("relative grid gap-2", hasCoverImage && "isolate")}>
           {authStatus?.state === "failed" ? (
             <p
               className={cn(
@@ -296,20 +320,33 @@ function RoleCard({
 
           <div
             className={cn(
-              "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 pt-1",
-              hasCoverImage ? "role-cover-actions" : "glass-divider border-t pt-3"
+              "grid items-center gap-2 pt-1",
+              hasBottomAction ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1",
+              hasCoverImage ? "role-cover-actions" : "glass-divider border-t pt-2"
             )}
           >
-            <div className="min-w-0 pl-2">
-              <CardTitle className={cn("truncate", hasCoverImage && "role-cover-title text-white")}>{role.name}</CardTitle>
+            <div className="flex min-w-0 items-center gap-3 pl-1">
+              {launchGame.iconSrc ? (
+                <img
+                  className="size-8 shrink-0 rounded-sm object-cover shadow-sm ring-1 ring-white/45"
+                  src={launchGame.iconSrc}
+                  alt=""
+                  aria-hidden="true"
+                />
+              ) : null}
+              <div className="grid min-w-0 gap-1">
+                <CardTitle className={cn("min-w-0 truncate", hasCoverImage && "role-cover-title text-white")}>
+                  {role.name}
+                </CardTitle>
               <p
                 className={cn(
-                  "mt-0.5 truncate text-[10px] font-medium leading-3 text-muted-foreground",
+                  "min-w-0 truncate text-[10px] font-medium leading-3 text-muted-foreground",
                   hasCoverImage && "text-white/78"
                 )}
               >
-                {resolveLaunchGameName(role.launchUrl, t)}
+                {launchGame.name}
               </p>
+              </div>
             </div>
             {isActive ? (
               <Button
@@ -340,27 +377,7 @@ function RoleCard({
                 <Loader2 className="spin" size={14} />
                 {formatAuthFlowState(authStatus, t)}
               </Button>
-            ) : isAuthenticated ? (
-              <Button
-                className={cn(
-                  "h-7 min-w-[82px] shrink-0 gap-1.5 px-2 text-[11px] shadow-none",
-                  hasCoverImage && "rounded-full",
-                  launchButtonStyle
-                    ? "bg-[var(--role-launch-bg)] text-white hover:bg-[var(--role-launch-hover-bg)] hover:text-white"
-                    : "hover:bg-secondary/90",
-                  hasCoverImage && !launchButtonStyle && "role-cover-control text-white hover:text-white"
-                )}
-                type="button"
-                variant="secondary"
-                size="sm"
-                style={launchButtonStyle}
-                onClick={onLaunch}
-                disabled={isBusy}
-              >
-                {isBusy ? <Loader2 className="spin" size={14} /> : <Play size={14} />}
-                {t("role.launch")}
-              </Button>
-            ) : (
+            ) : isAuthenticated ? null : (
               <LoginButton
                 className={cn(
                   "h-7 min-w-[88px] shrink-0 gap-1.5 px-2 text-[11px]",
@@ -378,17 +395,25 @@ function RoleCard({
   );
 }
 
-function resolveLaunchGameName(launchUrl: string, t: Translator): string {
+interface ResolvedLaunchGame {
+  iconSrc?: string;
+  name: string;
+}
+
+function resolveLaunchGame(launchUrl: string, t: Translator): ResolvedLaunchGame {
   const option = launchUrlOptions.find((launchOption) => launchOption.value === launchUrl);
 
   if (option) {
-    return "label" in option ? option.label : t(option.labelKey);
+    return {
+      iconSrc: option.iconSrc,
+      name: "label" in option ? option.label : t(option.labelKey)
+    };
   }
 
   try {
-    return new URL(launchUrl).hostname;
+    return { name: new URL(launchUrl).hostname };
   } catch {
-    return t("roleForm.launchUrl.current");
+    return { name: t("roleForm.launchUrl.current") };
   }
 }
 

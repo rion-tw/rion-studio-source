@@ -117,16 +117,21 @@ describe("MacroOverlayInjector", () => {
     expect(macroManager.stop).toHaveBeenCalledWith("role-1", "macro-1");
   });
 
-  it("routes create requests with the installed role id", async () => {
+  it("routes create and edit requests with the installed role id", async () => {
     const page = createPage([createFrame()]);
-    const onCreateMacroRequested = vi.fn();
-    const injector = createInjector({ onCreateMacroRequested });
+    const onMacroEditorRequested = vi.fn();
+    const injector = createInjector({ onMacroEditorRequested });
 
     await injector.install(role, page.page as never);
 
     await page.binding?.({}, { type: "create" });
+    await page.binding?.({}, { type: "edit", macroId: "macro-1" });
 
-    expect(onCreateMacroRequested).toHaveBeenCalledWith({ roleId: "role-1" });
+    expect(onMacroEditorRequested).toHaveBeenNthCalledWith(1, { roleId: "role-1" });
+    expect(onMacroEditorRequested).toHaveBeenNthCalledWith(2, {
+      macroId: "macro-1",
+      roleId: "role-1"
+    });
   });
 
   it("can proactively refresh installed overlay pages", async () => {
@@ -179,7 +184,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.idle");
   });
 
-  it("renders macro menu rows with steps, shortcut, poll, and divider styling", () => {
+  it("renders compact macro menu rows with value badges and an edit action", () => {
     const macroContentIndex = MACRO_OVERLAY_SCRIPT.indexOf("state.macros.length > 0 ? macroRows :");
     const createRowIndex = MACRO_OVERLAY_SCRIPT.indexOf("'<button class=\"create-row\"");
 
@@ -195,17 +200,22 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('visibleSteps.push(text.stepsMore.replace("{count}", String(steps.length - visibleSteps.length)));');
     expect(MACRO_OVERLAY_SCRIPT).toContain("const steps = formatSteps(macro.steps);");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const poll = formatRepeat(macro.repeat);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('"><span class="macro-header"><span class="macro-title"><span class="status-dot ');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('<div class="macro-row" role="menuitem"><span class="macro-title"><span class="status-dot ');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="create-row"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('data-action="create"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "create" });');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('</strong></span><span class="macro-action-pill ');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('</span></span><span class="macro-details"><span><em>');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("escapeHtml(text.stepsLabel)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("escapeHtml(text.shortcutLabel)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("escapeHtml(text.pollLabel)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('</strong></span><span class="macro-details"><span class="macro-detail-steps"><b>');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('<span class="macro-detail-shortcut"><b>');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('<span class="macro-detail-poll"><b>');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('<button class="macro-edit" type="button"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('<svg class="edit-icon" viewBox="0 0 24 24"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "edit", macroId });');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.stepsLabel)");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.shortcutLabel)");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.pollLabel)");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="macro-action-pill');
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".create-row{align-items:center;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.18);"
+      ".create-row{align-items:center;border-radius:9px;color:#fff;cursor:pointer;display:flex;"
     );
     expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-list{");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="macro-list"');
@@ -213,22 +223,32 @@ describe("MacroOverlayInjector", () => {
     expect(createRowIndex).toBeGreaterThan(-1);
     expect(macroContentIndex).toBeLessThan(createRowIndex);
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-row{align-items:start;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.1);border-radius:7px;"
+      ".macro-row{align-items:center;border-radius:9px;color:#fff;display:grid;"
     );
-    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-columns:minmax(0,1fr)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-row:hover{background:rgba(255,255,255,.095);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-header{align-items:center;display:flex;gap:8px;justify-content:space-between;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-title{align-items:center;display:flex;gap:8px;min-width:0;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-action-pill{border:1px solid rgba(255,255,255,.14);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details{display:grid;gap:3px;min-width:0;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details b{font-weight:700;min-width:0;overflow:hidden;");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-areas:'title shortcut poll edit' 'steps steps steps steps'");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-columns:minmax(52px,1fr) auto auto 24px;min-height:58px");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-row:hover{background:linear-gradient(135deg,rgba(255,255,255,.34),rgba(255,255,255,.13));");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-header{");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-title{align-items:center;display:flex;gap:8px;grid-area:title;min-width:0;}");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details{display:contents;}");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details b{font-weight:750;min-width:0;overflow:hidden;");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(
+      ".macro-detail-shortcut,.macro-detail-poll{align-items:center;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);"
+    );
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-shortcut{grid-area:shortcut;}");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-poll{grid-area:poll;}");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-steps{display:block;grid-area:steps;padding:0 1px;}");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-edit{align-items:center;background:rgba(255,255,255,.1);");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".edit-icon{display:block;fill:none;height:12px;width:12px;");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".panel{display:");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain(".panel{-webkit-backdrop-filter");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("backdrop-filter:blur(22px) saturate(180%)");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("background:linear-gradient(145deg,rgba(22,28,38,.36),rgba(8,12,18,.24))");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("box-shadow:0 18px 46px");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("-webkit-backdrop-filter:blur(14px) saturate(160%)");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.14)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(
+      ".macro-row,.create-row,.empty,.error{-webkit-backdrop-filter:blur(18px) saturate(190%);backdrop-filter:blur(18px) saturate(190%);"
+    );
+    expect(MACRO_OVERLAY_SCRIPT).toContain("background:linear-gradient(135deg,rgba(255,255,255,.28),rgba(255,255,255,.08));");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("border:1px solid rgba(255,255,255,.32);box-shadow:0 8px 24px rgba(0,0,0,.18)");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("rgba(18,22,30");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(";gap:7px;margin-top:6px;max-width:300px;padding:0;");
   });
 
   it("localizes overlay menu text for English and Traditional Chinese", () => {
@@ -236,12 +256,12 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('addMacro: "Add macro"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('addMacro: "新增巨集"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('createError: "無法開啟 Rion Studio。"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('stepsLabel: "Steps"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('shortcutLabel: "Shortcut"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('pollLabel: "Poll"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('stepsLabel: "步驟"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('shortcutLabel: "快捷鍵"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('pollLabel: "輪詢"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('edit: "Edit"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('edit: "編輯"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('editError: "無法在 Rion Studio 開啟此巨集。"');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('stepsLabel: "Steps"');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('shortcutLabel: "快捷鍵"');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('pollLabel: "輪詢"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('keyStep: "按鍵"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('everyMs: "每 {ms} ms"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("language: detectOverlayLanguage()");
@@ -308,21 +328,21 @@ function createInjector({
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined)
   },
-  onCreateMacroRequested
+  onMacroEditorRequested
 }: {
   macroManager?: {
     listStatuses: ReturnType<typeof vi.fn>;
     start: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
   };
-  onCreateMacroRequested?: ReturnType<typeof vi.fn>;
+  onMacroEditorRequested?: ReturnType<typeof vi.fn>;
 } = {}): MacroOverlayInjector {
   return new MacroOverlayInjector(
     {
       listMacros: vi.fn().mockResolvedValue([assignedMacro, otherMacro])
     } as never,
     macroManager as never,
-    onCreateMacroRequested
+    onMacroEditorRequested
   );
 }
 

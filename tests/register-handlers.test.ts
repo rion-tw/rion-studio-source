@@ -182,7 +182,7 @@ describe("registerIpcHandlers macro handlers", () => {
     "createMacro" | "deleteMacro" | "deleteRoleMacros" | "listMacros" | "updateMacro"
   >;
   let macroManager: Pick<MacroManager, "listStatuses" | "on" | "start" | "stop" | "stopRole">;
-  let consumePendingMacroCreateRequest: ReturnType<typeof vi.fn>;
+  let consumePendingMacroEditorRequest: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     handlers.clear();
@@ -232,7 +232,7 @@ describe("registerIpcHandlers macro handlers", () => {
       stop: vi.fn().mockResolvedValue(undefined),
       stopRole: vi.fn().mockResolvedValue(undefined)
     };
-    consumePendingMacroCreateRequest = vi.fn(() => ({ roleId: "role-1" }));
+    consumePendingMacroEditorRequest = vi.fn(() => ({ macroId: "macro-1", roleId: "role-1" }));
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -240,17 +240,20 @@ describe("registerIpcHandlers macro handlers", () => {
       browserManager as BrowserManager,
       authManager as AuthManager,
       {
-        consumePendingMacroCreateRequest,
+        consumePendingMacroEditorRequest,
         macroManager: macroManager as MacroManager,
         macroStore: macroStore as MacroStore
       }
     );
   });
 
-  it("consumes pending macro create requests", () => {
-    expect(handlers.get(IPC_CHANNELS.macrosConsumeCreateRequest)?.({})).toEqual({ roleId: "role-1" });
+  it("consumes pending macro editor requests", () => {
+    expect(handlers.get(IPC_CHANNELS.macrosConsumeEditorRequest)?.({})).toEqual({
+      macroId: "macro-1",
+      roleId: "role-1"
+    });
 
-    expect(consumePendingMacroCreateRequest).toHaveBeenCalledTimes(1);
+    expect(consumePendingMacroEditorRequest).toHaveBeenCalledTimes(1);
   });
 
   it("registers macro CRUD and run handlers", async () => {

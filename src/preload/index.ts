@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import { IPC_CHANNELS } from "../shared/ipc";
 import type { RionStudioApi } from "../shared/api";
-import type { AppUpdateStatus, AuthFlowStatus, MacroCreateRequest, MacroRunStatus, RoleStatus } from "../shared/types";
+import type { AppUpdateStatus, AuthFlowStatus, MacroEditorRequest, MacroRunStatus, RoleStatus } from "../shared/types";
 
 const api: RionStudioApi = {
   listRoles: () => ipcRenderer.invoke(IPC_CHANNELS.rolesList),
@@ -29,7 +29,7 @@ const api: RionStudioApi = {
   startMacro: (roleId, macroId) => ipcRenderer.invoke(IPC_CHANNELS.macrosStart, roleId, macroId),
   stopMacro: (roleId, macroId) => ipcRenderer.invoke(IPC_CHANNELS.macrosStop, roleId, macroId),
   listMacroStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.macrosStatuses),
-  consumePendingMacroCreateRequest: () => ipcRenderer.invoke(IPC_CHANNELS.macrosConsumeCreateRequest),
+  consumePendingMacroEditorRequest: () => ipcRenderer.invoke(IPC_CHANNELS.macrosConsumeEditorRequest),
   setOverlayLanguage: (language) => ipcRenderer.invoke(IPC_CHANNELS.preferencesSetOverlayLanguage, language),
   getAppVersion: () => ipcRenderer.invoke(IPC_CHANNELS.appVersion),
   getUpdateStatus: () => ipcRenderer.invoke(IPC_CHANNELS.updatesStatus),
@@ -69,15 +69,15 @@ const api: RionStudioApi = {
       ipcRenderer.removeListener(IPC_CHANNELS.macrosStatusChanged, listener);
     };
   },
-  onMacroCreateRequested: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, request: MacroCreateRequest) => {
+  onMacroEditorRequested: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: MacroEditorRequest) => {
       callback(request);
     };
 
-    ipcRenderer.on(IPC_CHANNELS.macrosCreateRequested, listener);
+    ipcRenderer.on(IPC_CHANNELS.macrosEditorRequested, listener);
 
     return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.macrosCreateRequested, listener);
+      ipcRenderer.removeListener(IPC_CHANNELS.macrosEditorRequested, listener);
     };
   },
   onUpdateStatusChanged: (callback) => {

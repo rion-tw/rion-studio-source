@@ -8,7 +8,7 @@ import type {
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
   CreateRoleInput,
-  MacroCreateRequest,
+  MacroEditorRequest,
   MacroRunStatus,
   NormalizedRect,
   PixelBounds,
@@ -30,7 +30,7 @@ interface RegisterIpcHandlersOptions {
   macroManager?: MacroManager;
   macroStore?: MacroStore;
   updateManager?: AppUpdateManager;
-  consumePendingMacroCreateRequest?: () => MacroCreateRequest | null;
+  consumePendingMacroEditorRequest?: () => MacroEditorRequest | null;
   onMacrosChanged?: () => void;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
   onRolesChanged?: () => void;
@@ -65,7 +65,7 @@ export function registerIpcHandlers(
     options.onOverlayLanguageChanged?.(language);
   });
 
-  ipcMain.handle(IPC_CHANNELS.macrosConsumeCreateRequest, () => options.consumePendingMacroCreateRequest?.() ?? null);
+  ipcMain.handle(IPC_CHANNELS.macrosConsumeEditorRequest, () => options.consumePendingMacroEditorRequest?.() ?? null);
 
   ipcMain.handle(IPC_CHANNELS.appVersion, () => options.updateManager?.getStatus().currentVersion ?? "");
 

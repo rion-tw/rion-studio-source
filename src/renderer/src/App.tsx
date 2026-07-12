@@ -18,6 +18,7 @@ import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
 import type { Language, Translator } from "./i18n";
+import type { MacroEditorRequest } from "../../shared/types";
 
 const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
 const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWorkspacesRoute"));
@@ -68,41 +69,64 @@ export function App(): JSX.Element {
     setMacros: data.setMacros,
     t: preferences.t
   });
-  const { startCreateMacro } = macroWorkflow;
+  const { startCreateMacro, startEditMacro } = macroWorkflow;
+  const {
+    initialLoadState,
+    macros,
+    setError,
+    setMacros
+  } = data;
 
   useEffect(() => {
-    if (!hasBridge || data.initialLoadState !== "ready") {
+    if (!hasBridge || initialLoadState !== "ready") {
       return;
     }
 
     let isDisposed = false;
 
-    const openCreateMacroRequest = (roleId: string): void => {
-      startCreateMacro(roleId);
+    const openMacroEditorRequest = async (request: MacroEditorRequest): Promise<void> => {
+      if (!request.macroId) {
+        startCreateMacro(request.roleId);
+        return;
+      }
+
+      let macro = macros.find((item) => item.id === request.macroId);
+      if (!macro) {
+        const latestMacros = await window.rionStudio.listMacros();
+        setMacros(latestMacros);
+        macro = latestMacros.find((item) => item.id === request.macroId);
+      }
+
+      if (!macro) {
+        navigateToMacros();
+        throw new Error("The requested macro is no longer available.");
+      }
+
+      startEditMacro(macro);
     };
 
-    const consumePendingCreateRequest = (): void => {
+    const consumePendingEditorRequest = (): void => {
       void window.rionStudio
-        .consumePendingMacroCreateRequest()
-        .then((request) => {
+        .consumePendingMacroEditorRequest()
+        .then(async (request) => {
           if (!isDisposed && request) {
-            openCreateMacroRequest(request.roleId);
+            await openMacroEditorRequest(request);
           }
         })
-        .catch(data.setError);
+        .catch(setError);
     };
 
-    const unsubscribe = window.rionStudio.onMacroCreateRequested(() => {
-      consumePendingCreateRequest();
+    const unsubscribe = window.rionStudio.onMacroEditorRequested(() => {
+      consumePendingEditorRequest();
     });
 
-    consumePendingCreateRequest();
+    consumePendingEditorRequest();
 
     return () => {
       isDisposed = true;
       unsubscribe();
     };
-  }, [data.initialLoadState, data.setError, hasBridge, startCreateMacro]);
+  }, [hasBridge, initialLoadState, macros, navigateToMacros, setError, setMacros, startCreateMacro, startEditMacro]);
 
   if (hasBridge && data.initialLoadState !== "ready") {
     return (

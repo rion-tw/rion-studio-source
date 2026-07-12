@@ -7,7 +7,7 @@ import type {
   CreateRoleInput,
   LaunchWorkspace,
   Macro,
-  MacroCreateRequest,
+  MacroEditorRequest,
   MacroRunStatus,
   Role,
   RolePaths,
@@ -42,7 +42,7 @@ export interface RionStudioApi {
   startMacro: (roleId: string, macroId: string) => Promise<MacroRunStatus>;
   stopMacro: (roleId: string, macroId: string) => Promise<void>;
   listMacroStatuses: () => Promise<MacroRunStatus[]>;
-  consumePendingMacroCreateRequest: () => Promise<MacroCreateRequest | null>;
+  consumePendingMacroEditorRequest: () => Promise<MacroEditorRequest | null>;
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;
   getAppVersion: () => Promise<string>;
   getUpdateStatus: () => Promise<AppUpdateStatus>;
@@ -52,6 +52,6 @@ export interface RionStudioApi {
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
   onAuthStatusChanged: (callback: (statuses: AuthFlowStatus[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
-  onMacroCreateRequested: (callback: (request: MacroCreateRequest) => void) => () => void;
+  onMacroEditorRequested: (callback: (request: MacroEditorRequest) => void) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
 }

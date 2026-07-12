@@ -1,6 +1,6 @@
 import type { Frame, Page } from "playwright";
 
-import type { AppLanguage, Macro, MacroCreateRequest, MacroRunStatus, Role } from "../../shared/types";
+import type { AppLanguage, Macro, MacroEditorRequest, MacroRunStatus, Role } from "../../shared/types";
 import type { MacroManager } from "./MacroManager";
 import type { MacroStore } from "./MacroStore";
 
@@ -16,6 +16,10 @@ type MacroOverlayRequest =
     }
   | {
       type: "create";
+    }
+  | {
+      macroId: string;
+      type: "edit";
     }
   | {
       macroId: string;
@@ -37,7 +41,7 @@ export class MacroOverlayInjector {
   constructor(
     private readonly macroStore: Pick<MacroStore, "listMacros">,
     private readonly macroManager: Pick<MacroManager, "listStatuses" | "start" | "stop">,
-    private readonly onCreateMacroRequested?: (request: MacroCreateRequest) => void | Promise<void>
+    private readonly onMacroEditorRequested?: (request: MacroEditorRequest) => void | Promise<void>
   ) {}
 
   async install(role: Role, page: Page): Promise<void> {
@@ -114,7 +118,10 @@ export class MacroOverlayInjector {
           case "list":
             return this.getOverlayState(roleId);
           case "create":
-            await this.onCreateMacroRequested?.({ roleId });
+            await this.onMacroEditorRequested?.({ roleId });
+            return this.getOverlayState(roleId);
+          case "edit":
+            await this.onMacroEditorRequested?.({ macroId: request.macroId, roleId });
             return this.getOverlayState(roleId);
           case "start":
             await this.macroManager.start(roleId, request.macroId);
@@ -197,7 +204,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v17"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-12.7";
+  const scriptVersion = "2026-07-12.12";
   const bindingName = "rionStudioMacroOverlay";
   const hostStyleEntries = [
     ["bottom", "auto"],
@@ -225,18 +232,15 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       delayStep: "Delay",
       empty: "No macros assigned to this role.",
       everyMs: "Every {ms} ms",
+      edit: "Edit",
+      editError: "Unable to open this macro in Rion Studio.",
       keyStep: "Key",
       loadError: "Unable to load macros.",
       noShortcut: "No shortcut",
       noSteps: "No steps",
       once: "Once",
-      pollLabel: "Poll",
       runError: "Unable to run macro.",
-      shortcutLabel: "Shortcut",
-      start: "Start",
-      stepsLabel: "Steps",
       stepsMore: "+{count} more",
-      stop: "Stop",
       triggerAria: "Rion Studio Macros",
       triggerTitle: "Rion Studio Macros (Ctrl+Shift+M)"
     },
@@ -247,18 +251,15 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       delayStep: "延遲",
       empty: "此角色未指派巨集。",
       everyMs: "每 {ms} ms",
+      edit: "編輯",
+      editError: "無法在 Rion Studio 開啟此巨集。",
       keyStep: "按鍵",
       loadError: "無法載入巨集。",
       noShortcut: "無快捷鍵",
       noSteps: "無步驟",
       once: "執行一次",
-      pollLabel: "輪詢",
       runError: "無法執行巨集。",
-      shortcutLabel: "快捷鍵",
-      start: "啟動",
-      stepsLabel: "步驟",
       stepsMore: "另有 {count} 個",
-      stop: "停止",
       triggerAria: "Rion Studio 巨集",
       triggerTitle: "Rion Studio 巨集 (Ctrl+Shift+M)"
     }
@@ -274,6 +275,12 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     '<path d="M7 16h10"/>',
     '<path d="M8 12h.01"/>',
     '<rect width="20" height="16" x="2" y="4" rx="2"/>',
+    "</svg>"
+  ].join("");
+  const editIconMarkup = [
+    '<svg class="edit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">',
+    '<path d="M12 20h9"/>',
+    '<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
     "</svg>"
   ].join("");
   let host = null;
@@ -617,38 +624,28 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
         const shortcut = formatShortcut(macro.trigger);
         const steps = formatSteps(macro.steps);
         const poll = formatRepeat(macro.repeat);
-        const action = running || stopping ? text.stop : text.start;
+        const editLabel = text.edit + " " + macro.name;
 
         return [
-          '<button class="macro-row" type="button" data-action="',
-          running || stopping ? "stop" : "start",
-          '" data-macro-id="',
-          escapeHtml(macro.id),
-          '" tabindex="-1" title="',
-          escapeHtml(action + " " + macro.name),
-          '" aria-label="',
-          escapeHtml(action + " " + macro.name),
-          '"><span class="macro-header"><span class="macro-title"><span class="status-dot ',
+          '<div class="macro-row" role="menuitem"><span class="macro-title"><span class="status-dot ',
           running || stopping ? "running" : "idle",
           '"></span><strong>',
           escapeHtml(macro.name),
-          '</strong></span><span class="macro-action-pill ',
-          running || stopping ? "stop" : "start",
-          '">',
-          escapeHtml(action),
-          '</span></span><span class="macro-details"><span><em>',
-          escapeHtml(text.stepsLabel),
-          "</em><b>",
+          '</strong></span><span class="macro-details"><span class="macro-detail-steps"><b>',
           escapeHtml(steps),
-          "</b></span><span><em>",
-          escapeHtml(text.shortcutLabel),
-          "</em><b>",
+          '</b></span><span class="macro-detail-shortcut"><b>',
           escapeHtml(shortcut),
-          "</b></span><span><em>",
-          escapeHtml(text.pollLabel),
-          "</em><b>",
+          '</b></span><span class="macro-detail-poll"><b>',
           escapeHtml(poll),
-          "</b></span></span></button>"
+          '</b></span></span><button class="macro-edit" type="button" tabindex="-1" data-macro-id="',
+          escapeHtml(macro.id),
+          '" title="',
+          escapeHtml(editLabel),
+          '" aria-label="',
+          escapeHtml(editLabel),
+          '">',
+          editIconMarkup,
+          "</button></div>"
         ].join("");
       })
       .join("");
@@ -661,30 +658,36 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".trigger:hover{background:linear-gradient(135deg,rgba(255,255,255,.34),rgba(255,255,255,.13));border-color:rgba(255,255,255,.42);}",
       ".panel{display:",
       state.isOpen ? "grid" : "none",
-      ";gap:7px;margin-top:6px;max-width:300px;padding:7px;pointer-events:auto;width:min(294px,calc(100vw - 12px));}",
-      ".create-row{align-items:center;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.18);border-radius:7px;color:#fff;cursor:pointer;display:flex;font-size:12px;font-weight:850;gap:8px;height:34px;justify-content:flex-start;line-height:1;padding:0 10px;text-align:left;text-shadow:0 1px 2px rgba(0,0,0,.22);width:100%;}",
-      ".create-row:hover{background:rgba(255,255,255,.17);border-color:rgba(255,255,255,.27);}",
+      ";gap:7px;margin-top:6px;max-width:300px;padding:0;pointer-events:auto;width:min(294px,calc(100vw - 12px));}",
+      ".macro-row,.create-row,.empty,.error{-webkit-backdrop-filter:blur(18px) saturate(190%);backdrop-filter:blur(18px) saturate(190%);background:linear-gradient(135deg,rgba(255,255,255,.28),rgba(255,255,255,.08));border:1px solid rgba(255,255,255,.32);box-shadow:0 8px 24px rgba(0,0,0,.18),inset 0 1px 1px rgba(255,255,255,.38),inset 0 -10px 18px rgba(255,255,255,.04);}",
+      ".create-row{align-items:center;border-radius:9px;color:#fff;cursor:pointer;display:flex;font-size:12px;font-weight:850;gap:8px;height:34px;justify-content:flex-start;line-height:1;padding:0 10px;text-align:left;text-shadow:0 1px 2px rgba(0,0,0,.22);width:100%;}",
+      ".create-row:hover{background:linear-gradient(135deg,rgba(255,255,255,.34),rgba(255,255,255,.13));border-color:rgba(255,255,255,.42);}",
       ".create-icon{align-items:center;background:rgba(255,255,255,.18);border-radius:999px;display:flex;font-size:15px;font-weight:900;height:18px;justify-content:center;line-height:18px;width:18px;}",
-      ".macro-row{align-items:start;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.1);border-radius:7px;color:#fff;cursor:pointer;display:grid;gap:7px;grid-template-columns:minmax(0,1fr);min-height:64px;padding:8px 9px;text-align:left;width:100%;}",
-      ".macro-row:hover{background:rgba(255,255,255,.095);border-color:rgba(255,255,255,.17);}",
+      ".macro-row{align-items:center;border-radius:9px;color:#fff;display:grid;gap:6px 7px;grid-template-areas:'title shortcut poll edit' 'steps steps steps steps';grid-template-columns:minmax(52px,1fr) auto auto 24px;min-height:58px;padding:7px 9px;text-align:left;text-shadow:0 1px 2px rgba(0,0,0,.28);width:100%;}",
+      ".macro-row:hover{background:linear-gradient(135deg,rgba(255,255,255,.34),rgba(255,255,255,.13));border-color:rgba(255,255,255,.42);}",
       ".status-dot{border-radius:999px;box-shadow:0 0 0 1px rgba(255,255,255,.14),0 0 10px currentColor;display:block;height:8px;width:8px;}",
       ".status-dot.running{background:#7dff72;color:rgba(125,255,114,.42);}",
       ".status-dot.idle{background:#ff5f57;color:rgba(255,95,87,.36);}",
-      ".macro-header{align-items:center;display:flex;gap:8px;justify-content:space-between;line-height:1.15;min-width:0;}",
-      ".macro-title{align-items:center;display:flex;gap:8px;min-width:0;}",
-      ".macro-header strong{font-size:12.5px;font-weight:800;line-height:1.15;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
-      ".macro-action-pill{border:1px solid rgba(255,255,255,.14);border-radius:999px;color:rgba(255,255,255,.78);flex:0 0 auto;font-size:9px;font-weight:850;line-height:1;padding:3px 6px;text-transform:uppercase;}",
-      ".macro-action-pill.start{background:rgba(125,255,114,.1);}",
-      ".macro-action-pill.stop{background:rgba(255,95,87,.11);}",
-      ".macro-details{display:grid;gap:3px;min-width:0;}",
-      ".macro-details span{align-items:baseline;color:rgba(255,255,255,.66);display:grid;font-size:10.5px;font-weight:700;gap:6px;grid-template-columns:48px minmax(0,1fr);line-height:1.15;min-width:0;}",
-      ".macro-details em{color:rgba(255,255,255,.42);font-size:9px;font-style:normal;font-weight:850;text-transform:uppercase;}",
-      ".macro-details b{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+      ".macro-title{align-items:center;display:flex;gap:8px;grid-area:title;min-width:0;}",
+      ".macro-title strong{font-size:12.5px;font-weight:800;line-height:1.15;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+      ".macro-details{display:contents;}",
+      ".macro-details span{color:rgba(255,255,255,.78);font-size:9.5px;font-weight:750;line-height:1;min-width:0;}",
+      ".macro-details b{font-weight:750;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+      ".macro-detail-shortcut,.macro-detail-poll{align-items:center;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:999px;color:rgba(255,255,255,.9);display:flex;font-size:9.5px;font-weight:850;line-height:1;min-height:24px;padding:4px 7px;}",
+      ".macro-detail-shortcut{grid-area:shortcut;}",
+      ".macro-detail-poll{grid-area:poll;}",
+      ".macro-detail-shortcut b{max-width:52px;}",
+      ".macro-detail-poll b{max-width:74px;}",
+      ".macro-detail-steps{display:block;grid-area:steps;padding:0 1px;}",
+      ".macro-detail-steps b{color:rgba(255,255,255,.64);display:block;font-size:9.5px;line-height:1.35;}",
+      ".macro-edit{align-items:center;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:999px;color:rgba(255,255,255,.88);cursor:pointer;display:flex;grid-area:edit;height:24px;justify-content:center;padding:0;width:24px;}",
+      ".macro-edit:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.34);}",
+      ".edit-icon{display:block;fill:none;height:12px;width:12px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;}",
       ".active-badges{align-items:center;display:flex;flex-wrap:nowrap;gap:5px;justify-content:center;left:50%;max-width:min(76vw,620px);pointer-events:none;position:fixed;top:20%;transform:translateX(-50%);z-index:2147483647;}",
       ".active-badge{-webkit-backdrop-filter:blur(18px) saturate(190%);align-items:center;backdrop-filter:blur(18px) saturate(190%);background:linear-gradient(135deg,rgba(255,255,255,.25),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.34);border-radius:999px;box-shadow:0 8px 22px rgba(0,0,0,.18),inset 0 1px 1px rgba(255,255,255,.36),inset 0 -8px 14px rgba(255,255,255,.04);color:rgba(255,255,255,.92);display:flex;font-size:10.5px;font-weight:850;gap:5px;letter-spacing:0;line-height:1;max-width:156px;min-height:20px;overflow:hidden;padding:4px 8px;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,.3);white-space:nowrap;}",
       ".active-badge-name{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
       ".active-badge-shortcut{color:rgba(255,255,255,.66);display:block;flex:0 0 auto;font-size:9.5px;font-weight:800;}",
-      ".empty,.error{color:rgba(255,255,255,.64);font-size:11px;font-weight:700;line-height:1.35;padding:8px 4px;}",
+      ".empty,.error{border-radius:9px;color:rgba(255,255,255,.64);font-size:11px;font-weight:700;line-height:1.35;padding:10px;}",
       ".error{color:#ffb4b4;}",
       "</style>",
       runningBadges ? '<div class="active-badges" aria-hidden="true">' + runningBadges + "</div>" : "",
@@ -717,14 +720,13 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       void requestCreateMacro();
     });
 
-    targetRoot.querySelectorAll(".macro-row").forEach((button) => {
+    targetRoot.querySelectorAll(".macro-edit").forEach((button) => {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
         const macroId = button.getAttribute("data-macro-id");
-        const action = button.getAttribute("data-action");
-        if (macroId && action) {
-          void runAction(action, macroId, { closeAfter: true });
+        if (macroId) {
+          void requestEditMacro(macroId);
         }
       });
     });
@@ -737,6 +739,17 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       closePanel({ focus: false });
     } catch (error) {
       state.error = error instanceof Error ? error.message : getText().createError;
+      render();
+    }
+  }
+
+  async function requestEditMacro(macroId) {
+    try {
+      await binding({ type: "edit", macroId });
+      state.error = "";
+      closePanel({ focus: false });
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : getText().editError;
       render();
     }
   }

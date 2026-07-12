@@ -91,7 +91,7 @@ export function useMacroWorkflow({
     setIsMacroModalOpen(true);
   }, [macros, navigateToMacros, roles, t]);
 
-  function startEditMacro(macro: Macro): void {
+  const startEditMacro = useCallback((macro: Macro): void => {
     navigateToMacros();
     setMacroForm({
       id: macro.id,
@@ -102,7 +102,7 @@ export function useMacroWorkflow({
       trigger: macro.trigger
     });
     setIsMacroModalOpen(true);
-  }
+  }, [navigateToMacros]);
 
   function closeMacroModal(): void {
     if (isSavingMacro) {

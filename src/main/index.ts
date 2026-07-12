@@ -18,14 +18,14 @@ import { SystemChromeLauncher } from "./system-browser/SystemChromeLauncher";
 import { AppUpdateManager } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
 import { IPC_CHANNELS } from "../shared/ipc";
-import type { MacroCreateRequest } from "../shared/types";
+import type { MacroEditorRequest } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let dockRoleMenu: MacDockRoleMenu | null = null;
-let pendingMacroCreateRequest: MacroCreateRequest | null = null;
+let pendingMacroEditorRequest: MacroEditorRequest | null = null;
 
 function getAppIconPath(): string {
   if (app.isPackaged) {
@@ -125,20 +125,20 @@ function showMainWindow(): void {
   mainWindow.focus();
 }
 
-function requestMacroCreationFromOverlay(request: MacroCreateRequest): void {
-  pendingMacroCreateRequest = request;
+function requestMacroEditorFromOverlay(request: MacroEditorRequest): void {
+  pendingMacroEditorRequest = request;
   showMainWindow();
 
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
 
-  mainWindow.webContents.send(IPC_CHANNELS.macrosCreateRequested, request);
+  mainWindow.webContents.send(IPC_CHANNELS.macrosEditorRequested, request);
 }
 
-function consumePendingMacroCreateRequest(): MacroCreateRequest | null {
-  const request = pendingMacroCreateRequest;
-  pendingMacroCreateRequest = null;
+function consumePendingMacroEditorRequest(): MacroEditorRequest | null {
+  const request = pendingMacroEditorRequest;
+  pendingMacroEditorRequest = null;
   return request;
 }
 
@@ -162,7 +162,7 @@ app.whenReady().then(() => {
     allowVisibleFallback: process.platform !== "darwin"
   });
   const macroManager = new MacroManager(browserManager, macroStore);
-  const macroOverlayInjector = new MacroOverlayInjector(macroStore, macroManager, requestMacroCreationFromOverlay);
+  const macroOverlayInjector = new MacroOverlayInjector(macroStore, macroManager, requestMacroEditorFromOverlay);
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
   macroManager.on("change", () => {
     macroOverlayInjector.refreshInstalledOverlays();
@@ -177,7 +177,7 @@ app.whenReady().then(() => {
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
-    consumePendingMacroCreateRequest,
+    consumePendingMacroEditorRequest,
     macroManager,
     macroStore,
     updateManager,

@@ -3,14 +3,24 @@ import { useEffect, useMemo, useState } from "react";
 import { LANGUAGE_STORAGE_KEY, THEME_STORAGE_KEY } from "../app/constants";
 import { readStoredThemeMode, resolveTheme } from "../app/theme";
 import type { ResolvedTheme, ThemeMode } from "../app/types";
-import { createTranslator, readStoredLanguage, type Language } from "../i18n";
+import {
+  createTranslator,
+  getLoadedTranslations,
+  loadTranslations,
+  readStoredLanguage,
+  type Language,
+  type TranslationDictionary
+} from "../i18n";
 
 export function usePreferences() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredThemeMode);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(readStoredThemeMode()));
   const [language, setLanguage] = useState<Language>(() => readStoredLanguage(LANGUAGE_STORAGE_KEY));
+  const [translations, setTranslations] = useState<TranslationDictionary | undefined>(() =>
+    getLoadedTranslations(readStoredLanguage(LANGUAGE_STORAGE_KEY))
+  );
 
-  const t = useMemo(() => createTranslator(language), [language]);
+  const t = useMemo(() => createTranslator(language, translations), [language, translations]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -45,6 +55,28 @@ export function usePreferences() {
 
     document.documentElement.lang = htmlLanguages[language];
     void window.rionStudio?.setOverlayLanguage?.(language)?.catch(() => undefined);
+  }, [language]);
+
+  useEffect(() => {
+    let isDisposed = false;
+    const cachedTranslations = getLoadedTranslations(language);
+    setTranslations(cachedTranslations);
+
+    void loadTranslations(language)
+      .then((loadedTranslations) => {
+        if (!isDisposed) {
+          setTranslations(loadedTranslations);
+        }
+      })
+      .catch(() => {
+        if (!isDisposed) {
+          setTranslations(getLoadedTranslations("en"));
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
   }, [language]);
 
   function handleThemeModeChange(nextMode: ThemeMode): void {

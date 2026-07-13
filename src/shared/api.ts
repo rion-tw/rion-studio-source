@@ -10,6 +10,10 @@ import type {
   Macro,
   MacroEditorRequest,
   MacroRunStatus,
+  PortableExportInput,
+  PortableExportResult,
+  PortableImportPreview,
+  PortableImportResult,
   Role,
   RolePaths,
   RoleStatus,
@@ -44,6 +48,9 @@ export interface RionStudioApi {
   startMacro: (macroId: string) => Promise<MacroRunStatus[]>;
   stopMacro: (macroId: string) => Promise<void>;
   listMacroStatuses: () => Promise<MacroRunStatus[]>;
+  exportPortableData: (input?: PortableExportInput) => Promise<PortableExportResult | null>;
+  previewPortableImport: () => Promise<PortableImportPreview | null>;
+  applyPortableImport: (importId: string) => Promise<PortableImportResult>;
   consumePendingMacroEditorRequest: () => Promise<MacroEditorRequest | null>;
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;
   getAppVersion: () => Promise<string>;

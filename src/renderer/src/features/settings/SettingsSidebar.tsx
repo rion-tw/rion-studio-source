@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, Languages, Monitor, Palette } from "lucide-react";
+import { ArrowLeft, Download, FileJson, Languages, Monitor, Palette } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -14,6 +14,7 @@ const sectionItems = [
   { icon: Palette, labelKey: "settings.appearance", value: "appearance" },
   { icon: Languages, labelKey: "settings.preferences", value: "preferences" },
   { icon: Monitor, labelKey: "settings.roleDefaults", value: "role-defaults" },
+  { icon: FileJson, labelKey: "settings.portability", value: "portability" },
   { icon: Download, labelKey: "settings.updates", value: "updates" }
 ] as const;
 

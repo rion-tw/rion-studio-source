@@ -1,5 +1,5 @@
-import { Download, Laptop, Moon, RefreshCw, RotateCcw, Sun } from "lucide-react";
-import { type JSX, type ReactNode, useEffect } from "react";
+import { Download, FileJson, Laptop, Moon, RefreshCw, RotateCcw, Sun, Upload } from "lucide-react";
+import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
@@ -8,7 +8,14 @@ import { PageFrame, SegmentedControl, Surface } from "../../components/ui/patter
 import { emptyForm, languageLabelKeys, presetLabelKeys, resolvedThemeLabelKeys, themeLabelKeys, themeModes } from "../../app/constants";
 import type { ResolvedTheme, ThemeMode } from "../../app/types";
 import { languages, type Language, type Translator } from "../../i18n";
-import type { AppUpdateStatus } from "../../../../shared/types";
+import type {
+  AppUpdateStatus,
+  PortableExportInput,
+  PortableExportResult,
+  PortableImportPreview,
+  PortableImportResult,
+  PortableImportWarning
+} from "../../../../shared/types";
 import { readSettingsSection, settingsSectionElementIds } from "./settingsNavigation";
 
 interface SettingsViewProps {
@@ -20,6 +27,10 @@ interface SettingsViewProps {
   updateVersion: string;
   isUpdateBusy: boolean;
   onCheckForUpdates: () => Promise<void>;
+  onError: (error: unknown) => void;
+  onExportPortableData: (input: PortableExportInput) => Promise<PortableExportResult | null>;
+  onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
+  onApplyPortableImport: (importId: string) => Promise<PortableImportResult>;
   onOpenUpdateDownload: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
   onLanguageChange: (language: Language) => void;
@@ -35,16 +46,80 @@ function SettingsViewBase({
   updateVersion,
   isUpdateBusy,
   onCheckForUpdates,
+  onError,
+  onExportPortableData,
+  onPreviewPortableImport,
+  onApplyPortableImport,
   onOpenUpdateDownload,
   onInstallDownloadedUpdate,
   onLanguageChange,
   onThemeModeChange
 }: SettingsViewProps): JSX.Element {
+  const [portableImportPreview, setPortableImportPreview] = useState<PortableImportPreview | null>(null);
+  const [portableMessage, setPortableMessage] = useState<string | null>(null);
+  const [isPortableBusy, setIsPortableBusy] = useState(false);
   const canCheckForUpdates = Boolean(updateStatus?.isPackaged) && !isUpdateBusy;
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
   const canOpenUpdateDownload =
     isManualUpdate && updateStatus?.state === "available" && Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
+
+  async function handleExportPortableData(): Promise<void> {
+    setIsPortableBusy(true);
+    setPortableMessage(null);
+
+    try {
+      const result = await onExportPortableData({
+        preferences: {
+          language,
+          themeMode
+        }
+      });
+
+      if (result) {
+        setPortableMessage(formatPortableExportResult(result, t));
+      }
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsPortableBusy(false);
+    }
+  }
+
+  async function handlePreviewPortableImport(): Promise<void> {
+    setIsPortableBusy(true);
+    setPortableMessage(null);
+
+    try {
+      const preview = await onPreviewPortableImport();
+      if (preview) {
+        setPortableImportPreview(preview);
+      }
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsPortableBusy(false);
+    }
+  }
+
+  async function handleApplyPortableImport(): Promise<void> {
+    if (!portableImportPreview) {
+      return;
+    }
+
+    setIsPortableBusy(true);
+    setPortableMessage(null);
+
+    try {
+      const result = await onApplyPortableImport(portableImportPreview.importId);
+      setPortableImportPreview(null);
+      setPortableMessage(formatPortableImportResult(result, t));
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsPortableBusy(false);
+    }
+  }
 
   return (
     <PageFrame
@@ -123,6 +198,47 @@ function SettingsViewBase({
         </SettingsSection>
 
         <SettingsSection
+          id="settings-portability"
+          description={t("settings.portabilityDescription")}
+          title={t("settings.portability")}
+        >
+          <SettingsRow
+            title={t("settings.portableExport")}
+            description={t("settings.portableExportDescription")}
+            control={
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPortableBusy}
+                onClick={() => void handleExportPortableData()}
+              >
+                <FileJson size={14} />
+                {t("settings.exportJson")}
+              </Button>
+            }
+          />
+          <SettingsRow
+            title={t("settings.portableImport")}
+            description={t("settings.portableImportDescription")}
+            control={
+              <Button
+                type="button"
+                disabled={isPortableBusy}
+                onClick={() => void handlePreviewPortableImport()}
+              >
+                <Upload size={14} />
+                {t("settings.importJson")}
+              </Button>
+            }
+          />
+          {portableMessage ? (
+            <div className="glass-divider border-b px-4 py-3 text-xs font-medium leading-5 text-muted-foreground last:border-b-0">
+              {portableMessage}
+            </div>
+          ) : null}
+        </SettingsSection>
+
+        <SettingsSection
           id="settings-updates"
           description={t("settings.updatesDescription")}
           title={t("settings.updates")}
@@ -159,6 +275,16 @@ function SettingsViewBase({
           />
         </SettingsSection>
       </div>
+
+      {portableImportPreview ? (
+        <PortableImportDialog
+          isBusy={isPortableBusy}
+          preview={portableImportPreview}
+          t={t}
+          onCancel={() => setPortableImportPreview(null)}
+          onConfirm={() => void handleApplyPortableImport()}
+        />
+      ) : null}
     </PageFrame>
   );
 }
@@ -208,6 +334,143 @@ function ReadOnlyValue({ value }: { value: string }): JSX.Element {
       {value}
     </span>
   );
+}
+
+interface PortableImportDialogProps {
+  isBusy: boolean;
+  preview: PortableImportPreview;
+  t: Translator;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function PortableImportDialog({
+  isBusy,
+  preview,
+  t,
+  onCancel,
+  onConfirm
+}: PortableImportDialogProps): JSX.Element {
+  return (
+    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
+      <Surface
+        className="w-full max-w-[560px] overflow-hidden"
+        radius="lg"
+        variant="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="portable-import-title"
+      >
+        <div className="glass-divider border-b px-5 py-4">
+          <h2 id="portable-import-title" className="text-[15px] font-semibold leading-6 text-foreground">
+            {t("settings.importPreview")}
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.importPreviewDescription")}</p>
+        </div>
+
+        <div className="grid gap-4 px-5 py-4">
+          <div className="grid grid-cols-3 gap-2">
+            <PortableCount label={t("settings.importRoles")} value={preview.roleCount} />
+            <PortableCount label={t("settings.importWorkspaces")} value={preview.workspaceCount} />
+            <PortableCount label={t("settings.importMacros")} value={preview.macroCount} />
+          </div>
+
+          <div className="min-w-0 rounded-md border border-border/40 bg-background/25 px-3 py-2">
+            <p className="truncate text-[11px] font-medium leading-4 text-muted-foreground">{preview.filePath}</p>
+            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+              {formatPortableSource(preview, t)}
+            </p>
+          </div>
+
+          {preview.warnings.length > 0 ? (
+            <div className="grid gap-2">
+              <p className="text-xs font-semibold leading-5 text-foreground">
+                {t("settings.importWarnings").replace("{count}", String(preview.warnings.length))}
+              </p>
+              <ul className="max-h-36 space-y-1 overflow-auto pr-1 text-xs leading-5 text-muted-foreground">
+                {preview.warnings.map((warning, index) => (
+                  <li key={`${warning.code}-${warning.itemName ?? index}`}>
+                    {formatPortableWarning(warning, t)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-xs leading-5 text-muted-foreground">{t("settings.importNoWarnings")}</p>
+          )}
+        </div>
+
+        <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">
+          <Button type="button" variant="outline" disabled={isBusy} onClick={onCancel}>
+            {t("settings.importCancel")}
+          </Button>
+          <Button type="button" disabled={isBusy} onClick={onConfirm}>
+            <Upload size={14} />
+            {t("settings.importConfirm")}
+          </Button>
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+function PortableCount({ label, value }: { label: string; value: number }): JSX.Element {
+  return (
+    <div className="glass-inset rounded-md px-3 py-2 text-center">
+      <p className="text-lg font-semibold leading-6 text-foreground">{value}</p>
+      <p className="mt-0.5 truncate text-[11px] font-medium leading-4 text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function formatPortableExportResult(result: PortableExportResult, t: Translator): string {
+  return fillPortableCounts(t("settings.exportComplete"), result);
+}
+
+function formatPortableImportResult(result: PortableImportResult, t: Translator): string {
+  return fillPortableCounts(t("settings.importComplete"), result);
+}
+
+function fillPortableCounts(
+  template: string,
+  counts: Pick<PortableExportResult, "macroCount" | "roleCount" | "workspaceCount">
+): string {
+  return template
+    .replace("{roles}", String(counts.roleCount))
+    .replace("{workspaces}", String(counts.workspaceCount))
+    .replace("{macros}", String(counts.macroCount));
+}
+
+function formatPortableSource(preview: PortableImportPreview, t: Translator): string {
+  const exportedAt = preview.exportedAt ? new Date(preview.exportedAt).toLocaleString() : t("settings.importUnknown");
+  const appVersion = preview.appVersion || t("settings.importUnknown");
+
+  return t("settings.importSource")
+    .replace("{version}", appVersion)
+    .replace("{date}", exportedAt);
+}
+
+function formatPortableWarning(warning: PortableImportWarning, t: Translator): string {
+  const itemName = warning.itemName ?? t("settings.importUnknown");
+  const replacementName = warning.replacementName ?? t("settings.importUnknown");
+  const count = String(warning.count ?? 0);
+
+  switch (warning.code) {
+    case "ROLE_NAME_RENAMED":
+      return t("settings.warningRoleRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+    case "WORKSPACE_NAME_RENAMED":
+      return t("settings.warningWorkspaceRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+    case "WORKSPACE_ROLE_MISSING":
+      return t("settings.warningWorkspaceRoleMissing").replace("{name}", itemName).replace("{count}", count);
+    case "MACRO_NAME_RENAMED":
+      return t("settings.warningMacroRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+    case "MACRO_ROLE_MISSING":
+      return t("settings.warningMacroRoleMissing").replace("{name}", itemName).replace("{count}", count);
+    case "MACRO_SKIPPED_NO_ROLES":
+      return t("settings.warningMacroSkipped").replace("{name}", itemName);
+    default:
+      return t("settings.warningUnknown");
+  }
 }
 
 function formatUpdateStatus(status: AppUpdateStatus | null, t: Translator): string {

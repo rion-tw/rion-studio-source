@@ -1,10 +1,11 @@
-export const settingsSectionIds = ["appearance", "preferences", "role-defaults", "updates"] as const;
+export const settingsSectionIds = ["appearance", "preferences", "role-defaults", "portability", "updates"] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
 
 export const settingsSectionElementIds: Record<SettingsSectionId, string> = {
   appearance: "settings-appearance",
   preferences: "settings-preferences",
+  portability: "settings-portability",
   "role-defaults": "settings-role-defaults",
   updates: "settings-updates"
 };

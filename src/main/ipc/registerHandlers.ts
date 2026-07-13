@@ -11,6 +11,7 @@ import type {
   CreateRoleInput,
   MacroEditorRequest,
   MacroRunStatus,
+  PortableExportInput,
   RoleStatus,
   UpdateLaunchWorkspaceInput,
   UpdateMacroInput,
@@ -21,6 +22,7 @@ import type { BrowserManager } from "../browser/BrowserManager";
 import type { MacroManager } from "../macros/MacroManager";
 import type { MacroOverlayRequest } from "../macros/MacroOverlayInjector";
 import type { MacroStore } from "../macros/MacroStore";
+import type { PortableDataManager } from "../portable/PortableDataManager";
 import { RoleStore } from "../roles/RoleStore";
 import type { AppUpdateManager } from "../updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
@@ -36,6 +38,7 @@ interface RegisterIpcHandlersOptions {
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
+  portableDataManager?: Pick<PortableDataManager, "applyImport" | "exportData" | "previewImport">;
 }
 
 export function registerIpcHandlers(
@@ -82,6 +85,34 @@ export function registerIpcHandlers(
     }
 
     return options.onMacroOverlayRequest(event.sender.id, request);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.portableExport, (_event, input?: PortableExportInput) => {
+    if (!options.portableDataManager) {
+      throw new Error("Portable data export is not available.");
+    }
+
+    return options.portableDataManager.exportData(input);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.portableImportPreview, () => {
+    if (!options.portableDataManager) {
+      throw new Error("Portable data import is not available.");
+    }
+
+    return options.portableDataManager.previewImport();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.portableImportApply, async (_event, importId: string) => {
+    if (!options.portableDataManager || typeof importId !== "string" || !importId.trim()) {
+      throw new Error("Portable data import is not available.");
+    }
+
+    const result = await options.portableDataManager.applyImport(importId);
+    options.onRolesChanged?.();
+    options.onWorkspacesChanged?.();
+    options.onMacrosChanged?.();
+    return result;
   });
 
   ipcMain.handle(IPC_CHANNELS.appVersion, () => options.updateManager?.getStatus().currentVersion ?? "");

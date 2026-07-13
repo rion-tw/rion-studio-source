@@ -13,6 +13,7 @@ export type WorkspaceLayoutTemplate =
   | "four_columns";
 export type WorkspaceBrowserZoomPercent = 80 | 90 | 100 | 110 | 125;
 export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
+export type AppThemeMode = "system" | "light" | "dark";
 export type AppRendererReadyState = "failed" | "ready";
 export type AuthState = "unknown" | "login_required" | "authenticated" | "auth_failed";
 export type AuthFlowState =
@@ -192,6 +193,97 @@ export interface PixelBounds {
 export interface AppErrorPayload {
   code: string;
   message: string;
+}
+
+export interface PortablePreferences {
+  language?: AppLanguage;
+  themeMode?: AppThemeMode;
+}
+
+export interface PortableExportInput {
+  preferences?: PortablePreferences;
+}
+
+export interface PortableRole {
+  id: string;
+  name: string;
+  launchUrl: string;
+  windowWidth: number;
+  windowHeight: number;
+  notes: string;
+  launchPreset: LaunchPreset;
+  coverImageDataUrl?: string;
+  coverImageDominantColor?: string;
+}
+
+export interface PortableLaunchWorkspace {
+  id: string;
+  name: string;
+  template: WorkspaceLayoutTemplate;
+  browserZoomPercent: WorkspaceBrowserZoomPercent;
+  slots: LaunchWorkspaceSlot[];
+}
+
+export interface PortableMacro {
+  id: string;
+  name: string;
+  roleIds: string[];
+  trigger?: MacroTrigger;
+  repeat: MacroRepeat;
+  steps: MacroStep[];
+}
+
+export interface RionPortableDataV1 {
+  app: "Rion Studio";
+  schemaVersion: 1;
+  exportedAt: string;
+  appVersion: string;
+  roles: PortableRole[];
+  launchWorkspaces: PortableLaunchWorkspace[];
+  macros: PortableMacro[];
+  preferences?: PortablePreferences;
+}
+
+export interface PortableExportResult {
+  filePath: string;
+  roleCount: number;
+  workspaceCount: number;
+  macroCount: number;
+}
+
+export type PortableImportWarningCode =
+  | "ROLE_NAME_RENAMED"
+  | "WORKSPACE_NAME_RENAMED"
+  | "WORKSPACE_ROLE_MISSING"
+  | "MACRO_NAME_RENAMED"
+  | "MACRO_ROLE_MISSING"
+  | "MACRO_SKIPPED_NO_ROLES";
+
+export interface PortableImportWarning {
+  code: PortableImportWarningCode;
+  itemName?: string;
+  replacementName?: string;
+  count?: number;
+}
+
+export interface PortableImportPreview {
+  importId: string;
+  filePath: string;
+  exportedAt: string;
+  appVersion: string;
+  roleCount: number;
+  workspaceCount: number;
+  macroCount: number;
+  preferences?: PortablePreferences;
+  warnings: PortableImportWarning[];
+}
+
+export interface PortableImportResult {
+  roleCount: number;
+  workspaceCount: number;
+  macroCount: number;
+  preferences?: PortablePreferences;
+  warnings: PortableImportWarning[];
 }
 
 export type AppUpdateState =

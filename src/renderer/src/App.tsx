@@ -20,7 +20,13 @@ import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
 import type { Language, Translator } from "./i18n";
-import type { MacroEditorRequest } from "../../shared/types";
+import type {
+  MacroEditorRequest,
+  PortableExportInput,
+  PortableExportResult,
+  PortableImportPreview,
+  PortableImportResult
+} from "../../shared/types";
 
 const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
 const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWorkspacesRoute"));
@@ -39,6 +45,40 @@ export function App(): JSX.Element {
     onError: data.setError
   });
   const navigateToMacros = useCallback(() => navigate("/macros"), [navigate]);
+  const exportPortableData = useCallback(async (input: PortableExportInput): Promise<PortableExportResult | null> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+
+    return window.rionStudio.exportPortableData(input);
+  }, []);
+  const previewPortableImport = useCallback(async (): Promise<PortableImportPreview | null> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+
+    return window.rionStudio.previewPortableImport();
+  }, []);
+  const applyPortableImport = useCallback(
+    async (importId: string): Promise<PortableImportResult> => {
+      if (!window.rionStudio) {
+        throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      }
+
+      const result = await window.rionStudio.applyPortableImport(importId);
+      if (result.preferences?.themeMode) {
+        preferences.handleThemeModeChange(result.preferences.themeMode);
+      }
+
+      if (result.preferences?.language) {
+        preferences.handleLanguageChange(result.preferences.language);
+      }
+
+      await data.loadData();
+      return result;
+    },
+    [data, preferences]
+  );
 
   const roleWorkflow = useRoleWorkflow({
     loadData: data.loadData,
@@ -288,6 +328,10 @@ export function App(): JSX.Element {
                   updateVersion={updates.appVersion}
                   isUpdateBusy={updates.isBusy}
                   onCheckForUpdates={updates.checkForUpdates}
+                  onError={data.setError}
+                  onExportPortableData={exportPortableData}
+                  onPreviewPortableImport={previewPortableImport}
+                  onApplyPortableImport={applyPortableImport}
                   onOpenUpdateDownload={updates.openUpdateDownload}
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
                   onLanguageChange={preferences.handleLanguageChange}

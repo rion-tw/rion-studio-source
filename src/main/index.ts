@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
 
 import { AuthManager } from "./auth/AuthManager";
 import { BrowserManager, GAME_DIVIDER_POINTER_CHANNEL } from "./browser/BrowserManager";
@@ -10,6 +10,7 @@ import { registerIpcHandlers } from "./ipc/registerHandlers";
 import { MacroManager } from "./macros/MacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
+import { PortableDataManager } from "./portable/PortableDataManager";
 import { RoleStore } from "./roles/RoleStore";
 import {
   createStartupPageUrl,
@@ -221,6 +222,20 @@ function initializeApplication(): void {
   const roleStore = new RoleStore(userDataDir);
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
   const macroStore = new MacroStore(userDataDir);
+  const portableDataManager = new PortableDataManager({
+    getAppVersion: () => app.getVersion(),
+    macroStore,
+    roleStore,
+    showOpenDialog: (options) =>
+      mainWindow && !mainWindow.isDestroyed()
+        ? dialog.showOpenDialog(mainWindow, options)
+        : dialog.showOpenDialog(options),
+    showSaveDialog: (options) =>
+      mainWindow && !mainWindow.isDestroyed()
+        ? dialog.showSaveDialog(mainWindow, options)
+        : dialog.showSaveDialog(options),
+    workspaceStore
+  });
   const updateManager = new AppUpdateManager({
     currentVersion: app.getVersion(),
     isPackaged: app.isPackaged,
@@ -253,6 +268,7 @@ function initializeApplication(): void {
     consumePendingMacroEditorRequest,
     macroManager,
     macroStore,
+    portableDataManager,
     updateManager,
     onMacrosChanged: () => {
       macroOverlayInjector.refreshInstalledOverlays();

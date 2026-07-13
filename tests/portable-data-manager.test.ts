@@ -1,0 +1,253 @@
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { MacroStore } from "../src/main/macros/MacroStore";
+import { PortableDataManager } from "../src/main/portable/PortableDataManager";
+import { RoleStore } from "../src/main/roles/RoleStore";
+import { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
+import type { RionPortableDataV1 } from "../src/shared/types";
+
+describe("PortableDataManager", () => {
+  let baseDir: string;
+  let roleStore: RoleStore;
+  let workspaceStore: LaunchWorkspaceStore;
+  let macroStore: MacroStore;
+
+  beforeEach(async () => {
+    baseDir = await mkdtemp(join(tmpdir(), "rion-studio-portable-test-"));
+    roleStore = new RoleStore(baseDir);
+    workspaceStore = new LaunchWorkspaceStore(baseDir);
+    macroStore = new MacroStore(baseDir);
+  });
+
+  it("exports portable JSON without browser session or auth metadata", async () => {
+    const exportPath = join(baseDir, "rion-export.json");
+    const role = await roleStore.createRole({
+      name: "Main",
+      launchUrl: "https://example.com/play",
+      notes: "Carry me"
+    });
+    await roleStore.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
+    await workspaceStore.createWorkspace({
+      name: "Party",
+      slots: [
+        {
+          id: "slot-1",
+          roleId: role.id,
+          rect: { x: 0, y: 0, width: 0.5, height: 1 }
+        }
+      ]
+    });
+    await macroStore.createMacro({
+      name: "Auto heal",
+      roleIds: [role.id],
+      steps: [{ id: "step-1", type: "key", code: "F2" }]
+    });
+
+    const manager = createManager({
+      exportPath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    const result = await manager.exportData({
+      preferences: {
+        language: "zh-TW",
+        themeMode: "dark"
+      }
+    });
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV1;
+
+    expect(result).toMatchObject({ roleCount: 1, workspaceCount: 1, macroCount: 1 });
+    expect(parsed).toMatchObject({
+      app: "Rion Studio",
+      schemaVersion: 1,
+      appVersion: "1.2.3",
+      preferences: {
+        language: "zh-TW",
+        themeMode: "dark"
+      }
+    });
+    expect(parsed.roles[0]).toMatchObject({
+      id: role.id,
+      name: "Main",
+      launchUrl: "https://example.com/play"
+    });
+    expect(parsed.roles[0]).not.toHaveProperty("authState");
+    expect(parsed.roles[0]).not.toHaveProperty("lastAuthCheckAt");
+    expect(parsed.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
+    expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
+  });
+
+  it("previews and applies an import with remapped role references", async () => {
+    const importPath = join(baseDir, "incoming.json");
+    const existingRole = await roleStore.createRole({ name: "Main" });
+    await workspaceStore.createWorkspace({ name: "Party" });
+    await macroStore.createMacro({
+      name: "Auto heal",
+      roleIds: [existingRole.id],
+      steps: [{ id: "step-existing", type: "key", code: "F1" }]
+    });
+    await writeFile(importPath, `${JSON.stringify(createPortableFixture(), null, 2)}\n`, "utf8");
+
+    const manager = createManager({
+      importPath,
+      importId: "import-1",
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    const preview = await manager.previewImport();
+
+    expect(preview).toMatchObject({
+      importId: "import-1",
+      roleCount: 1,
+      workspaceCount: 1,
+      macroCount: 1,
+      preferences: {
+        language: "ja",
+        themeMode: "light"
+      }
+    });
+    expect(preview?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "ROLE_NAME_RENAMED", replacementName: "Main (Imported)" }),
+        expect.objectContaining({ code: "WORKSPACE_NAME_RENAMED", replacementName: "Party (Imported)" }),
+        expect.objectContaining({ code: "WORKSPACE_ROLE_MISSING", count: 1 }),
+        expect.objectContaining({ code: "MACRO_NAME_RENAMED", replacementName: "Auto heal (Imported)" }),
+        expect.objectContaining({ code: "MACRO_ROLE_MISSING", count: 1 }),
+        expect.objectContaining({ code: "MACRO_SKIPPED_NO_ROLES", itemName: "Orphan" })
+      ])
+    );
+
+    const result = await manager.applyImport("import-1");
+
+    expect(result).toMatchObject({ roleCount: 1, workspaceCount: 1, macroCount: 1 });
+    const importedRole = (await roleStore.listRoles()).find((role) => role.name === "Main (Imported)");
+    expect(importedRole).toMatchObject({
+      authState: "login_required",
+      launchUrl: "https://example.org/play"
+    });
+
+    const importedWorkspace = (await workspaceStore.listWorkspaces()).find(
+      (workspace) => workspace.name === "Party (Imported)"
+    );
+    expect(importedWorkspace?.slots[0]).toMatchObject({ roleId: importedRole?.id });
+    expect(importedWorkspace?.slots[1]).not.toHaveProperty("roleId");
+
+    const importedMacro = (await macroStore.listMacros()).find((macro) => macro.name === "Auto heal (Imported)");
+    expect(importedMacro?.roleIds).toEqual([importedRole?.id]);
+    expect((await macroStore.listMacros()).some((macro) => macro.name === "Orphan")).toBe(false);
+  });
+
+  it("rejects invalid portable JSON", async () => {
+    const importPath = join(baseDir, "invalid.json");
+    await writeFile(importPath, JSON.stringify({ app: "Rion Studio", schemaVersion: 999 }), "utf8");
+    const manager = createManager({
+      importPath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+  });
+});
+
+function createManager({
+  exportPath,
+  importId = "import-id",
+  importPath,
+  macroStore,
+  roleStore,
+  workspaceStore
+}: {
+  exportPath?: string;
+  importId?: string;
+  importPath?: string;
+  macroStore: MacroStore;
+  roleStore: RoleStore;
+  workspaceStore: LaunchWorkspaceStore;
+}): PortableDataManager {
+  return new PortableDataManager({
+    createImportId: () => importId,
+    getAppVersion: () => "1.2.3",
+    macroStore,
+    now: () => new Date("2026-07-13T10:00:00.000Z"),
+    roleStore,
+    showOpenDialog: vi.fn(async () => ({
+      canceled: !importPath,
+      filePaths: importPath ? [importPath] : []
+    })),
+    showSaveDialog: vi.fn(async () => ({
+      canceled: !exportPath,
+      ...(exportPath ? { filePath: exportPath } : {})
+    })),
+    workspaceStore
+  });
+}
+
+function createPortableFixture(): RionPortableDataV1 {
+  return {
+    app: "Rion Studio",
+    schemaVersion: 1,
+    exportedAt: "2026-07-13T09:00:00.000Z",
+    appVersion: "1.0.0",
+    preferences: {
+      language: "ja",
+      themeMode: "light"
+    },
+    roles: [
+      {
+        id: "old-role",
+        name: "Main",
+        launchUrl: "https://example.org/play",
+        windowWidth: 1280,
+        windowHeight: 720,
+        notes: "Imported",
+        launchPreset: "balanced"
+      }
+    ],
+    launchWorkspaces: [
+      {
+        id: "old-workspace",
+        name: "Party",
+        template: "two_columns",
+        browserZoomPercent: 100,
+        slots: [
+          {
+            id: "slot-1",
+            roleId: "old-role",
+            rect: { x: 0, y: 0, width: 0.5, height: 1 }
+          },
+          {
+            id: "slot-2",
+            roleId: "missing-role",
+            rect: { x: 0.5, y: 0, width: 0.5, height: 1 }
+          }
+        ]
+      }
+    ],
+    macros: [
+      {
+        id: "old-macro",
+        name: "Auto heal",
+        roleIds: ["old-role", "missing-role"],
+        repeat: { type: "once" },
+        steps: [{ id: "step-1", type: "key", code: "F2" }]
+      },
+      {
+        id: "orphan-macro",
+        name: "Orphan",
+        roleIds: ["missing-role"],
+        repeat: { type: "once" },
+        steps: [{ id: "step-2", type: "delay", ms: 100 }]
+      }
+    ]
+  };
+}

@@ -441,3 +441,83 @@ describe("registerIpcHandlers update handlers", () => {
     expect(updateManager.installDownloadedUpdate).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("registerIpcHandlers portable data handlers", () => {
+  let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
+  let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
+  let browserManager: Pick<BrowserManager, "listStatuses" | "on" | "stop">;
+  let authManager: Pick<AuthManager, "listStatuses" | "on">;
+  let portableDataManager: {
+    applyImport: ReturnType<typeof vi.fn>;
+    exportData: ReturnType<typeof vi.fn>;
+    previewImport: ReturnType<typeof vi.fn>;
+  };
+  let onMacrosChanged: ReturnType<typeof vi.fn>;
+  let onRolesChanged: ReturnType<typeof vi.fn>;
+  let onWorkspacesChanged: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    handlers.clear();
+    roleStore = {
+      deleteRole: vi.fn().mockResolvedValue(undefined),
+      getRole: vi.fn().mockResolvedValue(authenticatedRole)
+    };
+    workspaceStore = {
+      clearRole: vi.fn().mockResolvedValue(undefined),
+      getWorkspace: vi.fn().mockResolvedValue(workspace)
+    };
+    browserManager = {
+      listStatuses: vi.fn(() => []),
+      on: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined)
+    };
+    authManager = {
+      listStatuses: vi.fn(() => []),
+      on: vi.fn()
+    };
+    portableDataManager = {
+      applyImport: vi.fn().mockResolvedValue({ roleCount: 1, workspaceCount: 1, macroCount: 1, warnings: [] }),
+      exportData: vi.fn().mockResolvedValue({ filePath: "/tmp/rion.json", roleCount: 1, workspaceCount: 0, macroCount: 0 }),
+      previewImport: vi.fn().mockResolvedValue({ importId: "import-1", roleCount: 1, workspaceCount: 1, macroCount: 1, warnings: [] })
+    };
+    onMacrosChanged = vi.fn();
+    onRolesChanged = vi.fn();
+    onWorkspacesChanged = vi.fn();
+
+    registerIpcHandlers(
+      roleStore as RoleStore,
+      workspaceStore as LaunchWorkspaceStore,
+      browserManager as BrowserManager,
+      authManager as AuthManager,
+      {
+        onMacrosChanged,
+        onRolesChanged,
+        onWorkspacesChanged,
+        portableDataManager
+      }
+    );
+  });
+
+  it("exposes portable export, preview, and apply handlers", async () => {
+    await expect(
+      handlers.get(IPC_CHANNELS.portableExport)?.({}, { preferences: { language: "zh-TW", themeMode: "dark" } })
+    ).resolves.toMatchObject({ filePath: "/tmp/rion.json" });
+    await expect(handlers.get(IPC_CHANNELS.portableImportPreview)?.({})).resolves.toMatchObject({
+      importId: "import-1"
+    });
+    await expect(handlers.get(IPC_CHANNELS.portableImportApply)?.({}, "import-1")).resolves.toMatchObject({
+      roleCount: 1,
+      workspaceCount: 1,
+      macroCount: 1
+    });
+
+    expect(portableDataManager.exportData).toHaveBeenCalledWith({
+      preferences: { language: "zh-TW", themeMode: "dark" }
+    });
+    expect(portableDataManager.previewImport).toHaveBeenCalledTimes(1);
+    expect(portableDataManager.applyImport).toHaveBeenCalledWith("import-1");
+    expect(onRolesChanged).toHaveBeenCalledTimes(1);
+    expect(onWorkspacesChanged).toHaveBeenCalledTimes(1);
+    expect(onMacrosChanged).toHaveBeenCalledTimes(1);
+  });
+});

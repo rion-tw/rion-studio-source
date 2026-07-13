@@ -78,6 +78,9 @@
     --glass-control: 0 0% 100% / 0.3;
     --glass-control-hover: 0 0% 100% / 0.4;
     --glass-control-selected: 0 0% 100% / 0.48;
+    --glass-control-ring: 222 18% 14% / 0.07;
+    --glass-control-ring-hover: 222 18% 14% / 0.095;
+    --glass-control-ring-selected: 222 18% 14% / 0.08;
     --glass-popover: 0 0% 100% / 0.72;
     --glass-inset: 0 0% 100% / 0.24;
     --glass-border: 0 0% 100% / 0.32;
@@ -144,6 +147,9 @@
     --glass-control: 0 0% 100% / 0.048;
     --glass-control-hover: 0 0% 100% / 0.068;
     --glass-control-selected: 0 0% 100% / 0.082;
+    --glass-control-ring: 0 0% 100% / 0;
+    --glass-control-ring-hover: 0 0% 100% / 0;
+    --glass-control-ring-selected: 0 0% 100% / 0;
     --glass-popover: 228 13% 15% / 0.82;
     --glass-inset: 0 0% 100% / 0.038;
     --glass-border: 0 0% 100% / 0.072;
@@ -327,7 +333,9 @@
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 72%),
       hsl(var(--glass-control-selected));
     color: hsl(var(--sidebar-foreground));
-    box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
+    box-shadow:
+      0 0 0 1px hsl(var(--glass-control-ring-selected)),
+      inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
   .nav-item-active:hover {
@@ -465,6 +473,7 @@
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 68%),
       hsl(var(--glass-control));
     box-shadow:
+      0 0 0 1px hsl(var(--glass-control-ring)),
       inset 0 1px 0 hsl(var(--glass-highlight-muted)),
       0 1px 1px hsl(var(--glass-shadow));
   }
@@ -473,19 +482,28 @@
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 58%),
       hsl(var(--glass-control-hover));
+    box-shadow:
+      0 0 0 1px hsl(var(--glass-control-ring-hover)),
+      inset 0 1px 0 hsl(var(--glass-highlight-muted)),
+      0 1px 1px hsl(var(--glass-shadow));
   }
 
   .glass-control-selected {
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 68%),
       hsl(var(--glass-control-selected));
-    box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
+    box-shadow:
+      0 0 0 1px hsl(var(--glass-control-ring-selected)),
+      inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
   .glass-control-selected:hover {
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 62%),
       hsl(var(--glass-control-selected));
+    box-shadow:
+      0 0 0 1px hsl(var(--glass-control-ring-hover)),
+      inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
   .glass-popover {

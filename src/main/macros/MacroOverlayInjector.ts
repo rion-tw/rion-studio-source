@@ -155,6 +155,100 @@ function isBenignFrameInstallError(error: unknown): boolean {
   return /detached|destroyed|closed|Cannot find context|Execution context/i.test(error.message);
 }
 
+interface MacroShortcutKeyboardEvent {
+  composedPath(): unknown[];
+  defaultPrevented: boolean;
+  isComposing: boolean;
+  key: string;
+  keyCode: number;
+  target: unknown;
+}
+
+export function shouldIgnoreMacroShortcutEvent(
+  event: MacroShortcutKeyboardEvent,
+  activeElement?: unknown,
+  designMode?: string
+): boolean {
+  if (
+    event.defaultPrevented ||
+    event.isComposing ||
+    event.key === "Process" ||
+    event.keyCode === 229 ||
+    designMode?.toLowerCase() === "on"
+  ) {
+    return true;
+  }
+
+  function hasEditableContext(candidate: unknown): boolean {
+    const pending = [candidate];
+    const visited = new Set<unknown>();
+
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (!current || typeof current !== "object" || visited.has(current)) {
+        continue;
+      }
+      visited.add(current);
+
+      const element = current as {
+        getAttribute?: (name: string) => string | null;
+        getRootNode?: () => unknown;
+        isContentEditable?: unknown;
+        localName?: unknown;
+        parentElement?: unknown;
+        parentNode?: { host?: unknown } | null;
+        shadowRoot?: { activeElement?: unknown } | null;
+        tagName?: unknown;
+      };
+      const rawName = typeof element.localName === "string" ? element.localName : element.tagName;
+      const name = typeof rawName === "string" ? rawName.toLowerCase() : "";
+
+      if (name === "input" || name === "textarea" || name === "select" || element.isContentEditable === true) {
+        return true;
+      }
+
+      if (typeof element.getAttribute === "function") {
+        const contentEditable = element.getAttribute("contenteditable");
+        if (contentEditable !== null && contentEditable.toLowerCase() !== "false") {
+          return true;
+        }
+
+        const editableRoles = ["textbox", "searchbox", "combobox", "spinbutton"];
+        const roles = element.getAttribute("role")?.toLowerCase().split(/\s+/) ?? [];
+        if (roles.some((role) => editableRoles.includes(role))) {
+          return true;
+        }
+      }
+
+      pending.push(element.parentElement, element.parentNode?.host, element.shadowRoot?.activeElement);
+
+      if (typeof element.getRootNode === "function") {
+        try {
+          const root = element.getRootNode() as { host?: unknown } | null;
+          pending.push(root?.host);
+        } catch {
+          // Ignore page-owned DOM accessors that throw while the event is being dispatched.
+        }
+      }
+    }
+
+    return false;
+  }
+
+  let eventPath: unknown[] = [];
+  try {
+    eventPath = event.composedPath();
+  } catch {
+    // Fall back to the target and active element for non-standard synthetic events.
+  }
+
+  return [...eventPath, event.target, activeElement].some(hasEditableContext);
+}
+
+export const MACRO_SHORTCUT_GUARD_SOURCE = `(${Function.prototype.toString.call(
+  shouldIgnoreMacroShortcutEvent
+)})`;
+
 export const MACRO_OVERLAY_SCRIPT = String.raw`
 (() => {
   const hostId = "rion-studio-macro-overlay-v18";
@@ -178,8 +272,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v17"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-12.12";
+  const scriptVersion = "2026-07-14.1";
   const bindingName = "rionStudioMacroOverlay";
+  const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
     ["bottom", "auto"],
     ["color-scheme", "dark"],
@@ -879,6 +974,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   }
 
   function handleKeyDown(event) {
+    if (shouldIgnoreShortcutEvent(event, document.activeElement, document.designMode)) {
+      return;
+    }
+
     refreshIfStale();
 
     if (matchesMenuToggle(event)) {

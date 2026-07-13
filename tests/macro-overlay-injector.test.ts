@@ -1,8 +1,12 @@
+import { runInNewContext } from "node:vm";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  MACRO_SHORTCUT_GUARD_SOURCE,
   MACRO_OVERLAY_SCRIPT,
-  MacroOverlayInjector
+  MacroOverlayInjector,
+  shouldIgnoreMacroShortcutEvent
 } from "../src/main/macros/MacroOverlayInjector";
 import type { Macro, MacroRunStatus, Role } from "../src/shared/types";
 
@@ -315,6 +319,110 @@ describe("MacroOverlayInjector", () => {
   });
 });
 
+describe("macro shortcut editable guard", () => {
+  it("ignores page-handled events, IME composition, and editable documents", () => {
+    const body = createElementStub("body");
+
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ defaultPrevented: true }), body)).toBe(true);
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ isComposing: true }), body)).toBe(true);
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ key: "Process" }), body)).toBe(true);
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ keyCode: 229 }), body)).toBe(true);
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub(), body, "ON")).toBe(true);
+  });
+
+  it.each(["input", "textarea", "select"])("ignores events from %s elements", (localName) => {
+    const element = createElementStub(localName);
+
+    expect(
+      shouldIgnoreMacroShortcutEvent(
+        createKeyboardEventStub({ composedPath: () => [element], target: element }),
+        createElementStub("body")
+      )
+    ).toBe(true);
+  });
+
+  it("recognizes contenteditable and editable ARIA ancestors", () => {
+    const contentEditable = createElementStub("div", { attributes: { contenteditable: "plaintext-only" } });
+    const contentChild = createElementStub("span", { parentElement: contentEditable });
+    const ariaTextbox = createElementStub("div", { attributes: { role: "presentation TEXTBOX" } });
+    const ariaChild = createElementStub("span", { parentElement: ariaTextbox });
+
+    expect(
+      shouldIgnoreMacroShortcutEvent(
+        createKeyboardEventStub({ composedPath: () => [contentChild], target: contentChild })
+      )
+    ).toBe(true);
+    expect(
+      shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ composedPath: () => [ariaChild], target: ariaChild }))
+    ).toBe(true);
+
+    for (const role of ["searchbox", "combobox", "spinbutton"]) {
+      const element = createElementStub("div", { attributes: { role } });
+      expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ target: element }))).toBe(true);
+    }
+  });
+
+  it("uses active element and open shadow-root focus as fallbacks", () => {
+    const input = createElementStub("input");
+    const shadowHost = createElementStub("game-chat", { shadowActiveElement: input });
+    const canvas = createElementStub("canvas");
+
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ target: canvas }), input)).toBe(true);
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ target: canvas }), shadowHost)).toBe(true);
+    expect(
+      shouldIgnoreMacroShortcutEvent(
+        createKeyboardEventStub({ composedPath: () => [input, shadowHost], target: shadowHost }),
+        shadowHost
+      )
+    ).toBe(true);
+  });
+
+  it("allows shortcuts from non-editable game surfaces", () => {
+    const body = createElementStub("body");
+    const canvas = createElementStub("canvas");
+    const nonEditable = createElementStub("div", {
+      attributes: { contenteditable: "false", role: "button" },
+      parentElement: body
+    });
+
+    expect(
+      shouldIgnoreMacroShortcutEvent(
+        createKeyboardEventStub({ composedPath: () => [canvas, body], target: canvas }),
+        body,
+        "off"
+      )
+    ).toBe(false);
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ target: nonEditable }), body)).toBe(false);
+  });
+
+  it("serializes the production guard without module-scope dependencies", () => {
+    const serializedGuard = runInNewContext(MACRO_SHORTCUT_GUARD_SOURCE) as typeof shouldIgnoreMacroShortcutEvent;
+    const input = createElementStub("input");
+    const canvas = createElementStub("canvas");
+
+    expect(serializedGuard(createKeyboardEventStub({ target: input }), input)).toBe(true);
+    expect(serializedGuard(createKeyboardEventStub({ target: canvas }), canvas)).toBe(false);
+  });
+
+  it("runs the editable guard before refresh, menu, and macro matching", () => {
+    expect(MACRO_OVERLAY_SCRIPT).toContain(
+      `const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};`
+    );
+
+    const handler = MACRO_OVERLAY_SCRIPT.slice(
+      MACRO_OVERLAY_SCRIPT.indexOf("function handleKeyDown(event)"),
+      MACRO_OVERLAY_SCRIPT.indexOf("function handleEscapeKeyDown(event)")
+    );
+    const guardIndex = handler.indexOf("shouldIgnoreShortcutEvent(event, document.activeElement, document.designMode)");
+
+    expect(guardIndex).toBeGreaterThan(-1);
+    expect(guardIndex).toBeLessThan(handler.indexOf("refreshIfStale()"));
+    expect(guardIndex).toBeLessThan(handler.indexOf("matchesMenuToggle(event)"));
+    expect(guardIndex).toBeLessThan(handler.indexOf("matchesShortcut(event, item.trigger)"));
+    expect(guardIndex).toBeLessThan(handler.indexOf("consumeShortcutEvent(event)"));
+  });
+});
+
 function createInjector({
   macroManager = {
     listStatuses: vi.fn(() => []),
@@ -353,4 +461,48 @@ function createPage() {
   };
 
   return { handlers, page };
+}
+
+interface ElementStubOptions {
+  attributes?: Record<string, string>;
+  isContentEditable?: boolean;
+  parentElement?: ElementStub;
+  rootHost?: ElementStub;
+  shadowActiveElement?: ElementStub;
+}
+
+interface ElementStub {
+  getAttribute(name: string): string | null;
+  getRootNode(): { host?: ElementStub };
+  isContentEditable: boolean;
+  localName: string;
+  parentElement?: ElementStub;
+  shadowRoot?: { activeElement?: ElementStub };
+}
+
+function createElementStub(localName: string, options: ElementStubOptions = {}): ElementStub {
+  const attributes = new Map(Object.entries(options.attributes ?? {}));
+
+  return {
+    getAttribute: (name) => attributes.get(name) ?? null,
+    getRootNode: () => ({ host: options.rootHost }),
+    isContentEditable: options.isContentEditable ?? false,
+    localName,
+    parentElement: options.parentElement,
+    shadowRoot: options.shadowActiveElement ? { activeElement: options.shadowActiveElement } : undefined
+  };
+}
+
+type KeyboardEventStub = Parameters<typeof shouldIgnoreMacroShortcutEvent>[0];
+
+function createKeyboardEventStub(overrides: Partial<KeyboardEventStub> = {}): KeyboardEventStub {
+  return {
+    composedPath: () => [],
+    defaultPrevented: false,
+    isComposing: false,
+    key: "a",
+    keyCode: 65,
+    target: null,
+    ...overrides
+  };
 }

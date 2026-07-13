@@ -10,7 +10,7 @@ import {
 
 import { Button } from "./ui/button";
 import { PageHeader, Surface } from "./ui/patterns";
-import { normalizeEditorTitle } from "../app/editorTitle";
+import { focusEditorTitle, normalizeEditorTitle } from "../app/editorTitle";
 import { cn } from "../lib/utils";
 
 interface EditorPageProps {
@@ -154,6 +154,14 @@ function EditableEditorTitle({
   value: string;
 }): JSX.Element {
   const titleRef = useRef<HTMLSpanElement>(null);
+  const hasFocusedRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!disabled && !hasFocusedRef.current && titleRef.current) {
+      hasFocusedRef.current = true;
+      focusEditorTitle(titleRef.current);
+    }
+  }, [disabled]);
 
   useLayoutEffect(() => {
     if (titleRef.current && titleRef.current.textContent !== value) {

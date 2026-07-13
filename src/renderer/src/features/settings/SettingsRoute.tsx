@@ -32,7 +32,6 @@ import {
 import type {
   AppUpdateStatus,
   BrowserFontFamilyRole,
-  BrowserProxySettings,
   GameBrowserSettings,
   LaunchPreset,
   PortableExportInput,
@@ -689,22 +688,24 @@ function BrowserProxySettingsRow({
   onSave
 }: BrowserProxySettingsRowProps): JSX.Element {
   const normalizedSettings = normalizeGameBrowserSettings(settings);
-  const [draft, setDraft] = useState<BrowserProxySettings>(normalizedSettings.network.proxy);
+  const [draft, setDraft] = useState(normalizedSettings.network.proxy.server);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const normalizedDraft = normalizeGameBrowserSettings({
-    ...normalizedSettings,
-    network: { proxy: draft }
-  }).network.proxy;
-  const isDirty = JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedSettings.network.proxy);
-  const isCustom = draft.mode === "custom";
-  const isValid = draft.mode === "system" || Boolean(normalizeBrowserProxyServer(draft.server));
+  const normalizedServer = normalizeBrowserProxyServer(draft);
+  const isEmpty = draft.trim() === "";
+  const isValid = isEmpty || Boolean(normalizedServer);
+  const currentServer = normalizedSettings.network.proxy.server;
+  const isDirty = (isEmpty ? "" : normalizedServer) !== currentServer;
 
   useEffect(() => {
-    setDraft(normalizeGameBrowserSettings(settings).network.proxy);
+    setDraft(normalizeGameBrowserSettings(settings).network.proxy.server);
   }, [settings]);
 
   async function saveProxySettings(): Promise<void> {
+    if (!isDirty || !isValid || isSaving) {
+      return;
+    }
+
     setIsSaving(true);
     setMessage(null);
 
@@ -712,10 +713,17 @@ function BrowserProxySettingsRow({
       const savedSettings = await onSave(
         normalizeGameBrowserSettings({
           ...normalizedSettings,
-          network: { proxy: draft }
+          network: {
+            proxy: isEmpty
+              ? { mode: "system", server: "" }
+              : {
+                  mode: "custom",
+                  server: normalizedServer
+                }
+          }
         })
       );
-      setDraft(savedSettings.network.proxy);
+      setDraft(savedSettings.network.proxy.server);
       setMessage(hasRunningRoles ? t("settings.browserProxyRestartNotice") : t("settings.browserProxySaved"));
     } catch (error) {
       onError(error);
@@ -732,40 +740,22 @@ function BrowserProxySettingsRow({
         (!isValid ? t("settings.browserProxyInvalid") : formatBrowserProxySettingsSummary(normalizedSettings, t))
       }
       control={
-        <div className="grid min-w-0 gap-2 sm:w-[420px]">
-          <div className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)]">
-            <Select
-              className="settings-menu-control"
-              disabled={isSaving}
-              value={draft.mode}
-              onChange={(event) => {
-                const mode = event.target.value as BrowserProxySettings["mode"];
-                setMessage(null);
-                setDraft((current) => ({
-                  mode,
-                  server: mode === "custom" ? current.server : ""
-                }));
-              }}
-            >
-              <option value="system">{t("settings.browserProxyModeSystem")}</option>
-              <option value="custom">{t("settings.browserProxyModeCustom")}</option>
-            </Select>
-            <Input
-              disabled={isSaving || !isCustom}
-              placeholder={t("settings.browserProxyServerPlaceholder")}
-              value={draft.server}
-              onChange={(event) => {
-                setMessage(null);
-                setDraft((current) => ({ ...current, server: event.target.value }));
-              }}
-            />
-          </div>
-          <div className="flex justify-end">
-            <Button type="button" disabled={isSaving || !isDirty || !isValid} onClick={() => void saveProxySettings()}>
-              {t("settings.browserProxySave")}
-            </Button>
-          </div>
-        </div>
+        <Input
+          className="sm:w-[420px]"
+          disabled={isSaving}
+          placeholder={t("settings.browserProxyServerPlaceholder")}
+          value={draft}
+          onBlur={() => void saveProxySettings()}
+          onChange={(event) => {
+            setMessage(null);
+            setDraft(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+          }}
+        />
       }
     />
   );

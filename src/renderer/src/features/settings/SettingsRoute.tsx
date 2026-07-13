@@ -3,23 +3,41 @@ import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { PageFrame, SegmentedControl, Surface } from "../../components/ui/patterns";
-import { emptyForm, languageLabelKeys, presetLabelKeys, resolvedThemeLabelKeys, themeLabelKeys, themeModes } from "../../app/constants";
+import {
+  languageLabelKeys,
+  presetLabelKeys,
+  resolvedThemeLabelKeys,
+  themeLabelKeys,
+  themeModes
+} from "../../app/constants";
+import {
+  ROLE_WINDOW_CUSTOM_OPTION,
+  createRoleWindowSizeValue,
+  getRoleWindowSizeValue,
+  isValidRoleWindowSize,
+  parseRoleWindowSizeValue,
+  roleWindowSizeOptions
+} from "../../app/roleDefaults";
 import type { ResolvedTheme, ThemeMode } from "../../app/types";
 import { languages, type Language, type Translator } from "../../i18n";
 import type {
   AppUpdateStatus,
+  LaunchPreset,
   PortableExportInput,
   PortableExportResult,
   PortableImportPreview,
   PortableImportResult,
-  PortableImportWarning
+  PortableImportWarning,
+  RoleDefaults
 } from "../../../../shared/types";
 import { readSettingsSection, settingsSectionElementIds } from "./settingsNavigation";
 
 interface SettingsViewProps {
   language: Language;
+  roleDefaults: RoleDefaults;
   resolvedTheme: ResolvedTheme;
   t: Translator;
   themeMode: ThemeMode;
@@ -34,11 +52,13 @@ interface SettingsViewProps {
   onOpenUpdateDownload: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
   onLanguageChange: (language: Language) => void;
+  onRoleDefaultsChange: (roleDefaults: RoleDefaults) => void;
   onThemeModeChange: (themeMode: ThemeMode) => void;
 }
 
 function SettingsViewBase({
   language,
+  roleDefaults,
   resolvedTheme,
   t,
   themeMode,
@@ -53,6 +73,7 @@ function SettingsViewBase({
   onOpenUpdateDownload,
   onInstallDownloadedUpdate,
   onLanguageChange,
+  onRoleDefaultsChange,
   onThemeModeChange
 }: SettingsViewProps): JSX.Element {
   const [portableImportPreview, setPortableImportPreview] = useState<PortableImportPreview | null>(null);
@@ -62,7 +83,9 @@ function SettingsViewBase({
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
   const canOpenUpdateDownload =
-    isManualUpdate && updateStatus?.state === "available" && Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
+    isManualUpdate &&
+    updateStatus?.state === "available" &&
+    Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
 
   async function handleExportPortableData(): Promise<void> {
     setIsPortableBusy(true);
@@ -72,6 +95,7 @@ function SettingsViewBase({
       const result = await onExportPortableData({
         preferences: {
           language,
+          roleDefaults,
           themeMode
         }
       });
@@ -124,8 +148,8 @@ function SettingsViewBase({
   return (
     <PageFrame
       maxWidth="settings"
-      className="settings-page px-6 py-7 md:px-10 md:py-10"
-      contentClassName="mx-auto flex min-h-full w-full max-w-[900px] flex-col gap-8"
+      className="settings-page"
+      contentClassName="mx-auto flex min-h-full w-full max-w-[840px] flex-col gap-8"
     >
       <header className="settings-page-header">
         <h1 className="text-[26px] font-semibold leading-tight text-foreground">{t("settings.title")}</h1>
@@ -188,12 +212,32 @@ function SettingsViewBase({
           <SettingsRow
             title={t("settings.defaultWindow")}
             description={t("settings.defaultWindowDescription")}
-            control={<ReadOnlyValue value={`${emptyForm.windowWidth} x ${emptyForm.windowHeight}`} />}
+            control={
+              <DefaultWindowControl
+                roleDefaults={roleDefaults}
+                t={t}
+                onRoleDefaultsChange={onRoleDefaultsChange}
+              />
+            }
           />
           <SettingsRow
             title={t("settings.defaultPreset")}
             description={t("settings.defaultPresetDescription")}
-            control={<ReadOnlyValue value={t(presetLabelKeys[emptyForm.launchPreset])} />}
+            control={
+              <Select
+                className="w-full sm:w-[240px]"
+                value={roleDefaults.launchPreset}
+                onChange={(event) =>
+                  onRoleDefaultsChange({
+                    ...roleDefaults,
+                    launchPreset: event.target.value as LaunchPreset
+                  })
+                }
+              >
+                <option value="performance">{t(presetLabelKeys.performance)}</option>
+                <option value="balanced">{t(presetLabelKeys.balanced)}</option>
+              </Select>
+            }
           />
         </SettingsSection>
 
@@ -289,6 +333,122 @@ function SettingsViewBase({
   );
 }
 
+interface DefaultWindowControlProps {
+  roleDefaults: RoleDefaults;
+  t: Translator;
+  onRoleDefaultsChange: (roleDefaults: RoleDefaults) => void;
+}
+
+function DefaultWindowControl({
+  roleDefaults,
+  t,
+  onRoleDefaultsChange
+}: DefaultWindowControlProps): JSX.Element {
+  const { windowHeight, windowWidth } = roleDefaults;
+  const derivedWindowSizeValue = getRoleWindowSizeValue(roleDefaults);
+  const [selectedWindowSize, setSelectedWindowSize] = useState(derivedWindowSizeValue);
+  const [customWidth, setCustomWidth] = useState(String(windowWidth));
+  const [customHeight, setCustomHeight] = useState(String(windowHeight));
+  const isCustomWindowSize = selectedWindowSize === ROLE_WINDOW_CUSTOM_OPTION;
+
+  useEffect(() => {
+    const nextWindowSizeValue = getRoleWindowSizeValue({ windowHeight, windowWidth });
+    setSelectedWindowSize(nextWindowSizeValue);
+    setCustomWidth(String(windowWidth));
+    setCustomHeight(String(windowHeight));
+  }, [windowHeight, windowWidth]);
+
+  function handleWindowSizeChange(value: string): void {
+    setSelectedWindowSize(value);
+
+    if (value === ROLE_WINDOW_CUSTOM_OPTION) {
+      setCustomWidth(String(windowWidth));
+      setCustomHeight(String(windowHeight));
+      return;
+    }
+
+    const parsedSize = parseRoleWindowSizeValue(value);
+    if (!parsedSize) {
+      return;
+    }
+
+    onRoleDefaultsChange({
+      ...roleDefaults,
+      ...parsedSize
+    });
+  }
+
+  function handleCustomSizeChange(field: "windowHeight" | "windowWidth", value: string): void {
+    if (field === "windowWidth") {
+      setCustomWidth(value);
+    } else {
+      setCustomHeight(value);
+    }
+
+    const nextSize = Number(value);
+    if (!value.trim() || !isValidRoleWindowSize(nextSize)) {
+      return;
+    }
+
+    onRoleDefaultsChange({
+      ...roleDefaults,
+      [field]: nextSize
+    });
+  }
+
+  function resetCustomSize(field: "windowHeight" | "windowWidth"): void {
+    if (field === "windowWidth") {
+      setCustomWidth(String(windowWidth));
+    } else {
+      setCustomHeight(String(windowHeight));
+    }
+  }
+
+  return (
+    <div className="grid w-full gap-2 sm:w-[320px]">
+      <Select
+        value={selectedWindowSize}
+        onChange={(event) => handleWindowSizeChange(event.target.value)}
+      >
+        {roleWindowSizeOptions.map((option) => (
+          <option
+            key={createRoleWindowSizeValue(option.width, option.height)}
+            value={createRoleWindowSizeValue(option.width, option.height)}
+          >
+            {formatRoleWindowSize(option.width, option.height)}
+          </option>
+        ))}
+        <option value={ROLE_WINDOW_CUSTOM_OPTION}>{t("settings.defaultWindow.custom")}</option>
+      </Select>
+
+      {isCustomWindowSize ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Input
+            aria-label={t("settings.defaultWindowWidth")}
+            inputMode="numeric"
+            max={7680}
+            min={640}
+            type="number"
+            value={customWidth}
+            onBlur={() => resetCustomSize("windowWidth")}
+            onChange={(event) => handleCustomSizeChange("windowWidth", event.target.value)}
+          />
+          <Input
+            aria-label={t("settings.defaultWindowHeight")}
+            inputMode="numeric"
+            max={7680}
+            min={640}
+            type="number"
+            value={customHeight}
+            onBlur={() => resetCustomSize("windowHeight")}
+            onChange={(event) => handleCustomSizeChange("windowHeight", event.target.value)}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 interface SettingsSectionProps {
   children: ReactNode;
   description: string;
@@ -334,6 +494,10 @@ function ReadOnlyValue({ value }: { value: string }): JSX.Element {
       {value}
     </span>
   );
+}
+
+function formatRoleWindowSize(width: number, height: number): string {
+  return `${width} x ${height}`;
 }
 
 interface PortableImportDialogProps {

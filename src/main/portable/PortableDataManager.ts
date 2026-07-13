@@ -24,7 +24,8 @@ import {
   type PortableMacro,
   type PortablePreferences,
   type PortableRole,
-  type RionPortableDataV1
+  type RionPortableDataV1,
+  type RoleDefaults
 } from "../../shared/types";
 import {
   isWorkspaceBrowserZoomPercent,
@@ -414,6 +415,7 @@ function parsePortableData(raw: string): RionPortableDataV1 {
     const roles = data.roles.map(normalizePortableRole);
     const launchWorkspaces = data.launchWorkspaces.map(normalizePortableLaunchWorkspace);
     const macros = data.macros.map(normalizePortableMacro);
+    const preferences = normalizePortablePreferences(data.preferences);
     ensureUniqueIds(roles.map((role) => role.id));
     ensureUniqueIds(launchWorkspaces.map((workspace) => workspace.id));
     ensureUniqueIds(macros.map((macro) => macro.id));
@@ -426,7 +428,7 @@ function parsePortableData(raw: string): RionPortableDataV1 {
       roles,
       launchWorkspaces,
       macros,
-      ...(normalizePortablePreferences(data.preferences) ? { preferences: normalizePortablePreferences(data.preferences) } : {})
+      ...(preferences ? { preferences } : {})
     };
   } catch (error) {
     if (error instanceof PortableDataError) {
@@ -515,6 +517,7 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
   const preferences = toRecord(value);
   const language = preferences.language;
   const themeMode = preferences.themeMode;
+  const roleDefaults = normalizeOptionalPortableRoleDefaults(preferences.roleDefaults);
   const normalized: PortablePreferences = {};
 
   if (language === "en" || language === "zh-TW" || language === "zh-CN" || language === "ja") {
@@ -525,7 +528,44 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
     normalized.themeMode = themeMode;
   }
 
-  return normalized.language || normalized.themeMode ? normalized : undefined;
+  if (roleDefaults) {
+    normalized.roleDefaults = roleDefaults;
+  }
+
+  return normalized.language || normalized.themeMode || normalized.roleDefaults ? normalized : undefined;
+}
+
+function normalizeOptionalPortableRoleDefaults(value: unknown): RoleDefaults | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  try {
+    const defaults = toRecord(value);
+    const windowWidth = defaults.windowWidth;
+    const windowHeight = defaults.windowHeight;
+    const launchPreset = defaults.launchPreset;
+
+    if (
+      !isValidRoleDefaultWindowSize(windowWidth) ||
+      !isValidRoleDefaultWindowSize(windowHeight) ||
+      (launchPreset !== "balanced" && launchPreset !== "performance")
+    ) {
+      return undefined;
+    }
+
+    return {
+      windowWidth,
+      windowHeight,
+      launchPreset
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function isValidRoleDefaultWindowSize(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 640 && value <= 7680;
 }
 
 function normalizeOptionalTriggerProperty(value: unknown): { trigger?: MacroTrigger } {

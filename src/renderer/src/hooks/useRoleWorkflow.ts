@@ -1,15 +1,16 @@
 import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 
 import { createCopyName } from "../app/copyName";
-import { emptyForm } from "../app/constants";
+import { createEmptyRoleForm } from "../app/roleDefaults";
 import { mergeAuthStatus, mergeStatus } from "../app/statusUtils";
 import type { RoleFormState, SidebarFilter } from "../app/types";
 import type { Translator } from "../i18n";
-import type { AuthFlowStatus, Role, RoleStatus } from "../../../shared/types";
+import type { AuthFlowStatus, Role, RoleDefaults, RoleStatus } from "../../../shared/types";
 
 interface UseRoleWorkflowOptions {
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   navigateToRoles: () => void;
+  roleDefaults: RoleDefaults;
   roles: Role[];
   setAuthStatuses: Dispatch<SetStateAction<AuthFlowStatus[]>>;
   setError: (error: unknown | null) => void;
@@ -21,6 +22,7 @@ interface UseRoleWorkflowOptions {
 export function useRoleWorkflow({
   loadData,
   navigateToRoles,
+  roleDefaults,
   roles,
   setAuthStatuses,
   setError,
@@ -28,7 +30,7 @@ export function useRoleWorkflow({
   statusByRole,
   t
 }: UseRoleWorkflowOptions) {
-  const [form, setForm] = useState<RoleFormState>(emptyForm);
+  const [form, setForm] = useState<RoleFormState>(() => createEmptyRoleForm(roleDefaults));
   const [activeFilter, setActiveFilter] = useState<SidebarFilter>("all");
   const [query, setQuery] = useState("");
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
@@ -98,7 +100,7 @@ export function useRoleWorkflow({
         });
       }
 
-      setForm(emptyForm);
+      setForm(createEmptyRoleForm(roleDefaults));
       setIsRoleModalOpen(false);
       setActiveFilter("all");
       navigateToRoles();
@@ -167,7 +169,7 @@ export function useRoleWorkflow({
     try {
       await window.rionStudio.deleteRole(role.id);
       if (form.id === role.id) {
-        setForm(emptyForm);
+        setForm(createEmptyRoleForm(roleDefaults));
       }
       await loadData();
     } catch (deleteError) {
@@ -221,7 +223,7 @@ export function useRoleWorkflow({
 
   function startCreate(): void {
     navigateToRoles();
-    setForm(emptyForm);
+    setForm(createEmptyRoleForm(roleDefaults));
     setActiveFilter("all");
     setIsRoleModalOpen(true);
   }
@@ -232,7 +234,7 @@ export function useRoleWorkflow({
     }
 
     setIsRoleModalOpen(false);
-    setForm(emptyForm);
+    setForm(createEmptyRoleForm(roleDefaults));
   }
 
   return {

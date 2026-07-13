@@ -74,6 +74,10 @@ export function App(): JSX.Element {
         preferences.handleLanguageChange(result.preferences.language);
       }
 
+      if (result.preferences?.roleDefaults) {
+        preferences.handleRoleDefaultsChange(result.preferences.roleDefaults);
+      }
+
       await data.loadData();
       return result;
     },
@@ -83,6 +87,7 @@ export function App(): JSX.Element {
   const roleWorkflow = useRoleWorkflow({
     loadData: data.loadData,
     navigateToRoles: () => navigate("/roles"),
+    roleDefaults: preferences.roleDefaults,
     roles: data.roles,
     setAuthStatuses: data.setAuthStatuses,
     setError: data.setError,
@@ -321,6 +326,7 @@ export function App(): JSX.Element {
               element={
                 <SettingsRoute
                   language={preferences.language}
+                  roleDefaults={preferences.roleDefaults}
                   resolvedTheme={preferences.resolvedTheme}
                   t={preferences.t}
                   themeMode={preferences.themeMode}
@@ -335,6 +341,7 @@ export function App(): JSX.Element {
                   onOpenUpdateDownload={updates.openUpdateDownload}
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
                   onLanguageChange={preferences.handleLanguageChange}
+                  onRoleDefaultsChange={preferences.handleRoleDefaultsChange}
                   onThemeModeChange={preferences.handleThemeModeChange}
                 />
               }

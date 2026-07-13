@@ -57,6 +57,11 @@ describe("PortableDataManager", () => {
     const result = await manager.exportData({
       preferences: {
         language: "zh-TW",
+        roleDefaults: {
+          windowWidth: 1920,
+          windowHeight: 1080,
+          launchPreset: "balanced"
+        },
         themeMode: "dark"
       }
     });
@@ -69,6 +74,11 @@ describe("PortableDataManager", () => {
       appVersion: "1.2.3",
       preferences: {
         language: "zh-TW",
+        roleDefaults: {
+          windowWidth: 1920,
+          windowHeight: 1080,
+          launchPreset: "balanced"
+        },
         themeMode: "dark"
       }
     });
@@ -111,6 +121,11 @@ describe("PortableDataManager", () => {
       macroCount: 1,
       preferences: {
         language: "ja",
+        roleDefaults: {
+          windowWidth: 1280,
+          windowHeight: 720,
+          launchPreset: "balanced"
+        },
         themeMode: "light"
       }
     });
@@ -127,7 +142,18 @@ describe("PortableDataManager", () => {
 
     const result = await manager.applyImport("import-1");
 
-    expect(result).toMatchObject({ roleCount: 1, workspaceCount: 1, macroCount: 1 });
+    expect(result).toMatchObject({
+      roleCount: 1,
+      workspaceCount: 1,
+      macroCount: 1,
+      preferences: {
+        roleDefaults: {
+          windowWidth: 1280,
+          windowHeight: 720,
+          launchPreset: "balanced"
+        }
+      }
+    });
     const importedRole = (await roleStore.listRoles()).find((role) => role.name === "Main (Imported)");
     expect(importedRole).toMatchObject({
       authState: "login_required",
@@ -156,6 +182,60 @@ describe("PortableDataManager", () => {
     });
 
     await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+  });
+
+  it("accepts missing role defaults and ignores invalid role defaults in portable preferences", async () => {
+    const legacyImportPath = join(baseDir, "legacy-preferences.json");
+    const legacyFixture = createPortableFixture();
+    legacyFixture.preferences = {
+      language: "en",
+      themeMode: "system"
+    };
+    await writeFile(legacyImportPath, `${JSON.stringify(legacyFixture, null, 2)}\n`, "utf8");
+
+    const legacyManager = createManager({
+      importPath: legacyImportPath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await expect(legacyManager.previewImport()).resolves.toMatchObject({
+      preferences: {
+        language: "en",
+        themeMode: "system"
+      }
+    });
+
+    const invalidImportPath = join(baseDir, "invalid-role-defaults.json");
+    const invalidFixture = createPortableFixture();
+    invalidFixture.preferences = {
+      language: "zh-TW",
+      roleDefaults: {
+        windowWidth: 100,
+        windowHeight: 1080,
+        launchPreset: "balanced"
+      }
+    };
+    await writeFile(invalidImportPath, `${JSON.stringify(invalidFixture, null, 2)}\n`, "utf8");
+
+    const invalidManager = createManager({
+      importPath: invalidImportPath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await expect(invalidManager.previewImport()).resolves.toMatchObject({
+      preferences: {
+        language: "zh-TW"
+      }
+    });
+    await expect(invalidManager.previewImport()).resolves.not.toMatchObject({
+      preferences: {
+        roleDefaults: expect.anything()
+      }
+    });
   });
 });
 
@@ -200,6 +280,11 @@ function createPortableFixture(): RionPortableDataV1 {
     appVersion: "1.0.0",
     preferences: {
       language: "ja",
+      roleDefaults: {
+        windowWidth: 1280,
+        windowHeight: 720,
+        launchPreset: "balanced"
+      },
       themeMode: "light"
     },
     roles: [

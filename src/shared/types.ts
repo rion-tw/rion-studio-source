@@ -195,8 +195,15 @@ export interface AppErrorPayload {
   message: string;
 }
 
+export interface RoleDefaults {
+  windowWidth: number;
+  windowHeight: number;
+  launchPreset: LaunchPreset;
+}
+
 export interface PortablePreferences {
   language?: AppLanguage;
+  roleDefaults?: RoleDefaults;
   themeMode?: AppThemeMode;
 }
 

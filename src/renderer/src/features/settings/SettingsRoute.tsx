@@ -1,4 +1,4 @@
-import { Download, FileJson, Laptop, Moon, RefreshCw, RotateCcw, Sun, Type as TypeIcon, Upload } from "lucide-react";
+import { ChevronDown, Download, FileJson, Laptop, Moon, RefreshCw, RotateCcw, Sun, Type as TypeIcon, Upload } from "lucide-react";
 import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -122,8 +122,6 @@ function SettingsViewBase({
   onThemeModeChange,
   systemFonts
 }: SettingsViewBaseProps): JSX.Element {
-  const [isBrowserFontModalOpen, setIsBrowserFontModalOpen] = useState(false);
-  const [browserFontMessage, setBrowserFontMessage] = useState<string | null>(null);
   const [portableImportPreview, setPortableImportPreview] = useState<PortableImportPreview | null>(null);
   const [portableMessage, setPortableMessage] = useState<string | null>(null);
   const [isPortableBusy, setIsPortableBusy] = useState(false);
@@ -196,14 +194,6 @@ function SettingsViewBase({
     }
   }
 
-  async function handleGameBrowserSettingsChange(settings: GameBrowserSettings): Promise<void> {
-    await onGameBrowserSettingsChange(settings);
-    setBrowserFontMessage(
-      hasRunningRoles ? t("settings.browserFontsRestartNotice") : t("settings.browserFontsSaved")
-    );
-    setIsBrowserFontModalOpen(false);
-  }
-
   return (
     <PageFrame
       maxWidth="settings"
@@ -255,48 +245,49 @@ function SettingsViewBase({
         ) : null}
 
         {activeSection === "game" ? (
-          <SettingsSection>
-            <SettingsRow
-              title={t("settings.defaultWindow")}
-              description={t("settings.defaultWindowDescription")}
-              control={
-                <DefaultWindowControl
-                  roleDefaults={roleDefaults}
-                  t={t}
-                  onRoleDefaultsChange={onRoleDefaultsChange}
-                />
-              }
-            />
-            <SettingsRow
-              title={t("settings.defaultPreset")}
-              description={t("settings.defaultPresetDescription")}
-              control={
-                <Select
-                  className="settings-menu-control"
-                  value={roleDefaults.launchPreset}
-                  onChange={(event) =>
-                    onRoleDefaultsChange({
-                      ...roleDefaults,
-                      launchPreset: event.target.value as LaunchPreset
-                    })
-                  }
-                >
-                  <option value="performance">{t(presetLabelKeys.performance)}</option>
-                  <option value="balanced">{t(presetLabelKeys.balanced)}</option>
-                </Select>
-              }
-            />
-            <SettingsRow
-              title={t("settings.browserFonts")}
-              description={browserFontMessage ?? formatBrowserFontSettingsSummary(gameBrowserSettings, t)}
-              control={
-                <Button type="button" variant="outline" onClick={() => setIsBrowserFontModalOpen(true)}>
-                  <TypeIcon size={14} />
-                  {t("settings.browserFontsCustomize")}
-                </Button>
-              }
-            />
-          </SettingsSection>
+          <>
+            <SettingsSection>
+              <SettingsRow
+                title={t("settings.defaultWindow")}
+                description={t("settings.defaultWindowDescription")}
+                control={
+                  <DefaultWindowControl
+                    roleDefaults={roleDefaults}
+                    t={t}
+                    onRoleDefaultsChange={onRoleDefaultsChange}
+                  />
+                }
+              />
+              <SettingsRow
+                title={t("settings.defaultPreset")}
+                description={t("settings.defaultPresetDescription")}
+                control={
+                  <Select
+                    className="settings-menu-control"
+                    value={roleDefaults.launchPreset}
+                    onChange={(event) =>
+                      onRoleDefaultsChange({
+                        ...roleDefaults,
+                        launchPreset: event.target.value as LaunchPreset
+                      })
+                    }
+                  >
+                    <option value="performance">{t(presetLabelKeys.performance)}</option>
+                    <option value="balanced">{t(presetLabelKeys.balanced)}</option>
+                  </Select>
+                }
+              />
+              <BrowserFontsSettingsRows
+                hasRunningRoles={hasRunningRoles}
+                settings={gameBrowserSettings}
+                systemFonts={systemFonts}
+                t={t}
+                onError={onError}
+                onLoadSystemFonts={onLoadSystemFonts}
+                onSave={onGameBrowserSettingsChange}
+              />
+            </SettingsSection>
+          </>
         ) : null}
 
         {activeSection === "data" ? (
@@ -384,17 +375,6 @@ function SettingsViewBase({
         />
       ) : null}
 
-      {isBrowserFontModalOpen ? (
-        <BrowserFontsDialog
-          settings={gameBrowserSettings}
-          systemFonts={systemFonts}
-          t={t}
-          onCancel={() => setIsBrowserFontModalOpen(false)}
-          onError={onError}
-          onLoadSystemFonts={onLoadSystemFonts}
-          onSave={handleGameBrowserSettingsChange}
-        />
-      ) : null}
     </PageFrame>
   );
 }
@@ -516,33 +496,51 @@ function DefaultWindowControl({
   );
 }
 
-interface BrowserFontsDialogProps {
+interface BrowserFontsSettingsRowsProps {
+  hasRunningRoles: boolean;
   settings: GameBrowserSettings;
   systemFonts: SystemFontFamily[];
   t: Translator;
-  onCancel: () => void;
   onError: (error: unknown) => void;
   onLoadSystemFonts: () => Promise<SystemFontFamily[]>;
-  onSave: (settings: GameBrowserSettings) => Promise<void>;
+  onSave: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
 }
 
-function BrowserFontsDialog({
+function BrowserFontsSettingsRows({
+  hasRunningRoles,
   settings,
   systemFonts,
   t,
-  onCancel,
   onError,
   onLoadSystemFonts,
   onSave
-}: BrowserFontsDialogProps): JSX.Element {
+}: BrowserFontsSettingsRowsProps): JSX.Element {
   const [draft, setDraft] = useState<GameBrowserSettings>(() => normalizeGameBrowserSettings(settings));
   const [availableFonts, setAvailableFonts] = useState<SystemFontFamily[]>(systemFonts);
   const [isLoadingFonts, setIsLoadingFonts] = useState(systemFonts.length === 0);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const isCustom = draft.fonts.mode === "custom";
   const fontOptions = getBrowserFontOptions(availableFonts, draft);
+  const isDirty = JSON.stringify(normalizeGameBrowserSettings(draft)) !== JSON.stringify(normalizeGameBrowserSettings(settings));
 
   useEffect(() => {
+    setDraft(normalizeGameBrowserSettings(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    setAvailableFonts(systemFonts);
+    if (systemFonts.length > 0) {
+      setIsLoadingFonts(false);
+    }
+  }, [systemFonts]);
+
+  useEffect(() => {
+    if (systemFonts.length > 0) {
+      return;
+    }
+
     let isDisposed = false;
     setIsLoadingFonts(true);
 
@@ -562,9 +560,10 @@ function BrowserFontsDialog({
     return () => {
       isDisposed = true;
     };
-  }, [onError, onLoadSystemFonts]);
+  }, [onError, onLoadSystemFonts, systemFonts.length]);
 
   function handleModeChange(mode: BrowserFontSettingsMode): void {
+    setMessage(null);
     setDraft((current) =>
       normalizeGameBrowserSettings({
         fonts: {
@@ -576,6 +575,7 @@ function BrowserFontsDialog({
   }
 
   function handleFontFamilyChange(role: BrowserFontFamilyRole, value: string): void {
+    setMessage(null);
     setDraft((current) =>
       normalizeGameBrowserSettings({
         fonts: {
@@ -589,11 +589,13 @@ function BrowserFontsDialog({
     );
   }
 
-  async function handleSave(): Promise<void> {
+  async function saveSettings(settingsToSave: GameBrowserSettings): Promise<void> {
     setIsSaving(true);
 
     try {
-      await onSave(draft);
+      const savedSettings = await onSave(settingsToSave);
+      setDraft(normalizeGameBrowserSettings(savedSettings));
+      setMessage(hasRunningRoles ? t("settings.browserFontsRestartNotice") : t("settings.browserFontsSaved"));
     } catch (error) {
       onError(error);
     } finally {
@@ -602,85 +604,79 @@ function BrowserFontsDialog({
   }
 
   return (
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
-      <Surface
-        className="max-h-full w-full max-w-[680px] overflow-hidden"
-        radius="lg"
-        variant="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="browser-fonts-title"
-      >
-        <div className="glass-divider border-b px-5 py-4">
-          <h2 id="browser-fonts-title" className="text-[15px] font-semibold leading-6 text-foreground">
-            {t("settings.browserFonts")}
-          </h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.browserFontsDescription")}</p>
-        </div>
+    <>
+      <SettingsRow
+        title={t("settings.browserFonts")}
+        description={message ?? formatBrowserFontSettingsSummary(draft, t)}
+        control={
+          <Button
+            type="button"
+            variant="outline"
+            aria-expanded={isExpanded}
+            onClick={() => setIsExpanded((current) => !current)}
+          >
+            <TypeIcon size={14} />
+            {t("settings.browserFontsCustomize")}
+            <ChevronDown
+              size={14}
+              className={isExpanded ? "rotate-180 transition-transform" : "transition-transform"}
+            />
+          </Button>
+        }
+      />
 
-        <div className="max-h-[min(68vh,620px)] overflow-auto px-5 py-4">
-          <div className="grid gap-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-[13px] font-semibold leading-5 text-foreground">
-                  {t("settings.browserFontsMode")}
-                </p>
-                <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                  {t("settings.browserFontsModeDescription")}
-                </p>
-              </div>
-              <SegmentedControl<BrowserFontSettingsMode>
-                className="settings-menu-control grid-cols-2"
-                items={[
-                  { value: "default", label: t("settings.browserFontsMode.default") },
-                  { value: "custom", label: t("settings.browserFontsMode.custom") }
-                ]}
-                value={draft.fonts.mode}
-                onValueChange={handleModeChange}
+      {isExpanded ? (
+        <>
+          <div className="glass-divider flex justify-end border-b px-4 py-3 last:border-b-0">
+            <SegmentedControl<BrowserFontSettingsMode>
+              className="settings-menu-control grid-cols-2"
+              items={[
+                { value: "default", label: t("settings.browserFontsMode.default") },
+                { value: "custom", label: t("settings.browserFontsMode.custom") }
+              ]}
+              value={draft.fonts.mode}
+              onValueChange={handleModeChange}
+            />
+          </div>
+
+          <div className="glass-divider grid gap-3 border-b px-4 py-3 last:border-b-0 sm:grid-cols-2">
+            {browserFontFamilyRoles.map((role) => (
+              <BrowserFontFamilyInput
+                key={role}
+                disabled={!isCustom || isSaving}
+                fontOptions={fontOptions}
+                label={t(browserFontRoleLabelKeys[role])}
+                role={role}
+                value={draft.fonts.families[role] ?? ""}
+                onValueChange={handleFontFamilyChange}
               />
-            </div>
+            ))}
+          </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              {browserFontFamilyRoles.map((role) => (
-                <BrowserFontFamilyInput
-                  key={role}
-                  disabled={!isCustom}
-                  fontOptions={fontOptions}
-                  label={t(browserFontRoleLabelKeys[role])}
-                  role={role}
-                  value={draft.fonts.families[role] ?? ""}
-                  onValueChange={handleFontFamilyChange}
-                />
-              ))}
-            </div>
-
+          <div className="glass-divider grid gap-3 border-b px-4 py-3 last:border-b-0">
             <BrowserFontsPreview settings={draft} t={t} />
-
             {isLoadingFonts ? (
               <p className="text-xs leading-5 text-muted-foreground">{t("settings.browserFontsLoading")}</p>
             ) : null}
           </div>
-        </div>
 
-        <div className="glass-divider flex flex-wrap justify-end gap-2 border-t px-5 py-4">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={isSaving}
-            onClick={() => setDraft(DEFAULT_GAME_BROWSER_SETTINGS)}
-          >
-            <RotateCcw size={14} />
-            {t("settings.browserFontsReset")}
-          </Button>
-          <Button type="button" variant="outline" disabled={isSaving} onClick={onCancel}>
-            {t("settings.browserFontsCancel")}
-          </Button>
-          <Button type="button" disabled={isSaving} onClick={() => void handleSave()}>
-            {t("settings.browserFontsSave")}
-          </Button>
-        </div>
-      </Surface>
-    </div>
+          <div className="glass-divider flex flex-wrap items-center justify-end gap-2 border-b px-4 py-3 last:border-b-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSaving}
+              onClick={() => void saveSettings(DEFAULT_GAME_BROWSER_SETTINGS)}
+            >
+              <RotateCcw size={14} />
+              {t("settings.browserFontsReset")}
+            </Button>
+            <Button type="button" disabled={isSaving || !isDirty} onClick={() => void saveSettings(draft)}>
+              {t("settings.browserFontsSave")}
+            </Button>
+          </div>
+        </>
+      ) : null}
+    </>
   );
 }
 
@@ -732,7 +728,6 @@ function BrowserFontsPreview({ settings, t }: { settings: GameBrowserSettings; t
 
   return (
     <div className="glass-inset grid gap-2 rounded-md px-3 py-3 text-xs leading-5 text-muted-foreground">
-      <p className="font-semibold text-foreground">{t("settings.browserFontsPreview")}</p>
       <p style={{ fontFamily: standardFamily }}>{t("settings.browserFontsPreviewText")}</p>
       <p style={{ fontFamily: fixedFamily }}>0123456789 ABC abc</p>
       <div

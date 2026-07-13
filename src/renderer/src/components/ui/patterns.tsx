@@ -79,7 +79,7 @@ export function PageFrame({
 export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   actions?: ReactNode;
   description?: ReactNode;
-  kicker: ReactNode;
+  kicker?: ReactNode;
   title: ReactNode;
 }
 
@@ -87,7 +87,7 @@ export function PageHeader({ actions, className, description, kicker, title, ...
   return (
     <header className={cn("app-page-header flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between", className)} {...props}>
       <div className="min-w-0 max-w-2xl">
-        <p className="app-page-kicker">{kicker}</p>
+        {kicker ? <p className="app-page-kicker">{kicker}</p> : null}
         <h1 className="app-page-title">{title}</h1>
         {description ? <p className="app-page-description">{description}</p> : null}
       </div>

@@ -80,7 +80,6 @@ function MacrosRoute({
   return (
     <PageFrame>
       <PageHeader
-        kicker={t("macros.kicker")}
         title={t("macros.title")}
         description={t("macros.description")}
         actions={

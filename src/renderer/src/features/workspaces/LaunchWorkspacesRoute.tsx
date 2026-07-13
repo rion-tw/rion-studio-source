@@ -64,7 +64,6 @@ function LaunchWorkspacesView({
   return (
     <PageFrame>
       <PageHeader
-        kicker={t("workspaces.kicker")}
         title={t("workspaces.title")}
         description={t("workspaces.description")}
         actions={

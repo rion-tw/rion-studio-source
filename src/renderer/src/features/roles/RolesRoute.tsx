@@ -96,7 +96,6 @@ function RolesView({
   return (
     <PageFrame>
       <PageHeader
-        kicker={t("roles.kicker")}
         title={t("roles.title")}
         description={t("roles.description")}
         actions={

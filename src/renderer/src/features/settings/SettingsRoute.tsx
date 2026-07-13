@@ -614,7 +614,8 @@ function BrowserFontsSettingsRows({
 
       {isExpanded ? (
         <div className="px-4 pb-4 pt-1">
-          <div className="glass-inset grid gap-4 rounded-md border border-border/40 p-4">
+          <div className="mb-4 h-px bg-border/35" />
+          <div className="grid gap-4">
             <div className="grid gap-3 sm:grid-cols-2">
               {browserFontFamilyRoles.map((role) => (
                 <BrowserFontFamilyInput
@@ -702,7 +703,7 @@ function BrowserFontsPreview({ settings, t }: { settings: GameBrowserSettings; t
   const mathFamily = families.math || standardFamily;
 
   return (
-    <div className="grid gap-2 rounded-md border border-border/35 bg-background/25 px-3 py-3 text-xs leading-5 text-muted-foreground">
+    <div className="grid gap-2 rounded-md border border-border/25 px-3 py-3 text-xs leading-5 text-muted-foreground">
       <p style={{ fontFamily: standardFamily }}>{t("settings.browserFontsPreviewText")}</p>
       <p style={{ fontFamily: fixedFamily }}>0123456789 ABC abc</p>
       <div

@@ -17,15 +17,15 @@ Rion Studio 幫助網頁遊戲玩家在一個桌面 App 中整理每個角色、
 
 ### macOS 安裝
 
-macOS 版本使用 ad-hoc 簽章，而不是付費 Developer ID。請開啟 DMG、將 Rion Studio 拖到 Applications，然後先嘗試開啟一次。如果 macOS 阻擋開啟，請前往 **System Settings > Privacy & Security**，再對 Rion Studio 點擊 **Open Anyway**。
+macOS 內測版使用 ad-hoc 簽章，尚未透過 Apple Developer ID notarization。請開啟 DMG、將 Rion Studio 拖到 Applications，然後先嘗試開啟一次。如果 macOS 阻擋開啟，請前往 **System Settings > Privacy & Security**，再對 Rion Studio 點擊 **Open Anyway**。
 
-如果沒有出現 **Open Anyway**，可以在 Terminal 使用這個一次性的備用指令：
+如果沒有出現 **Open Anyway**，且你信任下載來源，可以在 Terminal 使用這個一次性的備用指令：
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
 ```
 
-這個備用指令只會移除 Rion Studio 的 quarantine 屬性，不會在系統層級停用 Gatekeeper。
+這個備用指令只會移除 Rion Studio 的 quarantine 屬性，不會替 App 完成 notarization，也不會在系統層級停用 Gatekeeper。
 
 ## 為什麼使用 Rion Studio
 

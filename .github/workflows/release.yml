@@ -88,6 +88,27 @@ jobs:
             grep -Fx "Signature=adhoc" <<< "${signature_info}"
             grep -Fx "TeamIdentifier=not set" <<< "${signature_info}"
             grep -E '^Sealed Resources version=[0-9]+' <<< "${signature_info}"
+
+            verify_entitlement() {
+              local signed_path="$1"
+              local key="$2"
+              local entitlements
+              entitlements="$(codesign -d --entitlements :- "${signed_path}" 2>/dev/null)"
+              grep -F "<key>${key}</key>" <<< "${entitlements}"
+            }
+
+            verify_entitlement "${app_path}" "com.apple.security.cs.allow-jit"
+            verify_entitlement "${app_path}" "com.apple.security.cs.disable-library-validation"
+
+            for helper_name in \
+              "Rion Studio Helper.app" \
+              "Rion Studio Helper (Renderer).app" \
+              "Rion Studio Helper (GPU).app" \
+              "Rion Studio Helper (Plugin).app"; do
+              helper_path="${app_path}/Contents/Frameworks/${helper_name}"
+              verify_entitlement "${helper_path}" "com.apple.security.cs.allow-jit"
+              verify_entitlement "${helper_path}" "com.apple.security.cs.disable-library-validation"
+            done
           fi
 
   semantic-release:
@@ -180,6 +201,27 @@ jobs:
           grep -Fx "Signature=adhoc" <<< "${signature_info}"
           grep -Fx "TeamIdentifier=not set" <<< "${signature_info}"
           grep -E '^Sealed Resources version=[0-9]+' <<< "${signature_info}"
+
+          verify_entitlement() {
+            local signed_path="$1"
+            local key="$2"
+            local entitlements
+            entitlements="$(codesign -d --entitlements :- "${signed_path}" 2>/dev/null)"
+            grep -F "<key>${key}</key>" <<< "${entitlements}"
+          }
+
+          verify_entitlement "${app_path}" "com.apple.security.cs.allow-jit"
+          verify_entitlement "${app_path}" "com.apple.security.cs.disable-library-validation"
+
+          for helper_name in \
+            "Rion Studio Helper.app" \
+            "Rion Studio Helper (Renderer).app" \
+            "Rion Studio Helper (GPU).app" \
+            "Rion Studio Helper (Plugin).app"; do
+            helper_path="${app_path}/Contents/Frameworks/${helper_name}"
+            verify_entitlement "${helper_path}" "com.apple.security.cs.allow-jit"
+            verify_entitlement "${helper_path}" "com.apple.security.cs.disable-library-validation"
+          done
 
       - name: Upload release assets
         shell: bash

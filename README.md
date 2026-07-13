@@ -22,18 +22,20 @@ and confirm the release has finished uploading assets.
 
 ### macOS Installation
 
-The macOS build uses an ad-hoc signature rather than a paid Developer ID. Open the DMG,
-drag Rion Studio to Applications, and try to open it once. If macOS blocks it, open
-**System Settings > Privacy & Security**, then click **Open Anyway** for Rion Studio.
+The macOS beta build uses an ad-hoc signature and is not notarized with Apple
+Developer ID. Open the DMG, drag Rion Studio to Applications, and try to open it
+once. If macOS blocks it, open **System Settings > Privacy & Security**, then
+click **Open Anyway** for Rion Studio.
 
-If **Open Anyway** is unavailable, use this one-time fallback in Terminal:
+If **Open Anyway** is unavailable and you trust the download source, use this
+one-time fallback in Terminal:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
 ```
 
-This fallback removes quarantine only from Rion Studio. It does not disable Gatekeeper
-system-wide.
+This fallback removes quarantine only from Rion Studio. It does not notarize the
+app or disable Gatekeeper system-wide.
 
 ## Why Rion Studio
 

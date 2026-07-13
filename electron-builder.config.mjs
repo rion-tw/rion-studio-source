@@ -37,8 +37,12 @@ const config = {
   mac: {
     icon: "build/icon.icns",
     category: "public.app-category.utilities",
-    identity: null,
-    hardenedRuntime: false,
+    identity: "-",
+    hardenedRuntime: true,
+    entitlements: "build/entitlements.mac.plist",
+    entitlementsInherit: "build/entitlements.mac.inherit.plist",
+    notarize: false,
+    sign: "build/signMacAdHoc.mjs",
     target: ["dmg", "zip"]
   },
   dmg: {

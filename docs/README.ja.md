@@ -17,15 +17,15 @@ Rion Studio は、Web ゲームのプレイヤーが各ロール、ログイン�
 
 ### macOS へのインストール
 
-macOS ビルドは、有料の Developer ID ではなく ad-hoc 署名を使用しています。DMG を開き、Rion Studio を Applications にドラッグしてから、一度起動してみてください。macOS によってブロックされた場合は、**System Settings > Privacy & Security** を開き、Rion Studio の **Open Anyway** をクリックしてください。
+macOS ベータビルドは ad-hoc 署名を使用しており、Apple Developer ID で notarization されていません。DMG を開き、Rion Studio を Applications にドラッグしてから、一度起動してみてください。macOS によってブロックされた場合は、**System Settings > Privacy & Security** を開き、Rion Studio の **Open Anyway** をクリックしてください。
 
-**Open Anyway** が表示されない場合は、Terminal で次の一度限りの代替コマンドを使用できます。
+**Open Anyway** が表示されず、ダウンロード元を信頼できる場合は、Terminal で次の一度限りの代替コマンドを使用できます。
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
 ```
 
-この代替コマンドは Rion Studio から quarantine 属性だけを削除します。Gatekeeper をシステム全体で無効化するものではありません。
+この代替コマンドは Rion Studio から quarantine 属性だけを削除します。App を notarization するものではなく、Gatekeeper をシステム全体で無効化するものでもありません。
 
 ## Rion Studio を使う理由
 

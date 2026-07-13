@@ -2,54 +2,25 @@ import { mkdir, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { assertNoBundledPlaywrightBrowsers, signMacApp } from "../build/afterPack.mjs";
+import afterPack, { assertNoBundledPlaywrightBrowsers } from "../build/afterPack.mjs";
 
-describe("macOS afterPack signing", () => {
-  it("ad-hoc signs the complete macOS app bundle", async () => {
-    const signer = vi.fn().mockResolvedValue(undefined);
-
-    await signMacApp(
-      {
-        electronPlatformName: "darwin",
-        appOutDir: "/tmp/mac-arm64",
-        packager: { appInfo: { productFilename: "Rion Studio" } }
-      },
-      signer
-    );
-
-    expect(signer).toHaveBeenCalledOnce();
-    expect(signer).toHaveBeenCalledWith({
-      app: join("/tmp/mac-arm64", "Rion Studio.app"),
-      identity: "-",
-      identityValidation: false,
-      platform: "darwin",
-      hardenedRuntime: false,
-      preAutoEntitlements: false,
-      preEmbedProvisioningProfile: false,
-      strictVerify: false,
-      timestamp: "none"
-    });
+describe("packaged browser payload guard", () => {
+  it("uses the Playwright browser payload guard as the afterPack hook", () => {
+    expect(afterPack).toBe(assertNoBundledPlaywrightBrowsers);
   });
 
-  it("does not sign Windows output", async () => {
-    const signer = vi.fn();
-
-    await signMacApp(
-      {
+  it("does not inspect non-macOS output", () => {
+    expect(() =>
+      assertNoBundledPlaywrightBrowsers({
         electronPlatformName: "win32",
         appOutDir: "/tmp/win-unpacked",
         packager: { appInfo: { productFilename: "Rion Studio" } }
-      },
-      signer
-    );
-
-    expect(signer).not.toHaveBeenCalled();
+      })
+    ).not.toThrow();
   });
-});
 
-describe("packaged browser payload guard", () => {
   it("allows macOS output without Playwright browser payload", () => {
     expect(() =>
       assertNoBundledPlaywrightBrowsers({

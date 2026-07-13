@@ -54,14 +54,20 @@ re-logged from the edit panel.
 Packaged builds do not include Chromium. Playwright controls the user's installed
 Google Chrome with isolated per-role browser profiles.
 
-macOS packaging uses a complete ad-hoc signature without hardened runtime.
-Release validation requires the app bundle and its nested code to pass strict
-`codesign` verification. A paid Developer ID Application certificate and Apple
-notarization would still be required for warning-free Gatekeeper launches.
+macOS packaging uses a complete ad-hoc signature with hardened runtime. The main
+app and helper apps must include `com.apple.security.cs.allow-jit` and
+`com.apple.security.cs.disable-library-validation` so ad-hoc hardened runtime
+builds can load Electron Framework after the user approves Gatekeeper. Release
+validation requires the app bundle and its nested code to pass strict `codesign`
+verification and entitlement checks. `build/signMacAdHoc.mjs` is wired through
+electron-builder's `mac.sign` option because the current electron-builder
+version does not treat `identity: "-"` as an ad-hoc signing identity by itself.
+A paid Developer ID Application certificate and Apple notarization would still
+be required for warning-free Gatekeeper launches.
 
 Ad-hoc-signed macOS builds use a manual update flow. The app checks GitHub
 Releases, opens the matching DMG when an update is available, and guides users to
 drag the app to Applications. The DMG includes `Install Help.txt` with the
-Privacy & Security approval flow and a scoped quarantine-removal fallback. Set
-`RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at runtime if release assets are
-hosted outside the default repository.
+Privacy & Security approval flow and a scoped quarantine-removal fallback for
+trusted downloads. Set `RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at runtime if
+release assets are hosted outside the default repository.

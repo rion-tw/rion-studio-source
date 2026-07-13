@@ -1,0 +1,36 @@
+import { readFile } from "node:fs/promises";
+
+import { describe, expect, it } from "vitest";
+
+import config from "../electron-builder.config.mjs";
+
+describe("electron-builder macOS configuration", () => {
+  it("uses electron-builder-managed ad-hoc signing with explicit hardened runtime entitlements", () => {
+    expect(config.afterPack).toBe("build/afterPack.mjs");
+    expect(config.mac).toMatchObject({
+      identity: "-",
+      hardenedRuntime: true,
+      entitlements: "build/entitlements.mac.plist",
+      entitlementsInherit: "build/entitlements.mac.inherit.plist",
+      notarize: false,
+      sign: "build/signMacAdHoc.mjs",
+      target: ["dmg", "zip"]
+    });
+  });
+
+  it("includes the entitlements required for ad-hoc hardened runtime Electron bundles", async () => {
+    const [mainEntitlements, inheritedEntitlements] = await Promise.all([
+      readFile("build/entitlements.mac.plist", "utf8"),
+      readFile("build/entitlements.mac.inherit.plist", "utf8")
+    ]);
+
+    for (const entitlements of [mainEntitlements, inheritedEntitlements]) {
+      expect(entitlements).toContain("<key>com.apple.security.cs.allow-jit</key>");
+      expect(entitlements).toContain("<key>com.apple.security.cs.disable-library-validation</key>");
+    }
+
+    expect(mainEntitlements).toContain("<key>com.apple.security.device.camera</key>");
+    expect(mainEntitlements).toContain("<key>com.apple.security.device.audio-input</key>");
+    expect(inheritedEntitlements).toContain("<key>com.apple.security.cs.allow-unsigned-executable-memory</key>");
+  });
+});

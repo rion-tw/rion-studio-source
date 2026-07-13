@@ -374,14 +374,14 @@ function WorkspaceLayoutPreviewSlot({ index, role, t, template }: WorkspaceLayou
   const cornerConfig = getWorkspaceLayoutPreviewSlotCornerConfig(template, index);
   const style = {
     ...createWorkspaceSlotBackground(role),
-    "--workspace-slot-caption-bottom-left-radius": cornerConfig.hasBottomLeftRadius ? "var(--radius-md)" : "0px",
-    "--workspace-slot-caption-bottom-right-radius": cornerConfig.hasBottomRightRadius ? "var(--radius-md)" : "0px"
+    "--workspace-slot-caption-bottom-left-radius": "0px",
+    "--workspace-slot-caption-bottom-right-radius": "0px"
   } as CSSProperties & Record<"--workspace-slot-caption-bottom-left-radius" | "--workspace-slot-caption-bottom-right-radius", string>;
 
   return (
     <div
       className={cn(
-        "relative isolate h-full min-h-0 w-full min-w-0 bg-cover bg-center bg-clip-padding",
+        "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden bg-cover bg-center bg-clip-padding",
         cornerConfig.className,
         role ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
       )}
@@ -410,8 +410,6 @@ function WorkspaceLayoutPreviewSlot({ index, role, t, template }: WorkspaceLayou
 
 interface WorkspaceLayoutPreviewSlotCornerConfig {
   className: string;
-  hasBottomLeftRadius: boolean;
-  hasBottomRightRadius: boolean;
 }
 
 function getWorkspaceLayoutPreviewSlotCornerConfig(
@@ -423,12 +421,8 @@ function getWorkspaceLayoutPreviewSlotCornerConfig(
   return {
     className: cn(
       corners.topLeft && "rounded-tl-md",
-      corners.topRight && "rounded-tr-md",
-      corners.bottomRight && "rounded-br-md",
-      corners.bottomLeft && "rounded-bl-md"
-    ),
-    hasBottomLeftRadius: corners.bottomLeft,
-    hasBottomRightRadius: corners.bottomRight
+      corners.topRight && "rounded-tr-md"
+    )
   };
 }
 

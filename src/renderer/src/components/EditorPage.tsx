@@ -10,7 +10,11 @@ import {
 
 import { Button } from "./ui/button";
 import { Surface } from "./ui/patterns";
-import { focusEditorTitle, normalizeEditorTitle } from "../app/editorTitle";
+import {
+  focusEditorTitle,
+  normalizeEditorTitle,
+  syncEditorTitle
+} from "../app/editorTitle";
 import { cn } from "../lib/utils";
 
 interface EditorPageProps {
@@ -154,17 +158,17 @@ function EditableEditorTitle({
   const hasFocusedRef = useRef(false);
 
   useLayoutEffect(() => {
+    if (titleRef.current) {
+      syncEditorTitle(titleRef.current, value);
+    }
+  }, [value]);
+
+  useLayoutEffect(() => {
     if (!disabled && !hasFocusedRef.current && titleRef.current) {
       hasFocusedRef.current = true;
       focusEditorTitle(titleRef.current);
     }
   }, [disabled]);
-
-  useLayoutEffect(() => {
-    if (titleRef.current && titleRef.current.textContent !== value) {
-      titleRef.current.textContent = value;
-    }
-  }, [value]);
 
   return (
     <span
@@ -195,9 +199,7 @@ function EditableEditorTitle({
           event.preventDefault();
         }
       }}
-    >
-      {value}
-    </span>
+    />
   );
 }
 

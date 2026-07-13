@@ -2,6 +2,12 @@ export function normalizeEditorTitle(value: string): string {
   return value.replace(/[\r\n]+/g, " ").slice(0, 80);
 }
 
+export function syncEditorTitle(element: HTMLElement, value: string): void {
+  if (element.textContent !== value) {
+    element.textContent = value;
+  }
+}
+
 export function focusEditorTitle(
   element: HTMLElement,
   selection: Selection | null = window.getSelection(),

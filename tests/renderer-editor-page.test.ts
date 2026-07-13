@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   focusEditorTitle,
-  normalizeEditorTitle
+  normalizeEditorTitle,
+  syncEditorTitle
 } from "../src/renderer/src/app/editorTitle";
 
 describe("editor page title", () => {
@@ -12,6 +13,28 @@ describe("editor page title", () => {
 
   it("limits editable names to the persisted name length", () => {
     expect(normalizeEditorTitle("a".repeat(81))).toBe("a".repeat(80));
+  });
+
+  it("does not replace matching title content and disturb the active caret", () => {
+    const setTextContent = vi.fn();
+    const element = {} as HTMLElement;
+    Object.defineProperty(element, "textContent", {
+      configurable: true,
+      get: () => "Existing title",
+      set: setTextContent
+    });
+
+    syncEditorTitle(element, "Existing title");
+
+    expect(setTextContent).not.toHaveBeenCalled();
+  });
+
+  it("synchronizes title content when the value changes externally", () => {
+    const element = { textContent: "Old title" } as HTMLElement;
+
+    syncEditorTitle(element, "New title");
+
+    expect(element.textContent).toBe("New title");
   });
 
   it("focuses the name with the caret at the end when an editor opens", () => {

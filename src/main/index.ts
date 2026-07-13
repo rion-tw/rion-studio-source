@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
 
 import { AuthManager } from "./auth/AuthManager";
 import { BrowserManager, GAME_DIVIDER_POINTER_CHANNEL } from "./browser/BrowserManager";
@@ -89,6 +89,7 @@ function createWindow({
     minHeight: 640,
     title: "Rion Studio",
     show: false,
+    autoHideMenuBar: process.platform !== "darwin",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#111111" : "#f7f7f7",
     ...(appIcon ? { icon: appIcon } : {}),
     ...macWindowOptions,
@@ -421,6 +422,10 @@ function ensureApplicationStarted(): void {
 }
 
 app.whenReady().then(() => {
+  if (process.platform !== "darwin") {
+    Menu.setApplicationMenu(null);
+  }
+
   ensureApplicationStarted();
 
   app.on("activate", () => {

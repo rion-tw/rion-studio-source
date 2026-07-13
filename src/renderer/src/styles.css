@@ -279,6 +279,11 @@
   .app-sidebar {
     position: relative;
     isolation: isolate;
+    padding-top: 0.75rem;
+  }
+
+  :root[data-platform="mac"] .app-sidebar {
+    padding-top: 54px;
   }
 
   .sidebar-settings {

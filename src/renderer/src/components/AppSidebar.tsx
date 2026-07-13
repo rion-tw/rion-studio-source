@@ -18,7 +18,7 @@ export function AppSidebar({ macroCount, roleCount, t, workspaceCount }: AppSide
   const navigate = useNavigate();
 
   return (
-    <aside className="app-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 pt-[54px] text-sidebar-foreground">
+    <aside className="app-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground">
       <div className="app-no-drag flex items-center gap-2 px-2 pb-5">
         <img className="size-9 shrink-0 rounded-lg" src={appIconUrl} alt="" aria-hidden="true" draggable={false} />
         <p className="min-w-0 truncate text-[15px] font-semibold leading-5">Rion Studio</p>

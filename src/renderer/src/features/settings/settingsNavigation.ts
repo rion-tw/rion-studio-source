@@ -36,5 +36,5 @@ export function readSettingsReturnTo(state: unknown): string {
     return state.returnTo;
   }
 
-  return "/roles";
+  return "/dashboard";
 }

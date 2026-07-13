@@ -1,4 +1,4 @@
-import { Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Home, Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -27,7 +27,14 @@ export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspace
 
       <nav className="grid gap-1" aria-label={t("app.primaryNavigation")}>
         <NavItem
-          active={location.pathname === "/roles" || location.pathname === "/"}
+          active={location.pathname === "/dashboard" || location.pathname === "/"}
+          icon={Home}
+          label={t("app.home")}
+          noDrag
+          onClick={() => navigate("/dashboard")}
+        />
+        <NavItem
+          active={location.pathname === "/roles"}
           count={roleCount}
           icon={Users}
           label={t("app.roles")}

@@ -32,6 +32,7 @@ import type {
 } from "../../shared/types";
 
 const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
+const DashboardRoute = lazy(() => import("./features/dashboard/DashboardRoute"));
 const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWorkspacesRoute"));
 const MacrosRoute = lazy(() => import("./features/macros/MacrosRoute"));
 const MacroModal = lazy(() => import("./features/macros/MacroModal"));
@@ -294,7 +295,48 @@ export function App(): JSX.Element {
 
         <Suspense fallback={<RouteFallback t={preferences.t} />}>
           <Routes>
-            <Route path="/" element={<Navigate to="/roles" replace />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route
+              path="/dashboard"
+              element={
+                hasBridge ? (
+                  <DashboardRoute
+                    authStatusByRole={data.authStatusByRole}
+                    busyMacroId={macroWorkflow.busyMacroId}
+                    busyRoleId={roleWorkflow.busyRoleId}
+                    busyRunKey={macroWorkflow.busyRunKey}
+                    busyWorkspaceId={workspaceWorkflow.busyWorkspaceId}
+                    macroStatusByRun={data.macroStatusByRun}
+                    macroStatuses={data.macroStatuses}
+                    macros={data.macros}
+                    roleStatuses={data.statuses}
+                    roles={data.roles}
+                    statusByRole={data.statusByRole}
+                    t={preferences.t}
+                    workspaces={data.workspaces}
+                    onCreateWorkspace={workspaceWorkflow.startCreateWorkspace}
+                    onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
+                    onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
+                    onLoginRole={roleWorkflow.requestSystemLogin}
+                    onNavigateMacros={navigateToMacros}
+                    onNavigateRoles={(filter) => {
+                      roleWorkflow.setActiveFilter(filter);
+                      roleWorkflow.setQuery("");
+                      navigate("/roles");
+                    }}
+                    onNavigateWorkspaces={() => navigate("/workspaces")}
+                    onNewMacro={() => macroWorkflow.startCreateMacro()}
+                    onNewRole={roleWorkflow.startCreate}
+                    onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
+                    onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
+                    onStopRole={(roleId) => void roleWorkflow.handleStop(roleId)}
+                    onStopWorkspace={(workspace) => void workspaceWorkflow.handleStopWorkspace(workspace)}
+                  />
+                ) : (
+                  <BridgeUnavailable t={preferences.t} />
+                )
+              }
+            />
             <Route
               path="/roles"
               element={
@@ -405,7 +447,7 @@ export function App(): JSX.Element {
                 />
               }
             />
-            <Route path="*" element={<Navigate to="/roles" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Suspense>
       </main>

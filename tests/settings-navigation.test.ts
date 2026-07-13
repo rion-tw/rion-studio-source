@@ -21,8 +21,8 @@ describe("settings navigation", () => {
 
   it("returns to a valid application route", () => {
     expect(readSettingsReturnTo({ returnTo: "/macros?filter=running" })).toBe("/macros?filter=running");
-    expect(readSettingsReturnTo({ returnTo: "/settings?section=updates" })).toBe("/roles");
-    expect(readSettingsReturnTo({ returnTo: "https://example.com" })).toBe("/roles");
-    expect(readSettingsReturnTo(null)).toBe("/roles");
+    expect(readSettingsReturnTo({ returnTo: "/settings?section=updates" })).toBe("/dashboard");
+    expect(readSettingsReturnTo({ returnTo: "https://example.com" })).toBe("/dashboard");
+    expect(readSettingsReturnTo(null)).toBe("/dashboard");
   });
 });

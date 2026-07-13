@@ -113,7 +113,6 @@ function RoleEditor({
   return (
     <EditorPage
       backLabel={t("editor.back.roles")}
-      cancelLabel={t("roleForm.cancel")}
       canSubmit={canSubmit}
       description={form.id ? t("roleForm.description.edit") : t("roleForm.description.new")}
       isSaving={isSaving}

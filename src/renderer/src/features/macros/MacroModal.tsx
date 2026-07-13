@@ -111,7 +111,6 @@ function MacroEditor({
   return (
     <EditorPage
       backLabel={t("editor.back.macros")}
-      cancelLabel={t("macroForm.cancel")}
       canSubmit={canSubmit}
       description={form.id ? t("macroForm.description.edit") : t("macroForm.description.new")}
       isSaving={isSaving}

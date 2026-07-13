@@ -369,6 +369,21 @@
     background: linear-gradient(90deg, hsl(var(--glass-border-muted)), hsl(var(--glass-highlight-muted)) 48%, transparent);
   }
 
+  .app-editor-header {
+    position: relative;
+    padding-bottom: 0.875rem;
+  }
+
+  .app-editor-header::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    content: "";
+    background: linear-gradient(90deg, hsl(var(--glass-border-muted)), hsl(var(--glass-highlight-muted)) 48%, transparent);
+  }
+
   .app-page-kicker {
     color: hsl(var(--muted-foreground));
     font-size: 11px;

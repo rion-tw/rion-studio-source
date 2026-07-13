@@ -120,7 +120,6 @@ function WorkspaceEditor({
   return (
     <EditorPage
       backLabel={t("editor.back.workspaces")}
-      cancelLabel={t("workspaceForm.cancel")}
       canSubmit={canSubmit}
       description={form.id ? t("workspaceForm.description.edit") : t("workspaceForm.description.new")}
       isSaving={isSaving}

@@ -9,13 +9,12 @@ import {
 } from "react";
 
 import { Button } from "./ui/button";
-import { PageHeader, Surface } from "./ui/patterns";
+import { Surface } from "./ui/patterns";
 import { focusEditorTitle, normalizeEditorTitle } from "../app/editorTitle";
 import { cn } from "../lib/utils";
 
 interface EditorPageProps {
   backLabel: string;
-  cancelLabel: string;
   canSubmit?: boolean;
   children: ReactNode;
   contentClassName?: string;
@@ -34,7 +33,6 @@ interface EditorPageProps {
 
 export function EditorPage({
   backLabel,
-  cancelLabel,
   canSubmit = true,
   children,
   contentClassName,
@@ -85,51 +83,49 @@ export function EditorPage({
         onSubmit={onSubmit}
       >
         <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-4">
-          <Button
-            className="-ml-2 self-start px-2"
-            type="button"
-            variant="ghost"
-            size="sm"
-            title={backLabel}
-            onClick={onCancel}
-            disabled={isSaving}
-          >
-            <ArrowLeft size={14} />
-            {backLabel}
-          </Button>
+          <header className="app-editor-header grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3">
+            <Button
+              aria-label={backLabel}
+              className="self-start"
+              type="button"
+              variant="ghost"
+              size="icon"
+              title={backLabel}
+              onClick={onCancel}
+              disabled={isSaving}
+            >
+              <ArrowLeft size={15} />
+            </Button>
 
-          <PageHeader
-            title={
-              <EditableEditorTitle
-                ariaLabel={titleAriaLabel}
-                disabled={isSaving}
-                placeholder={titlePlaceholder}
-                value={title}
-                onChange={onTitleChange}
-              />
-            }
-            description={description}
-            actions={
-              <>
-                {saveHint ? (
-                  <p className="flex min-h-8 items-center text-xs font-medium text-muted-foreground">
-                    {saveHint}
-                  </p>
-                ) : null}
-                <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
-                  {cancelLabel}
-                </Button>
-                <Button
-                  className="min-w-[132px]"
-                  type="submit"
-                  disabled={isSaving || !canSubmit}
-                >
-                  {isSaving ? <Loader2 className="spin" size={16} /> : saveIcon}
-                  {saveLabel}
-                </Button>
-              </>
-            }
-          />
+            <div className="min-w-0">
+              <h1 className="app-page-title min-w-0 truncate">
+                <EditableEditorTitle
+                  ariaLabel={titleAriaLabel}
+                  disabled={isSaving}
+                  placeholder={titlePlaceholder}
+                  value={title}
+                  onChange={onTitleChange}
+                />
+              </h1>
+              <p className="app-page-description truncate">{description}</p>
+            </div>
+
+            <div className="flex min-w-[132px] flex-col items-end gap-1.5">
+              {saveHint ? (
+                <p className="max-w-56 truncate text-right text-xs font-medium text-muted-foreground">
+                  {saveHint}
+                </p>
+              ) : null}
+              <Button
+                className="min-w-[132px]"
+                type="submit"
+                disabled={isSaving || !canSubmit}
+              >
+                {isSaving ? <Loader2 className="spin" size={16} /> : saveIcon}
+                {saveLabel}
+              </Button>
+            </div>
+          </header>
 
           <div className={cn("grid gap-4", contentClassName)}>
             {children}

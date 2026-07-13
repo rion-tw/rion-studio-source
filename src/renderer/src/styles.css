@@ -279,7 +279,7 @@
   .app-sidebar {
     position: relative;
     isolation: isolate;
-    padding-top: 0.75rem;
+    padding-top: 1.25rem;
   }
 
   :root[data-platform="mac"] .app-sidebar {

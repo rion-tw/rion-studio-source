@@ -162,7 +162,7 @@ function WorkspaceCard({
   return (
     <Card className="group relative overflow-visible glass-panel-strong transition-shadow duration-200">
       <WorkspaceLayoutPreview
-        className="aspect-[4/3] p-2"
+        className="aspect-[4/3] p-1"
         roleById={roleById}
         slots={workspace.slots}
         t={t}
@@ -242,13 +242,14 @@ function WorkspaceLayoutPreview({
         index={index}
         role={role}
         t={t}
+        template={template}
       />
     );
   }
 
   function renderSplitRow(topSlotIndex: number, bottomSlotIndex: number): JSX.Element {
     return (
-      <div className="flex h-full min-h-0 min-w-0 gap-2">
+      <div className="flex h-full min-h-0 min-w-0 gap-1">
         <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitX)}>
           {renderSlot(slots[topSlotIndex], topSlotIndex)}
         </div>
@@ -265,7 +266,7 @@ function WorkspaceLayoutPreview({
         return <div className="flex h-full min-h-0">{renderSlot(slots[0], 0)}</div>;
       case "two_columns":
         return (
-          <div className="flex h-full min-h-0 gap-2">
+          <div className="flex h-full min-h-0 gap-1">
             <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitX)}>
               {renderSlot(slots[0], 0)}
             </div>
@@ -276,11 +277,11 @@ function WorkspaceLayoutPreview({
         );
       case "main_left_stack_right":
         return (
-          <div className="flex h-full min-h-0 gap-2">
+          <div className="flex h-full min-h-0 gap-1">
             <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitX)}>
               {renderSlot(slots[0], 0)}
             </div>
-            <div className="flex min-h-0 min-w-0 flex-col gap-2" style={createPreviewFlexStyle(1 - splitX)}>
+            <div className="flex min-h-0 min-w-0 flex-col gap-1" style={createPreviewFlexStyle(1 - splitX)}>
               <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
                 {renderSlot(slots[1], 1)}
               </div>
@@ -292,8 +293,8 @@ function WorkspaceLayoutPreview({
         );
       case "main_right_stack_left":
         return (
-          <div className="flex h-full min-h-0 gap-2">
-            <div className="flex min-h-0 min-w-0 flex-col gap-2" style={createPreviewFlexStyle(splitX)}>
+          <div className="flex h-full min-h-0 gap-1">
+            <div className="flex min-h-0 min-w-0 flex-col gap-1" style={createPreviewFlexStyle(splitX)}>
               <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
                 {renderSlot(slots[1], 1)}
               </div>
@@ -308,7 +309,7 @@ function WorkspaceLayoutPreview({
         );
       case "quad":
         return (
-          <div className="flex h-full min-h-0 flex-col gap-2">
+          <div className="flex h-full min-h-0 flex-col gap-1">
             <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
               {renderSplitRow(0, 1)}
             </div>
@@ -320,7 +321,7 @@ function WorkspaceLayoutPreview({
       case "three_columns":
       case "four_columns":
         return (
-          <div className="flex h-full min-h-0 gap-2">
+          <div className="flex h-full min-h-0 gap-1">
             {slots.map((slot, index) => (
               <div key={slot.id} className="min-h-0 min-w-0" style={createPreviewFlexStyle(slot.rect.width)}>
                 {renderSlot(slot, index)}
@@ -332,7 +333,7 @@ function WorkspaceLayoutPreview({
   }
 
   return (
-    <div className={cn("relative overflow-hidden rounded-md bg-background/30", className)}>
+    <div className={cn("relative rounded-md bg-background/30", className)}>
       {renderLayout()}
     </div>
   );
@@ -342,20 +343,28 @@ interface WorkspaceLayoutPreviewSlotProps {
   index: number;
   role: Role | undefined;
   t: Translator;
+  template: WorkspaceLayoutTemplate;
 }
 
-function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
+function WorkspaceLayoutPreviewSlot({ index, role, t, template }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
   const launchGameName = role ? resolveWorkspaceRoleLaunchGameName(role.launchUrl, t) : "";
+  const cornerConfig = getWorkspaceLayoutPreviewSlotCornerConfig(template, index);
+  const style = {
+    ...createWorkspaceSlotBackground(role),
+    "--workspace-slot-caption-bottom-left-radius": cornerConfig.hasBottomLeftRadius ? "var(--radius-md)" : "0px",
+    "--workspace-slot-caption-bottom-right-radius": cornerConfig.hasBottomRightRadius ? "var(--radius-md)" : "0px"
+  } as CSSProperties & Record<"--workspace-slot-caption-bottom-left-radius" | "--workspace-slot-caption-bottom-right-radius", string>;
 
   return (
     <div
       className={cn(
-        "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden rounded-sm bg-cover bg-center bg-clip-padding [--workspace-slot-radius:0.125rem]",
+        "relative isolate h-full min-h-0 w-full min-w-0 bg-cover bg-center bg-clip-padding",
+        cornerConfig.className,
         role ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
       )}
-      style={createWorkspaceSlotBackground(role)}
+      style={style}
     >
-      <div className="workspace-slot-caption">
+      <div className="workspace-slot-caption workspace-slot-caption--compact">
         <p className="workspace-slot-caption-title gap-1.5 text-[11px] font-semibold leading-4">
           {role ? (
             <span className="workspace-role-chip-text">
@@ -374,6 +383,76 @@ function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSl
       ) : null}
     </div>
   );
+}
+
+interface WorkspaceLayoutPreviewSlotCornerConfig {
+  className: string;
+  hasBottomLeftRadius: boolean;
+  hasBottomRightRadius: boolean;
+}
+
+function getWorkspaceLayoutPreviewSlotCornerConfig(
+  template: WorkspaceLayoutTemplate,
+  index: number
+): WorkspaceLayoutPreviewSlotCornerConfig {
+  const corners = getWorkspaceLayoutPreviewSlotCorners(template, index);
+
+  return {
+    className: cn(
+      corners.topLeft && "rounded-tl-md",
+      corners.topRight && "rounded-tr-md",
+      corners.bottomRight && "rounded-br-md",
+      corners.bottomLeft && "rounded-bl-md"
+    ),
+    hasBottomLeftRadius: corners.bottomLeft,
+    hasBottomRightRadius: corners.bottomRight
+  };
+}
+
+function getWorkspaceLayoutPreviewSlotCorners(
+  template: WorkspaceLayoutTemplate,
+  index: number
+): { bottomLeft: boolean; bottomRight: boolean; topLeft: boolean; topRight: boolean } {
+  switch (template) {
+    case "single":
+      return { topLeft: true, topRight: true, bottomRight: true, bottomLeft: true };
+    case "two_columns":
+      return {
+        topLeft: index === 0,
+        topRight: index === 1,
+        bottomRight: index === 1,
+        bottomLeft: index === 0
+      };
+    case "three_columns":
+    case "four_columns":
+      return {
+        topLeft: index === 0,
+        topRight: index === (template === "three_columns" ? 2 : 3),
+        bottomRight: index === (template === "three_columns" ? 2 : 3),
+        bottomLeft: index === 0
+      };
+    case "main_left_stack_right":
+      return {
+        topLeft: index === 0,
+        topRight: index === 1,
+        bottomRight: index === 2,
+        bottomLeft: index === 0
+      };
+    case "main_right_stack_left":
+      return {
+        topLeft: index === 1,
+        topRight: index === 0,
+        bottomRight: index === 0,
+        bottomLeft: index === 2
+      };
+    case "quad":
+      return {
+        topLeft: index === 0,
+        topRight: index === 1,
+        bottomRight: index === 3,
+        bottomLeft: index === 2
+      };
+  }
 }
 
 function createPreviewFlexStyle(weight: number): CSSProperties {

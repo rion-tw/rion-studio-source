@@ -774,25 +774,53 @@
     min-width: 0;
     min-height: 3.7rem;
     overflow: hidden;
-    border-bottom-right-radius: var(--workspace-slot-radius, 0.5rem);
-    border-bottom-left-radius: var(--workspace-slot-radius, 0.5rem);
+    border-bottom-right-radius: var(
+      --workspace-slot-caption-bottom-right-radius,
+      var(--workspace-slot-radius, 0.5rem)
+    );
+    border-bottom-left-radius: var(
+      --workspace-slot-caption-bottom-left-radius,
+      var(--workspace-slot-radius, 0.5rem)
+    );
     isolation: isolate;
     padding: 0 0.75rem 0.82rem;
     pointer-events: none;
-    -webkit-clip-path: inset(0 round 0 0 var(--workspace-slot-radius, 0.5rem) var(--workspace-slot-radius, 0.5rem));
-    clip-path: inset(0 round 0 0 var(--workspace-slot-radius, 0.5rem) var(--workspace-slot-radius, 0.5rem));
+    -webkit-clip-path: inset(
+      0 round 0 0
+        var(--workspace-slot-caption-bottom-right-radius, var(--workspace-slot-radius, 0.5rem))
+        var(--workspace-slot-caption-bottom-left-radius, var(--workspace-slot-radius, 0.5rem))
+    );
+    clip-path: inset(
+      0 round 0 0
+        var(--workspace-slot-caption-bottom-right-radius, var(--workspace-slot-radius, 0.5rem))
+        var(--workspace-slot-caption-bottom-left-radius, var(--workspace-slot-radius, 0.5rem))
+    );
   }
 
   .workspace-slot-caption::before,
   .workspace-slot-caption::after {
     position: absolute;
     inset: auto 0 0;
-    border-bottom-right-radius: var(--workspace-slot-radius, 0.5rem);
-    border-bottom-left-radius: var(--workspace-slot-radius, 0.5rem);
+    border-bottom-right-radius: var(
+      --workspace-slot-caption-bottom-right-radius,
+      var(--workspace-slot-radius, 0.5rem)
+    );
+    border-bottom-left-radius: var(
+      --workspace-slot-caption-bottom-left-radius,
+      var(--workspace-slot-radius, 0.5rem)
+    );
     pointer-events: none;
     content: "";
-    -webkit-clip-path: inset(0 round 0 0 var(--workspace-slot-radius, 0.5rem) var(--workspace-slot-radius, 0.5rem));
-    clip-path: inset(0 round 0 0 var(--workspace-slot-radius, 0.5rem) var(--workspace-slot-radius, 0.5rem));
+    -webkit-clip-path: inset(
+      0 round 0 0
+        var(--workspace-slot-caption-bottom-right-radius, var(--workspace-slot-radius, 0.5rem))
+        var(--workspace-slot-caption-bottom-left-radius, var(--workspace-slot-radius, 0.5rem))
+    );
+    clip-path: inset(
+      0 round 0 0
+        var(--workspace-slot-caption-bottom-right-radius, var(--workspace-slot-radius, 0.5rem))
+        var(--workspace-slot-caption-bottom-left-radius, var(--workspace-slot-radius, 0.5rem))
+    );
   }
 
   .workspace-slot-caption::before {
@@ -815,6 +843,31 @@
       radial-gradient(78% 90% at 18% 100%, color-mix(in srgb, var(--role-cover-accent, hsl(var(--primary))) 28%, transparent) 0%, transparent 70%);
     -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.54) 30%, #000 100%);
     mask-image: linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.54) 30%, #000 100%);
+  }
+
+  .workspace-slot-caption--compact {
+    min-height: 0;
+    padding: 1.05rem 0.55rem 0.55rem;
+  }
+
+  .workspace-slot-caption--compact::before {
+    height: 100%;
+    background:
+      linear-gradient(180deg, transparent 0%, hsl(0 0% 0% / 0.18) 45%, hsl(0 0% 0% / 0.44) 100%),
+      color-mix(in srgb, var(--role-cover-accent, hsl(var(--primary))) 10%, transparent);
+    -webkit-backdrop-filter: blur(10px) saturate(1.1);
+    backdrop-filter: blur(10px) saturate(1.1);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.72) 34%, #000 100%);
+    mask-image: linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.72) 34%, #000 100%);
+  }
+
+  .workspace-slot-caption--compact::after {
+    height: 100%;
+    background:
+      linear-gradient(180deg, transparent 8%, hsl(0 0% 0% / 0.06) 42%, hsl(0 0% 0% / 0.36) 100%),
+      radial-gradient(80% 96% at 18% 100%, color-mix(in srgb, var(--role-cover-accent, hsl(var(--primary))) 22%, transparent) 0%, transparent 72%);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.68) 32%, #000 100%);
+    mask-image: linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.68) 32%, #000 100%);
   }
 
   .workspace-slot-caption-title {

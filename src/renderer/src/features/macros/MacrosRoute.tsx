@@ -129,6 +129,7 @@ function MacrosRoute({
   return (
     <PageFrame scrollPositionRef={scrollPositionRef}>
       <PageHeader
+        kicker={t("app.navigation.play")}
         title={t("macros.title")}
         description={t("macros.description")}
         actions={

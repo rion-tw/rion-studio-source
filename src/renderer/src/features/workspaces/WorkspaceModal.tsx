@@ -287,7 +287,7 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-3 min-[1180px]:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
+      <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField htmlFor="workspace-name" label={t("workspaceForm.name")}>
             <Input

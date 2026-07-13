@@ -200,7 +200,7 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
 
   return (
     <>
-          <aside className="grid content-start gap-3">
+          <aside className="grid content-start gap-4">
             <Surface className="p-4" padding="none" variant="inset">
               <FormField
                 htmlFor="macro-name"
@@ -280,7 +280,7 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
             </Surface>
           </aside>
 
-          <div className="grid content-start gap-3">
+          <div className="grid content-start gap-4">
             <Surface className="p-4" padding="none" variant="inset">
               <FormField
                 label={t("macroForm.roles")}

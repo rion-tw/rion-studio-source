@@ -160,6 +160,7 @@ function RolesView({
   return (
     <PageFrame scrollPositionRef={scrollPositionRef}>
       <PageHeader
+        kicker={t("app.navigation.play")}
         title={t("roles.title")}
         description={t("roles.description")}
         actions={

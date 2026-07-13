@@ -22,7 +22,7 @@ import {
   roleWindowSizeOptions
 } from "../../app/roleDefaults";
 import type { ResolvedTheme, ThemeMode } from "../../app/types";
-import { languages, type Language, type Translator } from "../../i18n";
+import { languages, type Language, type TranslationKey, type Translator } from "../../i18n";
 import type {
   AppUpdateStatus,
   LaunchPreset,
@@ -60,6 +60,20 @@ interface SettingsViewBaseProps extends SettingsViewProps {
   activeSection: SettingsSectionId;
 }
 
+const settingsSectionTitleKeys: Record<SettingsSectionId, TranslationKey> = {
+  data: "settings.data",
+  game: "settings.game",
+  interface: "settings.interface",
+  updates: "settings.updates"
+};
+
+const settingsSectionDescriptionKeys: Record<SettingsSectionId, TranslationKey> = {
+  data: "settings.dataDescription",
+  game: "settings.gameDescription",
+  interface: "settings.interfaceDescription",
+  updates: "settings.updatesDescription"
+};
+
 function SettingsViewBase({
   activeSection,
   language,
@@ -91,6 +105,8 @@ function SettingsViewBase({
     isManualUpdate &&
     updateStatus?.state === "available" &&
     Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
+  const pageTitle = t(settingsSectionTitleKeys[activeSection]);
+  const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
 
   async function handleExportPortableData(): Promise<void> {
     setIsPortableBusy(true);
@@ -157,13 +173,13 @@ function SettingsViewBase({
       contentClassName="mx-auto flex min-h-full w-full max-w-[840px] flex-col gap-8"
     >
       <header className="settings-page-header">
-        <h1 className="text-[26px] font-semibold leading-tight text-foreground">{t("settings.title")}</h1>
-        <p className="mt-2 max-w-2xl text-[13px] leading-5 text-muted-foreground">{t("settings.description")}</p>
+        <h1 className="text-[26px] font-semibold leading-tight text-foreground">{pageTitle}</h1>
+        <p className="mt-2 max-w-2xl text-[13px] leading-5 text-muted-foreground">{pageDescription}</p>
       </header>
 
       <div className="grid gap-8">
         {activeSection === "interface" ? (
-          <SettingsSection description={t("settings.interfaceDescription")} title={t("settings.interface")}>
+          <SettingsSection>
             <SettingsRow
               title={t("settings.theme")}
               description={t("settings.themeDescription").replace("{theme}", t(resolvedThemeLabelKeys[resolvedTheme]))}
@@ -201,7 +217,7 @@ function SettingsViewBase({
         ) : null}
 
         {activeSection === "game" ? (
-          <SettingsSection description={t("settings.gameDescription")} title={t("settings.game")}>
+          <SettingsSection>
             <SettingsRow
               title={t("settings.defaultWindow")}
               description={t("settings.defaultWindowDescription")}
@@ -236,7 +252,7 @@ function SettingsViewBase({
         ) : null}
 
         {activeSection === "data" ? (
-          <SettingsSection description={t("settings.dataDescription")} title={t("settings.data")}>
+          <SettingsSection>
             <SettingsRow
               title={t("settings.portableExport")}
               description={t("settings.portableExportDescription")}
@@ -275,7 +291,7 @@ function SettingsViewBase({
         ) : null}
 
         {activeSection === "updates" ? (
-          <SettingsSection description={t("settings.updatesDescription")} title={t("settings.updates")}>
+          <SettingsSection>
             <SettingsRow
               title={t("settings.currentVersion")}
               description={t("settings.currentVersionDescription")}
@@ -442,17 +458,11 @@ function DefaultWindowControl({
 
 interface SettingsSectionProps {
   children: ReactNode;
-  description: string;
-  title: string;
 }
 
-function SettingsSection({ children, description, title }: SettingsSectionProps): JSX.Element {
+function SettingsSection({ children }: SettingsSectionProps): JSX.Element {
   return (
-    <section className="space-y-3">
-      <div className="px-0.5">
-        <h2 className="text-[14px] font-semibold leading-5 text-foreground">{title}</h2>
-        <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">{description}</p>
-      </div>
+    <section>
       <Surface className="settings-group overflow-hidden" radius="md">
         {children}
       </Surface>

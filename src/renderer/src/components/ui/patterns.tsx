@@ -62,7 +62,7 @@ export function PageFrame({
   const maxWidthClassName = maxWidth === "settings" ? "max-w-5xl" : "max-w-[1500px]";
 
   return (
-    <section className={cn("app-page h-full overflow-auto px-5 py-5 md:px-7 md:py-7", className)} {...props}>
+    <section className={cn("app-page h-full overflow-auto px-6 py-7 md:px-10 md:py-10", className)} {...props}>
       <div
         className={cn(
           "mx-auto min-h-full w-full",

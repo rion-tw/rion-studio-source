@@ -26,6 +26,18 @@ const config = {
     {
       from: "resources/cdn-compat-extension",
       to: "cdn-compat-extension"
+    },
+    {
+      from: "docs/legal",
+      to: "legal"
+    },
+    {
+      from: "node_modules/electron/dist/LICENSE",
+      to: "legal/LICENSE.electron.txt"
+    },
+    {
+      from: "node_modules/electron/dist/LICENSES.chromium.html",
+      to: "legal/LICENSES.chromium.html"
     }
   ],
   publish: [

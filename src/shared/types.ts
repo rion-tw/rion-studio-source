@@ -245,6 +245,27 @@ export interface SystemFontFamily {
   label: string;
 }
 
+export interface LegalDocumentVersions {
+  fairUse: string;
+  privacy: string;
+  terms: string;
+}
+
+export interface LegalAcceptanceStatus {
+  acceptedAt?: string;
+  acceptedFairUseVersion?: string;
+  acceptedTermsVersion?: string;
+  acknowledgedPrivacyVersion?: string;
+  currentVersions: LegalDocumentVersions;
+  isAccepted: boolean;
+}
+
+export interface AcceptLegalDocumentsInput {
+  fairUseVersion: string;
+  privacyVersion: string;
+  termsVersion: string;
+}
+
 export interface PortablePreferences {
   gameBrowserSettings?: GameBrowserSettings;
   language?: AppLanguage;

@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Check,
   ChevronDown,
   ChevronUp,
@@ -318,6 +319,11 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
                   />
                 </div>
               </FormField>
+            </Surface>
+
+            <Surface className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-3" variant="inset">
+              <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={15} />
+              <p className="text-[11px] font-medium leading-5 text-foreground">{t("macroForm.fairUseNotice")}</p>
             </Surface>
           </aside>
 

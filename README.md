@@ -85,17 +85,19 @@ present, supervising, and operating the game.
 
 ## Legal And Fair Use Notice
 
-Rion Studio is a general-purpose launcher and assistive desktop utility. You are
-responsible for how you use it.
+Rion Studio is an independent, general-purpose launcher and human-supervised
+assistive utility. It is not affiliated with or endorsed by any game, identity
+provider, Google, Chrome, Facebook, or other third-party platform. Always follow
+the target service's rules and do not use Rion Studio for unattended botting,
+anti-cheat evasion, exploits, disruption, or unlawful activity.
 
-- Always follow the terms of service, game rules, automation policies, community
-  guidelines, and account policies of every target game or platform.
-- Do not use Rion Studio to bypass anti-cheat systems, evade detection, exploit
-  games, disrupt other players, or run unattended botting.
-- Use this tool only to improve your own gameplay experience while you remain
-  actively supervising and operating the session.
-- Third-party tools can carry account, enforcement, and data risks. Those risks
-  remain your responsibility.
+Review the complete, versioned documents before use:
+
+- [Terms of Use](docs/legal/terms.en.md)
+- [Privacy Notice](docs/legal/privacy.en.md)
+- [Fair Use Rules](docs/legal/fair-use.en.md)
+- [Third-Party Software Notices](docs/legal/THIRD_PARTY_NOTICES.md)
+- [All supported languages](docs/legal/README.md)
 
 ## Contributing
 

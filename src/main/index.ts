@@ -29,6 +29,7 @@ import { CdnCompatibilityManager } from "./game-browser/CdnCompatibilityManager"
 import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStore";
 import { SystemFontService } from "./game-browser/SystemFontService";
 import { registerIpcHandlers } from "./ipc/registerHandlers";
+import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
 import { MacroManager } from "./macros/MacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
@@ -253,6 +254,7 @@ function initializeApplication(): void {
   const roleStore = new RoleStore(userDataDir);
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
   const macroStore = new MacroStore(userDataDir);
+  const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir);
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir);
   const browserFontApplier = new BrowserFontApplier({
     appUserDataDir: userDataDir,
@@ -287,6 +289,15 @@ function initializeApplication(): void {
       process.env.RION_STUDIO_RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY ?? "rion-studio/rion-studio",
     openExternal: (url) => shell.openExternal(url)
   });
+  let updateCheckStarted = false;
+  const startUpdateCheck = (): void => {
+    if (updateCheckStarted) {
+      return;
+    }
+
+    updateCheckStarted = true;
+    void updateManager.checkForUpdates();
+  };
   const externalChromeManager = new ExternalChromeManager(roleStore, {
     applyBrowserFonts: async (_role, browserUserDataDir) => {
       await browserFontApplier.applyToChromeUserDataDir(browserUserDataDir);
@@ -339,6 +350,7 @@ function initializeApplication(): void {
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
     consumePendingMacroEditorRequest,
     gameBrowserSettingsStore,
+    legalAcceptanceStore,
     macroManager,
     macroStore,
     portableDataManager,
@@ -346,6 +358,10 @@ function initializeApplication(): void {
     updateManager,
     onMacrosChanged: () => {
       macroOverlayInjector.refreshInstalledOverlays();
+    },
+    onLegalAccepted: () => {
+      startUpdateCheck();
+      dockRoleMenu?.scheduleRefresh();
     },
     onMacroOverlayRequest: async (webContentsId, request) => {
       const roleId = browserManager?.getRoleIdForWebContents(webContentsId);
@@ -363,7 +379,8 @@ function initializeApplication(): void {
     },
     onRolesChanged: () => {
       dockRoleMenu?.scheduleRefresh();
-    }
+    },
+    quitApplication: () => app.quit()
   });
 
   const appIcon = loadAppIcon();
@@ -376,6 +393,7 @@ function initializeApplication(): void {
       roleStore,
       browserManager,
       authManager,
+      canUseApp: () => legalAcceptanceStore.isAccepted(),
       dock: app.dock,
       openApp: showMainWindow
     });
@@ -388,7 +406,11 @@ function initializeApplication(): void {
     dockRoleMenu.scheduleRefresh();
   }
 
-  void updateManager.checkForUpdates();
+  void legalAcceptanceStore.isAccepted().then((isAccepted) => {
+    if (isAccepted) {
+      startUpdateCheck();
+    }
+  });
 }
 
 async function prepareRendererWindow(loadingWindow: BrowserWindow): Promise<void> {

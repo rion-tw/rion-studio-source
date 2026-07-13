@@ -23,7 +23,8 @@ describe("DockRoleMenuTemplate", () => {
       {
         roles: [],
         statuses: [],
-        authStatuses: []
+        authStatuses: [],
+        legalAccepted: true
       },
       createActions()
     );
@@ -42,7 +43,8 @@ describe("DockRoleMenuTemplate", () => {
       {
         roles: [role],
         statuses: [],
-        authStatuses: []
+        authStatuses: [],
+        legalAccepted: true
       },
       actions
     );
@@ -64,7 +66,8 @@ describe("DockRoleMenuTemplate", () => {
       {
         roles: [role],
         statuses: [status],
-        authStatuses: []
+        authStatuses: [],
+        legalAccepted: true
       },
       actions
     );
@@ -92,7 +95,8 @@ describe("DockRoleMenuTemplate", () => {
       {
         roles: [loginRequiredRole],
         statuses: [],
-        authStatuses: []
+        authStatuses: [],
+        legalAccepted: true
       },
       actions
     );
@@ -116,7 +120,8 @@ describe("DockRoleMenuTemplate", () => {
       {
         roles: [{ ...role, authState: "auth_failed" }],
         statuses: [],
-        authStatuses: [authStatus]
+        authStatuses: [authStatus],
+        legalAccepted: true
       },
       actions
     );
@@ -134,7 +139,8 @@ describe("DockRoleMenuTemplate", () => {
       {
         roles: [role],
         statuses: [],
-        authStatuses: []
+        authStatuses: [],
+        legalAccepted: true
       },
       actions
     );
@@ -142,7 +148,8 @@ describe("DockRoleMenuTemplate", () => {
       {
         roles: [role],
         statuses: [{ roleId: role.id, state: "running" }],
-        authStatuses: []
+        authStatuses: [],
+        legalAccepted: true
       },
       actions
     );
@@ -153,6 +160,28 @@ describe("DockRoleMenuTemplate", () => {
     expect(stopItem).toBeDefined();
     stopItem?.click?.({} as never, undefined, {} as never);
     expect(actions.stopAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks role actions until legal documents are accepted", () => {
+    const actions = createActions();
+    const template = buildDockRoleMenuTemplate(
+      {
+        roles: [role],
+        statuses: [],
+        authStatuses: [],
+        legalAccepted: false
+      },
+      actions
+    );
+
+    expect(getRolesSubmenu(template)[0]).toMatchObject({
+      enabled: false,
+      sublabel: "Review terms in app"
+    });
+
+    const reviewItem = template.find((item) => item.label === "Review terms in Rion Studio");
+    reviewItem?.click?.({} as never, undefined, {} as never);
+    expect(actions.openApp).toHaveBeenCalledOnce();
   });
 });
 

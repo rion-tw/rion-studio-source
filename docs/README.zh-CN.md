@@ -61,12 +61,12 @@ xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
 
 ## 法律与合理使用声明
 
-Rion Studio 是通用的启动器和辅助桌面工具。你必须为自己的使用方式负责。
+Rion Studio 是独立的通用启动器及人工监督辅助工具，与任何游戏、身份验证服务或第三方平台均无隶属或背书关系。请遵守目标服务规则，且不得用于无人机器人、反作弊规避、漏洞利用、干扰或违法活动。
 
-- 请始终遵守每个目标游戏或平台的服务条款、游戏规则、自动化政策、社区规范和账号政策。
-- 请勿使用 Rion Studio 绕过反作弊系统、规避检测、利用游戏漏洞、干扰其他玩家，或执行无人值守的 botting。
-- 只有在你仍主动监督并操作会话时，才可使用这个工具改善自己的游戏体验。
-- 第三方工具可能带来账号、执法处置和数据风险。这些风险仍由你自行承担。
+- [使用条款](legal/terms.zh-CN.md)
+- [隐私声明](legal/privacy.zh-CN.md)
+- [公平使用规范](legal/fair-use.zh-CN.md)
+- [第三方软件声明](legal/THIRD_PARTY_NOTICES.md)
 
 ## 贡献
 

@@ -76,8 +76,14 @@ describe("registerIpcHandlers workspace handlers", () => {
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let onOverlayLanguageChanged: ReturnType<typeof vi.fn>;
   let onRendererReady: ReturnType<typeof vi.fn>;
+  let onLegalAccepted: ReturnType<typeof vi.fn>;
   let onRolesChanged: ReturnType<typeof vi.fn>;
   let onWorkspacesChanged: ReturnType<typeof vi.fn>;
+  let quitApplication: ReturnType<typeof vi.fn>;
+  let legalAcceptanceStore: {
+    accept: ReturnType<typeof vi.fn>;
+    getStatus: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     handlers.clear();
@@ -111,8 +117,18 @@ describe("registerIpcHandlers workspace handlers", () => {
     };
     onOverlayLanguageChanged = vi.fn();
     onRendererReady = vi.fn();
+    onLegalAccepted = vi.fn();
     onRolesChanged = vi.fn();
     onWorkspacesChanged = vi.fn();
+    quitApplication = vi.fn();
+    const pendingLegalStatus = {
+      currentVersions: { terms: "2026-07-14", fairUse: "2026-07-14", privacy: "2026-07-14" },
+      isAccepted: false
+    };
+    legalAcceptanceStore = {
+      accept: vi.fn().mockResolvedValue({ ...pendingLegalStatus, isAccepted: true }),
+      getStatus: vi.fn().mockResolvedValue(pendingLegalStatus)
+    };
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -120,10 +136,13 @@ describe("registerIpcHandlers workspace handlers", () => {
       browserManager as BrowserManager,
       authManager as AuthManager,
       {
+        legalAcceptanceStore,
+        onLegalAccepted,
         onOverlayLanguageChanged,
         onRendererReady,
         onRolesChanged,
-        onWorkspacesChanged
+        onWorkspacesChanged,
+        quitApplication
       }
     );
   });
@@ -148,6 +167,29 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(() => handlers.get(IPC_CHANNELS.preferencesSetOverlayLanguage)?.({}, "fr")).toThrow(
       "Language setting is invalid."
     );
+  });
+
+  it("exposes versioned legal acceptance and application quit handlers", async () => {
+    const input = {
+      termsVersion: "2026-07-14",
+      fairUseVersion: "2026-07-14",
+      privacyVersion: "2026-07-14"
+    };
+
+    await expect(handlers.get(IPC_CHANNELS.legalStatus)?.({})).resolves.toMatchObject({ isAccepted: false });
+    await expect(handlers.get(IPC_CHANNELS.legalAccept)?.({}, input)).resolves.toMatchObject({ isAccepted: true });
+    expect(legalAcceptanceStore.accept).toHaveBeenCalledWith(input);
+    expect(onLegalAccepted).toHaveBeenCalledOnce();
+
+    await handlers.get(IPC_CHANNELS.appQuit)?.({});
+    expect(quitApplication).toHaveBeenCalledOnce();
+  });
+
+  it("rejects malformed legal acceptance input", async () => {
+    await expect(handlers.get(IPC_CHANNELS.legalAccept)?.({}, { termsVersion: "2026-07-14" })).rejects.toThrow(
+      "Legal acceptance input is invalid"
+    );
+    expect(legalAcceptanceStore.accept).not.toHaveBeenCalled();
   });
 
   it("accepts renderer readiness only for valid settled states", async () => {

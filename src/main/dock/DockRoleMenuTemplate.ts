@@ -6,6 +6,7 @@ export interface DockRoleMenuState {
   roles: Role[];
   statuses: RoleStatus[];
   authStatuses: AuthFlowStatus[];
+  legalAccepted: boolean;
 }
 
 export interface DockRoleMenuActions {
@@ -31,6 +32,18 @@ export function buildDockRoleMenuTemplate(
       }
     },
     { type: "separator" },
+    ...(!state.legalAccepted
+      ? [
+          {
+            label: "Review terms in Rion Studio",
+            sublabel: "Required before login or launch",
+            click: () => {
+              actions.openApp();
+            }
+          } satisfies MenuItemConstructorOptions,
+          { type: "separator" as const }
+        ]
+      : []),
     {
       label: "Roles",
       submenu:
@@ -42,7 +55,13 @@ export function buildDockRoleMenuTemplate(
               }
             ]
           : state.roles.map((role) =>
-              buildRoleMenuItem(role, statusByRole.get(role.id), authStatusByRole.get(role.id), actions)
+              buildRoleMenuItem(
+                role,
+                statusByRole.get(role.id),
+                authStatusByRole.get(role.id),
+                actions,
+                state.legalAccepted
+              )
             )
     }
   ];
@@ -66,7 +85,8 @@ function buildRoleMenuItem(
   role: Role,
   status: RoleStatus | undefined,
   authStatus: AuthFlowStatus | undefined,
-  actions: DockRoleMenuActions
+  actions: DockRoleMenuActions,
+  legalAccepted: boolean
 ): MenuItemConstructorOptions {
   const isAuthFlowBusy = authStatus !== undefined && authStatus.state !== "failed";
   const isBusy = status?.state === "launching" || status?.state === "stopping" || isAuthFlowBusy;
@@ -77,8 +97,14 @@ function buildRoleMenuItem(
     label: role.name,
     type: status ? "checkbox" : "normal",
     checked: isRunning,
-    enabled: !isBusy || isRunning,
-    sublabel: authStatus ? getAuthFlowLabel(authStatus.state) : status ? getRunStateLabel(status.state) : getAuthStateLabel(role.authState),
+    enabled: legalAccepted && (!isBusy || isRunning),
+    sublabel: !legalAccepted
+      ? "Review terms in app"
+      : authStatus
+        ? getAuthFlowLabel(authStatus.state)
+        : status
+          ? getRunStateLabel(status.state)
+          : getAuthStateLabel(role.authState),
     click: () => {
       if (shouldLaunch) {
         actions.launchRole(role.id);

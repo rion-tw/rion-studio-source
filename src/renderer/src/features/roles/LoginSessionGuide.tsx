@@ -59,6 +59,9 @@ export function LoginSessionGuide({
         <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={14} />
         <span>{t("loginGuide.warning")}</span>
       </p>
+      <p className="rounded-md border border-border/35 bg-background/25 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+        {t("loginGuide.security")}
+      </p>
     </Surface>
   );
 }

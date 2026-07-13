@@ -7,6 +7,7 @@ import { AppSidebar } from "./components/AppSidebar";
 import { Button } from "./components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { Surface } from "./components/ui/patterns";
+import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { toMessage } from "./app/errorUtils";
@@ -14,6 +15,7 @@ import { shouldShowUpdateBadge } from "./app/statusUtils";
 import { scheduleAfterTwoAnimationFrames } from "./app/rendererReady";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
+import { useLegalAcceptance } from "./hooks/useLegalAcceptance";
 import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
 import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
@@ -46,6 +48,7 @@ export function App(): JSX.Element {
   const data = useAppData();
   const preferences = usePreferences();
   const hasBridge = Boolean(window.rionStudio);
+  const legal = useLegalAcceptance(hasBridge);
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
   const [notice, setNotice] = useState<string | null>(null);
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
@@ -265,7 +268,7 @@ export function App(): JSX.Element {
   }, [hasBridge, initialLoadState, macros, navigateToEditMacro, navigateToMacros, navigateToNewMacro, setError, setMacros]);
 
   useEffect(() => {
-    if (!hasBridge || initialLoadState === "loading") {
+    if (!hasBridge || initialLoadState === "loading" || legal.isLoading) {
       return;
     }
 
@@ -294,9 +297,9 @@ export function App(): JSX.Element {
       isDisposed = true;
       cancelScheduledPaint();
     };
-  }, [hasBridge, initialLoadState]);
+  }, [hasBridge, initialLoadState, legal.isLoading]);
 
-  if (hasBridge && data.initialLoadState !== "ready") {
+  if (hasBridge && (data.initialLoadState !== "ready" || legal.isLoading)) {
     return (
       <BootLoadingScreen
         error={data.error}
@@ -304,6 +307,20 @@ export function App(): JSX.Element {
         state={data.initialLoadState === "failed" ? "failed" : "loading"}
         t={preferences.t}
         onRetry={() => void data.loadData({ markInitialLoad: true })}
+      />
+    );
+  }
+
+  if (hasBridge && !legal.status?.isAccepted) {
+    return (
+      <LegalOnboarding
+        error={legal.error}
+        isAccepting={legal.isAccepting}
+        language={preferences.language}
+        t={preferences.t}
+        onAccept={legal.accept}
+        onLanguageChange={preferences.handleLanguageChange}
+        onQuit={() => window.rionStudio.quitApplication()}
       />
     );
   }

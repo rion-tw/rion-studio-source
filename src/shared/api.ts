@@ -1,4 +1,5 @@
 import type {
+  AcceptLegalDocumentsInput,
   AuthFlowStatus,
   AppLanguage,
   AppRendererReadyState,
@@ -8,6 +9,7 @@ import type {
   CreateRoleInput,
   GameBrowserSettings,
   LaunchWorkspace,
+  LegalAcceptanceStatus,
   Macro,
   MacroEditorRequest,
   MacroRunStatus,
@@ -27,6 +29,9 @@ import type {
 
 export interface RionStudioApi {
   notifyAppReady: (state: AppRendererReadyState) => Promise<void>;
+  getLegalAcceptanceStatus: () => Promise<LegalAcceptanceStatus>;
+  acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
+  quitApplication: () => Promise<void>;
   listRoles: () => Promise<Role[]>;
   createRole: (input: CreateRoleInput) => Promise<Role>;
   updateRole: (id: string, input: UpdateRoleInput) => Promise<Role>;

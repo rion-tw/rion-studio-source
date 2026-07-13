@@ -3,6 +3,8 @@ import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
+import { LegalDocumentDialog } from "../legal/LegalDocumentDialog";
+import type { LegalDocumentKind } from "../legal/legalDocuments";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { PageFrame, SegmentedControl, Surface } from "../../components/ui/patterns";
@@ -29,6 +31,7 @@ import {
   normalizeBrowserProxyServer,
   normalizeGameBrowserSettings
 } from "../../../../shared/browserFonts";
+import { LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
   AppUpdateStatus,
   BrowserCdnCompatibilityMode,
@@ -77,6 +80,7 @@ interface SettingsViewBaseProps extends SettingsViewProps {
 }
 
 const settingsSectionTitleKeys: Record<SettingsSectionId, TranslationKey> = {
+  aboutLegal: "settings.aboutLegal",
   data: "settings.data",
   game: "settings.game",
   interface: "settings.interface",
@@ -84,6 +88,7 @@ const settingsSectionTitleKeys: Record<SettingsSectionId, TranslationKey> = {
 };
 
 const settingsSectionDescriptionKeys: Record<SettingsSectionId, TranslationKey> = {
+  aboutLegal: "settings.aboutLegalDescription",
   data: "settings.dataDescription",
   game: "settings.gameDescription",
   interface: "settings.interfaceDescription",
@@ -127,6 +132,7 @@ function SettingsViewBase({
   const [portableImportPreview, setPortableImportPreview] = useState<PortableImportPreview | null>(null);
   const [portableMessage, setPortableMessage] = useState<string | null>(null);
   const [isPortableBusy, setIsPortableBusy] = useState(false);
+  const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
   const canCheckForUpdates = Boolean(updateStatus?.isPackaged) && !isUpdateBusy;
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
@@ -426,6 +432,34 @@ function SettingsViewBase({
             />
           </SettingsSection>
         ) : null}
+
+        {activeSection === "aboutLegal" ? (
+          <SettingsSection>
+            <SettingsRow
+              title={t("settings.legalProvider")}
+              description={`${t("settings.legalProviderDescription")} ${t("settings.legalNoSupport")}`}
+              control={<ReadOnlyValue value={LEGAL_PROVIDER_NAME} />}
+            />
+            <SettingsRow
+              title={t("settings.currentVersion")}
+              description={t("settings.currentVersionDescription")}
+              control={<ReadOnlyValue value={updateVersion || updateStatus?.currentVersion || "0.0.0"} />}
+            />
+            <SettingsRow
+              title={t("settings.legalDocuments")}
+              description={t("settings.legalDocumentsDescription")}
+              control={
+                <div className="flex max-w-md flex-wrap justify-end gap-2">
+                  {(["terms", "privacy", "fairUse", "thirdParty"] as const).map((kind) => (
+                    <Button key={kind} type="button" variant="outline" onClick={() => setLegalDocumentKind(kind)}>
+                      {t(`legal.document.${kind}`)}
+                    </Button>
+                  ))}
+                </div>
+              }
+            />
+          </SettingsSection>
+        ) : null}
       </div>
 
       {portableImportPreview ? (
@@ -435,6 +469,15 @@ function SettingsViewBase({
           t={t}
           onCancel={() => setPortableImportPreview(null)}
           onConfirm={() => void handleApplyPortableImport()}
+        />
+      ) : null}
+
+      {legalDocumentKind ? (
+        <LegalDocumentDialog
+          kind={legalDocumentKind}
+          language={language}
+          t={t}
+          onClose={() => setLegalDocumentKind(null)}
         />
       ) : null}
 
@@ -791,10 +834,10 @@ function BrowserProxySettingsRow({
   return (
     <SettingsRow
       title={t("settings.browserProxy")}
-      description={
+      description={`${
         message ??
         (!isValid ? t("settings.browserProxyInvalid") : formatBrowserProxySettingsSummary(normalizedSettings, t))
-      }
+      } ${t("settings.browserProxyPrivacy")}`}
       control={
         <Input
           className="sm:w-[420px]"

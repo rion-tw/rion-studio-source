@@ -11,6 +11,7 @@ interface MacDockRoleMenuOptions {
   authManager: Pick<AuthManager, "listStatuses" | "startLogin">;
   dock: Electron.Dock;
   openApp: () => void;
+  canUseApp: () => Promise<boolean>;
   logger?: Pick<Console, "error">;
 }
 
@@ -39,10 +40,11 @@ export class MacDockRoleMenu {
     const version = ++this.refreshVersion;
 
     try {
-      const [roles, statuses, authStatuses] = await Promise.all([
+      const [roles, statuses, authStatuses, legalAccepted] = await Promise.all([
         this.options.roleStore.listRoles(),
         Promise.resolve(this.options.browserManager.listStatuses()),
-        Promise.resolve(this.options.authManager.listStatuses())
+        Promise.resolve(this.options.authManager.listStatuses()),
+        this.options.canUseApp()
       ]);
 
       if (version !== this.refreshVersion) {
@@ -53,7 +55,8 @@ export class MacDockRoleMenu {
         {
           roles,
           statuses,
-          authStatuses
+          authStatuses,
+          legalAccepted
         },
         {
           openApp: this.options.openApp,
@@ -77,6 +80,11 @@ export class MacDockRoleMenu {
 
   private async launchRole(roleId: string): Promise<void> {
     try {
+      if (!(await this.options.canUseApp())) {
+        this.options.openApp();
+        return;
+      }
+
       const role = await this.options.roleStore.getRole(roleId);
       if (role.authState !== "authenticated") {
         this.options.authManager.startLogin(role);
@@ -93,6 +101,11 @@ export class MacDockRoleMenu {
 
   private async startLogin(roleId: string): Promise<void> {
     try {
+      if (!(await this.options.canUseApp())) {
+        this.options.openApp();
+        return;
+      }
+
       const role = await this.options.roleStore.getRole(roleId);
       this.options.authManager.startLogin(role);
       this.scheduleRefresh();

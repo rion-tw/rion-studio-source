@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc";
 import type {
+  AcceptLegalDocumentsInput,
   AppLanguage,
   AppRendererReadyState,
   AppUpdateStatus,
@@ -23,6 +24,7 @@ import type { AuthManager } from "../auth/AuthManager";
 import type { BrowserManager } from "../browser/BrowserManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { SystemFontService } from "../game-browser/SystemFontService";
+import type { LegalAcceptanceStore } from "../legal/LegalAcceptanceStore";
 import type { MacroManager } from "../macros/MacroManager";
 import type { MacroOverlayRequest } from "../macros/MacroOverlayInjector";
 import type { MacroStore } from "../macros/MacroStore";
@@ -32,6 +34,7 @@ import type { AppUpdateManager } from "../updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 
 interface RegisterIpcHandlersOptions {
+  legalAcceptanceStore?: Pick<LegalAcceptanceStore, "accept" | "getStatus">;
   macroManager?: MacroManager;
   macroStore?: MacroStore;
   gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings" | "updateSettings">;
@@ -41,10 +44,12 @@ interface RegisterIpcHandlersOptions {
   onMacrosChanged?: () => void;
   onMacroOverlayRequest?: (webContentsId: number, request: MacroOverlayRequest) => Promise<unknown>;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
+  onLegalAccepted?: () => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
   portableDataManager?: Pick<PortableDataManager, "applyImport" | "exportData" | "previewImport">;
+  quitApplication?: () => void;
 }
 
 export function registerIpcHandlers(
@@ -73,6 +78,32 @@ export function registerIpcHandlers(
     }
 
     options.onRendererReady?.(event.sender.id, state);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.legalStatus, () => {
+    if (!options.legalAcceptanceStore) {
+      throw new Error("Legal acceptance is not available.");
+    }
+
+    return options.legalAcceptanceStore.getStatus();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.legalAccept, async (_event, input: AcceptLegalDocumentsInput) => {
+    if (!options.legalAcceptanceStore || !isAcceptLegalDocumentsInput(input)) {
+      throw new Error("Legal acceptance input is invalid.");
+    }
+
+    const status = await options.legalAcceptanceStore.accept(input);
+    options.onLegalAccepted?.();
+    return status;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.appQuit, () => {
+    if (!options.quitApplication) {
+      throw new Error("Application quit is not available.");
+    }
+
+    options.quitApplication();
   });
 
   ipcMain.handle(IPC_CHANNELS.preferencesSetOverlayLanguage, (_event, language: AppLanguage) => {
@@ -341,6 +372,19 @@ function isAppRendererReadyState(value: unknown): value is AppRendererReadyState
 
 function isAppLanguage(value: unknown): value is AppLanguage {
   return value === "en" || value === "zh-TW" || value === "zh-CN" || value === "ja";
+}
+
+function isAcceptLegalDocumentsInput(value: unknown): value is AcceptLegalDocumentsInput {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const input = value as Partial<AcceptLegalDocumentsInput>;
+  return (
+    typeof input.termsVersion === "string" &&
+    typeof input.fairUseVersion === "string" &&
+    typeof input.privacyVersion === "string"
+  );
 }
 
 function broadcastStatusChange(statuses: RoleStatus[]): void {

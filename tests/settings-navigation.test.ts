@@ -8,6 +8,7 @@ describe("settings navigation", () => {
     expect(readSettingsSection("game")).toBe("game");
     expect(readSettingsSection("data")).toBe("data");
     expect(readSettingsSection("updates")).toBe("updates");
+    expect(readSettingsSection("about-legal")).toBe("aboutLegal");
     expect(readSettingsSection("unknown")).toBe("interface");
     expect(readSettingsSection(null)).toBe("interface");
   });

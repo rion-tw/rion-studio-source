@@ -1,6 +1,6 @@
 import { getEditorParentPath } from "../../app/editorNavigation";
 
-export const settingsSectionIds = ["interface", "game", "data", "updates"] as const;
+export const settingsSectionIds = ["interface", "game", "data", "updates", "aboutLegal"] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
 
@@ -12,6 +12,7 @@ const legacySectionAliases: Partial<Record<string, SettingsSectionId>> = {
 };
 
 export const settingsSectionQueryValues: Record<SettingsSectionId, string> = {
+  aboutLegal: "about-legal",
   data: "data",
   game: "game",
   interface: "interface",
@@ -19,6 +20,10 @@ export const settingsSectionQueryValues: Record<SettingsSectionId, string> = {
 };
 
 export function readSettingsSection(value: string | null): SettingsSectionId {
+  if (value === "about-legal") {
+    return "aboutLegal";
+  }
+
   if (settingsSectionIds.includes(value as SettingsSectionId)) {
     return value as SettingsSectionId;
   }

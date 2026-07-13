@@ -21,6 +21,18 @@ describe("electron-builder release configuration", () => {
       from: "resources/cdn-compat-extension",
       to: "cdn-compat-extension"
     });
+    expect(config.extraResources).toContainEqual({
+      from: "docs/legal",
+      to: "legal"
+    });
+    expect(config.extraResources).toContainEqual({
+      from: "node_modules/electron/dist/LICENSE",
+      to: "legal/LICENSE.electron.txt"
+    });
+    expect(config.extraResources).toContainEqual({
+      from: "node_modules/electron/dist/LICENSES.chromium.html",
+      to: "legal/LICENSES.chromium.html"
+    });
   });
 
   it("uses electron-builder-managed ad-hoc signing with explicit hardened runtime entitlements", () => {

@@ -1,5 +1,8 @@
 export const IPC_CHANNELS = {
   appRendererReady: "app:renderer-ready",
+  appQuit: "app:quit",
+  legalStatus: "legal:status",
+  legalAccept: "legal:accept",
   rolesList: "roles:list",
   rolesCreate: "roles:create",
   rolesUpdate: "roles:update",

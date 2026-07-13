@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { LaunchWorkspaceSlot } from "../src/shared/types";
+import type { LaunchWorkspaceSlot, Role } from "../src/shared/types";
 import {
   getDefaultWorkspaceBrowserZoomPercent,
   getDefaultWorkspaceRects
@@ -10,14 +10,38 @@ import {
   applyWorkspaceTemplate,
   assignRoleToWorkspaceSlot,
   createWorkspaceFormState,
+  createWorkspaceSlotBackground,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
   readRoleDragId,
   readWorkspaceSlotDragIndex,
   swapWorkspaceSlotRoles
 } from "../src/renderer/src/features/workspaces/workspaceLayoutUtils";
+import {
+  DEFAULT_ROLE_COVER_COLOR,
+  roleCoverPlaceholderUrl
+} from "../src/renderer/src/app/roleCoverPlaceholder";
 
 describe("renderer workspace layout helpers", () => {
+  it("uses the default cover placeholder only for assigned roles without a cover", () => {
+    expect(createWorkspaceSlotBackground(undefined)).toBeUndefined();
+    expect(createWorkspaceSlotBackground(role())).toEqual({
+      backgroundColor: DEFAULT_ROLE_COVER_COLOR,
+      backgroundImage: `url("${roleCoverPlaceholderUrl}")`
+    });
+  });
+
+  it("prefers an uploaded role cover and dominant color", () => {
+    expect(
+      createWorkspaceSlotBackground(
+        role({ coverImageDataUrl: "data:image/png;base64,AAAA", coverImageDominantColor: "#123456" })
+      )
+    ).toEqual({
+      backgroundColor: "#123456",
+      backgroundImage: 'url("data:image/png;base64,AAAA")'
+    });
+  });
+
   it("uses compact-layout browser zoom defaults", () => {
     expect(getDefaultWorkspaceBrowserZoomPercent("three_columns")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("quad")).toBe(90);
@@ -210,6 +234,22 @@ function slot(id: string, roleId?: string): LaunchWorkspaceSlot {
     id,
     ...(roleId ? { roleId } : {}),
     rect: { x: 0, y: 0, width: 1, height: 1 }
+  };
+}
+
+function role(overrides: Partial<Role> = {}): Role {
+  return {
+    id: "role-1",
+    name: "Knight",
+    launchUrl: "https://universe.flyff.com/play",
+    windowWidth: 1280,
+    windowHeight: 720,
+    notes: "",
+    launchPreset: "performance",
+    authState: "unknown",
+    createdAt: "2026-07-14T00:00:00.000Z",
+    updatedAt: "2026-07-14T00:00:00.000Z",
+    ...overrides
   };
 }
 

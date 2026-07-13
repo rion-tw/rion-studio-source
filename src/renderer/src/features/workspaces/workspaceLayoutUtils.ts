@@ -2,6 +2,7 @@ import type { CSSProperties, DragEvent as ReactDragEvent } from "react";
 
 import type { Translator } from "../../i18n";
 import type { WorkspaceFormState } from "../../app/types";
+import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import type { LaunchWorkspace, LaunchWorkspaceSlot, NormalizedRect, Role, WorkspaceLayoutTemplate } from "../../../../shared/types";
 import {
   DEFAULT_WORKSPACE_TEMPLATE,
@@ -54,15 +55,9 @@ export function createWorkspaceSlotBackground(role: Role | undefined): CSSProper
     return undefined;
   }
 
-  if (role.coverImageDataUrl) {
-    return {
-      backgroundColor: role.coverImageDominantColor ?? "hsl(var(--muted))",
-      backgroundImage: `url("${role.coverImageDataUrl}")`
-    };
-  }
-
   return {
-    backgroundColor: role.coverImageDominantColor ?? "hsl(var(--muted))"
+    backgroundColor: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
+    backgroundImage: `url("${role.coverImageDataUrl ?? roleCoverPlaceholderUrl}")`
   };
 }
 

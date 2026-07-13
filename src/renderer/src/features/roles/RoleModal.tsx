@@ -8,6 +8,7 @@ import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/p
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { launchUrlOptions } from "../../app/constants";
+import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { shouldShowLoginGuidance } from "../../app/statusUtils";
 import type { RoleFormState } from "../../app/types";
 import type { Translator } from "../../i18n";
@@ -83,8 +84,8 @@ function RoleForm({
   const coverInputRef = useRef<HTMLInputElement>(null);
   const hasCoverPreview = Boolean(form.coverImageDataUrl);
   const previewStyle = createRoleCardStyle({
-    color: form.coverImageDominantColor,
-    hasCoverImage: hasCoverPreview,
+    color: form.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
+    hasCoverImage: true,
     isActive: false
   });
   const selectedLaunchOption = launchUrlOptions.find((option) => option.value === form.launchUrl);
@@ -188,15 +189,20 @@ function RoleForm({
               </div>
             ) : (
               <button
-                className="glass-control role-cover-empty-preview relative aspect-[4/5] w-full overflow-hidden rounded-lg text-left transition-colors"
+                className="role-cover-card relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-cover bg-center text-left transition-colors"
                 type="button"
+                style={{
+                  ...previewStyle,
+                  backgroundImage: `url("${roleCoverPlaceholderUrl}")`
+                }}
                 onClick={() => coverInputRef.current?.click()}
                 disabled={isSaving}
               >
-                <div className="absolute inset-0 grid place-items-center text-center text-muted-foreground">
+                <div className="absolute inset-0 bg-black/10" />
+                <div className="absolute inset-0 grid place-items-center text-center text-white">
                   <div className="grid gap-2 px-5">
-                    <ImagePlus className="mx-auto" size={24} />
-                    <p className="text-xs font-medium">{t("roleForm.coverEmpty")}</p>
+                    <ImagePlus className="mx-auto drop-shadow-sm" size={24} />
+                    <p className="role-cover-title text-xs font-medium">{t("roleForm.coverEmpty")}</p>
                   </div>
                 </div>
               </button>

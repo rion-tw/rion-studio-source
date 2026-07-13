@@ -12,6 +12,7 @@
     "src/renderer/src/app/roleDefaults.ts",
     "src/renderer/src/app/statusUtils.ts",
     "src/renderer/src/app/rendererReady.ts",
+    "src/renderer/src/app/roleCoverPlaceholder.ts",
     "src/renderer/src/app/types.ts",
     "src/renderer/src/features/dashboard/dashboardUtils.ts",
     "src/renderer/src/features/macros/macroListUtils.ts",

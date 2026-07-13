@@ -20,6 +20,7 @@ import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../componen
 import { EmptyState } from "../../components/EmptyState";
 import { SearchField } from "../../components/SearchField";
 import { launchUrlOptions } from "../../app/constants";
+import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { localizeErrorMessage, type Language, type TranslationKey, type Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { AuthFlowStatus, Role, RoleStatus } from "../../../../shared/types";
@@ -249,39 +250,32 @@ function RoleCard({
   const isActive = Boolean(status);
   const isAuthFlowRunning = Boolean(authStatus && authStatus.state !== "failed");
   const isAuthenticated = role.authState === "authenticated";
-  const hasCoverImage = Boolean(role.coverImageDataUrl);
+  const coverImageUrl = role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
   const canUsePrimaryOverlayAction = isAuthenticated && !isAuthFlowRunning;
   const hasBottomAction = isAuthFlowRunning || !isAuthenticated;
   const primaryActionLabel = isActive ? t("role.stop") : t("role.launch");
   const cardStyle = createRoleCardStyle({
-    color: role.coverImageDominantColor,
-    hasCoverImage,
+    color: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
+    hasCoverImage: true,
     isActive
   });
   const launchGame = resolveLaunchGame(role.launchUrl, t);
 
   return (
     <Card
-      className={cn(
-        "group relative aspect-[4/5] overflow-hidden transition-shadow duration-200",
-        hasCoverImage ? "role-cover-card" : "glass-panel-strong"
-      )}
+      className="role-cover-card group relative aspect-[4/5] overflow-hidden transition-shadow duration-200"
       style={cardStyle}
     >
-      {hasCoverImage ? (
-        <>
-          <div
-            className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
-            style={{ backgroundImage: `url("${role.coverImageDataUrl}")` }}
-          />
-        </>
-      ) : null}
+      <div
+        className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
+        style={{ backgroundImage: `url("${coverImageUrl}")` }}
+      />
 
       <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <RoleActionMenu
           canRelogin={isAuthenticated}
           isBusy={isBusy}
-          isOnCover={hasCoverImage}
+          isOnCover
           t={t}
           onCopy={onCopy}
           onDelete={onDelete}
@@ -298,9 +292,7 @@ function RoleCard({
               isActive
                 ? "opacity-100"
                 : "opacity-0 group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100",
-              hasCoverImage
-                ? "border border-white/35 bg-black/35 text-white backdrop-blur-md hover:bg-black/50 hover:text-white"
-                : "border border-border/60 bg-background/80 text-foreground backdrop-blur-md hover:bg-background"
+              "border border-white/35 bg-black/35 text-white backdrop-blur-md hover:bg-black/50 hover:text-white"
             )}
             type="button"
             variant="secondary"
@@ -321,7 +313,7 @@ function RoleCard({
       ) : null}
 
       <div className="relative z-10 flex h-full flex-col justify-end p-3">
-        <div className={cn("relative grid gap-2", hasCoverImage && "isolate")}>
+        <div className="relative isolate grid gap-2">
           {authStatus?.state === "failed" ? (
             <p
               className={cn(
@@ -338,7 +330,7 @@ function RoleCard({
             className={cn(
               "grid items-center gap-2 pt-1",
               hasBottomAction ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1",
-              hasCoverImage ? "role-cover-actions" : "glass-divider border-t pt-2"
+              "role-cover-actions"
             )}
           >
             <div className="flex min-w-0 items-center gap-3 pl-1">
@@ -351,25 +343,17 @@ function RoleCard({
                 />
               ) : null}
               <div className="grid min-w-0 gap-1">
-                <CardTitle className={cn("min-w-0 truncate", hasCoverImage && "role-cover-title text-white")}>
+                <CardTitle className="role-cover-title min-w-0 truncate text-white">
                   {role.name}
                 </CardTitle>
-              <p
-                className={cn(
-                  "min-w-0 truncate text-[10px] font-medium leading-3 text-muted-foreground",
-                  hasCoverImage && "text-white/78"
-                )}
-              >
+              <p className="min-w-0 truncate text-[10px] font-medium leading-3 text-white/78">
                 {launchGame.name}
               </p>
               </div>
             </div>
             {isAuthFlowRunning && authStatus ? (
               <Button
-                className={cn(
-                  "h-7 min-w-[88px] shrink-0 gap-1.5 px-2 text-[11px]",
-                  hasCoverImage && "role-cover-control rounded-full text-white shadow-none hover:text-white"
-                )}
+                className="role-cover-control h-7 min-w-[88px] shrink-0 gap-1.5 rounded-full px-2 text-[11px] text-white shadow-none hover:text-white"
                 type="button"
                 variant="secondary"
                 size="sm"
@@ -380,10 +364,7 @@ function RoleCard({
               </Button>
             ) : isAuthenticated ? null : (
               <LoginButton
-                className={cn(
-                  "h-7 min-w-[88px] shrink-0 gap-1.5 px-2 text-[11px]",
-                  hasCoverImage && "role-cover-control rounded-full text-white shadow-none hover:text-white"
-                )}
+                className="role-cover-control h-7 min-w-[88px] shrink-0 gap-1.5 rounded-full px-2 text-[11px] text-white shadow-none hover:text-white"
                 isBusy={isBusy}
                 t={t}
                 onLogin={onLogin}

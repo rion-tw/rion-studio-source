@@ -32,7 +32,7 @@ import {
   workspaceBrowserZoomPercents,
   workspaceLayoutTemplates
 } from "../../../../shared/workspaceLayout";
-import { WorkspaceTemplateIcon, workspaceTemplateLabelKeys } from "./workspaceConstants";
+import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 import {
   applyWorkspaceSplits,
   applyWorkspaceTemplate,
@@ -320,6 +320,7 @@ function WorkspaceLayoutFormEditor({
           <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
             <div className="grid grid-cols-6 gap-1.5">
               {workspaceLayoutTemplates.map((template) => {
+                const Icon = workspaceTemplateIcons[template];
                 const isActive = form.template === template;
 
                 return (
@@ -336,7 +337,7 @@ function WorkspaceLayoutFormEditor({
                     onClick={() => handleTemplateChange(template)}
                     disabled={isSaving}
                   >
-                    <WorkspaceTemplateIcon template={template} size={17} />
+                    <Icon size={17} />
                   </button>
                 );
               })}

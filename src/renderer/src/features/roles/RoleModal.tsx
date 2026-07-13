@@ -7,7 +7,6 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
 import { Select } from "../../components/ui/select";
-import { Textarea } from "../../components/ui/textarea";
 import { launchUrlOptions } from "../../app/constants";
 import {
   CUSTOM_LAUNCH_URL_OPTION,
@@ -126,7 +125,7 @@ function RoleEditor({
       title={form.name}
       titleAriaLabel={t("roleForm.name")}
       titlePlaceholder={t("roleForm.namePlaceholder")}
-      contentClassName="min-[1180px]:grid-cols-[240px_minmax(0,1fr)] min-[1180px]:items-start xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]"
+      contentClassName="min-[1180px]:grid-cols-[minmax(0,1fr)_240px] min-[1180px]:items-start xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]"
     >
       <RoleForm
         authStatus={authStatus}
@@ -196,78 +195,14 @@ function RoleForm({
 
   return (
     <>
-          <Surface className="grid gap-3 p-4" padding="none" variant="inset">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between lg:flex-col lg:items-stretch">
-              <FieldHeader title={t("roleForm.cover")} description={t("roleForm.coverDescription")} />
-              <div className="flex shrink-0 gap-2">
-                <Button
-                  className="flex-1"
-                  type="button"
-                  variant="outline"
-                  onClick={() => coverInputRef.current?.click()}
-                  disabled={isSaving}
-                >
-                  <ImagePlus size={15} />
-                  {hasCoverPreview ? t("roleForm.coverReplace") : t("roleForm.coverChoose")}
-                </Button>
-                {hasCoverPreview ? (
-                  <Button type="button" variant="ghost" onClick={removeCoverImage} disabled={isSaving}>
-                    <Trash2 size={15} />
-                    {t("roleForm.coverRemove")}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            <input
-              ref={coverInputRef}
-              className="sr-only"
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              onChange={(event) => void handleCoverImageChange(event)}
-              disabled={isSaving}
-            />
-
-            {hasCoverPreview ? (
-              <div
-                className="role-cover-card relative aspect-[4/5] w-full overflow-hidden rounded-lg"
-                style={previewStyle}
-              >
-                <div
-                  className="absolute inset-0 bg-cover bg-center"
-                  style={{ backgroundImage: `url("${form.coverImageDataUrl}")` }}
-                />
-              </div>
-            ) : (
-              <button
-                className="role-cover-card relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-cover bg-center text-left transition-colors"
-                type="button"
-                style={{
-                  ...previewStyle,
-                  backgroundImage: `url("${roleCoverPlaceholderUrl}")`
-                }}
-                onClick={() => coverInputRef.current?.click()}
-                disabled={isSaving}
-              >
-                <div className="absolute inset-0 bg-black/10" />
-                <div className="absolute inset-0 grid place-items-center text-center text-white">
-                  <div className="grid gap-2 px-5">
-                    <ImagePlus className="mx-auto drop-shadow-sm" size={24} />
-                    <p className="role-cover-title text-xs font-medium">{t("roleForm.coverEmpty")}</p>
-                  </div>
-                </div>
-              </button>
-            )}
-          </Surface>
-
           <div className="grid gap-4">
             <Surface className="grid gap-3 p-4" padding="none" variant="inset">
-              <FieldHeader
-                title={t("roleForm.section.identity")}
-                description={t("roleForm.section.identityDescription")}
-              />
               <FormGrid>
-                <FormField htmlFor="role-launch-url" label={t("roleForm.launchUrl")}>
+                <FormField
+                  htmlFor="role-launch-url"
+                  label={t("roleForm.launchUrl")}
+                  description={t("roleForm.launchUrlDescription")}
+                >
                   <div className="relative">
                     {selectedLaunchOption?.iconSrc ? (
                       <img
@@ -362,35 +297,91 @@ function RoleForm({
               </FormGrid>
             </Surface>
 
-            <Surface className="grid gap-3 p-4" padding="none" variant="inset">
-              <FormField htmlFor="role-notes" label={t("roleForm.notes")}>
-                <Textarea
-                  id="role-notes"
-                  value={form.notes}
-                  onChange={(event) => onChange((current) => ({ ...current, notes: event.target.value }))}
-                  rows={4}
-                  placeholder={t("roleForm.notesPlaceholder")}
-                />
-              </FormField>
+            {selectedRole &&
+            (shouldShowLoginGuidance(authStatus) || selectedRole.authState === "authenticated") ? (
+              <Surface className="grid gap-3 p-4" padding="none" variant="inset">
+                {shouldShowLoginGuidance(authStatus) ? (
+                  <LoginSessionGuide authStatus={authStatus} roleName={selectedRole.name} t={t} />
+                ) : null}
 
-              {selectedRole && shouldShowLoginGuidance(authStatus) ? (
-                <LoginSessionGuide authStatus={authStatus} roleName={selectedRole.name} t={t} />
-              ) : null}
-
-              {selectedRole?.authState === "authenticated" ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-full"
-                  onClick={() => onRelogin(selectedRole.id)}
-                  disabled={isSaving || isLoginBusy}
-                >
-                  {isLoginBusy ? <Loader2 className="spin" size={17} /> : <LogIn size={17} />}
-                  {t("roleForm.relogin")}
-                </Button>
-              ) : null}
-            </Surface>
+                {selectedRole.authState === "authenticated" ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => onRelogin(selectedRole.id)}
+                    disabled={isSaving || isLoginBusy}
+                  >
+                    {isLoginBusy ? <Loader2 className="spin" size={17} /> : <LogIn size={17} />}
+                    {t("roleForm.relogin")}
+                  </Button>
+                ) : null}
+              </Surface>
+            ) : null}
           </div>
+
+          <Surface className="grid gap-3 p-4" padding="none" variant="inset">
+            <FieldHeader title={t("roleForm.cover")} description={t("roleForm.coverDescription")} />
+
+            <input
+              ref={coverInputRef}
+              className="sr-only"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={(event) => void handleCoverImageChange(event)}
+              disabled={isSaving}
+            />
+
+            {hasCoverPreview ? (
+              <div
+                className="role-cover-card relative aspect-[4/5] w-full overflow-hidden rounded-lg"
+                style={previewStyle}
+              >
+                <div
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={{ backgroundImage: `url("${form.coverImageDataUrl}")` }}
+                />
+              </div>
+            ) : (
+              <button
+                className="role-cover-card relative aspect-[4/5] w-full overflow-hidden rounded-lg bg-cover bg-center text-left transition-colors"
+                type="button"
+                style={{
+                  ...previewStyle,
+                  backgroundImage: `url("${roleCoverPlaceholderUrl}")`
+                }}
+                onClick={() => coverInputRef.current?.click()}
+                disabled={isSaving}
+              >
+                <div className="absolute inset-0 bg-black/10" />
+                <div className="absolute inset-0 grid place-items-center text-center text-white">
+                  <div className="grid gap-2 px-5">
+                    <ImagePlus className="mx-auto drop-shadow-sm" size={24} />
+                    <p className="role-cover-title text-xs font-medium">{t("roleForm.coverEmpty")}</p>
+                  </div>
+                </div>
+              </button>
+            )}
+
+            {hasCoverPreview ? (
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1"
+                  type="button"
+                  variant="outline"
+                  onClick={() => coverInputRef.current?.click()}
+                  disabled={isSaving}
+                >
+                  <ImagePlus size={15} />
+                  {t("roleForm.coverReplace")}
+                </Button>
+                <Button type="button" variant="ghost" onClick={removeCoverImage} disabled={isSaving}>
+                  <Trash2 size={15} />
+                  {t("roleForm.coverRemove")}
+                </Button>
+              </div>
+            ) : null}
+          </Surface>
     </>
   );
 }

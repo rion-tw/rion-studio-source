@@ -341,6 +341,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     window.on("resize", () => this.layoutHost(host));
+    window.on("restore", () => this.layoutHost(host));
     window.on("close", (event) => {
       if (host.closing) {
         return;
@@ -512,6 +513,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private layoutHost(host: GameHostWindow): void {
+    if (!this.shouldLayoutHost(host)) {
+      return;
+    }
+
     host.roleIds.forEach((roleId) => {
       const session = this.sessions.get(roleId);
       if (session) {
@@ -519,6 +524,15 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       }
     });
     this.layoutDividers(host);
+  }
+
+  private shouldLayoutHost(host: GameHostWindow): boolean {
+    if (host.window.isDestroyed() || host.window.isMinimized()) {
+      return false;
+    }
+
+    const contentBounds = host.window.getContentBounds();
+    return contentBounds.width > 1 && contentBounds.height > 1;
   }
 
   private layoutSession(host: GameHostWindow, session: BrowserSession): void {

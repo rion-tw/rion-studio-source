@@ -179,6 +179,75 @@ describe("BrowserManager game host windows", () => {
     expect(popup.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 500, height: 700 });
   });
 
+  it("does not resize game views while the host window is minimized", async () => {
+    const harness = createHarness();
+    const secondRole = createRole("role-2", "Alt");
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: secondRole, rect: workspace.slots[1].rect }
+    ]);
+
+    const popup = createOAuthPopup(harness.views[0], harness.views);
+    const firstRoleCalls = harness.views[0].setBounds.mock.calls.length;
+    const secondRoleCalls = harness.views[1].setBounds.mock.calls.length;
+    const dividerCalls = harness.views[2].setBounds.mock.calls.length;
+    const popupCalls = popup.setBounds.mock.calls.length;
+
+    harness.hosts[0].minimized = true;
+    harness.hosts[0].contentBounds = { x: 0, y: 0, width: 1, height: 1 };
+    harness.hosts[0].emit("resize");
+
+    expect(harness.views[0].setBounds).toHaveBeenCalledTimes(firstRoleCalls);
+    expect(harness.views[1].setBounds).toHaveBeenCalledTimes(secondRoleCalls);
+    expect(harness.views[2].setBounds).toHaveBeenCalledTimes(dividerCalls);
+    expect(popup.setBounds).toHaveBeenCalledTimes(popupCalls);
+  });
+
+  it("recalculates game views after a minimized host is restored", async () => {
+    const harness = createHarness();
+    const secondRole = createRole("role-2", "Alt");
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: secondRole, rect: workspace.slots[1].rect }
+    ]);
+
+    const popup = createOAuthPopup(harness.views[0], harness.views);
+    harness.hosts[0].minimized = true;
+    harness.hosts[0].contentBounds = { x: 0, y: 0, width: 1, height: 1 };
+    harness.hosts[0].emit("resize");
+
+    harness.hosts[0].minimized = false;
+    harness.hosts[0].contentBounds = { x: 0, y: 0, width: 900, height: 600 };
+    harness.hosts[0].emit("restore");
+
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 450, height: 600 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 450, y: 0, width: 450, height: 600 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 447, y: 0, width: 6, height: 600 });
+    expect(popup.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 450, height: 600 });
+  });
+
+  it("does not resize game views when host content bounds collapse", async () => {
+    const harness = createHarness();
+    const secondRole = createRole("role-2", "Alt");
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: secondRole, rect: workspace.slots[1].rect }
+    ]);
+
+    const firstRoleCalls = harness.views[0].setBounds.mock.calls.length;
+    const secondRoleCalls = harness.views[1].setBounds.mock.calls.length;
+    const dividerCalls = harness.views[2].setBounds.mock.calls.length;
+
+    harness.hosts[0].contentBounds = { x: 0, y: 0, width: 0, height: 0 };
+    harness.hosts[0].emit("resize");
+    harness.hosts[0].contentBounds = { x: 0, y: 0, width: 1, height: 800 };
+    harness.hosts[0].emit("resize");
+
+    expect(harness.views[0].setBounds).toHaveBeenCalledTimes(firstRoleCalls);
+    expect(harness.views[1].setBounds).toHaveBeenCalledTimes(secondRoleCalls);
+    expect(harness.views[2].setBounds).toHaveBeenCalledTimes(dividerCalls);
+  });
+
   it("allows non-overlapping workspaces to run in separate windows", async () => {
     const harness = createHarness();
     await harness.manager.launchWorkspace(workspace, [{ role, rect: workspace.slots[0].rect }]);
@@ -396,9 +465,11 @@ function createMockHost() {
     getContentBounds: vi.fn(() => host.contentBounds),
     isDestroyed: vi.fn(() => false),
     isMinimized: vi.fn(() => false),
+    minimized: false,
     restore: vi.fn(),
     show: vi.fn()
   });
+  host.isMinimized.mockImplementation(() => host.minimized);
   return host;
 }
 

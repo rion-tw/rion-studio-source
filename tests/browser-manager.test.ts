@@ -260,7 +260,7 @@ describe("BrowserManager game host windows", () => {
     expect(statuses).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
   });
 
-  it("draws a six-pixel black divider that is entirely draggable", async () => {
+  it("draws a four-pixel black divider that is entirely draggable", async () => {
     const harness = createHarness();
 
     await harness.manager.launchWorkspace(workspace, [
@@ -274,7 +274,7 @@ describe("BrowserManager game host windows", () => {
         webPreferences: expect.objectContaining({ preload: "/app/out/preload/divider.cjs" })
       })
     );
-    expect(harness.views[2].setBounds).toHaveBeenCalledWith({ x: 597, y: 0, width: 6, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenCalledWith({ x: 598, y: 0, width: 4, height: 800 });
     const dividerUrl = vi.mocked(harness.views[2].webContents.loadURL).mock.calls[0][0];
     const dividerHtml = decodeURIComponent(dividerUrl.split(",", 2)[1]);
     expect(dividerHtml).toContain("html,body");
@@ -298,7 +298,7 @@ describe("BrowserManager game host windows", () => {
     });
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 720, height: 800 });
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 720, y: 0, width: 480, height: 800 });
-    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 717, y: 0, width: 6, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 718, y: 0, width: 4, height: 800 });
 
     harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
       phase: "move",
@@ -323,7 +323,7 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 600, height: 800 });
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 0, width: 600, height: 800 });
-    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 597, y: 0, width: 6, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 598, y: 0, width: 4, height: 800 });
   });
 
   it("creates crossing resize dividers for a quad workspace", async () => {
@@ -338,8 +338,8 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views).toHaveLength(6);
     expect(harness.views.slice(4).map((view) => vi.mocked(view.setBounds).mock.calls[0][0])).toEqual(
       expect.arrayContaining([
-        { x: 597, y: 0, width: 6, height: 800 },
-        { x: 0, y: 397, width: 1200, height: 6 }
+        { x: 598, y: 0, width: 4, height: 800 },
+        { x: 0, y: 398, width: 1200, height: 4 }
       ])
     );
   });
@@ -356,9 +356,9 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views).toHaveLength(9);
     expect(harness.views.slice(6).map((view) => vi.mocked(view.setBounds).mock.calls[0][0])).toEqual(
       expect.arrayContaining([
-        { x: 397, y: 0, width: 6, height: 800 },
-        { x: 797, y: 0, width: 6, height: 800 },
-        { x: 0, y: 397, width: 1200, height: 6 }
+        { x: 398, y: 0, width: 4, height: 800 },
+        { x: 798, y: 0, width: 4, height: 800 },
+        { x: 0, y: 398, width: 1200, height: 4 }
       ])
     );
   });
@@ -388,8 +388,8 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 0, width: 600, height: 480 });
     expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 480, width: 600, height: 320 });
     expect(harness.views[3].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 480, width: 600, height: 320 });
-    expect(verticalDivider.setBounds).toHaveBeenLastCalledWith({ x: 597, y: 0, width: 6, height: 800 });
-    expect(horizontalDivider.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 477, width: 1200, height: 6 });
+    expect(verticalDivider.setBounds).toHaveBeenLastCalledWith({ x: 598, y: 0, width: 4, height: 800 });
+    expect(horizontalDivider.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 478, width: 1200, height: 4 });
   });
 
   it("recalculates every role and popup when the host content size changes", async () => {
@@ -452,7 +452,7 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 450, height: 600 });
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 450, y: 0, width: 450, height: 600 });
-    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 447, y: 0, width: 6, height: 600 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 448, y: 0, width: 4, height: 600 });
     expect(popup.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 450, height: 600 });
   });
 

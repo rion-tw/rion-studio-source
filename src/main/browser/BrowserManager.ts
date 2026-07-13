@@ -857,7 +857,7 @@ interface DividerSegment {
 }
 
 const DIVIDER_EPSILON = 0.000_001;
-const DIVIDER_SIZE = 6;
+const DIVIDER_SIZE = 4;
 
 function createDividerDescriptors(sessions: BrowserSession[]): DividerDescriptor[] {
   const segments: DividerSegment[] = [];

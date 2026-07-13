@@ -112,13 +112,13 @@ interface GameDivider {
   afterRoleIds: string[];
   axis: DividerAxis;
   beforeRoleIds: string[];
+  defaultPosition: number;
   view: WebContentsView;
 }
 
-export interface GameDividerPointerPayload {
-  phase: "move" | "start" | "end";
-  screenPosition: number;
-}
+export type GameDividerPointerPayload =
+  | { phase: "move" | "start" | "end"; screenPosition: number }
+  | { phase: "reset" };
 
 export const GAME_DIVIDER_POINTER_CHANNEL = "game-divider:pointer";
 
@@ -316,6 +316,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     const host = this.hosts.get(target.hostId);
     if (!host || host.window.isDestroyed()) {
+      return;
+    }
+
+    if (payload.phase === "reset") {
+      this.resizeDivider(host, target.divider, target.divider.defaultPosition);
       return;
     }
 
@@ -775,6 +780,7 @@ interface DividerDescriptor {
   afterRoleIds: string[];
   axis: DividerAxis;
   beforeRoleIds: string[];
+  defaultPosition: number;
 }
 
 interface DividerGeometry {
@@ -783,7 +789,10 @@ interface DividerGeometry {
   start: number;
 }
 
-interface DividerSegment extends DividerDescriptor {
+interface DividerSegment {
+  afterRoleIds: string[];
+  axis: DividerAxis;
+  beforeRoleIds: string[];
   end: number;
   position: number;
   start: number;
@@ -830,7 +839,8 @@ function createDividerDescriptors(sessions: BrowserSession[]): DividerDescriptor
   return groups.map((group) => ({
     axis: group.axis,
     beforeRoleIds: [...group.before],
-    afterRoleIds: [...group.after]
+    afterRoleIds: [...group.after],
+    defaultPosition: group.position
   }));
 }
 
@@ -933,10 +943,12 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;cursor
 </style></head><body><script>
 let dragging=false;
 const send=(phase,event)=>window.rionStudioDivider.sendPointer({phase,screenPosition:${coordinate}});
+const reset=()=>window.rionStudioDivider.sendPointer({phase:"reset"});
 addEventListener("pointerdown",event=>{dragging=true;document.body.setPointerCapture?.(event.pointerId);send("start",event);event.preventDefault()});
 addEventListener("pointermove",event=>{if(dragging)send("move",event)});
 addEventListener("pointerup",event=>{if(!dragging)return;dragging=false;send("end",event)});
 addEventListener("pointercancel",event=>{if(!dragging)return;dragging=false;send("end",event)});
+addEventListener("dblclick",event=>{dragging=false;reset();event.preventDefault()});
 </script></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
@@ -946,6 +958,10 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
     return false;
   }
   const payload = value as Partial<GameDividerPointerPayload>;
+  if (payload.phase === "reset") {
+    return true;
+  }
+
   return (
     (payload.phase === "start" || payload.phase === "move" || payload.phase === "end") &&
     typeof payload.screenPosition === "number" &&

@@ -193,6 +193,8 @@ describe("BrowserManager game host windows", () => {
     expect(dividerHtml).toContain("background:#000");
     expect(dividerHtml).not.toContain("class=\"line\"");
     expect(dividerHtml).toContain("cursor:col-resize");
+    expect(dividerHtml).toContain('addEventListener("dblclick"');
+    expect(dividerHtml).toContain('phase:"reset"');
   });
 
   it("resizes adjacent roles when the divider is dragged and enforces minimum cell size", async () => {
@@ -218,6 +220,24 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 144, y: 0, width: 1056, height: 800 });
   });
 
+  it("resets a game divider to its launch position when double-clicked", async () => {
+    const harness = createHarness();
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
+      phase: "move",
+      screenPosition: 720
+    });
+    harness.manager.handleDividerPointer(harness.views[2].webContents.id, { phase: "reset" });
+
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 600, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 0, width: 600, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 597, y: 0, width: 6, height: 800 });
+  });
+
   it("creates crossing resize dividers for a quad workspace", async () => {
     const harness = createHarness();
     const rects = getDefaultWorkspaceRects("quad");
@@ -234,6 +254,35 @@ describe("BrowserManager game host windows", () => {
         { x: 0, y: 397, width: 1200, height: 6 }
       ])
     );
+  });
+
+  it("resets only the double-clicked divider in a multi-divider game workspace", async () => {
+    const harness = createHarness();
+    const rects = getDefaultWorkspaceRects("quad");
+
+    await harness.manager.launchWorkspace(
+      workspace,
+      rects.map((rect, index) => ({ role: createRole(`role-${index + 1}`, `Role ${index + 1}`), rect }))
+    );
+
+    const verticalDivider = harness.views[4];
+    const horizontalDivider = harness.views[5];
+    harness.manager.handleDividerPointer(verticalDivider.webContents.id, {
+      phase: "move",
+      screenPosition: 720
+    });
+    harness.manager.handleDividerPointer(horizontalDivider.webContents.id, {
+      phase: "move",
+      screenPosition: 480
+    });
+    harness.manager.handleDividerPointer(verticalDivider.webContents.id, { phase: "reset" });
+
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 600, height: 480 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 0, width: 600, height: 480 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 480, width: 600, height: 320 });
+    expect(harness.views[3].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 480, width: 600, height: 320 });
+    expect(verticalDivider.setBounds).toHaveBeenLastCalledWith({ x: 597, y: 0, width: 6, height: 800 });
+    expect(horizontalDivider.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 477, width: 1200, height: 6 });
   });
 
   it("recalculates every role and popup when the host content size changes", async () => {

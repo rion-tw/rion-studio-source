@@ -12,7 +12,12 @@ const config = {
   directories: {
     output: "release/${version}"
   },
-  files: ["out", "package.json", "!node_modules/playwright-core/.local-browsers/**"],
+  files: [
+    "out",
+    "package.json",
+    "!node_modules/playwright-core/.local-browsers/**",
+    "!**/node_modules/playwright-core/.local-browsers/**"
+  ],
   extraResources: [
     {
       from: "build/icon.png",

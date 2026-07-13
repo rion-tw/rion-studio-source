@@ -2,7 +2,7 @@ import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { lazy, Suspense, type JSX, useCallback, useEffect } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 
-import appIconUrl from "../../../build/icon.png";
+import appIconUrl from "./assets/app-icon.png";
 import { AppSidebar } from "./components/AppSidebar";
 import { Button } from "./components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "./components/ui/card";

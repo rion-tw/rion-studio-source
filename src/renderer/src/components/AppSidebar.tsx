@@ -2,7 +2,7 @@ import { Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import appIconUrl from "../../../../build/icon.png";
+import appIconUrl from "../assets/app-icon.png";
 import type { Translator } from "../i18n";
 import { NavItem } from "./ui/patterns";
 

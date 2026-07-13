@@ -12,6 +12,10 @@ export interface AfterPackContext {
 
 export type MacAppSigner = (options: SignOptions) => Promise<void>;
 
+export function assertNoBundledPlaywrightBrowsers(
+  context: AfterPackContext
+): void;
+
 export function signMacApp(
   context: AfterPackContext,
   signer?: MacAppSigner

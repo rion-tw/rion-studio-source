@@ -22,6 +22,7 @@ describe("renderer workspace layout helpers", () => {
     expect(getDefaultWorkspaceBrowserZoomPercent("three_columns")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("quad")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("four_columns")).toBe(90);
+    expect(getDefaultWorkspaceBrowserZoomPercent("six_grid")).toBe(80);
     expect(getDefaultWorkspaceBrowserZoomPercent("two_columns")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_left_stack_right")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_right_stack_left")).toBe(100);
@@ -173,6 +174,33 @@ describe("renderer workspace layout helpers", () => {
     expect(getWorkspaceSplitRange("four_columns", initialSplits, "vertical", 1)).toEqual({
       min: 0.37,
       max: 0.63
+    });
+  });
+
+  it("adjusts linked columns and rows in a six-grid workspace", () => {
+    const initialSlots = applyWorkspaceTemplate([], "six_grid");
+    const initialSplits = getWorkspaceSplits("six_grid", initialSlots);
+    const slots = applyWorkspaceSplits("six_grid", initialSlots, {
+      horizontal: [0.6],
+      vertical: [0.25, 0.7]
+    });
+
+    expect(initialSplits).toEqual({ horizontal: [0.5], vertical: [1 / 3, 2 / 3] });
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0, y: 0, width: 0.25, height: 0.6 },
+      { x: 0.25, y: 0, width: 0.44999999999999996, height: 0.6 },
+      { x: 0.7, y: 0, width: 0.30000000000000004, height: 0.6 },
+      { x: 0, y: 0.6, width: 0.25, height: 0.4 },
+      { x: 0.25, y: 0.6, width: 0.44999999999999996, height: 0.4 },
+      { x: 0.7, y: 0.6, width: 0.30000000000000004, height: 0.4 }
+    ]);
+    expect(getWorkspaceSplits("six_grid", slots)).toEqual({
+      horizontal: [0.6],
+      vertical: [0.25, 0.7]
+    });
+    expect(getWorkspaceSplitRange("six_grid", initialSplits, "horizontal", 0)).toEqual({
+      min: 0.2,
+      max: 0.8
     });
   });
 });

@@ -260,6 +260,18 @@ function WorkspaceLayoutPreview({
     );
   }
 
+  function renderThreeSlotRow(startSlotIndex: number): JSX.Element {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 gap-1">
+        {slots.slice(startSlotIndex, startSlotIndex + 3).map((slot, offset) => (
+          <div key={slot.id} className="min-h-0 min-w-0" style={createPreviewFlexStyle(slot.rect.width)}>
+            {renderSlot(slot, startSlotIndex + offset)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   function renderLayout(): JSX.Element {
     switch (template) {
       case "single":
@@ -315,6 +327,17 @@ function WorkspaceLayoutPreview({
             </div>
             <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitY)}>
               {renderSplitRow(2, 3)}
+            </div>
+          </div>
+        );
+      case "six_grid":
+        return (
+          <div className="flex h-full min-h-0 flex-col gap-1">
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
+              {renderThreeSlotRow(0)}
+            </div>
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitY)}>
+              {renderThreeSlotRow(3)}
             </div>
           </div>
         );
@@ -451,6 +474,13 @@ function getWorkspaceLayoutPreviewSlotCorners(
         topRight: index === 1,
         bottomRight: index === 3,
         bottomLeft: index === 2
+      };
+    case "six_grid":
+      return {
+        topLeft: index === 0,
+        topRight: index === 2,
+        bottomRight: index === 5,
+        bottomLeft: index === 3
       };
   }
 }

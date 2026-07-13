@@ -5,7 +5,7 @@ import type {
   WorkspaceLayoutTemplate
 } from "./types";
 
-export const MAX_WORKSPACE_SLOTS = 4;
+export const MAX_WORKSPACE_SLOTS = 6;
 export const MIN_WORKSPACE_SLOT_SIZE = 0.12;
 export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns";
 export const DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT: WorkspaceBrowserZoomPercent = 100;
@@ -17,7 +17,8 @@ export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "main_left_stack_right",
   "main_right_stack_left",
   "quad",
-  "four_columns"
+  "four_columns",
+  "six_grid"
 ];
 
 const readableWorkspaceLayoutTemplates: WorkspaceLayoutTemplate[] = ["single", ...workspaceLayoutTemplates];
@@ -25,6 +26,10 @@ const readableWorkspaceLayoutTemplates: WorkspaceLayoutTemplate[] = ["single", .
 export function getDefaultWorkspaceBrowserZoomPercent(
   template: WorkspaceLayoutTemplate
 ): WorkspaceBrowserZoomPercent {
+  if (template === "six_grid") {
+    return 80;
+  }
+
   return template === "three_columns" || template === "quad" || template === "four_columns" ? 90 : 100;
 }
 
@@ -48,6 +53,8 @@ export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate)
     case "quad":
     case "four_columns":
       return 4;
+    case "six_grid":
+      return 6;
   }
 }
 
@@ -83,7 +90,23 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
       ];
     case "four_columns":
       return createEqualColumnRects(4);
+    case "six_grid":
+      return createGridRects(3, 2);
   }
+}
+
+function createGridRects(columnCount: number, rowCount: number): NormalizedRect[] {
+  return Array.from({ length: columnCount * rowCount }, (_value, index) => {
+    const column = index % columnCount;
+    const row = Math.floor(index / columnCount);
+
+    return {
+      x: column / columnCount,
+      y: row / rowCount,
+      width: 1 / columnCount,
+      height: 1 / rowCount
+    };
+  });
 }
 
 function createEqualColumnRects(columnCount: number): NormalizedRect[] {

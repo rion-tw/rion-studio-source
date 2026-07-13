@@ -344,6 +344,25 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
+  it("creates linked column and row dividers for a six-grid workspace", async () => {
+    const harness = createHarness();
+    const rects = getDefaultWorkspaceRects("six_grid");
+
+    await harness.manager.launchWorkspace(
+      workspace,
+      rects.map((rect, index) => ({ role: createRole(`role-${index + 1}`, `Role ${index + 1}`), rect }))
+    );
+
+    expect(harness.views).toHaveLength(9);
+    expect(harness.views.slice(6).map((view) => vi.mocked(view.setBounds).mock.calls[0][0])).toEqual(
+      expect.arrayContaining([
+        { x: 397, y: 0, width: 6, height: 800 },
+        { x: 797, y: 0, width: 6, height: 800 },
+        { x: 0, y: 397, width: 1200, height: 6 }
+      ])
+    );
+  });
+
   it("resets only the double-clicked divider in a multi-divider game workspace", async () => {
     const harness = createHarness();
     const rects = getDefaultWorkspaceRects("quad");
@@ -613,6 +632,14 @@ describe("normalizedRectToPixelBounds", () => {
       { x: 300, y: 0, width: 300, height: 800 },
       { x: 600, y: 0, width: 300, height: 800 },
       { x: 900, y: 0, width: 300, height: 800 }
+    ]],
+    ["six_grid", [
+      { x: 0, y: 0, width: 400, height: 400 },
+      { x: 400, y: 0, width: 400, height: 400 },
+      { x: 800, y: 0, width: 400, height: 400 },
+      { x: 0, y: 400, width: 400, height: 400 },
+      { x: 400, y: 400, width: 400, height: 400 },
+      { x: 800, y: 400, width: 400, height: 400 }
     ]]
   ] as const)("maps %s without title or control-bar offsets", (template, expected) => {
     expect(

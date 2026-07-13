@@ -10,6 +10,7 @@ import { RoleStore } from "../src/main/roles/RoleStore";
 import { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
 import type { RionPortableDataV1 } from "../src/shared/types";
+import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
 describe("PortableDataManager", () => {
   let baseDir: string;
@@ -223,6 +224,34 @@ describe("PortableDataManager", () => {
     });
 
     await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+  });
+
+  it("accepts six-grid portable workspaces and rejects a seventh slot", async () => {
+    const importPath = join(baseDir, "six-grid.json");
+    const fixture = createPortableFixture();
+    fixture.launchWorkspaces[0] = {
+      ...fixture.launchWorkspaces[0],
+      template: "six_grid",
+      browserZoomPercent: 80,
+      slots: getDefaultWorkspaceRects("six_grid").map((rect, index) => ({
+        id: `slot-${index + 1}`,
+        ...(index === 0 ? { roleId: "old-role" } : {}),
+        rect
+      }))
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    await expect(manager.previewImport()).resolves.toMatchObject({ workspaceCount: 1 });
+
+    fixture.launchWorkspaces[0].slots.push({
+      id: "slot-7",
+      rect: { x: 0, y: 0, width: 0.5, height: 0.5 }
+    });
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+
+    const invalidManager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    await expect(invalidManager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
   it("accepts missing role defaults and ignores invalid role defaults in portable preferences", async () => {

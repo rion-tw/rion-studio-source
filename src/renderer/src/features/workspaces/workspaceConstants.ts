@@ -1,4 +1,4 @@
-import { Columns2, Columns3, Columns4, Grid2X2, PanelsLeftBottom, PanelsRightBottom, type LucideIcon } from "lucide-react";
+import { Columns2, Columns3, Columns4, Grid2X2, PanelsLeftBottom, PanelsRightBottom, Table2, type LucideIcon } from "lucide-react";
 
 import type { TranslationKey } from "../../i18n";
 import type { WorkspaceLayoutTemplate } from "../../../../shared/types";
@@ -10,7 +10,8 @@ export const workspaceTemplateLabelKeys: Record<WorkspaceLayoutTemplate, Transla
   main_left_stack_right: "workspace.layout.mainLeftStackRight",
   main_right_stack_left: "workspace.layout.mainRightStackLeft",
   quad: "workspace.layout.quad",
-  four_columns: "workspace.layout.fourColumns"
+  four_columns: "workspace.layout.fourColumns",
+  six_grid: "workspace.layout.sixGrid"
 };
 
 export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon> = {
@@ -20,5 +21,6 @@ export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon>
   main_left_stack_right: PanelsLeftBottom,
   main_right_stack_left: PanelsRightBottom,
   quad: Grid2X2,
-  four_columns: Columns4
+  four_columns: Columns4,
+  six_grid: Table2
 };

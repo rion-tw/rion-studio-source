@@ -215,6 +215,32 @@ describe("LaunchWorkspaceStore", () => {
     ]);
   });
 
+  it("creates a six-grid workspace with three slots per row and 80 percent zoom", async () => {
+    const workspace = await store.createWorkspace({ name: "Six roles", template: "six_grid" });
+
+    expect(workspace.browserZoomPercent).toBe(80);
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual([
+      { x: 0, y: 0, width: 1 / 3, height: 0.5 },
+      { x: 1 / 3, y: 0, width: 1 / 3, height: 0.5 },
+      { x: 2 / 3, y: 0, width: 1 / 3, height: 0.5 },
+      { x: 0, y: 0.5, width: 1 / 3, height: 0.5 },
+      { x: 1 / 3, y: 0.5, width: 1 / 3, height: 0.5 },
+      { x: 2 / 3, y: 0.5, width: 1 / 3, height: 0.5 }
+    ]);
+    await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
+      template: "six_grid",
+      browserZoomPercent: 80,
+      slots: [
+        { rect: { x: 0, y: 0, width: 0.3333, height: 0.5 } },
+        { rect: { x: 0.3333, y: 0, width: 0.3333, height: 0.5 } },
+        { rect: { x: 0.6667, y: 0, width: 0.3333, height: 0.5 } },
+        { rect: { x: 0, y: 0.5, width: 0.3333, height: 0.5 } },
+        { rect: { x: 0.3333, y: 0.5, width: 0.3333, height: 0.5 } },
+        { rect: { x: 0.6667, y: 0.5, width: 0.3333, height: 0.5 } }
+      ]
+    });
+  });
+
   it("rejects duplicate names and roles outside the selected template", async () => {
     await store.createWorkspace({ name: "Party" });
 
@@ -247,7 +273,7 @@ describe("LaunchWorkspaceStore", () => {
       store.createWorkspace({
         name: "Too many",
         template: "quad",
-        slots: [{}, {}, {}, {}, {}]
+        slots: [{}, {}, {}, {}, {}, {}, {}]
       })
     ).rejects.toMatchObject({
       code: "WORKSPACE_TOO_MANY_SLOTS"

@@ -1,4 +1,4 @@
-import { Keyboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
+import { Copy, Keyboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
 import { type CSSProperties, type JSX, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -24,6 +24,7 @@ interface MacrosRouteProps {
   macroStatusByRun: Map<string, MacroRunStatus>;
   macroStatuses: MacroRunStatus[];
   macros: Macro[];
+  onCopyMacro: (macro: Macro) => void;
   onDeleteMacro: (macro: Macro) => void;
   onEditMacro: (macro: Macro) => void;
   onNewMacro: () => void;
@@ -40,6 +41,7 @@ function MacrosRoute({
   macroStatusByRun,
   macroStatuses,
   macros,
+  onCopyMacro,
   onDeleteMacro,
   onEditMacro,
   onNewMacro,
@@ -172,6 +174,7 @@ function MacrosRoute({
                           busyRunKey={busyRunKey}
                           macro={macro}
                           macroStatusByRun={macroStatusByRun}
+                          onCopy={() => onCopyMacro(macro)}
                           onDelete={() => onDeleteMacro(macro)}
                           onEdit={() => onEditMacro(macro)}
                           onStartMacro={onStartMacro}
@@ -235,6 +238,7 @@ interface MacroActionMenuProps {
   busyRunKey: string | null;
   macro: Macro;
   macroStatusByRun: Map<string, MacroRunStatus>;
+  onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onStartMacro: (macroId: string) => void;
@@ -253,6 +257,7 @@ function MacroActionMenu({
   busyRunKey,
   macro,
   macroStatusByRun,
+  onCopy,
   onDelete,
   onEdit,
   onStartMacro,
@@ -368,6 +373,11 @@ function MacroActionMenu({
     onEdit();
   }
 
+  function handleCopy(): void {
+    setIsOpen(false);
+    onCopy();
+  }
+
   function handleDelete(): void {
     setIsOpen(false);
     onDelete();
@@ -422,6 +432,16 @@ function MacroActionMenu({
             >
               <Pencil size={14} />
               <span>{t("macros.edit")}</span>
+            </button>
+            <button
+              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              type="button"
+              role="menuitem"
+              onClick={handleCopy}
+              disabled={isDeleteBusy}
+            >
+              <Copy size={14} />
+              <span>{t("macros.copy")}</span>
             </button>
             <button
               className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"

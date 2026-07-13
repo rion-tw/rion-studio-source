@@ -1,5 +1,6 @@
 import { useCallback, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 
+import { createCopyName } from "../app/copyName";
 import type { MacroFormState } from "../app/types";
 import type { Translator } from "../i18n";
 import type { Macro, MacroRunStatus, Role } from "../../../shared/types";
@@ -133,6 +134,28 @@ export function useMacroWorkflow({
     }
   }
 
+  async function handleCopyMacro(macro: Macro): Promise<void> {
+    setBusyMacroId(macro.id);
+    setError(null);
+
+    try {
+      const copy = await window.rionStudio.createMacro({
+        name: createCopyName(macro.name, macros.map((item) => item.name), t("copyName.suffix")),
+        roleIds: [...macro.roleIds],
+        repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
+        steps: macro.steps.map((step) => ({ ...step })),
+        trigger: macro.trigger ? { ...macro.trigger } : null
+      });
+      setMacros((current) => [...current, copy]);
+      navigateToMacros();
+      await loadData();
+    } catch (copyError) {
+      setError(copyError);
+    } finally {
+      setBusyMacroId(null);
+    }
+  }
+
   async function handleStartMacro(macroId: string): Promise<void> {
     setBusyRunKey(macroId);
     setError(null);
@@ -170,6 +193,7 @@ export function useMacroWorkflow({
     busyMacroId,
     busyRunKey,
     closeMacroModal,
+    handleCopyMacro,
     handleDeleteMacro,
     handleMacroSubmit,
     handleStartMacro,

@@ -1,5 +1,6 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 
+import { createCopyName } from "../app/copyName";
 import { mergeStatuses } from "../app/statusUtils";
 import type { WorkspaceFormState } from "../app/types";
 import type { Translator } from "../i18n";
@@ -124,6 +125,30 @@ export function useWorkspaceWorkflow({
     }
   }
 
+  async function handleCopyWorkspace(workspace: LaunchWorkspace): Promise<void> {
+    setBusyWorkspaceId(workspace.id);
+    setError(null);
+
+    try {
+      const copy = await window.rionStudio.createLaunchWorkspace({
+        name: createCopyName(workspace.name, workspaces.map((item) => item.name), t("copyName.suffix")),
+        template: workspace.template,
+        browserZoomPercent: workspace.browserZoomPercent,
+        slots: workspace.slots.map((slot) => ({
+          ...slot,
+          rect: { ...slot.rect }
+        }))
+      });
+      setWorkspaces((current) => [...current, copy]);
+      navigateToWorkspaces();
+      await loadData();
+    } catch (copyError) {
+      setError(copyError);
+    } finally {
+      setBusyWorkspaceId(null);
+    }
+  }
+
   async function handleLaunchWorkspace(workspace: LaunchWorkspace): Promise<void> {
     setBusyWorkspaceId(workspace.id);
     setError(null);
@@ -157,6 +182,7 @@ export function useWorkspaceWorkflow({
   return {
     busyWorkspaceId,
     closeWorkspaceModal,
+    handleCopyWorkspace,
     handleDeleteWorkspace,
     handleLaunchWorkspace,
     handleStopWorkspace,

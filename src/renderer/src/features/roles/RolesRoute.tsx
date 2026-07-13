@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  Copy,
   Globe2,
   Loader2,
   LogIn,
@@ -48,6 +49,7 @@ interface RolesViewProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   onClearQuery: () => void;
+  onCopy: (role: Role) => void;
   onDelete: (role: Role) => void;
   onEdit: (role: Role) => void;
   onFilterChange: (filter: SidebarFilter) => void;
@@ -70,6 +72,7 @@ function RolesView({
   statusByRole,
   t,
   onClearQuery,
+  onCopy,
   onDelete,
   onEdit,
   onFilterChange,
@@ -171,6 +174,7 @@ function RolesView({
                 isBusy={isBusy}
                 language={language}
                 t={t}
+                onCopy={() => onCopy(role)}
                 onDelete={() => onDelete(role)}
                 onEdit={() => onEdit(role)}
                 onLaunch={() => onLaunch(role.id)}
@@ -211,6 +215,7 @@ interface RoleCardProps {
   authStatus?: AuthFlowStatus;
   isBusy: boolean;
   language: Language;
+  onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onLaunch: () => void;
@@ -225,6 +230,7 @@ function RoleCard({
   authStatus,
   isBusy,
   language,
+  onCopy,
   onDelete,
   onEdit,
   onLaunch,
@@ -271,6 +277,7 @@ function RoleCard({
           isBusy={isBusy}
           isOnCover={hasCoverImage}
           t={t}
+          onCopy={onCopy}
           onDelete={onDelete}
           onEdit={onEdit}
           onRelogin={onLogin}
@@ -433,6 +440,7 @@ interface RoleActionMenuProps {
   canRelogin: boolean;
   isBusy: boolean;
   isOnCover?: boolean;
+  onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onRelogin: () => void;
@@ -443,6 +451,7 @@ function RoleActionMenu({
   canRelogin,
   isBusy,
   isOnCover = false,
+  onCopy,
   onDelete,
   onEdit,
   onRelogin,
@@ -482,6 +491,11 @@ function RoleActionMenu({
   function handleEdit(): void {
     setIsOpen(false);
     onEdit();
+  }
+
+  function handleCopy(): void {
+    setIsOpen(false);
+    onCopy();
   }
 
   function handleDelete(): void {
@@ -525,6 +539,16 @@ function RoleActionMenu({
           >
             <Pencil size={14} />
             <span>{t("role.edit")}</span>
+          </button>
+          <button
+            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+            type="button"
+            role="menuitem"
+            onClick={handleCopy}
+            disabled={isBusy}
+          >
+            <Copy size={14} />
+            <span>{t("role.copy")}</span>
           </button>
           {canRelogin ? (
             <button

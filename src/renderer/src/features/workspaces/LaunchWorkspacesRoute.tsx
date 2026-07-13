@@ -1,4 +1,4 @@
-import { LayoutDashboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
+import { Copy, LayoutDashboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
@@ -19,6 +19,7 @@ interface LaunchWorkspacesViewProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspaces: LaunchWorkspace[];
+  onCopyWorkspace: (workspace: LaunchWorkspace) => void;
   onCreateWorkspace: () => void;
   onDeleteWorkspace: (workspace: LaunchWorkspace) => void;
   onEditWorkspace: (workspace: LaunchWorkspace) => void;
@@ -32,6 +33,7 @@ function LaunchWorkspacesView({
   statusByRole,
   t,
   workspaces,
+  onCopyWorkspace,
   onCreateWorkspace,
   onDeleteWorkspace,
   onEditWorkspace,
@@ -107,6 +109,7 @@ function LaunchWorkspacesView({
               statusByRole={statusByRole}
               t={t}
               workspace={workspace}
+              onCopy={() => onCopyWorkspace(workspace)}
               onDelete={() => onDeleteWorkspace(workspace)}
               onEdit={() => onEditWorkspace(workspace)}
               onLaunch={() => onLaunchWorkspace(workspace)}
@@ -121,6 +124,7 @@ function LaunchWorkspacesView({
 
 interface WorkspaceCardProps {
   busyWorkspaceId: string | null;
+  onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onLaunch: () => void;
@@ -133,6 +137,7 @@ interface WorkspaceCardProps {
 
 function WorkspaceCard({
   busyWorkspaceId,
+  onCopy,
   onDelete,
   onEdit,
   onLaunch,
@@ -161,6 +166,7 @@ function WorkspaceCard({
         <WorkspaceActionMenu
           isBusy={isBusy}
           t={t}
+          onCopy={onCopy}
           onDelete={onDelete}
           onEdit={onEdit}
         />
@@ -386,12 +392,13 @@ function resolveWorkspaceRoleLaunchGameName(launchUrl: string, t: Translator): s
 
 interface WorkspaceActionMenuProps {
   isBusy: boolean;
+  onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
   t: Translator;
 }
 
-function WorkspaceActionMenu({ isBusy, onDelete, onEdit, t }: WorkspaceActionMenuProps): JSX.Element {
+function WorkspaceActionMenu({ isBusy, onCopy, onDelete, onEdit, t }: WorkspaceActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -457,6 +464,19 @@ function WorkspaceActionMenu({ isBusy, onDelete, onEdit, t }: WorkspaceActionMen
           >
             <Pencil size={14} />
             <span>{t("workspaces.edit")}</span>
+          </button>
+          <button
+            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setIsOpen(false);
+              onCopy();
+            }}
+            disabled={isBusy}
+          >
+            <Copy size={14} />
+            <span>{t("workspaces.copy")}</span>
           </button>
           <button
             className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"

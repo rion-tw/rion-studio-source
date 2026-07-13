@@ -8,6 +8,7 @@
     "electron.vite.config.ts",
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
+    "src/renderer/src/app/copyName.ts",
     "src/renderer/src/app/statusUtils.ts",
     "src/renderer/src/app/rendererReady.ts",
     "src/renderer/src/app/types.ts",

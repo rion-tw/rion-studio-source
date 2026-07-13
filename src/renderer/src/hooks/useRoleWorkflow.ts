@@ -1,5 +1,6 @@
 import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 
+import { createCopyName } from "../app/copyName";
 import { emptyForm } from "../app/constants";
 import { mergeAuthStatus, mergeStatus } from "../app/statusUtils";
 import type { RoleFormState, SidebarFilter } from "../app/types";
@@ -176,6 +177,31 @@ export function useRoleWorkflow({
     }
   }
 
+  async function handleCopy(role: Role): Promise<void> {
+    setBusyRoleId(role.id);
+    setError(null);
+
+    try {
+      await window.rionStudio.createRole({
+        name: createCopyName(role.name, roles.map((item) => item.name), t("copyName.suffix")),
+        launchUrl: role.launchUrl,
+        windowWidth: role.windowWidth,
+        windowHeight: role.windowHeight,
+        notes: role.notes,
+        launchPreset: role.launchPreset,
+        coverImageDataUrl: role.coverImageDataUrl ?? null,
+        coverImageDominantColor: role.coverImageDominantColor ?? null
+      });
+      setActiveFilter("all");
+      navigateToRoles();
+      await loadData();
+    } catch (copyError) {
+      setError(copyError);
+    } finally {
+      setBusyRoleId(null);
+    }
+  }
+
   function startEdit(role: Role): void {
     navigateToRoles();
     setActiveFilter("all");
@@ -212,8 +238,10 @@ export function useRoleWorkflow({
   return {
     activeFilter,
     busyRoleId,
+    closeRoleModal,
     filteredRoles,
     form,
+    handleCopy,
     handleDelete,
     handleLaunch,
     handleStop,
@@ -228,7 +256,6 @@ export function useRoleWorkflow({
     setForm,
     setQuery,
     startCreate,
-    startEdit,
-    closeRoleModal
+    startEdit
   };
 }

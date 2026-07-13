@@ -214,6 +214,7 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     onClearQuery={() => roleWorkflow.setQuery("")}
+                    onCopy={(role) => void roleWorkflow.handleCopy(role)}
                     onDelete={(role) => void roleWorkflow.handleDelete(role)}
                     onEdit={roleWorkflow.startEdit}
                     onFilterChange={roleWorkflow.setActiveFilter}
@@ -238,6 +239,7 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
+                    onCopyWorkspace={(workspace) => void workspaceWorkflow.handleCopyWorkspace(workspace)}
                     onCreateWorkspace={workspaceWorkflow.startCreateWorkspace}
                     onDeleteWorkspace={(workspace) => void workspaceWorkflow.handleDeleteWorkspace(workspace)}
                     onEditWorkspace={workspaceWorkflow.startEditWorkspace}
@@ -262,6 +264,7 @@ export function App(): JSX.Element {
                     roles={data.roles}
                     statusByRole={data.statusByRole}
                     t={preferences.t}
+                    onCopyMacro={(macro) => void macroWorkflow.handleCopyMacro(macro)}
                     onDeleteMacro={(macro) => void macroWorkflow.handleDeleteMacro(macro)}
                     onEditMacro={macroWorkflow.startEditMacro}
                     onNewMacro={macroWorkflow.startCreateMacro}

@@ -89,13 +89,16 @@ describe("BrowserManager game host windows", () => {
     ]);
 
     expect(harness.createHostWindow).toHaveBeenCalledTimes(1);
+    expect(harness.createHostWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Party - Main, Alt" })
+    );
     expect(harness.views[0].setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 600, height: 800 });
     expect(harness.views[1].setBounds).toHaveBeenCalledWith({ x: 600, y: 0, width: 600, height: 800 });
     expect(harness.views[0].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
     expect(harness.views[1].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
   });
 
-  it("draws a one-pixel black divider inside a wider resize hit target", async () => {
+  it("draws a six-pixel black divider that is entirely draggable", async () => {
     const harness = createHarness();
 
     await harness.manager.launchWorkspace(workspace, [
@@ -109,11 +112,12 @@ describe("BrowserManager game host windows", () => {
         webPreferences: expect.objectContaining({ preload: "/app/out/preload/divider.cjs" })
       })
     );
-    expect(harness.views[2].setBounds).toHaveBeenCalledWith({ x: 596, y: 0, width: 9, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenCalledWith({ x: 597, y: 0, width: 6, height: 800 });
     const dividerUrl = vi.mocked(harness.views[2].webContents.loadURL).mock.calls[0][0];
     const dividerHtml = decodeURIComponent(dividerUrl.split(",", 2)[1]);
-    expect(dividerHtml).toContain("width:1px");
+    expect(dividerHtml).toContain("html,body");
     expect(dividerHtml).toContain("background:#000");
+    expect(dividerHtml).not.toContain("class=\"line\"");
     expect(dividerHtml).toContain("cursor:col-resize");
   });
 
@@ -130,7 +134,7 @@ describe("BrowserManager game host windows", () => {
     });
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 720, height: 800 });
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 720, y: 0, width: 480, height: 800 });
-    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 716, y: 0, width: 9, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 717, y: 0, width: 6, height: 800 });
 
     harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
       phase: "move",
@@ -152,8 +156,8 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views).toHaveLength(6);
     expect(harness.views.slice(4).map((view) => vi.mocked(view.setBounds).mock.calls[0][0])).toEqual(
       expect.arrayContaining([
-        { x: 596, y: 0, width: 9, height: 800 },
-        { x: 0, y: 396, width: 1200, height: 9 }
+        { x: 597, y: 0, width: 6, height: 800 },
+        { x: 0, y: 397, width: 1200, height: 6 }
       ])
     );
   });

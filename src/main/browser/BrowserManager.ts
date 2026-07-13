@@ -197,7 +197,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       throw new BrowserRoleAlreadyRunningError(runningRoles);
     }
 
-    const host = this.createHost(workspace.name, workspace.id);
+    const roleNames = items.map((item) => item.role.name).join(", ");
+    const host = this.createHost(`${workspace.name} - ${roleNames}`, workspace.id);
     const sessions = items.map((item) => this.createSession(item.role, host, item.rect));
     const zoomFactor = workspace.browserZoomPercent / 100;
 
@@ -726,7 +727,7 @@ interface DividerSegment extends DividerDescriptor {
 }
 
 const DIVIDER_EPSILON = 0.000_001;
-const DIVIDER_HIT_SIZE = 9;
+const DIVIDER_SIZE = 6;
 
 function createDividerDescriptors(sessions: BrowserSession[]): DividerDescriptor[] {
   const segments: DividerSegment[] = [];
@@ -842,9 +843,9 @@ function dividerGeometryToPixelBounds(
     const top = Math.round(geometry.start * contentBounds.height);
     const bottom = Math.round(geometry.end * contentBounds.height);
     return {
-      x: lineX - Math.floor(DIVIDER_HIT_SIZE / 2),
+      x: lineX - Math.floor(DIVIDER_SIZE / 2),
       y: top,
-      width: DIVIDER_HIT_SIZE,
+      width: DIVIDER_SIZE,
       height: Math.max(1, bottom - top)
     };
   }
@@ -854,24 +855,19 @@ function dividerGeometryToPixelBounds(
   const right = Math.round(geometry.end * contentBounds.width);
   return {
     x: left,
-    y: lineY - Math.floor(DIVIDER_HIT_SIZE / 2),
+    y: lineY - Math.floor(DIVIDER_SIZE / 2),
     width: Math.max(1, right - left),
-    height: DIVIDER_HIT_SIZE
+    height: DIVIDER_SIZE
   };
 }
 
 function createDividerDataUrl(axis: DividerAxis): string {
   const cursor = axis === "vertical" ? "col-resize" : "row-resize";
-  const lineStyle =
-    axis === "vertical"
-      ? "left:4px;top:0;width:1px;height:100%"
-      : "left:0;top:4px;width:100%;height:1px";
   const coordinate = axis === "vertical" ? "event.screenX" : "event.screenY";
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;cursor:${cursor};user-select:none}
-.line{position:absolute;background:#000;${lineStyle}}
-</style></head><body><div class="line"></div><script>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;cursor:${cursor};user-select:none}
+</style></head><body><script>
 let dragging=false;
 const send=(phase,event)=>window.rionStudioDivider.sendPointer({phase,screenPosition:${coordinate}});
 addEventListener("pointerdown",event=>{dragging=true;document.body.setPointerCapture?.(event.pointerId);send("start",event);event.preventDefault()});

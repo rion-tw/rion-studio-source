@@ -5,6 +5,7 @@
   "app.settings": "設定",
   "app.tagline": "ロールワークスペース",
   "app.primaryNavigation": "メインナビゲーション",
+  "app.updateAvailable": "利用可能な更新があります",
   "loading.title": "ロールワークスペースを読み込み中",
   "loading.description": "ロール、セッション、ワークスペースを準備しています。",
   "loading.route": "ビューを読み込み中",

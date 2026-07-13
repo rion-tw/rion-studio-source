@@ -5,6 +5,7 @@
   "app.settings": "设置",
   "app.tagline": "角色工作区",
   "app.primaryNavigation": "主要导航",
+  "app.updateAvailable": "有可用更新",
   "loading.title": "正在加载角色工作区",
   "loading.description": "正在準備角色、工作阶段与工作区。",
   "loading.route": "加载画面",

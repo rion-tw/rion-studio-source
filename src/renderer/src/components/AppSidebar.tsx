@@ -7,13 +7,14 @@ import type { Translator } from "../i18n";
 import { NavItem } from "./ui/patterns";
 
 interface AppSidebarProps {
+  hasUpdateBadge: boolean;
   macroCount: number;
   roleCount: number;
   t: Translator;
   workspaceCount: number;
 }
 
-export function AppSidebar({ macroCount, roleCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
+export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -58,6 +59,8 @@ export function AppSidebar({ macroCount, roleCount, t, workspaceCount }: AppSide
           icon={Settings}
           label={t("app.settings")}
           noDrag
+          showStatusDot={hasUpdateBadge}
+          statusDotLabel={t("app.updateAvailable")}
           onClick={() => navigate("/settings", { state: { returnTo: `${location.pathname}${location.search}` } })}
         />
       </div>

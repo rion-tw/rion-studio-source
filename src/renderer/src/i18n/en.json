@@ -5,6 +5,7 @@
   "app.settings": "Settings",
   "app.tagline": "Role workspace",
   "app.primaryNavigation": "Primary navigation",
+  "app.updateAvailable": "Update available",
   "loading.title": "Loading role workspace",
   "loading.description": "Preparing roles, sessions, and workspaces.",
   "loading.route": "Loading view",

@@ -280,6 +280,8 @@ export interface NavItemProps {
   label: string;
   noDrag?: boolean;
   onClick?: () => void;
+  statusDotLabel?: string;
+  showStatusDot?: boolean;
 }
 
 export function NavItem({
@@ -290,7 +292,9 @@ export function NavItem({
   icon: Icon,
   label,
   noDrag = false,
-  onClick
+  onClick,
+  statusDotLabel,
+  showStatusDot = false
 }: NavItemProps) {
   const content = (
     <>
@@ -299,6 +303,13 @@ export function NavItem({
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {typeof count === "number" ? <CountPill className="h-5 min-w-5 px-1.5 text-[11px]">{count}</CountPill> : null}
+      {showStatusDot ? (
+        <span
+          aria-label={statusDotLabel}
+          className="size-2 shrink-0 rounded-full bg-primary ring-2 ring-primary/15"
+          role={statusDotLabel ? "status" : undefined}
+        />
+      ) : null}
     </>
   );
   const itemClassName = cn(

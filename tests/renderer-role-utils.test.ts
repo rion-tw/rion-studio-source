@@ -5,9 +5,10 @@ import {
   mergeAuthStatus,
   mergeStatus,
   mergeStatuses,
-  shouldShowLoginGuidance
+  shouldShowLoginGuidance,
+  shouldShowUpdateBadge
 } from "../src/renderer/src/app/statusUtils";
-import type { AuthFlowState, AuthFlowStatus, Role, RoleStatus } from "../src/shared/types";
+import type { AppUpdateState, AppUpdateStatus, AuthFlowState, AuthFlowStatus, Role, RoleStatus } from "../src/shared/types";
 
 describe("renderer role status helpers", () => {
   it("summarizes role state from roles, process statuses, and auth statuses", () => {
@@ -96,6 +97,37 @@ describe("renderer role status helpers", () => {
     expect(shouldShowLoginGuidance(authStatus({ state: "failed" }))).toBe(false);
     expect(shouldShowLoginGuidance(undefined)).toBe(false);
   });
+
+  it("shows the update badge only when an update needs user action", () => {
+    const inactiveStates: AppUpdateState[] = ["idle", "checking", "downloading", "not_available", "error"];
+
+    expect(shouldShowUpdateBadge(null)).toBe(false);
+
+    for (const state of inactiveStates) {
+      expect(shouldShowUpdateBadge(updateStatus({ state }))).toBe(false);
+    }
+
+    expect(shouldShowUpdateBadge(updateStatus({ installMode: "manual", state: "available" }))).toBe(false);
+    expect(
+      shouldShowUpdateBadge(
+        updateStatus({
+          downloadUrl: "https://example.test/Rion-Studio.dmg",
+          installMode: "manual",
+          state: "available"
+        })
+      )
+    ).toBe(true);
+    expect(
+      shouldShowUpdateBadge(
+        updateStatus({
+          installMode: "manual",
+          releasePageUrl: "https://example.test/releases/v1",
+          state: "available"
+        })
+      )
+    ).toBe(true);
+    expect(shouldShowUpdateBadge(updateStatus({ installMode: "automatic", state: "downloaded" }))).toBe(true);
+  });
 });
 
 function role(overrides: Partial<Role>): Role {
@@ -120,6 +152,16 @@ function authStatus(overrides: Partial<AuthFlowStatus>): AuthFlowStatus {
     state: "waiting_for_login",
     startedAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function updateStatus(overrides: Partial<AppUpdateStatus>): AppUpdateStatus {
+  return {
+    currentVersion: "1.0.0",
+    installMode: "automatic",
+    isPackaged: true,
+    state: "idle",
     ...overrides
   };
 }

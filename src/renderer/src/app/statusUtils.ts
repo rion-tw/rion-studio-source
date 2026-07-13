@@ -1,4 +1,4 @@
-import type { AuthFlowStatus, Role, RoleStatus } from "../../../shared/types";
+import type { AppUpdateStatus, AuthFlowStatus, Role, RoleStatus } from "../../../shared/types";
 import type { Translator } from "../i18n";
 import type { AppStats } from "./types";
 
@@ -46,6 +46,18 @@ export function mergeAuthStatus(statuses: AuthFlowStatus[], nextStatus: AuthFlow
 
 export function shouldShowLoginGuidance(status: AuthFlowStatus | undefined): status is AuthFlowStatus {
   return status !== undefined && status.state !== "failed";
+}
+
+export function shouldShowUpdateBadge(status: AppUpdateStatus | null): boolean {
+  if (!status) {
+    return false;
+  }
+
+  if (status.state === "downloaded") {
+    return true;
+  }
+
+  return status.installMode === "manual" && status.state === "available" && Boolean(status.downloadUrl ?? status.releasePageUrl);
 }
 
 export function formatAuthFlowState(status: AuthFlowStatus, t: Translator): string {

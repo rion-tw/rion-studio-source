@@ -11,7 +11,7 @@ import RoleModal from "./features/roles/RoleModal";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import WorkspaceModal from "./features/workspaces/WorkspaceModal";
 import { toMessage } from "./app/errorUtils";
-import { shouldShowLoginGuidance } from "./app/statusUtils";
+import { shouldShowLoginGuidance, shouldShowUpdateBadge } from "./app/statusUtils";
 import { scheduleAfterTwoAnimationFrames } from "./app/rendererReady";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
@@ -225,6 +225,7 @@ export function App(): JSX.Element {
         <SettingsSidebar t={preferences.t} />
       ) : (
         <AppSidebar
+          hasUpdateBadge={shouldShowUpdateBadge(updates.status)}
           macroCount={data.macros.length}
           roleCount={data.roles.length}
           t={preferences.t}

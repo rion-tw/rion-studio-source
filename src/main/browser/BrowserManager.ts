@@ -21,6 +21,7 @@ import {
 } from "../auth/loginEvidence";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspace, NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
+import { MIN_WORKSPACE_SLOT_SIZE } from "../../shared/workspaceLayout";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 
 export interface BrowserManagerEvents {
@@ -47,6 +48,7 @@ export type BeforeRolesStop = (roleIds: string[]) => Promise<void>;
 export interface BrowserManagerOptions {
   createHostWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
+  dividerPreloadPath: string;
   embeddedPreloadPath: string;
   getLaunchWorkArea: () => PixelBounds;
   loginPollIntervalMs?: number;
@@ -82,11 +84,28 @@ export class BrowserRoleAlreadyRunningError extends Error {
 
 interface GameHostWindow {
   closing: boolean;
+  dividers: GameDivider[];
   id: string;
   roleIds: Set<string>;
   window: BrowserWindow;
   workspaceId?: string;
 }
+
+type DividerAxis = "horizontal" | "vertical";
+
+interface GameDivider {
+  afterRoleIds: string[];
+  axis: DividerAxis;
+  beforeRoleIds: string[];
+  view: WebContentsView;
+}
+
+export interface GameDividerPointerPayload {
+  phase: "move" | "start" | "end";
+  screenPosition: number;
+}
+
+export const GAME_DIVIDER_POINTER_CHANNEL = "game-divider:pointer";
 
 interface BrowserSession {
   hostId: string;
@@ -103,6 +122,7 @@ const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
 
 export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
+  private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
   private readonly hosts = new Map<string, GameHostWindow>();
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly workspaceHostIds = new Map<string, string>();
@@ -182,6 +202,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const zoomFactor = workspace.browserZoomPercent / 100;
 
     try {
+      await this.createHostDividers(host);
       host.window.show();
       for (const session of sessions) {
         await this.finishLaunch(session, zoomFactor);
@@ -267,6 +288,28 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await Promise.all([...this.hosts.keys()].map((hostId) => this.stopHost(hostId)));
   }
 
+  handleDividerPointer(webContentsId: number, payload: unknown): void {
+    const target = this.dividerByWebContentsId.get(webContentsId);
+    if (!target || !isGameDividerPointerPayload(payload) || payload.phase === "end") {
+      return;
+    }
+
+    const host = this.hosts.get(target.hostId);
+    if (!host || host.window.isDestroyed()) {
+      return;
+    }
+
+    const contentBounds = host.window.getContentBounds();
+    const size = target.divider.axis === "vertical" ? contentBounds.width : contentBounds.height;
+    const origin = target.divider.axis === "vertical" ? contentBounds.x : contentBounds.y;
+    if (size <= 0) {
+      return;
+    }
+
+    const nextPosition = (payload.screenPosition - origin) / size;
+    this.resizeDivider(host, target.divider, nextPosition);
+  }
+
   private createHost(title: string, workspaceId?: string): GameHostWindow {
     const bounds = this.options.getLaunchWorkArea();
     const window = this.options.createHostWindow({
@@ -284,6 +327,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
     const host: GameHostWindow = {
       closing: false,
+      dividers: [],
       id: randomUUID(),
       roleIds: new Set(),
       window,
@@ -343,6 +387,38 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
     this.emitChange();
     return session;
+  }
+
+  private async createHostDividers(host: GameHostWindow): Promise<void> {
+    const descriptors = createDividerDescriptors(
+      [...host.roleIds]
+        .map((roleId) => this.sessions.get(roleId))
+        .filter((session): session is BrowserSession => Boolean(session))
+    );
+
+    const loadPromises: Promise<void>[] = [];
+    host.dividers = descriptors.map((descriptor) => {
+      const view = this.options.createView({
+        webPreferences: {
+          backgroundThrottling: false,
+          contextIsolation: true,
+          nodeIntegration: false,
+          preload: this.options.dividerPreloadPath,
+          sandbox: true
+        }
+      });
+      const divider: GameDivider = { ...descriptor, view };
+      host.window.contentView.addChildView(view);
+      const webContentsId = view.webContents.id;
+      this.dividerByWebContentsId.set(webContentsId, { divider, hostId: host.id });
+      view.webContents.once("destroyed", () => {
+        this.dividerByWebContentsId.delete(webContentsId);
+      });
+      loadPromises.push(view.webContents.loadURL(createDividerDataUrl(divider.axis)).then(() => undefined));
+      return divider;
+    });
+    this.layoutDividers(host);
+    await Promise.all(loadPromises);
   }
 
   private async finishLaunch(session: BrowserSession, zoomFactor: number): Promise<void> {
@@ -441,6 +517,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         this.layoutSession(host, session);
       }
     });
+    this.layoutDividers(host);
   }
 
   private layoutSession(host: GameHostWindow, session: BrowserSession): void {
@@ -451,6 +528,46 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private getSessionBounds(host: GameHostWindow, session: BrowserSession): PixelBounds {
     return normalizedRectToPixelBounds(session.rect, host.window.getContentBounds());
+  }
+
+  private layoutDividers(host: GameHostWindow): void {
+    const contentBounds = host.window.getContentBounds();
+    host.dividers.forEach((divider) => {
+      const geometry = getDividerGeometry(divider, this.sessions);
+      if (!geometry) {
+        return;
+      }
+      divider.view.setBounds(dividerGeometryToPixelBounds(divider.axis, geometry, contentBounds));
+    });
+  }
+
+  private resizeDivider(host: GameHostWindow, divider: GameDivider, requestedPosition: number): void {
+    const beforeSessions = divider.beforeRoleIds
+      .map((roleId) => this.sessions.get(roleId))
+      .filter((session): session is BrowserSession => Boolean(session));
+    const afterSessions = divider.afterRoleIds
+      .map((roleId) => this.sessions.get(roleId))
+      .filter((session): session is BrowserSession => Boolean(session));
+    if (beforeSessions.length === 0 || afterSessions.length === 0) {
+      return;
+    }
+
+    const startKey = divider.axis === "vertical" ? "x" : "y";
+    const sizeKey = divider.axis === "vertical" ? "width" : "height";
+    const min = Math.max(...beforeSessions.map((session) => session.rect[startKey] + MIN_WORKSPACE_SLOT_SIZE));
+    const max = Math.min(
+      ...afterSessions.map((session) => session.rect[startKey] + session.rect[sizeKey] - MIN_WORKSPACE_SLOT_SIZE)
+    );
+    const position = Math.min(max, Math.max(min, requestedPosition));
+
+    beforeSessions.forEach((session) => {
+      session.rect = { ...session.rect, [sizeKey]: position - session.rect[startKey] };
+    });
+    afterSessions.forEach((session) => {
+      const end = session.rect[startKey] + session.rect[sizeKey];
+      session.rect = { ...session.rect, [startKey]: position, [sizeKey]: end - position };
+    });
+    this.layoutHost(host);
   }
 
   private async applyZoom(session: BrowserSession, zoomFactor: number): Promise<void> {
@@ -540,6 +657,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private closeHostWindow(host: GameHostWindow): void {
     host.closing = true;
+    host.dividers.forEach((divider) => {
+      this.dividerByWebContentsId.delete(divider.view.webContents.id);
+      if (!host.window.isDestroyed()) {
+        host.window.contentView.removeChildView(divider.view);
+      }
+      if (!divider.view.webContents.isDestroyed()) {
+        divider.view.webContents.close();
+      }
+    });
+    host.dividers = [];
     this.deleteHost(host);
     if (!host.window.isDestroyed()) {
       host.window.close();
@@ -578,6 +705,193 @@ export function normalizedRectToPixelBounds(rect: NormalizedRect, contentBounds:
     width: Math.max(1, right - left),
     height: Math.max(1, bottom - top)
   };
+}
+
+interface DividerDescriptor {
+  afterRoleIds: string[];
+  axis: DividerAxis;
+  beforeRoleIds: string[];
+}
+
+interface DividerGeometry {
+  end: number;
+  position: number;
+  start: number;
+}
+
+interface DividerSegment extends DividerDescriptor {
+  end: number;
+  position: number;
+  start: number;
+}
+
+const DIVIDER_EPSILON = 0.000_001;
+const DIVIDER_HIT_SIZE = 9;
+
+function createDividerDescriptors(sessions: BrowserSession[]): DividerDescriptor[] {
+  const segments: DividerSegment[] = [];
+
+  for (let leftIndex = 0; leftIndex < sessions.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < sessions.length; rightIndex += 1) {
+      const left = sessions[leftIndex];
+      const right = sessions[rightIndex];
+      addSharedEdgeSegment(segments, left, right, "vertical");
+      addSharedEdgeSegment(segments, right, left, "vertical");
+      addSharedEdgeSegment(segments, left, right, "horizontal");
+      addSharedEdgeSegment(segments, right, left, "horizontal");
+    }
+  }
+
+  const groups: Array<DividerSegment & { after: Set<string>; before: Set<string> }> = [];
+  segments.forEach((segment) => {
+    const group = groups.find(
+      (candidate) =>
+        candidate.axis === segment.axis && Math.abs(candidate.position - segment.position) < DIVIDER_EPSILON
+    );
+    if (group) {
+      group.start = Math.min(group.start, segment.start);
+      group.end = Math.max(group.end, segment.end);
+      segment.beforeRoleIds.forEach((roleId) => group.before.add(roleId));
+      segment.afterRoleIds.forEach((roleId) => group.after.add(roleId));
+      return;
+    }
+
+    groups.push({
+      ...segment,
+      after: new Set(segment.afterRoleIds),
+      before: new Set(segment.beforeRoleIds)
+    });
+  });
+
+  return groups.map((group) => ({
+    axis: group.axis,
+    beforeRoleIds: [...group.before],
+    afterRoleIds: [...group.after]
+  }));
+}
+
+function addSharedEdgeSegment(
+  segments: DividerSegment[],
+  before: BrowserSession,
+  after: BrowserSession,
+  axis: DividerAxis
+): void {
+  const position = axis === "vertical" ? before.rect.x + before.rect.width : before.rect.y + before.rect.height;
+  const afterPosition = axis === "vertical" ? after.rect.x : after.rect.y;
+  if (Math.abs(position - afterPosition) >= DIVIDER_EPSILON) {
+    return;
+  }
+
+  const beforeStart = axis === "vertical" ? before.rect.y : before.rect.x;
+  const beforeEnd = beforeStart + (axis === "vertical" ? before.rect.height : before.rect.width);
+  const afterStart = axis === "vertical" ? after.rect.y : after.rect.x;
+  const afterEnd = afterStart + (axis === "vertical" ? after.rect.height : after.rect.width);
+  const start = Math.max(beforeStart, afterStart);
+  const end = Math.min(beforeEnd, afterEnd);
+  if (end - start <= DIVIDER_EPSILON) {
+    return;
+  }
+
+  segments.push({
+    axis,
+    position,
+    start,
+    end,
+    beforeRoleIds: [before.role.id],
+    afterRoleIds: [after.role.id]
+  });
+}
+
+function getDividerGeometry(
+  divider: DividerDescriptor,
+  sessions: Map<string, BrowserSession>
+): DividerGeometry | undefined {
+  const beforeSessions = divider.beforeRoleIds
+    .map((roleId) => sessions.get(roleId))
+    .filter((session): session is BrowserSession => Boolean(session));
+  const afterSessions = divider.afterRoleIds
+    .map((roleId) => sessions.get(roleId))
+    .filter((session): session is BrowserSession => Boolean(session));
+  const allSessions = [...beforeSessions, ...afterSessions];
+  if (beforeSessions.length === 0 || afterSessions.length === 0) {
+    return undefined;
+  }
+
+  const position =
+    divider.axis === "vertical" ? afterSessions[0].rect.x : afterSessions[0].rect.y;
+  const start = Math.min(
+    ...allSessions.map((session) => (divider.axis === "vertical" ? session.rect.y : session.rect.x))
+  );
+  const end = Math.max(
+    ...allSessions.map((session) => {
+      return divider.axis === "vertical"
+        ? session.rect.y + session.rect.height
+        : session.rect.x + session.rect.width;
+    })
+  );
+  return { end, position, start };
+}
+
+function dividerGeometryToPixelBounds(
+  axis: DividerAxis,
+  geometry: DividerGeometry,
+  contentBounds: PixelBounds
+): PixelBounds {
+  if (axis === "vertical") {
+    const lineX = Math.round(geometry.position * contentBounds.width);
+    const top = Math.round(geometry.start * contentBounds.height);
+    const bottom = Math.round(geometry.end * contentBounds.height);
+    return {
+      x: lineX - Math.floor(DIVIDER_HIT_SIZE / 2),
+      y: top,
+      width: DIVIDER_HIT_SIZE,
+      height: Math.max(1, bottom - top)
+    };
+  }
+
+  const lineY = Math.round(geometry.position * contentBounds.height);
+  const left = Math.round(geometry.start * contentBounds.width);
+  const right = Math.round(geometry.end * contentBounds.width);
+  return {
+    x: left,
+    y: lineY - Math.floor(DIVIDER_HIT_SIZE / 2),
+    width: Math.max(1, right - left),
+    height: DIVIDER_HIT_SIZE
+  };
+}
+
+function createDividerDataUrl(axis: DividerAxis): string {
+  const cursor = axis === "vertical" ? "col-resize" : "row-resize";
+  const lineStyle =
+    axis === "vertical"
+      ? "left:4px;top:0;width:1px;height:100%"
+      : "left:0;top:4px;width:100%;height:1px";
+  const coordinate = axis === "vertical" ? "event.screenX" : "event.screenY";
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;cursor:${cursor};user-select:none}
+.line{position:absolute;background:#000;${lineStyle}}
+</style></head><body><div class="line"></div><script>
+let dragging=false;
+const send=(phase,event)=>window.rionStudioDivider.sendPointer({phase,screenPosition:${coordinate}});
+addEventListener("pointerdown",event=>{dragging=true;document.body.setPointerCapture?.(event.pointerId);send("start",event);event.preventDefault()});
+addEventListener("pointermove",event=>{if(dragging)send("move",event)});
+addEventListener("pointerup",event=>{if(!dragging)return;dragging=false;send("end",event)});
+addEventListener("pointercancel",event=>{if(!dragging)return;dragging=false;send("end",event)});
+</script></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+function isGameDividerPointerPayload(value: unknown): value is GameDividerPointerPayload {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const payload = value as Partial<GameDividerPointerPayload>;
+  return (
+    (payload.phase === "start" || payload.phase === "move" || payload.phase === "end") &&
+    typeof payload.screenPosition === "number" &&
+    Number.isFinite(payload.screenPosition)
+  );
 }
 
 function delay(ms: number): Promise<void> {

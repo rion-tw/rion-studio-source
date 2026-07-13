@@ -95,6 +95,69 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
   });
 
+  it("draws a one-pixel black divider inside a wider resize hit target", async () => {
+    const harness = createHarness();
+
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    expect(harness.createView).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({ preload: "/app/out/preload/divider.cjs" })
+      })
+    );
+    expect(harness.views[2].setBounds).toHaveBeenCalledWith({ x: 596, y: 0, width: 9, height: 800 });
+    const dividerUrl = vi.mocked(harness.views[2].webContents.loadURL).mock.calls[0][0];
+    const dividerHtml = decodeURIComponent(dividerUrl.split(",", 2)[1]);
+    expect(dividerHtml).toContain("width:1px");
+    expect(dividerHtml).toContain("background:#000");
+    expect(dividerHtml).toContain("cursor:col-resize");
+  });
+
+  it("resizes adjacent roles when the divider is dragged and enforces minimum cell size", async () => {
+    const harness = createHarness();
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
+      phase: "move",
+      screenPosition: 720
+    });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 720, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 720, y: 0, width: 480, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 716, y: 0, width: 9, height: 800 });
+
+    harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
+      phase: "move",
+      screenPosition: 0
+    });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 144, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 144, y: 0, width: 1056, height: 800 });
+  });
+
+  it("creates crossing resize dividers for a quad workspace", async () => {
+    const harness = createHarness();
+    const rects = getDefaultWorkspaceRects("quad");
+
+    await harness.manager.launchWorkspace(
+      workspace,
+      rects.map((rect, index) => ({ role: createRole(`role-${index + 1}`, `Role ${index + 1}`), rect }))
+    );
+
+    expect(harness.views).toHaveLength(6);
+    expect(harness.views.slice(4).map((view) => vi.mocked(view.setBounds).mock.calls[0][0])).toEqual(
+      expect.arrayContaining([
+        { x: 596, y: 0, width: 9, height: 800 },
+        { x: 0, y: 396, width: 1200, height: 9 }
+      ])
+    );
+  });
+
   it("recalculates every role and popup when the host content size changes", async () => {
     const harness = createHarness();
     const secondRole = createRole("role-2", "Alt");
@@ -307,6 +370,7 @@ function createHarness(options: {
   const manager = new BrowserManager(roleStore, {
     createHostWindow,
     createView,
+    dividerPreloadPath: "/app/out/preload/divider.cjs",
     embeddedPreloadPath: "/app/out/preload/embedded.cjs",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     loginPollIntervalMs: 0

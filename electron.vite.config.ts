@@ -18,6 +18,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
+          divider: resolve(__dirname, "src/preload/divider.ts"),
           embedded: resolve(__dirname, "src/preload/embedded.ts"),
           index: resolve(__dirname, "src/preload/index.ts")
         },

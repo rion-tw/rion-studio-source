@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { app, BrowserWindow, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
 
 import { AuthManager } from "./auth/AuthManager";
-import { BrowserManager } from "./browser/BrowserManager";
+import { BrowserManager, GAME_DIVIDER_POINTER_CHANNEL } from "./browser/BrowserManager";
 import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
 import { registerIpcHandlers } from "./ipc/registerHandlers";
 import { MacroManager } from "./macros/MacroManager";
@@ -230,8 +230,12 @@ function initializeApplication(): void {
   browserManager = new BrowserManager(roleStore, {
     createHostWindow: (options) => new BrowserWindow(options),
     createView: (options) => new WebContentsView(options),
+    dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea()
+  });
+  ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {
+    browserManager?.handleDividerPointer(event.sender.id, payload);
   });
   const macroManager = new MacroManager(browserManager, macroStore);
   browserManager.setBeforeRolesStop(async (roleIds) => {

@@ -1,17 +1,27 @@
-export const settingsSectionIds = ["appearance", "preferences", "role-defaults", "portability", "updates"] as const;
+export const settingsSectionIds = ["interface", "game", "data", "updates"] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
 
-export const settingsSectionElementIds: Record<SettingsSectionId, string> = {
-  appearance: "settings-appearance",
-  preferences: "settings-preferences",
-  portability: "settings-portability",
-  "role-defaults": "settings-role-defaults",
-  updates: "settings-updates"
+const legacySectionAliases: Partial<Record<string, SettingsSectionId>> = {
+  appearance: "interface",
+  portability: "data",
+  preferences: "interface",
+  "role-defaults": "game"
+};
+
+export const settingsSectionQueryValues: Record<SettingsSectionId, string> = {
+  data: "data",
+  game: "game",
+  interface: "interface",
+  updates: "updates"
 };
 
 export function readSettingsSection(value: string | null): SettingsSectionId {
-  return settingsSectionIds.includes(value as SettingsSectionId) ? (value as SettingsSectionId) : "appearance";
+  if (settingsSectionIds.includes(value as SettingsSectionId)) {
+    return value as SettingsSectionId;
+  }
+
+  return value ? legacySectionAliases[value] ?? "interface" : "interface";
 }
 
 export function readSettingsReturnTo(state: unknown): string {

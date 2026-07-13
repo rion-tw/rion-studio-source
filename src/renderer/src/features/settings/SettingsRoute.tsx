@@ -33,7 +33,7 @@ import type {
   PortableImportWarning,
   RoleDefaults
 } from "../../../../shared/types";
-import { readSettingsSection, settingsSectionElementIds } from "./settingsNavigation";
+import { readSettingsSection, type SettingsSectionId } from "./settingsNavigation";
 
 interface SettingsViewProps {
   language: Language;
@@ -56,7 +56,12 @@ interface SettingsViewProps {
   onThemeModeChange: (themeMode: ThemeMode) => void;
 }
 
+interface SettingsViewBaseProps extends SettingsViewProps {
+  activeSection: SettingsSectionId;
+}
+
 function SettingsViewBase({
+  activeSection,
   language,
   roleDefaults,
   resolvedTheme,
@@ -75,7 +80,7 @@ function SettingsViewBase({
   onLanguageChange,
   onRoleDefaultsChange,
   onThemeModeChange
-}: SettingsViewProps): JSX.Element {
+}: SettingsViewBaseProps): JSX.Element {
   const [portableImportPreview, setPortableImportPreview] = useState<PortableImportPreview | null>(null);
   const [portableMessage, setPortableMessage] = useState<string | null>(null);
   const [isPortableBusy, setIsPortableBusy] = useState(false);
@@ -157,167 +162,152 @@ function SettingsViewBase({
       </header>
 
       <div className="grid gap-8">
-        <SettingsSection
-          id="settings-appearance"
-          description={t("settings.appearanceDescription")}
-          title={t("settings.appearance")}
-        >
-          <SettingsRow
-            title={t("settings.theme")}
-            description={t("settings.themeDescription").replace("{theme}", t(resolvedThemeLabelKeys[resolvedTheme]))}
-            control={
-              <SegmentedControl<ThemeMode>
-                className="settings-menu-control settings-segmented-menu grid-cols-3"
-                items={themeModes.map((mode) => ({
-                  value: mode,
-                  label: t(themeLabelKeys[mode]),
-                  icon: mode === "system" ? Laptop : mode === "light" ? Sun : Moon
-                }))}
-                value={themeMode}
-                onValueChange={onThemeModeChange}
-              />
-            }
-          />
-        </SettingsSection>
+        {activeSection === "interface" ? (
+          <SettingsSection description={t("settings.interfaceDescription")} title={t("settings.interface")}>
+            <SettingsRow
+              title={t("settings.theme")}
+              description={t("settings.themeDescription").replace("{theme}", t(resolvedThemeLabelKeys[resolvedTheme]))}
+              control={
+                <SegmentedControl<ThemeMode>
+                  className="settings-menu-control settings-segmented-menu grid-cols-3"
+                  items={themeModes.map((mode) => ({
+                    value: mode,
+                    label: t(themeLabelKeys[mode]),
+                    icon: mode === "system" ? Laptop : mode === "light" ? Sun : Moon
+                  }))}
+                  value={themeMode}
+                  onValueChange={onThemeModeChange}
+                />
+              }
+            />
+            <SettingsRow
+              title={t("settings.language")}
+              description={t("settings.languageDescription")}
+              control={
+                <Select
+                  className="settings-menu-control"
+                  value={language}
+                  onChange={(event) => onLanguageChange(event.target.value as Language)}
+                >
+                  {languages.map((option) => (
+                    <option key={option} value={option}>
+                      {t(languageLabelKeys[option])}
+                    </option>
+                  ))}
+                </Select>
+              }
+            />
+          </SettingsSection>
+        ) : null}
 
-        <SettingsSection
-          id="settings-preferences"
-          description={t("settings.preferencesDescription")}
-          title={t("settings.preferences")}
-        >
-          <SettingsRow
-            title={t("settings.language")}
-            description={t("settings.languageDescription")}
-            control={
-              <Select
-                className="settings-menu-control"
-                value={language}
-                onChange={(event) => onLanguageChange(event.target.value as Language)}
-              >
-                {languages.map((option) => (
-                  <option key={option} value={option}>
-                    {t(languageLabelKeys[option])}
-                  </option>
-                ))}
-              </Select>
-            }
-          />
-        </SettingsSection>
+        {activeSection === "game" ? (
+          <SettingsSection description={t("settings.gameDescription")} title={t("settings.game")}>
+            <SettingsRow
+              title={t("settings.defaultWindow")}
+              description={t("settings.defaultWindowDescription")}
+              control={
+                <DefaultWindowControl
+                  roleDefaults={roleDefaults}
+                  t={t}
+                  onRoleDefaultsChange={onRoleDefaultsChange}
+                />
+              }
+            />
+            <SettingsRow
+              title={t("settings.defaultPreset")}
+              description={t("settings.defaultPresetDescription")}
+              control={
+                <Select
+                  className="settings-menu-control"
+                  value={roleDefaults.launchPreset}
+                  onChange={(event) =>
+                    onRoleDefaultsChange({
+                      ...roleDefaults,
+                      launchPreset: event.target.value as LaunchPreset
+                    })
+                  }
+                >
+                  <option value="performance">{t(presetLabelKeys.performance)}</option>
+                  <option value="balanced">{t(presetLabelKeys.balanced)}</option>
+                </Select>
+              }
+            />
+          </SettingsSection>
+        ) : null}
 
-        <SettingsSection
-          id="settings-role-defaults"
-          description={t("settings.roleDefaultsDescription")}
-          title={t("settings.roleDefaults")}
-        >
-          <SettingsRow
-            title={t("settings.defaultWindow")}
-            description={t("settings.defaultWindowDescription")}
-            control={
-              <DefaultWindowControl
-                roleDefaults={roleDefaults}
-                t={t}
-                onRoleDefaultsChange={onRoleDefaultsChange}
-              />
-            }
-          />
-          <SettingsRow
-            title={t("settings.defaultPreset")}
-            description={t("settings.defaultPresetDescription")}
-            control={
-              <Select
-                className="settings-menu-control"
-                value={roleDefaults.launchPreset}
-                onChange={(event) =>
-                  onRoleDefaultsChange({
-                    ...roleDefaults,
-                    launchPreset: event.target.value as LaunchPreset
-                  })
-                }
-              >
-                <option value="performance">{t(presetLabelKeys.performance)}</option>
-                <option value="balanced">{t(presetLabelKeys.balanced)}</option>
-              </Select>
-            }
-          />
-        </SettingsSection>
-
-        <SettingsSection
-          id="settings-portability"
-          description={t("settings.portabilityDescription")}
-          title={t("settings.portability")}
-        >
-          <SettingsRow
-            title={t("settings.portableExport")}
-            description={t("settings.portableExportDescription")}
-            control={
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isPortableBusy}
-                onClick={() => void handleExportPortableData()}
-              >
-                <FileJson size={14} />
-                {t("settings.exportJson")}
-              </Button>
-            }
-          />
-          <SettingsRow
-            title={t("settings.portableImport")}
-            description={t("settings.portableImportDescription")}
-            control={
-              <Button
-                type="button"
-                disabled={isPortableBusy}
-                onClick={() => void handlePreviewPortableImport()}
-              >
-                <Upload size={14} />
-                {t("settings.importJson")}
-              </Button>
-            }
-          />
-          {portableMessage ? (
-            <div className="glass-divider border-b px-4 py-3 text-xs font-medium leading-5 text-muted-foreground last:border-b-0">
-              {portableMessage}
-            </div>
-          ) : null}
-        </SettingsSection>
-
-        <SettingsSection
-          id="settings-updates"
-          description={t("settings.updatesDescription")}
-          title={t("settings.updates")}
-        >
-          <SettingsRow
-            title={t("settings.currentVersion")}
-            description={t("settings.currentVersionDescription")}
-            control={<ReadOnlyValue value={updateVersion || updateStatus?.currentVersion || "0.0.0"} />}
-          />
-          <SettingsRow
-            title={t("settings.updateStatus")}
-            description={formatUpdateStatus(updateStatus, t)}
-            control={
-              <div className="flex flex-wrap justify-end gap-2">
+        {activeSection === "data" ? (
+          <SettingsSection description={t("settings.dataDescription")} title={t("settings.data")}>
+            <SettingsRow
+              title={t("settings.portableExport")}
+              description={t("settings.portableExportDescription")}
+              control={
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!canCheckForUpdates}
-                  onClick={() => void onCheckForUpdates()}
+                  disabled={isPortableBusy}
+                  onClick={() => void handleExportPortableData()}
                 >
-                  <RefreshCw size={14} className={isUpdateBusy ? "animate-spin" : undefined} />
-                  {t("settings.checkUpdates")}
+                  <FileJson size={14} />
+                  {t("settings.exportJson")}
                 </Button>
+              }
+            />
+            <SettingsRow
+              title={t("settings.portableImport")}
+              description={t("settings.portableImportDescription")}
+              control={
                 <Button
                   type="button"
-                  disabled={isManualUpdate ? !canOpenUpdateDownload : !canInstallUpdate}
-                  onClick={() => void (isManualUpdate ? onOpenUpdateDownload() : onInstallDownloadedUpdate())}
+                  disabled={isPortableBusy}
+                  onClick={() => void handlePreviewPortableImport()}
                 >
-                  {isManualUpdate ? <Download size={14} /> : <RotateCcw size={14} />}
-                  {t(isManualUpdate ? "settings.downloadUpdate" : "settings.installUpdate")}
+                  <Upload size={14} />
+                  {t("settings.importJson")}
                 </Button>
+              }
+            />
+            {portableMessage ? (
+              <div className="glass-divider border-b px-4 py-3 text-xs font-medium leading-5 text-muted-foreground last:border-b-0">
+                {portableMessage}
               </div>
-            }
-          />
-        </SettingsSection>
+            ) : null}
+          </SettingsSection>
+        ) : null}
+
+        {activeSection === "updates" ? (
+          <SettingsSection description={t("settings.updatesDescription")} title={t("settings.updates")}>
+            <SettingsRow
+              title={t("settings.currentVersion")}
+              description={t("settings.currentVersionDescription")}
+              control={<ReadOnlyValue value={updateVersion || updateStatus?.currentVersion || "0.0.0"} />}
+            />
+            <SettingsRow
+              title={t("settings.updateStatus")}
+              description={formatUpdateStatus(updateStatus, t)}
+              control={
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!canCheckForUpdates}
+                    onClick={() => void onCheckForUpdates()}
+                  >
+                    <RefreshCw size={14} className={isUpdateBusy ? "animate-spin" : undefined} />
+                    {t("settings.checkUpdates")}
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={isManualUpdate ? !canOpenUpdateDownload : !canInstallUpdate}
+                    onClick={() => void (isManualUpdate ? onOpenUpdateDownload() : onInstallDownloadedUpdate())}
+                  >
+                    {isManualUpdate ? <Download size={14} /> : <RotateCcw size={14} />}
+                    {t(isManualUpdate ? "settings.downloadUpdate" : "settings.installUpdate")}
+                  </Button>
+                </div>
+              }
+            />
+          </SettingsSection>
+        ) : null}
       </div>
 
       {portableImportPreview ? (
@@ -453,13 +443,12 @@ function DefaultWindowControl({
 interface SettingsSectionProps {
   children: ReactNode;
   description: string;
-  id: string;
   title: string;
 }
 
-function SettingsSection({ children, description, id, title }: SettingsSectionProps): JSX.Element {
+function SettingsSection({ children, description, title }: SettingsSectionProps): JSX.Element {
   return (
-    <section id={id} className="scroll-mt-8 space-y-3">
+    <section className="space-y-3">
       <div className="px-0.5">
         <h2 className="text-[14px] font-semibold leading-5 text-foreground">{title}</h2>
         <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">{description}</p>
@@ -668,18 +657,9 @@ function formatUpdateStatus(status: AppUpdateStatus | null, t: Translator): stri
 
 function SettingsView(props: SettingsViewProps): JSX.Element {
   const [searchParams] = useSearchParams();
-  const requestedSection = searchParams.get("section");
-  const activeSection = readSettingsSection(requestedSection);
+  const activeSection = readSettingsSection(searchParams.get("section"));
 
-  useEffect(() => {
-    if (!requestedSection) {
-      return;
-    }
-
-    document.getElementById(settingsSectionElementIds[activeSection])?.scrollIntoView({ block: "start" });
-  }, [activeSection, requestedSection]);
-
-  return <SettingsViewBase {...props} />;
+  return <SettingsViewBase {...props} activeSection={activeSection} />;
 }
 
 export default SettingsView;

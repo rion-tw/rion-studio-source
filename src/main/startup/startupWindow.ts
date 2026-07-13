@@ -170,7 +170,7 @@ export function buildStartupPage(options: StartupPageOptions): string {
         overflow: hidden;
         background: transparent;
         color: hsl(var(--foreground));
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         -webkit-font-smoothing: antialiased;
       }
 

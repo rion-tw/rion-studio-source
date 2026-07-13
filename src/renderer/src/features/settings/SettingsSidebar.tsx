@@ -1,22 +1,30 @@
-import { ArrowLeft, Download, FileJson, Languages, Monitor, Palette } from "lucide-react";
+import { ArrowLeft, Download, FileJson, Gamepad2, Palette, type LucideIcon } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { NavItem } from "../../components/ui/patterns";
-import type { Translator } from "../../i18n";
-import { readSettingsReturnTo, readSettingsSection, type SettingsSectionId } from "./settingsNavigation";
+import type { TranslationKey, Translator } from "../../i18n";
+import {
+  readSettingsReturnTo,
+  readSettingsSection,
+  settingsSectionQueryValues,
+  type SettingsSectionId
+} from "./settingsNavigation";
 
 interface SettingsSidebarProps {
   t: Translator;
 }
 
 const sectionItems = [
-  { icon: Palette, labelKey: "settings.appearance", value: "appearance" },
-  { icon: Languages, labelKey: "settings.preferences", value: "preferences" },
-  { icon: Monitor, labelKey: "settings.roleDefaults", value: "role-defaults" },
-  { icon: FileJson, labelKey: "settings.portability", value: "portability" },
+  { icon: Palette, labelKey: "settings.interface", value: "interface" },
+  { icon: Gamepad2, labelKey: "settings.game", value: "game" },
+  { icon: FileJson, labelKey: "settings.data", value: "data" },
   { icon: Download, labelKey: "settings.updates", value: "updates" }
-] as const;
+] as const satisfies ReadonlyArray<{
+  icon: LucideIcon;
+  labelKey: TranslationKey;
+  value: SettingsSectionId;
+}>;
 
 export function SettingsSidebar({ t }: SettingsSidebarProps): JSX.Element {
   const location = useLocation();
@@ -25,7 +33,7 @@ export function SettingsSidebar({ t }: SettingsSidebarProps): JSX.Element {
   const returnTo = readSettingsReturnTo(location.state);
 
   function navigateToSection(section: SettingsSectionId): void {
-    navigate(`/settings?section=${section}`, { replace: true, state: location.state });
+    navigate(`/settings?section=${settingsSectionQueryValues[section]}`, { replace: true, state: location.state });
   }
 
   return (

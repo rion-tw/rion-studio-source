@@ -371,11 +371,15 @@
   }
 
   .app-page-title {
-    margin-top: 0.55rem;
+    margin-top: 0;
     font-size: 1.875rem;
     font-weight: 700;
     letter-spacing: 0;
     line-height: 1.12;
+  }
+
+  .app-page-kicker + .app-page-title {
+    margin-top: 0.55rem;
   }
 
   .app-page-description {

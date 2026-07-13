@@ -51,6 +51,10 @@ xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
 
 將角色分組成啟動工作區，並為每個角色指定視窗版面。你可以啟動單一角色，或一次啟動完整的多角色配置，回到已準備好的排列方式。
 
+### 中國大陸 CDN 相容模式
+
+改善 Google 託管資源無法連線時的載入狀況。選用的相容模式可自動偵測受限連線，並在內嵌與外部 Chrome 工作階段中，將支援的 Google Fonts、Hosted Libraries、reCAPTCHA、Gravatar、Bootstrap 與 jQuery 資源網址替換成較容易連線的替代來源。這是針對特定資源的網址改寫功能，不是 VPN 或代理服務。
+
 ### 人為監督的巨集
 
 使用按鍵、點擊、延遲與重複間隔建立精簡的輔助巨集。巨集的設計目標是在你仍然在場、監督並操作遊戲時，減少重複的手動輸入。

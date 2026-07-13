@@ -51,6 +51,10 @@ xattr -dr com.apple.quarantine "/Applications/Rion Studio.app"
 
 将角色分组成启动工作区，并为每个角色指定窗口布局。你可以启动单个角色，或一次启动完整的多角色配置，回到已准备好的排列方式。
 
+### 中国大陆 CDN 兼容模式
+
+改善 Google 托管资源无法连接时的加载状况。可选的兼容模式能够自动检测受限连接，并在内嵌与外部 Chrome 会话中，将支持的 Google Fonts、Hosted Libraries、reCAPTCHA、Gravatar、Bootstrap 和 jQuery 资源网址替换为更容易连接的替代来源。这是针对特定资源的网址改写功能，不是 VPN 或代理服务。
+
 ### 人为监督的宏
 
 使用按键、点击、延迟和重复间隔创建精简的辅助宏。宏的设计目标是在你仍然在场、监督并操作游戏时，减少重复的手动输入。

@@ -69,6 +69,14 @@ Group roles into a launch workspace and assign each one a window layout. Start a
 single role or launch a full multi-role setup into the arrangement you already
 prepared.
 
+### China CDN Compatibility
+
+Improve resource loading on networks where Google-hosted assets are unavailable.
+The optional compatibility mode can automatically detect restricted access and
+replace supported Google Fonts, hosted libraries, reCAPTCHA, Gravatar, Bootstrap,
+and jQuery resource URLs with reachable alternatives in embedded and external
+Chrome sessions. It is a targeted resource rewrite, not a VPN or proxy service.
+
 ### Human-Supervised Macros
 
 Build compact assistive macros from key presses, clicks, delays, and repeat

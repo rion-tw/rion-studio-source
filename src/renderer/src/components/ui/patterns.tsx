@@ -196,10 +196,10 @@ export function FormField({
       ) : (
         <p className={labelClassName}>{label}</p>
       )}
-      {children}
       {description ? (
         <p className="text-[11px] font-medium leading-4 text-muted-foreground">{description}</p>
       ) : null}
+      {children}
     </div>
   );
 }

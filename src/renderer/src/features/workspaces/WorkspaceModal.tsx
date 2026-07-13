@@ -16,7 +16,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { launchUrlOptions } from "../../app/constants";
-import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
+import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
 import type { WorkspaceFormState } from "../../app/types";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
@@ -287,8 +287,8 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <Surface padding="md" variant="inset">
-        <FormGrid className="min-[1180px]:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
+      <div className="grid gap-3 min-[1180px]:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
+        <Surface padding="md" variant="inset">
           <FormField htmlFor="workspace-name" label={t("workspaceForm.name")}>
             <Input
               id="workspace-name"
@@ -299,7 +299,9 @@ function WorkspaceLayoutFormEditor({
               placeholder={t("workspaceForm.namePlaceholder")}
             />
           </FormField>
+        </Surface>
 
+        <Surface padding="md" variant="inset">
           <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
             <div className="grid grid-cols-7 gap-1.5">
               {workspaceLayoutTemplates.map((template) => {
@@ -326,7 +328,9 @@ function WorkspaceLayoutFormEditor({
               })}
             </div>
           </FormField>
+        </Surface>
 
+        <Surface padding="md" variant="inset">
           <FormField
             htmlFor="workspace-browser-zoom"
             label={t("workspaces.browserZoom")}
@@ -350,43 +354,45 @@ function WorkspaceLayoutFormEditor({
               ))}
             </Select>
           </FormField>
-        </FormGrid>
-      </Surface>
+        </Surface>
+      </div>
 
       <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(0,1fr)_270px]">
-        <div
-          ref={previewRef}
-          className="relative aspect-[16/9] min-h-[280px] overflow-hidden"
-        >
-          {slots.map((slot, index) => {
-            const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
+        <Surface padding="sm" variant="panel">
+          <div
+            ref={previewRef}
+            className="relative aspect-[16/9] min-h-[280px] overflow-hidden"
+          >
+            {slots.map((slot, index) => {
+              const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
 
-            return (
-              <WorkspaceSlotDropZone
-                key={slot.id}
-                index={index}
-                isDropTarget={index === dropTargetSlotIndex}
-                isSelected={index === selectedSlotIndex}
-                isSaving={isSaving}
-                role={role}
-                rect={slot.rect}
-                t={t}
-                onClick={() => setSelectedSlotIndex(index)}
-                onDragEnd={handleDragEnd}
-                onDragEnter={() => setDropTargetSlotIndex(index)}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = dragPayloadRef.current?.slotIndex === undefined ? "copy" : "move";
-                  setDropTargetSlotIndex(index);
-                }}
-                onDrop={(event) => handleSlotDrop(event, index)}
-                onSlotDragStart={(event) => handleSlotDragStart(event, index)}
-              />
-            );
-          })}
+              return (
+                <WorkspaceSlotDropZone
+                  key={slot.id}
+                  index={index}
+                  isDropTarget={index === dropTargetSlotIndex}
+                  isSelected={index === selectedSlotIndex}
+                  isSaving={isSaving}
+                  role={role}
+                  rect={slot.rect}
+                  t={t}
+                  onClick={() => setSelectedSlotIndex(index)}
+                  onDragEnd={handleDragEnd}
+                  onDragEnter={() => setDropTargetSlotIndex(index)}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = dragPayloadRef.current?.slotIndex === undefined ? "copy" : "move";
+                    setDropTargetSlotIndex(index);
+                  }}
+                  onDrop={(event) => handleSlotDrop(event, index)}
+                  onSlotDragStart={(event) => handleSlotDragStart(event, index)}
+                />
+              );
+            })}
 
-          <WorkspaceResizeHandles template={form.template} slots={slots} onResizeStart={startResize} />
-        </div>
+            <WorkspaceResizeHandles template={form.template} slots={slots} onResizeStart={startResize} />
+          </div>
+        </Surface>
 
         <Surface className="grid content-start gap-3" padding="md" variant="panel">
           <div className="flex items-start justify-between gap-3">

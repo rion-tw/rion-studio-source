@@ -21,7 +21,7 @@ describe("macOS afterPack signing", () => {
 
     expect(signer).toHaveBeenCalledOnce();
     expect(signer).toHaveBeenCalledWith({
-      app: "/tmp/mac-arm64/Rion Studio.app",
+      app: join("/tmp/mac-arm64", "Rion Studio.app"),
       identity: "-",
       identityValidation: false,
       platform: "darwin",

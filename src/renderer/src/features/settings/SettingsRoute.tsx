@@ -167,7 +167,7 @@ function SettingsViewBase({
             description={t("settings.themeDescription").replace("{theme}", t(resolvedThemeLabelKeys[resolvedTheme]))}
             control={
               <SegmentedControl<ThemeMode>
-                className="w-full grid-cols-3 sm:w-[320px]"
+                className="settings-menu-control settings-segmented-menu grid-cols-3"
                 items={themeModes.map((mode) => ({
                   value: mode,
                   label: t(themeLabelKeys[mode]),
@@ -190,7 +190,7 @@ function SettingsViewBase({
             description={t("settings.languageDescription")}
             control={
               <Select
-                className="w-full sm:w-[240px]"
+                className="settings-menu-control"
                 value={language}
                 onChange={(event) => onLanguageChange(event.target.value as Language)}
               >
@@ -225,7 +225,7 @@ function SettingsViewBase({
             description={t("settings.defaultPresetDescription")}
             control={
               <Select
-                className="w-full sm:w-[240px]"
+                className="settings-menu-control"
                 value={roleDefaults.launchPreset}
                 onChange={(event) =>
                   onRoleDefaultsChange({
@@ -405,8 +405,9 @@ function DefaultWindowControl({
   }
 
   return (
-    <div className="grid w-full gap-2 sm:w-[320px]">
+    <div className="settings-menu-stack grid gap-2">
       <Select
+        className="settings-menu-control"
         value={selectedWindowSize}
         onChange={(event) => handleWindowSizeChange(event.target.value)}
       >
@@ -422,7 +423,7 @@ function DefaultWindowControl({
       </Select>
 
       {isCustomWindowSize ? (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="settings-window-size-fields grid grid-cols-2 gap-2">
           <Input
             aria-label={t("settings.defaultWindowWidth")}
             inputMode="numeric"

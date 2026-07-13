@@ -528,6 +528,32 @@
     min-height: 4rem;
   }
 
+  .settings-menu-control,
+  .settings-menu-stack,
+  .settings-window-size-fields {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  @media (min-width: 640px) {
+    .settings-menu-control,
+    .settings-menu-stack {
+      width: max-content;
+    }
+
+    .settings-menu-control.glass-select {
+      field-sizing: content;
+    }
+
+    .settings-segmented-menu {
+      grid-template-columns: repeat(3, max-content);
+    }
+
+    .settings-window-size-fields {
+      width: 20rem;
+    }
+  }
+
   :root[data-theme="light"] .app-modal-backdrop {
     background: hsl(220 18% 20% / 0.08);
   }

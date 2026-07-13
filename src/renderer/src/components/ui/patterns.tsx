@@ -253,7 +253,7 @@ export function SegmentedControl<T extends string>({
             key={item.value}
             aria-pressed={isActive}
             className={cn(
-              "flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-[5px] px-2 text-[11px] font-semibold leading-none transition-colors",
+              "flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-[5px] px-3 text-[11px] font-semibold leading-none transition-colors",
               isActive
                 ? "glass-control-selected text-foreground"
                 : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"

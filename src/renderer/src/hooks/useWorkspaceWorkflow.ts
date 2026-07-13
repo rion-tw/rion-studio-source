@@ -17,7 +17,6 @@ import type { LaunchWorkspace, RoleStatus } from "../../../shared/types";
 interface UseWorkspaceWorkflowOptions {
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   navigateToWorkspaces: () => void;
-  navigateToGame: () => void;
   setError: (error: unknown | null) => void;
   setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
   setWorkspaces: Dispatch<SetStateAction<LaunchWorkspace[]>>;
@@ -28,7 +27,6 @@ interface UseWorkspaceWorkflowOptions {
 export function useWorkspaceWorkflow({
   loadData,
   navigateToWorkspaces,
-  navigateToGame,
   setError,
   setStatuses,
   setWorkspaces,
@@ -131,7 +129,6 @@ export function useWorkspaceWorkflow({
     setError(null);
 
     try {
-      navigateToGame();
       const nextStatuses = await window.rionStudio.launchWorkspace(workspace.id);
       setStatuses((current) => mergeStatuses(current, nextStatuses));
     } catch (launchError) {

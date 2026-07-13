@@ -9,7 +9,6 @@ import type { AuthFlowStatus, Role, RoleStatus } from "../../../shared/types";
 interface UseRoleWorkflowOptions {
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   navigateToRoles: () => void;
-  navigateToGame: () => void;
   roles: Role[];
   setAuthStatuses: Dispatch<SetStateAction<AuthFlowStatus[]>>;
   setError: (error: unknown | null) => void;
@@ -21,7 +20,6 @@ interface UseRoleWorkflowOptions {
 export function useRoleWorkflow({
   loadData,
   navigateToRoles,
-  navigateToGame,
   roles,
   setAuthStatuses,
   setError,
@@ -116,7 +114,6 @@ export function useRoleWorkflow({
     setError(null);
 
     try {
-      navigateToGame();
       const status = await window.rionStudio.launchRole(roleId);
       setStatuses((current) => mergeStatus(current, status));
     } catch (launchError) {
@@ -146,7 +143,6 @@ export function useRoleWorkflow({
     setError(null);
 
     try {
-      navigateToGame();
       const authStatus = await window.rionStudio.startLogin(roleId);
       setAuthStatuses((current) => mergeAuthStatus(current, authStatus));
       setStatuses((current) => current.filter((status) => status.roleId !== roleId));

@@ -9,11 +9,9 @@ import type {
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
   CreateRoleInput,
-  GameStageLayout,
   MacroEditorRequest,
   MacroRunStatus,
   RoleStatus,
-  UpdateGameStageBoundsInput,
   UpdateLaunchWorkspaceInput,
   UpdateMacroInput,
   UpdateRoleInput
@@ -28,7 +26,6 @@ import type { AppUpdateManager } from "../updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 
 interface RegisterIpcHandlersOptions {
-  getLaunchWorkArea?: () => Electron.Rectangle;
   macroManager?: MacroManager;
   macroStore?: MacroStore;
   updateManager?: AppUpdateManager;
@@ -50,9 +47,6 @@ export function registerIpcHandlers(
 ): void {
   browserManager.on("change", (statuses) => {
     broadcastStatusChange(statuses);
-  });
-  browserManager.on("layoutChange", (layout) => {
-    broadcastGameStageLayoutChange(layout);
   });
   authManager.on("change", (statuses) => {
     broadcastAuthStatusChange(statuses);
@@ -133,7 +127,6 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesDelete, async (_event, id: string) => {
-    await options.macroManager?.stopRole(id);
     await browserManager.stop(id);
     await roleStore.deleteRole(id);
     await workspaceStore.clearRole(id);
@@ -172,21 +165,10 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesStop, async (_event, id: string) => {
-    await options.macroManager?.stopRole(id);
     await browserManager.stop(id);
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesStatuses, () => browserManager.listStatuses());
-
-  ipcMain.handle(IPC_CHANNELS.gameStageLayout, () => browserManager.getActiveLayout());
-
-  ipcMain.handle(IPC_CHANNELS.gameStageUpdateBounds, (_event, input: UpdateGameStageBoundsInput) => {
-    if (!isUpdateGameStageBoundsInput(input)) {
-      throw new Error("Game stage bounds are invalid.");
-    }
-
-    browserManager.updateViewBounds(input);
-  });
 
   ipcMain.handle(IPC_CHANNELS.workspacesList, () => workspaceStore.listWorkspaces());
 
@@ -206,6 +188,7 @@ export function registerIpcHandlers(
   );
 
   ipcMain.handle(IPC_CHANNELS.workspacesDelete, async (_event, id: string) => {
+    await browserManager.stopWorkspace(id);
     await workspaceStore.deleteWorkspace(id);
     options.onWorkspacesChanged?.();
   });
@@ -231,40 +214,14 @@ export function registerIpcHandlers(
       throw new Error("Login required. Use Login before launching every role in this workspace.");
     }
 
-    browserManager.setActiveLayout({
-      id: workspace.id,
-      mode: "workspace",
-      name: workspace.name,
-      slots: launchItems.map(({ role, slot }) => ({ roleId: role.id, rect: slot.rect }))
-    });
-    const statuses: RoleStatus[] = [];
-
-    for (const { role } of launchItems) {
-      statuses.push(
-        await browserManager.launch(role, {
-          preserveLayout: true,
-          zoomFactor: workspace.browserZoomPercent / 100
-        })
-      );
-    }
-
-    return statuses;
+    return browserManager.launchWorkspace(
+      workspace,
+      launchItems.map(({ role, slot }) => ({ role, rect: slot.rect }))
+    );
   });
 
   ipcMain.handle(IPC_CHANNELS.workspacesStop, async (_event, id: string) => {
-    const workspace = await workspaceStore.getWorkspace(id);
-    await Promise.all(
-      workspace.slots
-        .map((slot) => slot.roleId)
-        .filter((roleId): roleId is string => Boolean(roleId))
-        .map((roleId) => options.macroManager?.stopRole(roleId))
-    );
-    await Promise.all(
-      workspace.slots
-        .map((slot) => slot.roleId)
-        .filter((roleId): roleId is string => Boolean(roleId))
-        .map((roleId) => browserManager.stop(roleId))
-    );
+    await browserManager.stopWorkspace(id);
   });
 
   if (options.macroStore && options.macroManager) {
@@ -321,12 +278,6 @@ function broadcastStatusChange(statuses: RoleStatus[]): void {
   });
 }
 
-function broadcastGameStageLayoutChange(layout: GameStageLayout | null): void {
-  BrowserWindow.getAllWindows().forEach((window) => {
-    window.webContents.send(IPC_CHANNELS.gameStageLayoutChanged, layout);
-  });
-}
-
 function broadcastAuthStatusChange(statuses: AuthFlowStatus[]): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.rolesAuthStatusChanged, statuses);
@@ -343,47 +294,6 @@ function broadcastUpdateStatusChange(status: AppUpdateStatus): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.updatesStatusChanged, status);
   });
-}
-
-function isUpdateGameStageBoundsInput(value: unknown): value is UpdateGameStageBoundsInput {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const input = value as Partial<UpdateGameStageBoundsInput>;
-  return (
-    typeof input.visible === "boolean" &&
-    Array.isArray(input.views) &&
-    input.views.length <= 4 &&
-    input.views.every(
-      (item) =>
-        typeof item === "object" &&
-        item !== null &&
-        typeof item.roleId === "string" &&
-        item.roleId.length > 0 &&
-        isPixelBounds(item.bounds)
-    )
-  );
-}
-
-function isPixelBounds(value: unknown): boolean {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const bounds = value as Record<string, unknown>;
-  return (
-    typeof bounds.x === "number" &&
-    typeof bounds.y === "number" &&
-    typeof bounds.width === "number" &&
-    typeof bounds.height === "number" &&
-    Number.isFinite(bounds.x) &&
-    Number.isFinite(bounds.y) &&
-    Number.isFinite(bounds.width) &&
-    Number.isFinite(bounds.height) &&
-    Number(bounds.width) >= 1 &&
-    Number(bounds.height) >= 1
-  );
 }
 
 function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequest {

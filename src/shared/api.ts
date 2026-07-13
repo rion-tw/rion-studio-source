@@ -6,7 +6,6 @@ import type {
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
   CreateRoleInput,
-  GameStageLayout,
   LaunchWorkspace,
   Macro,
   MacroEditorRequest,
@@ -14,7 +13,6 @@ import type {
   Role,
   RolePaths,
   RoleStatus,
-  UpdateGameStageBoundsInput,
   UpdateLaunchWorkspaceInput,
   UpdateMacroInput,
   UpdateRoleInput
@@ -33,8 +31,6 @@ export interface RionStudioApi {
   openSystemLoginWindow: (id: string) => Promise<void>;
   stopRole: (id: string) => Promise<void>;
   listRoleStatuses: () => Promise<RoleStatus[]>;
-  getGameStageLayout: () => Promise<GameStageLayout | null>;
-  updateGameStageBounds: (input: UpdateGameStageBoundsInput) => Promise<void>;
   listLaunchWorkspaces: () => Promise<LaunchWorkspace[]>;
   createLaunchWorkspace: (input: CreateLaunchWorkspaceInput) => Promise<LaunchWorkspace>;
   updateLaunchWorkspace: (id: string, input: UpdateLaunchWorkspaceInput) => Promise<LaunchWorkspace>;
@@ -56,7 +52,6 @@ export interface RionStudioApi {
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<void>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
-  onGameStageLayoutChanged: (callback: (layout: GameStageLayout | null) => void) => () => void;
   onAuthStatusChanged: (callback: (statuses: AuthFlowStatus[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacroEditorRequested: (callback: (request: MacroEditorRequest) => void) => () => void;

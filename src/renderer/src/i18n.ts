@@ -135,6 +135,13 @@ export function isLanguage(value: string | null): value is Language {
 }
 
 export function localizeErrorMessage(message: string, language: Language): string {
+  const alreadyRunningMatch = /^Already running in another game window: (.+)\.$/.exec(message);
+  if (alreadyRunningMatch) {
+    const translations = getLoadedTranslations(language) ?? fallbackTranslations;
+    const template = translations["error.rolesAlreadyRunning"] ?? fallbackTranslations["error.rolesAlreadyRunning"];
+    return template.replace("{names}", alreadyRunningMatch[1]);
+  }
+
   const key = knownErrorMessages[message];
   if (!key) {
     return message;

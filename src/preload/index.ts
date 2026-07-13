@@ -5,7 +5,6 @@ import type { RionStudioApi } from "../shared/api";
 import type {
   AppUpdateStatus,
   AuthFlowStatus,
-  GameStageLayout,
   MacroEditorRequest,
   MacroRunStatus,
   RoleStatus
@@ -24,8 +23,6 @@ const api: RionStudioApi = {
   openSystemLoginWindow: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesOpenSystemLogin, id),
   stopRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesStop, id),
   listRoleStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.rolesStatuses),
-  getGameStageLayout: () => ipcRenderer.invoke(IPC_CHANNELS.gameStageLayout),
-  updateGameStageBounds: (input) => ipcRenderer.invoke(IPC_CHANNELS.gameStageUpdateBounds, input),
   listLaunchWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.workspacesList),
   createLaunchWorkspace: (input) => ipcRenderer.invoke(IPC_CHANNELS.workspacesCreate, input),
   updateLaunchWorkspace: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.workspacesUpdate, id, input),
@@ -55,17 +52,6 @@ const api: RionStudioApi = {
 
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.rolesStatusChanged, listener);
-    };
-  },
-  onGameStageLayoutChanged: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, layout: GameStageLayout | null) => {
-      callback(layout);
-    };
-
-    ipcRenderer.on(IPC_CHANNELS.gameStageLayoutChanged, listener);
-
-    return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.gameStageLayoutChanged, listener);
     };
   },
   onAuthStatusChanged: (callback) => {

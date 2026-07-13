@@ -1,4 +1,4 @@
-import { Gamepad2, Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -8,13 +8,12 @@ import { NavItem } from "./ui/patterns";
 
 interface AppSidebarProps {
   macroCount: number;
-  runningCount: number;
   roleCount: number;
   t: Translator;
   workspaceCount: number;
 }
 
-export function AppSidebar({ macroCount, roleCount, runningCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
+export function AppSidebar({ macroCount, roleCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -26,14 +25,6 @@ export function AppSidebar({ macroCount, roleCount, runningCount, t, workspaceCo
       </div>
 
       <nav className="grid gap-1" aria-label={t("app.primaryNavigation")}>
-        <NavItem
-          active={location.pathname === "/game"}
-          count={runningCount}
-          icon={Gamepad2}
-          label={t("app.game")}
-          noDrag
-          onClick={() => navigate("/game")}
-        />
         <NavItem
           active={location.pathname === "/roles" || location.pathname === "/"}
           count={roleCount}

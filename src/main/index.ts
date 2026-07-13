@@ -228,11 +228,15 @@ function initializeApplication(): void {
     openExternal: (url) => shell.openExternal(url)
   });
   browserManager = new BrowserManager(roleStore, {
+    createHostWindow: (options) => new BrowserWindow(options),
     createView: (options) => new WebContentsView(options),
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
-    getHostWindow: () => mainWindow
+    getLaunchWorkArea: () => getMainWindowDisplayWorkArea()
   });
   const macroManager = new MacroManager(browserManager, macroStore);
+  browserManager.setBeforeRolesStop(async (roleIds) => {
+    await Promise.all(roleIds.map((roleId) => macroManager.stopRole(roleId)));
+  });
   const macroOverlayInjector = new MacroOverlayInjector(macroStore, macroManager, requestMacroEditorFromOverlay);
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
   macroManager.on("change", () => {
@@ -241,7 +245,6 @@ function initializeApplication(): void {
   const authManager = new AuthManager(roleStore, browserManager);
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
-    getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
     consumePendingMacroEditorRequest,
     macroManager,
     macroStore,
@@ -417,7 +420,8 @@ app.whenReady().then(() => {
   ensureApplicationStarted();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length !== 0) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      showMainWindow();
       return;
     }
 

@@ -188,30 +188,6 @@ export interface PixelBounds {
   height: number;
 }
 
-export type GameStageMode = "login" | "role" | "workspace";
-
-export interface GameStageSlot {
-  roleId: string;
-  rect: NormalizedRect;
-}
-
-export interface GameStageLayout {
-  id: string;
-  mode: GameStageMode;
-  name: string;
-  slots: GameStageSlot[];
-}
-
-export interface GameStageViewBounds {
-  roleId: string;
-  bounds: PixelBounds;
-}
-
-export interface UpdateGameStageBoundsInput {
-  visible: boolean;
-  views: GameStageViewBounds[];
-}
-
 export interface AppErrorPayload {
   code: string;
   message: string;

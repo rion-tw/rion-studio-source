@@ -70,7 +70,7 @@ describe("registerIpcHandlers workspace handlers", () => {
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
   let browserManager: Pick<
     BrowserManager,
-    "getActiveLayout" | "launch" | "listStatuses" | "on" | "setActiveLayout" | "stop" | "updateViewBounds"
+    "launch" | "launchWorkspace" | "listStatuses" | "on" | "stop" | "stopWorkspace"
   >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let onOverlayLanguageChanged: ReturnType<typeof vi.fn>;
@@ -91,13 +91,14 @@ describe("registerIpcHandlers workspace handlers", () => {
       getWorkspace: vi.fn().mockResolvedValue(workspace)
     };
     browserManager = {
-      getActiveLayout: vi.fn(() => null),
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
+      launchWorkspace: vi.fn(async (_workspace: LaunchWorkspace, items: Array<{ role: Role }>) =>
+        items.map(({ role }) => ({ roleId: role.id, state: "running" as const }))
+      ),
       listStatuses: vi.fn(() => []),
       on: vi.fn(),
-      setActiveLayout: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
-      updateViewBounds: vi.fn()
+      stopWorkspace: vi.fn().mockResolvedValue(undefined)
     };
     authManager = {
       listStatuses: vi.fn(() => []),
@@ -112,7 +113,6 @@ describe("registerIpcHandlers workspace handlers", () => {
       browserManager as BrowserManager,
       authManager as AuthManager,
       {
-        getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1000, height: 800 }),
         onOverlayLanguageChanged,
         onRendererReady
       }
@@ -139,46 +139,18 @@ describe("registerIpcHandlers workspace handlers", () => {
     );
   });
 
-  it("validates and forwards game stage view bounds", async () => {
-    const input = {
-      visible: true,
-      views: [{ roleId: "role-1", bounds: { x: 248, y: 72, width: 700, height: 520 } }]
-    };
-
-    await handlers.get(IPC_CHANNELS.gameStageUpdateBounds)?.({}, input);
-    expect(browserManager.updateViewBounds).toHaveBeenCalledWith(input);
-    expect(() =>
-      handlers.get(IPC_CHANNELS.gameStageUpdateBounds)?.({}, {
-        visible: true,
-        views: [{ roleId: "role-1", bounds: { x: 0, y: 0, width: 0, height: 100 } }]
-      })
-    ).toThrow("Game stage bounds are invalid.");
-  });
-
-  it("launches workspace roles into one managed in-app layout", async () => {
+  it("launches workspace roles atomically in one game host", async () => {
     const result = await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id);
 
     expect(result).toEqual([
       { roleId: "role-1", state: "running" },
       { roleId: "role-2", state: "running" }
     ]);
-    expect(browserManager.setActiveLayout).toHaveBeenCalledWith({
-      id: workspace.id,
-      mode: "workspace",
-      name: workspace.name,
-      slots: [
-        { roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
-        { roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
-      ]
-    });
-    expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
-      preserveLayout: true,
-      zoomFactor: 1
-    });
-    expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
-      preserveLayout: true,
-      zoomFactor: 1
-    });
+    expect(browserManager.launchWorkspace).toHaveBeenCalledWith(workspace, [
+      { role: expect.objectContaining({ id: "role-1" }), rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+      { role: expect.objectContaining({ id: "role-2" }), rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+    ]);
+    expect(browserManager.launch).not.toHaveBeenCalled();
   });
 
   it("launches three-column workspace roles with each saved column bound", async () => {
@@ -197,23 +169,12 @@ describe("registerIpcHandlers workspace handlers", () => {
 
     await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, threeColumnWorkspace.id);
 
-    expect(browserManager.setActiveLayout).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "workspace-3", slots: expect.arrayContaining([
-        { roleId: "role-3", rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
-      ]) })
+    expect(browserManager.launchWorkspace).toHaveBeenCalledWith(
+      threeColumnWorkspace,
+      expect.arrayContaining([
+        { role: expect.objectContaining({ id: "role-3" }), rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
+      ])
     );
-    expect(browserManager.launch).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "role-1" }), {
-      preserveLayout: true,
-      zoomFactor: 0.9
-    });
-    expect(browserManager.launch).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "role-2" }), {
-      preserveLayout: true,
-      zoomFactor: 0.9
-    });
-    expect(browserManager.launch).toHaveBeenNthCalledWith(3, expect.objectContaining({ id: "role-3" }), {
-      preserveLayout: true,
-      zoomFactor: 0.9
-    });
   });
 
   it("launches four-column workspace roles with each saved column bound", async () => {
@@ -233,16 +194,12 @@ describe("registerIpcHandlers workspace handlers", () => {
 
     await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, fourColumnWorkspace.id);
 
-    expect(browserManager.setActiveLayout).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "workspace-4", slots: expect.arrayContaining([
-        { roleId: "role-4", rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
-      ]) })
+    expect(browserManager.launchWorkspace).toHaveBeenCalledWith(
+      fourColumnWorkspace,
+      expect.arrayContaining([
+        { role: expect.objectContaining({ id: "role-4" }), rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
+      ])
     );
-    expect(browserManager.launch).toHaveBeenCalledTimes(4);
-    expect(browserManager.launch).toHaveBeenNthCalledWith(4, expect.objectContaining({ id: "role-4" }), {
-      preserveLayout: true,
-      zoomFactor: 0.9
-    });
   });
 
   it("blocks workspace launch when any role needs login", async () => {
@@ -255,14 +212,13 @@ describe("registerIpcHandlers workspace handlers", () => {
     await expect(handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id)).rejects.toThrow(
       "Login required. Use Login before launching every role in this workspace."
     );
-    expect(browserManager.launch).not.toHaveBeenCalled();
+    expect(browserManager.launchWorkspace).not.toHaveBeenCalled();
   });
 
   it("stops every role assigned to the workspace", async () => {
     await handlers.get(IPC_CHANNELS.workspacesStop)?.({}, workspace.id);
 
-    expect(browserManager.stop).toHaveBeenCalledWith("role-1");
-    expect(browserManager.stop).toHaveBeenCalledWith("role-2");
+    expect(browserManager.stopWorkspace).toHaveBeenCalledWith(workspace.id);
   });
 
   it("clears deleted role references from workspaces", async () => {
@@ -402,10 +358,9 @@ describe("registerIpcHandlers macro handlers", () => {
     expect(macroStore.deleteMacro).toHaveBeenCalledWith("macro-1");
   });
 
-  it("deletes macros assigned to a deleted role", async () => {
+  it("deletes stored macros after the browser manager stops a deleted role", async () => {
     await handlers.get(IPC_CHANNELS.rolesDelete)?.({}, "role-1");
 
-    expect(macroManager.stopRole).toHaveBeenCalledWith("role-1");
     expect(browserManager.stop).toHaveBeenCalledWith("role-1");
     expect(macroStore.deleteRoleMacros).toHaveBeenCalledWith("role-1");
   });

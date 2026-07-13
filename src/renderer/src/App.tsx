@@ -23,7 +23,6 @@ import type { Language, Translator } from "./i18n";
 import type { MacroEditorRequest } from "../../shared/types";
 
 const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
-const GameStageRoute = lazy(() => import("./features/game/GameStageRoute"));
 const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWorkspacesRoute"));
 const MacrosRoute = lazy(() => import("./features/macros/MacrosRoute"));
 const MacroModal = lazy(() => import("./features/macros/MacroModal"));
@@ -43,7 +42,6 @@ export function App(): JSX.Element {
 
   const roleWorkflow = useRoleWorkflow({
     loadData: data.loadData,
-    navigateToGame: () => navigate("/game"),
     navigateToRoles: () => navigate("/roles"),
     roles: data.roles,
     setAuthStatuses: data.setAuthStatuses,
@@ -55,7 +53,6 @@ export function App(): JSX.Element {
 
   const workspaceWorkflow = useWorkspaceWorkflow({
     loadData: data.loadData,
-    navigateToGame: () => navigate("/game"),
     navigateToWorkspaces: () => navigate("/workspaces"),
     setError: data.setError,
     setStatuses: data.setStatuses,
@@ -134,18 +131,6 @@ export function App(): JSX.Element {
   }, [hasBridge, initialLoadState, macros, navigateToMacros, setError, setMacros, startCreateMacro, startEditMacro]);
 
   useEffect(() => {
-    if (!hasBridge) {
-      return;
-    }
-
-    return window.rionStudio.onGameStageLayoutChanged((layout) => {
-      if (layout) {
-        navigate("/game");
-      }
-    });
-  }, [hasBridge, navigate]);
-
-  useEffect(() => {
     if (!hasBridge || initialLoadState === "loading") {
       return;
     }
@@ -196,7 +181,6 @@ export function App(): JSX.Element {
       ) : (
         <AppSidebar
           macroCount={data.macros.length}
-          runningCount={data.statuses.length}
           roleCount={data.roles.length}
           t={preferences.t}
           workspaceCount={data.workspaces.length}
@@ -214,37 +198,6 @@ export function App(): JSX.Element {
         <Suspense fallback={<RouteFallback t={preferences.t} />}>
           <Routes>
             <Route path="/" element={<Navigate to="/roles" replace />} />
-            <Route
-              path="/game"
-              element={
-                hasBridge ? (
-                  <GameStageRoute
-                    layout={data.gameStageLayout}
-                    roles={data.roles}
-                    statusByRole={data.statusByRole}
-                    t={preferences.t}
-                    onOpenRoles={() => navigate("/roles")}
-                    onStopLayout={(layout) => {
-                      if (layout.mode === "workspace") {
-                        const workspace = data.workspaces.find((item) => item.id === layout.id);
-                        if (workspace) {
-                          void workspaceWorkflow.handleStopWorkspace(workspace);
-                        }
-                        return;
-                      }
-
-                      const roleId = layout.slots[0]?.roleId;
-                      if (roleId) {
-                        void roleWorkflow.handleStop(roleId);
-                      }
-                    }}
-                    onStopRole={(roleId) => void roleWorkflow.handleStop(roleId)}
-                  />
-                ) : (
-                  <BridgeUnavailable t={preferences.t} />
-                )
-              }
-            />
             <Route
               path="/roles"
               element={

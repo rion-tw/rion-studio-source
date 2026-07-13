@@ -119,6 +119,7 @@ function WorkspaceEditor({
 
   return (
     <EditorPage
+      backActionLabel={t("editor.back")}
       backLabel={t("editor.back.workspaces")}
       canSubmit={canSubmit}
       description={form.id ? t("workspaceForm.description.edit") : t("workspaceForm.description.new")}

@@ -8,6 +8,7 @@
   "app.primaryNavigation": "Primary navigation",
   "app.navigation.play": "Play",
   "app.updateAvailable": "Update available",
+  "editor.back": "Back",
   "editor.back.roles": "Back to roles",
   "editor.back.workspaces": "Back to workspaces",
   "editor.back.macros": "Back to macros",

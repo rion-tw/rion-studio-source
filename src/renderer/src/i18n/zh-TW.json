@@ -8,6 +8,7 @@
   "app.primaryNavigation": "主要導覽",
   "app.navigation.play": "遊玩",
   "app.updateAvailable": "有可用更新",
+  "editor.back": "返回",
   "editor.back.roles": "返回角色列表",
   "editor.back.workspaces": "返回工作區列表",
   "editor.back.macros": "返回巨集列表",

@@ -14,6 +14,7 @@ import { focusEditorTitle, normalizeEditorTitle } from "../app/editorTitle";
 import { cn } from "../lib/utils";
 
 interface EditorPageProps {
+  backActionLabel: string;
   backLabel: string;
   canSubmit?: boolean;
   children: ReactNode;
@@ -32,6 +33,7 @@ interface EditorPageProps {
 }
 
 export function EditorPage({
+  backActionLabel,
   backLabel,
   canSubmit = true,
   children,
@@ -83,20 +85,7 @@ export function EditorPage({
         onSubmit={onSubmit}
       >
         <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-4">
-          <header className="app-editor-header grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3">
-            <Button
-              aria-label={backLabel}
-              className="self-start"
-              type="button"
-              variant="ghost"
-              size="icon"
-              title={backLabel}
-              onClick={onCancel}
-              disabled={isSaving}
-            >
-              <ArrowLeft size={15} />
-            </Button>
-
+          <header className="app-editor-header grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-4">
             <div className="min-w-0">
               <h1 className="app-page-title min-w-0 truncate">
                 <EditableEditorTitle
@@ -110,20 +99,32 @@ export function EditorPage({
               <p className="app-page-description truncate">{description}</p>
             </div>
 
-            <div className="flex min-w-[132px] flex-col items-end gap-1.5">
+            <div className="flex flex-col items-end gap-2">
               {saveHint ? (
                 <p className="max-w-56 truncate text-right text-xs font-medium text-muted-foreground">
                   {saveHint}
                 </p>
               ) : null}
-              <Button
-                className="min-w-[132px]"
-                type="submit"
-                disabled={isSaving || !canSubmit}
-              >
-                {isSaving ? <Loader2 className="spin" size={16} /> : saveIcon}
-                {saveLabel}
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  aria-label={backLabel}
+                  type="button"
+                  variant="outline"
+                  title={backLabel}
+                  onClick={onCancel}
+                  disabled={isSaving}
+                >
+                  {backActionLabel}
+                </Button>
+                <Button
+                  className="min-w-[132px]"
+                  type="submit"
+                  disabled={isSaving || !canSubmit}
+                >
+                  {isSaving ? <Loader2 className="spin" size={16} /> : saveIcon}
+                  {saveLabel}
+                </Button>
+              </div>
             </div>
           </header>
 

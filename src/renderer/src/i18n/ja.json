@@ -8,6 +8,7 @@
   "app.primaryNavigation": "メインナビゲーション",
   "app.navigation.play": "プレイ",
   "app.updateAvailable": "利用可能な更新があります",
+  "editor.back": "戻る",
   "editor.back.roles": "ロール一覧に戻る",
   "editor.back.workspaces": "ワークスペース一覧に戻る",
   "editor.back.macros": "マクロ一覧に戻る",

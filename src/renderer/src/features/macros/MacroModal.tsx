@@ -110,6 +110,7 @@ function MacroEditor({
 
   return (
     <EditorPage
+      backActionLabel={t("editor.back")}
       backLabel={t("editor.back.macros")}
       canSubmit={canSubmit}
       description={form.id ? t("macroForm.description.edit") : t("macroForm.description.new")}

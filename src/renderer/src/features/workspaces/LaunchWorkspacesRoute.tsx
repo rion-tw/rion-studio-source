@@ -141,7 +141,12 @@ function LaunchWorkspacesView({
               value={query}
               onChange={onQueryChange}
             />
-            <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onCreateWorkspace}>
+            <Button
+              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
+              type="button"
+              variant="outline"
+              onClick={onCreateWorkspace}
+            >
               <Plus size={14} />
               {t("workspaces.newWorkspace")}
             </Button>

@@ -153,7 +153,12 @@ function MacrosRoute({
                 </option>
               ))}
             </Select>
-            <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNewMacro}>
+            <Button
+              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
+              type="button"
+              variant="outline"
+              onClick={onNewMacro}
+            >
               <Plus size={14} />
               {t("macros.newMacro")}
             </Button>
@@ -220,7 +225,7 @@ function MacrosRoute({
                     t={t}
                     onSort={handleSortChange}
                   />
-                  <th className="w-12 px-4 py-2.5" aria-label={t("macros.actions")} />
+                  <th className="w-12 px-4 py-1.5" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/45 text-[13px] leading-5">
@@ -297,7 +302,7 @@ function MacroSortHeader({ label, onSort, sort, sortKey, t }: MacroSortHeaderPro
 
   return (
     <th
-      className="px-4 py-2.5"
+      className="px-4 py-1.5"
       aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <button

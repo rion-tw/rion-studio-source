@@ -112,6 +112,7 @@ function RoleEditor({
 
   return (
     <EditorPage
+      backActionLabel={t("editor.back")}
       backLabel={t("editor.back.roles")}
       canSubmit={canSubmit}
       description={form.id ? t("roleForm.description.edit") : t("roleForm.description.new")}

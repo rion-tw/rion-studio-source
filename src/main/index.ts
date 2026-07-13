@@ -7,6 +7,7 @@ import { AuthManager } from "./auth/AuthManager";
 import { BrowserManager, GAME_DIVIDER_POINTER_CHANNEL } from "./browser/BrowserManager";
 import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
 import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
+import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
 import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStore";
 import { SystemFontService } from "./game-browser/SystemFontService";
 import { registerIpcHandlers } from "./ipc/registerHandlers";
@@ -230,6 +231,9 @@ function initializeApplication(): void {
     appUserDataDir: userDataDir,
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
+  const browserProxyApplier = new BrowserProxyApplier({
+    getSettings: () => gameBrowserSettingsStore.getSettings()
+  });
   const systemFontService = new SystemFontService();
   const portableDataManager = new PortableDataManager({
     getAppVersion: () => app.getVersion(),
@@ -257,6 +261,7 @@ function initializeApplication(): void {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
       await browserFontApplier.applyToRoleLaunch(browserUserDataDir, partition);
     },
+    applyBrowserProxy: (_role, _partition, session) => browserProxyApplier.applyToSession(session),
     createHostWindow: (options) => new BrowserWindow(options),
     createView: (options) => new WebContentsView(options),
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),

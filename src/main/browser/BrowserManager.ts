@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import type {
   BrowserWindow,
   BrowserWindowConstructorOptions,
+  Session,
   WebContents,
   WebContentsView,
   WebContentsViewConstructorOptions
@@ -43,10 +44,12 @@ export interface BrowserAutomationSession {
 }
 
 export type BrowserMacroOverlayInstaller = (role: Role, webContents: WebContents) => Promise<void>;
+export type BrowserProxyApplier = (role: Role, partition: string, session: Session) => Promise<void>;
 export type BeforeRolesStop = (roleIds: string[]) => Promise<void>;
 
 export interface BrowserManagerOptions {
   applyBrowserFonts?: (role: Role, partition: string) => Promise<void>;
+  applyBrowserProxy?: BrowserProxyApplier;
   createHostWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
   dividerPreloadPath: string;
@@ -68,7 +71,9 @@ export class BrowserGameLoadError extends Error {
   readonly code = "GAME_PAGE_LOAD_FAILED";
 
   constructor() {
-    super("Unable to load the game page. Check your network, DNS, proxy, or VPN settings and try again.");
+    super(
+      "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings."
+    );
     this.name = "BrowserGameLoadError";
   }
 }
@@ -245,6 +250,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await this.applyZoom(session, DEFAULT_BROWSER_ZOOM_FACTOR);
     const currentUrl = session.view.webContents.getURL();
     if (!currentUrl || currentUrl === "about:blank") {
+      await this.applyBrowserProxy(session);
       await session.view.webContents.loadURL(role.launchUrl);
     }
     await this.focusSession(session);
@@ -451,6 +457,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private async finishLaunch(session: BrowserSession, zoomFactor: number): Promise<void> {
     await this.applyZoom(session, zoomFactor);
+    await this.applyBrowserProxy(session);
     try {
       await session.view.webContents.loadURL(session.role.launchUrl);
     } catch {
@@ -471,6 +478,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     await this.roleStore.updateAuthState(role.id, result.authState);
     throw new BrowserLaunchAuthError(result.message ?? NO_PERSISTED_LOGIN_SESSION_MESSAGE);
+  }
+
+  private async applyBrowserProxy(session: BrowserSession): Promise<void> {
+    if (!this.options.applyBrowserProxy) {
+      return;
+    }
+
+    await this.options.applyBrowserProxy(
+      session.role,
+      createRoleSessionPartition(session.role.id),
+      session.view.webContents.session
+    );
   }
 
   private async checkSessionAuthentication(role: Role, session: BrowserSession): Promise<AuthSessionCheckResult> {

@@ -24,13 +24,15 @@ import {
 import type { ResolvedTheme, ThemeMode } from "../../app/types";
 import { languages, type Language, type TranslationKey, type Translator } from "../../i18n";
 import {
+  DEFAULT_BROWSER_FONT_SETTINGS,
   browserFontFamilyRoles,
-  DEFAULT_GAME_BROWSER_SETTINGS,
+  normalizeBrowserProxyServer,
   normalizeGameBrowserSettings
 } from "../../../../shared/browserFonts";
 import type {
   AppUpdateStatus,
   BrowserFontFamilyRole,
+  BrowserProxySettings,
   GameBrowserSettings,
   LaunchPreset,
   PortableExportInput,
@@ -283,6 +285,13 @@ function SettingsViewBase({
                 t={t}
                 onError={onError}
                 onLoadSystemFonts={onLoadSystemFonts}
+                onSave={onGameBrowserSettingsChange}
+              />
+              <BrowserProxySettingsRow
+                hasRunningRoles={hasRunningRoles}
+                settings={gameBrowserSettings}
+                t={t}
+                onError={onError}
                 onSave={onGameBrowserSettingsChange}
               />
             </SettingsSection>
@@ -570,7 +579,8 @@ function BrowserFontsSettingsRows({
             [role]: value
           },
           mode: "custom"
-        }
+        },
+        network: current.network
       })
     );
   }
@@ -640,7 +650,14 @@ function BrowserFontsSettingsRows({
                 type="button"
                 variant="outline"
                 disabled={isSaving}
-                onClick={() => void saveSettings(DEFAULT_GAME_BROWSER_SETTINGS)}
+                onClick={() =>
+                  void saveSettings(
+                    normalizeGameBrowserSettings({
+                      ...draft,
+                      fonts: DEFAULT_BROWSER_FONT_SETTINGS
+                    })
+                  )
+                }
               >
                 <RotateCcw size={14} />
                 {t("settings.browserFontsReset")}
@@ -653,6 +670,104 @@ function BrowserFontsSettingsRows({
         </div>
       ) : null}
     </>
+  );
+}
+
+interface BrowserProxySettingsRowProps {
+  hasRunningRoles: boolean;
+  settings: GameBrowserSettings;
+  t: Translator;
+  onError: (error: unknown) => void;
+  onSave: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+}
+
+function BrowserProxySettingsRow({
+  hasRunningRoles,
+  settings,
+  t,
+  onError,
+  onSave
+}: BrowserProxySettingsRowProps): JSX.Element {
+  const normalizedSettings = normalizeGameBrowserSettings(settings);
+  const [draft, setDraft] = useState<BrowserProxySettings>(normalizedSettings.network.proxy);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const normalizedDraft = normalizeGameBrowserSettings({
+    ...normalizedSettings,
+    network: { proxy: draft }
+  }).network.proxy;
+  const isDirty = JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedSettings.network.proxy);
+  const isCustom = draft.mode === "custom";
+  const isValid = draft.mode === "system" || Boolean(normalizeBrowserProxyServer(draft.server));
+
+  useEffect(() => {
+    setDraft(normalizeGameBrowserSettings(settings).network.proxy);
+  }, [settings]);
+
+  async function saveProxySettings(): Promise<void> {
+    setIsSaving(true);
+    setMessage(null);
+
+    try {
+      const savedSettings = await onSave(
+        normalizeGameBrowserSettings({
+          ...normalizedSettings,
+          network: { proxy: draft }
+        })
+      );
+      setDraft(savedSettings.network.proxy);
+      setMessage(hasRunningRoles ? t("settings.browserProxyRestartNotice") : t("settings.browserProxySaved"));
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <SettingsRow
+      title={t("settings.browserProxy")}
+      description={
+        message ??
+        (!isValid ? t("settings.browserProxyInvalid") : formatBrowserProxySettingsSummary(normalizedSettings, t))
+      }
+      control={
+        <div className="grid min-w-0 gap-2 sm:w-[420px]">
+          <div className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)]">
+            <Select
+              className="settings-menu-control"
+              disabled={isSaving}
+              value={draft.mode}
+              onChange={(event) => {
+                const mode = event.target.value as BrowserProxySettings["mode"];
+                setMessage(null);
+                setDraft((current) => ({
+                  mode,
+                  server: mode === "custom" ? current.server : ""
+                }));
+              }}
+            >
+              <option value="system">{t("settings.browserProxyModeSystem")}</option>
+              <option value="custom">{t("settings.browserProxyModeCustom")}</option>
+            </Select>
+            <Input
+              disabled={isSaving || !isCustom}
+              placeholder={t("settings.browserProxyServerPlaceholder")}
+              value={draft.server}
+              onChange={(event) => {
+                setMessage(null);
+                setDraft((current) => ({ ...current, server: event.target.value }));
+              }}
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button type="button" disabled={isSaving || !isDirty || !isValid} onClick={() => void saveProxySettings()}>
+              {t("settings.browserProxySave")}
+            </Button>
+          </div>
+        </div>
+      }
+    />
   );
 }
 
@@ -775,6 +890,15 @@ function formatBrowserFontSettingsSummary(settings: GameBrowserSettings, t: Tran
   return selectedFamilies.length > 0
     ? selectedFamilies.join(" / ")
     : t("settings.browserFontsCustomEmpty");
+}
+
+function formatBrowserProxySettingsSummary(settings: GameBrowserSettings, t: Translator): string {
+  const proxy = normalizeGameBrowserSettings(settings).network.proxy;
+  if (proxy.mode !== "custom") {
+    return t("settings.browserProxySystem");
+  }
+
+  return `${t("settings.browserProxyCustom")}: ${proxy.server}`;
 }
 
 function getBrowserFontOptions(

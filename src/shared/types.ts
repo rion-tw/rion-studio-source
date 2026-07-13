@@ -203,14 +203,25 @@ export interface RoleDefaults {
 
 export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";
+export type BrowserProxySettingsMode = "system" | "custom";
 
 export interface BrowserFontSettings {
   mode: BrowserFontSettingsMode;
   families: Partial<Record<BrowserFontFamilyRole, string>>;
 }
 
+export interface BrowserProxySettings {
+  mode: BrowserProxySettingsMode;
+  server: string;
+}
+
+export interface BrowserNetworkSettings {
+  proxy: BrowserProxySettings;
+}
+
 export interface GameBrowserSettings {
   fonts: BrowserFontSettings;
+  network: BrowserNetworkSettings;
 }
 
 export interface SystemFontFamily {

@@ -8,6 +8,7 @@ import { MacroStore } from "../src/main/macros/MacroStore";
 import { PortableDataManager } from "../src/main/portable/PortableDataManager";
 import { RoleStore } from "../src/main/roles/RoleStore";
 import { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
+import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
 import type { RionPortableDataV1 } from "../src/shared/types";
 
 describe("PortableDataManager", () => {
@@ -64,7 +65,8 @@ describe("PortableDataManager", () => {
               standard: "Arial"
             },
             mode: "custom"
-          }
+          },
+          network: DEFAULT_BROWSER_NETWORK_SETTINGS
         },
         language: "zh-TW",
         roleDefaults: {
@@ -286,7 +288,8 @@ describe("PortableDataManager", () => {
             standard: "  Missing   But   Valid  Font  "
           },
           mode: "custom"
-        }
+        },
+        network: DEFAULT_BROWSER_NETWORK_SETTINGS
       }
     };
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
@@ -360,7 +363,8 @@ function createPortableFixture(): RionPortableDataV1 {
             standard: "Missing But Valid Font"
           },
           mode: "custom"
-        }
+        },
+        network: DEFAULT_BROWSER_NETWORK_SETTINGS
       },
       language: "ja",
       roleDefaults: {

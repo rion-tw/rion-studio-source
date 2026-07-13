@@ -10,16 +10,17 @@ describe("renderer error localization", () => {
   });
 
   it("localizes game page load failures", async () => {
-    const message = "Unable to load the game page. Check your network, DNS, proxy, or VPN settings and try again.";
+    const message =
+      "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings.";
 
     await loadTranslations("zh-TW");
     await loadTranslations("zh-CN");
 
     expect(localizeErrorMessage(message, "zh-TW")).toBe(
-      "無法載入遊戲頁面。請檢查網路、DNS、代理或 VPN 設定後再試一次。"
+      "無法載入遊戲頁面。若使用遊戲加速器，請開啟全局、TUN 或系統代理模式，或在遊戲設定中設定本機代理。"
     );
     expect(localizeErrorMessage(message, "zh-CN")).toBe(
-      "无法加载游戏页面。请检查网络、DNS、代理或 VPN 设置后再试一次。"
+      "无法加载游戏页面。若使用游戏加速器，请开启全局、TUN 或系统代理模式，或在游戏设置中设置本机代理。"
     );
   });
 

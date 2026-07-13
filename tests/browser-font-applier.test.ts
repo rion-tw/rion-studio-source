@@ -10,6 +10,7 @@ import {
   getChromeDefaultProfilePreferencesPath,
   getElectronPartitionPreferencesPath
 } from "../src/main/game-browser/BrowserFontApplier";
+import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
 import type { GameBrowserSettings } from "../src/shared/types";
 
 const customSettings: GameBrowserSettings = {
@@ -22,7 +23,8 @@ const customSettings: GameBrowserSettings = {
       standard: "Arial"
     },
     mode: "custom"
-  }
+  },
+  network: DEFAULT_BROWSER_NETWORK_SETTINGS
 };
 
 describe("applyBrowserFontSettingsToPreferences", () => {
@@ -73,7 +75,7 @@ describe("applyBrowserFontSettingsToPreferences", () => {
             }
           }
         },
-        { fonts: { families: {}, mode: "default" } }
+        { fonts: { families: {}, mode: "default" }, network: DEFAULT_BROWSER_NETWORK_SETTINGS }
       )
     ).toEqual({
       profile: { name: "Default" },
@@ -133,10 +135,16 @@ describe("BrowserFontApplier", () => {
 
     const applier = new BrowserFontApplier({
       appUserDataDir: baseDir,
-      getSettings: vi.fn().mockResolvedValue({ fonts: { families: {}, mode: "default" } })
+      getSettings: vi.fn().mockResolvedValue({
+        fonts: { families: {}, mode: "default" },
+        network: DEFAULT_BROWSER_NETWORK_SETTINGS
+      })
     });
 
-    await applier.applyToPreferencesFile(preferencesPath, { fonts: { families: {}, mode: "default" } });
+    await applier.applyToPreferencesFile(preferencesPath, {
+      fonts: { families: {}, mode: "default" },
+      network: DEFAULT_BROWSER_NETWORK_SETTINGS
+    });
 
     await expect(readJson(preferencesPath)).resolves.toEqual({
       webkit: {

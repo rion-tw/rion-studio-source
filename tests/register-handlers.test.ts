@@ -9,6 +9,7 @@ import type { MacroStore } from "../src/main/macros/MacroStore";
 import type { RoleStore } from "../src/main/roles/RoleStore";
 import type { AppUpdateManager } from "../src/main/updates/AppUpdateManager";
 import type { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
+import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
 import type { GameBrowserSettings, LaunchWorkspace, Macro, Role, SystemFontFamily } from "../src/shared/types";
 
 const { handlers } = vi.hoisted(() => ({
@@ -389,7 +390,8 @@ describe("registerIpcHandlers game browser settings handlers", () => {
         standard: "Arial"
       },
       mode: "custom"
-    }
+    },
+    network: DEFAULT_BROWSER_NETWORK_SETTINGS
   };
   const fonts: SystemFontFamily[] = [
     { family: "Arial", label: "Arial" },
@@ -614,7 +616,8 @@ describe("registerIpcHandlers portable data handlers", () => {
           standard: "Arial"
         },
         mode: "custom"
-      }
+      },
+      network: DEFAULT_BROWSER_NETWORK_SETTINGS
     };
     portableDataManager.applyImport.mockResolvedValueOnce({
       macroCount: 0,

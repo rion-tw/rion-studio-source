@@ -80,7 +80,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Chrome is still using this role's browser data. Quit the Chrome login window and try again.":
     "error.browserUserDataLockTimeout",
   "Unable to start the hidden Rion Studio browser helper.": "error.hiddenBrowserHelperUnavailable",
-  "Unable to load the game page. Check your network, DNS, proxy, or VPN settings and try again.":
+  "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings.":
     "error.gamePageLoadFailed",
   "Unable to check login session.": "error.unableCheckSession",
   "Google rejected this browser during session check.": "error.googleRejected",

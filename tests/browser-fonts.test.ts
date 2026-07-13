@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_BROWSER_NETWORK_SETTINGS,
   DEFAULT_GAME_BROWSER_SETTINGS,
   normalizeBrowserFontFamily,
+  normalizeBrowserProxyServer,
   normalizeGameBrowserSettings
 } from "../src/shared/browserFonts";
 
@@ -46,8 +48,28 @@ describe("browser font settings normalization", () => {
           standard: "Arial"
         },
         mode: "custom"
-      }
+      },
+      network: DEFAULT_BROWSER_NETWORK_SETTINGS
     });
+  });
+
+  it("normalizes browser proxy settings", () => {
+    expect(
+      normalizeGameBrowserSettings({
+        network: {
+          proxy: {
+            mode: "custom",
+            server: " socks5://127.0.0.1:7890/ "
+          }
+        }
+      }).network.proxy
+    ).toEqual({ mode: "custom", server: "socks5://127.0.0.1:7890" });
+
+    expect(normalizeBrowserProxyServer("http://localhost:7890")).toBe("http://localhost:7890");
+    expect(normalizeBrowserProxyServer("ftp://127.0.0.1:7890", "http://127.0.0.1:7890")).toBe(
+      "http://127.0.0.1:7890"
+    );
+    expect(normalizeBrowserProxyServer("http://127.0.0.1:7890/path")).toBe("");
   });
 
   it("drops invalid font family strings and keeps valid uninstalled names", () => {

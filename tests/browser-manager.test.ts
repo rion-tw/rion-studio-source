@@ -82,7 +82,7 @@ describe("BrowserManager game host windows", () => {
 
     await expect(launchPromise).rejects.toThrow(BrowserGameLoadError);
     await expect(launchPromise).rejects.toThrow(
-      "Unable to load the game page. Check your network, DNS, proxy, or VPN settings and try again."
+      "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings."
     );
     expect(harness.manager.listStatuses()).toEqual([]);
     expect(harness.hosts[0].contentView.removeChildView).toHaveBeenCalledWith(harness.views[0].view);
@@ -100,6 +100,35 @@ describe("BrowserManager game host windows", () => {
     expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
       harness.createView.mock.invocationCallOrder[0]
     );
+  });
+
+  it("applies browser proxy settings before loading the game page", async () => {
+    const applyBrowserProxy = vi.fn().mockResolvedValue(undefined);
+    const harness = createHarness({ applyBrowserProxy });
+
+    await harness.manager.launch(role);
+
+    expect(applyBrowserProxy).toHaveBeenCalledWith(
+      role,
+      createRoleSessionPartition(role.id),
+      harness.views[0].webContents.session
+    );
+    expect(applyBrowserProxy.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("cleans up the host when browser proxy setup fails", async () => {
+    const applyBrowserProxy = vi.fn().mockRejectedValue(new Error("Proxy setup failed."));
+    const harness = createHarness({ applyBrowserProxy });
+
+    await expect(harness.manager.launch(role)).rejects.toThrow("Proxy setup failed.");
+
+    expect(harness.manager.listStatuses()).toEqual([]);
+    expect(harness.views[0].webContents.loadURL).not.toHaveBeenCalled();
+    expect(harness.hosts[0].contentView.removeChildView).toHaveBeenCalledWith(harness.views[0].view);
+    expect(harness.views[0].webContents.close).toHaveBeenCalledTimes(1);
+    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
   });
 
   it("focuses an existing single-role host instead of opening another window", async () => {
@@ -463,6 +492,7 @@ function createRole(id: string, name: string): Role {
 
 function createHarness(options: {
   applyBrowserFonts?: ReturnType<typeof vi.fn>;
+  applyBrowserProxy?: ReturnType<typeof vi.fn>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   snapshotsByView?: Array<{ bodyText: string; localStorage: Record<string, string> }>;
 } = {}) {
@@ -490,6 +520,7 @@ function createHarness(options: {
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
   const manager = new BrowserManager(roleStore, {
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
+    ...(options.applyBrowserProxy ? { applyBrowserProxy: options.applyBrowserProxy } : {}),
     createHostWindow,
     createView,
     dividerPreloadPath: "/app/out/preload/divider.cjs",
@@ -558,7 +589,7 @@ function createMockView(
     }),
     mainFrame: { framesInSubtree: [] },
     sendInputEvent: vi.fn(),
-    session: { cookies: { get: vi.fn().mockResolvedValue([]) } },
+    session: { cookies: { get: vi.fn().mockResolvedValue([]) }, setProxy: vi.fn().mockResolvedValue(undefined) },
     setWindowOpenHandler: vi.fn(),
     setZoomFactor: vi.fn()
   });

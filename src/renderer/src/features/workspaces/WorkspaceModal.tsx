@@ -318,7 +318,7 @@ function WorkspaceLayoutFormEditor({
           </FormField>
 
           <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
-            <div className="grid grid-cols-5 gap-1.5">
+            <div className="grid grid-cols-6 gap-1.5">
               {workspaceLayoutTemplates.map((template) => {
                 const Icon = workspaceTemplateIcons[template];
                 const isActive = form.template === template;
@@ -610,7 +610,13 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
   const splitX = splits.vertical[0] ?? 1;
   const verticalHandleY = template === "quad" ? 0.25 : 0.5;
   const horizontalHandleX =
-    template === "quad" ? 0.25 : template === "main_left_stack_right" ? splitX + (1 - splitX) / 2 : 0.5;
+    template === "quad"
+      ? 0.25
+      : template === "main_left_stack_right"
+        ? splitX + (1 - splitX) / 2
+        : template === "main_right_stack_left"
+          ? splitX / 2
+          : 0.5;
 
   if (splits.vertical.length === 0 && splits.horizontal.length === 0) {
     return null;

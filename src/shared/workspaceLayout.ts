@@ -15,6 +15,7 @@ export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "two_columns",
   "three_columns",
   "main_left_stack_right",
+  "main_right_stack_left",
   "quad",
   "four_columns"
 ];
@@ -42,6 +43,7 @@ export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate)
       return 2;
     case "three_columns":
     case "main_left_stack_right":
+    case "main_right_stack_left":
       return 3;
     case "quad":
     case "four_columns":
@@ -65,6 +67,12 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
         { x: 0, y: 0, width: 0.5, height: 1 },
         { x: 0.5, y: 0, width: 0.5, height: 0.5 },
         { x: 0.5, y: 0.5, width: 0.5, height: 0.5 }
+      ];
+    case "main_right_stack_left":
+      return [
+        { x: 0.5, y: 0, width: 0.5, height: 1 },
+        { x: 0, y: 0, width: 0.5, height: 0.5 },
+        { x: 0, y: 0.5, width: 0.5, height: 0.5 }
       ];
     case "quad":
       return [

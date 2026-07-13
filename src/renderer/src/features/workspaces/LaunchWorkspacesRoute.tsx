@@ -278,6 +278,22 @@ function WorkspaceLayoutPreview({
             </div>
           </div>
         );
+      case "main_right_stack_left":
+        return (
+          <div className="flex h-full min-h-0 gap-2">
+            <div className="flex min-h-0 min-w-0 flex-col gap-2" style={createPreviewFlexStyle(splitX)}>
+              <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
+                {renderSlot(slots[1], 1)}
+              </div>
+              <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitY)}>
+                {renderSlot(slots[2], 2)}
+              </div>
+            </div>
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitX)}>
+              {renderSlot(slots[0], 0)}
+            </div>
+          </div>
+        );
       case "quad":
         return (
           <div className="flex h-full min-h-0 flex-col gap-2">

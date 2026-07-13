@@ -152,6 +152,8 @@ export function getWorkspaceSplits(
       return { horizontal: [], vertical: [firstRect.width] };
     case "main_left_stack_right":
       return { horizontal: [secondRect.height], vertical: [firstRect.width] };
+    case "main_right_stack_left":
+      return { horizontal: [secondRect.height], vertical: [secondRect.width] };
     case "quad":
       return { horizontal: [firstRect.height], vertical: [firstRect.width] };
     case "three_columns":
@@ -200,6 +202,12 @@ export function createWorkspaceRectsFromSplits(
         { x: 0, y: 0, width: splitX, height: 1 },
         { x: splitX, y: 0, width: 1 - splitX, height: splitY },
         { x: splitX, y: splitY, width: 1 - splitX, height: 1 - splitY }
+      ];
+    case "main_right_stack_left":
+      return [
+        { x: splitX, y: 0, width: 1 - splitX, height: 1 },
+        { x: 0, y: 0, width: splitX, height: splitY },
+        { x: 0, y: splitY, width: splitX, height: 1 - splitY }
       ];
     case "quad":
       return [

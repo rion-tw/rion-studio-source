@@ -8,6 +8,7 @@ export const workspaceTemplateLabelKeys: Record<WorkspaceLayoutTemplate, Transla
   two_columns: "workspace.layout.twoColumns",
   three_columns: "workspace.layout.threeColumns",
   main_left_stack_right: "workspace.layout.mainLeftStackRight",
+  main_right_stack_left: "workspace.layout.mainRightStackLeft",
   quad: "workspace.layout.quad",
   four_columns: "workspace.layout.fourColumns"
 };
@@ -17,6 +18,7 @@ export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon>
   two_columns: Columns2,
   three_columns: Columns3,
   main_left_stack_right: PanelsTopLeft,
+  main_right_stack_left: PanelsTopLeft,
   quad: Grid2X2,
   four_columns: Columns4
 };

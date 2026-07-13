@@ -8,6 +8,7 @@ export type WorkspaceLayoutTemplate =
   | "two_columns"
   | "three_columns"
   | "main_left_stack_right"
+  | "main_right_stack_left"
   | "quad"
   | "four_columns";
 export type WorkspaceBrowserZoomPercent = 80 | 90 | 100 | 110 | 125;

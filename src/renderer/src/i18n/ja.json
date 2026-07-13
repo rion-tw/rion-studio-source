@@ -70,6 +70,7 @@
   "workspace.layout.twoColumns": "2列",
   "workspace.layout.threeColumns": "3列",
   "workspace.layout.mainLeftStackRight": "左メイン、右スタック",
+  "workspace.layout.mainRightStackLeft": "右メイン、左スタック",
   "workspace.layout.quad": "4分割",
   "workspace.layout.fourColumns": "4列",
   "workspaceForm.aria.close": "Close workspace form",

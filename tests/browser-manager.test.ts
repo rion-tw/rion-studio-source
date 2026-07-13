@@ -250,6 +250,11 @@ describe("normalizedRectToPixelBounds", () => {
       { x: 600, y: 0, width: 600, height: 400 },
       { x: 600, y: 400, width: 600, height: 400 }
     ]],
+    ["main_right_stack_left", [
+      { x: 600, y: 0, width: 600, height: 800 },
+      { x: 0, y: 0, width: 600, height: 400 },
+      { x: 0, y: 400, width: 600, height: 400 }
+    ]],
     ["quad", [
       { x: 0, y: 0, width: 600, height: 400 },
       { x: 600, y: 0, width: 600, height: 400 },

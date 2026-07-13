@@ -24,6 +24,7 @@ describe("renderer workspace layout helpers", () => {
     expect(getDefaultWorkspaceBrowserZoomPercent("four_columns")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("two_columns")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_left_stack_right")).toBe(100);
+    expect(getDefaultWorkspaceBrowserZoomPercent("main_right_stack_left")).toBe(100);
   });
 
   it("loads the saved browser zoom into the workspace form", () => {
@@ -61,6 +62,11 @@ describe("renderer workspace layout helpers", () => {
       { id: "slot-1", rect: getDefaultWorkspaceRects("main_left_stack_right")[0] },
       { id: "slot-2", rect: getDefaultWorkspaceRects("main_left_stack_right")[1] },
       { id: "slot-3", rect: getDefaultWorkspaceRects("main_left_stack_right")[2] }
+    ]);
+    expect(applyWorkspaceTemplate([], "main_right_stack_left")).toEqual([
+      { id: "slot-1", rect: getDefaultWorkspaceRects("main_right_stack_left")[0] },
+      { id: "slot-2", rect: getDefaultWorkspaceRects("main_right_stack_left")[1] },
+      { id: "slot-3", rect: getDefaultWorkspaceRects("main_right_stack_left")[2] }
     ]);
   });
 
@@ -111,6 +117,21 @@ describe("renderer workspace layout helpers", () => {
       { x: 0.3, y: 0, width: 0.7, height: 0.7 },
       { x: 0, y: 0.7, width: 0.3, height: 0.30000000000000004 },
       { x: 0.3, y: 0.7, width: 0.7, height: 0.30000000000000004 }
+    ]);
+  });
+
+  it("reads and applies right-main left-stack split positions", () => {
+    const initialSlots = applyWorkspaceTemplate([], "main_right_stack_left");
+    const slots = applyWorkspaceSplits("main_right_stack_left", initialSlots, {
+      horizontal: [0.65],
+      vertical: [0.35]
+    });
+
+    expect(getWorkspaceSplits("main_right_stack_left", slots)).toEqual({ horizontal: [0.65], vertical: [0.35] });
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0.35, y: 0, width: 0.65, height: 1 },
+      { x: 0, y: 0, width: 0.35, height: 0.65 },
+      { x: 0, y: 0.65, width: 0.35, height: 0.35 }
     ]);
   });
 

@@ -117,6 +117,39 @@ describe("LaunchWorkspaceStore", () => {
     ]);
   });
 
+  it("uses a right main pane with stacked left panes for main_right_stack_left", async () => {
+    const workspace = await store.createWorkspace({ name: "Right main", template: "main_right_stack_left" });
+
+    expect(workspace).toMatchObject({
+      template: "main_right_stack_left",
+      browserZoomPercent: 100
+    });
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual([
+      { x: 0.5, y: 0, width: 0.5, height: 1 },
+      { x: 0, y: 0, width: 0.5, height: 0.5 },
+      { x: 0, y: 0.5, width: 0.5, height: 0.5 }
+    ]);
+  });
+
+  it("creates and persists a resizable right-main left-stack workspace", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Right main custom",
+      template: "main_right_stack_left",
+      slots: [
+        { roleId: "role-1", rect: { x: 0.4, y: 0, width: 0.6, height: 1 } },
+        { roleId: "role-2", rect: { x: 0, y: 0, width: 0.4, height: 0.65 } },
+        { roleId: "role-3", rect: { x: 0, y: 0.65, width: 0.4, height: 0.35 } }
+      ]
+    });
+
+    expect(workspace.slots).toEqual([
+      { id: "slot-1", roleId: "role-1", rect: { x: 0.4, y: 0, width: 0.6, height: 1 } },
+      { id: "slot-2", roleId: "role-2", rect: { x: 0, y: 0, width: 0.4, height: 0.65 } },
+      { id: "slot-3", roleId: "role-3", rect: { x: 0, y: 0.65, width: 0.4, height: 0.35 } }
+    ]);
+    await expect(store.getWorkspace(workspace.id)).resolves.toEqual(workspace);
+  });
+
   it("creates and persists a resizable four-column workspace", async () => {
     const workspace = await store.createWorkspace({
       name: "Four roles",

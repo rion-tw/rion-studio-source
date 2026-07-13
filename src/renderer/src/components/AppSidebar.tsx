@@ -34,30 +34,35 @@ export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspace
       </div>
 
       <nav className="grid gap-1" aria-label={t("app.primaryNavigation")}>
-        <NavItem
-          active={location.pathname.startsWith("/roles")}
-          count={roleCount}
-          icon={Users}
-          label={t("app.roles")}
-          noDrag
-          onClick={() => navigate("/roles")}
-        />
-        <NavItem
-          active={location.pathname.startsWith("/workspaces")}
-          count={workspaceCount}
-          icon={LayoutDashboard}
-          label={t("app.workspaces")}
-          noDrag
-          onClick={() => navigate("/workspaces")}
-        />
-        <NavItem
-          active={location.pathname.startsWith("/macros")}
-          count={macroCount}
-          icon={Keyboard}
-          label={t("app.macros")}
-          noDrag
-          onClick={() => navigate("/macros")}
-        />
+        <div className="grid gap-1 pt-2" role="group" aria-label={t("app.navigation.play")}>
+          <p className="px-3 pb-1 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
+            {t("app.navigation.play")}
+          </p>
+          <NavItem
+            active={location.pathname.startsWith("/roles")}
+            count={roleCount}
+            icon={Users}
+            label={t("app.roles")}
+            noDrag
+            onClick={() => navigate("/roles")}
+          />
+          <NavItem
+            active={location.pathname.startsWith("/workspaces")}
+            count={workspaceCount}
+            icon={LayoutDashboard}
+            label={t("app.workspaces")}
+            noDrag
+            onClick={() => navigate("/workspaces")}
+          />
+          <NavItem
+            active={location.pathname.startsWith("/macros")}
+            count={macroCount}
+            icon={Keyboard}
+            label={t("app.macros")}
+            noDrag
+            onClick={() => navigate("/macros")}
+          />
+        </div>
       </nav>
 
       <div className="sidebar-settings mt-auto">

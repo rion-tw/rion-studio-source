@@ -6,6 +6,7 @@
   "app.home": "首页",
   "app.tagline": "角色工作区",
   "app.primaryNavigation": "主要导航",
+  "app.navigation.play": "游玩",
   "app.updateAvailable": "有可用更新",
   "editor.back.roles": "返回角色列表",
   "editor.back.workspaces": "返回工作区列表",

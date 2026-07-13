@@ -6,6 +6,7 @@
   "app.home": "Home",
   "app.tagline": "Role workspace",
   "app.primaryNavigation": "Primary navigation",
+  "app.navigation.play": "Play",
   "app.updateAvailable": "Update available",
   "editor.back.roles": "Back to roles",
   "editor.back.workspaces": "Back to workspaces",

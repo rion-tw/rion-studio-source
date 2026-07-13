@@ -19,7 +19,6 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import {
-  FieldHeader,
   FormField,
   SegmentedControl,
   Surface
@@ -220,6 +219,69 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
             </Surface>
 
             <Surface padding="md" variant="inset">
+              <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
+                <ShortcutRecorder
+                  trigger={form.trigger}
+                  t={t}
+                  onChange={(trigger) => update((current) => ({ ...current, trigger }))}
+                />
+              </FormField>
+            </Surface>
+
+            <Surface padding="md" variant="inset">
+              <FormField label={t("macroForm.repeat")} description={t("macroForm.repeatDescription")}>
+                <div className="grid gap-2">
+                  <SegmentedControl<MacroRepeat["type"]>
+                    className={cn(
+                      "w-full grid-cols-2 p-0.5 [&>button]:h-6",
+                      isSaving && "pointer-events-none opacity-45"
+                    )}
+                    aria-disabled={isSaving}
+                    items={[
+                      { value: "once", label: t("macros.repeat.once"), icon: Check },
+                      { value: "loop", label: t("macroForm.repeat.loop"), icon: Repeat }
+                    ]}
+                    value={form.repeat.type}
+                    onValueChange={(repeatType) => {
+                      if (isSaving) {
+                        return;
+                      }
+
+                      updateRepeat(
+                        repeatType === "loop"
+                          ? {
+                              type: "loop",
+                              intervalMs: form.repeat.type === "loop" ? form.repeat.intervalMs : 1000
+                            }
+                          : { type: "once" }
+                      );
+                    }}
+                  />
+                  {form.repeat.type === "loop" ? (
+                    <AffixedInput
+                      aria-label={t("macroForm.intervalMs")}
+                      disabled={isSaving}
+                      max={600000}
+                      min={0}
+                      prefix={t("macroForm.intervalMs")}
+                      suffix="ms"
+                      value={form.repeat.intervalMs}
+                      widthClassName="h-[30px] w-full"
+                      onChange={(intervalMs) => updateRepeat({ type: "loop", intervalMs })}
+                    />
+                  ) : null}
+                </div>
+              </FormField>
+            </Surface>
+
+            <Surface className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-3" variant="inset">
+              <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={15} />
+              <p className="text-[11px] font-medium leading-5 text-foreground">{t("macroForm.fairUseNotice")}</p>
+            </Surface>
+          </aside>
+
+          <div className="grid content-start gap-3">
+            <Surface padding="md" variant="inset">
               <FormField
                 label={t("macroForm.roles")}
                 description={t("macroForm.rolesDescription")}
@@ -267,133 +329,66 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
               </FormField>
             </Surface>
 
-            <Surface padding="md" variant="inset">
-              <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
-                <ShortcutRecorder
-                  trigger={form.trigger}
-                  t={t}
-                  onChange={(trigger) => update((current) => ({ ...current, trigger }))}
-                />
-              </FormField>
-            </Surface>
+            <Surface className="grid min-h-[360px] content-start gap-3" padding="md" variant="inset">
+              <FormField label={t("macroForm.steps")} description={t("macroForm.stepsDescription")}>
+                <div className="grid gap-3">
+                  {form.steps.length === 0 ? (
+                    <div className="glass-control grid min-h-44 place-items-center rounded-md border border-dashed border-border/60 p-6 text-center">
+                      <div className="grid max-w-xs gap-2 text-muted-foreground">
+                        <ListChecks className="mx-auto" size={24} />
+                        <p className="text-xs font-semibold leading-5">{t("macroForm.stepsEmpty")}</p>
+                        <p className="text-[11px] font-medium leading-5">{t("macroForm.stepsEmptyHint")}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      {form.steps.map((step, index) => (
+                        <MacroStepEditor
+                          key={step.id}
+                          index={index}
+                          isFirst={index === 0}
+                          isLast={index === form.steps.length - 1}
+                          isSaving={isSaving}
+                          step={step}
+                          t={t}
+                          onMoveDown={() => moveStep(step.id, 1)}
+                          onMoveUp={() => moveStep(step.id, -1)}
+                          onRemove={() => removeStep(step.id)}
+                          onUpdate={(nextStep) => updateStep(step.id, nextStep)}
+                        />
+                      ))}
+                    </div>
+                  )}
 
-            <Surface padding="md" variant="inset">
-              <FormField label={t("macroForm.repeat")} description={t("macroForm.repeatDescription")}>
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(120px,0.65fr)]">
-                  <SegmentedControl<MacroRepeat["type"]>
-                    className={cn(
-                      "grid-cols-2 p-0.5 [&>button]:h-6",
-                      isSaving && "pointer-events-none opacity-45"
-                    )}
-                    aria-disabled={isSaving}
-                    items={[
-                      { value: "once", label: t("macros.repeat.once"), icon: Check },
-                      { value: "loop", label: t("macroForm.repeat.loop"), icon: Repeat }
-                    ]}
-                    value={form.repeat.type}
-                    onValueChange={(repeatType) => {
-                      if (isSaving) {
-                        return;
-                      }
-
-                      updateRepeat(
-                        repeatType === "loop"
-                          ? {
-                              type: "loop",
-                              intervalMs: form.repeat.type === "loop" ? form.repeat.intervalMs : 1000
-                            }
-                          : { type: "once" }
-                      );
-                    }}
-                  />
-                  <AffixedInput
-                    aria-label={t("macroForm.intervalMs")}
-                    disabled={isSaving || form.repeat.type !== "loop"}
-                    max={600000}
-                    min={0}
-                    prefix={t("macroForm.intervalMs")}
-                    suffix="ms"
-                    value={form.repeat.type === "loop" ? form.repeat.intervalMs : 0}
-                    widthClassName={cn("h-[30px] w-full", form.repeat.type !== "loop" && "opacity-60")}
-                    onChange={(intervalMs) => updateRepeat({ type: "loop", intervalMs })}
-                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
+                    <InlineControl label={t("macroForm.stepType")} controlClassName="w-28 flex-none">
+                      <Select
+                        value={newStepType}
+                        onChange={(event) => setNewStepType(event.target.value as MacroStep["type"])}
+                        disabled={isSaving}
+                        aria-label={t("macroForm.stepType")}
+                      >
+                        {macroStepTypeOrder.map((type) => (
+                          <option key={type} value={type}>
+                            {getMacroStepTypeLabel(type, t)}
+                          </option>
+                        ))}
+                      </Select>
+                    </InlineControl>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => addStep(newStepType)}
+                      disabled={isSaving}
+                    >
+                      <Plus size={14} />
+                      {t("macroForm.addStep")}
+                    </Button>
+                  </div>
                 </div>
               </FormField>
             </Surface>
-
-            <Surface className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-3" variant="inset">
-              <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={15} />
-              <p className="text-[11px] font-medium leading-5 text-foreground">{t("macroForm.fairUseNotice")}</p>
-            </Surface>
-          </aside>
-
-          <Surface className="grid min-h-[360px] content-start gap-4" padding="md" variant="inset">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="glass-control grid size-[30px] shrink-0 place-items-center rounded-md text-muted-foreground">
-                  <ListChecks size={17} />
-                </div>
-                <FieldHeader
-                  className="pt-0.5"
-                  title={t("macroForm.steps")}
-                  description={t("macroForm.stepsDescription")}
-                />
-              </div>
-              <div className="grid gap-2 sm:grid-cols-[auto_auto] sm:items-center">
-                <InlineControl label={t("macroForm.stepType")} controlClassName="w-28 flex-none">
-                  <Select
-                    value={newStepType}
-                    onChange={(event) => setNewStepType(event.target.value as MacroStep["type"])}
-                    disabled={isSaving}
-                    aria-label={t("macroForm.stepType")}
-                  >
-                    {macroStepTypeOrder.map((type) => (
-                      <option key={type} value={type}>
-                        {getMacroStepTypeLabel(type, t)}
-                      </option>
-                    ))}
-                  </Select>
-                </InlineControl>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => addStep(newStepType)}
-                  disabled={isSaving}
-                >
-                  <Plus size={14} />
-                  {t("macroForm.addStep")}
-                </Button>
-              </div>
-            </div>
-
-            {form.steps.length === 0 ? (
-              <div className="glass-control grid min-h-44 place-items-center rounded-md border border-dashed border-border/60 p-6 text-center">
-                <div className="grid max-w-xs gap-2 text-muted-foreground">
-                  <ListChecks className="mx-auto" size={24} />
-                  <p className="text-xs font-semibold leading-5">{t("macroForm.stepsEmpty")}</p>
-                  <p className="text-[11px] font-medium leading-5">{t("macroForm.stepsEmptyHint")}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="grid gap-2">
-                {form.steps.map((step, index) => (
-                  <MacroStepEditor
-                    key={step.id}
-                    index={index}
-                    isFirst={index === 0}
-                    isLast={index === form.steps.length - 1}
-                    isSaving={isSaving}
-                    step={step}
-                    t={t}
-                    onMoveDown={() => moveStep(step.id, 1)}
-                    onMoveUp={() => moveStep(step.id, -1)}
-                    onRemove={() => removeStep(step.id)}
-                    onUpdate={(nextStep) => updateStep(step.id, nextStep)}
-                  />
-                ))}
-              </div>
-            )}
-          </Surface>
+          </div>
     </>
   );
 }

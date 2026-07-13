@@ -1,8 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { HashRouter } from "react-router";
+import { createHashRouter, RouterProvider } from "react-router";
 
 import { App } from "./App";
+import { ConfirmationProvider } from "./components/ConfirmationDialog";
 import "./styles.css";
 
 function detectPlatform(): "linux" | "mac" | "windows" {
@@ -22,10 +23,19 @@ function detectPlatform(): "linux" | "mac" | "windows" {
 
 document.documentElement.dataset.platform = detectPlatform();
 
+const router = createHashRouter([
+  {
+    path: "*",
+    element: (
+      <ConfirmationProvider>
+        <App />
+      </ConfirmationProvider>
+    )
+  }
+]);
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <HashRouter>
-      <App />
-    </HashRouter>
+    <RouterProvider router={router} />
   </React.StrictMode>
 );

@@ -9,6 +9,8 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/renderer/src/app/copyName.ts",
+    "src/renderer/src/app/editorFormState.ts",
+    "src/renderer/src/app/editorNavigation.ts",
     "src/renderer/src/app/launchUrlSelection.ts",
     "src/renderer/src/app/roleDefaults.ts",
     "src/renderer/src/app/statusUtils.ts",

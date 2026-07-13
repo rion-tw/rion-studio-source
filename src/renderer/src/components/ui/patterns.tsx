@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import { type HTMLAttributes, type ReactNode, forwardRef } from "react";
+import { type HTMLAttributes, type MutableRefObject, type ReactNode, forwardRef, useLayoutEffect, useRef } from "react";
 import { type LucideIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
@@ -50,6 +50,7 @@ export interface PageFrameProps extends HTMLAttributes<HTMLElement> {
   children: ReactNode;
   contentClassName?: string;
   maxWidth?: "wide" | "settings";
+  scrollPositionRef?: MutableRefObject<number>;
 }
 
 export function PageFrame({
@@ -57,12 +58,31 @@ export function PageFrame({
   className,
   contentClassName,
   maxWidth = "wide",
+  onScroll,
+  scrollPositionRef,
   ...props
 }: PageFrameProps) {
   const maxWidthClassName = maxWidth === "settings" ? "max-w-5xl" : "max-w-[1500px]";
+  const frameRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    if (frameRef.current && scrollPositionRef) {
+      frameRef.current.scrollTop = scrollPositionRef.current;
+    }
+  }, [scrollPositionRef]);
 
   return (
-    <section className={cn("app-page h-full overflow-auto px-6 py-7 md:px-10 md:py-10", className)} {...props}>
+    <section
+      ref={frameRef}
+      className={cn("app-page h-full overflow-auto px-6 py-7 md:px-10 md:py-10", className)}
+      onScroll={(event) => {
+        if (scrollPositionRef) {
+          scrollPositionRef.current = event.currentTarget.scrollTop;
+        }
+        onScroll?.(event);
+      }}
+      {...props}
+    >
       <div
         className={cn(
           "mx-auto min-h-full w-full",

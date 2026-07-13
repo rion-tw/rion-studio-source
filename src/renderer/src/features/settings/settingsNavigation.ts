@@ -1,3 +1,5 @@
+import { getEditorParentPath } from "../../app/editorNavigation";
+
 export const settingsSectionIds = ["interface", "game", "data", "updates"] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
@@ -33,7 +35,8 @@ export function readSettingsReturnTo(state: unknown): string {
     state.returnTo.startsWith("/") &&
     !state.returnTo.startsWith("/settings")
   ) {
-    return state.returnTo;
+    const [pathname] = state.returnTo.split("?");
+    return getEditorParentPath(pathname) ?? state.returnTo;
   }
 
   return "/dashboard";

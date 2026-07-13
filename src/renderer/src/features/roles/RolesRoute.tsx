@@ -12,7 +12,7 @@ import {
   Square,
   Trash2
 } from "lucide-react";
-import { type DragEvent, type JSX, useEffect, useRef, useState } from "react";
+import { type DragEvent, type JSX, type MutableRefObject, useEffect, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
@@ -48,6 +48,7 @@ interface RolesViewProps {
   language: Language;
   roleStats: AppStats;
   roles: Role[];
+  scrollPositionRef: MutableRefObject<number>;
   query: string;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -73,6 +74,7 @@ function RolesView({
   language,
   roleStats,
   roles,
+  scrollPositionRef,
   query,
   statusByRole,
   t,
@@ -142,7 +144,7 @@ function RolesView({
 
   if (roles.length === 0) {
     return (
-      <PageFrame contentClassName="grid min-h-full place-items-center">
+      <PageFrame contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
         <EmptyState
           className="min-h-0"
           icon={Globe2}
@@ -156,7 +158,7 @@ function RolesView({
   }
 
   return (
-    <PageFrame>
+    <PageFrame scrollPositionRef={scrollPositionRef}>
       <PageHeader
         title={t("roles.title")}
         description={t("roles.description")}

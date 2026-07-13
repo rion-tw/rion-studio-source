@@ -12,7 +12,7 @@ import {
   Square,
   Trash2
 } from "lucide-react";
-import { type CSSProperties, type JSX, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type JSX, type MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { EmptyState } from "../../components/EmptyState";
@@ -26,7 +26,6 @@ import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared/types";
 import {
-  DEFAULT_MACRO_LIST_SORT,
   getMacroListItems,
   type MacroListSortKey,
   type MacroListSortState
@@ -44,10 +43,17 @@ interface MacrosRouteProps {
   macroStatusByRun: Map<string, MacroRunStatus>;
   macroStatuses: MacroRunStatus[];
   macros: Macro[];
+  query: string;
+  roleFilterId: string;
+  scrollPositionRef: MutableRefObject<number>;
+  sort: MacroListSortState;
   onCopyMacro: (macro: Macro) => void;
   onDeleteMacro: (macro: Macro) => void;
   onEditMacro: (macro: Macro) => void;
   onNewMacro: () => void;
+  onQueryChange: (query: string) => void;
+  onRoleFilterChange: (roleId: string) => void;
+  onSortChange: (sort: MacroListSortState) => void;
   onStartMacro: (macroId: string) => void;
   onStopMacro: (macroId: string) => void;
   roles: Role[];
@@ -61,10 +67,17 @@ function MacrosRoute({
   macroStatusByRun,
   macroStatuses,
   macros,
+  query,
+  roleFilterId,
+  scrollPositionRef,
+  sort,
   onCopyMacro,
   onDeleteMacro,
   onEditMacro,
   onNewMacro,
+  onQueryChange,
+  onRoleFilterChange,
+  onSortChange,
   onStartMacro,
   onStopMacro,
   roles,
@@ -73,9 +86,6 @@ function MacrosRoute({
 }: MacrosRouteProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const runningCount = macroStatuses.filter((status) => status.state === "running").length;
-  const [query, setQuery] = useState("");
-  const [roleFilterId, setRoleFilterId] = useState("");
-  const [sort, setSort] = useState<MacroListSortState>(DEFAULT_MACRO_LIST_SORT);
   const filteredMacros = useMemo(
     () => getMacroListItems({ macros, query, roleFilterId, roles, sort, t }),
     [macros, query, roleFilterId, roles, sort, t]
@@ -83,15 +93,15 @@ function MacrosRoute({
 
   useEffect(() => {
     if (roleFilterId && !roles.some((role) => role.id === roleFilterId)) {
-      setRoleFilterId("");
+      onRoleFilterChange("");
     }
-  }, [roleFilterId, roles]);
+  }, [onRoleFilterChange, roleFilterId, roles]);
 
   function handleSortChange(key: MacroListSortKey): void {
-    setSort((current) =>
-      current.key === key
+    onSortChange(
+      sort.key === key
         ? {
-            direction: current.direction === "asc" ? "desc" : "asc",
+            direction: sort.direction === "asc" ? "desc" : "asc",
             key
           }
         : {
@@ -103,7 +113,7 @@ function MacrosRoute({
 
   if (macros.length === 0) {
     return (
-      <PageFrame contentClassName="grid min-h-full place-items-center">
+      <PageFrame contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
         <EmptyState
           className="min-h-0"
           icon={Keyboard}
@@ -117,7 +127,7 @@ function MacrosRoute({
   }
 
   return (
-    <PageFrame>
+    <PageFrame scrollPositionRef={scrollPositionRef}>
       <PageHeader
         title={t("macros.title")}
         description={t("macros.description")}
@@ -127,13 +137,13 @@ function MacrosRoute({
               className="w-full sm:w-44 lg:w-48"
               placeholder={t("macros.searchPlaceholder")}
               value={query}
-              onChange={setQuery}
+              onChange={onQueryChange}
             />
             <Select
               className="w-full sm:w-40 lg:w-44"
               aria-label={t("macros.filterRole")}
               value={roleFilterId}
-              onChange={(event) => setRoleFilterId(event.target.value)}
+              onChange={(event) => onRoleFilterChange(event.target.value)}
             >
               <option value="">{t("macros.filterAllRoles")}</option>
               {roles.map((role) => (
@@ -164,8 +174,8 @@ function MacrosRoute({
           description={t("macros.noMatches.description")}
           actionLabel={t("macros.noMatches.action")}
           onAction={() => {
-            setQuery("");
-            setRoleFilterId("");
+            onQueryChange("");
+            onRoleFilterChange("");
           }}
         />
       ) : (

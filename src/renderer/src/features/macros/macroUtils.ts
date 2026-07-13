@@ -1,4 +1,5 @@
-import type { Macro, MacroRepeat, MacroStep, MacroTrigger } from "../../../../shared/types";
+import type { Macro, MacroRepeat, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import type { MacroFormState } from "../../app/types";
 import type { TranslationKey, Translator } from "../../i18n";
 
 export const commonMacroKeyCodes = [
@@ -75,6 +76,43 @@ export function createEmptyMacroFormName(macros: Macro[], t: Translator): string
   }
 
   return `${baseName} ${index}`;
+}
+
+export function createEmptyMacroForm(
+  macros: Macro[],
+  roles: Role[],
+  t: Translator,
+  requestedRoleId?: string
+): MacroFormState {
+  const roleId =
+    requestedRoleId && roles.some((role) => role.id === requestedRoleId)
+      ? requestedRoleId
+      : roles[0]?.id ?? "";
+
+  return {
+    name: createEmptyMacroFormName(macros, t),
+    roleIds: roleId ? [roleId] : [],
+    repeat: { type: "once" },
+    steps: [
+      {
+        id: createClientId(),
+        type: "key",
+        code: "Tab",
+        label: "Tab"
+      }
+    ]
+  };
+}
+
+export function createMacroFormState(macro: Macro): MacroFormState {
+  return {
+    id: macro.id,
+    name: macro.name,
+    roleIds: [...macro.roleIds],
+    repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
+    steps: macro.steps.map((step) => ({ ...step })),
+    trigger: macro.trigger ? { ...macro.trigger } : undefined
+  };
 }
 
 export function formatMacroCode(code: string): string {

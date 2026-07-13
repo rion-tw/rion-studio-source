@@ -3,6 +3,7 @@ import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import appIconUrl from "../assets/app-icon.png";
+import { normalizeAppReturnTo } from "../app/editorNavigation";
 import type { Translator } from "../i18n";
 import { NavItem } from "./ui/patterns";
 
@@ -34,7 +35,7 @@ export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspace
 
       <nav className="grid gap-1" aria-label={t("app.primaryNavigation")}>
         <NavItem
-          active={location.pathname === "/roles"}
+          active={location.pathname.startsWith("/roles")}
           count={roleCount}
           icon={Users}
           label={t("app.roles")}
@@ -42,7 +43,7 @@ export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspace
           onClick={() => navigate("/roles")}
         />
         <NavItem
-          active={location.pathname === "/workspaces"}
+          active={location.pathname.startsWith("/workspaces")}
           count={workspaceCount}
           icon={LayoutDashboard}
           label={t("app.workspaces")}
@@ -50,7 +51,7 @@ export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspace
           onClick={() => navigate("/workspaces")}
         />
         <NavItem
-          active={location.pathname === "/macros"}
+          active={location.pathname.startsWith("/macros")}
           count={macroCount}
           icon={Keyboard}
           label={t("app.macros")}
@@ -68,7 +69,9 @@ export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspace
           noDrag
           showStatusDot={hasUpdateBadge}
           statusDotLabel={t("app.updateAvailable")}
-          onClick={() => navigate("/settings", { state: { returnTo: `${location.pathname}${location.search}` } })}
+          onClick={() => navigate("/settings", {
+            state: { returnTo: normalizeAppReturnTo(location.pathname, location.search) }
+          })}
         />
       </div>
     </aside>

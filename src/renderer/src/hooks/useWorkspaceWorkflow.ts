@@ -1,23 +1,14 @@
-import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { createCopyName } from "../app/copyName";
 import { mergeStatuses } from "../app/statusUtils";
 import type { WorkspaceFormState } from "../app/types";
+import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import {
-  applyWorkspaceTemplate,
-  createWorkspaceFormState,
-  createWorkspaceName
-} from "../features/workspaces/workspaceLayoutUtils";
-import {
-  DEFAULT_WORKSPACE_TEMPLATE,
-  getDefaultWorkspaceBrowserZoomPercent
-} from "../../../shared/workspaceLayout";
 import type { LaunchWorkspace, RoleStatus } from "../../../shared/types";
 
 interface UseWorkspaceWorkflowOptions {
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
-  navigateToWorkspaces: () => void;
   setError: (error: unknown | null) => void;
   setNotice?: (message: string | null) => void;
   setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
@@ -28,7 +19,6 @@ interface UseWorkspaceWorkflowOptions {
 
 export function useWorkspaceWorkflow({
   loadData,
-  navigateToWorkspaces,
   setError,
   setNotice,
   setStatuses,
@@ -36,80 +26,59 @@ export function useWorkspaceWorkflow({
   t,
   workspaces
 }: UseWorkspaceWorkflowOptions) {
-  const [workspaceForm, setWorkspaceForm] = useState<WorkspaceFormState | null>(null);
-  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
+  const confirm = useConfirmation();
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
   const [busyWorkspaceId, setBusyWorkspaceId] = useState<string | null>(null);
   const [isReorderingWorkspaces, setIsReorderingWorkspaces] = useState(false);
+  const [query, setQuery] = useState("");
+  const listScrollTopRef = useRef(0);
 
-  async function handleWorkspaceSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-
-    if (!workspaceForm) {
-      return;
-    }
-
+  async function saveWorkspace(form: WorkspaceFormState): Promise<LaunchWorkspace | undefined> {
     setIsSavingWorkspace(true);
     setError(null);
 
     try {
-      if (workspaceForm.id) {
-        const workspace = await window.rionStudio.updateLaunchWorkspace(workspaceForm.id, {
-          name: workspaceForm.name,
-          template: workspaceForm.template,
-          browserZoomPercent: workspaceForm.browserZoomPercent,
-          slots: workspaceForm.slots
-        });
-        setWorkspaces((current) => current.map((item) => (item.id === workspace.id ? workspace : item)));
-      } else {
-        const workspace = await window.rionStudio.createLaunchWorkspace({
-          name: workspaceForm.name,
-          template: workspaceForm.template,
-          browserZoomPercent: workspaceForm.browserZoomPercent,
-          slots: workspaceForm.slots
-        });
-        setWorkspaces((current) => [...current, workspace]);
+      const input = {
+        name: form.name,
+        template: form.template,
+        browserZoomPercent: form.browserZoomPercent,
+        slots: form.slots
+      };
+      const savedWorkspace = form.id
+        ? await window.rionStudio.updateLaunchWorkspace(form.id, input)
+        : await window.rionStudio.createLaunchWorkspace(input);
+
+      setWorkspaces((current) => {
+        if (form.id) {
+          return current.map((workspace) => (workspace.id === savedWorkspace.id ? savedWorkspace : workspace));
+        }
+
+        return [...current, savedWorkspace];
+      });
+
+      if (!form.id) {
+        setQuery("");
+        listScrollTopRef.current = 0;
       }
 
-      setWorkspaceForm(null);
-      setIsWorkspaceModalOpen(false);
-      navigateToWorkspaces();
       await loadData();
+      return savedWorkspace;
     } catch (submitError) {
       setError(submitError);
+      return undefined;
     } finally {
       setIsSavingWorkspace(false);
     }
   }
 
-  function startCreateWorkspace(): void {
-    navigateToWorkspaces();
-    setWorkspaceForm({
-      name: createWorkspaceName(workspaces, t),
-      template: DEFAULT_WORKSPACE_TEMPLATE,
-      browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(DEFAULT_WORKSPACE_TEMPLATE),
-      slots: applyWorkspaceTemplate([], DEFAULT_WORKSPACE_TEMPLATE)
-    });
-    setIsWorkspaceModalOpen(true);
-  }
-
-  function startEditWorkspace(workspace: LaunchWorkspace): void {
-    navigateToWorkspaces();
-    setWorkspaceForm(createWorkspaceFormState(workspace));
-    setIsWorkspaceModalOpen(true);
-  }
-
-  function closeWorkspaceModal(): void {
-    if (isSavingWorkspace) {
-      return;
-    }
-
-    setWorkspaceForm(null);
-    setIsWorkspaceModalOpen(false);
-  }
-
   async function handleDeleteWorkspace(workspace: LaunchWorkspace): Promise<void> {
-    const confirmed = window.confirm(t("confirm.deleteWorkspace").replace("{name}", workspace.name));
+    const confirmed = await confirm({
+      title: t("confirm.deleteWorkspace.title").replace("{name}", workspace.name),
+      description: t("confirm.deleteWorkspace.description"),
+      cancelLabel: t("confirm.cancel"),
+      confirmLabel: t("confirm.delete"),
+      tone: "destructive"
+    });
 
     if (!confirmed) {
       return;
@@ -143,7 +112,8 @@ export function useWorkspaceWorkflow({
         }))
       });
       setWorkspaces((current) => [...current, copy]);
-      navigateToWorkspaces();
+      setQuery("");
+      listScrollTopRef.current = 0;
       await loadData();
     } catch (copyError) {
       setError(copyError);
@@ -218,19 +188,16 @@ export function useWorkspaceWorkflow({
 
   return {
     busyWorkspaceId,
-    closeWorkspaceModal,
     handleCopyWorkspace,
     handleDeleteWorkspace,
     handleLaunchWorkspace,
     handleReorderWorkspaces,
     handleStopWorkspace,
-    handleWorkspaceSubmit,
-    isSavingWorkspace,
     isReorderingWorkspaces,
-    isWorkspaceModalOpen,
-    setWorkspaceForm,
-    startCreateWorkspace,
-    startEditWorkspace,
-    workspaceForm
+    isSavingWorkspace,
+    listScrollTopRef,
+    query,
+    saveWorkspace,
+    setQuery
   };
 }

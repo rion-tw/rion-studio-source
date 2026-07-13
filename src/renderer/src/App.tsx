@@ -7,11 +7,10 @@ import { AppSidebar } from "./components/AppSidebar";
 import { Button } from "./components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { Surface } from "./components/ui/patterns";
-import RoleModal from "./features/roles/RoleModal";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
-import WorkspaceModal from "./features/workspaces/WorkspaceModal";
+import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { toMessage } from "./app/errorUtils";
-import { shouldShowLoginGuidance, shouldShowUpdateBadge } from "./app/statusUtils";
+import { shouldShowUpdateBadge } from "./app/statusUtils";
 import { scheduleAfterTwoAnimationFrames } from "./app/rendererReady";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
@@ -32,10 +31,12 @@ import type {
 } from "../../shared/types";
 
 const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
+const RoleEditorRoute = lazy(() => import("./features/roles/RoleModal"));
 const DashboardRoute = lazy(() => import("./features/dashboard/DashboardRoute"));
 const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWorkspacesRoute"));
+const WorkspaceEditorRoute = lazy(() => import("./features/workspaces/WorkspaceModal"));
 const MacrosRoute = lazy(() => import("./features/macros/MacrosRoute"));
-const MacroModal = lazy(() => import("./features/macros/MacroModal"));
+const MacroEditorRoute = lazy(() => import("./features/macros/MacroModal"));
 const SettingsRoute = lazy(() => import("./features/settings/SettingsRoute"));
 const TOAST_DISMISS_MS = 4000;
 
@@ -53,6 +54,24 @@ export function App(): JSX.Element {
     onError: data.setError
   });
   const navigateToMacros = useCallback(() => navigate("/macros"), [navigate]);
+  const navigateToNewRole = useCallback(() => navigate(createNewEditorPath("roles")), [navigate]);
+  const navigateToEditRole = useCallback(
+    (roleId: string) => navigate(createEditEditorPath("roles", roleId)),
+    [navigate]
+  );
+  const navigateToNewWorkspace = useCallback(() => navigate(createNewEditorPath("workspaces")), [navigate]);
+  const navigateToEditWorkspace = useCallback(
+    (workspaceId: string) => navigate(createEditEditorPath("workspaces", workspaceId)),
+    [navigate]
+  );
+  const navigateToNewMacro = useCallback((roleId?: string) => {
+    const searchParams = roleId ? new URLSearchParams({ roleId }) : undefined;
+    navigate(createNewEditorPath("macros", searchParams));
+  }, [navigate]);
+  const navigateToEditMacro = useCallback(
+    (macroId: string) => navigate(createEditEditorPath("macros", macroId)),
+    [navigate]
+  );
   const updateGameBrowserSettings = useCallback(async (settings: GameBrowserSettings): Promise<GameBrowserSettings> => {
     if (!window.rionStudio) {
       throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
@@ -140,8 +159,6 @@ export function App(): JSX.Element {
 
   const roleWorkflow = useRoleWorkflow({
     loadData: data.loadData,
-    navigateToRoles: () => navigate("/roles"),
-    roleDefaults: preferences.roleDefaults,
     roles: data.roles,
     setAuthStatuses: data.setAuthStatuses,
     setError: data.setError,
@@ -154,7 +171,6 @@ export function App(): JSX.Element {
 
   const workspaceWorkflow = useWorkspaceWorkflow({
     loadData: data.loadData,
-    navigateToWorkspaces: () => navigate("/workspaces"),
     setError: data.setError,
     setNotice,
     setStatuses: data.setStatuses,
@@ -166,15 +182,12 @@ export function App(): JSX.Element {
   const macroWorkflow = useMacroWorkflow({
     loadData: data.loadData,
     macros: data.macros,
-    navigateToMacros,
-    roles: data.roles,
     setError: data.setError,
     setMacroStatuses: data.setMacroStatuses,
     setMacros: data.setMacros,
     statusByRole: data.statusByRole,
     t: preferences.t
   });
-  const { startCreateMacro, startEditMacro } = macroWorkflow;
   const {
     initialLoadState,
     macros,
@@ -209,7 +222,7 @@ export function App(): JSX.Element {
 
     const openMacroEditorRequest = async (request: MacroEditorRequest): Promise<void> => {
       if (!request.macroId) {
-        startCreateMacro(request.roleId);
+        navigateToNewMacro(request.roleId);
         return;
       }
 
@@ -225,7 +238,7 @@ export function App(): JSX.Element {
         throw new Error("The requested macro is no longer available.");
       }
 
-      startEditMacro(macro);
+      navigateToEditMacro(macro.id);
     };
 
     const consumePendingEditorRequest = (): void => {
@@ -249,7 +262,7 @@ export function App(): JSX.Element {
       isDisposed = true;
       unsubscribe();
     };
-  }, [hasBridge, initialLoadState, macros, navigateToMacros, setError, setMacros, startCreateMacro, startEditMacro]);
+  }, [hasBridge, initialLoadState, macros, navigateToEditMacro, navigateToMacros, navigateToNewMacro, setError, setMacros]);
 
   useEffect(() => {
     if (!hasBridge || initialLoadState === "loading") {
@@ -294,6 +307,45 @@ export function App(): JSX.Element {
       />
     );
   }
+
+  const roleEditorElement = hasBridge ? (
+    <RoleEditorRoute
+      authStatusByRole={data.authStatusByRole}
+      busyRoleId={roleWorkflow.busyRoleId}
+      isSaving={roleWorkflow.isSaving}
+      roleDefaults={preferences.roleDefaults}
+      roles={data.roles}
+      t={preferences.t}
+      onError={data.setError}
+      onRelogin={roleWorkflow.requestSystemLogin}
+      onSave={roleWorkflow.saveRole}
+    />
+  ) : (
+    <BridgeUnavailable t={preferences.t} />
+  );
+  const workspaceEditorElement = hasBridge ? (
+    <WorkspaceEditorRoute
+      isSaving={workspaceWorkflow.isSavingWorkspace}
+      roles={data.roles}
+      statusByRole={data.statusByRole}
+      t={preferences.t}
+      workspaces={data.workspaces}
+      onSave={workspaceWorkflow.saveWorkspace}
+    />
+  ) : (
+    <BridgeUnavailable t={preferences.t} />
+  );
+  const macroEditorElement = hasBridge ? (
+    <MacroEditorRoute
+      isSaving={macroWorkflow.isSavingMacro}
+      macros={data.macros}
+      roles={data.roles}
+      t={preferences.t}
+      onSave={macroWorkflow.saveMacro}
+    />
+  ) : (
+    <BridgeUnavailable t={preferences.t} />
+  );
 
   return (
     <div className="liquid-app-shell flex h-screen overflow-hidden text-foreground">
@@ -352,7 +404,7 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
-                    onCreateWorkspace={workspaceWorkflow.startCreateWorkspace}
+                    onCreateWorkspace={navigateToNewWorkspace}
                     onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
                     onLoginRole={roleWorkflow.requestSystemLogin}
@@ -363,8 +415,8 @@ export function App(): JSX.Element {
                       navigate("/roles");
                     }}
                     onNavigateWorkspaces={() => navigate("/workspaces")}
-                    onNewMacro={() => macroWorkflow.startCreateMacro()}
-                    onNewRole={roleWorkflow.startCreate}
+                    onNewMacro={() => navigateToNewMacro()}
+                    onNewRole={navigateToNewRole}
                     onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
                     onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
                     onStopRole={(roleId) => void roleWorkflow.handleStop(roleId)}
@@ -387,17 +439,18 @@ export function App(): JSX.Element {
                     language={preferences.language}
                     roleStats={data.roleStats}
                     roles={data.roles}
+                    scrollPositionRef={roleWorkflow.listScrollTopRef}
                     query={roleWorkflow.query}
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     onClearQuery={() => roleWorkflow.setQuery("")}
                     onCopy={(role) => void roleWorkflow.handleCopy(role)}
                     onDelete={(role) => void roleWorkflow.handleDelete(role)}
-                    onEdit={roleWorkflow.startEdit}
+                    onEdit={(role) => navigateToEditRole(role.id)}
                     onFilterChange={roleWorkflow.setActiveFilter}
                     onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLogin={roleWorkflow.requestSystemLogin}
-                    onNewRole={roleWorkflow.startCreate}
+                    onNewRole={navigateToNewRole}
                     onQueryChange={roleWorkflow.setQuery}
                     onReorder={(orderedIds) => void roleWorkflow.handleReorder(orderedIds)}
                     onStop={(roleId) => void roleWorkflow.handleStop(roleId)}
@@ -408,21 +461,26 @@ export function App(): JSX.Element {
                 )
               }
             />
+            <Route path="/roles/new" element={roleEditorElement} />
+            <Route path="/roles/:id/edit" element={roleEditorElement} />
             <Route
               path="/workspaces"
               element={
                 hasBridge ? (
                   <LaunchWorkspacesRoute
                     busyWorkspaceId={workspaceWorkflow.busyWorkspaceId}
+                    query={workspaceWorkflow.query}
                     roles={data.roles}
+                    scrollPositionRef={workspaceWorkflow.listScrollTopRef}
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
                     onCopyWorkspace={(workspace) => void workspaceWorkflow.handleCopyWorkspace(workspace)}
-                    onCreateWorkspace={workspaceWorkflow.startCreateWorkspace}
+                    onCreateWorkspace={navigateToNewWorkspace}
                     onDeleteWorkspace={(workspace) => void workspaceWorkflow.handleDeleteWorkspace(workspace)}
-                    onEditWorkspace={workspaceWorkflow.startEditWorkspace}
+                    onEditWorkspace={(workspace) => navigateToEditWorkspace(workspace.id)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
+                    onQueryChange={workspaceWorkflow.setQuery}
                     onReorderWorkspaces={(orderedIds) => void workspaceWorkflow.handleReorderWorkspaces(orderedIds)}
                     onStopWorkspace={(workspace) => void workspaceWorkflow.handleStopWorkspace(workspace)}
                     isReordering={workspaceWorkflow.isReorderingWorkspaces}
@@ -432,6 +490,8 @@ export function App(): JSX.Element {
                 )
               }
             />
+            <Route path="/workspaces/new" element={workspaceEditorElement} />
+            <Route path="/workspaces/:id/edit" element={workspaceEditorElement} />
             <Route
               path="/macros"
               element={
@@ -442,13 +502,20 @@ export function App(): JSX.Element {
                     macros={data.macros}
                     macroStatuses={data.macroStatuses}
                     macroStatusByRun={data.macroStatusByRun}
+                    query={macroWorkflow.query}
+                    roleFilterId={macroWorkflow.roleFilterId}
                     roles={data.roles}
+                    scrollPositionRef={macroWorkflow.listScrollTopRef}
+                    sort={macroWorkflow.sort}
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     onCopyMacro={(macro) => void macroWorkflow.handleCopyMacro(macro)}
                     onDeleteMacro={(macro) => void macroWorkflow.handleDeleteMacro(macro)}
-                    onEditMacro={macroWorkflow.startEditMacro}
-                    onNewMacro={macroWorkflow.startCreateMacro}
+                    onEditMacro={(macro) => navigateToEditMacro(macro.id)}
+                    onNewMacro={() => navigateToNewMacro()}
+                    onQueryChange={macroWorkflow.setQuery}
+                    onRoleFilterChange={macroWorkflow.setRoleFilterId}
+                    onSortChange={macroWorkflow.setSort}
                     onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
                     onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
                   />
@@ -457,6 +524,8 @@ export function App(): JSX.Element {
                 )
               }
             />
+            <Route path="/macros/new" element={macroEditorElement} />
+            <Route path="/macros/:id/edit" element={macroEditorElement} />
             <Route
               path="/settings"
               element={
@@ -493,66 +562,6 @@ export function App(): JSX.Element {
           </Routes>
         </Suspense>
       </main>
-
-      {hasBridge && roleWorkflow.isRoleModalOpen ? (
-        <RoleModal
-          authStatus={
-            roleWorkflow.selectedRole
-              ? data.authStatusByRole.get(roleWorkflow.selectedRole.id)
-              : undefined
-          }
-          form={roleWorkflow.form}
-          isLoginBusy={Boolean(
-            roleWorkflow.selectedRole &&
-              (roleWorkflow.busyRoleId === roleWorkflow.selectedRole.id ||
-                shouldShowLoginGuidance(data.authStatusByRole.get(roleWorkflow.selectedRole.id)))
-          )}
-          isSaving={roleWorkflow.isSaving}
-          selectedRole={roleWorkflow.selectedRole}
-          t={preferences.t}
-          onCancel={roleWorkflow.closeRoleModal}
-          onChange={roleWorkflow.setForm}
-          onError={data.setError}
-          onRelogin={roleWorkflow.requestSystemLogin}
-          onSubmit={roleWorkflow.handleSubmit}
-        />
-      ) : null}
-
-      {hasBridge && workspaceWorkflow.isWorkspaceModalOpen && workspaceWorkflow.workspaceForm ? (
-        <WorkspaceModal
-          form={workspaceWorkflow.workspaceForm}
-          isSaving={workspaceWorkflow.isSavingWorkspace}
-          roles={data.roles}
-          statusByRole={data.statusByRole}
-          t={preferences.t}
-          onCancel={workspaceWorkflow.closeWorkspaceModal}
-          onChange={workspaceWorkflow.setWorkspaceForm}
-          onSubmit={workspaceWorkflow.handleWorkspaceSubmit}
-        />
-      ) : null}
-
-      {hasBridge && macroWorkflow.isMacroModalOpen && macroWorkflow.macroForm ? (
-        <Suspense fallback={null}>
-          <MacroModal
-            form={macroWorkflow.macroForm}
-            isSaving={macroWorkflow.isSavingMacro}
-            roles={data.roles}
-            t={preferences.t}
-            onCancel={macroWorkflow.closeMacroModal}
-            onChange={(nextForm) => {
-              macroWorkflow.setMacroForm((current) => {
-                if (!current) {
-                  return current;
-                }
-
-                return typeof nextForm === "function" ? nextForm(current) : nextForm;
-              });
-            }}
-            onSubmit={macroWorkflow.handleMacroSubmit}
-          />
-        </Suspense>
-      ) : null}
-
     </div>
   );
 }

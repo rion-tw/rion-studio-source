@@ -4,17 +4,17 @@ import {
   ChevronUp,
   Keyboard,
   ListChecks,
-  Loader2,
   Plus,
   Repeat,
   Save,
   Trash2,
   X
 } from "lucide-react";
-import { type FormEvent, type JSX, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type JSX, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
 
+import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import {
@@ -23,10 +23,13 @@ import {
   SegmentedControl,
   Surface
 } from "../../components/ui/patterns";
+import { areEditorFormsEqual, createMacroFormState, createNewMacroForm } from "../../app/editorFormState";
+import { readRequestedMacroRoleId } from "../../app/editorNavigation";
 import type { MacroFormState } from "../../app/types";
+import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
-import type { MacroRepeat, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import type { Macro, MacroRepeat, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
@@ -35,61 +38,112 @@ import {
   isPureModifierCode
 } from "./macroUtils";
 
-interface MacroModalProps {
+interface MacroEditorRouteProps {
+  isSaving: boolean;
+  macros: Macro[];
+  roles: Role[];
+  t: Translator;
+  onSave: (form: MacroFormState) => Promise<Macro | undefined>;
+}
+
+function MacroEditorRoute(props: MacroEditorRouteProps): JSX.Element {
+  const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const selectedMacro = id ? props.macros.find((macro) => macro.id === id) : undefined;
+
+  if (id && !selectedMacro) {
+    return (
+      <EditorNotFound
+        title={props.t("editor.notFound.title")}
+        description={props.t("editor.notFound.macro")}
+        actionLabel={props.t("editor.back.macros")}
+        onAction={() => navigate("/macros", { replace: true })}
+      />
+    );
+  }
+
+  const requestedRoleId = readRequestedMacroRoleId(location.search);
+  const initialForm = selectedMacro
+    ? createMacroFormState(selectedMacro)
+    : createNewMacroForm(props.macros, props.roles, props.t, requestedRoleId);
+  return <MacroEditor key={id ?? `new:${requestedRoleId ?? ""}`} {...props} initialForm={initialForm} />;
+}
+
+function MacroEditor({
+  initialForm,
+  isSaving,
+  roles,
+  t,
+  onSave
+}: MacroEditorRouteProps & { initialForm: MacroFormState }): JSX.Element {
+  const navigate = useNavigate();
+  const initialFormRef = useRef(initialForm);
+  const [form, setForm] = useState(initialForm);
+  const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
+  const canSubmit = form.roleIds.length > 0 && form.steps.length > 0;
+  const saveHint = form.roleIds.length === 0
+    ? t("macroForm.saveHint.needsRole")
+    : form.steps.length === 0
+      ? t("macroForm.saveHint.needsStep")
+      : t("macroForm.saveHint.ready");
+  const confirmationOptions = useMemo(() => ({
+    title: t("confirm.unsaved.title"),
+    description: t("confirm.unsaved.description"),
+    cancelLabel: t("confirm.unsaved.continue"),
+    confirmLabel: t("confirm.unsaved.discard"),
+    tone: "destructive" as const
+  }), [t]);
+  const allowNavigation = useUnsavedChangesGuard(isDirty, confirmationOptions, isSaving);
+
+  function handleCancel(): void {
+    navigate("/macros", { replace: true });
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const savedMacro = await onSave(form);
+    if (savedMacro) {
+      allowNavigation();
+      navigate("/macros", { replace: true });
+    }
+  }
+
+  return (
+    <EditorPage
+      backLabel={t("editor.back.macros")}
+      cancelLabel={t("macroForm.cancel")}
+      canSubmit={canSubmit}
+      description={form.id ? t("macroForm.description.edit") : t("macroForm.description.new")}
+      isSaving={isSaving}
+      onCancel={handleCancel}
+      onSubmit={(event) => void handleSubmit(event)}
+      saveHint={saveHint}
+      saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
+      saveLabel={form.id ? t("macroForm.saveChanges") : t("macroForm.createMacro")}
+      title={form.id ? t("macroForm.title.edit") : t("macroForm.title.new")}
+      contentClassName="min-[1180px]:grid-cols-[320px_minmax(0,1fr)] min-[1180px]:items-start xl:grid-cols-[340px_minmax(0,1fr)]"
+    >
+      <MacroForm form={form} isSaving={isSaving} roles={roles} t={t} onChange={setForm} />
+    </EditorPage>
+  );
+}
+
+interface MacroFormProps {
   form: MacroFormState;
   isSaving: boolean;
-  onCancel: () => void;
   onChange: (form: MacroFormState | ((current: MacroFormState) => MacroFormState)) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   roles: Role[];
   t: Translator;
 }
 
-function MacroModal(props: MacroModalProps): JSX.Element {
-  const { onCancel, t } = props;
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        onCancel();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onCancel]);
-
-  return (
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center p-4">
-      <button
-        className="app-modal-backdrop absolute inset-0 cursor-default"
-        type="button"
-        aria-label={t("macroForm.aria.close")}
-        onClick={onCancel}
-      />
-      <div className="relative z-10 w-full max-w-6xl" role="dialog" aria-modal="true" aria-labelledby="macro-form-title">
-        <MacroForm {...props} />
-      </div>
-    </div>
-  );
-}
-
-function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: MacroModalProps): JSX.Element {
+function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.Element {
   const [newStepType, setNewStepType] = useState<MacroStep["type"]>("key");
   const roleIds = useMemo(() => new Set(form.roleIds), [form.roleIds]);
   const missingRoleIds = useMemo(
     () => form.roleIds.filter((roleId) => !roles.some((role) => role.id === roleId)),
     [form.roleIds, roles]
   );
-  const canSubmit = form.roleIds.length > 0 && form.steps.length > 0 && !isSaving;
-  const saveHint = form.roleIds.length === 0
-    ? t("macroForm.saveHint.needsRole")
-    : form.steps.length === 0
-      ? t("macroForm.saveHint.needsStep")
-      : t("macroForm.saveHint.ready");
 
   function update(updater: (current: MacroFormState) => MacroFormState): void {
     onChange(updater);
@@ -145,21 +199,7 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
   }
 
   return (
-    <Surface className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden text-card-foreground" radius="lg" variant="modal">
-      <CardHeader className="glass-divider flex-row items-start justify-between gap-4 border-b">
-        <div className="min-w-0">
-          <CardTitle id="macro-form-title">{form.id ? t("macroForm.title.edit") : t("macroForm.title.new")}</CardTitle>
-          <CardDescription className="mt-1">
-            {form.id ? t("macroForm.description.edit") : t("macroForm.description.new")}
-          </CardDescription>
-        </div>
-        <Button type="button" variant="ghost" size="icon" title={t("macroForm.cancelTitle")} onClick={onCancel} disabled={isSaving}>
-          <X size={17} />
-        </Button>
-      </CardHeader>
-
-      <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => onSubmit(event)}>
-        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 md:grid-cols-[340px_minmax(0,1fr)] md:items-start md:p-5">
+    <>
           <aside className="grid content-start gap-3">
             <Surface padding="md" variant="inset">
               <FormField
@@ -348,22 +388,7 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
               </div>
             )}
           </Surface>
-        </div>
-
-        <div className="glass-divider flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-medium leading-5 text-muted-foreground">{saveHint}</p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" className="sm:min-w-[120px]" onClick={onCancel} disabled={isSaving}>
-              {t("macroForm.cancel")}
-            </Button>
-            <Button className="sm:min-w-[160px]" type="submit" disabled={!canSubmit}>
-              {isSaving ? <Loader2 className="spin" size={17} /> : form.id ? <Save size={17} /> : <Check size={17} />}
-              {form.id ? t("macroForm.saveChanges") : t("macroForm.createMacro")}
-            </Button>
-          </div>
-        </div>
-      </form>
-    </Surface>
+    </>
   );
 }
 
@@ -751,4 +776,4 @@ function createStep(type: MacroStep["type"], id = createClientId()): MacroStep {
   }
 }
 
-export default MacroModal;
+export default MacroEditorRoute;

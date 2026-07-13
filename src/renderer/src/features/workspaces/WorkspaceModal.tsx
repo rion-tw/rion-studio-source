@@ -1,4 +1,4 @@
-import { Check, Eraser, GripHorizontal, GripVertical, Loader2, Plus, Save, X } from "lucide-react";
+import { Check, Eraser, GripHorizontal, GripVertical, Plus, Save } from "lucide-react";
 import {
   type DragEvent as ReactDragEvent,
   type FormEvent,
@@ -9,17 +9,21 @@ import {
   useRef,
   useState
 } from "react";
+import { useNavigate, useParams } from "react-router";
 
+import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { launchUrlOptions } from "../../app/constants";
 import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
+import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
 import type { WorkspaceFormState } from "../../app/types";
+import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
+  LaunchWorkspace,
   LaunchWorkspaceSlot,
   NormalizedRect,
   Role,
@@ -48,110 +52,92 @@ import {
   type WorkspaceSplitAxis
 } from "./workspaceLayoutUtils";
 
-interface WorkspaceModalProps {
-  form: WorkspaceFormState;
+interface WorkspaceEditorRouteProps {
   isSaving: boolean;
-  onCancel: () => void;
-  onChange: (form: WorkspaceFormState) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
+  workspaces: LaunchWorkspace[];
+  onSave: (form: WorkspaceFormState) => Promise<LaunchWorkspace | undefined>;
 }
 
-function WorkspaceModal(props: WorkspaceModalProps): JSX.Element {
-  const { onCancel, t } = props;
+function WorkspaceEditorRoute(props: WorkspaceEditorRouteProps): JSX.Element {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const selectedWorkspace = id ? props.workspaces.find((workspace) => workspace.id === id) : undefined;
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        onCancel();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onCancel]);
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4">
-      <button
-        className="app-modal-backdrop absolute inset-0 cursor-default"
-        type="button"
-        aria-label={t("workspaceForm.aria.close")}
-        onClick={onCancel}
+  if (id && !selectedWorkspace) {
+    return (
+      <EditorNotFound
+        title={props.t("editor.notFound.title")}
+        description={props.t("editor.notFound.workspace")}
+        actionLabel={props.t("editor.back.workspaces")}
+        onAction={() => navigate("/workspaces", { replace: true })}
       />
-      <div
-        className="relative z-10 w-full max-w-6xl"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="workspace-form-title"
-      >
-        <WorkspaceForm {...props} />
-      </div>
-    </div>
-  );
+    );
+  }
+
+  const initialForm = selectedWorkspace
+    ? createWorkspaceFormState(selectedWorkspace)
+    : createNewWorkspaceForm(props.workspaces, props.t);
+  return <WorkspaceEditor key={id ?? "new"} {...props} initialForm={initialForm} />;
 }
 
-function WorkspaceForm({
-  form,
+function WorkspaceEditor({
+  initialForm,
   isSaving,
-  onCancel,
-  onChange,
-  onSubmit,
   roles,
   statusByRole,
-  t
-}: WorkspaceModalProps): JSX.Element {
+  t,
+  onSave
+}: WorkspaceEditorRouteProps & { initialForm: WorkspaceFormState }): JSX.Element {
+  const navigate = useNavigate();
+  const initialFormRef = useRef(initialForm);
+  const [form, setForm] = useState(initialForm);
+  const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
+  const confirmationOptions = useMemo(() => ({
+    title: t("confirm.unsaved.title"),
+    description: t("confirm.unsaved.description"),
+    cancelLabel: t("confirm.unsaved.continue"),
+    confirmLabel: t("confirm.unsaved.discard"),
+    tone: "destructive" as const
+  }), [t]);
+  const allowNavigation = useUnsavedChangesGuard(isDirty, confirmationOptions, isSaving);
+
+  function handleCancel(): void {
+    navigate("/workspaces", { replace: true });
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const savedWorkspace = await onSave(form);
+    if (savedWorkspace) {
+      allowNavigation();
+      navigate("/workspaces", { replace: true });
+    }
+  }
+
   return (
-    <Surface className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden text-card-foreground" radius="lg" variant="modal">
-      <CardHeader className="glass-divider flex-row items-start justify-between gap-3 border-b">
-        <div className="min-w-0">
-          <CardTitle id="workspace-form-title">
-            {form.id ? t("workspaceForm.title.edit") : t("workspaceForm.title.new")}
-          </CardTitle>
-          <CardDescription className="mt-1">
-            {form.id ? t("workspaceForm.description.edit") : t("workspaceForm.description.new")}
-          </CardDescription>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          title={t("workspaceForm.cancelTitle")}
-          onClick={onCancel}
-          disabled={isSaving}
-        >
-          <X size={17} />
-        </Button>
-      </CardHeader>
-
-      <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => onSubmit(event)}>
-        <div className="grid gap-4 overflow-auto p-4 md:p-5">
-          <WorkspaceLayoutFormEditor
-            form={form}
-            isSaving={isSaving}
-            roles={roles}
-            statusByRole={statusByRole}
-            t={t}
-            onChange={onChange}
-          />
-        </div>
-
-        <div className="glass-divider flex flex-col gap-2 border-t p-4 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" className="sm:min-w-[120px]" onClick={onCancel} disabled={isSaving}>
-            {t("workspaceForm.cancel")}
-          </Button>
-          <Button className="sm:min-w-[160px]" type="submit" disabled={isSaving}>
-            {isSaving ? <Loader2 className="spin" size={17} /> : form.id ? <Save size={17} /> : <Check size={17} />}
-            {form.id ? t("workspaceForm.saveChanges") : t("workspaceForm.createWorkspace")}
-          </Button>
-        </div>
-      </form>
-    </Surface>
+    <EditorPage
+      backLabel={t("editor.back.workspaces")}
+      cancelLabel={t("workspaceForm.cancel")}
+      description={form.id ? t("workspaceForm.description.edit") : t("workspaceForm.description.new")}
+      isSaving={isSaving}
+      onCancel={handleCancel}
+      onSubmit={(event) => void handleSubmit(event)}
+      saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
+      saveLabel={form.id ? t("workspaceForm.saveChanges") : t("workspaceForm.createWorkspace")}
+      title={form.id ? t("workspaceForm.title.edit") : t("workspaceForm.title.new")}
+    >
+      <WorkspaceLayoutFormEditor
+        form={form}
+        isSaving={isSaving}
+        roles={roles}
+        statusByRole={statusByRole}
+        t={t}
+        onChange={setForm}
+      />
+    </EditorPage>
   );
 }
 
@@ -302,10 +288,7 @@ function WorkspaceLayoutFormEditor({
   return (
     <div className="grid gap-4">
       <Surface padding="md" variant="inset">
-        <FormGrid
-          columns={3}
-          className="md:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]"
-        >
+        <FormGrid className="min-[1180px]:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
           <FormField htmlFor="workspace-name" label={t("workspaceForm.name")}>
             <Input
               id="workspace-name"
@@ -370,7 +353,7 @@ function WorkspaceLayoutFormEditor({
         </FormGrid>
       </Surface>
 
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_270px]">
+      <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(0,1fr)_270px]">
         <div
           ref={previewRef}
           className="relative aspect-[16/9] min-h-[280px] overflow-hidden"
@@ -674,4 +657,4 @@ function resolveWorkspaceRoleLaunchGameName(launchUrl: string, t: Translator): s
   }
 }
 
-export default WorkspaceModal;
+export default WorkspaceEditorRoute;

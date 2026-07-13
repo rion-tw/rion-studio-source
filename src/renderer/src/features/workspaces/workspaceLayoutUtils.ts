@@ -6,6 +6,7 @@ import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/rol
 import type { LaunchWorkspace, LaunchWorkspaceSlot, NormalizedRect, Role, WorkspaceLayoutTemplate } from "../../../../shared/types";
 import {
   DEFAULT_WORKSPACE_TEMPLATE,
+  getDefaultWorkspaceBrowserZoomPercent,
   getDefaultWorkspaceRects,
   getWorkspaceTemplateSlotCount,
   MIN_WORKSPACE_SLOT_SIZE
@@ -36,6 +37,15 @@ export function createWorkspaceName(workspaces: LaunchWorkspace[], t: Translator
   }
 
   return candidate;
+}
+
+export function createEmptyWorkspaceForm(workspaces: LaunchWorkspace[], t: Translator): WorkspaceFormState {
+  return {
+    name: createWorkspaceName(workspaces, t),
+    template: DEFAULT_WORKSPACE_TEMPLATE,
+    browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(DEFAULT_WORKSPACE_TEMPLATE),
+    slots: applyWorkspaceTemplate([], DEFAULT_WORKSPACE_TEMPLATE)
+  };
 }
 
 export function createWorkspaceFormState(workspace: LaunchWorkspace): WorkspaceFormState {

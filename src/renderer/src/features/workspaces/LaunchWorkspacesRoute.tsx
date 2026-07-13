@@ -1,5 +1,5 @@
 import { Copy, LayoutDashboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
-import { type CSSProperties, type DragEvent, type JSX, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type DragEvent, type JSX, type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
@@ -17,7 +17,9 @@ import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceC
 interface LaunchWorkspacesViewProps {
   busyWorkspaceId: string | null;
   isReordering: boolean;
+  query: string;
   roles: Role[];
+  scrollPositionRef: MutableRefObject<number>;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspaces: LaunchWorkspace[];
@@ -26,6 +28,7 @@ interface LaunchWorkspacesViewProps {
   onDeleteWorkspace: (workspace: LaunchWorkspace) => void;
   onEditWorkspace: (workspace: LaunchWorkspace) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
+  onQueryChange: (query: string) => void;
   onReorderWorkspaces: (orderedIds: string[]) => void;
   onStopWorkspace: (workspace: LaunchWorkspace) => void;
 }
@@ -33,7 +36,9 @@ interface LaunchWorkspacesViewProps {
 function LaunchWorkspacesView({
   busyWorkspaceId,
   isReordering,
+  query,
   roles,
+  scrollPositionRef,
   statusByRole,
   t,
   workspaces,
@@ -42,11 +47,11 @@ function LaunchWorkspacesView({
   onDeleteWorkspace,
   onEditWorkspace,
   onLaunchWorkspace,
+  onQueryChange,
   onReorderWorkspaces,
   onStopWorkspace
 }: LaunchWorkspacesViewProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
-  const [query, setQuery] = useState("");
   const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
   const [dropTargetWorkspaceId, setDropTargetWorkspaceId] = useState<string | null>(null);
   const canReorder = query.trim() === "" && !isReordering && workspaces.length > 1;
@@ -109,7 +114,7 @@ function LaunchWorkspacesView({
 
   if (workspaces.length === 0) {
     return (
-      <PageFrame contentClassName="grid min-h-full place-items-center">
+      <PageFrame contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
         <EmptyState
           className="min-h-0"
           icon={LayoutDashboard}
@@ -123,7 +128,7 @@ function LaunchWorkspacesView({
   }
 
   return (
-    <PageFrame>
+    <PageFrame scrollPositionRef={scrollPositionRef}>
       <PageHeader
         title={t("workspaces.title")}
         description={t("workspaces.description")}
@@ -133,7 +138,7 @@ function LaunchWorkspacesView({
               className="w-full sm:w-44 lg:w-48"
               placeholder={t("workspaces.searchPlaceholder")}
               value={query}
-              onChange={setQuery}
+              onChange={onQueryChange}
             />
             <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onCreateWorkspace}>
               <Plus size={14} />
@@ -149,7 +154,7 @@ function LaunchWorkspacesView({
           title={t("workspaces.noMatches.title")}
           description={t("workspaces.noMatches.description")}
           actionLabel={t("workspaces.noMatches.action")}
-          onAction={() => setQuery("")}
+          onAction={() => onQueryChange("")}
         />
       ) : (
         <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-3 2xl:grid-cols-4">

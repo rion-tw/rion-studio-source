@@ -1,16 +1,16 @@
-import { useCallback, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { createCopyName } from "../app/copyName";
 import type { MacroFormState } from "../app/types";
+import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../shared/types";
-import { createClientId, createEmptyMacroFormName, createMacroRunKey } from "../features/macros/macroUtils";
+import type { Macro, MacroRunStatus, RoleStatus } from "../../../shared/types";
+import { DEFAULT_MACRO_LIST_SORT, type MacroListSortState } from "../features/macros/macroListUtils";
+import { createMacroRunKey } from "../features/macros/macroUtils";
 
 interface UseMacroWorkflowOptions {
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   macros: Macro[];
-  navigateToMacros: () => void;
-  roles: Role[];
   setError: (error: unknown | null) => void;
   setMacroStatuses: Dispatch<SetStateAction<MacroRunStatus[]>>;
   setMacros: Dispatch<SetStateAction<Macro[]>>;
@@ -21,103 +21,67 @@ interface UseMacroWorkflowOptions {
 export function useMacroWorkflow({
   loadData,
   macros,
-  navigateToMacros,
-  roles,
   setError,
   setMacroStatuses,
   setMacros,
   statusByRole,
   t
 }: UseMacroWorkflowOptions) {
-  const [macroForm, setMacroForm] = useState<MacroFormState | null>(null);
-  const [isMacroModalOpen, setIsMacroModalOpen] = useState(false);
+  const confirm = useConfirmation();
   const [isSavingMacro, setIsSavingMacro] = useState(false);
   const [busyRunKey, setBusyRunKey] = useState<string | null>(null);
   const [busyMacroId, setBusyMacroId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [roleFilterId, setRoleFilterId] = useState("");
+  const [sort, setSort] = useState<MacroListSortState>(DEFAULT_MACRO_LIST_SORT);
+  const listScrollTopRef = useRef(0);
 
-  async function handleMacroSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-
-    if (!macroForm) {
-      return;
-    }
-
+  async function saveMacro(form: MacroFormState): Promise<Macro | undefined> {
     setIsSavingMacro(true);
     setError(null);
 
     try {
       const input = {
-        name: macroForm.name,
-        roleIds: macroForm.roleIds,
-        repeat: macroForm.repeat,
-        steps: macroForm.steps,
-        trigger: macroForm.trigger ?? null
+        name: form.name,
+        roleIds: form.roleIds,
+        repeat: form.repeat,
+        steps: form.steps,
+        trigger: form.trigger ?? null
       };
+      const savedMacro = form.id
+        ? await window.rionStudio.updateMacro(form.id, input)
+        : await window.rionStudio.createMacro(input);
 
-      if (macroForm.id) {
-        const macro = await window.rionStudio.updateMacro(macroForm.id, input);
-        setMacros((current) => current.map((item) => (item.id === macro.id ? macro : item)));
-      } else {
-        const macro = await window.rionStudio.createMacro(input);
-        setMacros((current) => [...current, macro]);
+      setMacros((current) => {
+        if (form.id) {
+          return current.map((macro) => (macro.id === savedMacro.id ? savedMacro : macro));
+        }
+
+        return [...current, savedMacro];
+      });
+
+      if (!form.id) {
+        resetListState();
       }
 
-      setMacroForm(null);
-      setIsMacroModalOpen(false);
-      navigateToMacros();
       await loadData();
+      return savedMacro;
     } catch (submitError) {
       setError(submitError);
+      return undefined;
     } finally {
       setIsSavingMacro(false);
     }
   }
 
-  const startCreateMacro = useCallback((requestedRoleId?: string): void => {
-    const roleId =
-      requestedRoleId && roles.some((role) => role.id === requestedRoleId) ? requestedRoleId : roles[0]?.id ?? "";
-
-    navigateToMacros();
-    setMacroForm({
-      name: createEmptyMacroFormName(macros, t),
-      roleIds: roleId ? [roleId] : [],
-      repeat: { type: "once" },
-      steps: [
-        {
-          id: createClientId(),
-          type: "key",
-          code: "Tab",
-          label: "Tab"
-        }
-      ]
-    });
-    setIsMacroModalOpen(true);
-  }, [macros, navigateToMacros, roles, t]);
-
-  const startEditMacro = useCallback((macro: Macro): void => {
-    navigateToMacros();
-    setMacroForm({
-      id: macro.id,
-      name: macro.name,
-      roleIds: macro.roleIds,
-      repeat: macro.repeat,
-      steps: macro.steps,
-      trigger: macro.trigger
-    });
-    setIsMacroModalOpen(true);
-  }, [navigateToMacros]);
-
-  function closeMacroModal(): void {
-    if (isSavingMacro) {
-      return;
-    }
-
-    setMacroForm(null);
-    setIsMacroModalOpen(false);
-  }
-
   async function handleDeleteMacro(macro: Macro): Promise<void> {
-    const confirmed = window.confirm(t("confirm.deleteMacro").replace("{name}", macro.name));
+    const confirmed = await confirm({
+      title: t("confirm.deleteMacro.title").replace("{name}", macro.name),
+      description: t("confirm.deleteMacro.description"),
+      cancelLabel: t("confirm.cancel"),
+      confirmLabel: t("confirm.delete"),
+      tone: "destructive"
+    });
 
     if (!confirmed) {
       return;
@@ -149,7 +113,7 @@ export function useMacroWorkflow({
         trigger: macro.trigger ? { ...macro.trigger } : null
       });
       setMacros((current) => [...current, copy]);
-      navigateToMacros();
+      resetListState();
       await loadData();
     } catch (copyError) {
       setError(copyError);
@@ -196,20 +160,29 @@ export function useMacroWorkflow({
     }
   }
 
+  function resetListState(): void {
+    setQuery("");
+    setRoleFilterId("");
+    setSort(DEFAULT_MACRO_LIST_SORT);
+    listScrollTopRef.current = 0;
+  }
+
   return {
     busyMacroId,
     busyRunKey,
-    closeMacroModal,
     handleCopyMacro,
     handleDeleteMacro,
-    handleMacroSubmit,
     handleStartMacro,
     handleStopMacro,
-    isMacroModalOpen,
     isSavingMacro,
-    macroForm,
-    setMacroForm,
-    startCreateMacro,
-    startEditMacro
+    listScrollTopRef,
+    query,
+    resetListState,
+    roleFilterId,
+    saveMacro,
+    setQuery,
+    setRoleFilterId,
+    setSort,
+    sort
   };
 }

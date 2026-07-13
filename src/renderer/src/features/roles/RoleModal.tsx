@@ -1,8 +1,9 @@
-import { Check, ImagePlus, Loader2, LogIn, Save, Trash2, X } from "lucide-react";
-import { type ChangeEvent, type FormEvent, type JSX, useEffect, useRef } from "react";
+import { Check, ImagePlus, Loader2, LogIn, Save, Trash2 } from "lucide-react";
+import { type ChangeEvent, type FormEvent, type JSX, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router";
 
+import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
 import { Select } from "../../components/ui/select";
@@ -16,11 +17,25 @@ import {
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { shouldShowLoginGuidance } from "../../app/statusUtils";
 import type { RoleFormState } from "../../app/types";
+import { areEditorFormsEqual, createNewRoleForm, createRoleFormState } from "../../app/editorFormState";
+import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
-import type { AuthFlowStatus, LaunchPreset, Role } from "../../../../shared/types";
+import type { AuthFlowStatus, LaunchPreset, Role, RoleDefaults } from "../../../../shared/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { createCoverImageDataUrl } from "./roleCover";
 import { LoginSessionGuide } from "./LoginSessionGuide";
+
+interface RoleEditorRouteProps {
+  authStatusByRole: Map<string, AuthFlowStatus>;
+  busyRoleId: string | null;
+  isSaving: boolean;
+  roleDefaults: RoleDefaults;
+  roles: Role[];
+  t: Translator;
+  onError: (error: unknown | null) => void;
+  onRelogin: (roleId: string) => void;
+  onSave: (form: RoleFormState) => Promise<Role | undefined>;
+}
 
 interface RoleFormProps {
   authStatus?: AuthFlowStatus;
@@ -29,47 +44,97 @@ interface RoleFormProps {
   isSaving: boolean;
   selectedRole?: Role;
   t: Translator;
-  onCancel: () => void;
   onChange: (form: RoleFormState | ((current: RoleFormState) => RoleFormState)) => void;
   onError: (error: unknown | null) => void;
   onRelogin: (roleId: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
-function RoleModal(props: RoleFormProps): JSX.Element {
-  const { onCancel, t } = props;
+function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const selectedRole = id ? props.roles.find((role) => role.id === id) : undefined;
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        onCancel();
-      }
+  if (id && !selectedRole) {
+    return (
+      <EditorNotFound
+        title={props.t("editor.notFound.title")}
+        description={props.t("editor.notFound.role")}
+        actionLabel={props.t("editor.back.roles")}
+        onAction={() => navigate("/roles", { replace: true })}
+      />
+    );
+  }
+
+  const initialForm = selectedRole ? createRoleFormState(selectedRole) : createNewRoleForm(props.roleDefaults);
+  return <RoleEditor key={id ?? "new"} {...props} initialForm={initialForm} selectedRole={selectedRole} />;
+}
+
+function RoleEditor({
+  authStatusByRole,
+  busyRoleId,
+  initialForm,
+  isSaving,
+  selectedRole,
+  t,
+  onError,
+  onRelogin,
+  onSave
+}: RoleEditorRouteProps & { initialForm: RoleFormState; selectedRole?: Role }): JSX.Element {
+  const navigate = useNavigate();
+  const initialFormRef = useRef(initialForm);
+  const [form, setForm] = useState(initialForm);
+  const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
+  const confirmationOptions = useMemo(() => ({
+    title: t("confirm.unsaved.title"),
+    description: t("confirm.unsaved.description"),
+    cancelLabel: t("confirm.unsaved.continue"),
+    confirmLabel: t("confirm.unsaved.discard"),
+    tone: "destructive" as const
+  }), [t]);
+  const allowNavigation = useUnsavedChangesGuard(isDirty, confirmationOptions, isSaving);
+  const authStatus = selectedRole ? authStatusByRole.get(selectedRole.id) : undefined;
+  const isLoginBusy = Boolean(
+    selectedRole && (busyRoleId === selectedRole.id || shouldShowLoginGuidance(authStatus))
+  );
+
+  function handleCancel(): void {
+    navigate("/roles", { replace: true });
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const savedRole = await onSave(form);
+    if (savedRole) {
+      allowNavigation();
+      navigate("/roles", { replace: true });
     }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onCancel]);
+  }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4">
-      <button
-        className="app-modal-backdrop absolute inset-0 cursor-default"
-        type="button"
-        aria-label={t("roleForm.aria.close")}
-        onClick={onCancel}
+    <EditorPage
+      backLabel={t("editor.back.roles")}
+      cancelLabel={t("roleForm.cancel")}
+      description={form.id ? t("roleForm.description.edit") : t("roleForm.description.new")}
+      isSaving={isSaving}
+      onCancel={handleCancel}
+      onSubmit={(event) => void handleSubmit(event)}
+      saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
+      saveLabel={form.id ? t("roleForm.saveChanges") : t("roleForm.createRole")}
+      title={form.id ? t("roleForm.title.edit") : t("roleForm.title.new")}
+      contentClassName="min-[1180px]:grid-cols-[240px_minmax(0,1fr)] min-[1180px]:items-start xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]"
+    >
+      <RoleForm
+        authStatus={authStatus}
+        form={form}
+        isLoginBusy={isLoginBusy}
+        isSaving={isSaving}
+        selectedRole={selectedRole}
+        t={t}
+        onChange={setForm}
+        onError={onError}
+        onRelogin={onRelogin}
       />
-      <div
-        className="relative z-10 w-full max-w-[1040px]"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="role-form-title"
-      >
-        <RoleForm {...props} />
-      </div>
-    </div>
+    </EditorPage>
   );
 }
 
@@ -80,11 +145,9 @@ function RoleForm({
   isSaving,
   selectedRole,
   t,
-  onCancel,
   onChange,
   onError,
-  onRelogin,
-  onSubmit
+  onRelogin
 }: RoleFormProps): JSX.Element {
   const coverInputRef = useRef<HTMLInputElement>(null);
   const hasCoverPreview = Boolean(form.coverImageDataUrl);
@@ -127,34 +190,7 @@ function RoleForm({
   }
 
   return (
-    <Surface
-      className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden text-card-foreground"
-      radius="lg"
-      variant="modal"
-    >
-      <CardHeader className="glass-divider flex-row items-start justify-between gap-3 border-b">
-        <div className="min-w-0">
-          <CardTitle id="role-form-title">
-            {form.id ? t("roleForm.title.edit") : t("roleForm.title.new")}
-          </CardTitle>
-          <CardDescription className="mt-1">
-            {form.id ? t("roleForm.description.edit") : t("roleForm.description.new")}
-          </CardDescription>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          title={t("roleForm.cancelTitle")}
-          onClick={onCancel}
-          disabled={isSaving}
-        >
-          <X size={17} />
-        </Button>
-      </CardHeader>
-
-      <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => onSubmit(event)}>
-        <div className="grid gap-4 overflow-auto p-4 md:grid-cols-[240px_minmax(0,1fr)] md:items-start md:p-5 xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+    <>
           <Surface className="grid gap-3" padding="md" variant="inset">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between lg:flex-col lg:items-stretch">
               <FieldHeader title={t("roleForm.cover")} description={t("roleForm.coverDescription")} />
@@ -360,20 +396,8 @@ function RoleForm({
               ) : null}
             </Surface>
           </div>
-        </div>
-
-        <div className="glass-divider flex flex-col gap-2 border-t p-4 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" className="sm:min-w-[120px]" onClick={onCancel} disabled={isSaving}>
-            {t("roleForm.cancel")}
-          </Button>
-          <Button className="sm:min-w-[160px]" type="submit" disabled={isSaving}>
-            {isSaving ? <Loader2 className="spin" size={17} /> : form.id ? <Save size={17} /> : <Check size={17} />}
-            {form.id ? t("roleForm.saveChanges") : t("roleForm.createRole")}
-          </Button>
-        </div>
-      </form>
-    </Surface>
+    </>
   );
 }
 
-export default RoleModal;
+export default RoleEditorRoute;

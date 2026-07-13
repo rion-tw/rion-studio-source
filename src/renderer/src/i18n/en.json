@@ -190,7 +190,7 @@
   "macroForm.cancelTitle": "Cancel",
   "macroForm.name": "Name",
   "macroForm.nameDescription": "Keep the name short enough to identify from the macro list.",
-  "macroForm.namePlaceholder": "Auto heal",
+  "macroForm.namePlaceholder": "My macro",
   "macroForm.roles": "Roles",
   "macroForm.rolesDescription": "Choose the roles that can run this macro together.",
   "macroForm.roleSelected": "Assigned",

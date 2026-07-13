@@ -190,7 +190,7 @@
   "macroForm.cancelTitle": "取消",
   "macroForm.name": "名稱",
   "macroForm.nameDescription": "用短一點的名稱，方便在巨集列表中辨識。",
-  "macroForm.namePlaceholder": "自動補血",
+  "macroForm.namePlaceholder": "我的巨集",
   "macroForm.roles": "角色",
   "macroForm.rolesDescription": "選擇要一起執行此巨集的角色。",
   "macroForm.roleSelected": "已指派",

@@ -190,7 +190,7 @@
   "macroForm.cancelTitle": "取消",
   "macroForm.name": "名称",
   "macroForm.nameDescription": "用短一点的名称，方便在宏列表中辨識。",
-  "macroForm.namePlaceholder": "自動補血",
+  "macroForm.namePlaceholder": "我的宏",
   "macroForm.roles": "角色",
   "macroForm.rolesDescription": "选择要一起执行此宏的角色。",
   "macroForm.roleSelected": "已分配",

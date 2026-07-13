@@ -290,18 +290,19 @@ function StatCard({ icon: Icon, label, onClick, tone = "muted", value }: StatCar
   return (
     <button
       aria-label={`${label}: ${value}`}
-      className="glass-panel-strong group relative flex min-h-[76px] min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] hover:border-border/50 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20"
+      className="glass-panel-strong group relative flex min-h-[76px] min-w-0 items-center gap-3 rounded-lg px-4 py-2.5 text-left transition-[background-color,border-color,box-shadow] hover:border-border/50 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20"
       type="button"
       onClick={onClick}
     >
       <Icon
         aria-hidden="true"
         className={cn(
-          "size-6 shrink-0",
+          "size-7 shrink-0",
           tone === "success" && "text-success-foreground",
           tone === "warning" && "text-warning-foreground",
           tone === "muted" && "text-muted-foreground"
         )}
+        strokeWidth={1.5}
       />
       <span className="min-w-0 flex-1">
         <span className="block text-xl font-semibold leading-6 tracking-tight text-foreground">{value}</span>

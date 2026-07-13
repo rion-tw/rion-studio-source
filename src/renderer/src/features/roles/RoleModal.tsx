@@ -84,6 +84,7 @@ function RoleEditor({
   const initialFormRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
   const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
+  const canSubmit = form.name.trim().length > 0;
   const confirmationOptions = useMemo(() => ({
     title: t("confirm.unsaved.title"),
     description: t("confirm.unsaved.description"),
@@ -114,13 +115,17 @@ function RoleEditor({
     <EditorPage
       backLabel={t("editor.back.roles")}
       cancelLabel={t("roleForm.cancel")}
+      canSubmit={canSubmit}
       description={form.id ? t("roleForm.description.edit") : t("roleForm.description.new")}
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
+      onTitleChange={(name) => setForm((current) => ({ ...current, name }))}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("roleForm.saveChanges") : t("roleForm.createRole")}
-      title={form.id ? t("roleForm.title.edit") : t("roleForm.title.new")}
+      title={form.name}
+      titleAriaLabel={t("roleForm.name")}
+      titlePlaceholder={t("roleForm.namePlaceholder")}
       contentClassName="min-[1180px]:grid-cols-[240px_minmax(0,1fr)] min-[1180px]:items-start xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]"
     >
       <RoleForm
@@ -261,17 +266,7 @@ function RoleForm({
                 title={t("roleForm.section.identity")}
                 description={t("roleForm.section.identityDescription")}
               />
-              <FormGrid columns={2}>
-                <FormField htmlFor="role-name" label={t("roleForm.name")}>
-                  <Input
-                    id="role-name"
-                    value={form.name}
-                    onChange={(event) => onChange((current) => ({ ...current, name: event.target.value }))}
-                    required
-                    maxLength={80}
-                    placeholder={t("roleForm.namePlaceholder")}
-                  />
-                </FormField>
+              <FormGrid>
                 <FormField htmlFor="role-launch-url" label={t("roleForm.launchUrl")}>
                   <div className="relative">
                     {selectedLaunchOption?.iconSrc ? (

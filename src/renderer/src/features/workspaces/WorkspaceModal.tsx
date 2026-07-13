@@ -13,7 +13,6 @@ import { useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { launchUrlOptions } from "../../app/constants";
 import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
@@ -95,6 +94,7 @@ function WorkspaceEditor({
   const initialFormRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
   const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
+  const canSubmit = form.name.trim().length > 0;
   const confirmationOptions = useMemo(() => ({
     title: t("confirm.unsaved.title"),
     description: t("confirm.unsaved.description"),
@@ -121,13 +121,17 @@ function WorkspaceEditor({
     <EditorPage
       backLabel={t("editor.back.workspaces")}
       cancelLabel={t("workspaceForm.cancel")}
+      canSubmit={canSubmit}
       description={form.id ? t("workspaceForm.description.edit") : t("workspaceForm.description.new")}
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
+      onTitleChange={(name) => setForm((current) => ({ ...current, name }))}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("workspaceForm.saveChanges") : t("workspaceForm.createWorkspace")}
-      title={form.id ? t("workspaceForm.title.edit") : t("workspaceForm.title.new")}
+      title={form.name}
+      titleAriaLabel={t("workspaceForm.name")}
+      titlePlaceholder={t("workspaceForm.namePlaceholder")}
     >
       <WorkspaceLayoutFormEditor
         form={form}
@@ -287,20 +291,7 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField htmlFor="workspace-name" label={t("workspaceForm.name")}>
-            <Input
-              id="workspace-name"
-              value={form.name}
-              onChange={(event) => onChange({ ...form, name: event.target.value })}
-              required
-              maxLength={80}
-              placeholder={t("workspaceForm.namePlaceholder")}
-            />
-          </FormField>
-        </Surface>
-
+      <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
             <div className="grid grid-cols-7 gap-1.5">

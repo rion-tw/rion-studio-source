@@ -16,7 +16,6 @@ import { useLocation, useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import {
   FormField,
@@ -81,7 +80,7 @@ function MacroEditor({
   const initialFormRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
   const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
-  const canSubmit = form.roleIds.length > 0 && form.steps.length > 0;
+  const canSubmit = form.name.trim().length > 0 && form.roleIds.length > 0 && form.steps.length > 0;
   const saveHint = form.roleIds.length === 0
     ? t("macroForm.saveHint.needsRole")
     : form.steps.length === 0
@@ -118,10 +117,13 @@ function MacroEditor({
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
+      onTitleChange={(name) => setForm((current) => ({ ...current, name }))}
       saveHint={saveHint}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("macroForm.saveChanges") : t("macroForm.createMacro")}
-      title={form.id ? t("macroForm.title.edit") : t("macroForm.title.new")}
+      title={form.name}
+      titleAriaLabel={t("macroForm.name")}
+      titlePlaceholder={t("macroForm.namePlaceholder")}
       contentClassName="min-[1180px]:grid-cols-[320px_minmax(0,1fr)] min-[1180px]:items-start xl:grid-cols-[340px_minmax(0,1fr)]"
     >
       <MacroForm form={form} isSaving={isSaving} roles={roles} t={t} onChange={setForm} />
@@ -201,23 +203,6 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
   return (
     <>
           <aside className="grid content-start gap-4">
-            <Surface className="p-4" padding="none" variant="inset">
-              <FormField
-                htmlFor="macro-name"
-                label={t("macroForm.name")}
-                description={t("macroForm.nameDescription")}
-              >
-                <Input
-                  id="macro-name"
-                  value={form.name}
-                  onChange={(event) => update((current) => ({ ...current, name: event.target.value }))}
-                  required
-                  maxLength={80}
-                  placeholder={t("macroForm.namePlaceholder")}
-                />
-              </FormField>
-            </Surface>
-
             <Surface className="p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
                 <ShortcutRecorder

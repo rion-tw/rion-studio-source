@@ -4,11 +4,13 @@ import {
   type JSX,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef
 } from "react";
 
 import { Button } from "./ui/button";
 import { PageHeader, Surface } from "./ui/patterns";
+import { normalizeEditorTitle } from "../app/editorTitle";
 import { cn } from "../lib/utils";
 
 interface EditorPageProps {
@@ -21,10 +23,13 @@ interface EditorPageProps {
   isSaving: boolean;
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onTitleChange: (title: string) => void;
   saveHint?: string;
   saveIcon: ReactNode;
   saveLabel: string;
   title: string;
+  titleAriaLabel: string;
+  titlePlaceholder: string;
 }
 
 export function EditorPage({
@@ -37,10 +42,13 @@ export function EditorPage({
   isSaving,
   onCancel,
   onSubmit,
+  onTitleChange,
   saveHint,
   saveIcon,
   saveLabel,
-  title
+  title,
+  titleAriaLabel,
+  titlePlaceholder
 }: EditorPageProps): JSX.Element {
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -91,7 +99,15 @@ export function EditorPage({
           </Button>
 
           <PageHeader
-            title={title}
+            title={
+              <EditableEditorTitle
+                ariaLabel={titleAriaLabel}
+                disabled={isSaving}
+                placeholder={titlePlaceholder}
+                value={title}
+                onChange={onTitleChange}
+              />
+            }
             description={description}
             actions={
               <>
@@ -122,6 +138,75 @@ export function EditorPage({
       </form>
     </section>
   );
+}
+
+function EditableEditorTitle({
+  ariaLabel,
+  disabled,
+  onChange,
+  placeholder,
+  value
+}: {
+  ariaLabel: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  placeholder: string;
+  value: string;
+}): JSX.Element {
+  const titleRef = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    if (titleRef.current && titleRef.current.textContent !== value) {
+      titleRef.current.textContent = value;
+    }
+  }, [value]);
+
+  return (
+    <span
+      ref={titleRef}
+      aria-label={ariaLabel}
+      aria-required="true"
+      className="app-editor-title inline-block max-w-full cursor-text truncate border-b border-transparent align-bottom outline-none transition-colors hover:border-border focus:border-primary data-[disabled=true]:cursor-default data-[disabled=true]:hover:border-transparent"
+      contentEditable={disabled ? false : "plaintext-only"}
+      data-disabled={disabled}
+      data-placeholder={placeholder}
+      role="textbox"
+      spellCheck="false"
+      suppressContentEditableWarning
+      tabIndex={disabled ? -1 : 0}
+      onInput={(event) => {
+        const element = event.currentTarget;
+        const nextValue = normalizeEditorTitle(element.textContent ?? "");
+
+        if (element.textContent !== nextValue) {
+          element.textContent = nextValue;
+          moveCaretToEnd(element);
+        }
+
+        onChange(nextValue);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+        }
+      }}
+    >
+      {value}
+    </span>
+  );
+}
+
+function moveCaretToEnd(element: HTMLElement): void {
+  const selection = window.getSelection();
+  if (!selection) {
+    return;
+  }
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 export function EditorNotFound({

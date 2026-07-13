@@ -288,7 +288,7 @@ function WorkspaceLayoutFormEditor({
   return (
     <div className="grid gap-4">
       <div className="grid gap-3 min-[1180px]:grid-cols-[minmax(220px,1.2fr)_minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
-        <Surface padding="md" variant="inset">
+        <Surface className="p-4" padding="none" variant="inset">
           <FormField htmlFor="workspace-name" label={t("workspaceForm.name")}>
             <Input
               id="workspace-name"
@@ -301,7 +301,7 @@ function WorkspaceLayoutFormEditor({
           </FormField>
         </Surface>
 
-        <Surface padding="md" variant="inset">
+        <Surface className="p-4" padding="none" variant="inset">
           <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
             <div className="grid grid-cols-7 gap-1.5">
               {workspaceLayoutTemplates.map((template) => {
@@ -330,7 +330,7 @@ function WorkspaceLayoutFormEditor({
           </FormField>
         </Surface>
 
-        <Surface padding="md" variant="inset">
+        <Surface className="p-4" padding="none" variant="inset">
           <FormField
             htmlFor="workspace-browser-zoom"
             label={t("workspaces.browserZoom")}
@@ -358,7 +358,7 @@ function WorkspaceLayoutFormEditor({
       </div>
 
       <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(0,1fr)_270px]">
-        <Surface padding="sm" variant="panel">
+        <Surface className="p-4" padding="none" variant="panel">
           <div
             ref={previewRef}
             className="relative aspect-[16/9] min-h-[280px] overflow-hidden"
@@ -394,7 +394,7 @@ function WorkspaceLayoutFormEditor({
           </div>
         </Surface>
 
-        <Surface className="grid content-start gap-3" padding="md" variant="panel">
+        <Surface className="grid content-start gap-3 p-4" padding="none" variant="panel">
           <div className="flex items-start justify-between gap-3">
             <FieldHeader
               title={t("workspaces.rolePicker")}

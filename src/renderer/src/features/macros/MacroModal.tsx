@@ -201,7 +201,7 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
   return (
     <>
           <aside className="grid content-start gap-3">
-            <Surface padding="md" variant="inset">
+            <Surface className="p-4" padding="none" variant="inset">
               <FormField
                 htmlFor="macro-name"
                 label={t("macroForm.name")}
@@ -218,7 +218,7 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
               </FormField>
             </Surface>
 
-            <Surface padding="md" variant="inset">
+            <Surface className="p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
                 <ShortcutRecorder
                   trigger={form.trigger}
@@ -228,7 +228,7 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
               </FormField>
             </Surface>
 
-            <Surface padding="md" variant="inset">
+            <Surface className="p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.repeat")} description={t("macroForm.repeatDescription")}>
                 <div className="grid gap-2">
                   <SegmentedControl<MacroRepeat["type"]>
@@ -274,14 +274,14 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
               </FormField>
             </Surface>
 
-            <Surface className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-3" variant="inset">
+            <Surface className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-4" variant="inset">
               <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={15} />
               <p className="text-[11px] font-medium leading-5 text-foreground">{t("macroForm.fairUseNotice")}</p>
             </Surface>
           </aside>
 
           <div className="grid content-start gap-3">
-            <Surface padding="md" variant="inset">
+            <Surface className="p-4" padding="none" variant="inset">
               <FormField
                 label={t("macroForm.roles")}
                 description={t("macroForm.rolesDescription")}
@@ -329,7 +329,7 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
               </FormField>
             </Surface>
 
-            <Surface className="grid min-h-[360px] content-start gap-3" padding="md" variant="inset">
+            <Surface className="grid min-h-[360px] content-start gap-3 p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.steps")} description={t("macroForm.stepsDescription")}>
                 <div className="grid gap-3">
                   {form.steps.length === 0 ? (
@@ -360,7 +360,7 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
                     </div>
                   )}
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
+                  <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/50 pt-3">
                     <InlineControl label={t("macroForm.stepType")} controlClassName="w-28 flex-none">
                       <Select
                         value={newStepType}

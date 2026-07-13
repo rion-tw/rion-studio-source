@@ -185,20 +185,22 @@ export function FormField({
   label,
   ...props
 }: FormFieldProps) {
-  const labelClassName = "text-xs font-semibold leading-4 text-foreground";
+  const labelClassName = "block text-[13px] font-semibold leading-5 text-foreground";
 
   return (
-    <div className={cn("grid min-w-0 content-start gap-1.5", className)} {...props}>
-      {htmlFor ? (
-        <label className={labelClassName} htmlFor={htmlFor}>
-          {label}
-        </label>
-      ) : (
-        <p className={labelClassName}>{label}</p>
-      )}
-      {description ? (
-        <p className="text-[11px] font-medium leading-4 text-muted-foreground">{description}</p>
-      ) : null}
+    <div className={cn("grid min-w-0 content-start gap-2", className)} {...props}>
+      <div className="min-w-0">
+        {htmlFor ? (
+          <label className={labelClassName} htmlFor={htmlFor}>
+            {label}
+          </label>
+        ) : (
+          <p className={labelClassName}>{label}</p>
+        )}
+        {description ? (
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
       {children}
     </div>
   );

@@ -191,7 +191,7 @@ function RoleForm({
 
   return (
     <>
-          <Surface className="grid gap-3" padding="md" variant="inset">
+          <Surface className="grid gap-3 p-4" padding="none" variant="inset">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between lg:flex-col lg:items-stretch">
               <FieldHeader title={t("roleForm.cover")} description={t("roleForm.coverDescription")} />
               <div className="flex shrink-0 gap-2">
@@ -256,7 +256,7 @@ function RoleForm({
           </Surface>
 
           <div className="grid gap-4">
-            <Surface className="grid gap-3" padding="md" variant="inset">
+            <Surface className="grid gap-3 p-4" padding="none" variant="inset">
               <FieldHeader
                 title={t("roleForm.section.identity")}
                 description={t("roleForm.section.identityDescription")}
@@ -322,7 +322,7 @@ function RoleForm({
               </FormGrid>
             </Surface>
 
-            <Surface className="grid gap-3" padding="md" variant="inset">
+            <Surface className="grid gap-3 p-4" padding="none" variant="inset">
               <FieldHeader
                 title={t("roleForm.section.launch")}
                 description={t("roleForm.section.launchDescription")}
@@ -367,7 +367,7 @@ function RoleForm({
               </FormGrid>
             </Surface>
 
-            <Surface className="grid gap-3" padding="md" variant="inset">
+            <Surface className="grid gap-3 p-4" padding="none" variant="inset">
               <FormField htmlFor="role-notes" label={t("roleForm.notes")}>
                 <Textarea
                   id="role-notes"

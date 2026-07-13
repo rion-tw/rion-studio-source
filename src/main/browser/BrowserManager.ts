@@ -46,11 +46,13 @@ export interface BrowserAutomationSession {
 
 export type BrowserMacroOverlayInstaller = (role: Role, webContents: WebContents) => Promise<void>;
 export type BrowserProxyApplier = (role: Role, partition: string, session: Session) => Promise<void>;
+export type BrowserCdnCompatibilityApplier = (role: Role, partition: string, session: Session) => Promise<void>;
 export type BeforeRolesStop = (roleIds: string[]) => Promise<void>;
 
 export interface BrowserManagerOptions {
   applyBrowserFonts?: (role: Role, partition: string) => Promise<void>;
   applyBrowserProxy?: BrowserProxyApplier;
+  applyCdnCompatibility?: BrowserCdnCompatibilityApplier;
   createHostWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
   dividerPreloadPath: string;
@@ -282,6 +284,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const currentUrl = session.view.webContents.getURL();
     if (!currentUrl || currentUrl === "about:blank") {
       await this.applyBrowserProxy(session);
+      await this.applyCdnCompatibility(session);
       await session.view.webContents.loadURL(role.launchUrl);
     }
     await this.focusSession(session);
@@ -497,6 +500,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private async finishLaunch(session: BrowserSession, zoomFactor: number): Promise<void> {
     await this.applyZoom(session, zoomFactor);
     await this.applyBrowserProxy(session);
+    await this.applyCdnCompatibility(session);
     try {
       await session.view.webContents.loadURL(session.role.launchUrl);
     } catch {
@@ -553,6 +557,22 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       createRoleSessionPartition(session.role.id),
       session.view.webContents.session
     );
+  }
+
+  private async applyCdnCompatibility(session: BrowserSession): Promise<void> {
+    if (!this.options.applyCdnCompatibility) {
+      return;
+    }
+
+    try {
+      await this.options.applyCdnCompatibility(
+        session.role,
+        createRoleSessionPartition(session.role.id),
+        session.view.webContents.session
+      );
+    } catch (error) {
+      console.warn("Failed to apply CDN compatibility settings.", error);
+    }
   }
 
   private async checkSessionAuthentication(role: Role, session: BrowserSession): Promise<AuthSessionCheckResult> {

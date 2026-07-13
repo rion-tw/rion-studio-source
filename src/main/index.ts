@@ -1,14 +1,31 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  screen,
+  session as electronSession,
+  shell,
+  WebContentsView
+} from "electron";
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
 import { AuthManager } from "./auth/AuthManager";
-import { BrowserManager, GAME_DIVIDER_POINTER_CHANNEL } from "./browser/BrowserManager";
+import {
+  BrowserManager,
+  createRoleSessionPartition,
+  GAME_DIVIDER_POINTER_CHANNEL
+} from "./browser/BrowserManager";
 import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
 import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
 import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
+import { CdnCompatibilityManager } from "./game-browser/CdnCompatibilityManager";
 import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStore";
 import { SystemFontService } from "./game-browser/SystemFontService";
 import { registerIpcHandlers } from "./ipc/registerHandlers";
@@ -31,6 +48,7 @@ import {
 import { AppUpdateManager } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
 import { IPC_CHANNELS } from "../shared/ipc";
+import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import type { MacroEditorRequest } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
@@ -53,6 +71,14 @@ function getAppIconPath(): string {
   }
 
   return join(__dirname, "../../build/icon.png");
+}
+
+function getCdnExtensionManifestTemplatePath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, "cdn-compat-extension/manifest.json");
+  }
+
+  return join(__dirname, "../../resources/cdn-compat-extension/manifest.json");
 }
 
 function loadAppIcon() {
@@ -235,6 +261,10 @@ function initializeApplication(): void {
   const browserProxyApplier = new BrowserProxyApplier({
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
+  const cdnCompatibilityManager = new CdnCompatibilityManager({
+    extensionManifestTemplatePath: getCdnExtensionManifestTemplatePath(),
+    getSettings: () => gameBrowserSettingsStore.getSettings()
+  });
   const systemFontService = new SystemFontService();
   const portableDataManager = new PortableDataManager({
     getAppVersion: () => app.getVersion(),
@@ -261,6 +291,18 @@ function initializeApplication(): void {
     applyBrowserFonts: async (_role, browserUserDataDir) => {
       await browserFontApplier.applyToChromeUserDataDir(browserUserDataDir);
     },
+    prepareCdnCompatibility: async (role, browserUserDataDir) => {
+      const settings = normalizeGameBrowserSettings(await gameBrowserSettingsStore.getSettings());
+      const browserSession = electronSession.fromPartition(createRoleSessionPartition(role.id));
+      await browserProxyApplier.applyToSession(browserSession);
+      const compatibility = await cdnCompatibilityManager.prepareExternalExtension(browserSession, browserUserDataDir);
+      return {
+        ...compatibility,
+        ...(settings.network.proxy.mode === "custom"
+          ? { proxyServer: settings.network.proxy.server }
+          : {})
+      };
+    },
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea()
   });
   browserManager = new BrowserManager(roleStore, {
@@ -269,6 +311,9 @@ function initializeApplication(): void {
       await browserFontApplier.applyToRoleLaunch(browserUserDataDir, partition);
     },
     applyBrowserProxy: (_role, _partition, session) => browserProxyApplier.applyToSession(session),
+    applyCdnCompatibility: async (_role, _partition, session) => {
+      await cdnCompatibilityManager.applyToSession(session);
+    },
     createHostWindow: (options) => new BrowserWindow(options),
     createView: (options) => new WebContentsView(options),
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),

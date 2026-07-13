@@ -38,6 +38,7 @@ describe("GameBrowserSettingsStore", () => {
         },
         launchMode: "external",
         network: {
+          cdnCompatibility: { mode: "on" },
           proxy: {
             mode: "custom",
             server: " socks5://127.0.0.1:7890/ "
@@ -54,6 +55,7 @@ describe("GameBrowserSettingsStore", () => {
       },
       launchMode: "external",
       network: {
+        cdnCompatibility: { mode: "on" },
         proxy: {
           mode: "custom",
           server: "socks5://127.0.0.1:7890"
@@ -74,6 +76,7 @@ describe("GameBrowserSettingsStore", () => {
       },
       launchMode: "external",
       network: {
+        cdnCompatibility: { mode: "on" },
         proxy: {
           mode: "custom",
           server: "socks5://127.0.0.1:7890"

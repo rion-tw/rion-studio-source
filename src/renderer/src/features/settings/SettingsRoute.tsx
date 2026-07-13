@@ -31,6 +31,7 @@ import {
 } from "../../../../shared/browserFonts";
 import type {
   AppUpdateStatus,
+  BrowserCdnCompatibilityMode,
   BrowserFontFamilyRole,
   BrowserLaunchMode,
   GameBrowserSettings,
@@ -315,6 +316,38 @@ function SettingsViewBase({
                 t={t}
                 onError={onError}
                 onSave={onGameBrowserSettingsChange}
+              />
+              <SettingsRow
+                title={t("settings.cdnCompatibility")}
+                description={
+                  hasRunningRoles
+                    ? t("settings.cdnCompatibilityRestartNotice")
+                    : t("settings.cdnCompatibilityDescription")
+                }
+                control={
+                  <Select
+                    className="settings-menu-control"
+                    value={normalizeGameBrowserSettings(gameBrowserSettings).network.cdnCompatibility.mode}
+                    onChange={(event) => {
+                      const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
+                      void onGameBrowserSettingsChange(
+                        normalizeGameBrowserSettings({
+                          ...normalizedSettings,
+                          network: {
+                            ...normalizedSettings.network,
+                            cdnCompatibility: {
+                              mode: event.target.value as BrowserCdnCompatibilityMode
+                            }
+                          }
+                        })
+                      ).catch(onError);
+                    }}
+                  >
+                    <option value="auto">{t("settings.cdnCompatibilityAuto")}</option>
+                    <option value="on">{t("settings.cdnCompatibilityOn")}</option>
+                    <option value="off">{t("settings.cdnCompatibilityOff")}</option>
+                  </Select>
+                }
               />
             </SettingsSection>
           </>

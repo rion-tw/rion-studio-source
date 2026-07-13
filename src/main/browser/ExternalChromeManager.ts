@@ -2,6 +2,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 
 import type { RoleStore } from "../roles/RoleStore";
+import {
+  CDN_COMPATIBILITY_EXTERNAL_NOTICE,
+  CDN_COMPATIBILITY_UNAVAILABLE_NOTICE
+} from "../game-browser/CdnCompatibilityManager";
 import { findSystemChromeExecutable } from "../system-browser/SystemChromeLauncher";
 import type { NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
 
@@ -20,6 +24,10 @@ export interface ExternalChromeLaunchOptions {
 
 export interface ExternalChromeManagerOptions {
   applyBrowserFonts?: (role: Role, browserUserDataDir: string) => Promise<void>;
+  prepareCdnCompatibility?: (
+    role: Role,
+    browserUserDataDir: string
+  ) => Promise<{ enabled: boolean; extensionPath?: string; proxyServer?: string }>;
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
   spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
@@ -140,13 +148,29 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     await this.options.applyBrowserFonts?.(role, browserUserDataDir).catch((error) => {
       console.warn("Failed to apply browser font settings before opening external Chrome.", error);
     });
+    let extensionPath: string | undefined;
+    let proxyServer: string | undefined;
+    let sessionNotice = notice;
+    try {
+      const compatibility = await this.options.prepareCdnCompatibility?.(role, browserUserDataDir);
+      extensionPath = compatibility?.extensionPath;
+      proxyServer = compatibility?.proxyServer;
+      if (compatibility?.enabled && !sessionNotice) {
+        sessionNotice = CDN_COMPATIBILITY_EXTERNAL_NOTICE;
+      }
+    } catch (error) {
+      console.warn("Failed to prepare CDN compatibility mode for external Chrome.", error);
+      if (!sessionNotice) {
+        sessionNotice = CDN_COMPATIBILITY_UNAVAILABLE_NOTICE;
+      }
+    }
     const child = (this.options.spawnChrome ?? spawnChrome)(
       executablePath,
-      buildExternalChromeArgs(role, browserUserDataDir, bounds)
+      buildExternalChromeArgs(role, browserUserDataDir, bounds, extensionPath, proxyServer)
     );
     const session: ExternalChromeSession = {
       child,
-      notice,
+      notice: sessionNotice,
       role,
       state: "launching",
       workspaceId
@@ -194,14 +218,22 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   }
 }
 
-export function buildExternalChromeArgs(role: Role, browserUserDataDir: string, bounds: PixelBounds): string[] {
+export function buildExternalChromeArgs(
+  role: Role,
+  browserUserDataDir: string,
+  bounds: PixelBounds,
+  extensionPath?: string,
+  proxyServer?: string
+): string[] {
   return [
     `--user-data-dir=${browserUserDataDir}`,
     `--app=${role.launchUrl}`,
     `--window-position=${bounds.x},${bounds.y}`,
     `--window-size=${bounds.width},${bounds.height}`,
     "--no-first-run",
-    "--disable-default-apps"
+    "--disable-default-apps",
+    ...(proxyServer ? [`--proxy-server=${proxyServer}`] : []),
+    ...(extensionPath ? [`--load-extension=${extensionPath}`] : [])
   ];
 }
 

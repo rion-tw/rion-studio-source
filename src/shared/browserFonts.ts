@@ -2,6 +2,8 @@ import type {
   BrowserFontFamilyRole,
   BrowserFontSettings,
   BrowserFontSettingsMode,
+  BrowserCdnCompatibilityMode,
+  BrowserCdnCompatibilitySettings,
   BrowserLaunchMode,
   BrowserNetworkSettings,
   BrowserProxySettings,
@@ -29,7 +31,12 @@ export const DEFAULT_BROWSER_PROXY_SETTINGS: BrowserProxySettings = {
   server: ""
 };
 
+export const DEFAULT_BROWSER_CDN_COMPATIBILITY_SETTINGS: BrowserCdnCompatibilitySettings = {
+  mode: "auto"
+};
+
 export const DEFAULT_BROWSER_NETWORK_SETTINGS: BrowserNetworkSettings = {
+  cdnCompatibility: DEFAULT_BROWSER_CDN_COMPATIBILITY_SETTINGS,
   proxy: DEFAULT_BROWSER_PROXY_SETTINGS
 };
 
@@ -59,7 +66,21 @@ export function normalizeBrowserNetworkSettings(
   const input = isRecord(value) ? value : {};
 
   return {
+    cdnCompatibility: normalizeBrowserCdnCompatibilitySettings(
+      input.cdnCompatibility,
+      fallback.cdnCompatibility
+    ),
     proxy: normalizeBrowserProxySettings(input.proxy, fallback.proxy)
+  };
+}
+
+export function normalizeBrowserCdnCompatibilitySettings(
+  value: unknown,
+  fallback: BrowserCdnCompatibilitySettings = DEFAULT_BROWSER_CDN_COMPATIBILITY_SETTINGS
+): BrowserCdnCompatibilitySettings {
+  const input = isRecord(value) ? value : {};
+  return {
+    mode: normalizeBrowserCdnCompatibilityMode(input.mode, fallback.mode)
   };
 }
 
@@ -176,6 +197,13 @@ function normalizeBrowserProxySettingsMode(
   fallback: BrowserProxySettingsMode
 ): BrowserProxySettingsMode {
   return value === "system" || value === "custom" ? value : fallback;
+}
+
+function normalizeBrowserCdnCompatibilityMode(
+  value: unknown,
+  fallback: BrowserCdnCompatibilityMode
+): BrowserCdnCompatibilityMode {
+  return value === "off" || value === "auto" || value === "on" ? value : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

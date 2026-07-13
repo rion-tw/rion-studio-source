@@ -17,6 +17,10 @@ describe("electron-builder release configuration", () => {
       oneClick: false,
       allowToChangeInstallationDirectory: true
     });
+    expect(config.extraResources).toContainEqual({
+      from: "resources/cdn-compat-extension",
+      to: "cdn-compat-extension"
+    });
   });
 
   it("uses electron-builder-managed ad-hoc signing with explicit hardened runtime entitlements", () => {

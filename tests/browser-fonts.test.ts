@@ -82,6 +82,30 @@ describe("browser font settings normalization", () => {
     expect(normalizeBrowserProxyServer("http://127.0.0.1:7890/path")).toBe("");
   });
 
+  it("defaults legacy network settings to automatic CDN compatibility and validates modes", () => {
+    expect(
+      normalizeGameBrowserSettings({
+        network: {
+          proxy: { mode: "system", server: "" }
+        }
+      }).network.cdnCompatibility
+    ).toEqual({ mode: "auto" });
+    expect(
+      normalizeGameBrowserSettings({
+        network: {
+          cdnCompatibility: { mode: "on" }
+        }
+      }).network.cdnCompatibility
+    ).toEqual({ mode: "on" });
+    expect(
+      normalizeGameBrowserSettings({
+        network: {
+          cdnCompatibility: { mode: "invalid" }
+        }
+      }).network.cdnCompatibility
+    ).toEqual({ mode: "auto" });
+  });
+
   it("drops invalid font family strings and keeps valid uninstalled names", () => {
     const longFamily = "A".repeat(121);
 

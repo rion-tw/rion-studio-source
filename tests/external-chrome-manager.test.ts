@@ -60,6 +60,46 @@ describe("ExternalChromeManager", () => {
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
   });
 
+  it("loads a prepared role-local CDN compatibility extension", async () => {
+    const prepareCdnCompatibility = vi.fn().mockResolvedValue({
+      enabled: true,
+      extensionPath: "/profiles/role-1/cdn-compat-extension",
+      proxyServer: "socks5://127.0.0.1:7890"
+    });
+    const harness = createHarness({ prepareCdnCompatibility });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    expect(prepareCdnCompatibility).toHaveBeenCalledWith(role, "/profiles/role-1/browser");
+    expect(harness.spawnChrome).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining(["--load-extension=/profiles/role-1/cdn-compat-extension"])
+    );
+    expect(harness.spawnChrome).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining(["--proxy-server=socks5://127.0.0.1:7890"])
+    );
+    expect(status.notice).toContain("developer extension warning");
+  });
+
+  it("opens original URLs when CDN extension preparation fails", async () => {
+    const harness = createHarness({
+      prepareCdnCompatibility: vi.fn().mockRejectedValue(new Error("write failed"))
+    });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    const args = (harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>)[0][1];
+    expect(args.some((argument: string) => argument.startsWith("--load-extension="))).toBe(false);
+    expect(status.notice).toContain("original resource URLs");
+  });
+
   it("launches workspace roles using normalized slot rectangles", async () => {
     const harness = createHarness();
     const secondRole = { ...role, id: "role-2", name: "Alt" };
@@ -117,7 +157,9 @@ describe("ExternalChromeManager", () => {
   });
 });
 
-function createHarness() {
+function createHarness(options: {
+  prepareCdnCompatibility?: ReturnType<typeof vi.fn>;
+} = {}) {
   const children: Array<ReturnType<typeof createChild>> = [];
   const roleStore = {
     ensureBrowserUserDataDir: vi.fn(async (roleId: string) => `/profiles/${roleId}/browser`)
@@ -130,6 +172,9 @@ function createHarness() {
   const manager = new ExternalChromeManager(roleStore, {
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
+    ...(options.prepareCdnCompatibility
+      ? { prepareCdnCompatibility: options.prepareCdnCompatibility }
+      : {}),
     spawnChrome
   });
 

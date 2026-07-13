@@ -213,6 +213,7 @@ export type BrowserFontSettingsMode = "default" | "custom";
 export type BrowserLaunchMode = "auto" | "embedded" | "external";
 export type BrowserRuntimeMode = "embedded" | "external";
 export type BrowserProxySettingsMode = "system" | "custom";
+export type BrowserCdnCompatibilityMode = "off" | "auto" | "on";
 
 export interface BrowserFontSettings {
   mode: BrowserFontSettingsMode;
@@ -224,7 +225,12 @@ export interface BrowserProxySettings {
   server: string;
 }
 
+export interface BrowserCdnCompatibilitySettings {
+  mode: BrowserCdnCompatibilityMode;
+}
+
 export interface BrowserNetworkSettings {
+  cdnCompatibility: BrowserCdnCompatibilitySettings;
   proxy: BrowserProxySettings;
 }
 

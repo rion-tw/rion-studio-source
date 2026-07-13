@@ -172,6 +172,31 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
+  it("applies CDN compatibility after the proxy and before loading the game page", async () => {
+    const applyBrowserProxy = vi.fn().mockResolvedValue(undefined);
+    const applyCdnCompatibility = vi.fn().mockResolvedValue(undefined);
+    const harness = createHarness({ applyBrowserProxy, applyCdnCompatibility });
+
+    await harness.manager.launch(role);
+
+    expect(applyBrowserProxy).toHaveBeenCalledTimes(1);
+    expect(applyCdnCompatibility).toHaveBeenCalledTimes(1);
+    expect(applyBrowserProxy.mock.invocationCallOrder[0]).toBeLessThan(
+      applyCdnCompatibility.mock.invocationCallOrder[0]
+    );
+    expect(applyCdnCompatibility.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("fails open when CDN compatibility setup fails", async () => {
+    const applyCdnCompatibility = vi.fn().mockRejectedValue(new Error("Mirror setup failed."));
+    const harness = createHarness({ applyCdnCompatibility });
+
+    await expect(harness.manager.launch(role)).resolves.toMatchObject({ state: "running" });
+    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+  });
+
   it("cleans up the host when browser proxy setup fails", async () => {
     const applyBrowserProxy = vi.fn().mockRejectedValue(new Error("Proxy setup failed."));
     const harness = createHarness({ applyBrowserProxy });
@@ -655,6 +680,7 @@ function createRole(id: string, name: string): Role {
 }
 
 function createHarness(options: {
+  applyCdnCompatibility?: ReturnType<typeof vi.fn>;
   applyBrowserFonts?: ReturnType<typeof vi.fn>;
   applyBrowserProxy?: ReturnType<typeof vi.fn>;
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
@@ -685,6 +711,7 @@ function createHarness(options: {
   };
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
   const manager = new BrowserManager(roleStore, {
+    ...(options.applyCdnCompatibility ? { applyCdnCompatibility: options.applyCdnCompatibility } : {}),
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
     ...(options.applyBrowserProxy ? { applyBrowserProxy: options.applyBrowserProxy } : {}),
     createHostWindow,

@@ -327,8 +327,8 @@ function WorkspaceLayoutFormEditor({
                   <button
                     key={template}
                     className={cn(
-                      "glass-control flex h-[30px] min-w-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
-                      isActive && "border-primary/35 bg-primary/10 text-foreground"
+                      "glass-control flex h-[30px] min-w-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,border-color,color,box-shadow]",
+                      isActive ? "glass-control-selected text-foreground" : "hover:bg-accent/35 hover:text-foreground"
                     )}
                     type="button"
                     title={t(workspaceTemplateLabelKeys[template])}

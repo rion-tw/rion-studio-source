@@ -328,7 +328,7 @@
   }
 
   .nav-item-active {
-    border: 1px solid hsl(var(--glass-border));
+    border-color: hsl(var(--glass-border));
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 72%),
       hsl(var(--glass-control-selected));

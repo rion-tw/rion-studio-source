@@ -416,7 +416,7 @@ function AffixedInput({
   return (
     <label
       className={cn(
-        "glass-control flex h-[30px] min-w-0 items-center overflow-hidden rounded-md focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-ring/20",
+        "glass-control flex h-[30px] min-w-0 items-center overflow-hidden rounded-md focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/20",
         widthClassName
       )}
     >

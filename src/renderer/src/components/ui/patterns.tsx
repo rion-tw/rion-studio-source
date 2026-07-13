@@ -243,7 +243,7 @@ export function SegmentedControl<T extends string>({
   ...props
 }: SegmentedControlProps<T>) {
   return (
-    <Surface className={cn("grid gap-0.5 rounded-[8px] p-[3px]", className)} padding="none" variant="inset" {...props}>
+    <Surface className={cn("grid gap-1 rounded-[8px] p-[3px]", className)} padding="none" variant="inset" {...props}>
       {items.map((item) => {
         const Icon = item.icon;
         const isActive = item.value === value;
@@ -253,9 +253,9 @@ export function SegmentedControl<T extends string>({
             key={item.value}
             aria-pressed={isActive}
             className={cn(
-              "flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-[5px] px-3 text-[11px] font-semibold leading-none transition-colors",
+              "flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-[5px] border border-transparent px-3 text-[11px] font-semibold leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20",
               isActive
-                ? "glass-control-selected text-foreground"
+                ? "glass-control-selected border-[hsl(var(--glass-border))] text-foreground"
                 : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"
             )}
             type="button"
@@ -314,8 +314,10 @@ export function NavItem({
   );
   const itemClassName = cn(
     noDrag && "app-no-drag",
-    "nav-item flex h-8 items-center gap-2 rounded-md px-2.5 text-left text-[13px] font-medium leading-none transition-colors",
-    active ? "nav-item-active text-foreground" : "text-muted-foreground hover:bg-accent/35 hover:text-foreground",
+    "nav-item flex h-8 items-center gap-2 rounded-md border border-transparent px-2.5 text-left text-[13px] font-medium leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20",
+    active
+      ? "nav-item-active border-[hsl(var(--glass-border))] text-foreground"
+      : "text-muted-foreground hover:bg-accent/35 hover:text-foreground",
     className
   );
 

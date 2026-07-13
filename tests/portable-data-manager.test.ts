@@ -165,11 +165,11 @@ describe("PortableDataManager", () => {
         expect.objectContaining({ code: "ROLE_NAME_RENAMED", replacementName: "Main (Imported)" }),
         expect.objectContaining({ code: "WORKSPACE_NAME_RENAMED", replacementName: "Party (Imported)" }),
         expect.objectContaining({ code: "WORKSPACE_ROLE_MISSING", count: 1 }),
-        expect.objectContaining({ code: "MACRO_NAME_RENAMED", replacementName: "Auto heal (Imported)" }),
         expect.objectContaining({ code: "MACRO_ROLE_MISSING", count: 1 }),
         expect.objectContaining({ code: "MACRO_SKIPPED_NO_ROLES", itemName: "Orphan" })
       ])
     );
+    expect(preview?.warnings.some((warning) => warning.code === "MACRO_NAME_RENAMED")).toBe(false);
 
     const result = await manager.applyImport("import-1");
 
@@ -205,9 +205,11 @@ describe("PortableDataManager", () => {
     expect(importedWorkspace?.slots[0]).toMatchObject({ roleId: importedRole?.id });
     expect(importedWorkspace?.slots[1]).not.toHaveProperty("roleId");
 
-    const importedMacro = (await macroStore.listMacros()).find((macro) => macro.name === "Auto heal (Imported)");
+    const macros = await macroStore.listMacros();
+    const importedMacro = macros.find((macro) => macro.name === "Auto heal" && macro.roleIds[0] === importedRole?.id);
     expect(importedMacro?.roleIds).toEqual([importedRole?.id]);
-    expect((await macroStore.listMacros()).some((macro) => macro.name === "Orphan")).toBe(false);
+    expect(macros.filter((macro) => macro.name === "Auto heal")).toHaveLength(2);
+    expect(macros.some((macro) => macro.name === "Orphan")).toBe(false);
   });
 
   it("rejects invalid portable JSON", async () => {

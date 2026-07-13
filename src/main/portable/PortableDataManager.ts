@@ -264,15 +264,13 @@ export class PortableDataManager {
   }
 
   private async buildImportPlan(data: RionPortableDataV1): Promise<ImportPlan> {
-    const [existingRoles, existingWorkspaces, existingMacros] = await Promise.all([
+    const [existingRoles, existingWorkspaces] = await Promise.all([
       this.options.roleStore.listRoles(),
-      this.options.workspaceStore.listWorkspaces(),
-      this.options.macroStore.listMacros()
+      this.options.workspaceStore.listWorkspaces()
     ]);
     const warnings: PortableImportWarning[] = [];
     const usedRoleNames = new Set(existingRoles.map((role) => normalizeNameKey(role.name)));
     const usedWorkspaceNames = new Set(existingWorkspaces.map((workspace) => normalizeNameKey(workspace.name)));
-    const usedMacroNames = new Set(existingMacros.map((macro) => normalizeNameKey(macro.name)));
     const importedRoleIds = new Set(data.roles.map((role) => role.id));
 
     const roles = data.roles.map((role) => {
@@ -317,15 +315,6 @@ export class PortableDataManager {
       const importedRoleIdList = macro.roleIds.filter((roleId) => importedRoleIds.has(roleId));
       const roleIds = [...new Set(importedRoleIdList)];
       const missingRoleCount = [...new Set(macro.roleIds)].filter((roleId) => !importedRoleIds.has(roleId)).length;
-      const name = reserveUniqueName(macro.name, usedMacroNames);
-
-      if (name !== macro.name) {
-        warnings.push({
-          code: "MACRO_NAME_RENAMED",
-          itemName: macro.name,
-          replacementName: name
-        });
-      }
 
       if (roleIds.length === 0) {
         warnings.push({
@@ -343,7 +332,7 @@ export class PortableDataManager {
         });
       }
 
-      return [{ name, roleIds, source: macro }];
+      return [{ name: macro.name, roleIds, source: macro }];
     });
 
     return { roles, workspaces, macros, warnings };

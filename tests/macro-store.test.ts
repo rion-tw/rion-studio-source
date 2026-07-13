@@ -51,20 +51,24 @@ describe("MacroStore", () => {
     await expect(store.getMacro(second.id)).rejects.toMatchObject({ code: "MACRO_NOT_FOUND" });
   });
 
-  it("rejects duplicate names and invalid step timing", async () => {
-    await store.createMacro({
+  it("allows duplicate names and rejects invalid step timing", async () => {
+    const first = await store.createMacro({
       name: "Auto heal",
       roleIds: ["role-1"],
       steps: [{ id: "step-1", type: "key", code: "F2" }]
     });
 
-    await expect(
-      store.createMacro({
-        name: "auto heal",
-        roleIds: ["role-1"],
-        steps: [{ id: "step-2", type: "key", code: "F3" }]
-      })
-    ).rejects.toMatchObject({ code: "MACRO_NAME_DUPLICATE" });
+    const duplicate = await store.createMacro({
+      name: "auto heal",
+      roleIds: ["role-1"],
+      steps: [{ id: "step-2", type: "key", code: "F3" }]
+    });
+    const updated = await store.updateMacro(duplicate.id, { name: first.name });
+
+    expect(duplicate.name).toBe("auto heal");
+    expect(updated.name).toBe("Auto heal");
+    const duplicates = (await store.listMacros()).filter((macro) => macro.name.toLocaleLowerCase() === "auto heal");
+    expect(duplicates).toHaveLength(2);
 
     await expect(
       store.createMacro({

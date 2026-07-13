@@ -1,4 +1,17 @@
-import { Copy, Keyboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Copy,
+  Keyboard,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Play,
+  Plus,
+  Search,
+  Square,
+  Trash2
+} from "lucide-react";
 import { type CSSProperties, type JSX, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -7,10 +20,17 @@ import { RoleRunDot } from "../../components/RoleRunDot";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Select } from "../../components/ui/select";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared/types";
+import {
+  DEFAULT_MACRO_LIST_SORT,
+  getMacroListItems,
+  type MacroListSortKey,
+  type MacroListSortState
+} from "./macroListUtils";
 import {
   createMacroRunKey,
   formatMacroRepeat,
@@ -54,28 +74,32 @@ function MacrosRoute({
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const runningCount = macroStatuses.filter((status) => status.state === "running").length;
   const [query, setQuery] = useState("");
-  const filteredMacros = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+  const [roleFilterId, setRoleFilterId] = useState("");
+  const [sort, setSort] = useState<MacroListSortState>(DEFAULT_MACRO_LIST_SORT);
+  const filteredMacros = useMemo(
+    () => getMacroListItems({ macros, query, roleFilterId, roles, sort, t }),
+    [macros, query, roleFilterId, roles, sort, t]
+  );
 
-    if (!normalizedQuery) {
-      return macros;
+  useEffect(() => {
+    if (roleFilterId && !roles.some((role) => role.id === roleFilterId)) {
+      setRoleFilterId("");
     }
+  }, [roleFilterId, roles]);
 
-    return macros.filter((macro) => {
-      const roleNames = macro.roleIds.map((roleId) => roleById.get(roleId)?.name ?? t("macros.unknownRole"));
-
-      return [
-        macro.name,
-        ...roleNames,
-        formatMacroShortcut(macro.trigger, t),
-        formatMacroRepeat(macro.repeat, t),
-        summarizeMacroSteps(macro.steps, t)
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery);
-    });
-  }, [macros, query, roleById, t]);
+  function handleSortChange(key: MacroListSortKey): void {
+    setSort((current) =>
+      current.key === key
+        ? {
+            direction: current.direction === "asc" ? "desc" : "asc",
+            key
+          }
+        : {
+            direction: "asc",
+            key
+          }
+    );
+  }
 
   if (macros.length === 0) {
     return (
@@ -105,6 +129,19 @@ function MacrosRoute({
               value={query}
               onChange={setQuery}
             />
+            <Select
+              className="w-full sm:w-40 lg:w-44"
+              aria-label={t("macros.filterRole")}
+              value={roleFilterId}
+              onChange={(event) => setRoleFilterId(event.target.value)}
+            >
+              <option value="">{t("macros.filterAllRoles")}</option>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+            </Select>
             <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNewMacro}>
               <Plus size={14} />
               {t("macros.newMacro")}
@@ -126,7 +163,10 @@ function MacrosRoute({
           title={t("macros.noMatches.title")}
           description={t("macros.noMatches.description")}
           actionLabel={t("macros.noMatches.action")}
-          onAction={() => setQuery("")}
+          onAction={() => {
+            setQuery("");
+            setRoleFilterId("");
+          }}
         />
       ) : (
         <Surface className="mac-list-surface overflow-hidden" variant="panel">
@@ -134,11 +174,41 @@ function MacrosRoute({
             <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
               <thead className="glass-divider border-b text-[11px] font-semibold uppercase tracking-normal text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5">{t("macros.column.name")}</th>
-                  <th className="px-4 py-2.5">{t("macros.column.roles")}</th>
-                  <th className="px-4 py-2.5">{t("macros.column.shortcut")}</th>
-                  <th className="px-4 py-2.5">{t("macros.column.repeat")}</th>
-                  <th className="px-4 py-2.5">{t("macros.column.steps")}</th>
+                  <MacroSortHeader
+                    label={t("macros.column.name")}
+                    sort={sort}
+                    sortKey="name"
+                    t={t}
+                    onSort={handleSortChange}
+                  />
+                  <MacroSortHeader
+                    label={t("macros.column.roles")}
+                    sort={sort}
+                    sortKey="roles"
+                    t={t}
+                    onSort={handleSortChange}
+                  />
+                  <MacroSortHeader
+                    label={t("macros.column.shortcut")}
+                    sort={sort}
+                    sortKey="shortcut"
+                    t={t}
+                    onSort={handleSortChange}
+                  />
+                  <MacroSortHeader
+                    label={t("macros.column.repeat")}
+                    sort={sort}
+                    sortKey="repeat"
+                    t={t}
+                    onSort={handleSortChange}
+                  />
+                  <MacroSortHeader
+                    label={t("macros.column.steps")}
+                    sort={sort}
+                    sortKey="steps"
+                    t={t}
+                    onSort={handleSortChange}
+                  />
                   <th className="w-12 px-4 py-2.5" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
@@ -198,6 +268,42 @@ function MacrosRoute({
         </Surface>
       )}
     </PageFrame>
+  );
+}
+
+interface MacroSortHeaderProps {
+  label: string;
+  onSort: (key: MacroListSortKey) => void;
+  sort: MacroListSortState;
+  sortKey: MacroListSortKey;
+  t: Translator;
+}
+
+function MacroSortHeader({ label, onSort, sort, sortKey, t }: MacroSortHeaderProps): JSX.Element {
+  const isActive = sort.key === sortKey;
+  const DirectionIcon = sort.direction === "asc" ? ArrowUp : ArrowDown;
+  const directionLabel = t(sort.direction === "asc" ? "macros.sortAscending" : "macros.sortDescending");
+
+  return (
+    <th
+      className="px-4 py-2.5"
+      aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        className="-mx-1 inline-flex h-6 max-w-full items-center gap-1 rounded-sm px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+        type="button"
+        title={t("macros.sortBy").replace("{column}", label)}
+        onClick={() => onSort(sortKey)}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+        {isActive ? (
+          <>
+            <DirectionIcon className="shrink-0" size={12} aria-hidden="true" />
+            <span className="sr-only">{directionLabel}</span>
+          </>
+        ) : null}
+      </button>
+    </th>
   );
 }
 

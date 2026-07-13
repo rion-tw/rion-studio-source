@@ -66,8 +66,6 @@ export class MacroStore {
     const now = new Date().toISOString();
     const name = this.normalizeName(input.name);
 
-    this.ensureUniqueName(file.macros, name);
-
     const macro: Macro = {
       id: randomUUID(),
       name,
@@ -95,7 +93,6 @@ export class MacroStore {
 
     const current = file.macros[index];
     const name = input.name === undefined ? current.name : this.normalizeName(input.name);
-    this.ensureUniqueName(file.macros, name, id);
 
     const updated: Macro = {
       ...current,
@@ -345,15 +342,6 @@ export class MacroStore {
     return value;
   }
 
-  private ensureUniqueName(macros: Macro[], name: string, currentId?: string): void {
-    const duplicate = macros.some(
-      (macro) => macro.id !== currentId && macro.name.toLocaleLowerCase() === name.toLocaleLowerCase()
-    );
-
-    if (duplicate) {
-      throw new MacroStoreError("MACRO_NAME_DUPLICATE", "A macro with this name already exists.");
-    }
-  }
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

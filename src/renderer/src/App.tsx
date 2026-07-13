@@ -37,6 +37,7 @@ const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWor
 const MacrosRoute = lazy(() => import("./features/macros/MacrosRoute"));
 const MacroModal = lazy(() => import("./features/macros/MacroModal"));
 const SettingsRoute = lazy(() => import("./features/settings/SettingsRoute"));
+const TOAST_DISMISS_MS = 4000;
 
 export function App(): JSX.Element {
   const location = useLocation();
@@ -181,6 +182,24 @@ export function App(): JSX.Element {
   } = data;
 
   useEffect(() => {
+    if (initialLoadState !== "ready" || data.error === null) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setError(null), TOAST_DISMISS_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [data.error, initialLoadState, setError]);
+
+  useEffect(() => {
+    if (initialLoadState !== "ready" || data.error !== null || notice === null) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setNotice(null), TOAST_DISMISS_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [data.error, initialLoadState, notice]);
+
+  useEffect(() => {
     if (!hasBridge || initialLoadState !== "ready") {
       return;
     }
@@ -291,15 +310,23 @@ export function App(): JSX.Element {
 
       <main className="app-content relative min-w-0 flex-1 overflow-hidden">
         {data.error !== null ? (
-          <Surface className="absolute left-5 right-5 top-5 z-40 flex items-start gap-3 border-destructive/30 px-4 py-3 text-sm text-destructive md:left-6 md:right-6" variant="strong">
+          <Surface
+            className="pointer-events-none absolute bottom-5 left-1/2 z-40 flex w-fit max-w-[min(720px,calc(100%_-_2.5rem))] -translate-x-1/2 items-start gap-3 border-destructive/30 px-4 py-3 text-sm text-destructive md:bottom-6 md:max-w-[min(720px,calc(100%_-_3rem))]"
+            role="alert"
+            variant="strong"
+          >
             <AlertCircle className="mt-0.5 shrink-0" size={17} />
-            <span>{toMessage(data.error, preferences.language, preferences.t)}</span>
+            <span className="min-w-0 break-words">{toMessage(data.error, preferences.language, preferences.t)}</span>
           </Surface>
         ) : null}
         {data.error === null && notice !== null ? (
-          <Surface className="absolute left-5 right-5 top-5 z-40 flex items-start gap-3 border-primary/30 px-4 py-3 text-sm text-foreground md:left-6 md:right-6" variant="strong">
+          <Surface
+            className="pointer-events-none absolute bottom-5 left-1/2 z-40 flex w-fit max-w-[min(720px,calc(100%_-_2.5rem))] -translate-x-1/2 items-start gap-3 border-primary/30 px-4 py-3 text-sm text-foreground md:bottom-6 md:max-w-[min(720px,calc(100%_-_3rem))]"
+            role="status"
+            variant="strong"
+          >
             <AlertCircle className="mt-0.5 shrink-0 text-primary" size={17} />
-            <span>{localizeErrorMessage(notice, preferences.language)}</span>
+            <span className="min-w-0 break-words">{localizeErrorMessage(notice, preferences.language)}</span>
           </Surface>
         ) : null}
 

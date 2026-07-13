@@ -24,7 +24,7 @@ export const launchUrlOptions = [
   {
     iconSrc: feifeiInfiniteUniverseIcon,
     label: "飞飞：无限宇宙",
-    value: "https://ffcli.ruiwoo.cn/play"
+    value: "https://ffcli.ruiwoo.cn"
   }
 ] as const satisfies Array<({ labelKey: TranslationKey } | { label: string }) & { iconSrc?: string; value: string }>;
 

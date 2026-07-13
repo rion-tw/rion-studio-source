@@ -243,7 +243,7 @@ function WorkspaceCard({
       onDrop={onDrop}
     >
       <WorkspaceLayoutPreview
-        className="aspect-[4/3] p-1"
+        className="aspect-[4/3] p-2"
         roleById={roleById}
         slots={workspace.slots}
         t={t}
@@ -327,7 +327,6 @@ function WorkspaceLayoutPreview({
         index={index}
         role={role}
         t={t}
-        template={template}
       />
     );
   }
@@ -441,7 +440,7 @@ function WorkspaceLayoutPreview({
   }
 
   return (
-    <div className={cn("relative rounded-md bg-background/30", className)}>
+    <div className={cn("relative bg-background/30", className)}>
       {renderLayout()}
     </div>
   );
@@ -451,12 +450,10 @@ interface WorkspaceLayoutPreviewSlotProps {
   index: number;
   role: Role | undefined;
   t: Translator;
-  template: WorkspaceLayoutTemplate;
 }
 
-function WorkspaceLayoutPreviewSlot({ index, role, t, template }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
+function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
   const launchGameName = role ? resolveWorkspaceRoleLaunchGameName(role.launchUrl, t) : "";
-  const cornerConfig = getWorkspaceLayoutPreviewSlotCornerConfig(template, index);
   const style = {
     ...createWorkspaceSlotBackground(role),
     "--workspace-slot-caption-bottom-left-radius": "0px",
@@ -467,7 +464,6 @@ function WorkspaceLayoutPreviewSlot({ index, role, t, template }: WorkspaceLayou
     <div
       className={cn(
         "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden bg-cover bg-center bg-clip-padding",
-        cornerConfig.className,
         role ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
       )}
       style={style}
@@ -485,83 +481,12 @@ function WorkspaceLayoutPreviewSlot({ index, role, t, template }: WorkspaceLayou
         </p>
       </div>
       {!role ? (
-        <div className="absolute left-2 top-2 rounded-sm bg-background/55 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+        <div className="absolute left-2 top-2 bg-background/55 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
           {index + 1}
         </div>
       ) : null}
     </div>
   );
-}
-
-interface WorkspaceLayoutPreviewSlotCornerConfig {
-  className: string;
-}
-
-function getWorkspaceLayoutPreviewSlotCornerConfig(
-  template: WorkspaceLayoutTemplate,
-  index: number
-): WorkspaceLayoutPreviewSlotCornerConfig {
-  const corners = getWorkspaceLayoutPreviewSlotCorners(template, index);
-
-  return {
-    className: cn(
-      corners.topLeft && "rounded-tl-md",
-      corners.topRight && "rounded-tr-md"
-    )
-  };
-}
-
-function getWorkspaceLayoutPreviewSlotCorners(
-  template: WorkspaceLayoutTemplate,
-  index: number
-): { bottomLeft: boolean; bottomRight: boolean; topLeft: boolean; topRight: boolean } {
-  switch (template) {
-    case "single":
-      return { topLeft: true, topRight: true, bottomRight: true, bottomLeft: true };
-    case "two_columns":
-      return {
-        topLeft: index === 0,
-        topRight: index === 1,
-        bottomRight: index === 1,
-        bottomLeft: index === 0
-      };
-    case "three_columns":
-    case "four_columns":
-      return {
-        topLeft: index === 0,
-        topRight: index === (template === "three_columns" ? 2 : 3),
-        bottomRight: index === (template === "three_columns" ? 2 : 3),
-        bottomLeft: index === 0
-      };
-    case "main_left_stack_right":
-      return {
-        topLeft: index === 0,
-        topRight: index === 1,
-        bottomRight: index === 2,
-        bottomLeft: index === 0
-      };
-    case "main_right_stack_left":
-      return {
-        topLeft: index === 1,
-        topRight: index === 0,
-        bottomRight: index === 0,
-        bottomLeft: index === 2
-      };
-    case "quad":
-      return {
-        topLeft: index === 0,
-        topRight: index === 1,
-        bottomRight: index === 3,
-        bottomLeft: index === 2
-      };
-    case "six_grid":
-      return {
-        topLeft: index === 0,
-        topRight: index === 2,
-        bottomRight: index === 5,
-        bottomLeft: index === 3
-      };
-  }
 }
 
 function createPreviewFlexStyle(weight: number): CSSProperties {

@@ -415,6 +415,7 @@
   "error.chromeNotFound": "找不到 Google Chrome。請安裝 Chrome，或將 RION_STUDIO_CHROME_PATH 設為 Chrome 執行檔。",
   "error.browserUserDataLockTimeout": "Chrome 仍在使用此角色的瀏覽器資料。請關閉 Chrome 登入視窗後再試一次。",
   "error.hiddenBrowserHelperUnavailable": "無法啟動隱藏的瀏覽器輔助程式。",
+  "error.gamePageLoadFailed": "無法載入遊戲頁面。請檢查網路、DNS、代理或 VPN 設定後再試一次。",
   "error.unableCheckSession": "無法檢查登入工作階段。",
   "error.googleRejected": "Google 在工作階段檢查期間拒絕此瀏覽器。",
   "error.loginStillRequired": "仍需要登入。",

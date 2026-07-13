@@ -9,6 +9,20 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes game page load failures", async () => {
+    const message = "Unable to load the game page. Check your network, DNS, proxy, or VPN settings and try again.";
+
+    await loadTranslations("zh-TW");
+    await loadTranslations("zh-CN");
+
+    expect(localizeErrorMessage(message, "zh-TW")).toBe(
+      "無法載入遊戲頁面。請檢查網路、DNS、代理或 VPN 設定後再試一次。"
+    );
+    expect(localizeErrorMessage(message, "zh-CN")).toBe(
+      "无法加载游戏页面。请检查网络、DNS、代理或 VPN 设置后再试一次。"
+    );
+  });
+
   it("preserves role names when localizing duplicate game-window errors", async () => {
     await loadTranslations("zh-TW");
     expect(localizeErrorMessage("Already running in another game window: Main, Alt.", "zh-TW")).toBe(

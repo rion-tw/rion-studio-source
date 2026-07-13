@@ -415,6 +415,7 @@
   "error.chromeNotFound": "Google Chrome was not found. Install Chrome or set RION_STUDIO_CHROME_PATH to the Chrome executable.",
   "error.browserUserDataLockTimeout": "Chrome is still using this role's browser data. Quit the Chrome login window and try again.",
   "error.hiddenBrowserHelperUnavailable": "Unable to start the hidden browser helper.",
+  "error.gamePageLoadFailed": "Unable to load the game page. Check your network, DNS, proxy, or VPN settings and try again.",
   "error.unableCheckSession": "Unable to check login session.",
   "error.googleRejected": "Google rejected this browser during session check.",
   "error.loginStillRequired": "Login is still required.",

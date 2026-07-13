@@ -64,6 +64,15 @@ export class BrowserLaunchAuthError extends Error {
   }
 }
 
+export class BrowserGameLoadError extends Error {
+  readonly code = "GAME_PAGE_LOAD_FAILED";
+
+  constructor() {
+    super("Unable to load the game page. Check your network, DNS, proxy, or VPN settings and try again.");
+    this.name = "BrowserGameLoadError";
+  }
+}
+
 export class BrowserLoginCancelledError extends Error {
   constructor() {
     super("Login flow was cancelled.");
@@ -442,7 +451,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private async finishLaunch(session: BrowserSession, zoomFactor: number): Promise<void> {
     await this.applyZoom(session, zoomFactor);
-    await session.view.webContents.loadURL(session.role.launchUrl);
+    try {
+      await session.view.webContents.loadURL(session.role.launchUrl);
+    } catch {
+      throw new BrowserGameLoadError();
+    }
     await this.ensureSessionAuthenticated(session.role, session);
     session.state = "running";
     session.launchedAt = new Date().toISOString();

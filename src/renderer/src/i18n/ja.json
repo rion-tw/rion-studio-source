@@ -415,6 +415,7 @@
   "error.chromeNotFound": "Google Chrome が見つかりません。Chrome をインストールするか、RION_STUDIO_CHROME_PATH に Chrome 実行ファイルを設定してください。",
   "error.browserUserDataLockTimeout": "Chrome がまだこのロールのブラウザデータを使用しています。Chrome のログインウィンドウを終了してから再試行してください。",
   "error.hiddenBrowserHelperUnavailable": "Unable to start the hidden browser helper.",
+  "error.gamePageLoadFailed": "ゲームページを読み込めません。ネットワーク、DNS、プロキシ、または VPN 設定を確認してから再試行してください。",
   "error.unableCheckSession": "ログインセッションを確認できません。",
   "error.googleRejected": "セッション確認中に Google がこのブラウザを拒否しました。",
   "error.loginStillRequired": "ログインがまだ必要です。",

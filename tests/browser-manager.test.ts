@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  BrowserGameLoadError,
   BrowserLaunchAuthError,
   BrowserManager,
   createRoleSessionPartition,
@@ -66,6 +67,27 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
     expect(harness.hosts[0].show).toHaveBeenCalledTimes(1);
     expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
+  });
+
+  it("wraps game page load failures with a stable user-facing error and cleans up the host", async () => {
+    const harness = createHarness({
+      loadUrlHandlers: [
+        async () => {
+          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
+        }
+      ]
+    });
+
+    const launchPromise = harness.manager.launch(role);
+
+    await expect(launchPromise).rejects.toThrow(BrowserGameLoadError);
+    await expect(launchPromise).rejects.toThrow(
+      "Unable to load the game page. Check your network, DNS, proxy, or VPN settings and try again."
+    );
+    expect(harness.manager.listStatuses()).toEqual([]);
+    expect(harness.hosts[0].contentView.removeChildView).toHaveBeenCalledWith(harness.views[0].view);
+    expect(harness.views[0].webContents.close).toHaveBeenCalledTimes(1);
+    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
   });
 
   it("applies browser font preferences before creating a new role view", async () => {
@@ -441,6 +463,7 @@ function createRole(id: string, name: string): Role {
 
 function createHarness(options: {
   applyBrowserFonts?: ReturnType<typeof vi.fn>;
+  loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   snapshotsByView?: Array<{ bodyText: string; localStorage: Record<string, string> }>;
 } = {}) {
   const hosts: ReturnType<typeof createMockHost>[] = [];
@@ -453,7 +476,8 @@ function createHarness(options: {
   });
   const createView = vi.fn(() => {
     const snapshot = options.snapshotsByView?.[views.length] ?? defaultSnapshot;
-    const view = createMockView(() => snapshot);
+    const loadUrlHandler = options.loadUrlHandlers?.[views.length];
+    const view = createMockView(() => snapshot, loadUrlHandler);
     views.push(view);
     return view.view as never;
   });
@@ -498,7 +522,10 @@ function createMockHost() {
   return host;
 }
 
-function createMockView(readSnapshot: () => { bodyText: string; localStorage: Record<string, string> }) {
+function createMockView(
+  readSnapshot: () => { bodyText: string; localStorage: Record<string, string> },
+  loadUrlHandler?: (url: string) => Promise<void>
+) {
   const emitter = new EventEmitter();
   let bounds = { x: 0, y: 0, width: 1, height: 1 };
   let currentUrl = "about:blank";
@@ -524,6 +551,9 @@ function createMockView(readSnapshot: () => { bodyText: string; localStorage: Re
     getURL: vi.fn(() => currentUrl),
     isDestroyed: vi.fn(() => destroyed),
     loadURL: vi.fn(async (url: string) => {
+      if (loadUrlHandler) {
+        await loadUrlHandler(url);
+      }
       currentUrl = url;
     }),
     mainFrame: { framesInSubtree: [] },

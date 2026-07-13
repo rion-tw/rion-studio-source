@@ -27,7 +27,7 @@ jobs:
             required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
             optional_assets: Rion.Studio-mac.dmg.blockmap
           - os: windows-latest
-            build_target: --win
+            build_target: --win nsis --x64
             primary_asset: Rion.Studio-win.exe
             required_assets: Rion.Studio-win.exe Rion.Studio-win.exe.blockmap latest.yml
             optional_assets: ""
@@ -154,7 +154,7 @@ jobs:
             required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
             optional_assets: Rion.Studio-mac.dmg.blockmap
           - os: windows-latest
-            build_target: --win
+            build_target: --win nsis --x64
             primary_asset: Rion.Studio-win.exe
             required_assets: Rion.Studio-win.exe Rion.Studio-win.exe.blockmap latest.yml
             optional_assets: ""

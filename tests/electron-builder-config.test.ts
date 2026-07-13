@@ -4,7 +4,21 @@ import { describe, expect, it } from "vitest";
 
 import config from "../electron-builder.config.mjs";
 
-describe("electron-builder macOS configuration", () => {
+describe("electron-builder release configuration", () => {
+  it("keeps release artifacts and Windows installer target aligned with CI expectations", () => {
+    expect(config.artifactName).toBe("Rion.Studio-${os}.${ext}");
+    expect(config.directories).toMatchObject({
+      output: "release/${version}"
+    });
+    expect(config.win).toMatchObject({
+      target: ["nsis"]
+    });
+    expect(config.nsis).toMatchObject({
+      oneClick: false,
+      allowToChangeInstallationDirectory: true
+    });
+  });
+
   it("uses electron-builder-managed ad-hoc signing with explicit hardened runtime entitlements", () => {
     expect(config.afterPack).toBe("build/afterPack.mjs");
     expect(config.mac).toMatchObject({

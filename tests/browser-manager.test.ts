@@ -43,7 +43,7 @@ describe("BrowserManager game host windows", () => {
     expect(createRoleSessionPartition("role:one/two")).toBe("persist:rion-role-role-one-two");
   });
 
-  it("opens a single role in a borderless work-area window without a control offset", async () => {
+  it("opens a single role in a standard framed work-area window without an inner control offset", async () => {
     const harness = createHarness();
     const overlayInstaller = vi.fn().mockResolvedValue(undefined);
     harness.manager.setMacroOverlayInstaller(overlayInstaller);
@@ -57,7 +57,7 @@ describe("BrowserManager game host windows", () => {
         width: 1200,
         height: 800,
         backgroundColor: "#000000",
-        frame: false,
+        frame: true,
         show: false,
         title: role.name
       })
@@ -179,7 +179,7 @@ describe("BrowserManager game host windows", () => {
     expect(harness.manager.listStatuses()).toEqual([]);
   });
 
-  it("treats closing the borderless host as stopping every contained role", async () => {
+  it("treats closing the framed host as stopping every contained role", async () => {
     const harness = createHarness();
     await harness.manager.launch(role);
     const event = { preventDefault: vi.fn() };

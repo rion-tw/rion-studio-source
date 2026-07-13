@@ -272,7 +272,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const window = this.options.createHostWindow({
       ...bounds,
       backgroundColor: "#000000",
-      frame: false,
+      frame: true,
       show: false,
       title,
       webPreferences: {

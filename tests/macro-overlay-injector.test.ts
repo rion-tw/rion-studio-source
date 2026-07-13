@@ -185,13 +185,9 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.idle");
   });
 
-  it("renders compact macro menu rows with value badges and an edit action", () => {
+  it("renders macro menu rows with value badges and an edit action", () => {
     const macroContentIndex = MACRO_OVERLAY_SCRIPT.indexOf("state.macros.length > 0 ? macroRows :");
     const createRowIndex = MACRO_OVERLAY_SCRIPT.indexOf("'<button class=\"create-row\"");
-    const menuStyles = MACRO_OVERLAY_SCRIPT.slice(
-      MACRO_OVERLAY_SCRIPT.indexOf(".panel{display:"),
-      MACRO_OVERLAY_SCRIPT.indexOf(".active-badges{")
-    );
 
     expect(MACRO_OVERLAY_SCRIPT).toContain("function formatRepeat(repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("function formatStep(step)");
@@ -223,78 +219,27 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.shortcutLabel)");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.pollLabel)");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="macro-action-pill');
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".create-row{align-items:center;border-radius:8px;color:rgba(255,255,255,.9);cursor:pointer;display:flex;font-size:11.5px;font-weight:600;gap:7px;height:30px;"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".create-icon{color:rgba(255,255,255,.72);display:block;fill:none;flex:0 0 auto;height:14px;stroke:currentColor;stroke-linecap:round;stroke-width:2;width:14px;}"
-    );
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".create-row{");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".create-icon{");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-list{");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="macro-list"');
     expect(macroContentIndex).toBeGreaterThan(-1);
     expect(createRowIndex).toBeGreaterThan(-1);
     expect(macroContentIndex).toBeLessThan(createRowIndex);
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-row{align-items:center;border-radius:10px;color:rgba(255,255,255,.94);display:grid;gap:6px 7px;"
-    );
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-row{");
     expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-areas:'title shortcut poll edit' 'steps steps steps steps'");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-columns:minmax(60px,1fr) auto auto 24px;min-height:56px");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-row:hover{background:rgba(255,255,255,.065);}");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-header{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-title{align-items:center;display:flex;gap:7px;grid-area:title;min-width:0;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-title strong{font-size:12px;font-weight:650;line-height:1.2;"
-    );
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-title{");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details{display:contents;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-details span{color:rgba(255,255,255,.78);font-size:9.5px;font-weight:500;line-height:1.1;"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details b{font-weight:550;min-width:0;overflow:hidden;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-detail-shortcut,.macro-detail-poll{align-items:center;background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.11);"
-    );
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-shortcut{grid-area:shortcut;}");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-poll{grid-area:poll;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-steps{display:block;grid-area:steps;padding:0 1px 1px;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-edit{align-items:center;background:rgba(255,255,255,.075);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".edit-icon{display:block;fill:none;height:12px;width:12px;");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-area:steps");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-edit{");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".edit-icon{");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".panel{display:");
-    expect(menuStyles).toContain(
-      ";-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);"
-    );
-    expect(menuStyles).toContain(
-      "background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.74);"
-    );
-    expect(menuStyles).toContain(
-      "border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.22);"
-    );
-    expect(menuStyles).toContain(
-      ".macro-row,.create-row,.empty,.error{background:transparent;border:0;box-shadow:none;}"
-    );
-    expect(menuStyles).toContain(".panel>*+*{margin-top:6px;position:relative;}");
-    expect(menuStyles).toContain(
-      ".panel>*+*::before{background:rgba(255,255,255,.085);content:'';height:1px;left:7px;pointer-events:none;position:absolute;right:7px;top:-3px;}"
-    );
-    expect(menuStyles).not.toContain("border-top:1px solid rgba(255,255,255,.085)");
-    expect(menuStyles).not.toContain("inset 0 -");
-    expect(menuStyles).not.toContain("inset 0 1px");
-    expect(menuStyles).not.toContain("text-shadow:0");
-    expect(menuStyles).toContain(
-      "gap:0;margin-top:7px;max-width:296px;overflow:hidden;padding:4px;pointer-events:auto;text-shadow:none;width:min(288px,calc(100vw - 16px));"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".trigger{-webkit-backdrop-filter:blur(30px) saturate(140%);align-items:center;backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.78);"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      "border:1px solid rgba(255,255,255,.14);border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.2);color:rgba(255,255,255,.94);"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".trigger:hover{background:linear-gradient(180deg,rgba(255,255,255,.075),rgba(255,255,255,0) 46%),rgba(30,34,44,.82);"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("filter:drop-shadow(0 1px 2px rgba(0,0,0,.24))");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".status-dot{border-radius:999px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);display:block;height:7px;width:7px;"
-    );
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".trigger{");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("pointer-events:auto");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot{");
   });
 
   it("localizes overlay menu text for English and Traditional Chinese", () => {

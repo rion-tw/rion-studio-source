@@ -1,4 +1,4 @@
-import { Home, Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -20,19 +20,19 @@ export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspace
 
   return (
     <aside className="app-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground">
-      <div className="app-no-drag flex items-center gap-2 px-2 pb-5">
-        <img className="size-9 shrink-0 rounded-lg" src={appIconUrl} alt="" aria-hidden="true" draggable={false} />
-        <p className="min-w-0 truncate text-[15px] font-semibold leading-5">Rion Studio</p>
+      <div className="pb-5">
+        <button
+          aria-label={t("app.home")}
+          className="app-no-drag flex w-full items-center gap-2 rounded-md px-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20"
+          onClick={() => navigate("/dashboard")}
+          type="button"
+        >
+          <img className="size-9 shrink-0 rounded-lg" src={appIconUrl} alt="" aria-hidden="true" draggable={false} />
+          <span className="min-w-0 truncate text-[15px] font-semibold leading-5">Rion Studio</span>
+        </button>
       </div>
 
       <nav className="grid gap-1" aria-label={t("app.primaryNavigation")}>
-        <NavItem
-          active={location.pathname === "/dashboard" || location.pathname === "/"}
-          icon={Home}
-          label={t("app.home")}
-          noDrag
-          onClick={() => navigate("/dashboard")}
-        />
         <NavItem
           active={location.pathname === "/roles"}
           count={roleCount}

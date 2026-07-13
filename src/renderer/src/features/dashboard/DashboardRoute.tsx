@@ -7,7 +7,6 @@ import {
   Loader2,
   LogIn,
   Play,
-  Plus,
   Square,
   Users
 } from "lucide-react";
@@ -15,7 +14,7 @@ import { type JSX, useMemo } from "react";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
+import { PageFrame, Surface } from "../../components/ui/patterns";
 import { formatAuthFlowState } from "../../app/statusUtils";
 import type { SidebarFilter } from "../../app/types";
 import type { Translator } from "../../i18n";
@@ -128,23 +127,6 @@ function DashboardRoute({
 
   return (
     <PageFrame>
-      <PageHeader
-        title={t("dashboard.title")}
-        description={t("dashboard.description")}
-        actions={
-          <>
-            <Button className="gap-1.5" type="button" variant="outline" onClick={onNewRole}>
-              <Plus size={14} />
-              {t("roles.newRole")}
-            </Button>
-            <Button className="gap-1.5" type="button" variant="outline" onClick={onCreateWorkspace}>
-              <Plus size={14} />
-              {t("workspaces.newWorkspace")}
-            </Button>
-          </>
-        }
-      />
-
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={Users}

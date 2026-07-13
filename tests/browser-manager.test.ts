@@ -68,19 +68,37 @@ describe("BrowserManager game host windows", () => {
     expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
   });
 
-  it("focuses an existing single-role host instead of opening another window", async () => {
-    const harness = createHarness();
+  it("applies browser font preferences before creating a new role view", async () => {
+    const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
+    const harness = createHarness({ applyBrowserFonts });
 
     await harness.manager.launch(role);
+
+    expect(applyBrowserFonts).toHaveBeenCalledWith(role, createRoleSessionPartition(role.id));
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.createView.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("focuses an existing single-role host instead of opening another window", async () => {
+    const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
+    const harness = createHarness({ applyBrowserFonts });
+
+    await harness.manager.launch(role);
+    applyBrowserFonts.mockClear();
+    harness.views[0].webContents.loadURL.mockClear();
     await harness.manager.launch(role);
 
     expect(harness.createHostWindow).toHaveBeenCalledTimes(1);
     expect(harness.createView).toHaveBeenCalledTimes(1);
+    expect(applyBrowserFonts).not.toHaveBeenCalled();
+    expect(harness.views[0].webContents.loadURL).not.toHaveBeenCalled();
     expect(harness.hosts[0].focus).toHaveBeenCalledTimes(2);
   });
 
   it("lays out workspace roles edge-to-edge using normalized rectangles", async () => {
-    const harness = createHarness();
+    const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
+    const harness = createHarness({ applyBrowserFonts });
     const secondRole = createRole("role-2", "Alt");
 
     await harness.manager.launchWorkspace(workspace, [
@@ -96,6 +114,11 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].setBounds).toHaveBeenCalledWith({ x: 600, y: 0, width: 600, height: 800 });
     expect(harness.views[0].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
     expect(harness.views[1].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
+    expect(applyBrowserFonts).toHaveBeenCalledWith(role, createRoleSessionPartition(role.id));
+    expect(applyBrowserFonts).toHaveBeenCalledWith(secondRole, createRoleSessionPartition(secondRole.id));
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.createView.mock.invocationCallOrder[0]
+    );
   });
 
   it("draws a six-pixel black divider that is entirely draggable", async () => {
@@ -417,6 +440,7 @@ function createRole(id: string, name: string): Role {
 }
 
 function createHarness(options: {
+  applyBrowserFonts?: ReturnType<typeof vi.fn>;
   snapshotsByView?: Array<{ bodyText: string; localStorage: Record<string, string> }>;
 } = {}) {
   const hosts: ReturnType<typeof createMockHost>[] = [];
@@ -441,6 +465,7 @@ function createHarness(options: {
   };
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
   const manager = new BrowserManager(roleStore, {
+    ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
     createHostWindow,
     createView,
     dividerPreloadPath: "/app/out/preload/divider.cjs",

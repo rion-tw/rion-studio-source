@@ -9,7 +9,7 @@ import type { MacroStore } from "../src/main/macros/MacroStore";
 import type { RoleStore } from "../src/main/roles/RoleStore";
 import type { AppUpdateManager } from "../src/main/updates/AppUpdateManager";
 import type { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
-import type { LaunchWorkspace, Macro, Role } from "../src/shared/types";
+import type { GameBrowserSettings, LaunchWorkspace, Macro, Role, SystemFontFamily } from "../src/shared/types";
 
 const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>()
@@ -370,6 +370,82 @@ describe("registerIpcHandlers macro handlers", () => {
   });
 });
 
+describe("registerIpcHandlers game browser settings handlers", () => {
+  let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
+  let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
+  let browserManager: Pick<BrowserManager, "listStatuses" | "on" | "stop">;
+  let authManager: Pick<AuthManager, "listStatuses" | "on">;
+  let gameBrowserSettingsStore: {
+    getSettings: ReturnType<typeof vi.fn>;
+    updateSettings: ReturnType<typeof vi.fn>;
+  };
+  let systemFontService: {
+    listFonts: ReturnType<typeof vi.fn>;
+  };
+  const settings: GameBrowserSettings = {
+    fonts: {
+      families: {
+        fixed: "Courier New",
+        standard: "Arial"
+      },
+      mode: "custom"
+    }
+  };
+  const fonts: SystemFontFamily[] = [
+    { family: "Arial", label: "Arial" },
+    { family: "Courier New", label: "Courier New" }
+  ];
+
+  beforeEach(() => {
+    handlers.clear();
+    roleStore = {
+      deleteRole: vi.fn().mockResolvedValue(undefined),
+      getRole: vi.fn().mockResolvedValue(authenticatedRole)
+    };
+    workspaceStore = {
+      clearRole: vi.fn().mockResolvedValue(undefined),
+      getWorkspace: vi.fn().mockResolvedValue(workspace)
+    };
+    browserManager = {
+      listStatuses: vi.fn(() => []),
+      on: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined)
+    };
+    authManager = {
+      listStatuses: vi.fn(() => []),
+      on: vi.fn()
+    };
+    gameBrowserSettingsStore = {
+      getSettings: vi.fn().mockResolvedValue(settings),
+      updateSettings: vi.fn().mockResolvedValue(settings)
+    };
+    systemFontService = {
+      listFonts: vi.fn().mockResolvedValue(fonts)
+    };
+
+    registerIpcHandlers(
+      roleStore as RoleStore,
+      workspaceStore as LaunchWorkspaceStore,
+      browserManager as BrowserManager,
+      authManager as AuthManager,
+      {
+        gameBrowserSettingsStore,
+        systemFontService
+      }
+    );
+  });
+
+  it("exposes get, update, and font list handlers", async () => {
+    await expect(handlers.get(IPC_CHANNELS.gameBrowserSettingsGet)?.({})).resolves.toEqual(settings);
+    await expect(handlers.get(IPC_CHANNELS.gameBrowserSettingsUpdate)?.({}, settings)).resolves.toEqual(settings);
+    await expect(handlers.get(IPC_CHANNELS.systemFontsList)?.({})).resolves.toEqual(fonts);
+
+    expect(gameBrowserSettingsStore.getSettings).toHaveBeenCalledTimes(1);
+    expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(settings);
+    expect(systemFontService.listFonts).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("registerIpcHandlers update handlers", () => {
   let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
@@ -452,6 +528,10 @@ describe("registerIpcHandlers portable data handlers", () => {
     exportData: ReturnType<typeof vi.fn>;
     previewImport: ReturnType<typeof vi.fn>;
   };
+  let gameBrowserSettingsStore: {
+    getSettings: ReturnType<typeof vi.fn>;
+    updateSettings: ReturnType<typeof vi.fn>;
+  };
   let onMacrosChanged: ReturnType<typeof vi.fn>;
   let onRolesChanged: ReturnType<typeof vi.fn>;
   let onWorkspacesChanged: ReturnType<typeof vi.fn>;
@@ -480,6 +560,10 @@ describe("registerIpcHandlers portable data handlers", () => {
       exportData: vi.fn().mockResolvedValue({ filePath: "/tmp/rion.json", roleCount: 1, workspaceCount: 0, macroCount: 0 }),
       previewImport: vi.fn().mockResolvedValue({ importId: "import-1", roleCount: 1, workspaceCount: 1, macroCount: 1, warnings: [] })
     };
+    gameBrowserSettingsStore = {
+      getSettings: vi.fn(),
+      updateSettings: vi.fn().mockResolvedValue(undefined)
+    };
     onMacrosChanged = vi.fn();
     onRolesChanged = vi.fn();
     onWorkspacesChanged = vi.fn();
@@ -490,6 +574,7 @@ describe("registerIpcHandlers portable data handlers", () => {
       browserManager as BrowserManager,
       authManager as AuthManager,
       {
+        gameBrowserSettingsStore,
         onMacrosChanged,
         onRolesChanged,
         onWorkspacesChanged,
@@ -519,5 +604,30 @@ describe("registerIpcHandlers portable data handlers", () => {
     expect(onRolesChanged).toHaveBeenCalledTimes(1);
     expect(onWorkspacesChanged).toHaveBeenCalledTimes(1);
     expect(onMacrosChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies imported game browser settings after portable import", async () => {
+    const importedSettings: GameBrowserSettings = {
+      fonts: {
+        families: {
+          math: "Noto Sans Math",
+          standard: "Arial"
+        },
+        mode: "custom"
+      }
+    };
+    portableDataManager.applyImport.mockResolvedValueOnce({
+      macroCount: 0,
+      preferences: {
+        gameBrowserSettings: importedSettings
+      },
+      roleCount: 0,
+      warnings: [],
+      workspaceCount: 0
+    });
+
+    await handlers.get(IPC_CHANNELS.portableImportApply)?.({}, "import-1");
+
+    expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(importedSettings);
   });
 });

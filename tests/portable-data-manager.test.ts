@@ -56,6 +56,16 @@ describe("PortableDataManager", () => {
 
     const result = await manager.exportData({
       preferences: {
+        gameBrowserSettings: {
+          fonts: {
+            families: {
+              fixed: "Courier New",
+              math: "Noto Sans Math",
+              standard: "Arial"
+            },
+            mode: "custom"
+          }
+        },
         language: "zh-TW",
         roleDefaults: {
           windowWidth: 1920,
@@ -73,6 +83,16 @@ describe("PortableDataManager", () => {
       schemaVersion: 1,
       appVersion: "1.2.3",
       preferences: {
+        gameBrowserSettings: {
+          fonts: {
+            families: {
+              fixed: "Courier New",
+              math: "Noto Sans Math",
+              standard: "Arial"
+            },
+            mode: "custom"
+          }
+        },
         language: "zh-TW",
         roleDefaults: {
           windowWidth: 1920,
@@ -120,6 +140,14 @@ describe("PortableDataManager", () => {
       workspaceCount: 1,
       macroCount: 1,
       preferences: {
+        gameBrowserSettings: {
+          fonts: {
+            families: {
+              standard: "Missing But Valid Font"
+            },
+            mode: "custom"
+          }
+        },
         language: "ja",
         roleDefaults: {
           windowWidth: 1280,
@@ -147,6 +175,14 @@ describe("PortableDataManager", () => {
       workspaceCount: 1,
       macroCount: 1,
       preferences: {
+        gameBrowserSettings: {
+          fonts: {
+            families: {
+              standard: "Missing But Valid Font"
+            },
+            mode: "custom"
+          }
+        },
         roleDefaults: {
           windowWidth: 1280,
           windowHeight: 720,
@@ -237,6 +273,45 @@ describe("PortableDataManager", () => {
       }
     });
   });
+
+  it("normalizes invalid portable browser font settings without blocking import", async () => {
+    const importPath = join(baseDir, "invalid-browser-fonts.json");
+    const fixture = createPortableFixture();
+    fixture.preferences = {
+      gameBrowserSettings: {
+        fonts: {
+          families: {
+            fixed: "Bad\u0000Font",
+            math: "Noto Sans Math",
+            standard: "  Missing   But   Valid  Font  "
+          },
+          mode: "custom"
+        }
+      }
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+
+    const manager = createManager({
+      importPath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await expect(manager.previewImport()).resolves.toMatchObject({
+      preferences: {
+        gameBrowserSettings: {
+          fonts: {
+            families: {
+              math: "Noto Sans Math",
+              standard: "Missing But Valid Font"
+            },
+            mode: "custom"
+          }
+        }
+      }
+    });
+  });
 });
 
 function createManager({
@@ -279,6 +354,14 @@ function createPortableFixture(): RionPortableDataV1 {
     exportedAt: "2026-07-13T09:00:00.000Z",
     appVersion: "1.0.0",
     preferences: {
+      gameBrowserSettings: {
+        fonts: {
+          families: {
+            standard: "Missing But Valid Font"
+          },
+          mode: "custom"
+        }
+      },
       language: "ja",
       roleDefaults: {
         windowWidth: 1280,

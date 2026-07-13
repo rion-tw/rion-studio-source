@@ -1,5 +1,5 @@
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
-import { lazy, Suspense, type JSX, useCallback, useEffect } from "react";
+import { lazy, Suspense, type JSX, useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 
 import appIconUrl from "./assets/app-icon.png";
@@ -20,12 +20,15 @@ import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
 import type { Language, Translator } from "./i18n";
+import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import type {
+  GameBrowserSettings,
   MacroEditorRequest,
   PortableExportInput,
   PortableExportResult,
   PortableImportPreview,
-  PortableImportResult
+  PortableImportResult,
+  SystemFontFamily
 } from "../../shared/types";
 
 const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
@@ -40,11 +43,35 @@ export function App(): JSX.Element {
   const data = useAppData();
   const preferences = usePreferences();
   const hasBridge = Boolean(window.rionStudio);
+  const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
+  const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
     enabled: hasBridge,
     onError: data.setError
   });
   const navigateToMacros = useCallback(() => navigate("/macros"), [navigate]);
+  const updateGameBrowserSettings = useCallback(async (settings: GameBrowserSettings): Promise<GameBrowserSettings> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+
+    const nextSettings = await window.rionStudio.updateGameBrowserSettings(settings);
+    setGameBrowserSettings(nextSettings);
+    return nextSettings;
+  }, []);
+  const loadSystemFonts = useCallback(async (): Promise<SystemFontFamily[]> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+
+    if (systemFonts.length > 0) {
+      return systemFonts;
+    }
+
+    const nextFonts = await window.rionStudio.listSystemFonts();
+    setSystemFonts(nextFonts);
+    return nextFonts;
+  }, [systemFonts]);
   const exportPortableData = useCallback(async (input: PortableExportInput): Promise<PortableExportResult | null> => {
     if (!window.rionStudio) {
       throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
@@ -78,11 +105,35 @@ export function App(): JSX.Element {
         preferences.handleRoleDefaultsChange(result.preferences.roleDefaults);
       }
 
+      if (result.preferences?.gameBrowserSettings) {
+        setGameBrowserSettings(result.preferences.gameBrowserSettings);
+      }
+
       await data.loadData();
       return result;
     },
     [data, preferences]
   );
+
+  useEffect(() => {
+    if (!hasBridge || data.initialLoadState !== "ready") {
+      return;
+    }
+
+    let isDisposed = false;
+    void window.rionStudio
+      .getGameBrowserSettings()
+      .then((nextSettings) => {
+        if (!isDisposed) {
+          setGameBrowserSettings(nextSettings);
+        }
+      })
+      .catch(data.setError);
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [data.initialLoadState, data.setError, hasBridge]);
 
   const roleWorkflow = useRoleWorkflow({
     loadData: data.loadData,
@@ -326,6 +377,10 @@ export function App(): JSX.Element {
               path="/settings"
               element={
                 <SettingsRoute
+                  gameBrowserSettings={gameBrowserSettings}
+                  hasRunningRoles={data.statuses.some(
+                    (status) => status.state === "launching" || status.state === "running"
+                  )}
                   language={preferences.language}
                   roleDefaults={preferences.roleDefaults}
                   resolvedTheme={preferences.resolvedTheme}
@@ -337,6 +392,8 @@ export function App(): JSX.Element {
                   onCheckForUpdates={updates.checkForUpdates}
                   onError={data.setError}
                   onExportPortableData={exportPortableData}
+                  onGameBrowserSettingsChange={updateGameBrowserSettings}
+                  onLoadSystemFonts={loadSystemFonts}
                   onPreviewPortableImport={previewPortableImport}
                   onApplyPortableImport={applyPortableImport}
                   onOpenUpdateDownload={updates.openUpdateDownload}
@@ -344,6 +401,7 @@ export function App(): JSX.Element {
                   onLanguageChange={preferences.handleLanguageChange}
                   onRoleDefaultsChange={preferences.handleRoleDefaultsChange}
                   onThemeModeChange={preferences.handleThemeModeChange}
+                  systemFonts={systemFonts}
                 />
               }
             />

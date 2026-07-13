@@ -161,6 +161,22 @@ describe("AuthSessionChecker", () => {
       })
     );
   });
+
+  it("applies browser fonts to the Playwright user data dir before checking the session", async () => {
+    const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
+    const harness = createCheckHarness(createStorageSnapshot({ cookies: { sid: "session-1" } }), role.launchUrl, {
+      applyBrowserFonts
+    });
+
+    await expect(harness.checker.check(role)).resolves.toMatchObject({
+      authState: "authenticated"
+    });
+
+    expect(applyBrowserFonts).toHaveBeenCalledWith("/tmp/rion-studio/role-1/browser");
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.launchPersistentContext.mock.invocationCallOrder[0]
+    );
+  });
 });
 
 function classifyStorageSnapshot(snapshot: LoginStorageSnapshot): ReturnType<typeof classifyAuthSession> {
@@ -186,6 +202,7 @@ function createCheckHarness(
   snapshot: LoginStorageSnapshot,
   finalUrl = role.launchUrl,
   options: {
+    applyBrowserFonts?: ReturnType<typeof vi.fn>;
     executablePath?: string;
   } = {}
 ): {
@@ -235,6 +252,7 @@ function createCheckHarness(
 
   return {
     checker: new AuthSessionChecker(roleStore, {
+      applyBrowserFonts: options.applyBrowserFonts,
       launchPersistentContext,
       executablePathResolver: options.executablePath ? vi.fn().mockResolvedValue(options.executablePath) : undefined
     }),

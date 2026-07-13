@@ -9,6 +9,7 @@ import type {
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
   CreateRoleInput,
+  GameBrowserSettings,
   MacroEditorRequest,
   MacroRunStatus,
   PortableExportInput,
@@ -19,6 +20,8 @@ import type {
 } from "../../shared/types";
 import type { AuthManager } from "../auth/AuthManager";
 import type { BrowserManager } from "../browser/BrowserManager";
+import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
+import type { SystemFontService } from "../game-browser/SystemFontService";
 import type { MacroManager } from "../macros/MacroManager";
 import type { MacroOverlayRequest } from "../macros/MacroOverlayInjector";
 import type { MacroStore } from "../macros/MacroStore";
@@ -30,6 +33,8 @@ import { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 interface RegisterIpcHandlersOptions {
   macroManager?: MacroManager;
   macroStore?: MacroStore;
+  gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings" | "updateSettings">;
+  systemFontService?: Pick<SystemFontService, "listFonts">;
   updateManager?: AppUpdateManager;
   consumePendingMacroEditorRequest?: () => MacroEditorRequest | null;
   onMacrosChanged?: () => void;
@@ -109,10 +114,37 @@ export function registerIpcHandlers(
     }
 
     const result = await options.portableDataManager.applyImport(importId);
+    if (result.preferences?.gameBrowserSettings) {
+      await options.gameBrowserSettingsStore?.updateSettings(result.preferences.gameBrowserSettings);
+    }
     options.onRolesChanged?.();
     options.onWorkspacesChanged?.();
     options.onMacrosChanged?.();
     return result;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsGet, () => {
+    if (!options.gameBrowserSettingsStore) {
+      throw new Error("Game browser settings are not available.");
+    }
+
+    return options.gameBrowserSettingsStore.getSettings();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsUpdate, (_event, settings: GameBrowserSettings) => {
+    if (!options.gameBrowserSettingsStore) {
+      throw new Error("Game browser settings are not available.");
+    }
+
+    return options.gameBrowserSettingsStore.updateSettings(settings);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.systemFontsList, () => {
+    if (!options.systemFontService) {
+      throw new Error("System font list is not available.");
+    }
+
+    return options.systemFontService.listFonts();
   });
 
   ipcMain.handle(IPC_CHANNELS.appVersion, () => options.updateManager?.getStatus().currentVersion ?? "");

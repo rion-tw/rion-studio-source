@@ -6,6 +6,7 @@ import type {
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
   CreateRoleInput,
+  GameBrowserSettings,
   LaunchWorkspace,
   Macro,
   MacroEditorRequest,
@@ -17,6 +18,7 @@ import type {
   Role,
   RolePaths,
   RoleStatus,
+  SystemFontFamily,
   UpdateLaunchWorkspaceInput,
   UpdateMacroInput,
   UpdateRoleInput
@@ -51,6 +53,9 @@ export interface RionStudioApi {
   exportPortableData: (input?: PortableExportInput) => Promise<PortableExportResult | null>;
   previewPortableImport: () => Promise<PortableImportPreview | null>;
   applyPortableImport: (importId: string) => Promise<PortableImportResult>;
+  getGameBrowserSettings: () => Promise<GameBrowserSettings>;
+  updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  listSystemFonts: () => Promise<SystemFontFamily[]>;
   consumePendingMacroEditorRequest: () => Promise<MacroEditorRequest | null>;
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;
   getAppVersion: () => Promise<string>;

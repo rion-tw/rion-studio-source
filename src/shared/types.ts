@@ -201,7 +201,25 @@ export interface RoleDefaults {
   launchPreset: LaunchPreset;
 }
 
+export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
+export type BrowserFontSettingsMode = "default" | "custom";
+
+export interface BrowserFontSettings {
+  mode: BrowserFontSettingsMode;
+  families: Partial<Record<BrowserFontFamilyRole, string>>;
+}
+
+export interface GameBrowserSettings {
+  fonts: BrowserFontSettings;
+}
+
+export interface SystemFontFamily {
+  family: string;
+  label: string;
+}
+
 export interface PortablePreferences {
+  gameBrowserSettings?: GameBrowserSettings;
   language?: AppLanguage;
   roleDefaults?: RoleDefaults;
   themeMode?: AppThemeMode;

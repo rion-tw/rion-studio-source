@@ -1,4 +1,4 @@
-import { Download, FileJson, Laptop, Moon, RefreshCw, RotateCcw, Sun, Upload } from "lucide-react";
+import { Download, FileJson, Laptop, Moon, RefreshCw, RotateCcw, Sun, Type as TypeIcon, Upload } from "lucide-react";
 import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -23,19 +23,30 @@ import {
 } from "../../app/roleDefaults";
 import type { ResolvedTheme, ThemeMode } from "../../app/types";
 import { languages, type Language, type TranslationKey, type Translator } from "../../i18n";
+import {
+  browserFontFamilyRoles,
+  DEFAULT_GAME_BROWSER_SETTINGS,
+  normalizeGameBrowserSettings
+} from "../../../../shared/browserFonts";
 import type {
   AppUpdateStatus,
+  BrowserFontFamilyRole,
+  BrowserFontSettingsMode,
+  GameBrowserSettings,
   LaunchPreset,
   PortableExportInput,
   PortableExportResult,
   PortableImportPreview,
   PortableImportResult,
   PortableImportWarning,
-  RoleDefaults
+  RoleDefaults,
+  SystemFontFamily
 } from "../../../../shared/types";
 import { readSettingsSection, type SettingsSectionId } from "./settingsNavigation";
 
 interface SettingsViewProps {
+  gameBrowserSettings: GameBrowserSettings;
+  hasRunningRoles: boolean;
   language: Language;
   roleDefaults: RoleDefaults;
   resolvedTheme: ResolvedTheme;
@@ -47,6 +58,8 @@ interface SettingsViewProps {
   onCheckForUpdates: () => Promise<void>;
   onError: (error: unknown) => void;
   onExportPortableData: (input: PortableExportInput) => Promise<PortableExportResult | null>;
+  onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  onLoadSystemFonts: () => Promise<SystemFontFamily[]>;
   onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
   onApplyPortableImport: (importId: string) => Promise<PortableImportResult>;
   onOpenUpdateDownload: () => Promise<void>;
@@ -54,6 +67,7 @@ interface SettingsViewProps {
   onLanguageChange: (language: Language) => void;
   onRoleDefaultsChange: (roleDefaults: RoleDefaults) => void;
   onThemeModeChange: (themeMode: ThemeMode) => void;
+  systemFonts: SystemFontFamily[];
 }
 
 interface SettingsViewBaseProps extends SettingsViewProps {
@@ -74,8 +88,18 @@ const settingsSectionDescriptionKeys: Record<SettingsSectionId, TranslationKey> 
   updates: "settings.updatesDescription"
 };
 
+const browserFontRoleLabelKeys: Record<BrowserFontFamilyRole, TranslationKey> = {
+  fixed: "settings.browserFonts.fixed",
+  math: "settings.browserFonts.math",
+  sansserif: "settings.browserFonts.sansSerif",
+  serif: "settings.browserFonts.serif",
+  standard: "settings.browserFonts.standard"
+};
+
 function SettingsViewBase({
   activeSection,
+  gameBrowserSettings,
+  hasRunningRoles,
   language,
   roleDefaults,
   resolvedTheme,
@@ -87,14 +111,19 @@ function SettingsViewBase({
   onCheckForUpdates,
   onError,
   onExportPortableData,
+  onGameBrowserSettingsChange,
+  onLoadSystemFonts,
   onPreviewPortableImport,
   onApplyPortableImport,
   onOpenUpdateDownload,
   onInstallDownloadedUpdate,
   onLanguageChange,
   onRoleDefaultsChange,
-  onThemeModeChange
+  onThemeModeChange,
+  systemFonts
 }: SettingsViewBaseProps): JSX.Element {
+  const [isBrowserFontModalOpen, setIsBrowserFontModalOpen] = useState(false);
+  const [browserFontMessage, setBrowserFontMessage] = useState<string | null>(null);
   const [portableImportPreview, setPortableImportPreview] = useState<PortableImportPreview | null>(null);
   const [portableMessage, setPortableMessage] = useState<string | null>(null);
   const [isPortableBusy, setIsPortableBusy] = useState(false);
@@ -116,6 +145,7 @@ function SettingsViewBase({
       const result = await onExportPortableData({
         preferences: {
           language,
+          gameBrowserSettings,
           roleDefaults,
           themeMode
         }
@@ -164,6 +194,14 @@ function SettingsViewBase({
     } finally {
       setIsPortableBusy(false);
     }
+  }
+
+  async function handleGameBrowserSettingsChange(settings: GameBrowserSettings): Promise<void> {
+    await onGameBrowserSettingsChange(settings);
+    setBrowserFontMessage(
+      hasRunningRoles ? t("settings.browserFontsRestartNotice") : t("settings.browserFontsSaved")
+    );
+    setIsBrowserFontModalOpen(false);
   }
 
   return (
@@ -246,6 +284,16 @@ function SettingsViewBase({
                   <option value="performance">{t(presetLabelKeys.performance)}</option>
                   <option value="balanced">{t(presetLabelKeys.balanced)}</option>
                 </Select>
+              }
+            />
+            <SettingsRow
+              title={t("settings.browserFonts")}
+              description={browserFontMessage ?? formatBrowserFontSettingsSummary(gameBrowserSettings, t)}
+              control={
+                <Button type="button" variant="outline" onClick={() => setIsBrowserFontModalOpen(true)}>
+                  <TypeIcon size={14} />
+                  {t("settings.browserFontsCustomize")}
+                </Button>
               }
             />
           </SettingsSection>
@@ -333,6 +381,18 @@ function SettingsViewBase({
           t={t}
           onCancel={() => setPortableImportPreview(null)}
           onConfirm={() => void handleApplyPortableImport()}
+        />
+      ) : null}
+
+      {isBrowserFontModalOpen ? (
+        <BrowserFontsDialog
+          settings={gameBrowserSettings}
+          systemFonts={systemFonts}
+          t={t}
+          onCancel={() => setIsBrowserFontModalOpen(false)}
+          onError={onError}
+          onLoadSystemFonts={onLoadSystemFonts}
+          onSave={handleGameBrowserSettingsChange}
         />
       ) : null}
     </PageFrame>
@@ -456,6 +516,236 @@ function DefaultWindowControl({
   );
 }
 
+interface BrowserFontsDialogProps {
+  settings: GameBrowserSettings;
+  systemFonts: SystemFontFamily[];
+  t: Translator;
+  onCancel: () => void;
+  onError: (error: unknown) => void;
+  onLoadSystemFonts: () => Promise<SystemFontFamily[]>;
+  onSave: (settings: GameBrowserSettings) => Promise<void>;
+}
+
+function BrowserFontsDialog({
+  settings,
+  systemFonts,
+  t,
+  onCancel,
+  onError,
+  onLoadSystemFonts,
+  onSave
+}: BrowserFontsDialogProps): JSX.Element {
+  const [draft, setDraft] = useState<GameBrowserSettings>(() => normalizeGameBrowserSettings(settings));
+  const [availableFonts, setAvailableFonts] = useState<SystemFontFamily[]>(systemFonts);
+  const [isLoadingFonts, setIsLoadingFonts] = useState(systemFonts.length === 0);
+  const [isSaving, setIsSaving] = useState(false);
+  const isCustom = draft.fonts.mode === "custom";
+  const fontOptions = getBrowserFontOptions(availableFonts, draft);
+
+  useEffect(() => {
+    let isDisposed = false;
+    setIsLoadingFonts(true);
+
+    void onLoadSystemFonts()
+      .then((fonts) => {
+        if (!isDisposed) {
+          setAvailableFonts(fonts);
+        }
+      })
+      .catch(onError)
+      .finally(() => {
+        if (!isDisposed) {
+          setIsLoadingFonts(false);
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [onError, onLoadSystemFonts]);
+
+  function handleModeChange(mode: BrowserFontSettingsMode): void {
+    setDraft((current) =>
+      normalizeGameBrowserSettings({
+        fonts: {
+          families: mode === "custom" ? current.fonts.families : {},
+          mode
+        }
+      })
+    );
+  }
+
+  function handleFontFamilyChange(role: BrowserFontFamilyRole, value: string): void {
+    setDraft((current) =>
+      normalizeGameBrowserSettings({
+        fonts: {
+          families: {
+            ...current.fonts.families,
+            [role]: value
+          },
+          mode: "custom"
+        }
+      })
+    );
+  }
+
+  async function handleSave(): Promise<void> {
+    setIsSaving(true);
+
+    try {
+      await onSave(draft);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
+      <Surface
+        className="max-h-full w-full max-w-[680px] overflow-hidden"
+        radius="lg"
+        variant="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="browser-fonts-title"
+      >
+        <div className="glass-divider border-b px-5 py-4">
+          <h2 id="browser-fonts-title" className="text-[15px] font-semibold leading-6 text-foreground">
+            {t("settings.browserFonts")}
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.browserFontsDescription")}</p>
+        </div>
+
+        <div className="max-h-[min(68vh,620px)] overflow-auto px-5 py-4">
+          <div className="grid gap-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold leading-5 text-foreground">
+                  {t("settings.browserFontsMode")}
+                </p>
+                <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                  {t("settings.browserFontsModeDescription")}
+                </p>
+              </div>
+              <SegmentedControl<BrowserFontSettingsMode>
+                className="settings-menu-control grid-cols-2"
+                items={[
+                  { value: "default", label: t("settings.browserFontsMode.default") },
+                  { value: "custom", label: t("settings.browserFontsMode.custom") }
+                ]}
+                value={draft.fonts.mode}
+                onValueChange={handleModeChange}
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {browserFontFamilyRoles.map((role) => (
+                <BrowserFontFamilyInput
+                  key={role}
+                  disabled={!isCustom}
+                  fontOptions={fontOptions}
+                  label={t(browserFontRoleLabelKeys[role])}
+                  role={role}
+                  value={draft.fonts.families[role] ?? ""}
+                  onValueChange={handleFontFamilyChange}
+                />
+              ))}
+            </div>
+
+            <BrowserFontsPreview settings={draft} t={t} />
+
+            {isLoadingFonts ? (
+              <p className="text-xs leading-5 text-muted-foreground">{t("settings.browserFontsLoading")}</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="glass-divider flex flex-wrap justify-end gap-2 border-t px-5 py-4">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isSaving}
+            onClick={() => setDraft(DEFAULT_GAME_BROWSER_SETTINGS)}
+          >
+            <RotateCcw size={14} />
+            {t("settings.browserFontsReset")}
+          </Button>
+          <Button type="button" variant="outline" disabled={isSaving} onClick={onCancel}>
+            {t("settings.browserFontsCancel")}
+          </Button>
+          <Button type="button" disabled={isSaving} onClick={() => void handleSave()}>
+            {t("settings.browserFontsSave")}
+          </Button>
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+interface BrowserFontFamilyInputProps {
+  disabled: boolean;
+  fontOptions: SystemFontFamily[];
+  label: string;
+  role: BrowserFontFamilyRole;
+  value: string;
+  onValueChange: (role: BrowserFontFamilyRole, value: string) => void;
+}
+
+function BrowserFontFamilyInput({
+  disabled,
+  fontOptions,
+  label,
+  role,
+  value,
+  onValueChange
+}: BrowserFontFamilyInputProps): JSX.Element {
+  const listId = `browser-font-${role}-options`;
+
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-xs font-semibold leading-5 text-foreground">{label}</span>
+      <Input
+        list={listId}
+        disabled={disabled}
+        placeholder={label}
+        value={value}
+        onChange={(event) => onValueChange(role, event.target.value)}
+      />
+      <datalist id={listId}>
+        {fontOptions.map((font) => (
+          <option key={`${role}-${font.family}`} value={font.family}>
+            {font.label}
+          </option>
+        ))}
+      </datalist>
+    </label>
+  );
+}
+
+function BrowserFontsPreview({ settings, t }: { settings: GameBrowserSettings; t: Translator }): JSX.Element {
+  const families = settings.fonts.families;
+  const standardFamily = families.standard || families.sansserif || families.serif || undefined;
+  const fixedFamily = families.fixed || undefined;
+  const mathFamily = families.math || standardFamily;
+
+  return (
+    <div className="glass-inset grid gap-2 rounded-md px-3 py-3 text-xs leading-5 text-muted-foreground">
+      <p className="font-semibold text-foreground">{t("settings.browserFontsPreview")}</p>
+      <p style={{ fontFamily: standardFamily }}>{t("settings.browserFontsPreviewText")}</p>
+      <p style={{ fontFamily: fixedFamily }}>0123456789 ABC abc</p>
+      <div
+        style={{ fontFamily: mathFamily }}
+        dangerouslySetInnerHTML={{
+          __html:
+            '<math style="font: inherit;"><mrow><msqrt><mrow><mi>x</mi><mo>+</mo><mn>1</mn></mrow></msqrt><mo>=</mo><mi>y</mi></mrow></math>'
+        }}
+      />
+    </div>
+  );
+}
+
 interface SettingsSectionProps {
   children: ReactNode;
 }
@@ -498,6 +788,36 @@ function ReadOnlyValue({ value }: { value: string }): JSX.Element {
 
 function formatRoleWindowSize(width: number, height: number): string {
   return `${width} x ${height}`;
+}
+
+function formatBrowserFontSettingsSummary(settings: GameBrowserSettings, t: Translator): string {
+  if (settings.fonts.mode === "default") {
+    return t("settings.browserFontsDefault");
+  }
+
+  const selectedFamilies = browserFontFamilyRoles.map((role) => settings.fonts.families[role]).filter(Boolean);
+  return selectedFamilies.length > 0
+    ? selectedFamilies.join(" / ")
+    : t("settings.browserFontsCustomEmpty");
+}
+
+function getBrowserFontOptions(
+  systemFonts: SystemFontFamily[],
+  settings: GameBrowserSettings
+): SystemFontFamily[] {
+  const selectedFonts = browserFontFamilyRoles
+    .map((role) => settings.fonts.families[role])
+    .filter((fontFamily): fontFamily is string => Boolean(fontFamily));
+  const fontsByKey = new Map<string, SystemFontFamily>();
+
+  for (const font of [...systemFonts, ...selectedFonts.map((family) => ({ family, label: family }))]) {
+    const key = font.family.toLocaleLowerCase();
+    if (!fontsByKey.has(key)) {
+      fontsByKey.set(key, font);
+    }
+  }
+
+  return [...fontsByKey.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 interface PortableImportDialogProps {

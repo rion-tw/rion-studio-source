@@ -6,6 +6,9 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, sc
 import { AuthManager } from "./auth/AuthManager";
 import { BrowserManager, GAME_DIVIDER_POINTER_CHANNEL } from "./browser/BrowserManager";
 import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
+import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
+import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStore";
+import { SystemFontService } from "./game-browser/SystemFontService";
 import { registerIpcHandlers } from "./ipc/registerHandlers";
 import { MacroManager } from "./macros/MacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
@@ -222,6 +225,12 @@ function initializeApplication(): void {
   const roleStore = new RoleStore(userDataDir);
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
   const macroStore = new MacroStore(userDataDir);
+  const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir);
+  const browserFontApplier = new BrowserFontApplier({
+    appUserDataDir: userDataDir,
+    getSettings: () => gameBrowserSettingsStore.getSettings()
+  });
+  const systemFontService = new SystemFontService();
   const portableDataManager = new PortableDataManager({
     getAppVersion: () => app.getVersion(),
     macroStore,
@@ -244,6 +253,10 @@ function initializeApplication(): void {
     openExternal: (url) => shell.openExternal(url)
   });
   browserManager = new BrowserManager(roleStore, {
+    applyBrowserFonts: async (role, partition) => {
+      const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
+      await browserFontApplier.applyToRoleLaunch(browserUserDataDir, partition);
+    },
     createHostWindow: (options) => new BrowserWindow(options),
     createView: (options) => new WebContentsView(options),
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),
@@ -266,9 +279,11 @@ function initializeApplication(): void {
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
     consumePendingMacroEditorRequest,
+    gameBrowserSettingsStore,
     macroManager,
     macroStore,
     portableDataManager,
+    systemFontService,
     updateManager,
     onMacrosChanged: () => {
       macroOverlayInjector.refreshInstalledOverlays();

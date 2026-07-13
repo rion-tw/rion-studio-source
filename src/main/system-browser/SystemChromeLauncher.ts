@@ -233,12 +233,22 @@ export class CdpClient implements CdpClientLike {
   }
 }
 
+export interface SystemChromeLauncherOptions {
+  applyBrowserFonts?: (userDataDir: string) => Promise<void>;
+}
+
 export class SystemChromeLauncher {
-  constructor(private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">) {}
+  constructor(
+    private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">,
+    private readonly options: SystemChromeLauncherOptions = {}
+  ) {}
 
   async openLoginWindow(role: Role): Promise<SystemChromeLoginSession> {
     const executablePath = findSystemChromeExecutable();
     const browserUserDataDir = await this.roleStore.ensureBrowserUserDataDir(role.id);
+    await this.options.applyBrowserFonts?.(browserUserDataDir).catch((error) => {
+      console.warn("Failed to apply browser font settings before opening Chrome.", error);
+    });
     const child = spawn(executablePath, buildSystemChromeArgs(role, browserUserDataDir), { stdio: "ignore" });
     let isClosed = false;
 

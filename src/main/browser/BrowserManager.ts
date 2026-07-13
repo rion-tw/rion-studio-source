@@ -46,6 +46,7 @@ export type BrowserMacroOverlayInstaller = (role: Role, webContents: WebContents
 export type BeforeRolesStop = (roleIds: string[]) => Promise<void>;
 
 export interface BrowserManagerOptions {
+  applyBrowserFonts?: (role: Role, partition: string) => Promise<void>;
   createHostWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
   dividerPreloadPath: string;
@@ -174,6 +175,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     const host = this.createHost(role.name);
+    await this.applyBrowserFonts(role);
     const session = this.createSession(role, host, FULL_WINDOW_RECT);
 
     try {
@@ -199,6 +201,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     const roleNames = items.map((item) => item.role.name).join(", ");
     const host = this.createHost(`${workspace.name} - ${roleNames}`, workspace.id);
+    await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
     const sessions = items.map((item) => this.createSession(item.role, host, item.rect));
     const zoomFactor = workspace.browserZoomPercent / 100;
 
@@ -221,6 +224,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     if (!session) {
       const host = this.createHost(role.name);
+      await this.applyBrowserFonts(role);
       session = this.createSession(role, host, FULL_WINDOW_RECT);
     } else {
       session.role = role;
@@ -354,12 +358,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private createSession(role: Role, host: GameHostWindow, rect: NormalizedRect): BrowserSession {
+    const partition = createRoleSessionPartition(role.id);
     const view = this.options.createView({
       webPreferences: {
         backgroundThrottling: role.launchPreset !== "performance",
         contextIsolation: true,
         nodeIntegration: false,
-        partition: createRoleSessionPartition(role.id),
+        partition,
         preload: this.options.embeddedPreloadPath,
         sandbox: true
       }
@@ -389,6 +394,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
     this.emitChange();
     return session;
+  }
+
+  private async applyBrowserFonts(role: Role): Promise<void> {
+    if (!this.options.applyBrowserFonts) {
+      return;
+    }
+
+    try {
+      await this.options.applyBrowserFonts(role, createRoleSessionPartition(role.id));
+    } catch (error) {
+      console.warn("Failed to apply browser font settings.", error);
+    }
   }
 
   private async createHostDividers(host: GameHostWindow): Promise<void> {

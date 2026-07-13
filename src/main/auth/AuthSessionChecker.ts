@@ -32,11 +32,13 @@ export type BrowserExecutablePathResolver = () => string | Promise<string>;
 export interface AuthSessionCheckerOptions {
   launchPersistentContext?: LaunchPersistentContext;
   executablePathResolver?: BrowserExecutablePathResolver;
+  applyBrowserFonts?: (userDataDir: string) => Promise<void>;
 }
 
 export class AuthSessionChecker {
   private readonly launchPersistentContext: LaunchPersistentContext;
   private readonly executablePathResolver?: BrowserExecutablePathResolver;
+  private readonly applyBrowserFonts?: (userDataDir: string) => Promise<void>;
 
   constructor(
     private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">,
@@ -45,10 +47,14 @@ export class AuthSessionChecker {
     const normalizedOptions = typeof options === "function" ? { launchPersistentContext: options } : options;
     this.launchPersistentContext = normalizedOptions.launchPersistentContext ?? launchCheckContext;
     this.executablePathResolver = normalizedOptions.executablePathResolver;
+    this.applyBrowserFonts = normalizedOptions.applyBrowserFonts;
   }
 
   async check(role: Role): Promise<AuthSessionCheckResult> {
     const browserUserDataDir = await this.roleStore.ensureBrowserUserDataDir(role.id);
+    await this.applyBrowserFonts?.(browserUserDataDir).catch((error) => {
+      console.warn("Failed to apply browser font settings before session check.", error);
+    });
     const executablePath = await this.resolveExecutablePath();
     const context = await withPlaywrightUserDataLockRetry(() =>
       this.launchPersistentContext(browserUserDataDir, buildCheckOptions(role, executablePath))

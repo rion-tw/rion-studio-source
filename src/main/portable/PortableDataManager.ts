@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 
+import { normalizeGameBrowserSettings } from "../../shared/browserFonts";
 import type { MacroStore } from "../macros/MacroStore";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
@@ -11,6 +12,7 @@ import {
   type CreateLaunchWorkspaceInput,
   type CreateMacroInput,
   type CreateRoleInput,
+  type GameBrowserSettings,
   type LaunchPreset,
   type MacroRepeat,
   type MacroStep,
@@ -517,6 +519,7 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
   const preferences = toRecord(value);
   const language = preferences.language;
   const themeMode = preferences.themeMode;
+  const gameBrowserSettings = normalizeOptionalPortableGameBrowserSettings(preferences.gameBrowserSettings);
   const roleDefaults = normalizeOptionalPortableRoleDefaults(preferences.roleDefaults);
   const normalized: PortablePreferences = {};
 
@@ -532,7 +535,21 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
     normalized.roleDefaults = roleDefaults;
   }
 
-  return normalized.language || normalized.themeMode || normalized.roleDefaults ? normalized : undefined;
+  if (gameBrowserSettings) {
+    normalized.gameBrowserSettings = gameBrowserSettings;
+  }
+
+  return normalized.language || normalized.themeMode || normalized.roleDefaults || normalized.gameBrowserSettings
+    ? normalized
+    : undefined;
+}
+
+function normalizeOptionalPortableGameBrowserSettings(value: unknown): GameBrowserSettings | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  return normalizeGameBrowserSettings(value);
 }
 
 function normalizeOptionalPortableRoleDefaults(value: unknown): RoleDefaults | undefined {

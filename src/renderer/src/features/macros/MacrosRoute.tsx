@@ -77,6 +77,21 @@ function MacrosRoute({
     });
   }, [macros, query, roleById, t]);
 
+  if (macros.length === 0) {
+    return (
+      <PageFrame contentClassName="grid min-h-full place-items-center">
+        <EmptyState
+          className="min-h-0"
+          icon={Keyboard}
+          title={t("macros.empty.title")}
+          description={t("macros.empty.description")}
+          actionLabel={t("macros.empty.action")}
+          onAction={onNewMacro}
+        />
+      </PageFrame>
+    );
+  }
+
   return (
     <PageFrame>
       <PageHeader
@@ -105,15 +120,7 @@ function MacrosRoute({
         </div>
       </div>
 
-      {macros.length === 0 ? (
-        <EmptyState
-          icon={Keyboard}
-          title={t("macros.empty.title")}
-          description={t("macros.empty.description")}
-          actionLabel={t("macros.empty.action")}
-          onAction={onNewMacro}
-        />
-      ) : filteredMacros.length === 0 ? (
+      {filteredMacros.length === 0 ? (
         <EmptyState
           icon={Search}
           title={t("macros.noMatches.title")}

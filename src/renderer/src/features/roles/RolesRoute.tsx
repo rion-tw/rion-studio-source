@@ -93,6 +93,21 @@ function RolesView({
     return shouldShowLoginGuidance(authStatus) ? [{ role, authStatus }] : [];
   });
 
+  if (roles.length === 0) {
+    return (
+      <PageFrame contentClassName="grid min-h-full place-items-center">
+        <EmptyState
+          className="min-h-0"
+          icon={Globe2}
+          title={t("roles.empty.title")}
+          description={t("roles.empty.description")}
+          actionLabel={t("roles.empty.action")}
+          onAction={onNewRole}
+        />
+      </PageFrame>
+    );
+  }
+
   return (
     <PageFrame>
       <PageHeader
@@ -137,15 +152,7 @@ function RolesView({
         </p>
       </div>
 
-      {roles.length === 0 ? (
-        <EmptyState
-          icon={Globe2}
-          title={t("roles.empty.title")}
-          description={t("roles.empty.description")}
-          actionLabel={t("roles.empty.action")}
-          onAction={onNewRole}
-        />
-      ) : filteredRoles.length === 0 ? (
+      {filteredRoles.length === 0 ? (
         <EmptyState
           icon={Search}
           title={t("roles.noMatches.title")}

@@ -61,6 +61,21 @@ function LaunchWorkspacesView({
     });
   }, [query, roleById, t, workspaces]);
 
+  if (workspaces.length === 0) {
+    return (
+      <PageFrame contentClassName="grid min-h-full place-items-center">
+        <EmptyState
+          className="min-h-0"
+          icon={LayoutDashboard}
+          title={t("workspaces.empty.title")}
+          description={t("workspaces.empty.description")}
+          actionLabel={t("workspaces.empty.action")}
+          onAction={onCreateWorkspace}
+        />
+      </PageFrame>
+    );
+  }
+
   return (
     <PageFrame>
       <PageHeader
@@ -82,15 +97,7 @@ function LaunchWorkspacesView({
         }
       />
 
-      {workspaces.length === 0 ? (
-        <EmptyState
-          icon={LayoutDashboard}
-          title={t("workspaces.empty.title")}
-          description={t("workspaces.empty.description")}
-          actionLabel={t("workspaces.empty.action")}
-          onAction={onCreateWorkspace}
-        />
-      ) : filteredWorkspaces.length === 0 ? (
+      {filteredWorkspaces.length === 0 ? (
         <EmptyState
           icon={Search}
           title={t("workspaces.noMatches.title")}

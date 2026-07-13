@@ -2,19 +2,28 @@ import { type JSX } from "react";
 import { type LucideIcon } from "lucide-react";
 
 import { Button } from "./ui/button";
-import { IconTile, Surface } from "./ui/patterns";
+import { IconTile } from "./ui/patterns";
+import { cn } from "../lib/utils";
 
 interface EmptyStateProps {
   actionLabel: string;
+  className?: string;
   description: string;
   icon: LucideIcon;
   onAction: () => void;
   title: string;
 }
 
-export function EmptyState({ actionLabel, description, icon: Icon, onAction, title }: EmptyStateProps): JSX.Element {
+export function EmptyState({
+  actionLabel,
+  className,
+  description,
+  icon: Icon,
+  onAction,
+  title
+}: EmptyStateProps): JSX.Element {
   return (
-    <Surface className="grid min-h-[420px] place-items-center border-dashed text-center" padding="lg">
+    <div className={cn("grid min-h-[420px] place-items-center text-center", className)}>
       <div className="max-w-sm">
         <IconTile className="mx-auto" size="lg">
           <Icon size={22} />
@@ -25,6 +34,6 @@ export function EmptyState({ actionLabel, description, icon: Icon, onAction, tit
           {actionLabel}
         </Button>
       </div>
-    </Surface>
+    </div>
   );
 }

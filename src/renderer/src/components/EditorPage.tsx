@@ -8,7 +8,7 @@ import {
 } from "react";
 
 import { Button } from "./ui/button";
-import { Surface } from "./ui/patterns";
+import { PageHeader, Surface } from "./ui/patterns";
 import { cn } from "../lib/utils";
 
 interface EditorPageProps {
@@ -69,48 +69,55 @@ export function EditorPage({
   }, [canSubmit, isSaving, onCancel]);
 
   return (
-    <section className="app-editor-page flex h-full min-h-0 flex-col">
-      <header className="app-editor-toolbar glass-divider shrink-0 border-b px-6 py-4 md:px-8">
-        <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <Button
-              className="mt-0.5"
-              type="button"
-              variant="ghost"
-              size="icon"
-              title={backLabel}
-              aria-label={backLabel}
-              onClick={onCancel}
-              disabled={isSaving}
-            >
-              <ArrowLeft size={16} />
-            </Button>
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold leading-7">{title}</h1>
-              <p className="mt-0.5 text-xs font-medium leading-5 text-muted-foreground">{description}</p>
-            </div>
-          </div>
-          <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-            {saveHint ? <p className="mr-1 text-xs font-medium text-muted-foreground">{saveHint}</p> : null}
-            <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
-              {cancelLabel}
-            </Button>
-            <Button className="min-w-[132px]" type="submit" form="app-editor-form" disabled={isSaving || !canSubmit}>
-              {isSaving ? <Loader2 className="spin" size={16} /> : saveIcon}
-              {saveLabel}
-            </Button>
-          </div>
-        </div>
-      </header>
-
+    <section className="app-editor-page h-full min-h-0">
       <form
         ref={formRef}
         id="app-editor-form"
-        className="min-h-0 flex-1 overflow-auto"
+        className="app-page h-full overflow-auto px-6 py-7 md:px-10 md:py-10"
         onSubmit={onSubmit}
       >
-        <div className={cn("mx-auto grid min-h-full w-full max-w-[1500px] gap-4 px-6 py-6 md:px-8 md:py-8", contentClassName)}>
-          {children}
+        <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-4">
+          <Button
+            className="-ml-2 self-start px-2"
+            type="button"
+            variant="ghost"
+            size="sm"
+            title={backLabel}
+            onClick={onCancel}
+            disabled={isSaving}
+          >
+            <ArrowLeft size={14} />
+            {backLabel}
+          </Button>
+
+          <PageHeader
+            title={title}
+            description={description}
+            actions={
+              <>
+                {saveHint ? (
+                  <p className="flex min-h-8 items-center text-xs font-medium text-muted-foreground">
+                    {saveHint}
+                  </p>
+                ) : null}
+                <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
+                  {cancelLabel}
+                </Button>
+                <Button
+                  className="min-w-[132px]"
+                  type="submit"
+                  disabled={isSaving || !canSubmit}
+                >
+                  {isSaving ? <Loader2 className="spin" size={16} /> : saveIcon}
+                  {saveLabel}
+                </Button>
+              </>
+            }
+          />
+
+          <div className={cn("grid gap-4", contentClassName)}>
+            {children}
+          </div>
         </div>
       </form>
     </section>

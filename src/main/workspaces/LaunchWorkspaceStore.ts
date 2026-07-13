@@ -7,6 +7,7 @@ import type {
   LaunchWorkspace,
   LaunchWorkspaceSlot,
   NormalizedRect,
+  ReorderItemsInput,
   UpdateLaunchWorkspaceInput,
   WorkspaceBrowserZoomPercent,
   WorkspaceLayoutTemplate
@@ -59,7 +60,7 @@ export class LaunchWorkspaceStore {
 
   async listWorkspaces(): Promise<LaunchWorkspace[]> {
     const file = await this.readWorkspacesFile();
-    return [...file.workspaces].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return [...file.workspaces];
   }
 
   async getWorkspace(id: string): Promise<LaunchWorkspace> {
@@ -134,6 +135,14 @@ export class LaunchWorkspaceStore {
     await this.writeWorkspacesFile(file);
 
     return updated;
+  }
+
+  async reorderWorkspaces(input: ReorderItemsInput): Promise<LaunchWorkspace[]> {
+    const file = await this.readWorkspacesFile();
+    const workspaces = this.reorderItems(file.workspaces, input);
+
+    await this.writeWorkspacesFile({ workspaces });
+    return [...workspaces];
   }
 
   async deleteWorkspace(id: string): Promise<void> {
@@ -244,6 +253,26 @@ export class LaunchWorkspaceStore {
     }
 
     return normalized;
+  }
+
+  private reorderItems(workspaces: LaunchWorkspace[], input: ReorderItemsInput): LaunchWorkspace[] {
+    const orderedIds = input?.orderedIds;
+
+    if (!Array.isArray(orderedIds) || orderedIds.length !== workspaces.length) {
+      throw new LaunchWorkspaceStoreError("WORKSPACE_ORDER_INVALID", "Launch workspace order is invalid.");
+    }
+
+    const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+    const uniqueIds = new Set(orderedIds);
+
+    if (
+      uniqueIds.size !== workspaces.length ||
+      orderedIds.some((id) => typeof id !== "string" || !workspaceById.has(id))
+    ) {
+      throw new LaunchWorkspaceStoreError("WORKSPACE_ORDER_INVALID", "Launch workspace order is invalid.");
+    }
+
+    return orderedIds.map((id) => workspaceById.get(id) as LaunchWorkspace);
   }
 
   private normalizeTemplate(template: WorkspaceLayoutTemplate | undefined): WorkspaceLayoutTemplate {

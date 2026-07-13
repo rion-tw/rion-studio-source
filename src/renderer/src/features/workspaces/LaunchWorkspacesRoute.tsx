@@ -1,5 +1,5 @@
 import { Copy, LayoutDashboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
-import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type DragEvent, type JSX, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
@@ -7,6 +7,7 @@ import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
 import { SearchField } from "../../components/SearchField";
 import { launchUrlOptions } from "../../app/constants";
+import { moveItemById } from "../../app/reorderItems";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { LaunchWorkspace, LaunchWorkspaceSlot, Role, RoleStatus, WorkspaceLayoutTemplate } from "../../../../shared/types";
@@ -15,6 +16,7 @@ import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceC
 
 interface LaunchWorkspacesViewProps {
   busyWorkspaceId: string | null;
+  isReordering: boolean;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -24,11 +26,13 @@ interface LaunchWorkspacesViewProps {
   onDeleteWorkspace: (workspace: LaunchWorkspace) => void;
   onEditWorkspace: (workspace: LaunchWorkspace) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
+  onReorderWorkspaces: (orderedIds: string[]) => void;
   onStopWorkspace: (workspace: LaunchWorkspace) => void;
 }
 
 function LaunchWorkspacesView({
   busyWorkspaceId,
+  isReordering,
   roles,
   statusByRole,
   t,
@@ -38,10 +42,14 @@ function LaunchWorkspacesView({
   onDeleteWorkspace,
   onEditWorkspace,
   onLaunchWorkspace,
+  onReorderWorkspaces,
   onStopWorkspace
 }: LaunchWorkspacesViewProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const [query, setQuery] = useState("");
+  const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
+  const [dropTargetWorkspaceId, setDropTargetWorkspaceId] = useState<string | null>(null);
+  const canReorder = query.trim() === "" && !isReordering && workspaces.length > 1;
   const filteredWorkspaces = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -60,6 +68,44 @@ function LaunchWorkspacesView({
         .includes(normalizedQuery);
     });
   }, [query, roleById, t, workspaces]);
+
+  function clearDragState(): void {
+    setDraggedWorkspaceId(null);
+    setDropTargetWorkspaceId(null);
+  }
+
+  function handleDragStart(event: DragEvent<HTMLButtonElement>, workspaceId: string): void {
+    if (!canReorder) {
+      event.preventDefault();
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-rion-workspace-order", workspaceId);
+    setDraggedWorkspaceId(workspaceId);
+    setDropTargetWorkspaceId(null);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLElement>, workspaceId: string): void {
+    if (!draggedWorkspaceId || draggedWorkspaceId === workspaceId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetWorkspaceId(workspaceId);
+  }
+
+  function handleDrop(event: DragEvent<HTMLElement>, workspaceId: string): void {
+    event.preventDefault();
+
+    if (draggedWorkspaceId && draggedWorkspaceId !== workspaceId) {
+      const nextWorkspaces = moveItemById(workspaces, draggedWorkspaceId, workspaceId);
+      onReorderWorkspaces(nextWorkspaces.map((workspace) => workspace.id));
+    }
+
+    clearDragState();
+  }
 
   if (workspaces.length === 0) {
     return (
@@ -111,6 +157,9 @@ function LaunchWorkspacesView({
             <WorkspaceCard
               key={workspace.id}
               busyWorkspaceId={busyWorkspaceId}
+              canReorder={canReorder}
+              isDragging={draggedWorkspaceId === workspace.id}
+              isDropTarget={dropTargetWorkspaceId === workspace.id}
               roleById={roleById}
               statusByRole={statusByRole}
               t={t}
@@ -119,6 +168,10 @@ function LaunchWorkspacesView({
               onDelete={() => onDeleteWorkspace(workspace)}
               onEdit={() => onEditWorkspace(workspace)}
               onLaunch={() => onLaunchWorkspace(workspace)}
+              onDragEnd={clearDragState}
+              onDragOver={(event) => handleDragOver(event, workspace.id)}
+              onDragStart={(event) => handleDragStart(event, workspace.id)}
+              onDrop={(event) => handleDrop(event, workspace.id)}
               onStop={() => onStopWorkspace(workspace)}
             />
           ))}
@@ -130,9 +183,16 @@ function LaunchWorkspacesView({
 
 interface WorkspaceCardProps {
   busyWorkspaceId: string | null;
+  canReorder: boolean;
+  isDragging: boolean;
+  isDropTarget: boolean;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onDragEnd: () => void;
+  onDragOver: (event: DragEvent<HTMLElement>) => void;
+  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
+  onDrop: (event: DragEvent<HTMLElement>) => void;
   onLaunch: () => void;
   onStop: () => void;
   roleById: Map<string, Role>;
@@ -143,9 +203,16 @@ interface WorkspaceCardProps {
 
 function WorkspaceCard({
   busyWorkspaceId,
+  canReorder,
+  isDragging,
+  isDropTarget,
   onCopy,
   onDelete,
   onEdit,
+  onDragEnd,
+  onDragOver,
+  onDragStart,
+  onDrop,
   onLaunch,
   onStop,
   roleById,
@@ -160,7 +227,15 @@ function WorkspaceCard({
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
 
   return (
-    <Card className="group relative overflow-visible glass-panel-strong transition-shadow duration-200">
+    <Card
+      className={cn(
+        "group relative overflow-visible glass-panel-strong transition-[box-shadow,opacity] duration-150",
+        isDragging && "opacity-45",
+        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
+      )}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       <WorkspaceLayoutPreview
         className="aspect-[4/3] p-1"
         roleById={roleById}
@@ -171,11 +246,15 @@ function WorkspaceCard({
 
       <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <WorkspaceActionMenu
+          canReorder={canReorder}
+          isDragging={isDragging}
           isBusy={isBusy}
           t={t}
           onCopy={onCopy}
           onDelete={onDelete}
           onEdit={onEdit}
+          onDragEnd={onDragEnd}
+          onDragStart={onDragStart}
         />
       </div>
 
@@ -501,16 +580,31 @@ function resolveWorkspaceRoleLaunchGameName(launchUrl: string, t: Translator): s
 }
 
 interface WorkspaceActionMenuProps {
+  canReorder: boolean;
+  isDragging: boolean;
   isBusy: boolean;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onDragEnd: () => void;
+  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   t: Translator;
 }
 
-function WorkspaceActionMenu({ isBusy, onCopy, onDelete, onEdit, t }: WorkspaceActionMenuProps): JSX.Element {
+function WorkspaceActionMenu({
+  canReorder,
+  isBusy,
+  isDragging,
+  onCopy,
+  onDelete,
+  onDragEnd,
+  onDragStart,
+  onEdit,
+  t
+}: WorkspaceActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const didDragRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -540,18 +634,42 @@ function WorkspaceActionMenu({ isBusy, onCopy, onDelete, onEdit, t }: WorkspaceA
     };
   }, [isOpen]);
 
+  function handleButtonDragStart(event: DragEvent<HTMLButtonElement>): void {
+    didDragRef.current = true;
+    setIsOpen(false);
+    onDragStart(event);
+  }
+
+  function handleButtonDragEnd(): void {
+    onDragEnd();
+    window.setTimeout(() => {
+      didDragRef.current = false;
+    }, 0);
+  }
+
   return (
     <div ref={menuRef} className="relative shrink-0">
       <Button
-        className="h-7 w-7"
+        className={cn(
+          "h-7 w-7",
+          canReorder && "cursor-grab active:cursor-grabbing",
+          isDragging && "cursor-grabbing"
+        )}
         type="button"
         variant="secondary"
         size="icon"
-        title={t("workspaces.actions")}
-        aria-label={t("workspaces.actions")}
+        title={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
+        aria-label={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        onClick={() => setIsOpen((current) => !current)}
+        draggable={canReorder}
+        onClick={() => {
+          if (!didDragRef.current) {
+            setIsOpen((current) => !current);
+          }
+        }}
+        onDragEnd={handleButtonDragEnd}
+        onDragStart={handleButtonDragStart}
       >
         <MoreHorizontal size={14} />
       </Button>

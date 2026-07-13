@@ -146,6 +146,7 @@ export function App(): JSX.Element {
     setAuthStatuses: data.setAuthStatuses,
     setError: data.setError,
     setNotice,
+    setRoles: data.setRoles,
     setStatuses: data.setStatuses,
     statusByRole: data.statusByRole,
     t: preferences.t
@@ -398,7 +399,9 @@ export function App(): JSX.Element {
                     onLogin={roleWorkflow.requestSystemLogin}
                     onNewRole={roleWorkflow.startCreate}
                     onQueryChange={roleWorkflow.setQuery}
+                    onReorder={(orderedIds) => void roleWorkflow.handleReorder(orderedIds)}
                     onStop={(roleId) => void roleWorkflow.handleStop(roleId)}
+                    isReordering={roleWorkflow.isReorderingRoles}
                   />
                 ) : (
                   <BridgeUnavailable t={preferences.t} />
@@ -420,7 +423,9 @@ export function App(): JSX.Element {
                     onDeleteWorkspace={(workspace) => void workspaceWorkflow.handleDeleteWorkspace(workspace)}
                     onEditWorkspace={workspaceWorkflow.startEditWorkspace}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
+                    onReorderWorkspaces={(orderedIds) => void workspaceWorkflow.handleReorderWorkspaces(orderedIds)}
                     onStopWorkspace={(workspace) => void workspaceWorkflow.handleStopWorkspace(workspace)}
+                    isReordering={workspaceWorkflow.isReorderingWorkspaces}
                   />
                 ) : (
                   <BridgeUnavailable t={preferences.t} />

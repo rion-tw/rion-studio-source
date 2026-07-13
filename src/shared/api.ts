@@ -15,6 +15,7 @@ import type {
   PortableExportResult,
   PortableImportPreview,
   PortableImportResult,
+  ReorderItemsInput,
   Role,
   RolePaths,
   RoleStatus,
@@ -29,6 +30,7 @@ export interface RionStudioApi {
   listRoles: () => Promise<Role[]>;
   createRole: (input: CreateRoleInput) => Promise<Role>;
   updateRole: (id: string, input: UpdateRoleInput) => Promise<Role>;
+  reorderRoles: (input: ReorderItemsInput) => Promise<Role[]>;
   deleteRole: (id: string) => Promise<void>;
   getRolePaths: (id: string) => Promise<RolePaths>;
   startLogin: (id: string) => Promise<AuthFlowStatus>;
@@ -40,6 +42,7 @@ export interface RionStudioApi {
   listLaunchWorkspaces: () => Promise<LaunchWorkspace[]>;
   createLaunchWorkspace: (input: CreateLaunchWorkspaceInput) => Promise<LaunchWorkspace>;
   updateLaunchWorkspace: (id: string, input: UpdateLaunchWorkspaceInput) => Promise<LaunchWorkspace>;
+  reorderLaunchWorkspaces: (input: ReorderItemsInput) => Promise<LaunchWorkspace[]>;
   deleteLaunchWorkspace: (id: string) => Promise<void>;
   launchWorkspace: (id: string) => Promise<RoleStatus[]>;
   stopLaunchWorkspace: (id: string) => Promise<void>;

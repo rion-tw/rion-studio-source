@@ -67,8 +67,8 @@ const workspace: LaunchWorkspace = {
 };
 
 describe("registerIpcHandlers workspace handlers", () => {
-  let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
-  let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
+  let roleStore: Pick<RoleStore, "deleteRole" | "getRole" | "reorderRoles">;
+  let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace" | "reorderWorkspaces">;
   let browserManager: Pick<
     BrowserManager,
     "launch" | "launchWorkspace" | "listStatuses" | "on" | "stop" | "stopWorkspace"
@@ -76,6 +76,8 @@ describe("registerIpcHandlers workspace handlers", () => {
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let onOverlayLanguageChanged: ReturnType<typeof vi.fn>;
   let onRendererReady: ReturnType<typeof vi.fn>;
+  let onRolesChanged: ReturnType<typeof vi.fn>;
+  let onWorkspacesChanged: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     handlers.clear();
@@ -85,11 +87,13 @@ describe("registerIpcHandlers workspace handlers", () => {
         ...authenticatedRole,
         id,
         authState: id === "role-2" ? "authenticated" : authenticatedRole.authState
-      }))
+      })),
+      reorderRoles: vi.fn().mockResolvedValue([authenticatedRole])
     };
     workspaceStore = {
       clearRole: vi.fn().mockResolvedValue(undefined),
-      getWorkspace: vi.fn().mockResolvedValue(workspace)
+      getWorkspace: vi.fn().mockResolvedValue(workspace),
+      reorderWorkspaces: vi.fn().mockResolvedValue([workspace])
     };
     browserManager = {
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
@@ -107,6 +111,8 @@ describe("registerIpcHandlers workspace handlers", () => {
     };
     onOverlayLanguageChanged = vi.fn();
     onRendererReady = vi.fn();
+    onRolesChanged = vi.fn();
+    onWorkspacesChanged = vi.fn();
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -115,9 +121,24 @@ describe("registerIpcHandlers workspace handlers", () => {
       authManager as AuthManager,
       {
         onOverlayLanguageChanged,
-        onRendererReady
+        onRendererReady,
+        onRolesChanged,
+        onWorkspacesChanged
       }
     );
+  });
+
+  it("persists role and workspace orders and reports both collections changed", async () => {
+    const roleInput = { orderedIds: ["role-1"] };
+    const workspaceInput = { orderedIds: ["workspace-1"] };
+
+    await expect(handlers.get(IPC_CHANNELS.rolesReorder)?.({}, roleInput)).resolves.toEqual([authenticatedRole]);
+    await expect(handlers.get(IPC_CHANNELS.workspacesReorder)?.({}, workspaceInput)).resolves.toEqual([workspace]);
+
+    expect(roleStore.reorderRoles).toHaveBeenCalledWith(roleInput);
+    expect(workspaceStore.reorderWorkspaces).toHaveBeenCalledWith(workspaceInput);
+    expect(onRolesChanged).toHaveBeenCalledOnce();
+    expect(onWorkspacesChanged).toHaveBeenCalledOnce();
   });
 
   it("syncs the overlay language preference", async () => {

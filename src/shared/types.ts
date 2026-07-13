@@ -60,6 +60,10 @@ export type UpdateRoleInput = Partial<Omit<CreateRoleInput, "name">> & {
   name?: string;
 };
 
+export interface ReorderItemsInput {
+  orderedIds: string[];
+}
+
 export type RoleRunState = "launching" | "running" | "stopping";
 
 export interface RoleStatus {

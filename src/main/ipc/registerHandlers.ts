@@ -13,6 +13,7 @@ import type {
   MacroEditorRequest,
   MacroRunStatus,
   PortableExportInput,
+  ReorderItemsInput,
   RoleStatus,
   UpdateLaunchWorkspaceInput,
   UpdateMacroInput,
@@ -189,6 +190,12 @@ export function registerIpcHandlers(
     return role;
   });
 
+  ipcMain.handle(IPC_CHANNELS.rolesReorder, async (_event, input: ReorderItemsInput) => {
+    const roles = await roleStore.reorderRoles(input);
+    options.onRolesChanged?.();
+    return roles;
+  });
+
   ipcMain.handle(IPC_CHANNELS.rolesDelete, async (_event, id: string) => {
     await browserManager.stop(id);
     await roleStore.deleteRole(id);
@@ -249,6 +256,12 @@ export function registerIpcHandlers(
       return workspace;
     }
   );
+
+  ipcMain.handle(IPC_CHANNELS.workspacesReorder, async (_event, input: ReorderItemsInput) => {
+    const workspaces = await workspaceStore.reorderWorkspaces(input);
+    options.onWorkspacesChanged?.();
+    return workspaces;
+  });
 
   ipcMain.handle(IPC_CHANNELS.workspacesDelete, async (_event, id: string) => {
     await browserManager.stopWorkspace(id);

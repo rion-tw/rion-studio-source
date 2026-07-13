@@ -12,7 +12,7 @@ import {
   Square,
   Trash2
 } from "lucide-react";
-import { type JSX, useEffect, useRef, useState } from "react";
+import { type DragEvent, type JSX, useEffect, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
@@ -20,6 +20,7 @@ import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../componen
 import { EmptyState } from "../../components/EmptyState";
 import { SearchField } from "../../components/SearchField";
 import { launchUrlOptions } from "../../app/constants";
+import { moveItemById } from "../../app/reorderItems";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { localizeErrorMessage, type Language, type TranslationKey, type Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -43,6 +44,7 @@ interface RolesViewProps {
   authStatusByRole: Map<string, AuthFlowStatus>;
   busyRoleId: string | null;
   filteredRoles: Role[];
+  isReordering: boolean;
   language: Language;
   roleStats: AppStats;
   roles: Role[];
@@ -58,6 +60,7 @@ interface RolesViewProps {
   onLogin: (roleId: string) => void;
   onNewRole: () => void;
   onQueryChange: (query: string) => void;
+  onReorder: (orderedIds: string[]) => void;
   onStop: (roleId: string) => void;
 }
 
@@ -66,6 +69,7 @@ function RolesView({
   authStatusByRole,
   busyRoleId,
   filteredRoles,
+  isReordering,
   language,
   roleStats,
   roles,
@@ -81,8 +85,12 @@ function RolesView({
   onLogin,
   onNewRole,
   onQueryChange,
+  onReorder,
   onStop
 }: RolesViewProps): JSX.Element {
+  const [draggedRoleId, setDraggedRoleId] = useState<string | null>(null);
+  const [dropTargetRoleId, setDropTargetRoleId] = useState<string | null>(null);
+  const canReorder = activeFilter === "all" && query.trim() === "" && !isReordering && roles.length > 1;
   const filterCounts: Record<SidebarFilter, number> = {
     all: roleStats.total,
     running: roleStats.running,
@@ -93,6 +101,44 @@ function RolesView({
     const authStatus = authStatusByRole.get(role.id);
     return shouldShowLoginGuidance(authStatus) ? [{ role, authStatus }] : [];
   });
+
+  function clearDragState(): void {
+    setDraggedRoleId(null);
+    setDropTargetRoleId(null);
+  }
+
+  function handleDragStart(event: DragEvent<HTMLButtonElement>, roleId: string): void {
+    if (!canReorder) {
+      event.preventDefault();
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-rion-role-order", roleId);
+    setDraggedRoleId(roleId);
+    setDropTargetRoleId(null);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLElement>, roleId: string): void {
+    if (!draggedRoleId || draggedRoleId === roleId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetRoleId(roleId);
+  }
+
+  function handleDrop(event: DragEvent<HTMLElement>, roleId: string): void {
+    event.preventDefault();
+
+    if (draggedRoleId && draggedRoleId !== roleId) {
+      const nextRoles = moveItemById(roles, draggedRoleId, roleId);
+      onReorder(nextRoles.map((role) => role.id));
+    }
+
+    clearDragState();
+  }
 
   if (roles.length === 0) {
     return (
@@ -178,6 +224,9 @@ function RolesView({
                 role={role}
                 status={status}
                 authStatus={authStatus}
+                canReorder={canReorder}
+                isDragging={draggedRoleId === role.id}
+                isDropTarget={dropTargetRoleId === role.id}
                 isBusy={isBusy}
                 language={language}
                 t={t}
@@ -186,6 +235,10 @@ function RolesView({
                 onEdit={() => onEdit(role)}
                 onLaunch={() => onLaunch(role.id)}
                 onLogin={() => onLogin(role.id)}
+                onDragEnd={clearDragState}
+                onDragOver={(event) => handleDragOver(event, role.id)}
+                onDragStart={(event) => handleDragStart(event, role.id)}
+                onDrop={(event) => handleDrop(event, role.id)}
                 onStop={() => onStop(role.id)}
               />
             );
@@ -220,11 +273,18 @@ function RoleFilterTabs({ activeFilter, counts, t, onFilterChange }: RoleFilterT
 
 interface RoleCardProps {
   authStatus?: AuthFlowStatus;
+  canReorder: boolean;
   isBusy: boolean;
+  isDragging: boolean;
+  isDropTarget: boolean;
   language: Language;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onDragEnd: () => void;
+  onDragOver: (event: DragEvent<HTMLElement>) => void;
+  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
+  onDrop: (event: DragEvent<HTMLElement>) => void;
   onLaunch: () => void;
   onLogin: () => void;
   onStop: () => void;
@@ -235,11 +295,18 @@ interface RoleCardProps {
 
 function RoleCard({
   authStatus,
+  canReorder,
   isBusy,
+  isDragging,
+  isDropTarget,
   language,
   onCopy,
   onDelete,
   onEdit,
+  onDragEnd,
+  onDragOver,
+  onDragStart,
+  onDrop,
   onLaunch,
   onLogin,
   onStop,
@@ -263,8 +330,14 @@ function RoleCard({
 
   return (
     <Card
-      className="role-cover-card group relative aspect-[4/5] overflow-hidden transition-shadow duration-200"
+      className={cn(
+        "role-cover-card group relative aspect-[4/5] overflow-hidden transition-[box-shadow,opacity] duration-150",
+        isDragging && "opacity-45",
+        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
+      )}
       style={cardStyle}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       <div
         className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
@@ -274,12 +347,16 @@ function RoleCard({
       <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <RoleActionMenu
           canRelogin={isAuthenticated}
+          canReorder={canReorder}
+          isDragging={isDragging}
           isBusy={isBusy}
           isOnCover
           t={t}
           onCopy={onCopy}
           onDelete={onDelete}
           onEdit={onEdit}
+          onDragEnd={onDragEnd}
+          onDragStart={onDragStart}
           onRelogin={onLogin}
         />
       </div>
@@ -425,27 +502,36 @@ function LoginButton({ className, isBusy, onLogin, t }: LoginButtonProps): JSX.E
 
 interface RoleActionMenuProps {
   canRelogin: boolean;
+  canReorder: boolean;
   isBusy: boolean;
+  isDragging: boolean;
   isOnCover?: boolean;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onDragEnd: () => void;
+  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   onRelogin: () => void;
   t: Translator;
 }
 
 function RoleActionMenu({
   canRelogin,
+  canReorder,
   isBusy,
+  isDragging,
   isOnCover = false,
   onCopy,
   onDelete,
   onEdit,
+  onDragEnd,
+  onDragStart,
   onRelogin,
   t
 }: RoleActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const didDragRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -495,18 +581,43 @@ function RoleActionMenu({
     onRelogin();
   }
 
+  function handleButtonDragStart(event: DragEvent<HTMLButtonElement>): void {
+    didDragRef.current = true;
+    setIsOpen(false);
+    onDragStart(event);
+  }
+
+  function handleButtonDragEnd(): void {
+    onDragEnd();
+    window.setTimeout(() => {
+      didDragRef.current = false;
+    }, 0);
+  }
+
   return (
     <div ref={menuRef} className="relative shrink-0">
       <Button
-        className={cn("h-7 w-7", isOnCover && "role-cover-menu-control text-white hover:text-white")}
+        className={cn(
+          "h-7 w-7",
+          canReorder && "cursor-grab active:cursor-grabbing",
+          isDragging && "cursor-grabbing",
+          isOnCover && "role-cover-menu-control text-white hover:text-white"
+        )}
         type="button"
         variant="ghost"
         size="icon"
-        title={t("role.actions")}
-        aria-label={t("role.actions")}
+        title={t(canReorder ? "role.actionsAndReorder" : "role.actions")}
+        aria-label={t(canReorder ? "role.actionsAndReorder" : "role.actions")}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        onClick={() => setIsOpen((current) => !current)}
+        draggable={canReorder}
+        onClick={() => {
+          if (!didDragRef.current) {
+            setIsOpen((current) => !current);
+          }
+        }}
+        onDragEnd={handleButtonDragEnd}
+        onDragStart={handleButtonDragStart}
       >
         <MoreHorizontal size={14} />
       </Button>

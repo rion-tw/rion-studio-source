@@ -9,6 +9,7 @@ import {
   type AuthState,
   type CreateRoleInput,
   type LaunchPreset,
+  type ReorderItemsInput,
   type Role,
   type RolePaths,
   type UpdateRoleInput
@@ -50,7 +51,7 @@ export class RoleStore {
 
   async listRoles(): Promise<Role[]> {
     const file = await this.readRolesFile();
-    return [...file.roles].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return [...file.roles];
   }
 
   async getRole(id: string): Promise<Role> {
@@ -146,6 +147,14 @@ export class RoleStore {
     await this.writeRolesFile(file);
 
     return updated;
+  }
+
+  async reorderRoles(input: ReorderItemsInput): Promise<Role[]> {
+    const file = await this.readRolesFile();
+    const roles = this.reorderItems(file.roles, input);
+
+    await this.writeRolesFile({ roles });
+    return [...roles];
   }
 
   async deleteRole(id: string): Promise<void> {
@@ -428,6 +437,23 @@ export class RoleStore {
     if (duplicate) {
       throw new RoleStoreError("ROLE_NAME_DUPLICATE", "A role with this name already exists.");
     }
+  }
+
+  private reorderItems(roles: Role[], input: ReorderItemsInput): Role[] {
+    const orderedIds = input?.orderedIds;
+
+    if (!Array.isArray(orderedIds) || orderedIds.length !== roles.length) {
+      throw new RoleStoreError("ROLE_ORDER_INVALID", "Role order is invalid.");
+    }
+
+    const roleById = new Map(roles.map((role) => [role.id, role]));
+    const uniqueIds = new Set(orderedIds);
+
+    if (uniqueIds.size !== roles.length || orderedIds.some((id) => typeof id !== "string" || !roleById.has(id))) {
+      throw new RoleStoreError("ROLE_ORDER_INVALID", "Role order is invalid.");
+    }
+
+    return orderedIds.map((id) => roleById.get(id) as Role);
   }
 
   private async migrateLegacyRoleDirectories(roleIds: string[]): Promise<void> {

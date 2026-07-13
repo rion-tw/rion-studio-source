@@ -15,6 +15,7 @@ interface UseRoleWorkflowOptions {
   setAuthStatuses: Dispatch<SetStateAction<AuthFlowStatus[]>>;
   setError: (error: unknown | null) => void;
   setNotice?: (message: string | null) => void;
+  setRoles: Dispatch<SetStateAction<Role[]>>;
   setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -28,6 +29,7 @@ export function useRoleWorkflow({
   setAuthStatuses,
   setError,
   setNotice,
+  setRoles,
   setStatuses,
   statusByRole,
   t
@@ -38,6 +40,7 @@ export function useRoleWorkflow({
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
+  const [isReorderingRoles, setIsReorderingRoles] = useState(false);
 
   const selectedRole = useMemo(() => {
     return roles.find((role) => role.id === form.id);
@@ -210,6 +213,33 @@ export function useRoleWorkflow({
     }
   }
 
+  async function handleReorder(orderedIds: string[]): Promise<void> {
+    if (isReorderingRoles) {
+      return;
+    }
+
+    const roleById = new Map(roles.map((role) => [role.id, role]));
+    const nextRoles = orderedIds.map((id) => roleById.get(id)).filter((role): role is Role => Boolean(role));
+
+    if (nextRoles.length !== roles.length) {
+      return;
+    }
+
+    setIsReorderingRoles(true);
+    setError(null);
+    setRoles(nextRoles);
+
+    try {
+      const savedRoles = await window.rionStudio.reorderRoles({ orderedIds });
+      setRoles(savedRoles);
+    } catch (reorderError) {
+      setError(reorderError);
+      await loadData({ resetError: false });
+    } finally {
+      setIsReorderingRoles(false);
+    }
+  }
+
   function startEdit(role: Role): void {
     navigateToRoles();
     setActiveFilter("all");
@@ -252,10 +282,12 @@ export function useRoleWorkflow({
     handleCopy,
     handleDelete,
     handleLaunch,
+    handleReorder,
     handleStop,
     handleSubmit,
     handleSystemLogin,
     isRoleModalOpen,
+    isReorderingRoles,
     isSaving,
     query,
     requestSystemLogin: handleSystemLogin,

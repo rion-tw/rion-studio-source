@@ -44,6 +44,35 @@ describe("RoleStore", () => {
     });
   });
 
+  it("reorders roles atomically without changing timestamps and keeps new roles last", async () => {
+    const first = await store.createRole({ name: "First" });
+    const second = await store.createRole({ name: "Second" });
+    const third = await store.createRole({ name: "Third" });
+
+    const reordered = await store.reorderRoles({ orderedIds: [third.id, first.id, second.id] });
+
+    expect(reordered.map((role) => role.id)).toEqual([third.id, first.id, second.id]);
+    expect(reordered.map((role) => role.updatedAt)).toEqual([third.updatedAt, first.updatedAt, second.updatedAt]);
+    await expect(new RoleStore(baseDir).listRoles()).resolves.toEqual(reordered);
+
+    const fourth = await store.createRole({ name: "Fourth" });
+    await expect(store.listRoles()).resolves.toEqual([...reordered, fourth]);
+  });
+
+  it("rejects incomplete, duplicate, and unknown role orders without changing the file", async () => {
+    const first = await store.createRole({ name: "First" });
+    const second = await store.createRole({ name: "Second" });
+    const path = join(baseDir, "roles.json");
+    const unchanged = await readFile(path, "utf8");
+
+    for (const orderedIds of [[first.id], [first.id, first.id], [first.id, "unknown"]]) {
+      await expect(store.reorderRoles({ orderedIds })).rejects.toMatchObject({ code: "ROLE_ORDER_INVALID" });
+      await expect(readFile(path, "utf8")).resolves.toBe(unchanged);
+    }
+
+    await expect(store.listRoles()).resolves.toEqual([first, second]);
+  });
+
   it("stores launch URLs when creating or updating roles", async () => {
     const createInput = { name: "Main", launchUrl: "https://example.com/play" };
     const role = await store.createRole(createInput);

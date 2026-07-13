@@ -44,6 +44,41 @@ describe("LaunchWorkspaceStore", () => {
     });
   });
 
+  it("reorders workspaces atomically without changing timestamps and keeps new workspaces last", async () => {
+    const first = await store.createWorkspace({ name: "First" });
+    const second = await store.createWorkspace({ name: "Second" });
+    const third = await store.createWorkspace({ name: "Third" });
+
+    const reordered = await store.reorderWorkspaces({ orderedIds: [third.id, first.id, second.id] });
+
+    expect(reordered.map((workspace) => workspace.id)).toEqual([third.id, first.id, second.id]);
+    expect(reordered.map((workspace) => workspace.updatedAt)).toEqual([
+      third.updatedAt,
+      first.updatedAt,
+      second.updatedAt
+    ]);
+    await expect(new LaunchWorkspaceStore(baseDir).listWorkspaces()).resolves.toEqual(reordered);
+
+    const fourth = await store.createWorkspace({ name: "Fourth" });
+    await expect(store.listWorkspaces()).resolves.toEqual([...reordered, fourth]);
+  });
+
+  it("rejects incomplete, duplicate, and unknown workspace orders without changing the file", async () => {
+    const first = await store.createWorkspace({ name: "First" });
+    const second = await store.createWorkspace({ name: "Second" });
+    const path = join(baseDir, "launch-workspaces.json");
+    const unchanged = await readFile(path, "utf8");
+
+    for (const orderedIds of [[first.id], [first.id, first.id], [first.id, "unknown"]]) {
+      await expect(store.reorderWorkspaces({ orderedIds })).rejects.toMatchObject({
+        code: "WORKSPACE_ORDER_INVALID"
+      });
+      await expect(readFile(path, "utf8")).resolves.toBe(unchanged);
+    }
+
+    await expect(store.listWorkspaces()).resolves.toEqual([first, second]);
+  });
+
   it("updates layout, slots, and keeps duplicate role assignments out", async () => {
     const workspace = await store.createWorkspace({ name: "Party" });
 

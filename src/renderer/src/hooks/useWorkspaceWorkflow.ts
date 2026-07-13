@@ -40,6 +40,7 @@ export function useWorkspaceWorkflow({
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
   const [busyWorkspaceId, setBusyWorkspaceId] = useState<string | null>(null);
+  const [isReorderingWorkspaces, setIsReorderingWorkspaces] = useState(false);
 
   async function handleWorkspaceSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -151,6 +152,35 @@ export function useWorkspaceWorkflow({
     }
   }
 
+  async function handleReorderWorkspaces(orderedIds: string[]): Promise<void> {
+    if (isReorderingWorkspaces) {
+      return;
+    }
+
+    const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+    const nextWorkspaces = orderedIds
+      .map((id) => workspaceById.get(id))
+      .filter((workspace): workspace is LaunchWorkspace => Boolean(workspace));
+
+    if (nextWorkspaces.length !== workspaces.length) {
+      return;
+    }
+
+    setIsReorderingWorkspaces(true);
+    setError(null);
+    setWorkspaces(nextWorkspaces);
+
+    try {
+      const savedWorkspaces = await window.rionStudio.reorderLaunchWorkspaces({ orderedIds });
+      setWorkspaces(savedWorkspaces);
+    } catch (reorderError) {
+      setError(reorderError);
+      await loadData({ resetError: false });
+    } finally {
+      setIsReorderingWorkspaces(false);
+    }
+  }
+
   async function handleLaunchWorkspace(workspace: LaunchWorkspace): Promise<void> {
     setBusyWorkspaceId(workspace.id);
     setError(null);
@@ -192,9 +222,11 @@ export function useWorkspaceWorkflow({
     handleCopyWorkspace,
     handleDeleteWorkspace,
     handleLaunchWorkspace,
+    handleReorderWorkspaces,
     handleStopWorkspace,
     handleWorkspaceSubmit,
     isSavingWorkspace,
+    isReorderingWorkspaces,
     isWorkspaceModalOpen,
     setWorkspaceForm,
     startCreateWorkspace,

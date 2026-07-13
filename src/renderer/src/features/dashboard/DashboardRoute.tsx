@@ -7,6 +7,7 @@ import {
   Loader2,
   LogIn,
   Play,
+  Plus,
   Square,
   Users
 } from "lucide-react";
@@ -14,7 +15,8 @@ import { type JSX, useMemo } from "react";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { PageFrame, Surface } from "../../components/ui/patterns";
+import { IconTile, PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
+import { roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { formatAuthFlowState } from "../../app/statusUtils";
 import type { SidebarFilter } from "../../app/types";
 import type { Translator } from "../../i18n";
@@ -124,67 +126,66 @@ function DashboardRoute({
       }).slice(0, 5),
     [busyMacroId, busyRunKey, macroStatusByRun, macros, roles, statusByRole]
   );
+  const visiblePendingItems = pendingItems.slice(0, 3);
 
   return (
     <PageFrame>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <PageHeader
+        kicker={t("dashboard.kicker")}
+        title={t("dashboard.title")}
+        description={t("dashboard.description")}
+        actions={
+          <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNewRole}>
+            <Plus aria-hidden="true" size={14} />
+            {t("roles.newRole")}
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <StatCard
           icon={Users}
           label={t("dashboard.stat.runningRoles")}
-          value={summary.runningRoles}
+          value={`${summary.runningRoles}/${summary.totalRoles}`}
+          tone={summary.runningRoles > 0 ? "success" : "muted"}
           onClick={() => onNavigateRoles("running")}
         />
         <StatCard
           icon={LogIn}
           label={t("dashboard.stat.needsLogin")}
           value={summary.rolesNeedingLogin}
-          tone={summary.rolesNeedingLogin > 0 ? "warning" : "muted"}
+          tone={summary.rolesNeedingLogin > 0 ? "warning" : "success"}
           onClick={() => onNavigateRoles("needsLogin")}
         />
         <StatCard
           icon={LayoutDashboard}
           label={t("dashboard.stat.workspaces")}
           value={summary.workspaceCount}
+          tone="muted"
           onClick={onNavigateWorkspaces}
         />
         <StatCard
           icon={Keyboard}
           label={t("dashboard.stat.runningMacros")}
-          value={summary.runningMacros}
+          value={`${summary.runningMacros}/${summary.totalMacros}`}
           tone={summary.runningMacros > 0 ? "success" : "muted"}
           onClick={onNavigateMacros}
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.28fr)_minmax(320px,0.72fr)]">
+      <AttentionPanel
+        items={visiblePendingItems}
+        totalCount={pendingItems.length}
+        t={t}
+        onLoginRole={onLoginRole}
+        onViewAll={() => onNavigateRoles("needsLogin")}
+      />
+
+      <div className="grid min-w-0 items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.78fr)]">
         <div className="grid min-w-0 gap-4">
           <Panel
-            title={t("dashboard.pending.title")}
-            actionLabel={t("dashboard.viewRoles")}
-            onAction={() => onNavigateRoles("needsLogin")}
-          >
-            {pendingItems.length === 0 ? (
-              <PanelEmpty
-                icon={CheckCircle2}
-                title={t("dashboard.pending.emptyTitle")}
-                description={t("dashboard.pending.emptyDescription")}
-              />
-            ) : (
-              <div className="grid gap-2">
-                {pendingItems.map((item) => (
-                  <PendingAuthRow
-                    key={item.role.id}
-                    item={item}
-                    t={t}
-                    onLogin={() => onLoginRole(item.role.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </Panel>
-
-          <Panel
             title={t("dashboard.quickRoles.title")}
+            count={roles.length}
             actionLabel={t("dashboard.viewRoles")}
             onAction={() => onNavigateRoles("all")}
           >
@@ -216,6 +217,7 @@ function DashboardRoute({
         <div className="grid min-w-0 content-start gap-4">
           <Panel
             title={t("dashboard.workspaces.title")}
+            count={workspaces.length}
             actionLabel={t("dashboard.viewWorkspaces")}
             onAction={onNavigateWorkspaces}
           >
@@ -244,6 +246,7 @@ function DashboardRoute({
 
           <Panel
             title={t("dashboard.macros.title")}
+            count={macros.length}
             actionLabel={t("dashboard.viewMacros")}
             onAction={onNavigateMacros}
           >
@@ -280,50 +283,127 @@ interface StatCardProps {
   label: string;
   onClick: () => void;
   tone?: "muted" | "success" | "warning";
-  value: number;
+  value: number | string;
 }
 
-function StatCard({ icon: Icon, label, onClick, tone = "success", value }: StatCardProps): JSX.Element {
+function StatCard({ icon: Icon, label, onClick, tone = "muted", value }: StatCardProps): JSX.Element {
   return (
     <button
-      className="glass-panel-strong group flex min-h-[88px] min-w-0 items-center gap-3 rounded-lg p-4 text-left transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20"
+      aria-label={`${label}: ${value}`}
+      className="glass-panel-strong group relative flex min-h-[76px] min-w-0 items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] hover:border-border/50 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20"
       type="button"
       onClick={onClick}
     >
-      <span
+      <Icon
+        aria-hidden="true"
         className={cn(
-          "flex size-10 shrink-0 items-center justify-center rounded-lg border",
-          tone === "success" && "border-success-foreground/15 bg-success/75 text-success-foreground",
-          tone === "warning" && "border-warning-foreground/15 bg-warning/75 text-warning-foreground",
-          tone === "muted" && "glass-control text-muted-foreground"
+          "size-[18px] shrink-0",
+          tone === "success" && "text-success-foreground",
+          tone === "warning" && "text-warning-foreground",
+          tone === "muted" && "text-muted-foreground"
         )}
-      >
-        <Icon size={19} />
-      </span>
+      />
       <span className="min-w-0 flex-1">
-        <span className="block text-2xl font-semibold leading-7 tracking-normal text-foreground">{value}</span>
-        <span className="mt-1 block truncate text-xs font-semibold leading-4 text-muted-foreground">{label}</span>
+        <span className="block text-xl font-semibold leading-6 tracking-tight text-foreground">{value}</span>
+        <span className="mt-0.5 block truncate text-[11px] font-semibold leading-4 text-muted-foreground">{label}</span>
       </span>
-      <ArrowRight className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" size={15} />
+      <ArrowRight
+        aria-hidden="true"
+        className="absolute right-2.5 top-2.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+        size={13}
+      />
     </button>
+  );
+}
+
+interface AttentionPanelProps {
+  items: DashboardPendingAuthItem[];
+  onLoginRole: (roleId: string) => void;
+  onViewAll: () => void;
+  t: Translator;
+  totalCount: number;
+}
+
+function AttentionPanel({ items, onLoginRole, onViewAll, t, totalCount }: AttentionPanelProps): JSX.Element {
+  if (totalCount === 0) {
+    return (
+      <Surface
+        className="flex min-w-0 items-center gap-3 border-success-foreground/10 px-3.5 py-3"
+        role="status"
+        variant="panel"
+      >
+        <IconTile className="border-success-foreground/15 bg-success/75 text-success-foreground" size="md">
+          <CheckCircle2 aria-hidden="true" size={16} />
+        </IconTile>
+        <div className="min-w-0 sm:flex sm:items-baseline sm:gap-2">
+          <p className="shrink-0 text-[13px] font-semibold leading-5">{t("dashboard.pending.emptyTitle")}</p>
+          <p className="truncate text-xs font-medium leading-5 text-muted-foreground">
+            {t("dashboard.pending.emptyDescription")}
+          </p>
+        </div>
+      </Surface>
+    );
+  }
+
+  return (
+    <Surface className="min-w-0 border-warning-foreground/15 p-3.5" variant="strong">
+      <div className="mb-3 flex min-w-0 items-center gap-2.5">
+        <IconTile className="border-warning-foreground/15 bg-warning/75 text-warning-foreground" size="md">
+          <AlertCircle aria-hidden="true" size={16} />
+        </IconTile>
+        <h2 className="min-w-0 truncate text-sm font-semibold leading-5">{t("dashboard.pending.title")}</h2>
+        <Badge className="shrink-0" variant="warning">
+          {totalCount}
+        </Badge>
+        <Button
+          aria-label={`${t("dashboard.viewRoles")}: ${t("dashboard.pending.title")}`}
+          className="ml-auto shrink-0 gap-1 px-2 text-[11px]"
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onViewAll}
+        >
+          {t("dashboard.viewRoles")}
+          <ArrowRight aria-hidden="true" size={13} />
+        </Button>
+      </div>
+      <div className="grid min-w-0 gap-2 sm:grid-cols-3">
+        {items.map((item) => (
+          <PendingAuthRow key={item.role.id} item={item} t={t} onLogin={() => onLoginRole(item.role.id)} />
+        ))}
+      </div>
+    </Surface>
   );
 }
 
 interface PanelProps {
   actionLabel: string;
   children: JSX.Element;
+  count: number;
   onAction: () => void;
   title: string;
 }
 
-function Panel({ actionLabel, children, onAction, title }: PanelProps): JSX.Element {
+function Panel({ actionLabel, children, count, onAction, title }: PanelProps): JSX.Element {
   return (
     <Surface className="min-w-0 p-3.5" variant="panel">
       <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
-        <h2 className="min-w-0 truncate text-sm font-semibold leading-5 tracking-normal">{title}</h2>
-        <Button className="shrink-0 gap-1 px-2 text-[11px]" type="button" variant="ghost" size="sm" onClick={onAction}>
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="min-w-0 truncate text-sm font-semibold leading-5 tracking-normal">{title}</h2>
+          <Badge className="shrink-0" variant="secondary">
+            {count}
+          </Badge>
+        </div>
+        <Button
+          aria-label={`${actionLabel}: ${title}`}
+          className="shrink-0 gap-1 px-2 text-[11px]"
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onAction}
+        >
           {actionLabel}
-          <ArrowRight size={13} />
+          <ArrowRight aria-hidden="true" size={13} />
         </Button>
       </div>
       {children}
@@ -341,9 +421,9 @@ interface PanelEmptyProps {
 
 function PanelEmpty({ actionLabel, description, icon: Icon, onAction, title }: PanelEmptyProps): JSX.Element {
   return (
-    <div className="grid min-h-[126px] place-items-center rounded-md border border-dashed border-border/45 px-4 py-5 text-center">
+    <div className="grid min-h-[112px] place-items-center rounded-md border border-dashed border-border/45 bg-background/10 px-4 py-4 text-center">
       <div className="max-w-[320px]">
-        <Icon className="mx-auto text-muted-foreground" size={20} />
+        <Icon aria-hidden="true" className="mx-auto text-muted-foreground" size={19} />
         <h3 className="mt-2 text-sm font-semibold leading-5">{title}</h3>
         <p className="mt-1 text-xs font-medium leading-5 text-muted-foreground">{description}</p>
         {actionLabel && onAction ? (
@@ -361,28 +441,31 @@ function PendingAuthRow({ item, onLogin, t }: { item: DashboardPendingAuthItem; 
   const isFailed = item.pendingKind === "authFailed";
 
   return (
-    <div className="grid min-w-0 gap-2 rounded-md border border-border/35 bg-background/18 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+    <div className="flex min-w-0 flex-col gap-2 rounded-md border border-border/35 bg-background/18 px-3 py-2.5">
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <AlertCircle
+            aria-hidden="true"
             className={cn("shrink-0", isFailed ? "text-destructive" : "text-warning-foreground")}
             size={15}
           />
-          <p className="min-w-0 truncate text-[13px] font-semibold leading-5">{item.role.name}</p>
+          <p className="min-w-0 truncate text-[13px] font-semibold leading-5" title={item.role.name}>
+            {item.role.name}
+          </p>
         </div>
         <p className="mt-0.5 truncate text-xs font-medium leading-5 text-muted-foreground">
           {getPendingDescription(item, t)}
         </p>
       </div>
       <Button
-        className="w-full gap-1.5 sm:w-auto"
+        className="mt-auto w-full gap-1.5"
         type="button"
         variant={isFailed ? "outline" : "secondary"}
         size="sm"
         onClick={onLogin}
         disabled={item.action.disabled || isFlowActive}
       >
-        {isFlowActive ? <Loader2 className="spin" size={14} /> : <LogIn size={14} />}
+        {isFlowActive ? <Loader2 aria-hidden="true" className="spin" size={14} /> : <LogIn aria-hidden="true" size={14} />}
         {isFlowActive ? t("dashboard.status.authInProgress") : t("dashboard.action.login")}
       </Button>
     </div>
@@ -404,6 +487,7 @@ function RoleLaunchRow({
 }): JSX.Element {
   const actionLabel = getRoleActionLabel(item.action.kind, t);
   const actionIcon = getRoleActionIcon(item.action.kind);
+  const coverImageUrl = item.role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
 
   function handleAction(): void {
     if (item.action.disabled) {
@@ -424,25 +508,34 @@ function RoleLaunchRow({
   }
 
   return (
-    <div className="grid min-w-0 gap-2 rounded-md border border-border/35 bg-background/18 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+    <div className="grid min-w-0 grid-cols-[34px_minmax(0,1fr)_auto_76px] items-center gap-2.5 rounded-md border border-border/35 bg-background/18 px-2.5 py-2 transition-colors hover:border-border/55 hover:bg-background/25">
+      <img
+        aria-hidden="true"
+        alt=""
+        className="size-[34px] shrink-0 rounded-md object-cover shadow-sm ring-1 ring-border/45"
+        src={coverImageUrl}
+      />
       <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <p className="min-w-0 truncate text-[13px] font-semibold leading-5">{item.role.name}</p>
-          <Badge className="shrink-0" variant={getRoleBadgeVariant(item)}>
-            {getRoleStatusLabel(item, t)}
-          </Badge>
-        </div>
-        <p className="mt-0.5 truncate text-xs font-medium leading-5 text-muted-foreground">{item.role.launchUrl}</p>
+        <p className="truncate text-[13px] font-semibold leading-5" title={item.role.name}>
+          {item.role.name}
+        </p>
+        <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-muted-foreground" title={item.role.launchUrl}>
+          {formatLaunchUrl(item.role.launchUrl)}
+        </span>
       </div>
+      <Badge className="h-[18px] justify-self-end px-1.5 text-[10px]" variant={getRoleBadgeVariant(item)}>
+        {getRoleStatusLabel(item, t)}
+      </Badge>
       <Button
-        className="w-full gap-1.5 sm:w-[84px]"
+        aria-label={`${actionLabel}: ${item.role.name}`}
+        className="w-[76px] gap-1.5 px-2"
         type="button"
         variant={item.action.kind === "stop" ? "destructive" : "secondary"}
         size="sm"
         onClick={handleAction}
         disabled={item.action.disabled}
       >
-        {item.action.isBusy ? <Loader2 className="spin" size={14} /> : actionIcon}
+        {item.action.isBusy ? <Loader2 aria-hidden="true" className="spin" size={14} /> : actionIcon}
         {actionLabel}
       </Button>
     </div>
@@ -461,32 +554,44 @@ function WorkspaceLaunchRow({
   t: Translator;
 }): JSX.Element {
   const isStop = item.action.kind === "stop";
+  const actionLabel = isStop ? t("workspaces.stopShort") : t("workspaces.launchShort");
 
   return (
-    <div className="grid min-w-0 gap-2 rounded-md border border-border/35 bg-background/18 px-3 py-2.5">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold leading-5">{item.workspace.name}</p>
-          <p className="mt-0.5 text-xs font-medium leading-5 text-muted-foreground">
-            {t("dashboard.workspace.assignedRoles").replace("{count}", String(item.assignedCount))}
-          </p>
-        </div>
-        <Badge className="shrink-0" variant={item.runningCount > 0 ? "success" : "muted"}>
-          {item.runningCount > 0
-            ? t("dashboard.workspace.runningRoles").replace("{count}", String(item.runningCount))
-            : t("dashboard.status.ready")}
-        </Badge>
+    <div className="grid min-w-0 grid-cols-[30px_minmax(0,1fr)_auto_72px] items-center gap-2 rounded-md border border-border/35 bg-background/18 px-2.5 py-2 transition-colors hover:border-border/55 hover:bg-background/25">
+      <IconTile size="md">
+        <LayoutDashboard aria-hidden="true" size={15} />
+      </IconTile>
+      <div className="min-w-0">
+        <p className="truncate text-[13px] font-semibold leading-5" title={item.workspace.name}>
+          {item.workspace.name}
+        </p>
+        <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-muted-foreground">
+          {t("dashboard.workspace.assignedRoles").replace("{count}", String(item.assignedCount))}
+        </span>
       </div>
+      <Badge
+        className="h-[18px] justify-self-end px-1.5 text-[10px]"
+        variant={item.runningCount > 0 ? "success" : "muted"}
+      >
+        {getWorkspaceStatusLabel(item, t)}
+      </Badge>
       <Button
-        className="w-full gap-1.5"
+        aria-label={`${actionLabel}: ${item.workspace.name}`}
+        className="w-[72px] gap-1.5 px-2"
         type="button"
         variant={isStop ? "destructive" : "secondary"}
         size="sm"
         onClick={isStop ? onStop : onLaunch}
         disabled={item.action.disabled}
       >
-        {item.action.isBusy ? <Loader2 className="spin" size={14} /> : isStop ? <Square size={14} /> : <Play size={14} />}
-        {isStop ? t("workspaces.stopShort") : t("workspaces.launchShort")}
+        {item.action.isBusy ? (
+          <Loader2 aria-hidden="true" className="spin" size={14} />
+        ) : isStop ? (
+          <Square aria-hidden="true" size={14} />
+        ) : (
+          <Play aria-hidden="true" size={14} />
+        )}
+        {actionLabel}
       </Button>
     </div>
   );
@@ -504,26 +609,32 @@ function MacroRunRow({
   t: Translator;
 }): JSX.Element {
   const isStop = item.action.kind === "stop";
+  const actionLabel = isStop ? t("macros.stopShort") : t("macros.startShort");
 
   return (
-    <div className="grid min-w-0 gap-2 rounded-md border border-border/35 bg-background/18 px-3 py-2.5">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold leading-5">{item.macro.name}</p>
-          <p className="mt-0.5 text-xs font-medium leading-5 text-muted-foreground">
-            {t("dashboard.macro.assignedRoles").replace("{count}", String(item.assignedCount))}
-            {" · "}
-            {t("dashboard.macro.stepCount").replace("{count}", String(item.macro.steps.length))}
-          </p>
-        </div>
-        <Badge className="shrink-0" variant={item.runningCount > 0 ? "success" : "muted"}>
-          {item.runningCount > 0
-            ? t("dashboard.macro.runningRoles").replace("{count}", String(item.runningCount))
-            : t("dashboard.status.ready")}
-        </Badge>
+    <div className="grid min-w-0 grid-cols-[30px_minmax(0,1fr)_auto_72px] items-center gap-2 rounded-md border border-border/35 bg-background/18 px-2.5 py-2 transition-colors hover:border-border/55 hover:bg-background/25">
+      <IconTile size="md">
+        <Keyboard aria-hidden="true" size={15} />
+      </IconTile>
+      <div className="min-w-0">
+        <p className="truncate text-[13px] font-semibold leading-5" title={item.macro.name}>
+          {item.macro.name}
+        </p>
+        <span className="mt-0.5 block truncate text-[11px] font-medium leading-4 text-muted-foreground">
+          {t("dashboard.macro.assignedRoles").replace("{count}", String(item.assignedCount))}
+          {" · "}
+          {t("dashboard.macro.stepCount").replace("{count}", String(item.macro.steps.length))}
+        </span>
       </div>
+      <Badge
+        className="h-[18px] justify-self-end px-1.5 text-[10px]"
+        variant={item.runningCount > 0 ? "success" : "muted"}
+      >
+        {getMacroStatusLabel(item, t)}
+      </Badge>
       <Button
-        className="w-full gap-1.5"
+        aria-label={`${actionLabel}: ${item.macro.name}`}
+        className="w-[72px] gap-1.5 px-2"
         type="button"
         variant={isStop ? "destructive" : "secondary"}
         size="sm"
@@ -531,8 +642,14 @@ function MacroRunRow({
         onClick={isStop ? onStop : onStart}
         disabled={item.action.disabled}
       >
-        {item.action.isBusy ? <Loader2 className="spin" size={14} /> : isStop ? <Square size={14} /> : <Play size={14} />}
-        {isStop ? t("macros.stopShort") : t("macros.startShort")}
+        {item.action.isBusy ? (
+          <Loader2 aria-hidden="true" className="spin" size={14} />
+        ) : isStop ? (
+          <Square aria-hidden="true" size={14} />
+        ) : (
+          <Play aria-hidden="true" size={14} />
+        )}
+        {actionLabel}
       </Button>
     </div>
   );
@@ -548,6 +665,38 @@ function getPendingDescription(item: DashboardPendingAuthItem, t: Translator): s
   }
 
   return t("dashboard.status.needsLogin");
+}
+
+function getWorkspaceStatusLabel(item: DashboardWorkspaceItem, t: Translator): string {
+  if (item.runningCount > 0) {
+    return t("dashboard.workspace.runningRoles").replace("{count}", String(item.runningCount));
+  }
+
+  return item.assignedCount > 0 ? t("dashboard.status.ready") : t("dashboard.status.notConfigured");
+}
+
+function getMacroStatusLabel(item: DashboardMacroItem, t: Translator): string {
+  if (item.runningCount > 0) {
+    return t("dashboard.macro.runningRoles").replace("{count}", String(item.runningCount));
+  }
+
+  if (item.action.disabledReason === "noRoles") {
+    return t("dashboard.status.notConfigured");
+  }
+
+  if (item.action.disabledReason === "rolesNotRunning") {
+    return t("dashboard.status.waitingForRoles");
+  }
+
+  return t("dashboard.status.ready");
+}
+
+function formatLaunchUrl(launchUrl: string): string {
+  try {
+    return new URL(launchUrl).hostname;
+  } catch {
+    return launchUrl;
+  }
 }
 
 function getRoleStatusLabel(item: DashboardRoleItem, t: Translator): string {
@@ -612,11 +761,11 @@ function getRoleActionLabel(kind: DashboardRoleItem["action"]["kind"], t: Transl
 function getRoleActionIcon(kind: DashboardRoleItem["action"]["kind"]): JSX.Element {
   switch (kind) {
     case "launch":
-      return <Play size={14} />;
+      return <Play aria-hidden="true" size={14} />;
     case "login":
-      return <LogIn size={14} />;
+      return <LogIn aria-hidden="true" size={14} />;
     case "stop":
-      return <Square size={14} />;
+      return <Square aria-hidden="true" size={14} />;
   }
 }
 

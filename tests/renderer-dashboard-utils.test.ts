@@ -4,9 +4,11 @@ import {
   createDashboardSummary,
   getDashboardMacroItems,
   getDashboardRoleItems,
-  getDashboardWorkspaceItems
+  getDashboardWorkspaceItems,
+  getPendingAuthItems
 } from "../src/renderer/src/features/dashboard/dashboardUtils";
 import type {
+  AuthFlowStatus,
   LaunchWorkspace,
   Macro,
   MacroRunStatus,
@@ -30,6 +32,7 @@ describe("renderer dashboard helpers", () => {
         macros: [macro({ id: "m1", roleIds: ["r1"] })],
         macroStatuses: [
           macroStatus({ macroId: "m1", roleId: "r1", state: "running" }),
+          macroStatus({ macroId: "m1", roleId: "r2", state: "running" }),
           macroStatus({ macroId: "m1", roleId: "missing", state: "running" }),
           macroStatus({ macroId: "missing", roleId: "r1", state: "running" })
         ]
@@ -38,6 +41,8 @@ describe("renderer dashboard helpers", () => {
       rolesNeedingLogin: 1,
       runningMacros: 1,
       runningRoles: 1,
+      totalMacros: 1,
+      totalRoles: 2,
       workspaceCount: 1
     });
   });
@@ -61,6 +66,32 @@ describe("renderer dashboard helpers", () => {
         ])
       }).map((item) => item.role.id)
     ).toEqual(["running", "launching", "launchable", "needs-login"]);
+  });
+
+  it("classifies and prioritizes roles that need authentication attention", () => {
+    const roles = [
+      role({ id: "login", authState: "login_required", updatedAt: "2026-01-04T00:00:00.000Z" }),
+      role({ id: "failed", authState: "auth_failed", updatedAt: "2026-01-03T00:00:00.000Z" }),
+      role({ id: "flow", authState: "login_required", updatedAt: "2026-01-02T00:00:00.000Z" }),
+      role({ id: "ready", authState: "authenticated", updatedAt: "2026-01-01T00:00:00.000Z" })
+    ];
+    const items = getPendingAuthItems({
+      authStatusByRole: new Map<string, AuthFlowStatus>([
+        ["flow", authStatus({ roleId: "flow", state: "checking_session" })],
+        ["failed", authStatus({ roleId: "failed", state: "failed" })]
+      ]),
+      busyRoleId: "login",
+      roles,
+      statusByRole: new Map()
+    });
+
+    expect(items.map((item) => [item.role.id, item.pendingKind])).toEqual([
+      ["flow", "authFlow"],
+      ["failed", "authFailed"],
+      ["login", "loginRequired"]
+    ]);
+    expect(items.find((item) => item.role.id === "flow")?.action).toMatchObject({ disabled: true, isBusy: true });
+    expect(items.find((item) => item.role.id === "login")?.action).toMatchObject({ disabled: true, isBusy: true });
   });
 
   it("derives workspace launch and stop availability", () => {
@@ -141,6 +172,16 @@ function role(overrides: Partial<Role>): Role {
     launchPreset: "performance",
     authState: "unknown",
     createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function authStatus(overrides: Partial<AuthFlowStatus>): AuthFlowStatus {
+  return {
+    roleId: "role",
+    state: "waiting_for_login",
+    startedAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };

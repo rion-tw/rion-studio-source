@@ -11,6 +11,8 @@ export interface DashboardSummary {
   rolesNeedingLogin: number;
   runningMacros: number;
   runningRoles: number;
+  totalMacros: number;
+  totalRoles: number;
   workspaceCount: number;
 }
 
@@ -87,13 +89,20 @@ export function createDashboardSummary({
   const runningRoleIds = new Set(
     roleStatuses.filter((status) => roleIds.has(status.roleId)).map((status) => status.roleId)
   );
+  const runningMacroIds = new Set(
+    macroStatuses
+      .filter(
+        (status) => status.state === "running" && roleIds.has(status.roleId) && macroIds.has(status.macroId)
+      )
+      .map((status) => status.macroId)
+  );
 
   return {
     rolesNeedingLogin: roles.filter((role) => role.authState !== "authenticated").length,
-    runningMacros: macroStatuses.filter(
-      (status) => status.state === "running" && roleIds.has(status.roleId) && macroIds.has(status.macroId)
-    ).length,
+    runningMacros: runningMacroIds.size,
     runningRoles: runningRoleIds.size,
+    totalMacros: macros.length,
+    totalRoles: roles.length,
     workspaceCount: workspaces.length
   };
 }

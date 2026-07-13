@@ -145,9 +145,9 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("setInterval");
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"pointer-events\", \"none\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v24"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v23");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.7"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.9"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("dispose");
     expect(MACRO_OVERLAY_SCRIPT).toContain("host.style.setProperty(property, value, \"important\")");
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"right\", \"8px\"]");
@@ -172,10 +172,10 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('<rect width="20" height="16" x="2" y="4" rx="2"/>');
     expect(MACRO_OVERLAY_SCRIPT).toContain('<path d="M7 16h10"/>');
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('fill="currentColor"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("height:36px;justify-content:center;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("width:36px;}");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("height:32px;justify-content:center;");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("width:32px;}");
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".trigger-icon{display:block;fill:none;height:19px;width:19px;"
+      ".trigger-icon{display:block;fill:none;height:16px;width:16px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.75;"
     );
     expect(MACRO_OVERLAY_SCRIPT).toContain("stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("<span>Macros</span>");
@@ -224,10 +224,10 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.pollLabel)");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="macro-action-pill');
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".create-row{align-items:center;border-radius:9px;color:rgba(255,255,255,.9);cursor:pointer;display:flex;font-size:12px;font-weight:600;gap:8px;height:34px;"
+      ".create-row{align-items:center;border-radius:8px;color:rgba(255,255,255,.9);cursor:pointer;display:flex;font-size:11.5px;font-weight:600;gap:7px;height:30px;"
     );
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".create-icon{color:rgba(255,255,255,.72);display:block;fill:none;flex:0 0 auto;height:15px;stroke:currentColor;stroke-linecap:round;stroke-width:2;width:15px;}"
+      ".create-icon{color:rgba(255,255,255,.72);display:block;fill:none;flex:0 0 auto;height:14px;stroke:currentColor;stroke-linecap:round;stroke-width:2;width:14px;}"
     );
     expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-list{");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="macro-list"');
@@ -235,19 +235,19 @@ describe("MacroOverlayInjector", () => {
     expect(createRowIndex).toBeGreaterThan(-1);
     expect(macroContentIndex).toBeLessThan(createRowIndex);
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-row{align-items:center;border-radius:11px;color:rgba(255,255,255,.94);display:grid;gap:7px 8px;"
+      ".macro-row{align-items:center;border-radius:10px;color:rgba(255,255,255,.94);display:grid;gap:6px 7px;"
     );
     expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-areas:'title shortcut poll edit' 'steps steps steps steps'");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-columns:minmax(72px,1fr) auto auto 26px;min-height:62px");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-columns:minmax(60px,1fr) auto auto 24px;min-height:56px");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-row:hover{background:rgba(255,255,255,.065);}");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-header{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-title{align-items:center;display:flex;gap:8px;grid-area:title;min-width:0;}");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-title{align-items:center;display:flex;gap:7px;grid-area:title;min-width:0;}");
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-title strong{font-size:13px;font-weight:650;line-height:1.2;"
+      ".macro-title strong{font-size:12px;font-weight:650;line-height:1.2;"
     );
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details{display:contents;}");
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-details span{color:rgba(255,255,255,.78);font-size:10px;font-weight:500;line-height:1.1;"
+      ".macro-details span{color:rgba(255,255,255,.78);font-size:9.5px;font-weight:500;line-height:1.1;"
     );
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details b{font-weight:550;min-width:0;overflow:hidden;");
     expect(MACRO_OVERLAY_SCRIPT).toContain(
@@ -257,7 +257,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-poll{grid-area:poll;}");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-steps{display:block;grid-area:steps;padding:0 1px 1px;}");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-edit{align-items:center;background:rgba(255,255,255,.075);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".edit-icon{display:block;fill:none;height:13px;width:13px;");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".edit-icon{display:block;fill:none;height:12px;width:12px;");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".panel{display:");
     expect(menuStyles).toContain(
       ";-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);"
@@ -266,21 +266,21 @@ describe("MacroOverlayInjector", () => {
       "background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.74);"
     );
     expect(menuStyles).toContain(
-      "border:1px solid rgba(255,255,255,.14);border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,.22);"
+      "border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.22);"
     );
     expect(menuStyles).toContain(
       ".macro-row,.create-row,.empty,.error{background:transparent;border:0;box-shadow:none;}"
     );
-    expect(menuStyles).toContain(".panel>*+*{margin-top:7px;position:relative;}");
+    expect(menuStyles).toContain(".panel>*+*{margin-top:6px;position:relative;}");
     expect(menuStyles).toContain(
-      ".panel>*+*::before{background:rgba(255,255,255,.085);content:'';height:1px;left:8px;pointer-events:none;position:absolute;right:8px;top:-4px;}"
+      ".panel>*+*::before{background:rgba(255,255,255,.085);content:'';height:1px;left:7px;pointer-events:none;position:absolute;right:7px;top:-3px;}"
     );
     expect(menuStyles).not.toContain("border-top:1px solid rgba(255,255,255,.085)");
     expect(menuStyles).not.toContain("inset 0 -");
     expect(menuStyles).not.toContain("inset 0 1px");
     expect(menuStyles).not.toContain("text-shadow:0");
     expect(menuStyles).toContain(
-      "gap:0;margin-top:8px;max-width:320px;overflow:hidden;padding:5px;pointer-events:auto;text-shadow:none;width:min(312px,calc(100vw - 16px));"
+      "gap:0;margin-top:7px;max-width:296px;overflow:hidden;padding:4px;pointer-events:auto;text-shadow:none;width:min(288px,calc(100vw - 16px));"
     );
     expect(MACRO_OVERLAY_SCRIPT).toContain(
       ".trigger{-webkit-backdrop-filter:blur(30px) saturate(140%);align-items:center;backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.78);"
@@ -293,7 +293,7 @@ describe("MacroOverlayInjector", () => {
     );
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("filter:drop-shadow(0 1px 2px rgba(0,0,0,.24))");
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".status-dot{border-radius:999px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);"
+      ".status-dot{border-radius:999px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);display:block;height:7px;width:7px;"
     );
   });
 
@@ -349,18 +349,18 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain(
       ".active-badge{-webkit-backdrop-filter:blur(30px) saturate(140%);-webkit-font-smoothing:antialiased;align-items:center;"
     );
-    expect(MACRO_OVERLAY_SCRIPT).toContain("font-size:10.5px");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("font-size:10px");
     expect(MACRO_OVERLAY_SCRIPT).toContain("min-height:20px");
     expect(MACRO_OVERLAY_SCRIPT).toContain("padding:4px 8px");
     expect(MACRO_OVERLAY_SCRIPT).toContain(
-      "backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.78);border:1px solid rgba(255,255,255,.14);"
+      "backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.5);border:1px solid rgba(255,255,255,.14);"
     );
     expect(activeBadgeStyles).toContain("box-shadow:0 8px 24px rgba(0,0,0,.2);");
-    expect(activeBadgeStyles).toContain("font-size:10.5px;font-weight:650;");
+    expect(activeBadgeStyles).toContain("font-size:10px;gap:5px;");
     expect(activeBadgeStyles).not.toContain("text-shadow");
     expect(activeBadgeStyles).not.toContain("inset");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".active-badge-name{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".active-badge-shortcut{color:rgba(255,255,255,.7);display:block;flex:0 0 auto;font-size:9.5px;font-weight:600;");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".active-badge-shortcut{color:#fff;display:block;flex:0 0 auto;font-size:9.5px;font-weight:600;");
     expect(MACRO_OVERLAY_SCRIPT).toContain("previousRunningBadgeSignature !== getRunningBadgeSignature()");
     expect(runningBadgeFunction).not.toContain("isStopping");
   });

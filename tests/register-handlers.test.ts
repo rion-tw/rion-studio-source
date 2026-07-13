@@ -234,7 +234,7 @@ describe("registerIpcHandlers macro handlers", () => {
   const macro: Macro = {
     id: "macro-1",
     name: "Auto heal",
-    roleId: "role-1",
+    roleIds: ["role-1"],
     repeat: { type: "once" },
     steps: [{ id: "step-1", type: "key", code: "F2" }],
     createdAt: "2026-07-10T00:00:00.000Z",
@@ -290,13 +290,15 @@ describe("registerIpcHandlers macro handlers", () => {
         }
       ]),
       on: vi.fn(),
-      start: vi.fn().mockResolvedValue({
-        roleId: "role-1",
-        macroId: "macro-1",
-        state: "running",
-        startedAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:00:00.000Z"
-      }),
+      start: vi.fn().mockResolvedValue([
+        {
+          roleId: "role-1",
+          macroId: "macro-1",
+          state: "running",
+          startedAt: "2026-07-10T00:00:00.000Z",
+          updatedAt: "2026-07-10T00:00:00.000Z"
+        }
+      ]),
       stop: vi.fn().mockResolvedValue(undefined),
       stopRole: vi.fn().mockResolvedValue(undefined)
     };
@@ -329,7 +331,7 @@ describe("registerIpcHandlers macro handlers", () => {
     await expect(
       handlers.get(IPC_CHANNELS.macrosCreate)?.({}, {
         name: "Auto heal",
-        roleId: "role-1",
+        roleIds: ["role-1"],
         steps: [{ id: "step-1", type: "key", code: "F2" }]
       })
     ).resolves.toEqual(macro);
@@ -337,24 +339,26 @@ describe("registerIpcHandlers macro handlers", () => {
       name: "Updated"
     });
 
-    await expect(handlers.get(IPC_CHANNELS.macrosStart)?.({}, "role-1", "macro-1")).resolves.toMatchObject({
-      macroId: "macro-1",
-      roleId: "role-1",
-      state: "running"
-    });
-    await expect(handlers.get(IPC_CHANNELS.macrosStop)?.({}, "role-1", "macro-1")).resolves.toBeUndefined();
+    await expect(handlers.get(IPC_CHANNELS.macrosStart)?.({}, "macro-1")).resolves.toMatchObject([
+      {
+        macroId: "macro-1",
+        roleId: "role-1",
+        state: "running"
+      }
+    ]);
+    await expect(handlers.get(IPC_CHANNELS.macrosStop)?.({}, "macro-1")).resolves.toBeUndefined();
     expect(handlers.get(IPC_CHANNELS.macrosStatuses)?.({})).toMatchObject([
       { roleId: "role-1", macroId: "macro-1" }
     ]);
 
-    expect(macroManager.start).toHaveBeenCalledWith("role-1", "macro-1");
-    expect(macroManager.stop).toHaveBeenCalledWith("role-1", "macro-1");
+    expect(macroManager.start).toHaveBeenCalledWith("macro-1");
+    expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
   });
 
   it("stops and deletes running macro instances before deleting a macro", async () => {
     await handlers.get(IPC_CHANNELS.macrosDelete)?.({}, "macro-1");
 
-    expect(macroManager.stop).toHaveBeenCalledWith("role-1", "macro-1");
+    expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
     expect(macroStore.deleteMacro).toHaveBeenCalledWith("macro-1");
   });
 

@@ -17,32 +17,32 @@ describe("MacroStore", () => {
     store = new MacroStore(baseDir);
   });
 
-  it("creates, updates, lists, and deletes macros", async () => {
+  it("creates, updates, lists, and deletes macros with multiple assigned roles", async () => {
     const first = await store.createMacro({
       name: "Auto heal",
-      roleId: "role-1",
+      roleIds: ["role-1", "role-2"],
       repeat: { type: "loop", intervalMs: 300 },
       steps: [{ id: "step-1", type: "key", code: "F2" }]
     });
     const second = await store.createMacro({
       name: "Pick up",
-      roleId: "role-2",
+      roleIds: ["role-3"],
       steps: [{ id: "step-2", type: "key", code: "Space" }]
     });
 
-    expect(first.roleId).toBe("role-1");
+    expect(first.roleIds).toEqual(["role-1", "role-2"]);
     expect(await store.listMacros()).toMatchObject([{ id: first.id }, { id: second.id }]);
 
     const updated = await store.updateMacro(first.id, {
       name: "Auto heal 2",
-      roleId: "role-3",
+      roleIds: ["role-4", "role-5"],
       repeat: { type: "once" },
       steps: [{ id: "step-3", type: "delay", ms: 50 }]
     });
 
     expect(updated).toMatchObject({
       name: "Auto heal 2",
-      roleId: "role-3",
+      roleIds: ["role-4", "role-5"],
       repeat: { type: "once" },
       steps: [{ type: "delay", ms: 50 }]
     });
@@ -54,14 +54,14 @@ describe("MacroStore", () => {
   it("rejects duplicate names and invalid step timing", async () => {
     await store.createMacro({
       name: "Auto heal",
-      roleId: "role-1",
+      roleIds: ["role-1"],
       steps: [{ id: "step-1", type: "key", code: "F2" }]
     });
 
     await expect(
       store.createMacro({
         name: "auto heal",
-        roleId: "role-1",
+        roleIds: ["role-1"],
         steps: [{ id: "step-2", type: "key", code: "F3" }]
       })
     ).rejects.toMatchObject({ code: "MACRO_NAME_DUPLICATE" });
@@ -69,20 +69,20 @@ describe("MacroStore", () => {
     await expect(
       store.createMacro({
         name: "Bad delay",
-        roleId: "role-1",
+        roleIds: ["role-1"],
         steps: [{ id: "step-1", type: "delay", ms: 600_001 }]
       })
     ).rejects.toBeInstanceOf(MacroStoreError);
     await expect(
       store.createMacro({
         name: "Bad delay",
-        roleId: "role-1",
+        roleIds: ["role-1"],
         steps: [{ id: "step-1", type: "delay", ms: 600_001 }]
       })
     ).rejects.toMatchObject({ code: "MACRO_TIME_INVALID" });
   });
 
-  it("requires exactly one assigned role", async () => {
+  it("requires at least one valid assigned role", async () => {
     await expect(
       store.createMacro({
         name: "Unassigned",
@@ -93,17 +93,35 @@ describe("MacroStore", () => {
     await expect(
       store.createMacro({
         name: "Blank role",
-        roleId: " ",
+        roleIds: [" "],
         steps: [{ id: "step-1", type: "key", code: "F2" }]
       })
     ).rejects.toMatchObject({ code: "MACRO_ROLE_ID_INVALID" });
+
+    await expect(
+      store.createMacro({
+        name: "Empty roles",
+        roleIds: [],
+        steps: [{ id: "step-1", type: "key", code: "F2" }]
+      })
+    ).rejects.toMatchObject({ code: "MACRO_ROLE_ID_INVALID" });
+  });
+
+  it("deduplicates and trims assigned roles", async () => {
+    const macro = await store.createMacro({
+      name: "Shared",
+      roleIds: [" role-1 ", "role-2", "role-1"],
+      steps: [{ id: "step-1", type: "key", code: "F2" }]
+    });
+
+    expect(macro.roleIds).toEqual(["role-1", "role-2"]);
   });
 
   it("rejects invalid click percentages and empty steps", async () => {
     await expect(
       store.createMacro({
         name: "Bad click",
-        roleId: "role-1",
+        roleIds: ["role-1"],
         steps: [{ id: "step-1", type: "click", xPercent: 101, yPercent: 50 }]
       })
     ).rejects.toMatchObject({ code: "MACRO_CLICK_PERCENT_INVALID" });
@@ -111,7 +129,7 @@ describe("MacroStore", () => {
     await expect(
       store.createMacro({
         name: "Empty",
-        roleId: "role-1",
+        roleIds: ["role-1"],
         steps: []
       })
     ).rejects.toMatchObject({ code: "MACRO_STEPS_REQUIRED" });
@@ -125,7 +143,7 @@ describe("MacroStore", () => {
           {
             id: "macro-1",
             name: "Legacy",
-            roleId: " role-1 ",
+            roleIds: [" role-1 ", "role-2"],
             repeat: { type: "once" },
             steps: [
               { id: "", type: "key", code: "Tab", label: " Tab " },
@@ -141,7 +159,7 @@ describe("MacroStore", () => {
 
     const macro = await store.getMacro("macro-1");
 
-    expect(macro.roleId).toBe("role-1");
+    expect(macro.roleIds).toEqual(["role-1", "role-2"]);
     expect(macro.steps).toMatchObject([
       { type: "key", code: "Tab", label: "Tab" },
       { type: "click", xPercent: 50.12, yPercent: 49.99 }
@@ -151,7 +169,7 @@ describe("MacroStore", () => {
     expect(macro.steps[0].id).not.toBe(macro.steps[1].id);
   });
 
-  it("migrates legacy macro role assignments and writes roleId", async () => {
+  it("migrates legacy macro role assignments and writes roleIds", async () => {
     const path = join(baseDir, "macros.json");
     await writeFile(
       path,
@@ -184,23 +202,25 @@ describe("MacroStore", () => {
     const macros = await store.listMacros();
 
     expect(macros).toMatchObject([
-      { id: "macro-1", roleId: "role-1" },
-      { id: "macro-2", roleId: "role-2" }
+      { id: "macro-1", roleIds: ["role-1"] },
+      { id: "macro-2", roleIds: ["role-2"] }
     ]);
     const migrated = await readFile(path, "utf8");
-    expect(migrated).toContain('"roleId": "role-1"');
-    expect(migrated).toContain('"roleId": "role-2"');
+    expect(migrated).toContain('"roleIds": [');
+    expect(migrated).toContain('"role-1"');
+    expect(migrated).toContain('"role-2"');
+    expect(migrated).not.toContain('"roleId"');
     expect(migrated).not.toContain(legacyRoleIdField);
   });
 
-  it("rejects stored legacy macros without a single roleId", async () => {
+  it("accepts stored macros with roleIds", async () => {
     await writeFile(
       join(baseDir, "macros.json"),
       JSON.stringify({
         macros: [
           {
             id: "macro-1",
-            name: "Legacy",
+            name: "Modern",
             roleIds: ["role-1"],
             repeat: { type: "once" },
             steps: [{ id: "step-1", type: "key", code: "F1" }],
@@ -212,27 +232,27 @@ describe("MacroStore", () => {
       "utf8"
     );
 
-    await expect(store.listMacros()).rejects.toMatchObject({ code: "MACRO_ROLE_ID_INVALID" });
+    await expect(store.listMacros()).resolves.toMatchObject([{ id: "macro-1", roleIds: ["role-1"] }]);
   });
 
-  it("deletes macros assigned to a deleted role", async () => {
-    const deletedRoleMacro = await store.createMacro({
+  it("removes deleted role assignments and deletes macros with no remaining roles", async () => {
+    const deletedRoleOnlyMacro = await store.createMacro({
       name: "Role 1",
-      roleId: "role-1",
+      roleIds: ["role-1"],
       steps: [{ id: "step-1", type: "key", code: "F1" }]
     });
     const remainingMacro = await store.createMacro({
       name: "Role 2",
-      roleId: "role-2",
+      roleIds: ["role-1", "role-2"],
       steps: [{ id: "step-1", type: "key", code: "F1" }]
     });
 
     await store.deleteRoleMacros("role-1");
 
-    await expect(store.getMacro(deletedRoleMacro.id)).rejects.toMatchObject({ code: "MACRO_NOT_FOUND" });
+    await expect(store.getMacro(deletedRoleOnlyMacro.id)).rejects.toMatchObject({ code: "MACRO_NOT_FOUND" });
     await expect(store.getMacro(remainingMacro.id)).resolves.toMatchObject({
       id: remainingMacro.id,
-      roleId: "role-2"
+      roleIds: ["role-2"]
     });
   });
 });

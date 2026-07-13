@@ -79,13 +79,13 @@ function MacroModal(props: MacroModalProps): JSX.Element {
 
 function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: MacroModalProps): JSX.Element {
   const [newStepType, setNewStepType] = useState<MacroStep["type"]>("key");
-  const assignedRole = useMemo(
-    () => roles.find((role) => role.id === form.roleId),
-    [form.roleId, roles]
+  const roleIds = useMemo(() => new Set(form.roleIds), [form.roleIds]);
+  const missingRoleIds = useMemo(
+    () => form.roleIds.filter((roleId) => !roles.some((role) => role.id === roleId)),
+    [form.roleIds, roles]
   );
-  const isAssignedRoleMissing = Boolean(form.roleId) && !assignedRole;
-  const canSubmit = Boolean(form.roleId) && form.steps.length > 0 && !isSaving;
-  const saveHint = !form.roleId
+  const canSubmit = form.roleIds.length > 0 && form.steps.length > 0 && !isSaving;
+  const saveHint = form.roleIds.length === 0
     ? t("macroForm.saveHint.needsRole")
     : form.steps.length === 0
       ? t("macroForm.saveHint.needsStep")
@@ -95,8 +95,17 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
     onChange(updater);
   }
 
-  function updateRoleId(roleId: string): void {
-    update((current) => ({ ...current, roleId }));
+  function toggleRoleId(roleId: string): void {
+    update((current) => {
+      const currentRoleIds = new Set(current.roleIds);
+      if (currentRoleIds.has(roleId)) {
+        currentRoleIds.delete(roleId);
+      } else {
+        currentRoleIds.add(roleId);
+      }
+
+      return { ...current, roleIds: [...currentRoleIds] };
+    });
   }
 
   function updateRepeat(repeat: MacroRepeat): void {
@@ -171,29 +180,44 @@ function MacroForm({ form, isSaving, onCancel, onChange, onSubmit, roles, t }: M
 
             <Surface padding="md" variant="inset">
               <FormField
-                htmlFor={roles.length > 0 ? "macro-role" : undefined}
                 label={t("macroForm.roles")}
                 description={t("macroForm.rolesDescription")}
               >
                 {roles.length > 0 ? (
-                  <Select
-                    id="macro-role"
-                    value={form.roleId}
-                    onChange={(event) => updateRoleId(event.target.value)}
-                    disabled={isSaving}
-                  >
-                    <option value="" disabled>
-                      {t("macroForm.noRoleSelected")}
-                    </option>
-                    {isAssignedRoleMissing ? (
-                      <option value={form.roleId}>{t("macros.unknownRole")}</option>
-                    ) : null}
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
+                  <div id="macro-role" className="flex max-h-44 flex-wrap gap-1.5 overflow-auto">
+                    {missingRoleIds.map((roleId) => (
+                      <div
+                        key={roleId}
+                        className="glass-control inline-flex min-h-[30px] max-w-full items-center gap-2 rounded-md px-2.5 text-xs font-medium text-muted-foreground"
+                      >
+                        <Check size={13} />
+                        <span className="min-w-0 truncate">{t("macros.unknownRole")}</span>
+                      </div>
                     ))}
-                  </Select>
+                    {roles.map((role) => {
+                      const isSelected = roleIds.has(role.id);
+
+                      return (
+                        <label
+                          key={role.id}
+                          className={cn(
+                            "glass-control inline-flex min-h-[30px] max-w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-xs font-medium transition-colors",
+                            isSaving && "pointer-events-none opacity-60",
+                            isSelected ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <input
+                            className="size-3.5 accent-primary"
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={isSaving}
+                            onChange={() => toggleRoleId(role.id)}
+                          />
+                          <span className="min-w-0 max-w-36 truncate">{role.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <div className="glass-control flex h-[30px] items-center rounded-md px-2.5 text-xs text-muted-foreground">
                     {t("macroForm.noRoles")}

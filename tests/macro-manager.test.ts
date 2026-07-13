@@ -6,7 +6,7 @@ import type { Macro } from "../src/shared/types";
 const macro: Macro = {
   id: "macro-1",
   name: "Auto heal",
-  roleId: "role-1",
+  roleIds: ["role-1", "role-2"],
   repeat: { type: "once" },
   steps: [{ id: "step-1", type: "key", code: "F2" }],
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -18,8 +18,11 @@ describe("MacroManager", () => {
     vi.useRealTimers();
   });
 
-  it("dispatches key and click steps through the automation target in order", async () => {
-    const target = createTarget();
+  it("dispatches key and click steps through every assigned automation target in order", async () => {
+    const targets = {
+      "role-1": createTarget(),
+      "role-2": createTarget()
+    };
     const manager = createManager({
       macroOverride: {
         ...macro,
@@ -28,22 +31,28 @@ describe("MacroManager", () => {
           { id: "step-2", type: "click", xPercent: 25, yPercent: 75 }
         ]
       },
-      target
+      targets
     });
 
-    await manager.start("role-1", "macro-1");
-    await vi.waitFor(() => expect(target.dispatchClick).toHaveBeenCalledTimes(1));
+    await expect(manager.start("macro-1")).resolves.toHaveLength(2);
+    await vi.waitFor(() => expect(targets["role-1"].dispatchClick).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(targets["role-2"].dispatchClick).toHaveBeenCalledTimes(1));
 
-    expect(target.dispatchKey).toHaveBeenCalledWith("F2");
-    expect(target.dispatchClick).toHaveBeenCalledWith(25, 75);
-    expect(target.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
-      target.dispatchClick.mock.invocationCallOrder[0]
-    );
+    for (const target of Object.values(targets)) {
+      expect(target.dispatchKey).toHaveBeenCalledWith("F2");
+      expect(target.dispatchClick).toHaveBeenCalledWith(25, 75);
+      expect(target.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
+        target.dispatchClick.mock.invocationCallOrder[0]
+      );
+    }
   });
 
-  it("cancels a delay when the macro is stopped", async () => {
+  it("cancels delays for every assigned role when the macro is stopped", async () => {
     vi.useFakeTimers();
-    const target = createTarget();
+    const targets = {
+      "role-1": createTarget(),
+      "role-2": createTarget()
+    };
     const manager = createManager({
       macroOverride: {
         ...macro,
@@ -52,14 +61,15 @@ describe("MacroManager", () => {
           { id: "step-2", type: "key", code: "F3" }
         ]
       },
-      target
+      targets
     });
 
-    await manager.start("role-1", "macro-1");
-    await manager.stop("role-1", "macro-1");
+    await manager.start("macro-1");
+    await manager.stop("macro-1");
     await vi.runOnlyPendingTimersAsync();
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
-    expect(target.dispatchKey).not.toHaveBeenCalled();
+    expect(targets["role-1"].dispatchKey).not.toHaveBeenCalled();
+    expect(targets["role-2"].dispatchKey).not.toHaveBeenCalled();
   });
 
   it("loops until stopped", async () => {
@@ -67,51 +77,106 @@ describe("MacroManager", () => {
     const manager = createManager({
       macroOverride: {
         ...macro,
+        roleIds: ["role-1"],
         repeat: { type: "loop", intervalMs: 1 }
       },
-      target
+      targets: { "role-1": target }
     });
 
-    await manager.start("role-1", "macro-1");
+    await manager.start("macro-1");
     await vi.waitFor(() => expect(target.dispatchKey.mock.calls.length).toBeGreaterThanOrEqual(2));
-    await manager.stop("role-1", "macro-1");
+    await manager.stop("macro-1");
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
 
-  it("rejects unavailable sessions and macros assigned to another role", async () => {
-    await expect(createManager({ target: undefined }).start("role-1", "macro-1")).rejects.toThrow(
-      "Launch this role before running a macro."
-    );
+  it("rejects unavailable sessions before starting any assigned role", async () => {
+    const target = createTarget();
+    const manager = createManager({
+      targets: { "role-1": target }
+    });
 
-    await expect(
-      createManager({ macroOverride: { ...macro, roleId: "role-2" }, target: createTarget() }).start(
-        "role-1",
-        "macro-1"
-      )
-    ).rejects.toThrow("Macro is not assigned to this role.");
+    await expect(manager.start("macro-1")).rejects.toThrow("Launch this role before running a macro.");
+    expect(target.dispatchKey).not.toHaveBeenCalled();
+    expect(manager.listStatuses()).toEqual([]);
+  });
+
+  it("rejects when any assigned role is already running the macro", async () => {
+    vi.useFakeTimers();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        steps: [{ id: "step-1", type: "delay", ms: 1000 }]
+      }
+    });
+
+    await manager.start("macro-1");
+    await expect(manager.start("macro-1")).rejects.toThrow("Macro is already running for this role.");
+    await manager.stop("macro-1");
+    await vi.runOnlyPendingTimersAsync();
+  });
+
+  it("stops only the runs for the requested macro", async () => {
+    vi.useFakeTimers();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        steps: [{ id: "step-1", type: "delay", ms: 1000 }]
+      },
+      macroById: {
+        "macro-1": {
+          ...macro,
+          roleIds: ["role-1"],
+          steps: [{ id: "step-1", type: "delay", ms: 1000 }]
+        },
+        "macro-2": {
+          ...macro,
+          id: "macro-2",
+          roleIds: ["role-2"],
+          steps: [{ id: "step-1", type: "delay", ms: 1000 }]
+        }
+      }
+    });
+
+    await manager.start("macro-1");
+    await manager.start("macro-2");
+    await manager.stop("macro-1");
+
+    expect(manager.listStatuses()).toMatchObject([{ macroId: "macro-1", state: "stopping" }, { macroId: "macro-2" }]);
+    await manager.stop("macro-2");
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
 });
 
 function createManager(options: {
+  macroById?: Record<string, Macro>;
   macroOverride?: Macro;
-  target?: ReturnType<typeof createTarget>;
+  targets?: Record<string, ReturnType<typeof createTarget>>;
 } = {}): MacroManager {
-  const hasTarget = Object.prototype.hasOwnProperty.call(options, "target");
-  const target = hasTarget ? options.target : createTarget();
+  const targets =
+    options.targets ??
+    macro.roleIds.reduce<Record<string, ReturnType<typeof createTarget>>>((targetMap, roleId) => {
+      targetMap[roleId] = createTarget();
+      return targetMap;
+    }, {});
+  const macroById = options.macroById ?? {
+    [options.macroOverride?.id ?? macro.id]: options.macroOverride ?? macro
+  };
 
   return new MacroManager(
     {
-      getAutomationSession: vi.fn(() =>
-        target
+      getAutomationSession: vi.fn((roleId: string) =>
+        targets[roleId]
           ? {
-              role: { ...macroRole },
-              target
+              role: { ...macroRole, id: roleId },
+              target: targets[roleId]
             }
           : undefined
       )
     } as never,
     {
-      getMacro: vi.fn().mockResolvedValue(options.macroOverride ?? macro)
+      getMacro: vi.fn((macroId: string) => Promise.resolve(macroById[macroId] ?? options.macroOverride ?? macro))
     } as never
   );
 }

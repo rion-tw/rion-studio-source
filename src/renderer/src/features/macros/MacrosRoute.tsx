@@ -27,8 +27,8 @@ interface MacrosRouteProps {
   onDeleteMacro: (macro: Macro) => void;
   onEditMacro: (macro: Macro) => void;
   onNewMacro: () => void;
-  onStartMacro: (roleId: string, macroId: string) => void;
-  onStopMacro: (roleId: string, macroId: string) => void;
+  onStartMacro: (macroId: string) => void;
+  onStopMacro: (macroId: string) => void;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -60,11 +60,11 @@ function MacrosRoute({
     }
 
     return macros.filter((macro) => {
-      const roleName = macro.roleId ? roleById.get(macro.roleId)?.name : t("macros.noRoles");
+      const roleNames = macro.roleIds.map((roleId) => roleById.get(roleId)?.name ?? t("macros.unknownRole"));
 
       return [
         macro.name,
-        roleName,
+        ...roleNames,
         formatMacroShortcut(macro.trigger, t),
         formatMacroRepeat(macro.repeat, t),
         summarizeMacroSteps(macro.steps, t)
@@ -201,26 +201,32 @@ interface MacroRoleBadgeProps {
 }
 
 function MacroRoleBadge({ macro, macroStatusByRun, roleById, statusByRole, t }: MacroRoleBadgeProps): JSX.Element {
-  if (!macro.roleId) {
+  if (macro.roleIds.length === 0) {
     return <span className="font-medium leading-5 text-muted-foreground">{t("macros.noRoles")}</span>;
   }
 
-  const role = roleById.get(macro.roleId);
-  const runKey = createMacroRunKey(macro.roleId, macro.id);
-  const macroStatus = macroStatusByRun.get(runKey);
-  const browserStatus = statusByRole.get(macro.roleId);
-  const isBrowserRunning = browserStatus?.state === "running";
-  const isRunning = macroStatus?.state === "running";
-
   return (
-    <Badge variant="outline" className="max-w-[210px] justify-start gap-1.5">
-      <RoleRunDot
-        className={cn(!isBrowserRunning && "opacity-45")}
-        isActive={Boolean(isRunning)}
-        label={t(isRunning ? "macros.status.running" : "macros.status.ready")}
-      />
-      <span className="min-w-0 truncate">{role?.name ?? t("macros.unknownRole")}</span>
-    </Badge>
+    <div className="flex max-w-[260px] flex-wrap gap-1.5">
+      {macro.roleIds.map((roleId) => {
+        const role = roleById.get(roleId);
+        const runKey = createMacroRunKey(roleId, macro.id);
+        const macroStatus = macroStatusByRun.get(runKey);
+        const browserStatus = statusByRole.get(roleId);
+        const isBrowserRunning = browserStatus?.state === "running";
+        const isRunning = macroStatus?.state === "running";
+
+        return (
+          <Badge key={roleId} variant="outline" className="max-w-[126px] justify-start gap-1.5">
+            <RoleRunDot
+              className={cn(!isBrowserRunning && "opacity-45")}
+              isActive={Boolean(isRunning)}
+              label={t(isRunning ? "macros.status.running" : "macros.status.ready")}
+            />
+            <span className="min-w-0 truncate">{role?.name ?? t("macros.unknownRole")}</span>
+          </Badge>
+        );
+      })}
+    </div>
   );
 }
 
@@ -231,8 +237,8 @@ interface MacroActionMenuProps {
   macroStatusByRun: Map<string, MacroRunStatus>;
   onDelete: () => void;
   onEdit: () => void;
-  onStartMacro: (roleId: string, macroId: string) => void;
-  onStopMacro: (roleId: string, macroId: string) => void;
+  onStartMacro: (macroId: string) => void;
+  onStopMacro: (macroId: string) => void;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
 }
@@ -258,16 +264,18 @@ function MacroActionMenu({
   const [menuPosition, setMenuPosition] = useState<MacroActionMenuPosition | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const runKey = macro.roleId ? createMacroRunKey(macro.roleId, macro.id) : null;
-  const macroStatus = runKey ? macroStatusByRun.get(runKey) : undefined;
-  const browserStatus = macro.roleId ? statusByRole.get(macro.roleId) : undefined;
-  const isBrowserRunning = browserStatus?.state === "running";
-  const isRunning = macroStatus?.state === "running";
-  const isStopping = macroStatus?.state === "stopping";
-  const isRunBusy = Boolean(runKey && busyRunKey === runKey) || isStopping;
+  const assignedRunKeys = macro.roleIds.map((roleId) => createMacroRunKey(roleId, macro.id));
+  const macroRunStatuses = assignedRunKeys
+    .map((runKey) => macroStatusByRun.get(runKey))
+    .filter((status): status is MacroRunStatus => Boolean(status));
+  const areBrowsersRunning =
+    macro.roleIds.length > 0 && macro.roleIds.every((roleId) => statusByRole.get(roleId)?.state === "running");
+  const isRunning = macroRunStatuses.some((status) => status.state === "running");
+  const isStopping = macroRunStatuses.some((status) => status.state === "stopping");
+  const isRunBusy = busyRunKey === macro.id || isStopping;
   const isDeleteBusy = busyMacroId === macro.id;
   const runLabel = t(isRunning || isStopping ? "macros.stopShort" : "macros.startShort");
-  const isRunDisabled = !macro.roleId || !isBrowserRunning || isRunBusy;
+  const isRunDisabled = isRunBusy || (!isRunning && !areBrowsersRunning);
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -341,18 +349,18 @@ function MacroActionMenu({
   }, [isOpen]);
 
   function handleRun(): void {
-    if (!macro.roleId || isRunDisabled) {
+    if (isRunDisabled) {
       return;
     }
 
     setIsOpen(false);
 
     if (isRunning || isStopping) {
-      onStopMacro(macro.roleId, macro.id);
+      onStopMacro(macro.id);
       return;
     }
 
-    onStartMacro(macro.roleId, macro.id);
+    onStartMacro(macro.id);
   }
 
   function handleEdit(): void {
@@ -393,7 +401,7 @@ function MacroActionMenu({
               )}
               type="button"
               role="menuitem"
-              title={!macro.roleId || !isBrowserRunning ? t("macros.launchRoleFirst") : runLabel}
+              title={!areBrowsersRunning && !isRunning ? t("macros.launchRoleFirst") : runLabel}
               onClick={handleRun}
               disabled={isRunDisabled}
             >

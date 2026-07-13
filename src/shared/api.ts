@@ -41,8 +41,8 @@ export interface RionStudioApi {
   createMacro: (input: CreateMacroInput) => Promise<Macro>;
   updateMacro: (id: string, input: UpdateMacroInput) => Promise<Macro>;
   deleteMacro: (id: string) => Promise<void>;
-  startMacro: (roleId: string, macroId: string) => Promise<MacroRunStatus>;
-  stopMacro: (roleId: string, macroId: string) => Promise<void>;
+  startMacro: (macroId: string) => Promise<MacroRunStatus[]>;
+  stopMacro: (macroId: string) => Promise<void>;
   listMacroStatuses: () => Promise<MacroRunStatus[]>;
   consumePendingMacroEditorRequest: () => Promise<MacroEditorRequest | null>;
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;

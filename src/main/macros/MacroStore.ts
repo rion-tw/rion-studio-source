@@ -16,6 +16,8 @@ interface MacrosFile {
 }
 
 type StoredMacro = Macro & {
+  roleId?: unknown;
+  roleIds?: unknown;
   [key: string]: unknown;
 };
 
@@ -69,7 +71,7 @@ export class MacroStore {
     const macro: Macro = {
       id: randomUUID(),
       name,
-      roleId: this.normalizeRoleId(input.roleId),
+      roleIds: this.normalizeRoleIds(input.roleIds),
       trigger: this.normalizeTrigger(input.trigger),
       repeat: this.normalizeRepeat(input.repeat),
       steps: this.normalizeSteps(input.steps),
@@ -98,7 +100,7 @@ export class MacroStore {
     const updated: Macro = {
       ...current,
       name,
-      roleId: input.roleId === undefined ? current.roleId : this.normalizeRoleId(input.roleId),
+      roleIds: input.roleIds === undefined ? current.roleIds : this.normalizeRoleIds(input.roleIds),
       trigger: input.trigger === undefined ? current.trigger : this.normalizeTrigger(input.trigger),
       repeat: input.repeat === undefined ? current.repeat : this.normalizeRepeat(input.repeat),
       steps: input.steps === undefined ? current.steps : this.normalizeSteps(input.steps),
@@ -124,9 +126,14 @@ export class MacroStore {
 
   async deleteRoleMacros(roleId: string): Promise<void> {
     const file = await this.readMacrosFile();
-    const macros = file.macros.filter((macro) => macro.roleId !== roleId);
+    const macros = file.macros
+      .map((macro) => ({
+        ...macro,
+        roleIds: macro.roleIds.filter((assignedRoleId) => assignedRoleId !== roleId)
+      }))
+      .filter((macro) => macro.roleIds.length > 0);
 
-    if (macros.length === file.macros.length) {
+    if (JSON.stringify(macros) === JSON.stringify(file.macros)) {
       return;
     }
 
@@ -142,7 +149,10 @@ export class MacroStore {
         throw new MacroStoreError("MACRO_FILE_INVALID", "Macro data file is invalid.");
       }
 
-      const didMigrate = parsed.macros.some((macro) => LEGACY_ROLE_ID_FIELD in (macro as StoredMacro));
+      const didMigrate = parsed.macros.some((macro) => {
+        const storedMacro = macro as StoredMacro;
+        return "roleId" in storedMacro || LEGACY_ROLE_ID_FIELD in storedMacro;
+      });
       const file = {
         macros: parsed.macros.map((macro) => this.normalizeStoredMacro(macro as StoredMacro))
       };
@@ -174,7 +184,7 @@ export class MacroStore {
     return {
       id: typeof macro.id === "string" && macro.id.trim() ? macro.id : randomUUID(),
       name: this.normalizeName(macro.name),
-      roleId: this.normalizeRoleId(this.readMacroRoleId(macro)),
+      roleIds: this.normalizeRoleIds(this.readMacroRoleIds(macro)),
       trigger: this.normalizeTrigger(macro.trigger),
       repeat: this.normalizeRepeat(macro.repeat),
       steps: this.normalizeSteps(macro.steps),
@@ -197,22 +207,28 @@ export class MacroStore {
     return normalized;
   }
 
-  private normalizeRoleId(roleId: unknown): string {
-    if (typeof roleId !== "string") {
+  private normalizeRoleIds(roleIds: unknown): string[] {
+    if (!Array.isArray(roleIds)) {
       throw new MacroStoreError("MACRO_ROLE_ID_INVALID", "Macro role assignment is invalid.");
     }
 
-    const normalized = roleId.trim();
+    const normalizedRoleIds = roleIds.map((roleId) => (typeof roleId === "string" ? roleId.trim() : ""));
+    const uniqueRoleIds = [...new Set(normalizedRoleIds)];
 
-    if (!normalized) {
+    if (uniqueRoleIds.length === 0 || normalizedRoleIds.some((roleId) => roleId.length === 0)) {
       throw new MacroStoreError("MACRO_ROLE_ID_INVALID", "Macro role assignment is invalid.");
     }
 
-    return normalized;
+    return uniqueRoleIds;
   }
 
-  private readMacroRoleId(macro: StoredMacro): unknown {
-    return macro.roleId === undefined ? macro[LEGACY_ROLE_ID_FIELD] : macro.roleId;
+  private readMacroRoleIds(macro: StoredMacro): unknown {
+    if (macro.roleIds !== undefined) {
+      return macro.roleIds;
+    }
+
+    const legacyRoleId = macro.roleId === undefined ? macro[LEGACY_ROLE_ID_FIELD] : macro.roleId;
+    return legacyRoleId === undefined ? undefined : [legacyRoleId];
   }
 
   private normalizeTrigger(trigger: MacroTrigger | null | undefined): MacroTrigger | undefined {

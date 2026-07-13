@@ -31,7 +31,7 @@ export interface WorkspaceFormState {
 export interface MacroFormState {
   id?: string;
   name: string;
-  roleId: string;
+  roleIds: string[];
   repeat: MacroRepeat;
   steps: MacroStep[];
   trigger?: MacroTrigger;

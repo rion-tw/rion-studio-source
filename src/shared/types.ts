@@ -105,7 +105,7 @@ export type MacroStep =
 export interface Macro {
   id: string;
   name: string;
-  roleId: string;
+  roleIds: string[];
   trigger?: MacroTrigger;
   repeat: MacroRepeat;
   steps: MacroStep[];
@@ -115,7 +115,7 @@ export interface Macro {
 
 export interface CreateMacroInput {
   name: string;
-  roleId: string;
+  roleIds: string[];
   trigger?: MacroTrigger | null;
   repeat?: MacroRepeat;
   steps: MacroStep[];

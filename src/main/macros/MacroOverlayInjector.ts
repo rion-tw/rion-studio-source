@@ -81,10 +81,10 @@ export class MacroOverlayInjector {
         await this.onMacroEditorRequested?.({ macroId: request.macroId, roleId });
         break;
       case "start":
-        await this.macroManager.start(roleId, request.macroId);
+        await this.macroManager.start(request.macroId);
         break;
       case "stop":
-        await this.macroManager.stop(roleId, request.macroId);
+        await this.macroManager.stop(request.macroId);
         break;
     }
 
@@ -141,7 +141,7 @@ export class MacroOverlayInjector {
 
     return {
       language: this.language,
-      macros: macros.filter((macro) => macro.roleId === roleId),
+      macros: macros.filter((macro) => macro.roleIds.includes(roleId)),
       statuses: statuses.filter((status) => status.roleId === roleId)
     };
   }

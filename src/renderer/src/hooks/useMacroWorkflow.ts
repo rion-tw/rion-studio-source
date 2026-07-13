@@ -45,7 +45,7 @@ export function useMacroWorkflow({
     try {
       const input = {
         name: macroForm.name,
-        roleId: macroForm.roleId,
+        roleIds: macroForm.roleIds,
         repeat: macroForm.repeat,
         steps: macroForm.steps,
         trigger: macroForm.trigger ?? null
@@ -77,7 +77,7 @@ export function useMacroWorkflow({
     navigateToMacros();
     setMacroForm({
       name: createEmptyMacroFormName(macros, t),
-      roleId,
+      roleIds: roleId ? [roleId] : [],
       repeat: { type: "once" },
       steps: [
         {
@@ -96,7 +96,7 @@ export function useMacroWorkflow({
     setMacroForm({
       id: macro.id,
       name: macro.name,
-      roleId: macro.roleId,
+      roleIds: macro.roleIds,
       repeat: macro.repeat,
       steps: macro.steps,
       trigger: macro.trigger
@@ -133,16 +133,16 @@ export function useMacroWorkflow({
     }
   }
 
-  async function handleStartMacro(roleId: string, macroId: string): Promise<void> {
-    const runKey = createMacroRunKey(roleId, macroId);
-    setBusyRunKey(runKey);
+  async function handleStartMacro(macroId: string): Promise<void> {
+    setBusyRunKey(macroId);
     setError(null);
 
     try {
-      const status = await window.rionStudio.startMacro(roleId, macroId);
+      const statuses = await window.rionStudio.startMacro(macroId);
       setMacroStatuses((current) => {
-        const next = current.filter((item) => createMacroRunKey(item.roleId, item.macroId) !== runKey);
-        return [...next, status];
+        const nextRunKeys = new Set(statuses.map((status) => createMacroRunKey(status.roleId, status.macroId)));
+        const next = current.filter((item) => !nextRunKeys.has(createMacroRunKey(item.roleId, item.macroId)));
+        return [...next, ...statuses];
       });
     } catch (startError) {
       setError(startError);
@@ -152,13 +152,12 @@ export function useMacroWorkflow({
     }
   }
 
-  async function handleStopMacro(roleId: string, macroId: string): Promise<void> {
-    const runKey = createMacroRunKey(roleId, macroId);
-    setBusyRunKey(runKey);
+  async function handleStopMacro(macroId: string): Promise<void> {
+    setBusyRunKey(macroId);
     setError(null);
 
     try {
-      await window.rionStudio.stopMacro(roleId, macroId);
+      await window.rionStudio.stopMacro(macroId);
       await loadData();
     } catch (stopError) {
       setError(stopError);

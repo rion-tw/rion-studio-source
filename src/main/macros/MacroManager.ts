@@ -36,55 +36,74 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     return [...this.runs.values()].map((run) => run.status);
   }
 
-  async start(roleId: string, macroId: string): Promise<MacroRunStatus> {
-    const key = createRunKey(roleId, macroId);
-
-    if (this.runs.has(key)) {
-      throw new Error("Macro is already running for this role.");
-    }
-
+  async start(macroId: string): Promise<MacroRunStatus[]> {
     const macro = await this.macroStore.getMacro(macroId);
-    if (macro.roleId !== roleId) {
-      throw new Error("Macro is not assigned to this role.");
-    }
+    const sessions = macro.roleIds.map((roleId) => {
+      const key = createRunKey(roleId, macroId);
+      if (this.runs.has(key)) {
+        throw new Error("Macro is already running for this role.");
+      }
 
-    const session = this.browserManager.getAutomationSession(roleId);
-    if (!session) {
-      throw new Error("Launch this role before running a macro.");
-    }
+      const session = this.browserManager.getAutomationSession(roleId);
+      if (!session) {
+        throw new Error("Launch this role before running a macro.");
+      }
+
+      return {
+        key,
+        roleId,
+        target: session.target
+      };
+    });
 
     const now = new Date().toISOString();
-    const run: MacroRun = {
-      isCancelled: false,
-      status: {
-        roleId,
-        macroId,
-        state: "running",
-        startedAt: now,
-        updatedAt: now
-      }
-    };
+    const runItems = sessions.map(({ key, roleId, target }) => ({
+      key,
+      run: {
+        isCancelled: false,
+        status: {
+          roleId,
+          macroId,
+          state: "running" as const,
+          startedAt: now,
+          updatedAt: now
+        }
+      },
+      target
+    }));
 
-    this.runs.set(key, run);
+    runItems.forEach(({ key, run }) => {
+      this.runs.set(key, run);
+    });
     this.emitChange();
 
-    void this.runMacro(key, run, macro, session.target)
-      .catch((error) => {
-        if (!(error instanceof MacroRunCancelledError)) {
-          console.warn("Macro execution failed.", error);
-        }
-      })
-      .finally(() => {
-        if (this.runs.get(key) === run) {
-          this.runs.delete(key);
-          this.emitChange();
-        }
-      });
+    runItems.forEach(({ key, run, target }) => {
+      void this.runMacro(key, run, macro, target)
+        .catch((error) => {
+          if (!(error instanceof MacroRunCancelledError)) {
+            console.warn("Macro execution failed.", error);
+          }
+        })
+        .finally(() => {
+          if (this.runs.get(key) === run) {
+            this.runs.delete(key);
+            this.emitChange();
+          }
+        });
+    });
 
-    return run.status;
+    return runItems.map(({ run }) => run.status);
   }
 
-  async stop(roleId: string, macroId: string): Promise<void> {
+  async stop(macroId: string): Promise<void> {
+    await Promise.all(
+      this.listStatuses()
+        .filter((status) => status.macroId === macroId)
+        .map((status) => this.stopRun(status.roleId, status.macroId))
+    );
+  }
+
+  private async stopRun(roleId: string, macroId: string): Promise<void> {
     const run = this.runs.get(createRunKey(roleId, macroId));
     if (!run) {
       return;
@@ -104,7 +123,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     await Promise.all(
       this.listStatuses()
         .filter((status) => status.roleId === roleId)
-        .map((status) => this.stop(status.roleId, status.macroId))
+        .map((status) => this.stopRun(status.roleId, status.macroId))
     );
   }
 

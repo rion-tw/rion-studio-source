@@ -242,22 +242,17 @@ export function registerIpcHandlers(
     });
 
     ipcMain.handle(IPC_CHANNELS.macrosDelete, async (_event, id: string) => {
-      await Promise.all(
-        macroManager
-          .listStatuses()
-          .filter((status) => status.macroId === id)
-          .map((status) => macroManager.stop(status.roleId, status.macroId))
-      );
+      await macroManager.stop(id);
       await macroStore.deleteMacro(id);
       options.onMacrosChanged?.();
     });
 
-    ipcMain.handle(IPC_CHANNELS.macrosStart, async (_event, roleId: string, macroId: string) => {
-      return macroManager.start(roleId, macroId);
+    ipcMain.handle(IPC_CHANNELS.macrosStart, async (_event, macroId: string) => {
+      return macroManager.start(macroId);
     });
 
-    ipcMain.handle(IPC_CHANNELS.macrosStop, async (_event, roleId: string, macroId: string) => {
-      await macroManager.stop(roleId, macroId);
+    ipcMain.handle(IPC_CHANNELS.macrosStop, async (_event, macroId: string) => {
+      await macroManager.stop(macroId);
     });
 
     ipcMain.handle(IPC_CHANNELS.macrosStatuses, () => macroManager.listStatuses());

@@ -22,7 +22,7 @@ const role: Role = {
 const assignedMacro: Macro = {
   id: "macro-1",
   name: "Auto heal",
-  roleId: "role-1",
+  roleIds: ["role-1", "role-2"],
   trigger: { code: "F2", ctrl: false, alt: false, shift: false, meta: false },
   repeat: { type: "once" },
   steps: [{ id: "step-1", type: "key", code: "F2" }],
@@ -34,7 +34,7 @@ const otherMacro: Macro = {
   ...assignedMacro,
   id: "macro-2",
   name: "Other",
-  roleId: "role-2"
+  roleIds: ["role-2"]
 };
 
 describe("MacroOverlayInjector", () => {
@@ -79,7 +79,7 @@ describe("MacroOverlayInjector", () => {
     ];
     const macroManager = {
       listStatuses: vi.fn(() => statuses),
-      start: vi.fn().mockResolvedValue(statuses[0]),
+      start: vi.fn().mockResolvedValue([statuses[0]]),
       stop: vi.fn().mockResolvedValue(undefined)
     };
     const injector = createInjector({ macroManager });
@@ -99,8 +99,8 @@ describe("MacroOverlayInjector", () => {
     expect(startState).toMatchObject({
       macros: [{ id: "macro-1" }]
     });
-    expect(macroManager.start).toHaveBeenCalledWith("role-1", "macro-1");
-    expect(macroManager.stop).toHaveBeenCalledWith("role-1", "macro-1");
+    expect(macroManager.start).toHaveBeenCalledWith("macro-1");
+    expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
   });
 
   it("routes create and edit requests with the installed role id", async () => {

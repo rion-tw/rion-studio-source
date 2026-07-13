@@ -265,8 +265,8 @@ export function App(): JSX.Element {
                     onDeleteMacro={(macro) => void macroWorkflow.handleDeleteMacro(macro)}
                     onEditMacro={macroWorkflow.startEditMacro}
                     onNewMacro={macroWorkflow.startCreateMacro}
-                    onStartMacro={(roleId, macroId) => void macroWorkflow.handleStartMacro(roleId, macroId)}
-                    onStopMacro={(roleId, macroId) => void macroWorkflow.handleStopMacro(roleId, macroId)}
+                    onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
+                    onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
                   />
                 ) : (
                   <BridgeUnavailable t={preferences.t} />

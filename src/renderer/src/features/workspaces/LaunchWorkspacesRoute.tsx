@@ -11,7 +11,7 @@ import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { LaunchWorkspace, LaunchWorkspaceSlot, Role, RoleStatus, WorkspaceLayoutTemplate } from "../../../../shared/types";
 import { createWorkspaceSlotBackground, getWorkspaceSplits } from "./workspaceLayoutUtils";
-import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
+import { WorkspaceTemplateIcon, workspaceTemplateLabelKeys } from "./workspaceConstants";
 
 interface LaunchWorkspacesViewProps {
   busyWorkspaceId: string | null;
@@ -146,7 +146,6 @@ function WorkspaceCard({
   const runningCount = workspace.slots.filter((slot) => slot.roleId && statusByRole.has(slot.roleId)).length;
   const isRunning = runningCount > 0;
   const isBusy = busyWorkspaceId === workspace.id;
-  const LayoutIcon = workspaceTemplateIcons[workspace.template];
 
   return (
     <Card className="group relative overflow-visible glass-panel-strong transition-shadow duration-200">
@@ -175,7 +174,7 @@ function WorkspaceCard({
                 className="flex shrink-0 items-center justify-center text-muted-foreground"
                 title={t(workspaceTemplateLabelKeys[workspace.template])}
               >
-                <LayoutIcon size={18} aria-hidden="true" />
+                <WorkspaceTemplateIcon template={workspace.template} size={18} aria-hidden="true" />
               </span>
               <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
             </div>

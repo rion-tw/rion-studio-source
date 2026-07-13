@@ -1,6 +1,8 @@
-import { Columns2, Columns3, Columns4, Grid2X2, PanelsTopLeft, type LucideIcon } from "lucide-react";
+import { createElement, type ReactElement } from "react";
+import { Columns2, Columns3, Columns4, Grid2X2, PanelsTopLeft, type LucideIcon, type LucideProps } from "lucide-react";
 
 import type { TranslationKey } from "../../i18n";
+import { cn } from "../../lib/utils";
 import type { WorkspaceLayoutTemplate } from "../../../../shared/types";
 
 export const workspaceTemplateLabelKeys: Record<WorkspaceLayoutTemplate, TranslationKey> = {
@@ -13,12 +15,34 @@ export const workspaceTemplateLabelKeys: Record<WorkspaceLayoutTemplate, Transla
   four_columns: "workspace.layout.fourColumns"
 };
 
-export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon> = {
-  single: Columns2,
-  two_columns: Columns2,
-  three_columns: Columns3,
-  main_left_stack_right: PanelsTopLeft,
-  main_right_stack_left: PanelsTopLeft,
-  quad: Grid2X2,
-  four_columns: Columns4
+interface WorkspaceTemplateIconConfig {
+  Icon: LucideIcon;
+  className?: string;
+}
+
+const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, WorkspaceTemplateIconConfig> = {
+  single: { Icon: Columns2 },
+  two_columns: { Icon: Columns2 },
+  three_columns: { Icon: Columns3 },
+  main_left_stack_right: { Icon: PanelsTopLeft },
+  main_right_stack_left: { Icon: PanelsTopLeft, className: "scale-x-[-1]" },
+  quad: { Icon: Grid2X2 },
+  four_columns: { Icon: Columns4 }
 };
+
+interface WorkspaceTemplateIconProps extends LucideProps {
+  template: WorkspaceLayoutTemplate;
+}
+
+export function WorkspaceTemplateIcon({
+  template,
+  className,
+  ...props
+}: WorkspaceTemplateIconProps): ReactElement {
+  const { Icon, className: templateClassName } = workspaceTemplateIcons[template];
+
+  return createElement(Icon, {
+    ...props,
+    className: cn(templateClassName, className)
+  });
+}

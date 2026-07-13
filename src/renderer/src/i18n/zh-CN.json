@@ -235,8 +235,6 @@
   "settings.defaultPresetDescription": "新增角色表单会先使用这个性能模式。",
   "settings.browserFonts": "浏览器字体",
   "settings.browserFontsCustomize": "自定义字体",
-  "settings.browserFontsMode.default": "浏览器默认",
-  "settings.browserFontsMode.custom": "自定义",
   "settings.browserFonts.standard": "Standard",
   "settings.browserFonts.serif": "Serif",
   "settings.browserFonts.sansSerif": "Sans-serif",

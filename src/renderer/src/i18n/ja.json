@@ -235,8 +235,6 @@
   "settings.defaultPresetDescription": "The new role form starts with this performance mode.",
   "settings.browserFonts": "ブラウザフォント",
   "settings.browserFontsCustomize": "フォントをカスタマイズ",
-  "settings.browserFontsMode.default": "ブラウザ既定",
-  "settings.browserFontsMode.custom": "カスタム",
   "settings.browserFonts.standard": "Standard",
   "settings.browserFonts.serif": "Serif",
   "settings.browserFonts.sansSerif": "Sans-serif",

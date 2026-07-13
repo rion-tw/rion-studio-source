@@ -1,4 +1,4 @@
-import { ChevronDown, Download, FileJson, Laptop, Moon, RefreshCw, RotateCcw, Sun, Type as TypeIcon, Upload } from "lucide-react";
+import { ChevronDown, Download, FileJson, Laptop, Moon, RefreshCw, RotateCcw, Sun, Upload } from "lucide-react";
 import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -31,7 +31,6 @@ import {
 import type {
   AppUpdateStatus,
   BrowserFontFamilyRole,
-  BrowserFontSettingsMode,
   GameBrowserSettings,
   LaunchPreset,
   PortableExportInput,
@@ -521,7 +520,6 @@ function BrowserFontsSettingsRows({
   const [isSaving, setIsSaving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const isCustom = draft.fonts.mode === "custom";
   const fontOptions = getBrowserFontOptions(availableFonts, draft);
   const isDirty = JSON.stringify(normalizeGameBrowserSettings(draft)) !== JSON.stringify(normalizeGameBrowserSettings(settings));
 
@@ -562,18 +560,6 @@ function BrowserFontsSettingsRows({
     };
   }, [onError, onLoadSystemFonts, systemFonts.length]);
 
-  function handleModeChange(mode: BrowserFontSettingsMode): void {
-    setMessage(null);
-    setDraft((current) =>
-      normalizeGameBrowserSettings({
-        fonts: {
-          families: mode === "custom" ? current.fonts.families : {},
-          mode
-        }
-      })
-    );
-  }
-
   function handleFontFamilyChange(role: BrowserFontFamilyRole, value: string): void {
     setMessage(null);
     setDraft((current) =>
@@ -608,17 +594,18 @@ function BrowserFontsSettingsRows({
       <SettingsRow
         title={t("settings.browserFonts")}
         description={message ?? formatBrowserFontSettingsSummary(draft, t)}
+        showDivider={!isExpanded}
         control={
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
+            size="icon"
+            aria-label={t("settings.browserFontsCustomize")}
             aria-expanded={isExpanded}
             onClick={() => setIsExpanded((current) => !current)}
           >
-            <TypeIcon size={14} />
-            {t("settings.browserFontsCustomize")}
             <ChevronDown
-              size={14}
+              size={16}
               className={isExpanded ? "rotate-180 transition-transform" : "transition-transform"}
             />
           </Button>
@@ -626,55 +613,43 @@ function BrowserFontsSettingsRows({
       />
 
       {isExpanded ? (
-        <>
-          <div className="glass-divider flex justify-end border-b px-4 py-3 last:border-b-0">
-            <SegmentedControl<BrowserFontSettingsMode>
-              className="settings-menu-control grid-cols-2"
-              items={[
-                { value: "default", label: t("settings.browserFontsMode.default") },
-                { value: "custom", label: t("settings.browserFontsMode.custom") }
-              ]}
-              value={draft.fonts.mode}
-              onValueChange={handleModeChange}
-            />
-          </div>
+        <div className="px-4 pb-4 pt-1">
+          <div className="glass-inset grid gap-4 rounded-md border border-border/40 p-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {browserFontFamilyRoles.map((role) => (
+                <BrowserFontFamilyInput
+                  key={role}
+                  disabled={isSaving}
+                  fontOptions={fontOptions}
+                  label={t(browserFontRoleLabelKeys[role])}
+                  role={role}
+                  value={draft.fonts.families[role] ?? ""}
+                  onValueChange={handleFontFamilyChange}
+                />
+              ))}
+            </div>
 
-          <div className="glass-divider grid gap-3 border-b px-4 py-3 last:border-b-0 sm:grid-cols-2">
-            {browserFontFamilyRoles.map((role) => (
-              <BrowserFontFamilyInput
-                key={role}
-                disabled={!isCustom || isSaving}
-                fontOptions={fontOptions}
-                label={t(browserFontRoleLabelKeys[role])}
-                role={role}
-                value={draft.fonts.families[role] ?? ""}
-                onValueChange={handleFontFamilyChange}
-              />
-            ))}
-          </div>
-
-          <div className="glass-divider grid gap-3 border-b px-4 py-3 last:border-b-0">
             <BrowserFontsPreview settings={draft} t={t} />
             {isLoadingFonts ? (
               <p className="text-xs leading-5 text-muted-foreground">{t("settings.browserFontsLoading")}</p>
             ) : null}
-          </div>
 
-          <div className="glass-divider flex flex-wrap items-center justify-end gap-2 border-b px-4 py-3 last:border-b-0">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isSaving}
-              onClick={() => void saveSettings(DEFAULT_GAME_BROWSER_SETTINGS)}
-            >
-              <RotateCcw size={14} />
-              {t("settings.browserFontsReset")}
-            </Button>
-            <Button type="button" disabled={isSaving || !isDirty} onClick={() => void saveSettings(draft)}>
-              {t("settings.browserFontsSave")}
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSaving}
+                onClick={() => void saveSettings(DEFAULT_GAME_BROWSER_SETTINGS)}
+              >
+                <RotateCcw size={14} />
+                {t("settings.browserFontsReset")}
+              </Button>
+              <Button type="button" disabled={isSaving || !isDirty} onClick={() => void saveSettings(draft)}>
+                {t("settings.browserFontsSave")}
+              </Button>
+            </div>
           </div>
-        </>
+        </div>
       ) : null}
     </>
   );
@@ -727,7 +702,7 @@ function BrowserFontsPreview({ settings, t }: { settings: GameBrowserSettings; t
   const mathFamily = families.math || standardFamily;
 
   return (
-    <div className="glass-inset grid gap-2 rounded-md px-3 py-3 text-xs leading-5 text-muted-foreground">
+    <div className="grid gap-2 rounded-md border border-border/35 bg-background/25 px-3 py-3 text-xs leading-5 text-muted-foreground">
       <p style={{ fontFamily: standardFamily }}>{t("settings.browserFontsPreviewText")}</p>
       <p style={{ fontFamily: fixedFamily }}>0123456789 ABC abc</p>
       <div
@@ -758,12 +733,17 @@ function SettingsSection({ children }: SettingsSectionProps): JSX.Element {
 interface SettingsRowProps {
   control: ReactNode;
   description: string;
+  showDivider?: boolean;
   title: string;
 }
 
-function SettingsRow({ control, description, title }: SettingsRowProps): JSX.Element {
+function SettingsRow({ control, description, showDivider = true, title }: SettingsRowProps): JSX.Element {
+  const dividerClassName = showDivider ? "glass-divider border-b last:border-b-0" : "";
+
   return (
-    <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      className={`settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${dividerClassName}`}
+    >
       <div className="min-w-0">
         <p className="text-[13px] font-semibold leading-5 text-foreground">{title}</p>
         <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>

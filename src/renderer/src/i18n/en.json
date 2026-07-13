@@ -235,8 +235,6 @@
   "settings.defaultPresetDescription": "The new role form starts with this performance mode.",
   "settings.browserFonts": "Browser fonts",
   "settings.browserFontsCustomize": "Customize fonts",
-  "settings.browserFontsMode.default": "Browser default",
-  "settings.browserFontsMode.custom": "Custom",
   "settings.browserFonts.standard": "Standard",
   "settings.browserFonts.serif": "Serif",
   "settings.browserFonts.sansSerif": "Sans-serif",

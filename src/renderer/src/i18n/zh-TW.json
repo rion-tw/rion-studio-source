@@ -235,8 +235,6 @@
   "settings.defaultPresetDescription": "新增角色表單會先使用這個效能模式。",
   "settings.browserFonts": "瀏覽器字體",
   "settings.browserFontsCustomize": "自訂字體",
-  "settings.browserFontsMode.default": "瀏覽器預設",
-  "settings.browserFontsMode.custom": "自訂",
   "settings.browserFonts.standard": "Standard",
   "settings.browserFonts.serif": "Serif",
   "settings.browserFonts.sansSerif": "Sans-serif",

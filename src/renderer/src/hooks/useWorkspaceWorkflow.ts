@@ -19,6 +19,7 @@ interface UseWorkspaceWorkflowOptions {
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   navigateToWorkspaces: () => void;
   setError: (error: unknown | null) => void;
+  setNotice?: (message: string | null) => void;
   setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
   setWorkspaces: Dispatch<SetStateAction<LaunchWorkspace[]>>;
   t: Translator;
@@ -29,6 +30,7 @@ export function useWorkspaceWorkflow({
   loadData,
   navigateToWorkspaces,
   setError,
+  setNotice,
   setStatuses,
   setWorkspaces,
   t,
@@ -152,10 +154,15 @@ export function useWorkspaceWorkflow({
   async function handleLaunchWorkspace(workspace: LaunchWorkspace): Promise<void> {
     setBusyWorkspaceId(workspace.id);
     setError(null);
+    setNotice?.(null);
 
     try {
       const nextStatuses = await window.rionStudio.launchWorkspace(workspace.id);
       setStatuses((current) => mergeStatuses(current, nextStatuses));
+      const notice = nextStatuses.find((status) => status.notice)?.notice;
+      if (notice) {
+        setNotice?.(notice);
+      }
     } catch (launchError) {
       setError(launchError);
       await loadData({ resetError: false });

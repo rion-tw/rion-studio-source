@@ -24,6 +24,7 @@ const customSettings: GameBrowserSettings = {
     },
     mode: "custom"
   },
+  launchMode: "auto",
   network: DEFAULT_BROWSER_NETWORK_SETTINGS
 };
 
@@ -75,7 +76,7 @@ describe("applyBrowserFontSettingsToPreferences", () => {
             }
           }
         },
-        { fonts: { families: {}, mode: "default" }, network: DEFAULT_BROWSER_NETWORK_SETTINGS }
+        { fonts: { families: {}, mode: "default" }, launchMode: "auto", network: DEFAULT_BROWSER_NETWORK_SETTINGS }
       )
     ).toEqual({
       profile: { name: "Default" },
@@ -137,12 +138,14 @@ describe("BrowserFontApplier", () => {
       appUserDataDir: baseDir,
       getSettings: vi.fn().mockResolvedValue({
         fonts: { families: {}, mode: "default" },
+        launchMode: "auto",
         network: DEFAULT_BROWSER_NETWORK_SETTINGS
       })
     });
 
     await applier.applyToPreferencesFile(preferencesPath, {
       fonts: { families: {}, mode: "default" },
+      launchMode: "auto",
       network: DEFAULT_BROWSER_NETWORK_SETTINGS
     });
 

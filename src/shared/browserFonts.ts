@@ -2,6 +2,7 @@ import type {
   BrowserFontFamilyRole,
   BrowserFontSettings,
   BrowserFontSettingsMode,
+  BrowserLaunchMode,
   BrowserNetworkSettings,
   BrowserProxySettings,
   BrowserProxySettingsMode,
@@ -34,6 +35,7 @@ export const DEFAULT_BROWSER_NETWORK_SETTINGS: BrowserNetworkSettings = {
 
 export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
+  launchMode: "auto",
   network: DEFAULT_BROWSER_NETWORK_SETTINGS
 };
 
@@ -45,6 +47,7 @@ export function normalizeGameBrowserSettings(
 
   return {
     fonts: normalizeBrowserFontSettings(input.fonts, fallback.fonts),
+    launchMode: normalizeBrowserLaunchMode(input.launchMode, fallback.launchMode),
     network: normalizeBrowserNetworkSettings(input.network, fallback.network)
   };
 }
@@ -162,6 +165,10 @@ function normalizeBrowserFontSettingsMode(
   fallback: BrowserFontSettingsMode
 ): BrowserFontSettingsMode {
   return value === "default" || value === "custom" ? value : fallback;
+}
+
+function normalizeBrowserLaunchMode(value: unknown, fallback: BrowserLaunchMode): BrowserLaunchMode {
+  return value === "auto" || value === "embedded" || value === "external" ? value : fallback;
 }
 
 function normalizeBrowserProxySettingsMode(

@@ -66,6 +66,7 @@ describe("PortableDataManager", () => {
             },
             mode: "custom"
           },
+          launchMode: "external",
           network: DEFAULT_BROWSER_NETWORK_SETTINGS
         },
         language: "zh-TW",
@@ -289,6 +290,7 @@ describe("PortableDataManager", () => {
           },
           mode: "custom"
         },
+        launchMode: "auto",
         network: DEFAULT_BROWSER_NETWORK_SETTINGS
       }
     };
@@ -364,6 +366,7 @@ function createPortableFixture(): RionPortableDataV1 {
           },
           mode: "custom"
         },
+        launchMode: "auto",
         network: DEFAULT_BROWSER_NETWORK_SETTINGS
       },
       language: "ja",

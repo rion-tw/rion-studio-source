@@ -72,6 +72,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro is already running for this role.": "error.macroAlreadyRunning",
   "Macro is not assigned to this role.": "error.macroNotAssigned",
   "Launch this role before running a macro.": "error.macroRoleNotRunning",
+  "Compatibility mode does not support macros yet. Relaunch the role in embedded mode before running macros.":
+    "error.macroExternalRuntimeUnsupported",
   "Launch workspace has no roles.": "error.workspaceEmpty",
   "Login required. Use Login before launching every role in this workspace.": "error.workspaceLoginRequired",
   "Login required. Use Login before launching this role.": "error.loginRequired",
@@ -82,6 +84,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Unable to start the hidden Rion Studio browser helper.": "error.hiddenBrowserHelperUnavailable",
   "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings.":
     "error.gamePageLoadFailed",
+  "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.":
+    "notice.externalChromeFallback",
   "Unable to check login session.": "error.unableCheckSession",
   "Google rejected this browser during session check.": "error.googleRejected",
   "Login is still required.": "error.loginStillRequired",

@@ -10,7 +10,7 @@ import {
   normalizedRectToPixelBounds
 } from "../src/main/browser/BrowserManager";
 import { LOGIN_STORAGE_EXPRESSION } from "../src/main/auth/loginEvidence";
-import type { LaunchWorkspace, Role } from "../src/shared/types";
+import type { BrowserLaunchMode, LaunchWorkspace, Role } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
 const role: Role = {
@@ -88,6 +88,60 @@ describe("BrowserManager game host windows", () => {
     expect(harness.hosts[0].contentView.removeChildView).toHaveBeenCalledWith(harness.views[0].view);
     expect(harness.views[0].webContents.close).toHaveBeenCalledTimes(1);
     expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to external Chrome compatibility mode in auto mode when embedded game load fails", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const harness = createHarness({
+      externalChromeManager,
+      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
+      loadUrlHandlers: [
+        async () => {
+          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
+        }
+      ]
+    });
+
+    const status = await harness.manager.launch(role);
+
+    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
+      notice:
+        "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support."
+    });
+    expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
+    expect(harness.manager.listStatuses()).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
+  });
+
+  it("does not fall back to external Chrome in embedded-only mode", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const harness = createHarness({
+      externalChromeManager,
+      getBrowserLaunchMode: vi.fn().mockResolvedValue("embedded"),
+      loadUrlHandlers: [
+        async () => {
+          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
+        }
+      ]
+    });
+
+    await expect(harness.manager.launch(role)).rejects.toThrow(BrowserGameLoadError);
+
+    expect(externalChromeManager.launch).not.toHaveBeenCalled();
+  });
+
+  it("launches external Chrome directly in external mode without creating embedded views", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const harness = createHarness({
+      externalChromeManager,
+      getBrowserLaunchMode: vi.fn().mockResolvedValue("external")
+    });
+
+    const status = await harness.manager.launch(role);
+
+    expect(harness.createHostWindow).not.toHaveBeenCalled();
+    expect(harness.createView).not.toHaveBeenCalled();
+    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, { notice: undefined });
+    expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external" });
   });
 
   it("applies browser font preferences before creating a new role view", async () => {
@@ -170,6 +224,40 @@ describe("BrowserManager game host windows", () => {
     expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
       harness.createView.mock.invocationCallOrder[0]
     );
+  });
+
+  it("falls back a workspace to external Chrome compatibility mode after embedded game load failure", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const secondRole = createRole("role-2", "Alt");
+    const harness = createHarness({
+      externalChromeManager,
+      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
+      loadUrlHandlers: [
+        async () => undefined,
+        async () => {
+          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
+        }
+      ]
+    });
+
+    const statuses = await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: secondRole, rect: workspace.slots[1].rect }
+    ]);
+
+    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
+    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
+      workspace,
+      [
+        { role, rect: workspace.slots[0].rect },
+        { role: secondRole, rect: workspace.slots[1].rect }
+      ],
+      {
+        notice:
+          "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support."
+      }
+    );
+    expect(statuses).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
   });
 
   it("draws a six-pixel black divider that is entirely draggable", async () => {
@@ -542,6 +630,8 @@ function createRole(id: string, name: string): Role {
 function createHarness(options: {
   applyBrowserFonts?: ReturnType<typeof vi.fn>;
   applyBrowserProxy?: ReturnType<typeof vi.fn>;
+  externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
+  getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   snapshotsByView?: Array<{ bodyText: string; localStorage: Record<string, string> }>;
 } = {}) {
@@ -574,12 +664,32 @@ function createHarness(options: {
     createView,
     dividerPreloadPath: "/app/out/preload/divider.cjs",
     embeddedPreloadPath: "/app/out/preload/embedded.cjs",
+    ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
+    ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     loginPollIntervalMs: 0
   });
   manager.setBeforeRolesStop(beforeRolesStop);
 
   return { beforeRolesStop, createHostWindow, createView, hosts, manager, roleStore, views };
+}
+
+function createExternalChromeManager() {
+  const status = {
+    roleId: role.id,
+    runtimeMode: "external" as const,
+    state: "running" as const
+  };
+
+  return {
+    hasSession: vi.fn(() => false),
+    launch: vi.fn().mockResolvedValue(status),
+    launchWorkspace: vi.fn().mockResolvedValue([status]),
+    listStatuses: vi.fn(() => [status]),
+    on: vi.fn(),
+    stop: vi.fn().mockResolvedValue(undefined),
+    stopWorkspace: vi.fn().mockResolvedValue(undefined)
+  };
 }
 
 function createMockHost() {

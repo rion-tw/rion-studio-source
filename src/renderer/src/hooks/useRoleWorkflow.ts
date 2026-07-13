@@ -14,6 +14,7 @@ interface UseRoleWorkflowOptions {
   roles: Role[];
   setAuthStatuses: Dispatch<SetStateAction<AuthFlowStatus[]>>;
   setError: (error: unknown | null) => void;
+  setNotice?: (message: string | null) => void;
   setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -26,6 +27,7 @@ export function useRoleWorkflow({
   roles,
   setAuthStatuses,
   setError,
+  setNotice,
   setStatuses,
   statusByRole,
   t
@@ -115,10 +117,14 @@ export function useRoleWorkflow({
   async function handleLaunch(roleId: string): Promise<void> {
     setBusyRoleId(roleId);
     setError(null);
+    setNotice?.(null);
 
     try {
       const status = await window.rionStudio.launchRole(roleId);
       setStatuses((current) => mergeStatus(current, status));
+      if (status.notice) {
+        setNotice?.(status.notice);
+      }
     } catch (launchError) {
       setError(launchError);
       await loadData({ resetError: false });

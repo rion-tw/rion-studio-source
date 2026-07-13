@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, shell, WebContentsView } from "electron";
 
+import { ExternalChromeManager } from "./browser/ExternalChromeManager";
 import { AuthManager } from "./auth/AuthManager";
 import { BrowserManager, GAME_DIVIDER_POINTER_CHANNEL } from "./browser/BrowserManager";
 import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
@@ -256,6 +257,12 @@ function initializeApplication(): void {
       process.env.RION_STUDIO_RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY ?? "rion-studio/rion-studio",
     openExternal: (url) => shell.openExternal(url)
   });
+  const externalChromeManager = new ExternalChromeManager(roleStore, {
+    applyBrowserFonts: async (_role, browserUserDataDir) => {
+      await browserFontApplier.applyToChromeUserDataDir(browserUserDataDir);
+    },
+    getLaunchWorkArea: () => getMainWindowDisplayWorkArea()
+  });
   browserManager = new BrowserManager(roleStore, {
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
@@ -266,6 +273,8 @@ function initializeApplication(): void {
     createView: (options) => new WebContentsView(options),
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
+    externalChromeManager,
+    getBrowserLaunchMode: async () => (await gameBrowserSettingsStore.getSettings()).launchMode,
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea()
   });
   ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {

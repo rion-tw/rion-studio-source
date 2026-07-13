@@ -100,6 +100,16 @@ describe("MacroManager", () => {
     expect(manager.listStatuses()).toEqual([]);
   });
 
+  it("rejects external runtime sessions before starting any assigned role", async () => {
+    const manager = createManager({
+      runtimeStatuses: [{ roleId: "role-1", runtimeMode: "external", state: "running" }],
+      targets: {}
+    });
+
+    await expect(manager.start("macro-1")).rejects.toThrow("Compatibility mode does not support macros yet.");
+    expect(manager.listStatuses()).toEqual([]);
+  });
+
   it("rejects when any assigned role is already running the macro", async () => {
     vi.useFakeTimers();
     const manager = createManager({
@@ -152,6 +162,7 @@ describe("MacroManager", () => {
 function createManager(options: {
   macroById?: Record<string, Macro>;
   macroOverride?: Macro;
+  runtimeStatuses?: Array<{ roleId: string; runtimeMode: "external"; state: "running" }>;
   targets?: Record<string, ReturnType<typeof createTarget>>;
 } = {}): MacroManager {
   const targets =
@@ -173,7 +184,8 @@ function createManager(options: {
               target: targets[roleId]
             }
           : undefined
-      )
+      ),
+      listStatuses: vi.fn(() => options.runtimeStatuses ?? [])
     } as never,
     {
       getMacro: vi.fn((macroId: string) => Promise.resolve(macroById[macroId] ?? options.macroOverride ?? macro))

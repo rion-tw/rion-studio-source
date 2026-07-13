@@ -32,6 +32,7 @@ import {
 import type {
   AppUpdateStatus,
   BrowserFontFamilyRole,
+  BrowserLaunchMode,
   GameBrowserSettings,
   LaunchPreset,
   PortableExportInput,
@@ -274,6 +275,28 @@ function SettingsViewBase({
                   >
                     <option value="performance">{t(presetLabelKeys.performance)}</option>
                     <option value="balanced">{t(presetLabelKeys.balanced)}</option>
+                  </Select>
+                }
+              />
+              <SettingsRow
+                title={t("settings.browserLaunchMode")}
+                description={t("settings.browserLaunchModeDescription")}
+                control={
+                  <Select
+                    className="settings-menu-control"
+                    value={normalizeGameBrowserSettings(gameBrowserSettings).launchMode}
+                    onChange={(event) =>
+                      void onGameBrowserSettingsChange(
+                        normalizeGameBrowserSettings({
+                          ...gameBrowserSettings,
+                          launchMode: event.target.value as BrowserLaunchMode
+                        })
+                      ).catch(onError)
+                    }
+                  >
+                    <option value="auto">{t("settings.browserLaunchModeAuto")}</option>
+                    <option value="embedded">{t("settings.browserLaunchModeEmbedded")}</option>
+                    <option value="external">{t("settings.browserLaunchModeExternal")}</option>
                   </Select>
                 }
               />
@@ -622,7 +645,7 @@ function BrowserFontsSettingsRows({
       />
 
       {isExpanded ? (
-        <div className="px-4 pb-4 pt-1">
+        <div className="glass-divider border-b px-4 pb-4 pt-1">
           <div className="mb-4 h-px bg-border/35" />
           <div className="grid gap-4">
             <div className="grid gap-3 sm:grid-cols-2">

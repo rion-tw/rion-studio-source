@@ -49,8 +49,18 @@ describe("browser font settings normalization", () => {
         },
         mode: "custom"
       },
+      launchMode: "auto",
       network: DEFAULT_BROWSER_NETWORK_SETTINGS
     });
+  });
+
+  it("normalizes browser launch mode", () => {
+    expect(normalizeGameBrowserSettings({ launchMode: "external" }).launchMode).toBe("external");
+    expect(normalizeGameBrowserSettings({ launchMode: "turbo" }).launchMode).toBe("auto");
+    expect(
+      normalizeGameBrowserSettings({ launchMode: "turbo" }, { ...DEFAULT_GAME_BROWSER_SETTINGS, launchMode: "embedded" })
+        .launchMode
+    ).toBe("embedded");
   });
 
   it("normalizes browser proxy settings", () => {

@@ -65,6 +65,8 @@ export interface RoleStatus {
   roleId: string;
   state: RoleRunState;
   launchedAt?: string;
+  notice?: string;
+  runtimeMode?: BrowserRuntimeMode;
 }
 
 export interface MacroTrigger {
@@ -203,6 +205,8 @@ export interface RoleDefaults {
 
 export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";
+export type BrowserLaunchMode = "auto" | "embedded" | "external";
+export type BrowserRuntimeMode = "embedded" | "external";
 export type BrowserProxySettingsMode = "system" | "custom";
 
 export interface BrowserFontSettings {
@@ -221,6 +225,7 @@ export interface BrowserNetworkSettings {
 
 export interface GameBrowserSettings {
   fonts: BrowserFontSettings;
+  launchMode: BrowserLaunchMode;
   network: BrowserNetworkSettings;
 }
 

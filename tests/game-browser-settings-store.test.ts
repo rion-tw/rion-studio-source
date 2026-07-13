@@ -33,17 +33,18 @@ describe("GameBrowserSettingsStore", () => {
           families: {
             fixed: "  Courier   New  ",
             standard: "Arial"
+          },
+          mode: "custom"
         },
-        mode: "custom"
-      },
-      network: {
-        proxy: {
-          mode: "custom",
-          server: " socks5://127.0.0.1:7890/ "
+        launchMode: "external",
+        network: {
+          proxy: {
+            mode: "custom",
+            server: " socks5://127.0.0.1:7890/ "
+          }
         }
-      }
-    })
-  ).resolves.toEqual({
+      })
+    ).resolves.toEqual({
       fonts: {
         families: {
           fixed: "Courier New",
@@ -51,6 +52,7 @@ describe("GameBrowserSettingsStore", () => {
         },
         mode: "custom"
       },
+      launchMode: "external",
       network: {
         proxy: {
           mode: "custom",
@@ -70,6 +72,7 @@ describe("GameBrowserSettingsStore", () => {
         },
         mode: "custom"
       },
+      launchMode: "external",
       network: {
         proxy: {
           mode: "custom",

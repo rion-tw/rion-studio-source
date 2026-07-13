@@ -21,8 +21,9 @@ import {
   LOGIN_STORAGE_EXPRESSION
 } from "../auth/loginEvidence";
 import type { RoleStore } from "../roles/RoleStore";
-import type { LaunchWorkspace, NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
+import type { BrowserLaunchMode, LaunchWorkspace, NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
 import { MIN_WORKSPACE_SLOT_SIZE } from "../../shared/workspaceLayout";
+import type { ExternalChromeLaunchItem, ExternalChromeManager } from "./ExternalChromeManager";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 
 export interface BrowserManagerEvents {
@@ -54,6 +55,8 @@ export interface BrowserManagerOptions {
   createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
   dividerPreloadPath: string;
   embeddedPreloadPath: string;
+  externalChromeManager?: ExternalChromeManager;
+  getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getLaunchWorkArea: () => PixelBounds;
   loginPollIntervalMs?: number;
 }
@@ -134,6 +137,8 @@ interface BrowserSession {
 }
 
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
+const EXTERNAL_COMPAT_NOTICE =
+  "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
 
 export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
@@ -149,6 +154,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     private readonly options: BrowserManagerOptions
   ) {
     super();
+    this.options.externalChromeManager?.on("change", () => this.emitChange());
   }
 
   setBeforeRolesStop(handler: BeforeRolesStop): void {
@@ -160,7 +166,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   listStatuses(): RoleStatus[] {
-    return [...this.sessions.entries()].map(([roleId, session]) => this.toStatus(roleId, session));
+    return [
+      ...[...this.sessions.entries()].map(([roleId, session]) => this.toStatus(roleId, session)),
+      ...(this.options.externalChromeManager?.listStatuses() ?? [])
+    ];
   }
 
   getRoleIdForWebContents(webContentsId: number): string | undefined {
@@ -178,6 +187,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   async launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus> {
+    const launchMode = await this.getBrowserLaunchMode();
+    if (launchMode === "external") {
+      return this.launchExternal(role);
+    }
+
     const existing = this.sessions.get(role.id);
     if (existing) {
       existing.role = role;
@@ -186,6 +200,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       await this.installMacroOverlay(role, existing.view.webContents);
       await this.focusSession(existing);
       return this.toStatus(role.id, existing);
+    }
+
+    if (this.options.externalChromeManager?.hasSession(role.id)) {
+      return this.launchExternal(role);
     }
 
     const host = this.createHost(role.name);
@@ -200,6 +218,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return this.toStatus(role.id, session);
     } catch (error) {
       await this.stopHost(host.id);
+      if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
+        return this.launchExternal(role, EXTERNAL_COMPAT_NOTICE);
+      }
       throw error;
     }
   }
@@ -208,7 +229,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "name">,
     items: BrowserWorkspaceLaunchItem[]
   ): Promise<RoleStatus[]> {
-    const runningRoles = items.map((item) => item.role).filter((role) => this.sessions.has(role.id));
+    const launchMode = await this.getBrowserLaunchMode();
+    if (launchMode === "external") {
+      return this.launchExternalWorkspace(workspace, items);
+    }
+
+    const runningRoles = items
+      .map((item) => item.role)
+      .filter((role) => this.sessions.has(role.id) || this.options.externalChromeManager?.hasSession(role.id));
     if (runningRoles.length > 0) {
       throw new BrowserRoleAlreadyRunningError(runningRoles);
     }
@@ -229,6 +257,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return sessions.map((session) => this.toStatus(session.role.id, session));
     } catch (error) {
       await this.stopHost(host.id);
+      if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
+        return this.launchExternalWorkspace(workspace, items, EXTERNAL_COMPAT_NOTICE);
+      }
       throw error;
     }
   }
@@ -283,6 +314,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   async stop(roleId: string): Promise<void> {
     const session = this.sessions.get(roleId);
     if (!session) {
+      await this.options.externalChromeManager?.stop(roleId);
       return;
     }
 
@@ -302,10 +334,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (hostId) {
       await this.stopHost(hostId);
     }
+    await this.options.externalChromeManager?.stopWorkspace(workspaceId);
   }
 
   async stopAll(): Promise<void> {
     await Promise.all([...this.hosts.keys()].map((hostId) => this.stopHost(hostId)));
+    await Promise.all(this.options.externalChromeManager?.listStatuses().map((status) => this.stop(status.roleId)) ?? []);
   }
 
   handleDividerPointer(webContentsId: number, payload: unknown): void {
@@ -473,6 +507,30 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     session.launchedAt = new Date().toISOString();
     await this.installMacroOverlay(session.role, session.view.webContents);
     this.emitChange();
+  }
+
+  private getBrowserLaunchMode(): BrowserLaunchMode | Promise<BrowserLaunchMode> {
+    return this.options.getBrowserLaunchMode?.() ?? "embedded";
+  }
+
+  private async launchExternal(role: Role, notice?: string): Promise<RoleStatus> {
+    if (!this.options.externalChromeManager) {
+      throw new Error("External Chrome compatibility mode is not available.");
+    }
+
+    return this.options.externalChromeManager.launch(role, { notice });
+  }
+
+  private async launchExternalWorkspace(
+    workspace: Pick<LaunchWorkspace, "id">,
+    items: ExternalChromeLaunchItem[],
+    notice?: string
+  ): Promise<RoleStatus[]> {
+    if (!this.options.externalChromeManager) {
+      throw new Error("External Chrome compatibility mode is not available.");
+    }
+
+    return this.options.externalChromeManager.launchWorkspace(workspace, items, { notice });
   }
 
   private async ensureSessionAuthenticated(role: Role, session: BrowserSession): Promise<void> {
@@ -754,7 +812,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private toStatus(roleId: string, session: BrowserSession): RoleStatus {
-    return { roleId, state: session.state, launchedAt: session.launchedAt };
+    return { roleId, state: session.state, launchedAt: session.launchedAt, runtimeMode: "embedded" };
   }
 }
 

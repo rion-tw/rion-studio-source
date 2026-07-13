@@ -391,6 +391,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
       },
       mode: "custom"
     },
+    launchMode: "auto",
     network: DEFAULT_BROWSER_NETWORK_SETTINGS
   };
   const fonts: SystemFontFamily[] = [
@@ -617,6 +618,7 @@ describe("registerIpcHandlers portable data handlers", () => {
         },
         mode: "custom"
       },
+      launchMode: "auto",
       network: DEFAULT_BROWSER_NETWORK_SETTINGS
     };
     portableDataManager.applyImport.mockResolvedValueOnce({

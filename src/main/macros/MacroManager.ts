@@ -26,7 +26,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private readonly runs = new Map<string, MacroRun>();
 
   constructor(
-    private readonly browserManager: Pick<BrowserManager, "getAutomationSession">,
+    private readonly browserManager: Pick<BrowserManager, "getAutomationSession" | "listStatuses">,
     private readonly macroStore: Pick<MacroStore, "getMacro">
   ) {
     super();
@@ -46,6 +46,13 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
       const session = this.browserManager.getAutomationSession(roleId);
       if (!session) {
+        const status = this.browserManager.listStatuses().find((item) => item.roleId === roleId);
+        if (status?.runtimeMode === "external") {
+          throw new Error(
+            "Compatibility mode does not support macros yet. Relaunch the role in embedded mode before running macros."
+          );
+        }
+
         throw new Error("Launch this role before running a macro.");
       }
 

@@ -19,7 +19,7 @@ import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
 import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
-import type { Language, Translator } from "./i18n";
+import { localizeErrorMessage, type Language, type Translator } from "./i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import type {
   GameBrowserSettings,
@@ -45,6 +45,7 @@ export function App(): JSX.Element {
   const preferences = usePreferences();
   const hasBridge = Boolean(window.rionStudio);
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
+  const [notice, setNotice] = useState<string | null>(null);
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
     enabled: hasBridge,
@@ -143,6 +144,7 @@ export function App(): JSX.Element {
     roles: data.roles,
     setAuthStatuses: data.setAuthStatuses,
     setError: data.setError,
+    setNotice,
     setStatuses: data.setStatuses,
     statusByRole: data.statusByRole,
     t: preferences.t
@@ -152,6 +154,7 @@ export function App(): JSX.Element {
     loadData: data.loadData,
     navigateToWorkspaces: () => navigate("/workspaces"),
     setError: data.setError,
+    setNotice,
     setStatuses: data.setStatuses,
     setWorkspaces: data.setWorkspaces,
     t: preferences.t,
@@ -166,6 +169,7 @@ export function App(): JSX.Element {
     setError: data.setError,
     setMacroStatuses: data.setMacroStatuses,
     setMacros: data.setMacros,
+    statusByRole: data.statusByRole,
     t: preferences.t
   });
   const { startCreateMacro, startEditMacro } = macroWorkflow;
@@ -290,6 +294,12 @@ export function App(): JSX.Element {
           <Surface className="absolute left-5 right-5 top-5 z-40 flex items-start gap-3 border-destructive/30 px-4 py-3 text-sm text-destructive md:left-6 md:right-6" variant="strong">
             <AlertCircle className="mt-0.5 shrink-0" size={17} />
             <span>{toMessage(data.error, preferences.language, preferences.t)}</span>
+          </Surface>
+        ) : null}
+        {data.error === null && notice !== null ? (
+          <Surface className="absolute left-5 right-5 top-5 z-40 flex items-start gap-3 border-primary/30 px-4 py-3 text-sm text-foreground md:left-6 md:right-6" variant="strong">
+            <AlertCircle className="mt-0.5 shrink-0 text-primary" size={17} />
+            <span>{localizeErrorMessage(notice, preferences.language)}</span>
           </Surface>
         ) : null}
 

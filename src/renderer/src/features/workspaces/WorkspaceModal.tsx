@@ -514,12 +514,12 @@ function WorkspaceSlotDropZone({
     >
       <button
         className={cn(
-          "group/slot absolute isolate flex min-h-0 flex-col justify-between overflow-hidden rounded-lg border bg-cover bg-center p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 [--workspace-slot-radius:0.5rem] [contain:paint]",
+          "group/slot absolute isolate flex min-h-0 flex-col justify-between overflow-hidden rounded-none border bg-cover bg-center p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 [--workspace-slot-radius:0px] [contain:paint]",
           role
             ? "border-border/70 bg-card/72 shadow-sm"
-            : "border-border/40 bg-card/35 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/50",
-          isSelected && "border-primary/60 bg-primary/[0.035] shadow-none",
-          isDropTarget && "border-primary/75 bg-primary/10 shadow-none"
+            : "border-border/40 bg-card/50 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/60",
+          isSelected && cn("border-primary/60 shadow-none", role && "bg-primary/[0.035]"),
+          isDropTarget && cn("border-primary/75 shadow-none", role && "bg-primary/10")
         )}
         type="button"
         aria-pressed={isSelected}

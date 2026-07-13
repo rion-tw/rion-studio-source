@@ -8,6 +8,11 @@ import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/p
 import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { launchUrlOptions } from "../../app/constants";
+import {
+  CUSTOM_LAUNCH_URL_OPTION,
+  resolveLaunchUrlFromSelection,
+  resolveLaunchUrlSelection
+} from "../../app/launchUrlSelection";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { shouldShowLoginGuidance } from "../../app/statusUtils";
 import type { RoleFormState } from "../../app/types";
@@ -89,6 +94,11 @@ function RoleForm({
     isActive: false
   });
   const selectedLaunchOption = launchUrlOptions.find((option) => option.value === form.launchUrl);
+  const launchUrlSelection = resolveLaunchUrlSelection(
+    form.launchUrl,
+    launchUrlOptions.map((option) => option.value)
+  );
+  const isCustomLaunchUrl = launchUrlSelection === CUSTOM_LAUNCH_URL_OPTION;
 
   async function handleCoverImageChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.currentTarget.files?.[0];
@@ -239,8 +249,13 @@ function RoleForm({
                     <Select
                       id="role-launch-url"
                       className={selectedLaunchOption?.iconSrc ? "pl-8" : undefined}
-                      value={form.launchUrl}
-                      onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))}
+                      value={launchUrlSelection}
+                      onChange={(event) =>
+                        onChange((current) => ({
+                          ...current,
+                          launchUrl: resolveLaunchUrlFromSelection(event.target.value)
+                        }))
+                      }
                       required
                     >
                       {launchUrlOptions.map((option) => (
@@ -248,11 +263,25 @@ function RoleForm({
                           {"label" in option ? option.label : t(option.labelKey)}
                         </option>
                       ))}
-                      {launchUrlOptions.some((option) => option.value === form.launchUrl) ? null : (
-                        <option value={form.launchUrl}>{t("roleForm.launchUrl.current")}</option>
-                      )}
+                      <option value={CUSTOM_LAUNCH_URL_OPTION}>{t("roleForm.launchUrl.custom")}</option>
                     </Select>
                   </div>
+                  {isCustomLaunchUrl ? (
+                    <FormField htmlFor="role-custom-launch-url" label={t("roleForm.launchUrl.customUrl")}>
+                      <Input
+                        id="role-custom-launch-url"
+                        type="url"
+                        value={form.launchUrl}
+                        onChange={(event) =>
+                          onChange((current) => ({ ...current, launchUrl: event.target.value }))
+                        }
+                        required
+                        maxLength={2048}
+                        pattern="https?://.+"
+                        placeholder={t("roleForm.launchUrl.customPlaceholder")}
+                      />
+                    </FormField>
+                  ) : null}
                 </FormField>
               </FormGrid>
             </Surface>

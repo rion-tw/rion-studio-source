@@ -20,9 +20,4 @@ onlyBuiltDependencies:
   - electron
   - esbuild
 
-peerDependencyRules:
-  allowedVersions:
-    # electron-vite 5 builds successfully with Vite 8, but its declared range stops at Vite 7.
-    "electron-vite>vite": "^8.0.0"
-
 verifyDepsBeforeRun: false

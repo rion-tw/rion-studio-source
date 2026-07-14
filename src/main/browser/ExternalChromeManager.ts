@@ -12,6 +12,7 @@ import { findSystemChromeExecutable } from "../system-browser/SystemChromeLaunch
 import type { NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
 import {
   connectExternalChromeAutomation,
+  type ConnectExternalChromeAutomationOptions,
   type ExternalBrowserAutomationTarget
 } from "./ExternalChromeAutomationTarget";
 
@@ -34,11 +35,15 @@ export interface ExternalChromeManagerOptions {
   prepareCdnCompatibility?: (
     role: Role,
     browserUserDataDir: string
-  ) => Promise<{ enabled: boolean; extensionPath?: string; proxyServer?: string }>;
+  ) => Promise<{ enabled: boolean; proxyServer?: string }>;
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
   spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
-  connectAutomation?: (browserUserDataDir: string, launchUrl: string) => Promise<ExternalBrowserAutomationTarget>;
+  connectAutomation?: (
+    browserUserDataDir: string,
+    launchUrl: string,
+    options?: Pick<ConnectExternalChromeAutomationOptions, "cdnCompatibilityEnabled">
+  ) => Promise<ExternalBrowserAutomationTarget>;
 }
 
 export type ExternalMacroOverlayInstaller = (
@@ -48,6 +53,7 @@ export type ExternalMacroOverlayInstaller = (
 
 interface ExternalChromeSession {
   automationTarget?: ExternalBrowserAutomationTarget;
+  cdnCompatibilityActive: boolean;
   child: ChildProcess;
   launchedAt?: string;
   notice?: string;
@@ -189,27 +195,23 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     await this.options.applyBrowserFonts?.(role, browserUserDataDir).catch((error) => {
       console.warn("Failed to apply browser font settings before opening external Chrome.", error);
     });
-    let extensionPath: string | undefined;
+    let cdnCompatibilityRequested = false;
     let proxyServer: string | undefined;
     let sessionNotice = notice;
     try {
       const compatibility = await this.options.prepareCdnCompatibility?.(role, browserUserDataDir);
-      extensionPath = compatibility?.extensionPath;
+      cdnCompatibilityRequested = compatibility?.enabled ?? false;
       proxyServer = compatibility?.proxyServer;
-      if (compatibility?.enabled && !sessionNotice) {
-        sessionNotice = CDN_COMPATIBILITY_EXTERNAL_NOTICE;
-      }
     } catch (error) {
       console.warn("Failed to prepare CDN compatibility mode for external Chrome.", error);
-      if (!sessionNotice) {
-        sessionNotice = CDN_COMPATIBILITY_UNAVAILABLE_NOTICE;
-      }
+      sessionNotice = appendNotice(sessionNotice, CDN_COMPATIBILITY_UNAVAILABLE_NOTICE);
     }
     const child = (this.options.spawnChrome ?? spawnChrome)(
       executablePath,
-      buildExternalChromeArgs(role, browserUserDataDir, bounds, extensionPath, proxyServer)
+      buildExternalChromeArgs(role, browserUserDataDir, bounds, proxyServer)
     );
     const session: ExternalChromeSession = {
+      cdnCompatibilityActive: false,
       child,
       notice: sessionNotice,
       role,
@@ -233,13 +235,18 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     try {
       const target = await (this.options.connectAutomation ?? connectExternalChromeAutomation)(
         browserUserDataDir,
-        role.launchUrl
+        role.launchUrl,
+        { cdnCompatibilityEnabled: cdnCompatibilityRequested }
       );
       if (this.sessions.get(role.id) !== session) {
         target.close();
         throw new Error("External Chrome closed before macro control connected.");
       }
       session.automationTarget = target;
+      session.cdnCompatibilityActive = cdnCompatibilityRequested;
+      if (session.cdnCompatibilityActive) {
+        session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_EXTERNAL_NOTICE);
+      }
       target.onDisconnect(() => this.handleAutomationDisconnect(role.id, session, target));
       try {
         await target.setWindowBounds(bounds);
@@ -254,6 +261,9 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         throw error;
       }
       console.warn("External Chrome macro automation is unavailable.", error);
+      if (cdnCompatibilityRequested) {
+        session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_UNAVAILABLE_NOTICE);
+      }
       session.notice = appendNotice(session.notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
     }
 
@@ -272,6 +282,14 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       return;
     }
     session.automationTarget = undefined;
+    if (session.cdnCompatibilityActive) {
+      session.cdnCompatibilityActive = false;
+      session.notice = replaceNotice(
+        session.notice,
+        CDN_COMPATIBILITY_EXTERNAL_NOTICE,
+        CDN_COMPATIBILITY_UNAVAILABLE_NOTICE
+      );
+    }
     session.notice = appendNotice(session.notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
     void this.beforeRoleStop?.(roleId);
     this.emitChange();
@@ -312,7 +330,6 @@ export function buildExternalChromeArgs(
   role: Role,
   browserUserDataDir: string,
   bounds: PixelBounds,
-  extensionPath?: string,
   proxyServer?: string
 ): string[] {
   return [
@@ -324,8 +341,7 @@ export function buildExternalChromeArgs(
     "--disable-default-apps",
     "--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0",
-    ...(proxyServer ? [`--proxy-server=${proxyServer}`] : []),
-    ...(extensionPath ? [`--load-extension=${extensionPath}`] : [])
+    ...(proxyServer ? [`--proxy-server=${proxyServer}`] : [])
   ];
 }
 
@@ -344,6 +360,11 @@ function appendNotice(current: string | undefined, next: string): string {
   if (!current) return next;
   if (current.includes(next)) return current;
   return `${current} ${next}`;
+}
+
+function replaceNotice(current: string | undefined, previous: string, next: string): string {
+  const remaining = current?.replace(previous, "").trim();
+  return appendNotice(remaining || undefined, next);
 }
 
 function spawnChrome(executablePath: string, args: string[]): ChildProcess {

@@ -24,10 +24,6 @@ const config = {
       to: "icon.png"
     },
     {
-      from: "resources/cdn-compat-extension",
-      to: "cdn-compat-extension"
-    },
-    {
       from: "docs/legal",
       to: "legal"
     },

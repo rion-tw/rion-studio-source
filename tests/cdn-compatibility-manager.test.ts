@@ -1,19 +1,13 @@
-import { mkdtemp, mkdir, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import type { Session } from "electron";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   CdnCompatibilityManager,
-  createDeclarativeNetRequestRules,
+  createCdnCompatibilityRequestPatterns,
   rewriteCdnCompatibilityUrl
 } from "../src/main/game-browser/CdnCompatibilityManager";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../src/shared/browserFonts";
 import type { BrowserCdnCompatibilityMode, GameBrowserSettings } from "../src/shared/types";
-
-const manifestTemplatePath = join(process.cwd(), "resources/cdn-compat-extension/manifest.json");
 
 describe("CDN compatibility rules", () => {
   it.each([
@@ -31,7 +25,7 @@ describe("CDN compatibility rules", () => {
     ],
     [
       "https://fonts.gstatic.com/s/roboto/v1/font.woff2",
-      "https://fonts.googleapis.cn/s/roboto/v1/font.woff2"
+      "https://fonts.gstatic.cn/s/roboto/v1/font.woff2"
     ],
     [
       "https://www.google.com/recaptcha/api.js?render=explicit",
@@ -42,8 +36,8 @@ describe("CDN compatibility rules", () => {
       "https://gravatar.loli.net/avatar/hash?s=64"
     ],
     [
-      "https://maxcdn.bootstrapcdn.com/bootstrap/5.3.3/css/bootstrap.min.css",
-      "https://lib.baomitu.com/twitter-bootstrap/5.3.3/css/bootstrap.min.css"
+      "https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css",
+      "https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/3.4.1/css/bootstrap.min.css"
     ],
     [
       "https://code.jquery.com/jquery-3.7.1.min.js?cache=1",
@@ -61,26 +55,25 @@ describe("CDN compatibility rules", () => {
     expect(rewriteCdnCompatibilityUrl("https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js")).toBeUndefined();
   });
 
-  it("generates eight subresource-only Manifest V3 rules", () => {
-    const rules = createDeclarativeNetRequestRules() as Array<{
-      condition: { regexFilter: string; resourceTypes: string[] };
-      id: number;
-    }>;
+  it("generates eight request-stage CDP patterns", () => {
+    const patterns = createCdnCompatibilityRequestPatterns();
 
-    expect(rules).toHaveLength(8);
-    expect(rules.map((rule) => rule.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    expect(rules.every((rule) => !rule.condition.resourceTypes.includes("main_frame"))).toBe(true);
-    expect(rules.every((rule) => !rule.condition.regexFilter.includes("(?:"))).toBe(true);
+    expect(patterns).toHaveLength(8);
+    expect(patterns).toContainEqual({
+      requestStage: "Request",
+      urlPattern: "https://www.google.com/*"
+    });
+    expect(patterns.every((pattern) => pattern.requestStage === "Request")).toBe(true);
   });
 });
 
 describe("CdnCompatibilityManager", () => {
-  it("enables auto mode only when Google fails and recaptcha.net succeeds", async () => {
-    const session = createSession(async (url) => createResponse(url.includes("recaptcha.net")));
+  it("enables auto mode when Google is unavailable", async () => {
+    const session = createSession(async () => createResponse(false));
     const manager = createManager("auto");
 
     await expect(manager.applyToSession(session.value)).resolves.toBe(true);
-    expect(session.fetch).toHaveBeenCalledTimes(2);
+    expect(session.fetch).toHaveBeenCalledTimes(1);
     expect(session.onBeforeRequest).toHaveBeenLastCalledWith(
       expect.objectContaining({ urls: expect.arrayContaining(["https://www.google.com/*"]) }),
       expect.any(Function)
@@ -98,17 +91,14 @@ describe("CdnCompatibilityManager", () => {
     expect(callback).toHaveBeenCalledWith({});
   });
 
-  it("leaves auto mode disabled when Google succeeds or the result is inconclusive", async () => {
+  it("leaves auto mode disabled when Google succeeds", async () => {
     const googleAvailable = createSession(async () => createResponse(true));
-    const unavailable = createSession(async () => createResponse(false));
 
     await expect(createManager("auto").applyToSession(googleAvailable.value)).resolves.toBe(false);
-    await expect(createManager("auto").applyToSession(unavailable.value)).resolves.toBe(false);
     expect(googleAvailable.onBeforeRequest).toHaveBeenLastCalledWith(null);
-    expect(unavailable.onBeforeRequest).toHaveBeenLastCalledWith(null);
   });
 
-  it("times out inconclusive probes and caches results by proxy for ten minutes", async () => {
+  it("enables on probe timeout and caches results by proxy for ten minutes", async () => {
     let now = 1_000;
     const session = createSession(
       async (_url, init) =>
@@ -118,13 +108,13 @@ describe("CdnCompatibilityManager", () => {
     );
     const manager = createManager("auto", { detectionTimeoutMs: 5, now: () => now });
 
-    await expect(manager.applyToSession(session.value)).resolves.toBe(false);
-    await expect(manager.applyToSession(session.value)).resolves.toBe(false);
-    expect(session.fetch).toHaveBeenCalledTimes(2);
+    await expect(manager.applyToSession(session.value)).resolves.toBe(true);
+    await expect(manager.applyToSession(session.value)).resolves.toBe(true);
+    expect(session.fetch).toHaveBeenCalledTimes(1);
 
     now += 10 * 60 * 1_000 + 1;
-    await expect(manager.applyToSession(session.value)).resolves.toBe(false);
-    expect(session.fetch).toHaveBeenCalledTimes(4);
+    await expect(manager.applyToSession(session.value)).resolves.toBe(true);
+    expect(session.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("forces on without probing and keeps off fail-open", async () => {
@@ -137,27 +127,11 @@ describe("CdnCompatibilityManager", () => {
     expect(offSession.fetch).not.toHaveBeenCalled();
   });
 
-  it("writes a role-local extension atomically when compatibility is enabled", async () => {
-    const baseDir = await mkdtemp(join(tmpdir(), "rion-cdn-extension-"));
-    const browserUserDataDir = join(baseDir, "role-1", "browser");
-    await mkdir(browserUserDataDir, { recursive: true });
+  it("resolves external compatibility without registering an Electron request listener", async () => {
     const session = createSession(async () => createResponse(false));
 
-    const result = await createManager("on").prepareExternalExtension(session.value, browserUserDataDir);
-    const manifest = JSON.parse(await readFile(join(result.extensionPath!, "manifest.json"), "utf8"));
-    const generatedRules = JSON.parse(await readFile(join(result.extensionPath!, "rules.json"), "utf8"));
-
-    expect(result).toMatchObject({ enabled: true, extensionPath: join(baseDir, "role-1", "cdn-compat-extension") });
-    expect(manifest).toMatchObject({ manifest_version: 3, version: "1.0.0" });
-    expect(manifest.host_permissions).toContain("https://www.google.com/*");
-    expect(generatedRules).toHaveLength(8);
-    await expect(readFile(join(result.extensionPath!, "rules.json.tmp"), "utf8")).rejects.toMatchObject({
-      code: "ENOENT"
-    });
-
-    const disabled = await createManager("off").prepareExternalExtension(session.value, browserUserDataDir);
-    expect(disabled).toEqual({ enabled: false });
-    expect(JSON.parse(await readFile(join(result.extensionPath!, "rules.json"), "utf8"))).toEqual([]);
+    await expect(createManager("auto").resolveForSession(session.value)).resolves.toBe(true);
+    expect(session.onBeforeRequest).not.toHaveBeenCalled();
   });
 });
 
@@ -174,7 +148,6 @@ function createManager(
   };
   return new CdnCompatibilityManager({
     ...options,
-    extensionManifestTemplatePath: manifestTemplatePath,
     getSettings: async () => settings
   });
 }

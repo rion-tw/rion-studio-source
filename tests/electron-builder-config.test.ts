@@ -17,7 +17,7 @@ describe("electron-builder release configuration", () => {
       oneClick: false,
       allowToChangeInstallationDirectory: true
     });
-    expect(config.extraResources).toContainEqual({
+    expect(config.extraResources).not.toContainEqual({
       from: "resources/cdn-compat-extension",
       to: "cdn-compat-extension"
     });

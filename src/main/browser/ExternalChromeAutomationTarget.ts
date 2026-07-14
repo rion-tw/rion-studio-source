@@ -5,6 +5,10 @@ import {
 } from "../../shared/macroShortcuts";
 import type { PixelBounds } from "../../shared/types";
 import {
+  createCdnCompatibilityRequestPatterns,
+  rewriteCdnCompatibilityUrl
+} from "../game-browser/CdnCompatibilityManager";
+import {
   CdpClient,
   listDevToolsTargets,
   waitForDevToolsPort,
@@ -28,6 +32,7 @@ export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget
 }
 
 export interface ConnectExternalChromeAutomationOptions {
+  cdnCompatibilityEnabled?: boolean;
   createClient?: (target: DevToolsTarget) => CdpEventClientLike;
   fetch?: DevToolsFetch;
   now?: () => number;
@@ -63,8 +68,13 @@ export async function connectExternalChromeAutomation(
       if (target?.webSocketDebuggerUrl) {
         const client = (options.createClient ?? createClient)(target);
         const automationTarget = new ExternalChromeAutomationTarget(client);
-        await automationTarget.initialize();
-        return automationTarget;
+        try {
+          await automationTarget.initialize({ cdnCompatibilityEnabled: options.cdnCompatibilityEnabled });
+          return automationTarget;
+        } catch (error) {
+          automationTarget.close();
+          throw error;
+        }
       }
     } catch (error) {
       lastError = error;
@@ -79,14 +89,18 @@ export async function connectExternalChromeAutomation(
 export class ExternalChromeAutomationTarget implements ExternalBrowserAutomationTarget {
   private readonly executionContextIds = new Set<number>();
   private keyDispatchTail: Promise<void> = Promise.resolve();
+  private mainFrameId?: string;
   private overlayHandler?: ExternalMacroOverlayHandler;
   private removeNotificationListener?: () => void;
 
   constructor(private readonly client: CdpEventClientLike) {}
 
-  async initialize(): Promise<void> {
+  async initialize(options: { cdnCompatibilityEnabled?: boolean } = {}): Promise<void> {
     this.removeNotificationListener = this.client.onNotification((notification) => {
       switch (notification.method) {
+        case "Fetch.requestPaused":
+          void this.handleCdnRequestPaused(notification.params);
+          break;
         case "Runtime.bindingCalled":
           void this.handleBindingCalled(notification.params);
           break;
@@ -109,6 +123,9 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     });
     try {
       await Promise.all([this.client.send("Page.enable"), this.client.send("Runtime.enable")]);
+      if (options.cdnCompatibilityEnabled) {
+        await this.enableCdnCompatibility();
+      }
     } catch (error) {
       this.removeNotificationListener?.();
       this.removeNotificationListener = undefined;
@@ -234,6 +251,41 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     await this.evaluate(source);
   }
 
+  private async enableCdnCompatibility(): Promise<void> {
+    const frameTree = await this.client.send<{
+      frameTree?: { frame?: { id?: string } };
+    }>("Page.getFrameTree");
+    const mainFrameId = frameTree.frameTree?.frame?.id;
+    if (!mainFrameId) {
+      throw new Error("External Chrome main frame is unavailable for CDN compatibility.");
+    }
+
+    this.mainFrameId = mainFrameId;
+    await this.client.send("Fetch.enable", {
+      patterns: createCdnCompatibilityRequestPatterns()
+    });
+    await this.client.send("Page.reload", { ignoreCache: true });
+  }
+
+  private async handleCdnRequestPaused(params: Record<string, unknown> | undefined): Promise<void> {
+    if (!params || typeof params.requestId !== "string") {
+      return;
+    }
+
+    const requestId = params.requestId;
+    const request = isRecord(params.request) ? params.request : undefined;
+    const url = typeof request?.url === "string" ? request.url : undefined;
+    const isMainFrameDocument =
+      params.resourceType === "Document" &&
+      (typeof params.frameId !== "string" || params.frameId === this.mainFrameId);
+    const redirectUrl = !isMainFrameDocument && url ? rewriteCdnCompatibilityUrl(url) : undefined;
+
+    await this.client.send("Fetch.continueRequest", {
+      requestId,
+      ...(redirectUrl ? { url: redirectUrl } : {})
+    }).catch(() => undefined);
+  }
+
   private async handleBindingCalled(params: Record<string, unknown> | undefined): Promise<void> {
     if (params?.name !== OVERLAY_BINDING_NAME || typeof params.payload !== "string" || !this.overlayHandler) {
       return;
@@ -277,6 +329,10 @@ function createClient(target: DevToolsTarget): CdpEventClientLike {
     throw new Error("External Chrome page does not expose a DevTools WebSocket URL.");
   }
   return new CdpClient(target.webSocketDebuggerUrl);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function selectPageTarget(targets: DevToolsTarget[], launchUrl: string): DevToolsTarget | undefined {

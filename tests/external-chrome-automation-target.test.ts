@@ -76,6 +76,113 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("registers request handling before enabling CDN interception and then reloads without cache", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+
+    await target.initialize({ cdnCompatibilityEnabled: true });
+
+    expect(harness.onNotification).toHaveBeenCalledTimes(1);
+    expect(harness.send).toHaveBeenCalledWith(
+      "Fetch.enable",
+      expect.objectContaining({
+        patterns: expect.arrayContaining([
+          { requestStage: "Request", urlPattern: "https://www.google.com/*" }
+        ])
+      })
+    );
+    expect(harness.send).toHaveBeenCalledWith("Page.reload", { ignoreCache: true });
+    expect(harness.onNotification.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.send.mock.invocationCallOrder[
+        harness.send.mock.calls.findIndex(([method]) => method === "Fetch.enable")
+      ]
+    );
+    expect(harness.send.mock.invocationCallOrder[
+      harness.send.mock.calls.findIndex(([method]) => method === "Fetch.enable")
+    ]).toBeLessThan(
+      harness.send.mock.invocationCallOrder[
+        harness.send.mock.calls.findIndex(([method]) => method === "Page.reload")
+      ]
+    );
+  });
+
+  it("rewrites matching paused requests and continues unmatched requests unchanged", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize({ cdnCompatibilityEnabled: true });
+
+    harness.notify({
+      method: "Fetch.requestPaused",
+      params: {
+        frameId: "child-frame",
+        request: { url: "https://fonts.gstatic.com/s/roboto/v1/font.woff2" },
+        requestId: "request-1",
+        resourceType: "Font"
+      }
+    });
+    harness.notify({
+      method: "Fetch.requestPaused",
+      params: {
+        frameId: "child-frame",
+        request: { url: "https://www.google.com/search?q=flyff" },
+        requestId: "request-2",
+        resourceType: "XHR"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(harness.send).toHaveBeenCalledWith("Fetch.continueRequest", {
+        requestId: "request-1",
+        url: "https://fonts.gstatic.cn/s/roboto/v1/font.woff2"
+      });
+      expect(harness.send).toHaveBeenCalledWith("Fetch.continueRequest", {
+        requestId: "request-2"
+      });
+    });
+    expect(harness.send.mock.calls.filter(
+      ([method, params]) => method === "Fetch.continueRequest" && params?.requestId === "request-1"
+    )).toHaveLength(1);
+    expect(harness.send.mock.calls.filter(
+      ([method, params]) => method === "Fetch.continueRequest" && params?.requestId === "request-2"
+    )).toHaveLength(1);
+  });
+
+  it("keeps main-frame documents original while rewriting matching subframe documents", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize({ cdnCompatibilityEnabled: true });
+    const url = "https://www.google.com/recaptcha/api2/anchor?k=test";
+
+    harness.notify({
+      method: "Fetch.requestPaused",
+      params: {
+        frameId: "main-frame",
+        request: { url },
+        requestId: "main-document",
+        resourceType: "Document"
+      }
+    });
+    harness.notify({
+      method: "Fetch.requestPaused",
+      params: {
+        frameId: "child-frame",
+        request: { url },
+        requestId: "sub-document",
+        resourceType: "Document"
+      }
+    });
+
+    await vi.waitFor(() => {
+      expect(harness.send).toHaveBeenCalledWith("Fetch.continueRequest", {
+        requestId: "main-document"
+      });
+      expect(harness.send).toHaveBeenCalledWith("Fetch.continueRequest", {
+        requestId: "sub-document",
+        url: "https://www.recaptcha.net/recaptcha/api2/anchor?k=test"
+      });
+    });
+  });
+
   it("converts percentage clicks using the CSS visual viewport", async () => {
     const harness = createHarness();
     harness.send.mockImplementation(async (method: string) => {
@@ -197,21 +304,26 @@ describe("ExternalChromeAutomationTarget", () => {
 
 function createHarness() {
   const notificationListeners = new Set<(notification: CdpNotification) => void>();
-  const send = vi.fn(async (method: string): Promise<unknown> =>
-    method === "Runtime.evaluate" ? { result: { value: true } } : {}
-  );
+  const send = vi.fn(async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
+    if (method === "Page.getFrameTree") {
+      return { frameTree: { frame: { id: "main-frame" } } };
+    }
+    return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+  });
+  const onNotification = vi.fn((listener: (notification: CdpNotification) => void) => {
+    notificationListeners.add(listener);
+    return () => notificationListeners.delete(listener);
+  });
   const client: CdpEventClientLike = {
     close: vi.fn(),
     onDisconnect: vi.fn(() => () => undefined),
-    onNotification: vi.fn((listener) => {
-      notificationListeners.add(listener);
-      return () => notificationListeners.delete(listener);
-    }),
+    onNotification,
     send: send as CdpEventClientLike["send"]
   };
   return {
     client,
     notify: (notification: CdpNotification) => notificationListeners.forEach((listener) => listener(notification)),
+    onNotification,
     send
   };
 }

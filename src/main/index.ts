@@ -75,14 +75,6 @@ function getAppIconPath(): string {
   return join(__dirname, "../../build/icon.png");
 }
 
-function getCdnExtensionManifestTemplatePath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, "cdn-compat-extension/manifest.json");
-  }
-
-  return join(__dirname, "../../resources/cdn-compat-extension/manifest.json");
-}
-
 function loadAppIcon() {
   const iconPath = getAppIconPath();
 
@@ -265,7 +257,6 @@ function initializeApplication(): void {
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
   const cdnCompatibilityManager = new CdnCompatibilityManager({
-    extensionManifestTemplatePath: getCdnExtensionManifestTemplatePath(),
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
   const systemFontService = new SystemFontService();
@@ -303,13 +294,12 @@ function initializeApplication(): void {
     applyBrowserFonts: async (_role, browserUserDataDir) => {
       await browserFontApplier.applyToChromeUserDataDir(browserUserDataDir);
     },
-    prepareCdnCompatibility: async (role, browserUserDataDir) => {
+    prepareCdnCompatibility: async (role, _browserUserDataDir) => {
       const settings = normalizeGameBrowserSettings(await gameBrowserSettingsStore.getSettings());
       const browserSession = electronSession.fromPartition(createRoleSessionPartition(role.id));
       await browserProxyApplier.applyToSession(browserSession);
-      const compatibility = await cdnCompatibilityManager.prepareExternalExtension(browserSession, browserUserDataDir);
       return {
-        ...compatibility,
+        enabled: await cdnCompatibilityManager.resolveForSession(browserSession),
         ...(settings.network.proxy.mode === "custom"
           ? { proxyServer: settings.network.proxy.server }
           : {})

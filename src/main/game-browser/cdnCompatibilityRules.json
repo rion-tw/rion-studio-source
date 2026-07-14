@@ -22,7 +22,7 @@
     {
       "id": "google-font-files",
       "regexFilter": "^https://fonts\\.gstatic\\.com/(.*)$",
-      "regexSubstitution": "https://fonts.googleapis.cn/\\1",
+      "regexSubstitution": "https://fonts.gstatic.cn/\\1",
       "sourceHost": "fonts.gstatic.com"
     },
     {
@@ -40,7 +40,7 @@
     {
       "id": "bootstrap",
       "regexFilter": "^https://maxcdn\\.bootstrapcdn\\.com/bootstrap/(.*)$",
-      "regexSubstitution": "https://lib.baomitu.com/twitter-bootstrap/\\1",
+      "regexSubstitution": "https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/\\1",
       "sourceHost": "maxcdn.bootstrapcdn.com"
     },
     {

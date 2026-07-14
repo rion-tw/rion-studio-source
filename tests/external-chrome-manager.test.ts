@@ -69,10 +69,9 @@ describe("ExternalChromeManager", () => {
     expect(status.automationState).toBe("ready");
   });
 
-  it("loads a prepared role-local CDN compatibility extension", async () => {
+  it("enables CDN interception through CDP after Chrome connects", async () => {
     const prepareCdnCompatibility = vi.fn().mockResolvedValue({
       enabled: true,
-      extensionPath: "/profiles/role-1/cdn-compat-extension",
       proxyServer: "socks5://127.0.0.1:7890"
     });
     const harness = createHarness({ prepareCdnCompatibility });
@@ -83,18 +82,21 @@ describe("ExternalChromeManager", () => {
     const status = await launchPromise;
 
     expect(prepareCdnCompatibility).toHaveBeenCalledWith(role, "/profiles/role-1/browser");
-    expect(harness.spawnChrome).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.arrayContaining(["--load-extension=/profiles/role-1/cdn-compat-extension"])
+    expect(harness.connectAutomation).toHaveBeenCalledWith(
+      "/profiles/role-1/browser",
+      role.launchUrl,
+      { cdnCompatibilityEnabled: true }
     );
     expect(harness.spawnChrome).toHaveBeenCalledWith(
       expect.any(String),
       expect.arrayContaining(["--proxy-server=socks5://127.0.0.1:7890"])
     );
-    expect(status.notice).toContain("developer extension warning");
+    const args = (harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>)[0][1];
+    expect(args.some((argument: string) => argument.startsWith("--load-extension="))).toBe(false);
+    expect(status.notice).toBe("China CDN compatibility mode is active in external Chrome.");
   });
 
-  it("opens original URLs when CDN extension preparation fails", async () => {
+  it("opens original URLs when CDN preparation fails", async () => {
     const harness = createHarness({
       prepareCdnCompatibility: vi.fn().mockRejectedValue(new Error("write failed"))
     });
@@ -107,6 +109,40 @@ describe("ExternalChromeManager", () => {
     const args = (harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>)[0][1];
     expect(args.some((argument: string) => argument.startsWith("--load-extension="))).toBe(false);
     expect(status.notice).toContain("original resource URLs");
+  });
+
+  it("keeps original URLs and reports CDN unavailable when CDP interception cannot connect", async () => {
+    const harness = createHarness({
+      connectAutomation: vi.fn().mockRejectedValue(new Error("CDP unavailable")),
+      prepareCdnCompatibility: vi.fn().mockResolvedValue({ enabled: true })
+    });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    expect(status).toMatchObject({ state: "running", automationState: "unavailable" });
+    expect(status.notice).toContain("original resource URLs");
+    expect(status.notice).not.toContain("is active in external Chrome");
+    expect(harness.children[0].kill).not.toHaveBeenCalled();
+  });
+
+  it("marks CDN interception unavailable if the CDP connection later disconnects", async () => {
+    const harness = createHarness({
+      prepareCdnCompatibility: vi.fn().mockResolvedValue({ enabled: true })
+    });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launchPromise;
+    harness.automationTargets[0].disconnect();
+
+    const [status] = harness.manager.listStatuses();
+    expect(status).toMatchObject({ state: "running", automationState: "unavailable" });
+    expect(status.notice).toContain("original resource URLs");
+    expect(status.notice).not.toContain("is active in external Chrome");
   });
 
   it("keeps external Chrome running when macro automation cannot connect", async () => {
@@ -293,14 +329,19 @@ function createHarness(options: {
 }
 
 function createAutomationTarget() {
+  const disconnectListeners = new Set<() => void>();
   return {
     close: vi.fn(),
+    disconnect: () => disconnectListeners.forEach((listener) => listener()),
     dispatchClick: vi.fn().mockResolvedValue(undefined),
     dispatchKey: vi.fn().mockResolvedValue(undefined),
     evaluate: vi.fn().mockResolvedValue(undefined),
     focus: vi.fn().mockResolvedValue(undefined),
     installMacroOverlay: vi.fn().mockResolvedValue(undefined),
-    onDisconnect: vi.fn(() => () => undefined),
+    onDisconnect: vi.fn((listener: () => void) => {
+      disconnectListeners.add(listener);
+      return () => disconnectListeners.delete(listener);
+    }),
     setWindowBounds: vi.fn().mockResolvedValue(undefined)
   };
 }

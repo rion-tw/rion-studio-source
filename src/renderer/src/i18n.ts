@@ -96,7 +96,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
     "error.gamePageLoadFailed",
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.":
     "notice.externalChromeFallback",
-  "China CDN compatibility mode is active in external Chrome. Chrome may show a developer extension warning.":
+  "China CDN compatibility mode is active in external Chrome.":
     "notice.cdnCompatibilityExternalActive",
   "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.":
     "notice.cdnCompatibilityUnavailable",

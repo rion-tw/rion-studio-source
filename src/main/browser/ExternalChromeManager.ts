@@ -241,6 +241,11 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       }
       session.automationTarget = target;
       target.onDisconnect(() => this.handleAutomationDisconnect(role.id, session, target));
+      try {
+        await target.setWindowBounds(bounds);
+      } catch (error) {
+        console.warn("Failed to align external Chrome window bounds.", error);
+      }
       await this.macroOverlayInstaller?.(role, target).catch((error) => {
         console.warn("Failed to install the macro overlay in external Chrome.", error);
       });

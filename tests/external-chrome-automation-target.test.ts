@@ -97,6 +97,33 @@ describe("ExternalChromeAutomationTarget", () => {
     );
   });
 
+  it("restores and applies exact browser window bounds through CDP", async () => {
+    const harness = createHarness();
+    harness.send.mockImplementation(async (method: string) => {
+      if (method === "Browser.getWindowForTarget") {
+        return { windowId: 42, bounds: { windowState: "maximized" } };
+      }
+      return {};
+    });
+    const target = new ExternalChromeAutomationTarget(harness.client);
+
+    await target.setWindowBounds({ x: 2000, y: 40, width: 800, height: 900 });
+
+    expect(
+      harness.send.mock.calls.filter(([method]) => method.startsWith("Browser."))
+    ).toEqual([
+      ["Browser.getWindowForTarget"],
+      ["Browser.setWindowBounds", { windowId: 42, bounds: { windowState: "normal" } }],
+      [
+        "Browser.setWindowBounds",
+        {
+          windowId: 42,
+          bounds: { left: 2000, top: 40, width: 800, height: 900 }
+        }
+      ]
+    ]);
+  });
+
   it("bridges external overlay requests back to the main process", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);
@@ -130,7 +157,9 @@ describe("ExternalChromeAutomationTarget", () => {
 
 function createHarness() {
   const notificationListeners = new Set<(notification: CdpNotification) => void>();
-  const send = vi.fn(async (method: string) => method === "Runtime.evaluate" ? { result: { value: true } } : {});
+  const send = vi.fn(async (method: string): Promise<unknown> =>
+    method === "Runtime.evaluate" ? { result: { value: true } } : {}
+  );
   const client: CdpEventClientLike = {
     close: vi.fn(),
     onDisconnect: vi.fn(() => () => undefined),

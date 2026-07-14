@@ -59,6 +59,12 @@ describe("ExternalChromeManager", () => {
         "--window-size=1200,720"
       ])
     );
+    expect(harness.automationTargets[0].setWindowBounds).toHaveBeenCalledWith({
+      x: 100,
+      y: 50,
+      width: 1200,
+      height: 720
+    });
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
     expect(status.automationState).toBe("ready");
   });
@@ -152,11 +158,79 @@ describe("ExternalChromeManager", () => {
     expect(spawnCalls[1][1]).toEqual(
       expect.arrayContaining(["--window-position=2800,40", "--window-size=800,900"])
     );
+    expect(harness.automationTargets[0].setWindowBounds).toHaveBeenCalledWith({
+      x: 2000,
+      y: 40,
+      width: 800,
+      height: 900
+    });
+    expect(harness.automationTargets[1].setWindowBounds).toHaveBeenCalledWith({
+      x: 2800,
+      y: 40,
+      width: 800,
+      height: 900
+    });
     expect(statuses).toEqual([
       expect.objectContaining({ roleId: "role-1", notice: "fallback", runtimeMode: "external" }),
       expect.objectContaining({ roleId: "role-2", notice: "fallback", runtimeMode: "external" })
     ]);
     expect(harness.manager.hasWorkspace("workspace-1")).toBe(true);
+  });
+
+  it("aligns every external Chrome window to shared rounded grid edges", async () => {
+    const harness = createHarness();
+    const roles = Array.from({ length: 4 }, (_value, index) => ({
+      ...role,
+      id: `role-${index + 1}`,
+      name: `Role ${index + 1}`
+    }));
+    const rects = [
+      { x: 0, y: 0, width: 0.5, height: 0.5 },
+      { x: 0.5, y: 0, width: 0.5, height: 0.5 },
+      { x: 0, y: 0.5, width: 0.5, height: 0.5 },
+      { x: 0.5, y: 0.5, width: 0.5, height: 0.5 }
+    ];
+
+    const launchPromise = harness.manager.launchWorkspace(
+      { id: "workspace-grid" },
+      roles.map((gridRole, index) => ({ role: gridRole, rect: rects[index] })),
+      { workArea: { x: 2000, y: 40, width: 1601, height: 901 } }
+    );
+    for (let index = 0; index < roles.length; index += 1) {
+      await waitForChild(harness.children, index);
+      harness.children[index].emit("spawn");
+    }
+    await launchPromise;
+
+    expect(harness.automationTargets.map((target) => target.setWindowBounds.mock.calls[0][0]))
+      .toEqual([
+        { x: 2000, y: 40, width: 801, height: 451 },
+        { x: 2801, y: 40, width: 800, height: 451 },
+        { x: 2000, y: 491, width: 801, height: 450 },
+        { x: 2801, y: 491, width: 800, height: 450 }
+      ]);
+  });
+
+  it("keeps automation ready when exact window alignment fails", async () => {
+    const automationTarget = createAutomationTarget();
+    automationTarget.setWindowBounds.mockRejectedValue(new Error("window manager rejected bounds"));
+    const harness = createHarness({
+      connectAutomation: vi.fn().mockResolvedValue(automationTarget)
+    });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    expect(status).toMatchObject({
+      roleId: role.id,
+      runtimeMode: "external",
+      state: "running",
+      automationState: "ready"
+    });
+    expect(harness.manager.getAutomationSession(role.id)?.target).toBe(automationTarget);
+    expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
   it("stops role and workspace Chrome child processes", async () => {
@@ -191,6 +265,7 @@ function createHarness(options: {
   prepareCdnCompatibility?: ReturnType<typeof vi.fn>;
 } = {}) {
   const children: Array<ReturnType<typeof createChild>> = [];
+  const automationTargets: Array<ReturnType<typeof createAutomationTarget>> = [];
   const roleStore = {
     ensureBrowserUserDataDir: vi.fn(async (roleId: string) => `/profiles/${roleId}/browser`)
   };
@@ -199,7 +274,11 @@ function createHarness(options: {
     children.push(child);
     return child as never;
   });
-  const connectAutomation = options.connectAutomation ?? vi.fn().mockResolvedValue(createAutomationTarget());
+  const connectAutomation = options.connectAutomation ?? vi.fn(async () => {
+    const target = createAutomationTarget();
+    automationTargets.push(target);
+    return target;
+  });
   const manager = new ExternalChromeManager(roleStore, {
     connectAutomation,
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -210,7 +289,7 @@ function createHarness(options: {
     spawnChrome
   });
 
-  return { children, connectAutomation, manager, roleStore, spawnChrome };
+  return { automationTargets, children, connectAutomation, manager, roleStore, spawnChrome };
 }
 
 function createAutomationTarget() {
@@ -221,7 +300,8 @@ function createAutomationTarget() {
     evaluate: vi.fn().mockResolvedValue(undefined),
     focus: vi.fn().mockResolvedValue(undefined),
     installMacroOverlay: vi.fn().mockResolvedValue(undefined),
-    onDisconnect: vi.fn(() => () => undefined)
+    onDisconnect: vi.fn(() => () => undefined),
+    setWindowBounds: vi.fn().mockResolvedValue(undefined)
   };
 }
 

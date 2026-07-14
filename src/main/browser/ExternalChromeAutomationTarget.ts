@@ -3,6 +3,7 @@ import {
   createMacroShortcutSuppressionClearSource,
   createMacroShortcutSuppressionSource
 } from "../../shared/macroShortcuts";
+import type { PixelBounds } from "../../shared/types";
 import {
   CdpClient,
   listDevToolsTargets,
@@ -23,6 +24,7 @@ export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget
   close: () => void;
   installMacroOverlay: (source: string, handler: ExternalMacroOverlayHandler) => Promise<void>;
   onDisconnect: (listener: () => void) => () => void;
+  setWindowBounds: (bounds: PixelBounds) => Promise<void>;
 }
 
 export interface ConnectExternalChromeAutomationOptions {
@@ -122,6 +124,30 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     this.removeNotificationListener?.();
     this.removeNotificationListener = undefined;
     this.client.close();
+  }
+
+  async setWindowBounds(bounds: PixelBounds): Promise<void> {
+    const window = await this.client.send<{
+      bounds?: { windowState?: "normal" | "minimized" | "maximized" | "fullscreen" };
+      windowId: number;
+    }>("Browser.getWindowForTarget");
+
+    if (window.bounds?.windowState && window.bounds.windowState !== "normal") {
+      await this.client.send("Browser.setWindowBounds", {
+        windowId: window.windowId,
+        bounds: { windowState: "normal" }
+      });
+    }
+
+    await this.client.send("Browser.setWindowBounds", {
+      windowId: window.windowId,
+      bounds: {
+        left: bounds.x,
+        top: bounds.y,
+        width: bounds.width,
+        height: bounds.height
+      }
+    });
   }
 
   async focus(): Promise<void> {

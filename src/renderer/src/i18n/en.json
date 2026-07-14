@@ -133,6 +133,8 @@
   "workspaces.rolePickerDescription": "Select a role for {slot}, or drag roles into the preview.",
   "workspaces.clearSelectedSlot": "Clear selected slot",
   "workspaces.noRoles": "Create roles before building a workspace.",
+  "workspaces.resizeColumns": "Resize column divider {index}",
+  "workspaces.resizeRows": "Resize row divider {index}",
   "workspace.layout.single": "Single",
   "workspace.layout.twoColumns": "Two columns",
   "workspace.layout.threeColumns": "Three columns",

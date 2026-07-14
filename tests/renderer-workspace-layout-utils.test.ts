@@ -12,6 +12,7 @@ import {
   createWorkspaceFormState,
   createWorkspaceSlotBackground,
   getWorkspaceHorizontalResizeHandles,
+  getWorkspaceResizeAffectedSlotIndexes,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
   getWorkspaceVerticalResizeHandles,
@@ -357,6 +358,51 @@ describe("renderer workspace layout helpers", () => {
       { splitIndex: 1, x: 0.2, y: 0.7 },
       { splitIndex: 2, x: 0.75, y: 0.7 }
     ]);
+  });
+
+  it("identifies every slot affected by linked workspace dividers", () => {
+    const twoColumns = applyWorkspaceTemplate([], "two_columns");
+    expect(getWorkspaceResizeAffectedSlotIndexes("two_columns", twoColumns, "vertical", 0)).toEqual([0, 1]);
+
+    const quad = applyWorkspaceTemplate([], "quad");
+    expect(getWorkspaceResizeAffectedSlotIndexes("quad", quad, "vertical", 0)).toEqual([0, 1, 2, 3]);
+    expect(getWorkspaceResizeAffectedSlotIndexes("quad", quad, "horizontal", 0)).toEqual([0, 1, 2, 3]);
+
+    const sixGrid = applyWorkspaceTemplate([], "six_grid");
+    expect(getWorkspaceResizeAffectedSlotIndexes("six_grid", sixGrid, "vertical", 0)).toEqual([0, 1, 3, 4]);
+
+    const eightGrid = applyWorkspaceTemplate([], "eight_grid");
+    expect(getWorkspaceResizeAffectedSlotIndexes("eight_grid", eightGrid, "vertical", 1)).toEqual([1, 2, 5, 6]);
+  });
+
+  it("limits indicators to the connected side stacks and mixed-layout rows", () => {
+    const centered = applyWorkspaceTemplate([], "main_center_side_stacks");
+    expect(getWorkspaceResizeAffectedSlotIndexes("main_center_side_stacks", centered, "vertical", 0)).toEqual([
+      0,
+      1,
+      2
+    ]);
+    expect(getWorkspaceResizeAffectedSlotIndexes("main_center_side_stacks", centered, "horizontal", 0)).toEqual([
+      1,
+      2,
+      3,
+      4
+    ]);
+
+    const threeTop = applyWorkspaceTemplate([], "three_top_two_bottom");
+    expect(getWorkspaceResizeAffectedSlotIndexes("three_top_two_bottom", threeTop, "vertical", 0)).toEqual([0, 1]);
+    expect(getWorkspaceResizeAffectedSlotIndexes("three_top_two_bottom", threeTop, "vertical", 2)).toEqual([3, 4]);
+    expect(getWorkspaceResizeAffectedSlotIndexes("three_top_two_bottom", threeTop, "horizontal", 0)).toEqual([
+      0,
+      1,
+      2,
+      3,
+      4
+    ]);
+
+    const twoTop = applyWorkspaceTemplate([], "two_top_three_bottom");
+    expect(getWorkspaceResizeAffectedSlotIndexes("two_top_three_bottom", twoTop, "vertical", 0)).toEqual([0, 1]);
+    expect(getWorkspaceResizeAffectedSlotIndexes("two_top_three_bottom", twoTop, "vertical", 1)).toEqual([2, 3]);
   });
 
   it("adjusts side columns and linked rows around a centered main pane", () => {

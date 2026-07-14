@@ -133,6 +133,8 @@
   "workspaces.rolePickerDescription": "Select a role for {slot}, or drag roles into the preview.",
   "workspaces.clearSelectedSlot": "Clear selected slot",
   "workspaces.noRoles": "Create roles before building a workspace.",
+  "workspaces.resizeColumns": "列の分割線 {index} を調整",
+  "workspaces.resizeRows": "行の分割線 {index} を調整",
   "workspace.layout.single": "単一",
   "workspace.layout.twoColumns": "2列",
   "workspace.layout.threeColumns": "3列",

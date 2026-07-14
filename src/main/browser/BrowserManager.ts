@@ -23,7 +23,13 @@ import {
 } from "../auth/loginEvidence";
 import type { RoleStore } from "../roles/RoleStore";
 import type { BrowserLaunchMode, LaunchWorkspace, NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
+import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
 import { MIN_WORKSPACE_SLOT_SIZE } from "../../shared/workspaceLayout";
+import {
+  formatWorkspaceResizeRatio,
+  snapWorkspaceResizePosition,
+  type WorkspaceResizeIndicatorPayload
+} from "../../shared/workspaceResize";
 import type { ExternalChromeLaunchItem, ExternalChromeManager } from "./ExternalChromeManager";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 
@@ -121,6 +127,7 @@ export class BrowserWorkspaceDisplayOccupiedError extends Error {
 }
 
 interface GameHostWindow {
+  activeDividerResize?: ActiveGameDividerResize;
   closing: boolean;
   dividers: GameDivider[];
   id: string;
@@ -139,8 +146,21 @@ interface GameDivider {
   view: WebContentsView;
 }
 
+interface ActiveGameDividerResize {
+  divider: GameDivider;
+  roleIds: string[];
+  snappedPosition: number;
+}
+
+interface GameDividerResizeResult {
+  changed: boolean;
+  position: number;
+  roleIds: string[];
+}
+
 export type GameDividerPointerPayload =
-  | { phase: "move" | "start" | "end"; screenPosition: number }
+  | { phase: "move" | "start"; screenPosition: number }
+  | { phase: "end" }
   | { phase: "reset" };
 
 export const GAME_DIVIDER_POINTER_CHANNEL = "game-divider:pointer";
@@ -442,7 +462,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   handleDividerPointer(webContentsId: number, payload: unknown): void {
     const target = this.dividerByWebContentsId.get(webContentsId);
-    if (!target || !isGameDividerPointerPayload(payload) || payload.phase === "end") {
+    if (!target || !isGameDividerPointerPayload(payload)) {
       return;
     }
 
@@ -451,7 +471,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return;
     }
 
+    if (payload.phase === "end") {
+      this.finishDividerResize(host, target.divider);
+      return;
+    }
+
     if (payload.phase === "reset") {
+      this.finishDividerResize(host);
       this.resizeDivider(host, target.divider, target.divider.defaultPosition);
       return;
     }
@@ -464,7 +490,38 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     const nextPosition = (payload.screenPosition - origin) / size;
-    this.resizeDivider(host, target.divider, nextPosition);
+    if (payload.phase === "start") {
+      this.finishDividerResize(host);
+      const result = this.resizeDivider(host, target.divider, nextPosition);
+      if (!result) {
+        return;
+      }
+
+      host.activeDividerResize = {
+        divider: target.divider,
+        roleIds: result.roleIds,
+        snappedPosition: result.position
+      };
+      this.sendDividerResizeIndicators(result.roleIds, "show");
+      return;
+    }
+
+    const activeResize = host.activeDividerResize?.divider === target.divider
+      ? host.activeDividerResize
+      : undefined;
+    const result = this.resizeDivider(
+      host,
+      target.divider,
+      nextPosition,
+      activeResize?.snappedPosition
+    );
+    if (!result || !activeResize || !result.changed) {
+      return;
+    }
+
+    activeResize.snappedPosition = result.position;
+    activeResize.roleIds = result.roleIds;
+    this.sendDividerResizeIndicators(result.roleIds, "update");
   }
 
   private createHost(title: string, workspaceId?: string, launchBounds?: PixelBounds): GameHostWindow {
@@ -786,7 +843,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
   }
 
-  private resizeDivider(host: GameHostWindow, divider: GameDivider, requestedPosition: number): void {
+  private resizeDivider(
+    host: GameHostWindow,
+    divider: GameDivider,
+    requestedPosition: number,
+    previousPosition?: number
+  ): GameDividerResizeResult | undefined {
     const linkedDividers = host.dividers.filter(
       (candidate) =>
         candidate.axis === divider.axis &&
@@ -801,7 +863,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       .map((roleId) => this.sessions.get(roleId))
       .filter((session): session is BrowserSession => Boolean(session));
     if (beforeSessions.length === 0 || afterSessions.length === 0) {
-      return;
+      return undefined;
     }
 
     const startKey = divider.axis === "vertical" ? "x" : "y";
@@ -810,7 +872,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const max = Math.min(
       ...afterSessions.map((session) => session.rect[startKey] + session.rect[sizeKey] - MIN_WORKSPACE_SLOT_SIZE)
     );
-    const position = Math.min(max, Math.max(min, requestedPosition));
+    const currentPosition = afterSessions[0].rect[startKey];
+    const position = snapWorkspaceResizePosition(requestedPosition, {
+      initialPosition: divider.defaultPosition,
+      max,
+      min,
+      ...(previousPosition === undefined ? {} : { previousPosition })
+    });
+    const roleIds = [...new Set([...beforeRoleIds, ...afterRoleIds])];
+    if (Math.abs(position - currentPosition) < DIVIDER_EPSILON) {
+      return { changed: false, position, roleIds };
+    }
 
     beforeSessions.forEach((session) => {
       session.rect = { ...session.rect, [sizeKey]: position - session.rect[startKey] };
@@ -820,6 +892,34 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       session.rect = { ...session.rect, [startKey]: position, [sizeKey]: end - position };
     });
     this.layoutHost(host);
+    return { changed: true, position, roleIds };
+  }
+
+  private finishDividerResize(host: GameHostWindow, divider?: GameDivider): void {
+    const activeResize = host.activeDividerResize;
+    if (!activeResize || (divider && activeResize.divider !== divider)) {
+      return;
+    }
+
+    host.activeDividerResize = undefined;
+    this.sendDividerResizeIndicators(activeResize.roleIds, "hide");
+  }
+
+  private sendDividerResizeIndicators(
+    roleIds: string[],
+    type: WorkspaceResizeIndicatorPayload["type"]
+  ): void {
+    roleIds.forEach((roleId) => {
+      const session = this.sessions.get(roleId);
+      if (!session || session.view.webContents.isDestroyed()) {
+        return;
+      }
+
+      const payload: WorkspaceResizeIndicatorPayload = type === "hide"
+        ? { type }
+        : { type, label: formatWorkspaceResizeRatio(session.rect) };
+      session.view.webContents.send(WORKSPACE_RESIZE_INDICATOR_CHANNEL, payload);
+    });
   }
 
   private async applyZoom(session: BrowserSession, zoomFactor: number): Promise<void> {
@@ -880,8 +980,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return;
     }
 
-    this.sessions.delete(roleId);
     const host = this.hosts.get(session.hostId);
+    if (host?.activeDividerResize?.roleIds.includes(roleId)) {
+      this.finishDividerResize(host);
+    }
+    this.sessions.delete(roleId);
     host?.roleIds.delete(roleId);
     if (host && !host.window.isDestroyed()) {
       host.window.contentView.removeChildView(session.view);
@@ -948,6 +1051,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private closeHostWindow(host: GameHostWindow): void {
     host.closing = true;
+    this.finishDividerResize(host);
     host.dividers.forEach((divider) => {
       this.dividerByWebContentsId.delete(divider.view.webContents.id);
       if (!host.window.isDestroyed()) {
@@ -965,6 +1069,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private deleteHost(host: GameHostWindow): void {
+    this.finishDividerResize(host);
     this.hosts.delete(host.id);
     if (host.workspaceId && this.workspaceHostIds.get(host.workspaceId) === host.id) {
       this.workspaceHostIds.delete(host.workspaceId);
@@ -1203,15 +1308,21 @@ function createDividerDataUrl(axis: DividerAxis): string {
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;cursor:${cursor};user-select:none}
+body{transition:background-color 90ms ease-out,box-shadow 90ms ease-out}
+body.dragging{background:#f4f4f5;box-shadow:0 0 10px rgba(255,255,255,.7)}
 </style></head><body><script>
 let dragging=false;
 const send=(phase,event)=>window.rionStudioDivider.sendPointer({phase,screenPosition:${coordinate}});
+const end=()=>window.rionStudioDivider.sendPointer({phase:"end"});
 const reset=()=>window.rionStudioDivider.sendPointer({phase:"reset"});
-addEventListener("pointerdown",event=>{dragging=true;document.body.setPointerCapture?.(event.pointerId);send("start",event);event.preventDefault()});
+const setDragging=value=>{dragging=value;document.body.classList.toggle("dragging",value)};
+const finish=()=>{if(!dragging)return;setDragging(false);end()};
+addEventListener("pointerdown",event=>{setDragging(true);document.body.setPointerCapture?.(event.pointerId);send("start",event);event.preventDefault()});
 addEventListener("pointermove",event=>{if(dragging)send("move",event)});
-addEventListener("pointerup",event=>{if(!dragging)return;dragging=false;send("end",event)});
-addEventListener("pointercancel",event=>{if(!dragging)return;dragging=false;send("end",event)});
-addEventListener("dblclick",event=>{dragging=false;reset();event.preventDefault()});
+addEventListener("pointerup",finish);
+addEventListener("pointercancel",finish);
+addEventListener("blur",finish);
+addEventListener("dblclick",event=>{setDragging(false);reset();event.preventDefault()});
 </script></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
@@ -1221,12 +1332,12 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
     return false;
   }
   const payload = value as Partial<GameDividerPointerPayload>;
-  if (payload.phase === "reset") {
+  if (payload.phase === "reset" || payload.phase === "end") {
     return true;
   }
 
   return (
-    (payload.phase === "start" || payload.phase === "move" || payload.phase === "end") &&
+    (payload.phase === "start" || payload.phase === "move") &&
     typeof payload.screenPosition === "number" &&
     Number.isFinite(payload.screenPosition)
   );

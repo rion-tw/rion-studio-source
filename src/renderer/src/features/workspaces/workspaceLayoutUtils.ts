@@ -445,6 +445,46 @@ export function getWorkspaceSplitRange(
   };
 }
 
+export function getWorkspaceResizeAffectedSlotIndexes(
+  template: WorkspaceLayoutTemplate,
+  slots: LaunchWorkspaceSlot[],
+  axis: WorkspaceSplitAxis,
+  splitIndex: number
+): number[] {
+  const splits = getWorkspaceSplits(template, slots);
+  const currentPosition = splits[axis][splitIndex];
+  if (currentPosition === undefined) {
+    return [];
+  }
+
+  const range = getWorkspaceSplitRange(template, splits, axis, splitIndex);
+  const comparisonPosition = Math.abs(currentPosition - range.max) > 0.000_001 ? range.max : range.min;
+  if (Math.abs(currentPosition - comparisonPosition) < 0.000_001) {
+    return [];
+  }
+
+  const comparisonSplits = {
+    horizontal: [...splits.horizontal],
+    vertical: [...splits.vertical]
+  };
+  comparisonSplits[axis][splitIndex] = comparisonPosition;
+  const comparisonRects = createWorkspaceRectsFromSplits(template, comparisonSplits);
+  const startKey = axis === "vertical" ? "x" : "y";
+  const sizeKey = axis === "vertical" ? "width" : "height";
+
+  return slots.flatMap((slot, index) => {
+    const comparisonRect = comparisonRects[index];
+    if (!comparisonRect) {
+      return [];
+    }
+
+    const changed =
+      Math.abs(slot.rect[startKey] - comparisonRect[startKey]) >= 0.000_001 ||
+      Math.abs(slot.rect[sizeKey] - comparisonRect[sizeKey]) >= 0.000_001;
+    return changed ? [index] : [];
+  });
+}
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

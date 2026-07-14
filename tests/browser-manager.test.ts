@@ -11,6 +11,7 @@ import {
   normalizedRectToPixelBounds
 } from "../src/main/browser/BrowserManager";
 import { LOGIN_STORAGE_EXPRESSION } from "../src/main/auth/loginEvidence";
+import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
 import type { BrowserLaunchMode, LaunchWorkspace, Role } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
@@ -433,6 +434,8 @@ describe("BrowserManager game host windows", () => {
     expect(dividerHtml).toContain("background:#000");
     expect(dividerHtml).not.toContain("class=\"line\"");
     expect(dividerHtml).toContain("cursor:col-resize");
+    expect(dividerHtml).toContain("body.dragging");
+    expect(dividerHtml).toContain("setDragging(true)");
     expect(dividerHtml).toContain('addEventListener("dblclick"');
     expect(dividerHtml).toContain('phase:"reset"');
   });
@@ -458,6 +461,87 @@ describe("BrowserManager game host windows", () => {
     });
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 144, height: 800 });
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 144, y: 0, width: 1056, height: 800 });
+  });
+
+  it("shows snapped resize ratios during an active divider drag and hides them on end", async () => {
+    const harness = createHarness();
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+    const divider = harness.views[2];
+
+    harness.manager.handleDividerPointer(divider.webContents.id, {
+      phase: "start",
+      screenPosition: 600
+    });
+    expect(harness.views[0].webContents.send).toHaveBeenLastCalledWith(
+      WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+      { type: "show", label: "50% × 100%" }
+    );
+    expect(harness.views[1].webContents.send).toHaveBeenLastCalledWith(
+      WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+      { type: "show", label: "50% × 100%" }
+    );
+
+    const firstRoleLayoutCalls = harness.views[0].setBounds.mock.calls.length;
+    harness.manager.handleDividerPointer(divider.webContents.id, {
+      phase: "move",
+      screenPosition: 622
+    });
+    expect(harness.views[0].setBounds).toHaveBeenCalledTimes(firstRoleLayoutCalls);
+    expect(harness.views[0].webContents.send).toHaveBeenCalledTimes(1);
+
+    harness.manager.handleDividerPointer(divider.webContents.id, {
+      phase: "move",
+      screenPosition: 636
+    });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 660, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 660, y: 0, width: 540, height: 800 });
+    expect(harness.views[0].webContents.send).toHaveBeenLastCalledWith(
+      WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+      { type: "update", label: "55% × 100%" }
+    );
+    expect(harness.views[1].webContents.send).toHaveBeenLastCalledWith(
+      WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+      { type: "update", label: "45% × 100%" }
+    );
+
+    harness.manager.handleDividerPointer(divider.webContents.id, {
+      phase: "end",
+      screenPosition: 636
+    });
+    expect(harness.views[0].webContents.send).toHaveBeenLastCalledWith(
+      WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+      { type: "hide" }
+    );
+    expect(harness.views[1].webContents.send).toHaveBeenLastCalledWith(
+      WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+      { type: "hide" }
+    );
+  });
+
+  it("clears active resize indicators when the workspace closes mid-drag", async () => {
+    const harness = createHarness();
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
+      phase: "start",
+      screenPosition: 600
+    });
+    await harness.manager.stopWorkspace(workspace.id);
+
+    expect(harness.views[0].webContents.send).toHaveBeenLastCalledWith(
+      WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+      { type: "hide" }
+    );
+    expect(harness.views[1].webContents.send).toHaveBeenLastCalledWith(
+      WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+      { type: "hide" }
+    );
   });
 
   it("resets a game divider to its launch position when double-clicked", async () => {
@@ -513,6 +597,37 @@ describe("BrowserManager game host windows", () => {
         { x: 0, y: 398, width: 1200, height: 4 }
       ])
     );
+
+    harness.manager.handleDividerPointer(harness.views[6].webContents.id, {
+      phase: "start",
+      screenPosition: 400
+    });
+    expect(harness.views.slice(0, 6).map((view) => view.webContents.send.mock.calls.length)).toEqual([
+      1,
+      1,
+      0,
+      1,
+      1,
+      0
+    ]);
+  });
+
+  it("resets a snapped three-column divider to its exact one-third launch position", async () => {
+    const harness = createHarness();
+    const rects = getDefaultWorkspaceRects("three_columns");
+    await harness.manager.launchWorkspace(
+      workspace,
+      rects.map((rect, index) => ({ role: createRole(`role-${index + 1}`, `Role ${index + 1}`), rect }))
+    );
+
+    harness.manager.handleDividerPointer(harness.views[3].webContents.id, {
+      phase: "move",
+      screenPosition: 540
+    });
+    harness.manager.handleDividerPointer(harness.views[3].webContents.id, { phase: "reset" });
+
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 400, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 400, y: 0, width: 400, height: 800 });
   });
 
   it("keeps centered-main row dividers out of the main pane while resizing both side stacks", async () => {
@@ -1089,6 +1204,7 @@ function createMockView(
       currentUrl = url;
     }),
     mainFrame: { framesInSubtree: [] },
+    send: vi.fn(),
     sendInputEvent: vi.fn(),
     session: { cookies: { get: vi.fn().mockResolvedValue([]) }, setProxy: vi.fn().mockResolvedValue(undefined) },
     setWindowOpenHandler: vi.fn(),

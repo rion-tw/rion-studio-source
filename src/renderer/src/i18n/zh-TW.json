@@ -133,6 +133,8 @@
   "workspaces.rolePickerDescription": "為{slot}選擇角色，也可以直接拖到預覽區。",
   "workspaces.clearSelectedSlot": "清空目前區塊",
   "workspaces.noRoles": "請先建立角色，再建立工作區。",
+  "workspaces.resizeColumns": "調整第 {index} 個欄分隔線",
+  "workspaces.resizeRows": "調整第 {index} 個列分隔線",
   "workspace.layout.single": "單一",
   "workspace.layout.twoColumns": "左右雙欄",
   "workspace.layout.threeColumns": "三直欄",

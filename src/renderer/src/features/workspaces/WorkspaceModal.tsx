@@ -36,15 +36,19 @@ import {
   workspaceBrowserZoomPercents,
   workspaceLayoutTemplates
 } from "../../../../shared/workspaceLayout";
+import {
+  formatWorkspaceResizeRatio,
+  snapWorkspaceResizePosition
+} from "../../../../shared/workspaceResize";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { formatWorkspaceDisplayLabel } from "./workspaceDisplayUtils";
 import {
   applyWorkspaceSplits,
   applyWorkspaceTemplate,
   assignRoleToWorkspaceSlot,
-  clamp,
   createWorkspaceSlotBackground,
   getWorkspaceHorizontalResizeHandles,
+  getWorkspaceResizeAffectedSlotIndexes,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
   getWorkspaceVerticalResizeHandles,
@@ -162,6 +166,12 @@ interface WorkspaceLayoutFormEditorProps {
   workspaceDisplays: WorkspaceDisplayInfo[];
 }
 
+interface WorkspaceActiveResize {
+  affectedSlotIndexes: number[];
+  axis: WorkspaceSplitAxis;
+  splitIndex: number;
+}
+
 function WorkspaceLayoutFormEditor({
   form,
   isSaving,
@@ -171,11 +181,13 @@ function WorkspaceLayoutFormEditor({
   t,
   workspaceDisplays
 }: WorkspaceLayoutFormEditorProps): JSX.Element {
+  const [activeResize, setActiveResize] = useState<WorkspaceActiveResize | null>(null);
   const [dragSlots, setDragSlots] = useState<LaunchWorkspaceSlot[] | null>(null);
   const [dropTargetSlotIndex, setDropTargetSlotIndex] = useState<number | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(0);
   const dragPayloadRef = useRef<{ roleId?: string; slotIndex?: number } | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const resizeAbortRef = useRef<AbortController | null>(null);
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const slots = dragSlots ?? form.slots;
   const assignedSlotByRoleId = new Map(
@@ -185,8 +197,13 @@ function WorkspaceLayoutFormEditor({
   const selectedSlotLabel = t("workspaces.slot").replace("{index}", String(selectedSlotIndex + 1));
 
   useEffect(() => {
+    resizeAbortRef.current?.abort();
+    resizeAbortRef.current = null;
+    setActiveResize(null);
     setDragSlots(null);
   }, [form.id, form.template, form.slots]);
+
+  useEffect(() => () => resizeAbortRef.current?.abort(), []);
 
   useEffect(() => {
     setSelectedSlotIndex((current) => Math.min(current, Math.max(form.slots.length - 1, 0)));
@@ -267,9 +284,24 @@ function WorkspaceLayoutFormEditor({
     const previewBounds = previewRef.current.getBoundingClientRect();
     const initialSplits = getWorkspaceSplits(form.template, slots);
     const splitRange = getWorkspaceSplitRange(form.template, initialSplits, axis, splitIndex);
+    const initialPosition = initialSplits[axis][splitIndex];
+    if (initialPosition === undefined) {
+      return;
+    }
+
+    resizeAbortRef.current?.abort();
+    const controller = new AbortController();
+    resizeAbortRef.current = controller;
+    const affectedSlotIndexes = getWorkspaceResizeAffectedSlotIndexes(form.template, slots, axis, splitIndex);
     let nextSlots = slots;
+    let previousPosition = initialPosition;
+    setActiveResize({ affectedSlotIndexes, axis, splitIndex });
 
     const handlePointerMove = (pointerEvent: PointerEvent): void => {
+      if (pointerEvent.pointerId !== event.pointerId) {
+        return;
+      }
+
       const pointerPosition =
         axis === "vertical"
           ? (pointerEvent.clientX - previewBounds.left) / previewBounds.width
@@ -279,14 +311,32 @@ function WorkspaceLayoutFormEditor({
         vertical: [...initialSplits.vertical]
       };
 
-      nextSplits[axis][splitIndex] = clamp(pointerPosition, splitRange.min, splitRange.max);
+      const snappedPosition = snapWorkspaceResizePosition(pointerPosition, {
+        initialPosition,
+        max: splitRange.max,
+        min: splitRange.min,
+        previousPosition
+      });
+      if (Math.abs(snappedPosition - previousPosition) < 0.000_001) {
+        return;
+      }
+
+      previousPosition = snappedPosition;
+      nextSplits[axis][splitIndex] = snappedPosition;
       nextSlots = applyWorkspaceSplits(form.template, slots, nextSplits);
       setDragSlots(nextSlots);
     };
 
-    const handlePointerUp = (): void => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
+    const finishResize = (): void => {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      controller.abort();
+      if (resizeAbortRef.current === controller) {
+        resizeAbortRef.current = null;
+      }
+      setActiveResize(null);
       setDragSlots(null);
 
       if (nextSlots !== slots) {
@@ -294,8 +344,17 @@ function WorkspaceLayoutFormEditor({
       }
     };
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
+    const handlePointerEnd = (pointerEvent: PointerEvent): void => {
+      if (pointerEvent.pointerId === event.pointerId) {
+        finishResize();
+      }
+    };
+
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    window.addEventListener("pointermove", handlePointerMove, { signal: controller.signal });
+    window.addEventListener("pointerup", handlePointerEnd, { signal: controller.signal });
+    window.addEventListener("pointercancel", handlePointerEnd, { signal: controller.signal });
+    window.addEventListener("blur", finishResize, { signal: controller.signal });
   }
 
   return (
@@ -404,6 +463,11 @@ function WorkspaceLayoutFormEditor({
                   isSaving={isSaving}
                   role={role}
                   rect={slot.rect}
+                  resizeIndicator={
+                    activeResize?.affectedSlotIndexes.includes(index)
+                      ? formatWorkspaceResizeRatio(slot.rect)
+                      : undefined
+                  }
                   t={t}
                   onClick={() => setSelectedSlotIndex(index)}
                   onDragEnd={handleDragEnd}
@@ -419,7 +483,13 @@ function WorkspaceLayoutFormEditor({
               );
             })}
 
-            <WorkspaceResizeHandles template={form.template} slots={slots} onResizeStart={startResize} />
+            <WorkspaceResizeHandles
+              activeResize={activeResize}
+              template={form.template}
+              slots={slots}
+              t={t}
+              onResizeStart={startResize}
+            />
           </div>
         </Surface>
 
@@ -513,6 +583,7 @@ interface WorkspaceSlotDropZoneProps {
   onSlotDragStart: (event: ReactDragEvent) => void;
   role?: Role;
   rect: NormalizedRect;
+  resizeIndicator?: string;
   t: Translator;
 }
 
@@ -529,6 +600,7 @@ function WorkspaceSlotDropZone({
   onSlotDragStart,
   role,
   rect,
+  resizeIndicator,
   t
 }: WorkspaceSlotDropZoneProps): JSX.Element {
   const launchGameName = role ? resolveWorkspaceRoleLaunchGameName(role.launchUrl, t) : "";
@@ -568,6 +640,14 @@ function WorkspaceSlotDropZone({
         onClick={onClick}
       >
         {role?.coverImageDataUrl ? <div className="absolute inset-0 bg-black/10" /> : null}
+        {resizeIndicator ? (
+          <span
+            className="glass-popover pointer-events-none absolute left-1/2 top-2.5 z-30 -translate-x-1/2 whitespace-nowrap rounded-full border border-primary/35 px-2 py-1 text-[10px] font-semibold leading-none text-foreground shadow-md backdrop-blur-md"
+            data-workspace-resize-indicator
+          >
+            {resizeIndicator}
+          </span>
+        ) : null}
         <div className="relative z-10 flex min-w-0 items-start gap-2">
           <p className="rounded-md border border-border/35 bg-background/45 px-2 py-1 text-[11px] font-semibold leading-none text-muted-foreground backdrop-blur-md">
             {t("workspaces.slot").replace("{index}", String(index + 1))}
@@ -614,16 +694,24 @@ function WorkspaceSlotDropZone({
 }
 
 interface WorkspaceResizeHandlesProps {
+  activeResize: WorkspaceActiveResize | null;
   onResizeStart: (
     event: ReactPointerEvent<HTMLButtonElement>,
     axis: WorkspaceSplitAxis,
     splitIndex: number
   ) => void;
   slots: LaunchWorkspaceSlot[];
+  t: Translator;
   template: WorkspaceLayoutTemplate;
 }
 
-function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceResizeHandlesProps): JSX.Element | null {
+function WorkspaceResizeHandles({
+  activeResize,
+  onResizeStart,
+  slots,
+  t,
+  template
+}: WorkspaceResizeHandlesProps): JSX.Element | null {
   const splits = getWorkspaceSplits(template, slots);
   const verticalHandles = getWorkspaceVerticalResizeHandles(template, splits);
   const horizontalHandles = getWorkspaceHorizontalResizeHandles(template, splits);
@@ -634,38 +722,56 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
 
   return (
     <>
-      {verticalHandles.map((handle) => (
-        <button
-          key={`vertical-${handle.splitIndex}`}
-          className="group/resize absolute z-20 grid h-12 w-6 -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
-          type="button"
-          aria-label={`Resize columns ${handle.splitIndex + 1}`}
-          style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%` }}
-          onPointerDown={(event) => onResizeStart(event, "vertical", handle.splitIndex)}
-        >
-          <span className="glass-popover grid h-9 w-3.5 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25">
-            <GripVertical size={12} />
-          </span>
-        </button>
-      ))}
+      {verticalHandles.map((handle) => {
+        const isActive = activeResize?.axis === "vertical" && activeResize.splitIndex === handle.splitIndex;
 
-      {horizontalHandles.map((handle, handleIndex) => (
-        <button
-          key={`horizontal-${handle.splitIndex}-${handleIndex}`}
-          className="group/resize absolute z-20 grid h-6 w-12 -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
-          type="button"
-          aria-label={`Resize rows ${handle.splitIndex + 1}`}
-          style={{
-            left: `${handle.x * 100}%`,
-            top: `${handle.y * 100}%`
-          }}
-          onPointerDown={(event) => onResizeStart(event, "horizontal", handle.splitIndex)}
-        >
-          <span className="glass-popover grid h-3.5 w-9 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25">
-            <GripHorizontal size={12} />
-          </span>
-        </button>
-      ))}
+        return (
+          <button
+            key={`vertical-${handle.splitIndex}`}
+            className="group/resize absolute z-20 grid h-12 w-6 -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
+            type="button"
+            aria-label={t("workspaces.resizeColumns").replace("{index}", String(handle.splitIndex + 1))}
+            style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%` }}
+            onPointerDown={(event) => onResizeStart(event, "vertical", handle.splitIndex)}
+          >
+            <span
+              className={cn(
+                "glass-popover grid h-9 w-3.5 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform,box-shadow] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
+                isActive && "scale-110 border-primary/70 text-foreground shadow-lg ring-2 ring-primary/20"
+              )}
+            >
+              <GripVertical size={12} />
+            </span>
+          </button>
+        );
+      })}
+
+      {horizontalHandles.map((handle, handleIndex) => {
+        const isActive = activeResize?.axis === "horizontal" && activeResize.splitIndex === handle.splitIndex;
+
+        return (
+          <button
+            key={`horizontal-${handle.splitIndex}-${handleIndex}`}
+            className="group/resize absolute z-20 grid h-6 w-12 -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
+            type="button"
+            aria-label={t("workspaces.resizeRows").replace("{index}", String(handle.splitIndex + 1))}
+            style={{
+              left: `${handle.x * 100}%`,
+              top: `${handle.y * 100}%`
+            }}
+            onPointerDown={(event) => onResizeStart(event, "horizontal", handle.splitIndex)}
+          >
+            <span
+              className={cn(
+                "glass-popover grid h-3.5 w-9 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform,box-shadow] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25",
+                isActive && "scale-110 border-primary/70 text-foreground shadow-lg ring-2 ring-primary/20"
+              )}
+            >
+              <GripHorizontal size={12} />
+            </span>
+          </button>
+        );
+      })}
     </>
   );
 }

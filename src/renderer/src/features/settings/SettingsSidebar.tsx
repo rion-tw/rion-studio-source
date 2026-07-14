@@ -15,10 +15,17 @@ interface SettingsSidebarProps {
   t: Translator;
 }
 
-const sectionItems = [
+const generalSectionItems = [
   { icon: Palette, labelKey: "settings.interface", value: "interface" },
   { icon: Gamepad2, labelKey: "settings.game", value: "game" },
-  { icon: FileJson, labelKey: "settings.data", value: "data" },
+  { icon: FileJson, labelKey: "settings.data", value: "data" }
+] as const satisfies ReadonlyArray<{
+  icon: LucideIcon;
+  labelKey: TranslationKey;
+  value: SettingsSectionId;
+}>;
+
+const systemSectionItems = [
   { icon: Download, labelKey: "settings.updates", value: "updates" },
   { icon: Info, labelKey: "settings.aboutLegal", value: "aboutLegal" }
 ] as const satisfies ReadonlyArray<{
@@ -49,10 +56,26 @@ export function SettingsSidebar({ t }: SettingsSidebarProps): JSX.Element {
       </button>
 
       <p className="px-2 pb-2 pt-6 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
-        {t("settings.title")}
+        {t("settings.general")}
       </p>
-      <nav className="app-no-drag grid gap-1" aria-label={t("settings.navigation")}>
-        {sectionItems.map((item) => (
+      <nav className="app-no-drag grid gap-1" aria-label={t("settings.general")}>
+        {generalSectionItems.map((item) => (
+          <NavItem
+            key={item.value}
+            active={activeSection === item.value}
+            className="w-full"
+            icon={item.icon}
+            label={t(item.labelKey)}
+            onClick={() => navigateToSection(item.value)}
+          />
+        ))}
+      </nav>
+
+      <p className="px-2 pb-2 pt-6 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
+        {t("settings.system")}
+      </p>
+      <nav className="app-no-drag grid gap-1" aria-label={t("settings.system")}>
+        {systemSectionItems.map((item) => (
           <NavItem
             key={item.value}
             active={activeSection === item.value}

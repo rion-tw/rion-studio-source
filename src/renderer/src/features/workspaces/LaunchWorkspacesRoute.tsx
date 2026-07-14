@@ -334,11 +334,12 @@ function WorkspaceCard({
         <div className="mt-2 flex min-w-0 items-center gap-1.5">
           <Badge
             aria-label={layoutTitle}
-            className="shrink-0 px-1.5"
+            className="min-w-0 max-w-[45%] gap-1.5"
             title={layoutTitle}
-            variant="muted"
+            variant="secondary"
           >
-            <LayoutIcon size={12} aria-hidden="true" />
+            <LayoutIcon className="shrink-0" size={12} aria-hidden="true" />
+            <span className="min-w-0 truncate">{layoutTitle}</span>
           </Badge>
           <Badge
             aria-label={zoomTitle}
@@ -349,15 +350,17 @@ function WorkspaceCard({
             <ZoomIn size={12} aria-hidden="true" />
             <span>{workspace.browserZoomPercent}%</span>
           </Badge>
-          <Badge
-            aria-label={targetDisplay.title}
-            className="min-w-0 max-w-full gap-1.5"
-            title={targetDisplay.title}
-            variant={targetDisplay.isUnavailable ? "warning" : "muted"}
-          >
-            <Monitor className="shrink-0" size={12} aria-hidden="true" />
-            <span className="min-w-0 truncate">{targetDisplay.label}</span>
-          </Badge>
+          {workspace.targetDisplayId !== undefined ? (
+            <Badge
+              aria-label={targetDisplay.title}
+              className="min-w-0 max-w-full gap-1.5"
+              title={targetDisplay.title}
+              variant={targetDisplay.isUnavailable ? "warning" : "secondary"}
+            >
+              <Monitor className="shrink-0" size={12} aria-hidden="true" />
+              <span className="min-w-0 truncate">{targetDisplay.label}</span>
+            </Badge>
+          ) : null}
         </div>
       </div>
     </Card>

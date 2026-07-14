@@ -29,6 +29,7 @@ import type {
   MacroEditorRequest,
   PortableExportInput,
   PortableExportResult,
+  PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
   SystemFontFamily
@@ -128,12 +129,12 @@ export function App(): JSX.Element {
     return window.rionStudio.previewPortableImport();
   }, []);
   const applyPortableImport = useCallback(
-    async (importId: string): Promise<PortableImportResult> => {
+    async (input: PortableImportInput): Promise<PortableImportResult> => {
       if (!window.rionStudio) {
         throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
       }
 
-      const result = await window.rionStudio.applyPortableImport(importId);
+      const result = await window.rionStudio.applyPortableImport(input);
       if (result.preferences?.themeMode) {
         preferences.handleThemeModeChange(result.preferences.themeMode);
       }
@@ -570,6 +571,11 @@ export function App(): JSX.Element {
                     (status) => status.state === "launching" || status.state === "running"
                   )}
                   language={preferences.language}
+                  portableDataCounts={{
+                    macroCount: data.macros.length,
+                    roleCount: data.roles.length,
+                    workspaceCount: data.workspaces.length
+                  }}
                   roleDefaults={preferences.roleDefaults}
                   resolvedTheme={preferences.resolvedTheme}
                   t={preferences.t}

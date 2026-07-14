@@ -22,8 +22,10 @@ import {
   type MacroRepeat,
   type MacroStep,
   type MacroTrigger,
+  type PortableDataSelection,
   type PortableExportInput,
   type PortableExportResult,
+  type PortableImportInput,
   type PortableImportPreview,
   type PortableImportResult,
   type PortableImportWarning,
@@ -100,6 +102,12 @@ const MACRO_CODE_MAX_LENGTH = 48;
 const MACRO_LABEL_MAX_LENGTH = 48;
 const COVER_IMAGE_DATA_URL_PATTERN = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 const COVER_IMAGE_DOMINANT_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
+const DEFAULT_PORTABLE_DATA_SELECTION: PortableDataSelection = {
+  roles: true,
+  launchWorkspaces: true,
+  macros: true,
+  preferences: true
+};
 
 export class PortableDataError extends Error {
   constructor(
@@ -126,6 +134,9 @@ export class PortableDataManager {
   }
 
   async exportData(input: PortableExportInput = {}): Promise<PortableExportResult | null> {
+    const selection = normalizePortableDataSelection(input.selection);
+    const data = await this.createPortableData(input.preferences, selection);
+    ensurePortableContentSelected(data);
     const dialogResult = await this.options.showSaveDialog({
       defaultPath: `rion-studio-${formatDate(this.now())}.json`,
       filters: [{ name: "Rion Studio JSON", extensions: ["json"] }],
@@ -136,14 +147,16 @@ export class PortableDataManager {
       return null;
     }
 
-    const data = await this.createPortableData(input.preferences);
     await this.writeTextFile(dialogResult.filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    const effectiveSelection = getEffectivePortableDataSelection(data);
 
     return {
       filePath: dialogResult.filePath,
       roleCount: data.roles.length,
       workspaceCount: data.launchWorkspaces.length,
-      macroCount: data.macros.length
+      macroCount: data.macros.length,
+      preferencesIncluded: Boolean(data.preferences),
+      selection: effectiveSelection
     };
   }
 
@@ -178,8 +191,9 @@ export class PortableDataManager {
     };
   }
 
-  async applyImport(importId: string): Promise<PortableImportResult> {
-    const pendingImport = this.pendingImports.get(importId);
+  async applyImport(input: PortableImportInput): Promise<PortableImportResult> {
+    const selection = normalizePortableDataSelection(input?.selection, false);
+    const pendingImport = this.pendingImports.get(input?.importId);
 
     if (!pendingImport) {
       throw new PortableDataError(
@@ -188,8 +202,10 @@ export class PortableDataManager {
       );
     }
 
-    this.pendingImports.delete(importId);
-    const plan = await this.buildImportPlan(pendingImport.data);
+    const selectedData = selectPortableData(pendingImport.data, selection);
+    ensurePortableContentSelected(selectedData);
+    this.pendingImports.delete(input.importId);
+    const plan = await this.buildImportPlan(selectedData);
     const roleIdMap = new Map<string, string>();
     let roleCount = 0;
     let workspaceCount = 0;
@@ -225,25 +241,30 @@ export class PortableDataManager {
       roleCount,
       workspaceCount,
       macroCount,
-      preferences: pendingImport.data.preferences,
+      preferencesIncluded: Boolean(selectedData.preferences),
+      ...(selectedData.preferences ? { preferences: selectedData.preferences } : {}),
+      selection: getEffectivePortableDataSelection(selectedData),
       warnings: plan.warnings
     };
   }
 
-  private async createPortableData(preferences: PortablePreferences | undefined): Promise<RionPortableDataV1> {
+  private async createPortableData(
+    preferences: PortablePreferences | undefined,
+    selection: PortableDataSelection
+  ): Promise<RionPortableDataV1> {
     const [roles, launchWorkspaces, macros] = await Promise.all([
       this.options.roleStore.listRoles(),
       this.options.workspaceStore.listWorkspaces(),
       this.options.macroStore.listMacros()
     ]);
-    const normalizedPreferences = normalizePortablePreferences(preferences);
+    const normalizedPreferences = selection.preferences ? normalizePortablePreferences(preferences) : undefined;
 
     return {
       app: PORTABLE_APP_NAME,
       schemaVersion: PORTABLE_SCHEMA_VERSION,
       exportedAt: this.now().toISOString(),
       appVersion: this.options.getAppVersion(),
-      roles: roles.map((role) => ({
+      roles: selection.roles ? roles.map((role) => ({
         id: role.id,
         name: role.name,
         launchUrl: role.launchUrl,
@@ -253,8 +274,8 @@ export class PortableDataManager {
         launchPreset: role.launchPreset,
         ...(role.coverImageDataUrl ? { coverImageDataUrl: role.coverImageDataUrl } : {}),
         ...(role.coverImageDominantColor ? { coverImageDominantColor: role.coverImageDominantColor } : {})
-      })),
-      launchWorkspaces: launchWorkspaces.map((workspace) => ({
+      })) : [],
+      launchWorkspaces: selection.launchWorkspaces ? launchWorkspaces.map((workspace) => ({
         id: workspace.id,
         name: workspace.name,
         template: workspace.template,
@@ -264,15 +285,15 @@ export class PortableDataManager {
           ...(slot.roleId ? { roleId: slot.roleId } : {}),
           rect: { ...slot.rect }
         }))
-      })),
-      macros: macros.map((macro) => ({
+      })) : [],
+      macros: selection.macros ? macros.map((macro) => ({
         id: macro.id,
         name: macro.name,
         roleIds: [...macro.roleIds],
         ...(macro.trigger ? { trigger: { ...macro.trigger } } : {}),
         repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
         steps: macro.steps.map((step) => ({ ...step }))
-      })),
+      })) : [],
       ...(normalizedPreferences ? { preferences: normalizedPreferences } : {})
     };
   }
@@ -367,6 +388,63 @@ export class PortableDataManager {
     });
 
     return { roles, workspaces, macros, warnings };
+  }
+}
+
+function normalizePortableDataSelection(value: unknown, useDefaultWhenMissing = true): PortableDataSelection {
+  if (value === undefined && useDefaultWhenMissing) {
+    return { ...DEFAULT_PORTABLE_DATA_SELECTION };
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new PortableDataError("PORTABLE_SELECTION_INVALID", "Portable data selection is invalid.");
+  }
+
+  const selection = value as Record<string, unknown>;
+  if (
+    typeof selection.roles !== "boolean" ||
+    typeof selection.launchWorkspaces !== "boolean" ||
+    typeof selection.macros !== "boolean" ||
+    typeof selection.preferences !== "boolean"
+  ) {
+    throw new PortableDataError("PORTABLE_SELECTION_INVALID", "Portable data selection is invalid.");
+  }
+
+  const requiresRoles = selection.launchWorkspaces || selection.macros;
+  return {
+    roles: selection.roles || requiresRoles,
+    launchWorkspaces: selection.launchWorkspaces,
+    macros: selection.macros,
+    preferences: selection.preferences
+  };
+}
+
+function selectPortableData(data: RionPortableDataV1, selection: PortableDataSelection): RionPortableDataV1 {
+  return {
+    app: data.app,
+    schemaVersion: data.schemaVersion,
+    exportedAt: data.exportedAt,
+    appVersion: data.appVersion,
+    roles: selection.roles ? data.roles : [],
+    launchWorkspaces: selection.launchWorkspaces ? data.launchWorkspaces : [],
+    macros: selection.macros ? data.macros : [],
+    ...(selection.preferences && data.preferences ? { preferences: data.preferences } : {})
+  };
+}
+
+function getEffectivePortableDataSelection(data: RionPortableDataV1): PortableDataSelection {
+  return {
+    roles: data.roles.length > 0,
+    launchWorkspaces: data.launchWorkspaces.length > 0,
+    macros: data.macros.length > 0,
+    preferences: Boolean(data.preferences)
+  };
+}
+
+function ensurePortableContentSelected(data: RionPortableDataV1): void {
+  const selection = getEffectivePortableDataSelection(data);
+  if (!selection.roles && !selection.launchWorkspaces && !selection.macros && !selection.preferences) {
+    throw new PortableDataError("PORTABLE_SELECTION_EMPTY", "Select at least one available data category.");
   }
 }
 

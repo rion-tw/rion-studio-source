@@ -393,8 +393,21 @@ export interface PortablePreferences {
   themeMode?: AppThemeMode;
 }
 
+export interface PortableDataSelection {
+  roles: boolean;
+  launchWorkspaces: boolean;
+  macros: boolean;
+  preferences: boolean;
+}
+
 export interface PortableExportInput {
   preferences?: PortablePreferences;
+  selection?: PortableDataSelection;
+}
+
+export interface PortableImportInput {
+  importId: string;
+  selection: PortableDataSelection;
 }
 
 export interface PortableRole {
@@ -442,6 +455,8 @@ export interface PortableExportResult {
   roleCount: number;
   workspaceCount: number;
   macroCount: number;
+  preferencesIncluded: boolean;
+  selection: PortableDataSelection;
 }
 
 export type PortableImportWarningCode =
@@ -477,7 +492,9 @@ export interface PortableImportResult {
   roleCount: number;
   workspaceCount: number;
   macroCount: number;
+  preferencesIncluded: boolean;
   preferences?: PortablePreferences;
+  selection: PortableDataSelection;
   warnings: PortableImportWarning[];
 }
 

@@ -72,6 +72,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Portable data import is not available.": "error.portableUnavailable",
   "Portable data file is invalid.": "error.portableDataInvalid",
   "Portable import session expired. Choose the JSON file again.": "error.portableImportExpired",
+  "Portable data selection is invalid.": "error.portableSelectionInvalid",
+  "Select at least one available data category.": "error.portableSelectionEmpty",
   "Unable to create a unique imported name.": "error.portableNameConflict",
   "Macro is already running for this role.": "error.macroAlreadyRunning",
   "Stop the macro before editing it.": "error.macroStopBeforeEditing",

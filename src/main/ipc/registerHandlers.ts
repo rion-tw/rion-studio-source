@@ -14,6 +14,7 @@ import type {
   MacroEditorRequest,
   MacroRunStatus,
   PortableExportInput,
+  PortableImportInput,
   ReorderItemsInput,
   RoleStatus,
   UpdateLaunchWorkspaceInput,
@@ -180,12 +181,12 @@ export function registerIpcHandlers(
     return options.portableDataManager.previewImport();
   });
 
-  ipcMain.handle(IPC_CHANNELS.portableImportApply, async (_event, importId: string) => {
-    if (!options.portableDataManager || typeof importId !== "string" || !importId.trim()) {
+  ipcMain.handle(IPC_CHANNELS.portableImportApply, async (_event, input: PortableImportInput) => {
+    if (!options.portableDataManager || !input || typeof input.importId !== "string" || !input.importId.trim()) {
       throw new Error("Portable data import is not available.");
     }
 
-    const result = await options.portableDataManager.applyImport(importId);
+    const result = await options.portableDataManager.applyImport(input);
     if (result.preferences?.gameBrowserSettings) {
       const savedSettings = await options.gameBrowserSettingsStore?.updateSettings(
         result.preferences.gameBrowserSettings
@@ -194,9 +195,15 @@ export function registerIpcHandlers(
         browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
       }
     }
-    options.onRolesChanged?.();
-    options.onWorkspacesChanged?.();
-    options.onMacrosChanged?.();
+    if (result.roleCount > 0) {
+      options.onRolesChanged?.();
+    }
+    if (result.workspaceCount > 0) {
+      options.onWorkspacesChanged?.();
+    }
+    if (result.macroCount > 0) {
+      options.onMacrosChanged?.();
+    }
     return result;
   });
 

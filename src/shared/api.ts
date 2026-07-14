@@ -17,6 +17,7 @@ import type {
   MacroRunStatus,
   PortableExportInput,
   PortableExportResult,
+  PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
   ReorderItemsInput,
@@ -68,7 +69,7 @@ export interface RionStudioApi {
   listMacroStatuses: () => Promise<MacroRunStatus[]>;
   exportPortableData: (input?: PortableExportInput) => Promise<PortableExportResult | null>;
   previewPortableImport: () => Promise<PortableImportPreview | null>;
-  applyPortableImport: (importId: string) => Promise<PortableImportResult>;
+  applyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;

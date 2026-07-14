@@ -842,6 +842,12 @@ describe("registerIpcHandlers update handlers", () => {
 });
 
 describe("registerIpcHandlers portable data handlers", () => {
+  const allPortableData = {
+    roles: true,
+    launchWorkspaces: true,
+    macros: true,
+    preferences: true
+  } as const;
   let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
   let browserManager: Pick<
@@ -883,8 +889,22 @@ describe("registerIpcHandlers portable data handlers", () => {
       on: vi.fn()
     };
     portableDataManager = {
-      applyImport: vi.fn().mockResolvedValue({ roleCount: 1, workspaceCount: 1, macroCount: 1, warnings: [] }),
-      exportData: vi.fn().mockResolvedValue({ filePath: "/tmp/rion.json", roleCount: 1, workspaceCount: 0, macroCount: 0 }),
+      applyImport: vi.fn().mockResolvedValue({
+        roleCount: 1,
+        workspaceCount: 1,
+        macroCount: 1,
+        preferencesIncluded: true,
+        selection: allPortableData,
+        warnings: []
+      }),
+      exportData: vi.fn().mockResolvedValue({
+        filePath: "/tmp/rion.json",
+        roleCount: 1,
+        workspaceCount: 0,
+        macroCount: 0,
+        preferencesIncluded: false,
+        selection: { ...allPortableData, launchWorkspaces: false, macros: false, preferences: false }
+      }),
       previewImport: vi.fn().mockResolvedValue({ importId: "import-1", roleCount: 1, workspaceCount: 1, macroCount: 1, warnings: [] })
     };
     gameBrowserSettingsStore = {
@@ -911,13 +931,15 @@ describe("registerIpcHandlers portable data handlers", () => {
   });
 
   it("exposes portable export, preview, and apply handlers", async () => {
+    const importInput = { importId: "import-1", selection: allPortableData };
+
     await expect(
       handlers.get(IPC_CHANNELS.portableExport)?.({}, { preferences: { language: "zh-TW", themeMode: "dark" } })
     ).resolves.toMatchObject({ filePath: "/tmp/rion.json" });
     await expect(handlers.get(IPC_CHANNELS.portableImportPreview)?.({})).resolves.toMatchObject({
       importId: "import-1"
     });
-    await expect(handlers.get(IPC_CHANNELS.portableImportApply)?.({}, "import-1")).resolves.toMatchObject({
+    await expect(handlers.get(IPC_CHANNELS.portableImportApply)?.({}, importInput)).resolves.toMatchObject({
       roleCount: 1,
       workspaceCount: 1,
       macroCount: 1
@@ -927,7 +949,7 @@ describe("registerIpcHandlers portable data handlers", () => {
       preferences: { language: "zh-TW", themeMode: "dark" }
     });
     expect(portableDataManager.previewImport).toHaveBeenCalledTimes(1);
-    expect(portableDataManager.applyImport).toHaveBeenCalledWith("import-1");
+    expect(portableDataManager.applyImport).toHaveBeenCalledWith(importInput);
     expect(onRolesChanged).toHaveBeenCalledTimes(1);
     expect(onWorkspacesChanged).toHaveBeenCalledTimes(1);
     expect(onMacrosChanged).toHaveBeenCalledTimes(1);
@@ -949,18 +971,31 @@ describe("registerIpcHandlers portable data handlers", () => {
     };
     portableDataManager.applyImport.mockResolvedValueOnce({
       macroCount: 0,
+      preferencesIncluded: true,
       preferences: {
         gameBrowserSettings: importedSettings
       },
       roleCount: 0,
+      selection: {
+        roles: false,
+        launchWorkspaces: false,
+        macros: false,
+        preferences: true
+      },
       warnings: [],
       workspaceCount: 0
     });
     gameBrowserSettingsStore.updateSettings.mockResolvedValueOnce(importedSettings);
 
-    await handlers.get(IPC_CHANNELS.portableImportApply)?.({}, "import-1");
+    await handlers.get(IPC_CHANNELS.portableImportApply)?.({}, {
+      importId: "import-1",
+      selection: { roles: false, launchWorkspaces: false, macros: false, preferences: true }
+    });
 
     expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(importedSettings);
     expect(browserManager.setWorkspaceAppearanceSettings).toHaveBeenCalledWith(importedSettings.workspace);
+    expect(onRolesChanged).not.toHaveBeenCalled();
+    expect(onWorkspacesChanged).not.toHaveBeenCalled();
+    expect(onMacrosChanged).not.toHaveBeenCalled();
   });
 });

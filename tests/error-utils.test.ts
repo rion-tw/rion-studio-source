@@ -24,6 +24,14 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes an empty portable data selection", async () => {
+    await loadTranslations("zh-TW");
+
+    expect(localizeErrorMessage("Select at least one available data category.", "zh-TW")).toBe(
+      "請至少選擇一個可用的資料分類。"
+    );
+  });
+
   it("preserves role names when localizing duplicate game-window errors", async () => {
     await loadTranslations("zh-TW");
     expect(localizeErrorMessage("Already running in another game window: Main, Alt.", "zh-TW")).toBe(

@@ -9,8 +9,15 @@ import { PortableDataManager } from "../src/main/portable/PortableDataManager";
 import { RoleStore } from "../src/main/roles/RoleStore";
 import { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
-import type { RionPortableDataV1 } from "../src/shared/types";
+import type { PortableDataSelection, RionPortableDataV1 } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
+
+const ALL_PORTABLE_DATA: PortableDataSelection = {
+  roles: true,
+  launchWorkspaces: true,
+  macros: true,
+  preferences: true
+};
 
 describe("PortableDataManager", () => {
   let baseDir: string;
@@ -85,7 +92,13 @@ describe("PortableDataManager", () => {
     });
     const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV1;
 
-    expect(result).toMatchObject({ roleCount: 1, workspaceCount: 1, macroCount: 1 });
+    expect(result).toMatchObject({
+      roleCount: 1,
+      workspaceCount: 1,
+      macroCount: 1,
+      preferencesIncluded: true,
+      selection: ALL_PORTABLE_DATA
+    });
     expect(parsed).toMatchObject({
       app: "Rion Studio",
       schemaVersion: 1,
@@ -122,6 +135,66 @@ describe("PortableDataManager", () => {
     expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
     expect(parsed.launchWorkspaces[0]).toMatchObject({ browserZoomPercent: 75 });
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
+  });
+
+  it("exports selected categories and automatically includes roles required by macros", async () => {
+    const exportPath = join(baseDir, "selected-export.json");
+    const role = await roleStore.createRole({ name: "Main" });
+    await workspaceStore.createWorkspace({ name: "Party" });
+    await macroStore.createMacro({
+      name: "Auto heal",
+      roleIds: [role.id],
+      steps: [{ id: "step-1", type: "key", code: "F2" }]
+    });
+    const manager = createManager({ exportPath, macroStore, roleStore, workspaceStore });
+
+    const result = await manager.exportData({
+      preferences: { language: "zh-TW" },
+      selection: {
+        roles: false,
+        launchWorkspaces: false,
+        macros: true,
+        preferences: false
+      }
+    });
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV1;
+
+    expect(result).toMatchObject({
+      roleCount: 1,
+      workspaceCount: 0,
+      macroCount: 1,
+      preferencesIncluded: false,
+      selection: {
+        roles: true,
+        launchWorkspaces: false,
+        macros: true,
+        preferences: false
+      }
+    });
+    expect(parsed.roles).toHaveLength(1);
+    expect(parsed.launchWorkspaces).toEqual([]);
+    expect(parsed.macros).toHaveLength(1);
+    expect(parsed).not.toHaveProperty("preferences");
+  });
+
+  it("rejects an export without any available selected content", async () => {
+    const manager = createManager({
+      exportPath: join(baseDir, "empty-export.json"),
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await expect(
+      manager.exportData({
+        selection: {
+          roles: false,
+          launchWorkspaces: false,
+          macros: false,
+          preferences: false
+        }
+      })
+    ).rejects.toMatchObject({ code: "PORTABLE_SELECTION_EMPTY" });
   });
 
   it("previews and applies an import with remapped role references", async () => {
@@ -180,7 +253,7 @@ describe("PortableDataManager", () => {
     );
     expect(preview?.warnings.some((warning) => warning.code === "MACRO_NAME_RENAMED")).toBe(false);
 
-    const result = await manager.applyImport("import-1");
+    const result = await manager.applyImport({ importId: "import-1", selection: ALL_PORTABLE_DATA });
 
     expect(result).toMatchObject({
       roleCount: 1,
@@ -220,6 +293,106 @@ describe("PortableDataManager", () => {
     expect(importedMacro?.roleIds).toEqual([importedRole?.id]);
     expect(macros.filter((macro) => macro.name === "Auto heal")).toHaveLength(2);
     expect(macros.some((macro) => macro.name === "Orphan")).toBe(false);
+  });
+
+  it("imports only preferences when all stored data categories are unselected", async () => {
+    const importPath = join(baseDir, "preferences-only.json");
+    await writeFile(importPath, `${JSON.stringify(createPortableFixture(), null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    const preview = await manager.previewImport();
+
+    const result = await manager.applyImport({
+      importId: preview!.importId,
+      selection: {
+        roles: false,
+        launchWorkspaces: false,
+        macros: false,
+        preferences: true
+      }
+    });
+
+    expect(result).toMatchObject({
+      roleCount: 0,
+      workspaceCount: 0,
+      macroCount: 0,
+      preferencesIncluded: true,
+      selection: {
+        roles: false,
+        launchWorkspaces: false,
+        macros: false,
+        preferences: true
+      },
+      warnings: []
+    });
+    expect(result.preferences).toMatchObject({ language: "ja", themeMode: "light" });
+    await expect(roleStore.listRoles()).resolves.toEqual([]);
+    await expect(workspaceStore.listWorkspaces()).resolves.toEqual([]);
+    await expect(macroStore.listMacros()).resolves.toEqual([]);
+  });
+
+  it("rejects an empty import selection without expiring the preview", async () => {
+    const importPath = join(baseDir, "empty-selection.json");
+    await writeFile(importPath, `${JSON.stringify(createPortableFixture(), null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    const preview = await manager.previewImport();
+
+    await expect(
+      manager.applyImport({
+        importId: preview!.importId,
+        selection: {
+          roles: false,
+          launchWorkspaces: false,
+          macros: false,
+          preferences: false
+        }
+      })
+    ).rejects.toMatchObject({ code: "PORTABLE_SELECTION_EMPTY" });
+
+    await expect(
+      manager.applyImport({
+        importId: preview!.importId,
+        selection: {
+          roles: false,
+          launchWorkspaces: false,
+          macros: false,
+          preferences: true
+        }
+      })
+    ).resolves.toMatchObject({ preferencesIncluded: true });
+  });
+
+  it("imports all roles required by a selected workspace but skips macros and preferences", async () => {
+    const importPath = join(baseDir, "workspace-only.json");
+    await writeFile(importPath, `${JSON.stringify(createPortableFixture(), null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    const preview = await manager.previewImport();
+
+    const result = await manager.applyImport({
+      importId: preview!.importId,
+      selection: {
+        roles: false,
+        launchWorkspaces: true,
+        macros: false,
+        preferences: false
+      }
+    });
+
+    expect(result).toMatchObject({
+      roleCount: 1,
+      workspaceCount: 1,
+      macroCount: 0,
+      preferencesIncluded: false,
+      selection: {
+        roles: true,
+        launchWorkspaces: true,
+        macros: false,
+        preferences: false
+      }
+    });
+    expect(result).not.toHaveProperty("preferences");
+    await expect(roleStore.listRoles()).resolves.toHaveLength(1);
+    await expect(workspaceStore.listWorkspaces()).resolves.toHaveLength(1);
+    await expect(macroStore.listMacros()).resolves.toEqual([]);
   });
 
   it("rejects invalid portable JSON", async () => {
@@ -280,7 +453,7 @@ describe("PortableDataManager", () => {
 
     const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
     const preview = await manager.previewImport();
-    await manager.applyImport(preview!.importId);
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
 
     const importedWorkspace = (await workspaceStore.listWorkspaces()).find(
       (candidate) => candidate.template === "three_columns"
@@ -325,7 +498,7 @@ describe("PortableDataManager", () => {
       ])
     );
 
-    await manager.applyImport(preview!.importId);
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
     const macros = await macroStore.listMacros();
     expect(macros.find((macro) => macro.name === "Auto heal")?.trigger).toMatchObject({ code: "F2" });
     expect(macros.find((macro) => macro.name === "Conflict")?.trigger).toBeUndefined();

@@ -43,8 +43,10 @@ import type {
   GameBrowserSettings,
   GraphicsDiagnostics,
   LaunchPreset,
+  PortableDataSelection,
   PortableExportInput,
   PortableExportResult,
+  PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
   PortableImportWarning,
@@ -58,12 +60,29 @@ import {
   applyGraphicsModeUpdate,
   getGraphicsRestartState
 } from "./graphicsRestart";
+import {
+  clearPortableDataSelection,
+  createDefaultPortableDataSelection,
+  filterPortableImportWarnings,
+  hasPortableDataSelection,
+  isPortableRoleSelectionRequired,
+  updatePortableDataSelection,
+  type PortableDataAvailability,
+  type PortableDataSection
+} from "./portableSelection";
 import { readSettingsSection, type SettingsSectionId } from "./settingsNavigation";
+
+interface PortableDataCounts {
+  macroCount: number;
+  roleCount: number;
+  workspaceCount: number;
+}
 
 interface SettingsViewProps {
   gameBrowserSettings: GameBrowserSettings;
   hasRunningRoles: boolean;
   language: Language;
+  portableDataCounts: PortableDataCounts;
   roleDefaults: RoleDefaults;
   resolvedTheme: ResolvedTheme;
   t: Translator;
@@ -78,7 +97,7 @@ interface SettingsViewProps {
   onLoadGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
   onLoadSystemFonts: () => Promise<SystemFontFamily[]>;
   onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
-  onApplyPortableImport: (importId: string) => Promise<PortableImportResult>;
+  onApplyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
   onOpenUpdateDownload: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
   onRestartApplication: () => Promise<void>;
@@ -127,6 +146,7 @@ function SettingsViewBase({
   gameBrowserSettings,
   hasRunningRoles,
   language,
+  portableDataCounts,
   roleDefaults,
   resolvedTheme,
   t,
@@ -151,7 +171,14 @@ function SettingsViewBase({
   systemFonts
 }: SettingsViewBaseProps): JSX.Element {
   const confirm = useConfirmation();
+  const [isPortableExportOpen, setIsPortableExportOpen] = useState(false);
+  const [portableExportSelection, setPortableExportSelection] = useState<PortableDataSelection>(
+    clearPortableDataSelection
+  );
   const [portableImportPreview, setPortableImportPreview] = useState<PortableImportPreview | null>(null);
+  const [portableImportSelection, setPortableImportSelection] = useState<PortableDataSelection>(
+    clearPortableDataSelection
+  );
   const [portableMessage, setPortableMessage] = useState<string | null>(null);
   const [isPortableBusy, setIsPortableBusy] = useState(false);
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
@@ -167,6 +194,7 @@ function SettingsViewBase({
     Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
   const pageTitle = t(settingsSectionTitleKeys[activeSection]);
   const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
+  const portableExportAvailability = createPortableExportAvailability(portableDataCounts);
 
   function updateWorkspaceAppearanceSettings(update: Partial<WorkspaceAppearanceSettings>): void {
     if (isWorkspaceAppearanceSaving) {
@@ -274,7 +302,17 @@ function SettingsViewBase({
     }
   }
 
+  function handleOpenPortableExport(): void {
+    setPortableExportSelection(createDefaultPortableDataSelection(portableExportAvailability));
+    setPortableMessage(null);
+    setIsPortableExportOpen(true);
+  }
+
   async function handleExportPortableData(): Promise<void> {
+    if (!hasPortableDataSelection(portableExportSelection)) {
+      return;
+    }
+
     setIsPortableBusy(true);
     setPortableMessage(null);
 
@@ -285,10 +323,12 @@ function SettingsViewBase({
           gameBrowserSettings,
           roleDefaults,
           themeMode
-        }
+        },
+        selection: portableExportSelection
       });
 
       if (result) {
+        setIsPortableExportOpen(false);
         setPortableMessage(formatPortableExportResult(result, t));
       }
     } catch (error) {
@@ -305,6 +345,9 @@ function SettingsViewBase({
     try {
       const preview = await onPreviewPortableImport();
       if (preview) {
+        setPortableImportSelection(
+          createDefaultPortableDataSelection(createPortableImportAvailability(preview))
+        );
         setPortableImportPreview(preview);
       }
     } catch (error) {
@@ -323,7 +366,10 @@ function SettingsViewBase({
     setPortableMessage(null);
 
     try {
-      const result = await onApplyPortableImport(portableImportPreview.importId);
+      const result = await onApplyPortableImport({
+        importId: portableImportPreview.importId,
+        selection: portableImportSelection
+      });
       setPortableImportPreview(null);
       setPortableMessage(formatPortableImportResult(result, t));
     } catch (error) {
@@ -643,7 +689,7 @@ function SettingsViewBase({
                   type="button"
                   variant="outline"
                   disabled={isPortableBusy}
-                  onClick={() => void handleExportPortableData()}
+                  onClick={handleOpenPortableExport}
                 >
                   <FileJson size={14} />
                   {t("settings.exportJson")}
@@ -741,12 +787,27 @@ function SettingsViewBase({
         ) : null}
       </div>
 
+      {isPortableExportOpen ? (
+        <PortableExportDialog
+          availability={portableExportAvailability}
+          counts={portableDataCounts}
+          isBusy={isPortableBusy}
+          selection={portableExportSelection}
+          t={t}
+          onCancel={() => setIsPortableExportOpen(false)}
+          onChange={setPortableExportSelection}
+          onConfirm={() => void handleExportPortableData()}
+        />
+      ) : null}
+
       {portableImportPreview ? (
         <PortableImportDialog
           isBusy={isPortableBusy}
           preview={portableImportPreview}
+          selection={portableImportSelection}
           t={t}
           onCancel={() => setPortableImportPreview(null)}
+          onChange={setPortableImportSelection}
           onConfirm={() => void handleApplyPortableImport()}
         />
       ) : null}
@@ -1399,25 +1460,122 @@ function getBrowserFontOptions(
   return [...fontsByKey.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
+function createPortableExportAvailability(counts: PortableDataCounts): PortableDataAvailability {
+  return {
+    roles: counts.roleCount > 0,
+    launchWorkspaces: counts.workspaceCount > 0,
+    macros: counts.macroCount > 0,
+    preferences: true
+  };
+}
+
+function createPortableImportAvailability(preview: PortableImportPreview): PortableDataAvailability {
+  return {
+    roles: preview.roleCount > 0,
+    launchWorkspaces: preview.workspaceCount > 0,
+    macros: preview.macroCount > 0,
+    preferences: Boolean(preview.preferences)
+  };
+}
+
+interface PortableExportDialogProps {
+  availability: PortableDataAvailability;
+  counts: PortableDataCounts;
+  isBusy: boolean;
+  selection: PortableDataSelection;
+  t: Translator;
+  onCancel: () => void;
+  onChange: (selection: PortableDataSelection) => void;
+  onConfirm: () => void;
+}
+
+function PortableExportDialog({
+  availability,
+  counts,
+  isBusy,
+  selection,
+  t,
+  onCancel,
+  onChange,
+  onConfirm
+}: PortableExportDialogProps): JSX.Element {
+  return (
+    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
+      <Surface
+        className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-[560px] flex-col overflow-hidden"
+        radius="lg"
+        variant="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="portable-export-title"
+      >
+        <div className="glass-divider border-b px-5 py-4">
+          <h2 id="portable-export-title" className="text-[15px] font-semibold leading-6 text-foreground">
+            {t("settings.exportSelectionTitle")}
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t("settings.exportSelectionDescription")}
+          </p>
+        </div>
+
+        <div className="grid gap-4 overflow-y-auto px-5 py-4">
+          <PortableDataSelectionControls
+            availability={availability}
+            counts={counts}
+            disabled={isBusy}
+            selection={selection}
+            t={t}
+            onChange={onChange}
+          />
+          <p className="rounded-md border border-border/40 bg-background/25 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+            {t("settings.portableSafetyNotice")}
+          </p>
+        </div>
+
+        <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">
+          <Button type="button" variant="outline" disabled={isBusy} onClick={onCancel}>
+            {t("settings.importCancel")}
+          </Button>
+          <Button
+            type="button"
+            disabled={isBusy || !hasPortableDataSelection(selection)}
+            onClick={onConfirm}
+          >
+            <FileJson size={14} />
+            {t("settings.exportJson")}
+          </Button>
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
 interface PortableImportDialogProps {
   isBusy: boolean;
   preview: PortableImportPreview;
+  selection: PortableDataSelection;
   t: Translator;
   onCancel: () => void;
+  onChange: (selection: PortableDataSelection) => void;
   onConfirm: () => void;
 }
 
 function PortableImportDialog({
   isBusy,
   preview,
+  selection,
   t,
   onCancel,
+  onChange,
   onConfirm
 }: PortableImportDialogProps): JSX.Element {
+  const availability = createPortableImportAvailability(preview);
+  const selectedWarnings = filterPortableImportWarnings(preview.warnings, selection);
+
   return (
     <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
       <Surface
-        className="w-full max-w-[560px] overflow-hidden"
+        className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-[560px] flex-col overflow-hidden"
         radius="lg"
         variant="modal"
         role="dialog"
@@ -1431,12 +1589,15 @@ function PortableImportDialog({
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("settings.importPreviewDescription")}</p>
         </div>
 
-        <div className="grid gap-4 px-5 py-4">
-          <div className="grid grid-cols-3 gap-2">
-            <PortableCount label={t("settings.importRoles")} value={preview.roleCount} />
-            <PortableCount label={t("settings.importWorkspaces")} value={preview.workspaceCount} />
-            <PortableCount label={t("settings.importMacros")} value={preview.macroCount} />
-          </div>
+        <div className="grid gap-4 overflow-y-auto px-5 py-4">
+          <PortableDataSelectionControls
+            availability={availability}
+            counts={preview}
+            disabled={isBusy}
+            selection={selection}
+            t={t}
+            onChange={onChange}
+          />
 
           <div className="min-w-0 rounded-md border border-border/40 bg-background/25 px-3 py-2">
             <p className="truncate text-[11px] font-medium leading-4 text-muted-foreground">{preview.filePath}</p>
@@ -1445,13 +1606,13 @@ function PortableImportDialog({
             </p>
           </div>
 
-          {preview.warnings.length > 0 ? (
+          {selectedWarnings.length > 0 ? (
             <div className="grid gap-2">
               <p className="text-xs font-semibold leading-5 text-foreground">
-                {t("settings.importWarnings").replace("{count}", String(preview.warnings.length))}
+                {t("settings.importWarnings").replace("{count}", String(selectedWarnings.length))}
               </p>
-              <ul className="max-h-36 space-y-1 overflow-auto pr-1 text-xs leading-5 text-muted-foreground">
-                {preview.warnings.map((warning, index) => (
+              <ul className="app-scroll-region max-h-36 space-y-1 overflow-auto text-xs leading-5 text-muted-foreground">
+                {selectedWarnings.map((warning, index) => (
                   <li key={`${warning.code}-${warning.itemName ?? index}`}>
                     {formatPortableWarning(warning, t)}
                   </li>
@@ -1467,7 +1628,11 @@ function PortableImportDialog({
           <Button type="button" variant="outline" disabled={isBusy} onClick={onCancel}>
             {t("settings.importCancel")}
           </Button>
-          <Button type="button" disabled={isBusy} onClick={onConfirm}>
+          <Button
+            type="button"
+            disabled={isBusy || !hasPortableDataSelection(selection)}
+            onClick={onConfirm}
+          >
             <Upload size={14} />
             {t("settings.importConfirm")}
           </Button>
@@ -1477,31 +1642,157 @@ function PortableImportDialog({
   );
 }
 
-function PortableCount({ label, value }: { label: string; value: number }): JSX.Element {
+interface PortableDataSelectionControlsProps {
+  availability: PortableDataAvailability;
+  counts: PortableDataCounts;
+  disabled: boolean;
+  selection: PortableDataSelection;
+  t: Translator;
+  onChange: (selection: PortableDataSelection) => void;
+}
+
+function PortableDataSelectionControls({
+  availability,
+  counts,
+  disabled,
+  selection,
+  t,
+  onChange
+}: PortableDataSelectionControlsProps): JSX.Element {
+  const roleSelectionRequired = isPortableRoleSelectionRequired(selection);
+  const items: Array<{
+    count?: number;
+    descriptionKey: TranslationKey;
+    labelKey: TranslationKey;
+    section: PortableDataSection;
+  }> = [
+    {
+      count: counts.roleCount,
+      descriptionKey: "settings.portableRolesDescription",
+      labelKey: "settings.importRoles",
+      section: "roles"
+    },
+    {
+      count: counts.workspaceCount,
+      descriptionKey: "settings.portableWorkspacesDescription",
+      labelKey: "settings.importWorkspaces",
+      section: "launchWorkspaces"
+    },
+    {
+      count: counts.macroCount,
+      descriptionKey: "settings.portableMacrosDescription",
+      labelKey: "settings.importMacros",
+      section: "macros"
+    },
+    {
+      descriptionKey: "settings.portablePreferencesDescription",
+      labelKey: "settings.portablePreferences",
+      section: "preferences"
+    }
+  ];
+
   return (
-    <div className="glass-inset rounded-md px-3 py-2 text-center">
-      <p className="text-lg font-semibold leading-6 text-foreground">{value}</p>
-      <p className="mt-0.5 truncate text-[11px] font-medium leading-4 text-muted-foreground">{label}</p>
+    <div className="grid gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold leading-5 text-foreground">{t("settings.portableChooseData")}</p>
+        <div className="flex gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={disabled}
+            onClick={() => onChange(createDefaultPortableDataSelection(availability))}
+          >
+            {t("settings.portableSelectAll")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={disabled}
+            onClick={() => onChange(clearPortableDataSelection())}
+          >
+            {t("settings.portableClearAll")}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        {items.map(({ count, descriptionKey, labelKey, section }) => {
+          const isAvailable = availability[section];
+          const isRoleLocked = section === "roles" && roleSelectionRequired;
+          const itemDisabled = disabled || !isAvailable || isRoleLocked;
+          const description = isRoleLocked ? t("settings.portableRolesRequired") : t(descriptionKey);
+
+          return (
+            <label
+              key={section}
+              className={`glass-inset flex min-h-14 items-center gap-3 rounded-md px-3 py-2.5 ${
+                itemDisabled ? "opacity-60" : "cursor-pointer"
+              }`}
+            >
+              <input
+                className="size-4 shrink-0 accent-primary"
+                type="checkbox"
+                checked={selection[section]}
+                disabled={itemDisabled}
+                onChange={(event) =>
+                  onChange(
+                    updatePortableDataSelection(selection, section, event.target.checked, availability)
+                  )
+                }
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-semibold leading-5 text-foreground">{t(labelKey)}</span>
+                <span className="block text-[11px] leading-4 text-muted-foreground">
+                  {isAvailable ? description : t("settings.portableUnavailable")}
+                </span>
+              </span>
+              <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                {count ?? (isAvailable ? t("settings.portableIncluded") : "—")}
+              </span>
+            </label>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 function formatPortableExportResult(result: PortableExportResult, t: Translator): string {
-  return fillPortableCounts(t("settings.exportComplete"), result);
+  return t("settings.exportComplete").replace("{summary}", formatPortableResultSummary(result, t));
 }
 
 function formatPortableImportResult(result: PortableImportResult, t: Translator): string {
-  return fillPortableCounts(t("settings.importComplete"), result);
+  return t("settings.importComplete").replace("{summary}", formatPortableResultSummary(result, t));
 }
 
-function fillPortableCounts(
-  template: string,
-  counts: Pick<PortableExportResult, "macroCount" | "roleCount" | "workspaceCount">
+function formatPortableResultSummary(
+  result: PortableExportResult | PortableImportResult,
+  t: Translator
 ): string {
-  return template
-    .replace("{roles}", String(counts.roleCount))
-    .replace("{workspaces}", String(counts.workspaceCount))
-    .replace("{macros}", String(counts.macroCount));
+  const parts: string[] = [];
+
+  if (result.selection.roles) {
+    parts.push(formatPortableCountSummary(t("settings.importRoles"), result.roleCount, t));
+  }
+  if (result.selection.launchWorkspaces) {
+    parts.push(formatPortableCountSummary(t("settings.importWorkspaces"), result.workspaceCount, t));
+  }
+  if (result.selection.macros) {
+    parts.push(formatPortableCountSummary(t("settings.importMacros"), result.macroCount, t));
+  }
+  if (result.preferencesIncluded) {
+    parts.push(t("settings.portablePreferences"));
+  }
+
+  return parts.join(" · ");
+}
+
+function formatPortableCountSummary(label: string, count: number, t: Translator): string {
+  return t("settings.portableCountSummary")
+    .replace("{label}", label)
+    .replace("{count}", String(count));
 }
 
 function formatPortableSource(preview: PortableImportPreview, t: Translator): string {

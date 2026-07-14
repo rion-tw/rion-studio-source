@@ -54,6 +54,22 @@ re-logged from the edit panel.
 Packaged builds do not include Chromium. Playwright controls the user's installed
 Google Chrome with isolated per-role browser profiles.
 
+Windows packages include an x64 native helper that aligns external Chrome's DWM
+visible frame. Building it requires Visual Studio 2022 Build Tools with the
+Desktop development with C++ workload and the v143 toolset. `pnpm run package`
+and `pnpm run dist` build and verify the helper automatically on Windows; the
+native build and verification scripts are no-ops on other platforms. To run the
+native checks directly on Windows:
+
+```bash
+pnpm run build:native:windows
+pnpm run test:native:windows
+```
+
+Generated helper binaries live under `build/native/win32-x64` and are packaged
+under `resources/native`. Release CI also verifies the helper from the unpacked
+application before accepting a Windows artifact.
+
 macOS packaging uses a complete ad-hoc signature with hardened runtime. The main
 app and helper apps must include `com.apple.security.cs.allow-jit` and
 `com.apple.security.cs.disable-library-validation` so ad-hoc hardened runtime

@@ -10,8 +10,11 @@
     "typecheck": "tsc --build --force",
     "lint": "eslint .",
     "test": "vitest run",
-    "package": "pnpm run build && electron-builder --config electron-builder.config.mjs --dir",
-    "dist": "pnpm run build && electron-builder --config electron-builder.config.mjs",
+    "build:native:windows": "node scripts/buildWindowsWindowFrameHelper.mjs",
+    "verify:native:windows": "node scripts/verifyWindowsWindowFrameHelper.mjs",
+    "test:native:windows": "node scripts/verifyWindowsWindowFrameHelper.mjs --tests",
+    "package": "pnpm run build && pnpm run build:native:windows && pnpm run verify:native:windows && electron-builder --config electron-builder.config.mjs --dir",
+    "dist": "pnpm run build && pnpm run build:native:windows && pnpm run verify:native:windows && electron-builder --config electron-builder.config.mjs",
     "release": "semantic-release"
   },
   "keywords": [

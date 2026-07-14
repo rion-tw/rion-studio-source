@@ -20,6 +20,7 @@ import {
   type ConnectExternalChromeAutomationOptions,
   type ExternalBrowserAutomationTarget
 } from "./ExternalChromeAutomationTarget";
+import type { ExternalChromeWindowBoundsAdapter } from "./WindowsExternalChromeWindowBoundsAdapter";
 
 export interface ExternalChromeManagerEvents {
   change: [RoleStatus[]];
@@ -44,6 +45,7 @@ export interface ExternalChromeManagerOptions {
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
   graphicsMode?: BrowserGraphicsMode;
+  windowBoundsAdapter?: ExternalChromeWindowBoundsAdapter;
   spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
   connectAutomation?: (
     browserUserDataDir: string,
@@ -134,7 +136,8 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       width,
       height
     };
-    const session = await this.launchSession(role, bounds, undefined, options.notice);
+    const physicalBounds = this.toPhysicalBounds(bounds);
+    const session = await this.launchSession(role, bounds, physicalBounds, undefined, options.notice);
     return this.toStatus(role.id, session);
   }
 
@@ -149,12 +152,22 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     }
 
     const workArea = options.workArea ?? this.options.getLaunchWorkArea();
+    const physicalWorkArea = this.toPhysicalBounds(workArea);
     const sessions: Array<{ roleId: string; session: ExternalChromeSession }> = [];
 
     try {
       for (const item of items) {
         const bounds = normalizedRectToPixelBounds(item.rect, workArea);
-        const session = await this.launchSession(item.role, bounds, workspace.id, options.notice);
+        const physicalBounds = physicalWorkArea
+          ? normalizedRectToPixelBounds(item.rect, physicalWorkArea)
+          : undefined;
+        const session = await this.launchSession(
+          item.role,
+          bounds,
+          physicalBounds,
+          workspace.id,
+          options.notice
+        );
         sessions.push({ roleId: item.role.id, session });
       }
 
@@ -192,6 +205,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   private async launchSession(
     role: Role,
     bounds: PixelBounds,
+    physicalBounds: PixelBounds | undefined,
     workspaceId: string | undefined,
     notice: string | undefined
   ): Promise<ExternalChromeSession> {
@@ -273,10 +287,54 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       session.notice = appendNotice(session.notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
     }
 
+    await this.alignVisibleWindow(child, physicalBounds);
+    if (this.sessions.get(role.id) !== session) {
+      throw new Error("External Chrome closed before window alignment completed.");
+    }
+
     session.state = "running";
     session.launchedAt = new Date().toISOString();
     this.emitChange();
     return session;
+  }
+
+  private toPhysicalBounds(bounds: PixelBounds): PixelBounds | undefined {
+    const adapter = this.options.windowBoundsAdapter;
+    if (!adapter) {
+      return undefined;
+    }
+
+    try {
+      return adapter.dipToPhysicalBounds(bounds);
+    } catch (error) {
+      console.warn("Failed to convert external Chrome bounds to physical pixels.", error);
+      return undefined;
+    }
+  }
+
+  private async alignVisibleWindow(
+    child: ChildProcess,
+    physicalBounds: PixelBounds | undefined
+  ): Promise<void> {
+    const adapter = this.options.windowBoundsAdapter;
+    if (!adapter || !physicalBounds) {
+      return;
+    }
+
+    const browserProcessId = child.pid;
+    if (!Number.isInteger(browserProcessId) || (browserProcessId ?? 0) <= 0) {
+      console.warn("Failed to align external Chrome visible bounds because its process ID is unavailable.");
+      return;
+    }
+
+    try {
+      await adapter.alignVisibleBounds({
+        browserProcessId: browserProcessId as number,
+        physicalBounds
+      });
+    } catch (error) {
+      console.warn("Failed to align external Chrome visible bounds.", error);
+    }
   }
 
   private handleAutomationDisconnect(

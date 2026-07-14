@@ -17,6 +17,7 @@ import {
 } from "electron";
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
+import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
 import { AuthManager } from "./auth/AuthManager";
 import {
   BrowserManager,
@@ -288,6 +289,7 @@ function initializeApplication(): void {
     updateCheckStarted = true;
     void updateManager.checkForUpdates();
   };
+  const externalChromeWindowBoundsAdapter = createExternalChromeWindowBoundsAdapter();
   const externalChromeManager = new ExternalChromeManager(roleStore, {
     applyBrowserFonts: async (_role, browserUserDataDir) => {
       await browserFontApplier.applyToChromeUserDataDir(browserUserDataDir);
@@ -304,7 +306,10 @@ function initializeApplication(): void {
       };
     },
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
-    graphicsMode: appliedBrowserGraphicsMode
+    graphicsMode: appliedBrowserGraphicsMode,
+    ...(externalChromeWindowBoundsAdapter
+      ? { windowBoundsAdapter: externalChromeWindowBoundsAdapter }
+      : {})
   });
   browserManager = new BrowserManager(roleStore, {
     applyBrowserFonts: async (role, partition) => {

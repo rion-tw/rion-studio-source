@@ -21,7 +21,14 @@ describe("electron-builder release configuration", () => {
       "ja"
     ]);
     expect(config.win).toMatchObject({
-      target: ["nsis"]
+      target: ["nsis"],
+      extraResources: [
+        {
+          from: "build/native/win32-x64/rion-window-frame-helper.exe",
+          to: "native/rion-window-frame-helper.exe"
+        }
+      ],
+      signExts: ["rion-window-frame-helper.exe"]
     });
     expect(config.nsis).toMatchObject({
       oneClick: false,
@@ -57,6 +64,33 @@ describe("electron-builder release configuration", () => {
       sign: "build/signMacAdHoc.mjs",
       target: ["dmg", "zip"]
     });
+  });
+
+  it("builds and verifies the Windows helper before local and release packaging", async () => {
+    const [packageJsonSource, releaseWorkflow] = await Promise.all([
+      readFile("package.json", "utf8"),
+      readFile(".github/workflows/release.yml", "utf8")
+    ]);
+    const packageJson = JSON.parse(packageJsonSource) as {
+      scripts: Record<string, string>;
+    };
+
+    for (const scriptName of ["package", "dist"]) {
+      const script = packageJson.scripts[scriptName];
+      const buildIndex = script.indexOf("pnpm run build:native:windows");
+      const verifyIndex = script.indexOf("pnpm run verify:native:windows");
+      const builderIndex = script.indexOf("electron-builder");
+
+      expect(buildIndex).toBeGreaterThan(-1);
+      expect(verifyIndex).toBeGreaterThan(buildIndex);
+      expect(builderIndex).toBeGreaterThan(verifyIndex);
+    }
+
+    expect(releaseWorkflow.match(/run: pnpm run build:native:windows/gu)).toHaveLength(2);
+    expect(releaseWorkflow.match(/run: pnpm run test:native:windows/gu)).toHaveLength(2);
+    expect(
+      releaseWorkflow.match(/run: node scripts\/verifyWindowsWindowFrameHelper\.mjs/gu)
+    ).toHaveLength(2);
   });
 
   it("includes the entitlements required for ad-hoc hardened runtime Electron bundles", async () => {

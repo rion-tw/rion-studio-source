@@ -84,7 +84,14 @@ const config = {
   },
   win: {
     icon: "build/icon.ico",
-    target: ["nsis"]
+    target: ["nsis"],
+    extraResources: [
+      {
+        from: "build/native/win32-x64/rion-window-frame-helper.exe",
+        to: "native/rion-window-frame-helper.exe"
+      }
+    ],
+    signExts: ["rion-window-frame-helper.exe"]
   },
   nsis: {
     oneClick: false,

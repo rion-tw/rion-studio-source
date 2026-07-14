@@ -91,6 +91,35 @@ describe("ExternalChromeManager", () => {
     expect(status.automationState).toBe("ready");
   });
 
+  it("aligns a single Windows Chrome visible frame after CDP positioning", async () => {
+    const windowBoundsAdapter = createWindowBoundsAdapter((bounds) => ({
+      x: bounds.x * 2,
+      y: bounds.y * 2,
+      width: bounds.width * 2,
+      height: bounds.height * 2
+    }));
+    const harness = createHarness({ childPid: 4321, windowBoundsAdapter });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    expect(windowBoundsAdapter.dipToPhysicalBounds).toHaveBeenCalledWith({
+      x: 100,
+      y: 50,
+      width: 1200,
+      height: 720
+    });
+    expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalledWith({
+      browserProcessId: 4321,
+      physicalBounds: { x: 200, y: 100, width: 2400, height: 1440 }
+    });
+    expect(harness.automationTargets[0].setWindowBounds.mock.invocationCallOrder[0])
+      .toBeLessThan(windowBoundsAdapter.alignVisibleBounds.mock.invocationCallOrder[0]);
+    expect(status).toMatchObject({ state: "running", automationState: "ready" });
+  });
+
   it("enables CDN interception through CDP after Chrome connects", async () => {
     const prepareCdnCompatibility = vi.fn().mockResolvedValue({
       enabled: true,
@@ -269,11 +298,138 @@ describe("ExternalChromeManager", () => {
       ]);
   });
 
+  it("derives Windows workspace slots from one converted physical work area", async () => {
+    const windowBoundsAdapter = createWindowBoundsAdapter(() => ({
+      x: -1920,
+      y: -80,
+      width: 2001,
+      height: 1127
+    }));
+    const harness = createHarness({ childPid: 5000, windowBoundsAdapter });
+    const roles = Array.from({ length: 4 }, (_value, index) => ({
+      ...role,
+      id: `physical-role-${index + 1}`,
+      name: `Physical Role ${index + 1}`
+    }));
+    const rects = [
+      { x: 0, y: 0, width: 0.5, height: 0.5 },
+      { x: 0.5, y: 0, width: 0.5, height: 0.5 },
+      { x: 0, y: 0.5, width: 0.5, height: 0.5 },
+      { x: 0.5, y: 0.5, width: 0.5, height: 0.5 }
+    ];
+
+    const launchPromise = harness.manager.launchWorkspace(
+      { id: "workspace-physical-grid" },
+      roles.map((gridRole, index) => ({ role: gridRole, rect: rects[index] })),
+      { workArea: { x: -1536, y: -64, width: 1601, height: 901 } }
+    );
+    for (let index = 0; index < roles.length; index += 1) {
+      await waitForChild(harness.children, index);
+      harness.children[index].emit("spawn");
+    }
+    await launchPromise;
+
+    expect(windowBoundsAdapter.dipToPhysicalBounds).toHaveBeenCalledTimes(1);
+    expect(windowBoundsAdapter.dipToPhysicalBounds).toHaveBeenCalledWith({
+      x: -1536,
+      y: -64,
+      width: 1601,
+      height: 901
+    });
+    expect(windowBoundsAdapter.alignVisibleBounds.mock.calls.map(([input]) => input)).toEqual([
+      {
+        browserProcessId: 5000,
+        physicalBounds: { x: -1920, y: -80, width: 1001, height: 564 }
+      },
+      {
+        browserProcessId: 5001,
+        physicalBounds: { x: -919, y: -80, width: 1000, height: 564 }
+      },
+      {
+        browserProcessId: 5002,
+        physicalBounds: { x: -1920, y: 484, width: 1001, height: 563 }
+      },
+      {
+        browserProcessId: 5003,
+        physicalBounds: { x: -919, y: 484, width: 1000, height: 563 }
+      }
+    ]);
+  });
+
+  it("still runs native visible-frame alignment when CDP cannot connect", async () => {
+    const windowBoundsAdapter = createWindowBoundsAdapter((bounds) => bounds);
+    const harness = createHarness({
+      childPid: 6100,
+      connectAutomation: vi.fn().mockRejectedValue(new Error("CDP unavailable")),
+      windowBoundsAdapter
+    });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalledWith({
+      browserProcessId: 6100,
+      physicalBounds: { x: 100, y: 50, width: 1200, height: 720 }
+    });
+    expect(status).toMatchObject({ state: "running", automationState: "unavailable" });
+    expect(harness.children[0].kill).not.toHaveBeenCalled();
+  });
+
+  it("keeps automation ready when native visible-frame alignment fails or PID is missing", async () => {
+    const failingAdapter = createWindowBoundsAdapter((bounds) => bounds);
+    failingAdapter.alignVisibleBounds.mockRejectedValue(new Error("helper was blocked"));
+    const failureHarness = createHarness({ childPid: 6200, windowBoundsAdapter: failingAdapter });
+
+    const failedAlignmentLaunch = failureHarness.manager.launch(role);
+    await waitForChild(failureHarness.children, 0);
+    failureHarness.children[0].emit("spawn");
+    const failureStatus = await failedAlignmentLaunch;
+
+    const missingPidAdapter = createWindowBoundsAdapter((bounds) => bounds);
+    const missingPidHarness = createHarness({ windowBoundsAdapter: missingPidAdapter });
+    const missingPidLaunch = missingPidHarness.manager.launch({ ...role, id: "missing-pid" });
+    await waitForChild(missingPidHarness.children, 0);
+    missingPidHarness.children[0].emit("spawn");
+    const missingPidStatus = await missingPidLaunch;
+
+    expect(failureStatus).toMatchObject({ state: "running", automationState: "ready" });
+    expect(failureHarness.children[0].kill).not.toHaveBeenCalled();
+    expect(missingPidAdapter.alignVisibleBounds).not.toHaveBeenCalled();
+    expect(missingPidStatus).toMatchObject({ state: "running", automationState: "ready" });
+    expect(missingPidHarness.children[0].kill).not.toHaveBeenCalled();
+  });
+
+  it("does not report a role as running if Chrome closes during native alignment", async () => {
+    let finishAlignment: (() => void) | undefined;
+    const windowBoundsAdapter = createWindowBoundsAdapter((bounds) => bounds);
+    windowBoundsAdapter.alignVisibleBounds.mockImplementation(
+      () => new Promise<void>((resolve) => {
+        finishAlignment = resolve;
+      })
+    );
+    const harness = createHarness({ childPid: 6250, windowBoundsAdapter });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await vi.waitFor(() => expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalled());
+    harness.children[0].emit("close");
+    finishAlignment?.();
+
+    await expect(launchPromise).rejects.toThrow("closed before window alignment completed");
+    expect(harness.manager.listStatuses()).toEqual([]);
+  });
+
   it("keeps automation ready when exact window alignment fails", async () => {
     const automationTarget = createAutomationTarget();
     automationTarget.setWindowBounds.mockRejectedValue(new Error("window manager rejected bounds"));
+    const windowBoundsAdapter = createWindowBoundsAdapter((bounds) => bounds);
     const harness = createHarness({
-      connectAutomation: vi.fn().mockResolvedValue(automationTarget)
+      childPid: 6300,
+      connectAutomation: vi.fn().mockResolvedValue(automationTarget),
+      windowBoundsAdapter
     });
 
     const launchPromise = harness.manager.launch(role);
@@ -288,6 +444,10 @@ describe("ExternalChromeManager", () => {
       automationState: "ready"
     });
     expect(harness.manager.getAutomationSession(role.id)?.target).toBe(automationTarget);
+    expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalledWith({
+      browserProcessId: 6300,
+      physicalBounds: { x: 100, y: 50, width: 1200, height: 720 }
+    });
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
@@ -319,8 +479,10 @@ describe("ExternalChromeManager", () => {
 });
 
 function createHarness(options: {
+  childPid?: number;
   connectAutomation?: AnyMock;
   prepareCdnCompatibility?: AnyMock;
+  windowBoundsAdapter?: ReturnType<typeof createWindowBoundsAdapter>;
 } = {}) {
   const children: Array<ReturnType<typeof createChild>> = [];
   const automationTargets: Array<ReturnType<typeof createAutomationTarget>> = [];
@@ -328,7 +490,9 @@ function createHarness(options: {
     ensureBrowserUserDataDir: vi.fn(async (roleId: string) => `/profiles/${roleId}/browser`)
   };
   const spawnChrome = vi.fn(() => {
-    const child = createChild();
+    const child = createChild(
+      options.childPid === undefined ? undefined : options.childPid + children.length
+    );
     children.push(child);
     return child as never;
   });
@@ -344,7 +508,8 @@ function createHarness(options: {
     ...(options.prepareCdnCompatibility
       ? { prepareCdnCompatibility: options.prepareCdnCompatibility }
       : {}),
-    spawnChrome
+    spawnChrome,
+    ...(options.windowBoundsAdapter ? { windowBoundsAdapter: options.windowBoundsAdapter } : {})
   });
 
   return { automationTargets, children, connectAutomation, manager, roleStore, spawnChrome };
@@ -368,14 +533,29 @@ function createAutomationTarget() {
   };
 }
 
-function createChild() {
+function createChild(pid?: number) {
   return Object.assign(new EventEmitter(), {
     exitCode: null,
     killed: false,
+    pid,
     kill: vi.fn(function kill(this: { killed: boolean }) {
       this.killed = true;
     })
   });
+}
+
+function createWindowBoundsAdapter(
+  convert: (bounds: { x: number; y: number; width: number; height: number }) => {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }
+) {
+  return {
+    alignVisibleBounds: vi.fn().mockResolvedValue(undefined),
+    dipToPhysicalBounds: vi.fn(convert)
+  };
 }
 
 async function waitForChild(children: Array<ReturnType<typeof createChild>>, index: number): Promise<void> {

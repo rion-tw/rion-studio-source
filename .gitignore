@@ -10,6 +10,9 @@ coverage/
 pnpm-debug.log*
 *.tsbuildinfo
 
+# Generated native helper artifacts
+/build/native/
+
 # Local runtime data
 /profiles/
 /profile-data/

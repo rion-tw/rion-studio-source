@@ -61,11 +61,12 @@ describe("renderer workspace layout helpers", () => {
         name: "Party",
         template: "three_columns",
         browserZoomPercent: 125,
+        targetDisplayId: 22,
         slots: applyWorkspaceTemplate([], "three_columns"),
         createdAt: "2026-07-10T00:00:00.000Z",
         updatedAt: "2026-07-10T00:00:00.000Z"
       })
-    ).toMatchObject({ browserZoomPercent: 125, template: "three_columns" });
+    ).toMatchObject({ browserZoomPercent: 125, targetDisplayId: 22, template: "three_columns" });
   });
 
   it("applies a template while preserving slot ids and assigned roles by index", () => {

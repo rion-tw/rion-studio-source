@@ -28,7 +28,7 @@ import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
 import { CdnCompatibilityManager } from "./game-browser/CdnCompatibilityManager";
 import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStore";
 import { SystemFontService } from "./game-browser/SystemFontService";
-import { registerIpcHandlers } from "./ipc/registerHandlers";
+import { broadcastWorkspaceDisplaysChanged, registerIpcHandlers } from "./ipc/registerHandlers";
 import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
 import { MacroManager } from "./macros/MacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
@@ -48,6 +48,7 @@ import {
 } from "./startup/startupWindow";
 import { AppUpdateManager } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
+import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import type { MacroEditorRequest } from "../shared/types";
@@ -352,6 +353,8 @@ function initializeApplication(): void {
     consumePendingMacroEditorRequest,
     gameBrowserSettingsStore,
     legalAcceptanceStore,
+    getDefaultWorkspaceDisplayId: () => getMainWindowDisplay().id,
+    getWorkspaceDisplays: () => getWorkspaceDisplayInfos(),
     macroManager,
     macroStore,
     portableDataManager,
@@ -383,6 +386,12 @@ function initializeApplication(): void {
     },
     quitApplication: () => app.quit()
   });
+  const notifyWorkspaceDisplaysChanged = (): void => {
+    broadcastWorkspaceDisplaysChanged(getWorkspaceDisplayInfos());
+  };
+  screen.on("display-added", notifyWorkspaceDisplaysChanged);
+  screen.on("display-removed", notifyWorkspaceDisplaysChanged);
+  screen.on("display-metrics-changed", notifyWorkspaceDisplaysChanged);
 
   const appIcon = loadAppIcon();
   if (process.platform === "darwin" && app.dock) {
@@ -551,12 +560,20 @@ app.whenReady().then(() => {
   });
 });
 
-function getMainWindowDisplayWorkArea(): Electron.Rectangle {
+function getMainWindowDisplay(): Electron.Display {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    return screen.getPrimaryDisplay().workArea;
+    return screen.getPrimaryDisplay();
   }
 
-  return screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+  return screen.getDisplayMatching(mainWindow.getBounds());
+}
+
+function getMainWindowDisplayWorkArea(): Electron.Rectangle {
+  return getMainWindowDisplay().workArea;
+}
+
+function getWorkspaceDisplayInfos() {
+  return createWorkspaceDisplayInfos(screen.getAllDisplays(), screen.getPrimaryDisplay().id);
 }
 
 app.on("before-quit", async (event) => {

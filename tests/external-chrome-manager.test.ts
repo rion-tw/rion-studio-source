@@ -134,7 +134,10 @@ describe("ExternalChromeManager", () => {
         { role, rect: { x: 0, y: 0, width: 0.5, height: 1 } },
         { role: secondRole, rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
       ],
-      { notice: "fallback" }
+      {
+        notice: "fallback",
+        workArea: { x: 2000, y: 40, width: 1600, height: 900 }
+      }
     );
     await waitForChild(harness.children, 0);
     harness.children[0].emit("spawn");
@@ -144,15 +147,16 @@ describe("ExternalChromeManager", () => {
 
     const spawnCalls = harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
     expect(spawnCalls[0][1]).toEqual(
-      expect.arrayContaining(["--window-position=100,50", "--window-size=600,800"])
+      expect.arrayContaining(["--window-position=2000,40", "--window-size=800,900"])
     );
     expect(spawnCalls[1][1]).toEqual(
-      expect.arrayContaining(["--window-position=700,50", "--window-size=600,800"])
+      expect.arrayContaining(["--window-position=2800,40", "--window-size=800,900"])
     );
     expect(statuses).toEqual([
       expect.objectContaining({ roleId: "role-1", notice: "fallback", runtimeMode: "external" }),
       expect.objectContaining({ roleId: "role-2", notice: "fallback", runtimeMode: "external" })
     ]);
+    expect(harness.manager.hasWorkspace("workspace-1")).toBe(true);
   });
 
   it("stops role and workspace Chrome child processes", async () => {
@@ -178,6 +182,7 @@ describe("ExternalChromeManager", () => {
     expect(harness.children[0].kill).toHaveBeenCalledTimes(1);
     expect(harness.children[1].kill).toHaveBeenCalledTimes(1);
     expect(harness.manager.listStatuses()).toEqual([]);
+    expect(harness.manager.hasWorkspace("workspace-1")).toBe(false);
   });
 });
 

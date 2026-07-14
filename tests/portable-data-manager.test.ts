@@ -36,6 +36,7 @@ describe("PortableDataManager", () => {
     await workspaceStore.createWorkspace({
       name: "Party",
       browserZoomPercent: 75,
+      targetDisplayId: 42,
       slots: [
         {
           id: "slot-1",
@@ -117,6 +118,7 @@ describe("PortableDataManager", () => {
     expect(parsed.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
     expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
     expect(parsed.launchWorkspaces[0]).toMatchObject({ browserZoomPercent: 75 });
+    expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
   });
 
   it("previews and applies an import with remapped role references", async () => {

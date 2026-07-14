@@ -18,10 +18,17 @@ import type {
   RoleStatus,
   UpdateLaunchWorkspaceInput,
   UpdateMacroInput,
-  UpdateRoleInput
+  UpdateRoleInput,
+  WorkspaceDisplayInfo,
+  WorkspaceDisplayLaunchOption,
+  WorkspaceLaunchInput,
+  WorkspaceLaunchResult
 } from "../../shared/types";
 import type { AuthManager } from "../auth/AuthManager";
-import type { BrowserManager } from "../browser/BrowserManager";
+import {
+  BrowserWorkspaceDisplayOccupiedError,
+  type BrowserManager
+} from "../browser/BrowserManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { SystemFontService } from "../game-browser/SystemFontService";
 import type { LegalAcceptanceStore } from "../legal/LegalAcceptanceStore";
@@ -48,6 +55,8 @@ interface RegisterIpcHandlersOptions {
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
+  getDefaultWorkspaceDisplayId?: () => number;
+  getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
   portableDataManager?: Pick<PortableDataManager, "applyImport" | "exportData" | "previewImport">;
   quitApplication?: () => void;
 }
@@ -300,7 +309,13 @@ export function registerIpcHandlers(
     options.onWorkspacesChanged?.();
   });
 
-  ipcMain.handle(IPC_CHANNELS.workspacesLaunch, async (_event, id: string) => {
+  ipcMain.handle(IPC_CHANNELS.workspacesDisplays, () => getWorkspaceDisplays(options));
+
+  ipcMain.handle(IPC_CHANNELS.workspacesLaunch, async (_event, id: string, input?: WorkspaceLaunchInput) => {
+    if (!isWorkspaceLaunchInput(input)) {
+      throw new Error("Launch workspace display selection is invalid.");
+    }
+
     const workspace = await workspaceStore.getWorkspace(id);
     const launchSlots = workspace.slots.filter((slot) => slot.roleId);
 
@@ -321,10 +336,53 @@ export function registerIpcHandlers(
       throw new Error("Login required. Use Login before launching every role in this workspace.");
     }
 
-    return browserManager.launchWorkspace(
-      workspace,
-      launchItems.map(({ role, slot }) => ({ role, rect: slot.rect }))
-    );
+    const displays = getWorkspaceDisplays(options);
+    const targetDisplayId =
+      input?.displayId ??
+      workspace.targetDisplayId ??
+      options.getDefaultWorkspaceDisplayId?.() ??
+      displays[0]?.id;
+    const targetDisplay = displays.find((display) => display.id === targetDisplayId);
+    const launchOptions = createWorkspaceDisplayLaunchOptions(displays, browserManager, workspace.id);
+
+    if (!targetDisplay) {
+      return {
+        kind: "display_selection_required",
+        reason: "target_unavailable",
+        displays: launchOptions
+      } satisfies WorkspaceLaunchResult;
+    }
+
+    if (launchOptions.find((display) => display.id === targetDisplay.id)?.occupiedByWorkspace) {
+      return {
+        kind: "display_selection_required",
+        reason: "target_occupied",
+        displays: launchOptions
+      } satisfies WorkspaceLaunchResult;
+    }
+
+    try {
+      const statuses = await browserManager.launchWorkspace(
+        workspace,
+        launchItems.map(({ role, slot }) => ({ role, rect: slot.rect })),
+        { displayId: targetDisplay.id, workArea: targetDisplay.workArea }
+      );
+      return {
+        kind: "launched",
+        displayId: targetDisplay.id,
+        statuses
+      } satisfies WorkspaceLaunchResult;
+    } catch (error) {
+      if (!(error instanceof BrowserWorkspaceDisplayOccupiedError)) {
+        throw error;
+      }
+
+      return {
+        kind: "display_selection_required",
+        reason: "target_occupied",
+        displays: createWorkspaceDisplayLaunchOptions(getWorkspaceDisplays(options), browserManager, workspace.id)
+      } satisfies WorkspaceLaunchResult;
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.workspacesStop, async (_event, id: string) => {
@@ -370,6 +428,64 @@ function isAppRendererReadyState(value: unknown): value is AppRendererReadyState
   return value === "ready" || value === "failed";
 }
 
+function isWorkspaceLaunchInput(value: unknown): value is WorkspaceLaunchInput | undefined {
+  if (value === undefined) {
+    return true;
+  }
+
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const input = value as { displayId?: unknown };
+  return (
+    input.displayId === undefined ||
+    (typeof input.displayId === "number" && Number.isSafeInteger(input.displayId) && input.displayId !== -1)
+  );
+}
+
+function getWorkspaceDisplays(options: RegisterIpcHandlersOptions): WorkspaceDisplayInfo[] {
+  return options.getWorkspaceDisplays?.() ?? [
+    {
+      id: 0,
+      label: "",
+      bounds: { x: 0, y: 0, width: 1200, height: 800 },
+      workArea: { x: 0, y: 0, width: 1200, height: 800 },
+      scaleFactor: 1,
+      isPrimary: true,
+      isInternal: false
+    }
+  ];
+}
+
+function createWorkspaceDisplayLaunchOptions(
+  displays: WorkspaceDisplayInfo[],
+  browserManager: BrowserManager,
+  launchingWorkspaceId: string
+): WorkspaceDisplayLaunchOption[] {
+  const reservations = browserManager.listWorkspaceDisplayReservations?.() ?? [];
+  const reservationByDisplayId = new Map(
+    reservations
+      .filter((reservation) => reservation.workspaceId !== launchingWorkspaceId)
+      .map((reservation) => [reservation.displayId, reservation] as const)
+  );
+
+  return displays.map((display) => {
+    const reservation = reservationByDisplayId.get(display.id);
+    return {
+      ...display,
+      ...(reservation
+        ? {
+            occupiedByWorkspace: {
+              id: reservation.workspaceId,
+              name: reservation.workspaceName
+            }
+          }
+        : {})
+    };
+  });
+}
+
 function isAppLanguage(value: unknown): value is AppLanguage {
   return value === "en" || value === "zh-TW" || value === "zh-CN" || value === "ja";
 }
@@ -390,6 +506,12 @@ function isAcceptLegalDocumentsInput(value: unknown): value is AcceptLegalDocume
 function broadcastStatusChange(statuses: RoleStatus[]): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.rolesStatusChanged, statuses);
+  });
+}
+
+export function broadcastWorkspaceDisplaysChanged(displays: WorkspaceDisplayInfo[]): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.workspacesDisplaysChanged, displays);
   });
 }
 

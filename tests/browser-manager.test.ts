@@ -6,6 +6,7 @@ import {
   BrowserGameLoadError,
   BrowserLaunchAuthError,
   BrowserManager,
+  BrowserWorkspaceDisplayOccupiedError,
   createRoleSessionPartition,
   normalizedRectToPixelBounds
 } from "../src/main/browser/BrowserManager";
@@ -264,11 +265,19 @@ describe("BrowserManager game host windows", () => {
         }
       ]
     });
+    const target = {
+      displayId: 22,
+      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
+    };
 
-    const statuses = await harness.manager.launchWorkspace(workspace, [
-      { role, rect: workspace.slots[0].rect },
-      { role: secondRole, rect: workspace.slots[1].rect }
-    ]);
+    const statuses = await harness.manager.launchWorkspace(
+      workspace,
+      [
+        { role, rect: workspace.slots[0].rect },
+        { role: secondRole, rect: workspace.slots[1].rect }
+      ],
+      target
+    );
 
     expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
     expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
@@ -279,10 +288,14 @@ describe("BrowserManager game host windows", () => {
       ],
       {
         notice:
-          "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support."
+          "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
+        workArea: target.workArea
       }
     );
     expect(statuses).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
+    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
+      { workspaceId: workspace.id, workspaceName: workspace.name, displayId: target.displayId }
+    ]);
   });
 
   it("draws a four-pixel black divider that is entirely draggable", async () => {
@@ -517,6 +530,96 @@ describe("BrowserManager game host windows", () => {
     expect(harness.manager.listStatuses()).toHaveLength(2);
   });
 
+  it("atomically reserves a target display before async launch work and releases it on stop", async () => {
+    let resolveLaunchMode: ((mode: BrowserLaunchMode) => void) | undefined;
+    const launchMode = new Promise<BrowserLaunchMode>((resolve) => {
+      resolveLaunchMode = resolve;
+    });
+    const harness = createHarness({ getBrowserLaunchMode: () => launchMode });
+    const target = {
+      displayId: 22,
+      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
+    };
+    const firstLaunch = harness.manager.launchWorkspace(
+      workspace,
+      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+      target
+    );
+
+    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
+      { workspaceId: workspace.id, workspaceName: workspace.name, displayId: 22 }
+    ]);
+    const secondWorkspace = { ...workspace, id: "workspace-2", name: "Second" };
+    await expect(
+      harness.manager.launchWorkspace(
+        secondWorkspace,
+        [{ role: createRole("role-3", "Third"), rect: { x: 0, y: 0, width: 1, height: 1 } }],
+        target
+      )
+    ).rejects.toBeInstanceOf(BrowserWorkspaceDisplayOccupiedError);
+    expect(harness.createHostWindow).not.toHaveBeenCalled();
+
+    resolveLaunchMode?.("embedded");
+    await firstLaunch;
+    expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining(target.workArea));
+
+    await harness.manager.stopWorkspace(workspace.id);
+    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
+  });
+
+  it("releases a target display when workspace launch fails", async () => {
+    const harness = createHarness({
+      snapshotsByView: [{ bodyText: "Log in with Google", localStorage: {} }]
+    });
+
+    await expect(
+      harness.manager.launchWorkspace(
+        workspace,
+        [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+        { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
+      )
+    ).rejects.toBeInstanceOf(BrowserLaunchAuthError);
+    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
+  });
+
+  it("releases an external workspace display when its last Chrome session exits", async () => {
+    const changes = new EventEmitter();
+    let workspaceActive = false;
+    const status = { roleId: role.id, runtimeMode: "external" as const, state: "running" as const };
+    const externalChromeManager = {
+      getAutomationSession: vi.fn(() => undefined),
+      hasSession: vi.fn(() => false),
+      hasWorkspace: vi.fn(() => workspaceActive),
+      launch: vi.fn().mockResolvedValue(status),
+      launchWorkspace: vi.fn(async () => {
+        workspaceActive = true;
+        changes.emit("change", [status]);
+        return [status];
+      }),
+      listStatuses: vi.fn(() => (workspaceActive ? [status] : [])),
+      on: changes.on.bind(changes),
+      setBeforeRoleStop: vi.fn(),
+      setMacroOverlayInstaller: vi.fn(),
+      stop: vi.fn().mockResolvedValue(undefined),
+      stopWorkspace: vi.fn().mockResolvedValue(undefined)
+    };
+    const harness = createHarness({
+      externalChromeManager: externalChromeManager as never,
+      getBrowserLaunchMode: () => "external"
+    });
+
+    await harness.manager.launchWorkspace(
+      workspace,
+      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+      { displayId: 22, workArea: { x: 1200, y: 0, width: 1920, height: 1040 } }
+    );
+    expect(harness.manager.listWorkspaceDisplayReservations()).toHaveLength(1);
+
+    workspaceActive = false;
+    changes.emit("change", []);
+    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
+  });
+
   it("blocks an entire workspace before creating a window when a role is already running", async () => {
     const harness = createHarness();
     await harness.manager.launch(role);
@@ -748,6 +851,7 @@ function createExternalChromeManager() {
   return {
     getAutomationSession: vi.fn(() => undefined),
     hasSession: vi.fn(() => false),
+    hasWorkspace: vi.fn(() => true),
     launch: vi.fn().mockResolvedValue(status),
     launchWorkspace: vi.fn().mockResolvedValue([status]),
     listStatuses: vi.fn(() => [status]),

@@ -62,6 +62,7 @@ export function createWorkspaceFormState(workspace: LaunchWorkspace): WorkspaceF
     name: workspace.name,
     template,
     browserZoomPercent: workspace.browserZoomPercent,
+    ...(workspace.targetDisplayId === undefined ? {} : { targetDisplayId: workspace.targetDisplayId }),
     slots: template === workspace.template ? workspace.slots : applyWorkspaceTemplate(workspace.slots, template)
   };
 }

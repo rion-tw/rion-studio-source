@@ -25,6 +25,7 @@ export interface WorkspaceFormState {
   name: string;
   template: WorkspaceLayoutTemplate;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
+  targetDisplayId?: number;
   slots: LaunchWorkspaceSlot[];
 }
 

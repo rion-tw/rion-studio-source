@@ -24,7 +24,10 @@ import type {
   SystemFontFamily,
   UpdateLaunchWorkspaceInput,
   UpdateMacroInput,
-  UpdateRoleInput
+  UpdateRoleInput,
+  WorkspaceDisplayInfo,
+  WorkspaceLaunchInput,
+  WorkspaceLaunchResult
 } from "./types";
 
 export interface RionStudioApi {
@@ -49,7 +52,8 @@ export interface RionStudioApi {
   updateLaunchWorkspace: (id: string, input: UpdateLaunchWorkspaceInput) => Promise<LaunchWorkspace>;
   reorderLaunchWorkspaces: (input: ReorderItemsInput) => Promise<LaunchWorkspace[]>;
   deleteLaunchWorkspace: (id: string) => Promise<void>;
-  launchWorkspace: (id: string) => Promise<RoleStatus[]>;
+  listWorkspaceDisplays: () => Promise<WorkspaceDisplayInfo[]>;
+  launchWorkspace: (id: string, input?: WorkspaceLaunchInput) => Promise<WorkspaceLaunchResult>;
   stopLaunchWorkspace: (id: string) => Promise<void>;
   listMacros: () => Promise<Macro[]>;
   createMacro: (input: CreateMacroInput) => Promise<Macro>;
@@ -72,6 +76,7 @@ export interface RionStudioApi {
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<void>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
+  onWorkspaceDisplaysChanged: (callback: (displays: WorkspaceDisplayInfo[]) => void) => () => void;
   onAuthStatusChanged: (callback: (statuses: AuthFlowStatus[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacroEditorRequested: (callback: (request: MacroEditorRequest) => void) => () => void;

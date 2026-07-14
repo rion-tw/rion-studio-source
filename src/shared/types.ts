@@ -179,6 +179,7 @@ export interface LaunchWorkspace {
   name: string;
   template: WorkspaceLayoutTemplate;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
+  targetDisplayId?: number;
   slots: LaunchWorkspaceSlot[];
   createdAt: string;
   updatedAt: string;
@@ -188,6 +189,7 @@ export interface CreateLaunchWorkspaceInput {
   name: string;
   template?: WorkspaceLayoutTemplate;
   browserZoomPercent?: WorkspaceBrowserZoomPercent;
+  targetDisplayId?: number | null;
   slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "rect">>>;
 }
 
@@ -199,6 +201,39 @@ export interface PixelBounds {
   width: number;
   height: number;
 }
+
+export interface WorkspaceDisplayInfo {
+  id: number;
+  label: string;
+  bounds: PixelBounds;
+  workArea: PixelBounds;
+  scaleFactor: number;
+  isPrimary: boolean;
+  isInternal: boolean;
+}
+
+export interface WorkspaceDisplayLaunchOption extends WorkspaceDisplayInfo {
+  occupiedByWorkspace?: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface WorkspaceLaunchInput {
+  displayId?: number;
+}
+
+export type WorkspaceLaunchResult =
+  | {
+      kind: "launched";
+      displayId: number;
+      statuses: RoleStatus[];
+    }
+  | {
+      kind: "display_selection_required";
+      reason: "target_occupied" | "target_unavailable";
+      displays: WorkspaceDisplayLaunchOption[];
+    };
 
 export interface AppErrorPayload {
   code: string;

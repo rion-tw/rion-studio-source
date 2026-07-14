@@ -6,7 +6,8 @@ import type {
   Macro,
   MacroRunStatus,
   Role,
-  RoleStatus
+  RoleStatus,
+  WorkspaceDisplayInfo
 } from "../../../shared/types";
 import { createRoleStats } from "../app/statusUtils";
 
@@ -15,6 +16,7 @@ export type InitialLoadState = "loading" | "ready" | "failed";
 export function useAppData() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [workspaces, setWorkspaces] = useState<LaunchWorkspace[]>([]);
+  const [workspaceDisplays, setWorkspaceDisplays] = useState<WorkspaceDisplayInfo[]>([]);
   const [macros, setMacros] = useState<Macro[]>([]);
   const [statuses, setStatuses] = useState<RoleStatus[]>([]);
   const [authStatuses, setAuthStatuses] = useState<AuthFlowStatus[]>([]);
@@ -52,13 +54,22 @@ export function useAppData() {
         throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
       }
 
-      const [nextRoles, nextStatuses, nextAuthStatuses, nextWorkspaces, nextMacros, nextMacroStatuses] = await Promise.all([
+      const [
+        nextRoles,
+        nextStatuses,
+        nextAuthStatuses,
+        nextWorkspaces,
+        nextMacros,
+        nextMacroStatuses,
+        nextWorkspaceDisplays
+      ] = await Promise.all([
         window.rionStudio.listRoles(),
         window.rionStudio.listRoleStatuses(),
         window.rionStudio.listAuthStatuses(),
         window.rionStudio.listLaunchWorkspaces(),
         window.rionStudio.listMacros(),
-        window.rionStudio.listMacroStatuses()
+        window.rionStudio.listMacroStatuses(),
+        window.rionStudio.listWorkspaceDisplays()
       ]);
       setRoles(nextRoles);
       setStatuses(nextStatuses);
@@ -66,6 +77,7 @@ export function useAppData() {
       setWorkspaces(nextWorkspaces);
       setMacros(nextMacros);
       setMacroStatuses(nextMacroStatuses);
+      setWorkspaceDisplays(nextWorkspaceDisplays);
       if (options.markInitialLoad) {
         setInitialLoadState("ready");
       }
@@ -115,6 +127,14 @@ export function useAppData() {
       return;
     }
 
+    return window.rionStudio.onWorkspaceDisplaysChanged(setWorkspaceDisplays);
+  }, []);
+
+  useEffect(() => {
+    if (!window.rionStudio) {
+      return;
+    }
+
     return window.rionStudio.onMacroStatusChanged((nextStatuses) => {
       setMacroStatuses(nextStatuses);
       void window.rionStudio.listMacros().then(setMacros).catch((macroError) => {
@@ -143,6 +163,7 @@ export function useAppData() {
     setWorkspaces,
     statusByRole,
     statuses,
-    workspaces
+    workspaces,
+    workspaceDisplays
   };
 }

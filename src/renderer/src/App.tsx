@@ -9,6 +9,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "./components/ui/ca
 import { Surface } from "./components/ui/patterns";
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
+import { WorkspaceDisplayPickerDialog } from "./features/workspaces/WorkspaceDisplayPickerDialog";
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
@@ -345,6 +346,7 @@ export function App(): JSX.Element {
       roles={data.roles}
       statusByRole={data.statusByRole}
       t={preferences.t}
+      workspaceDisplays={data.workspaceDisplays}
       workspaces={data.workspaces}
       onSave={workspaceWorkflow.saveWorkspace}
     />
@@ -578,6 +580,12 @@ export function App(): JSX.Element {
           </Routes>
         </Suspense>
       </main>
+      <WorkspaceDisplayPickerDialog
+        request={workspaceWorkflow.displaySelectionRequest}
+        t={preferences.t}
+        onCancel={workspaceWorkflow.handleDisplaySelectionCancel}
+        onSelect={workspaceWorkflow.handleDisplaySelectionSelect}
+      />
     </div>
   );
 }

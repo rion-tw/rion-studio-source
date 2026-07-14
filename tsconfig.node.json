@@ -25,6 +25,8 @@
     "src/renderer/src/features/legal/legalMarkdownParser.ts",
     "src/renderer/src/features/settings/settingsNavigation.ts",
     "src/renderer/src/features/workspaces/workspaceLayoutUtils.ts",
+    "src/renderer/src/features/workspaces/workspaceDisplayUtils.ts",
+    "src/renderer/src/features/workspaces/workspaceLaunchUtils.ts",
     "src/renderer/src/i18n.ts",
     "src/shared/**/*.ts",
     "tests/**/*.ts"

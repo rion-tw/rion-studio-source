@@ -259,6 +259,29 @@ describe("LaunchWorkspaceStore", () => {
     ).rejects.toMatchObject({ code: "WORKSPACE_BROWSER_ZOOM_INVALID" });
   });
 
+  it("persists, clears, and validates a target display", async () => {
+    const workspace = await store.createWorkspace({ name: "Second screen", targetDisplayId: 42 });
+    expect(workspace.targetDisplayId).toBe(42);
+    await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
+      targetDisplayId: 42
+    });
+
+    const cleared = await store.updateWorkspace(workspace.id, { targetDisplayId: null });
+    expect(cleared).not.toHaveProperty("targetDisplayId");
+    await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.not.toHaveProperty(
+      "targetDisplayId"
+    );
+
+    const unchanged = await readFile(join(baseDir, "launch-workspaces.json"), "utf8");
+    await expect(
+      store.updateWorkspace(workspace.id, { targetDisplayId: -1 })
+    ).rejects.toMatchObject({ code: "WORKSPACE_TARGET_DISPLAY_INVALID" });
+    await expect(
+      store.updateWorkspace(workspace.id, { targetDisplayId: 1.5 })
+    ).rejects.toMatchObject({ code: "WORKSPACE_TARGET_DISPLAY_INVALID" });
+    await expect(readFile(join(baseDir, "launch-workspaces.json"), "utf8")).resolves.toBe(unchanged);
+  });
+
   it("uses four equal columns when no custom slots are provided", async () => {
     const workspace = await store.createWorkspace({ name: "Equal columns", template: "four_columns" });
 

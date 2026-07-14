@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import type { AuthManager } from "../src/main/auth/AuthManager";
-import type { BrowserManager } from "../src/main/browser/BrowserManager";
+import {
+  BrowserWorkspaceDisplayOccupiedError,
+  type BrowserManager
+} from "../src/main/browser/BrowserManager";
 import { registerIpcHandlers } from "../src/main/ipc/registerHandlers";
 import type { MacroManager } from "../src/main/macros/MacroManager";
 import type { MacroStore } from "../src/main/macros/MacroStore";
@@ -10,7 +13,14 @@ import type { RoleStore } from "../src/main/roles/RoleStore";
 import type { AppUpdateManager } from "../src/main/updates/AppUpdateManager";
 import type { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
-import type { GameBrowserSettings, LaunchWorkspace, Macro, Role, SystemFontFamily } from "../src/shared/types";
+import type {
+  GameBrowserSettings,
+  LaunchWorkspace,
+  Macro,
+  Role,
+  SystemFontFamily,
+  WorkspaceDisplayInfo
+} from "../src/shared/types";
 
 const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>()
@@ -71,7 +81,13 @@ describe("registerIpcHandlers workspace handlers", () => {
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace" | "reorderWorkspaces">;
   let browserManager: Pick<
     BrowserManager,
-    "launch" | "launchWorkspace" | "listStatuses" | "on" | "stop" | "stopWorkspace"
+    | "launch"
+    | "launchWorkspace"
+    | "listStatuses"
+    | "listWorkspaceDisplayReservations"
+    | "on"
+    | "stop"
+    | "stopWorkspace"
   >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let onOverlayLanguageChanged: ReturnType<typeof vi.fn>;
@@ -84,6 +100,7 @@ describe("registerIpcHandlers workspace handlers", () => {
     accept: ReturnType<typeof vi.fn>;
     getStatus: ReturnType<typeof vi.fn>;
   };
+  let workspaceDisplays: WorkspaceDisplayInfo[];
 
   beforeEach(() => {
     handlers.clear();
@@ -107,6 +124,7 @@ describe("registerIpcHandlers workspace handlers", () => {
         items.map(({ role }) => ({ roleId: role.id, state: "running" as const }))
       ),
       listStatuses: vi.fn(() => []),
+      listWorkspaceDisplayReservations: vi.fn(() => []),
       on: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
       stopWorkspace: vi.fn().mockResolvedValue(undefined)
@@ -129,6 +147,26 @@ describe("registerIpcHandlers workspace handlers", () => {
       accept: vi.fn().mockResolvedValue({ ...pendingLegalStatus, isAccepted: true }),
       getStatus: vi.fn().mockResolvedValue(pendingLegalStatus)
     };
+    workspaceDisplays = [
+      {
+        id: 11,
+        label: "Main display",
+        bounds: { x: 0, y: 0, width: 1200, height: 800 },
+        workArea: { x: 0, y: 24, width: 1200, height: 776 },
+        scaleFactor: 1,
+        isPrimary: true,
+        isInternal: true
+      },
+      {
+        id: 22,
+        label: "Side display",
+        bounds: { x: 1200, y: 0, width: 1920, height: 1080 },
+        workArea: { x: 1200, y: 0, width: 1920, height: 1040 },
+        scaleFactor: 1,
+        isPrimary: false,
+        isInternal: false
+      }
+    ];
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -137,6 +175,8 @@ describe("registerIpcHandlers workspace handlers", () => {
       authManager as AuthManager,
       {
         legalAcceptanceStore,
+        getDefaultWorkspaceDisplayId: () => 11,
+        getWorkspaceDisplays: () => workspaceDisplays,
         onLegalAccepted,
         onOverlayLanguageChanged,
         onRendererReady,
@@ -206,15 +246,97 @@ describe("registerIpcHandlers workspace handlers", () => {
   it("launches workspace roles atomically in one game host", async () => {
     const result = await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id);
 
-    expect(result).toEqual([
-      { roleId: "role-1", state: "running" },
-      { roleId: "role-2", state: "running" }
-    ]);
-    expect(browserManager.launchWorkspace).toHaveBeenCalledWith(workspace, [
-      { role: expect.objectContaining({ id: "role-1" }), rect: { x: 0, y: 0, width: 0.5, height: 1 } },
-      { role: expect.objectContaining({ id: "role-2" }), rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
-    ]);
+    expect(result).toEqual({
+      kind: "launched",
+      displayId: 11,
+      statuses: [
+        { roleId: "role-1", state: "running" },
+        { roleId: "role-2", state: "running" }
+      ]
+    });
+    expect(browserManager.launchWorkspace).toHaveBeenCalledWith(
+      workspace,
+      [
+        { role: expect.objectContaining({ id: "role-1" }), rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+        { role: expect.objectContaining({ id: "role-2" }), rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+      ],
+      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
+    );
     expect(browserManager.launch).not.toHaveBeenCalled();
+  });
+
+  it("lists displays and launches on a saved or one-time target without changing the workspace", async () => {
+    const fixedWorkspace = { ...workspace, targetDisplayId: 22 };
+    workspaceStore.getWorkspace = vi.fn().mockResolvedValue(fixedWorkspace);
+
+    expect(handlers.get(IPC_CHANNELS.workspacesDisplays)?.({})).toEqual(workspaceDisplays);
+    await expect(handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, fixedWorkspace.id)).resolves.toMatchObject({
+      kind: "launched",
+      displayId: 22
+    });
+    expect(browserManager.launchWorkspace).toHaveBeenLastCalledWith(
+      fixedWorkspace,
+      expect.any(Array),
+      { displayId: 22, workArea: workspaceDisplays[1].workArea }
+    );
+
+    await expect(
+      handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, fixedWorkspace.id, { displayId: 11 })
+    ).resolves.toMatchObject({ kind: "launched", displayId: 11 });
+    expect(workspaceStore.getWorkspace).toHaveBeenCalledTimes(2);
+    expect(browserManager.launchWorkspace).toHaveBeenLastCalledWith(
+      fixedWorkspace,
+      expect.any(Array),
+      { displayId: 11, workArea: workspaceDisplays[0].workArea }
+    );
+  });
+
+  it("requests a new display when the target is occupied or unavailable", async () => {
+    vi.mocked(browserManager.listWorkspaceDisplayReservations).mockReturnValue([
+      { workspaceId: "workspace-2", workspaceName: "Raid", displayId: 11 }
+    ]);
+
+    await expect(handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id)).resolves.toMatchObject({
+      kind: "display_selection_required",
+      reason: "target_occupied",
+      displays: [
+        { id: 11, occupiedByWorkspace: { id: "workspace-2", name: "Raid" } },
+        { id: 22 }
+      ]
+    });
+    expect(browserManager.launchWorkspace).not.toHaveBeenCalled();
+
+    workspaceStore.getWorkspace = vi.fn().mockResolvedValue({ ...workspace, targetDisplayId: 99 });
+    vi.mocked(browserManager.listWorkspaceDisplayReservations).mockReturnValue([]);
+    await expect(handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id)).resolves.toMatchObject({
+      kind: "display_selection_required",
+      reason: "target_unavailable"
+    });
+  });
+
+  it("returns the latest occupancy when an atomic display reservation loses a race", async () => {
+    vi.mocked(browserManager.launchWorkspace).mockRejectedValueOnce(
+      new BrowserWorkspaceDisplayOccupiedError(11, "workspace-2")
+    );
+    vi.mocked(browserManager.listWorkspaceDisplayReservations)
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([{ workspaceId: "workspace-2", workspaceName: "Raid", displayId: 11 }]);
+
+    await expect(handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id)).resolves.toMatchObject({
+      kind: "display_selection_required",
+      reason: "target_occupied",
+      displays: [
+        { id: 11, occupiedByWorkspace: { id: "workspace-2", name: "Raid" } },
+        { id: 22 }
+      ]
+    });
+  });
+
+  it("rejects malformed one-time display selections", async () => {
+    await expect(
+      handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id, { displayId: -1 })
+    ).rejects.toThrow("Launch workspace display selection is invalid.");
+    expect(browserManager.launchWorkspace).not.toHaveBeenCalled();
   });
 
   it("launches three-column workspace roles with each saved column bound", async () => {
@@ -237,7 +359,8 @@ describe("registerIpcHandlers workspace handlers", () => {
       threeColumnWorkspace,
       expect.arrayContaining([
         { role: expect.objectContaining({ id: "role-3" }), rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
-      ])
+      ]),
+      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
     );
   });
 
@@ -262,7 +385,8 @@ describe("registerIpcHandlers workspace handlers", () => {
       fourColumnWorkspace,
       expect.arrayContaining([
         { role: expect.objectContaining({ id: "role-4" }), rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
-      ])
+      ]),
+      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
     );
   });
 

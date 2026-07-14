@@ -33,8 +33,9 @@ type StoredLaunchWorkspaceSlot = Partial<LaunchWorkspaceSlot> & {
   [key: string]: unknown;
 };
 
-type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserZoomPercent" | "slots"> & {
+type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserZoomPercent" | "slots" | "targetDisplayId"> & {
   browserZoomPercent?: unknown;
+  targetDisplayId?: unknown;
   slots: StoredLaunchWorkspaceSlot[];
 };
 
@@ -82,6 +83,7 @@ export class LaunchWorkspaceStore {
       input.browserZoomPercent,
       getDefaultWorkspaceBrowserZoomPercent(template)
     );
+    const targetDisplayId = this.normalizeTargetDisplayId(input.targetDisplayId);
 
     this.ensureUniqueName(file.workspaces, name);
 
@@ -90,6 +92,7 @@ export class LaunchWorkspaceStore {
       name,
       template,
       browserZoomPercent,
+      ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
       slots: this.normalizeSlots(template, input.slots),
       createdAt: now,
       updatedAt: now
@@ -116,6 +119,10 @@ export class LaunchWorkspaceStore {
       input.browserZoomPercent,
       current.browserZoomPercent
     );
+    const targetDisplayId =
+      input.targetDisplayId === undefined
+        ? current.targetDisplayId
+        : this.normalizeTargetDisplayId(input.targetDisplayId);
     const sourceSlots =
       input.slots ??
       (input.template === undefined ? current.slots : current.slots.slice(0, getWorkspaceTemplateSlotCount(template)));
@@ -130,6 +137,11 @@ export class LaunchWorkspaceStore {
       slots: this.normalizeSlots(template, sourceSlots),
       updatedAt: new Date().toISOString()
     };
+    if (targetDisplayId === undefined) {
+      delete updated.targetDisplayId;
+    } else {
+      updated.targetDisplayId = targetDisplayId;
+    }
 
     file.workspaces[index] = updated;
     await this.writeWorkspacesFile(file);
@@ -223,6 +235,7 @@ export class LaunchWorkspaceStore {
 
   private normalizeStoredWorkspace(workspace: StoredLaunchWorkspace): LaunchWorkspace {
     const template = this.normalizeTemplate(workspace.template);
+    const targetDisplayId = this.normalizeTargetDisplayId(workspace.targetDisplayId);
 
     return {
       id: typeof workspace.id === "string" && workspace.id.trim() ? workspace.id : randomUUID(),
@@ -232,6 +245,7 @@ export class LaunchWorkspaceStore {
         workspace.browserZoomPercent,
         DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
       ),
+      ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
       slots: this.normalizeSlots(template, workspace.slots as StoredLaunchWorkspaceSlot[]),
       createdAt: typeof workspace.createdAt === "string" ? workspace.createdAt : new Date().toISOString(),
       updatedAt: typeof workspace.updatedAt === "string" ? workspace.updatedAt : new Date().toISOString()
@@ -299,6 +313,21 @@ export class LaunchWorkspaceStore {
       throw new LaunchWorkspaceStoreError(
         "WORKSPACE_BROWSER_ZOOM_INVALID",
         "Launch workspace browser zoom is invalid."
+      );
+    }
+
+    return value;
+  }
+
+  private normalizeTargetDisplayId(value: unknown): number | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value === -1) {
+      throw new LaunchWorkspaceStoreError(
+        "WORKSPACE_TARGET_DISPLAY_INVALID",
+        "Launch workspace target display is invalid."
       );
     }
 

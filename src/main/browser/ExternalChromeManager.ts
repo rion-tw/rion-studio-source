@@ -26,6 +26,7 @@ export interface ExternalChromeLaunchItem {
 
 export interface ExternalChromeLaunchOptions {
   notice?: string;
+  workArea?: PixelBounds;
 }
 
 export interface ExternalChromeManagerOptions {
@@ -100,6 +101,10 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     return [...this.sessions.entries()].map(([roleId, session]) => this.toStatus(roleId, session));
   }
 
+  hasWorkspace(workspaceId: string): boolean {
+    return [...this.sessions.values()].some((session) => session.workspaceId === workspaceId);
+  }
+
   async launch(role: Role, options: ExternalChromeLaunchOptions = {}): Promise<RoleStatus> {
     const existing = this.sessions.get(role.id);
     if (existing) {
@@ -108,7 +113,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       return this.toStatus(role.id, existing);
     }
 
-    const workArea = this.options.getLaunchWorkArea();
+    const workArea = options.workArea ?? this.options.getLaunchWorkArea();
     const width = Math.min(role.windowWidth, workArea.width);
     const height = Math.min(role.windowHeight, workArea.height);
     const bounds = {
@@ -131,7 +136,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       throw new ExternalChromeRoleAlreadyRunningError(runningRoles);
     }
 
-    const workArea = this.options.getLaunchWorkArea();
+    const workArea = options.workArea ?? this.options.getLaunchWorkArea();
     const sessions: Array<{ roleId: string; session: ExternalChromeSession }> = [];
 
     try {

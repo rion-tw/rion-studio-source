@@ -27,6 +27,7 @@ import type {
   NormalizedRect,
   Role,
   RoleStatus,
+  WorkspaceDisplayInfo,
   WorkspaceBrowserZoomPercent,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
@@ -36,6 +37,7 @@ import {
   workspaceLayoutTemplates
 } from "../../../../shared/workspaceLayout";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
+import { formatWorkspaceDisplayLabel } from "./workspaceDisplayUtils";
 import {
   applyWorkspaceSplits,
   applyWorkspaceTemplate,
@@ -56,6 +58,7 @@ interface WorkspaceEditorRouteProps {
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
+  workspaceDisplays: WorkspaceDisplayInfo[];
   workspaces: LaunchWorkspace[];
   onSave: (form: WorkspaceFormState) => Promise<LaunchWorkspace | undefined>;
 }
@@ -88,6 +91,7 @@ function WorkspaceEditor({
   roles,
   statusByRole,
   t,
+  workspaceDisplays,
   onSave
 }: WorkspaceEditorRouteProps & { initialForm: WorkspaceFormState }): JSX.Element {
   const navigate = useNavigate();
@@ -139,6 +143,7 @@ function WorkspaceEditor({
         roles={roles}
         statusByRole={statusByRole}
         t={t}
+        workspaceDisplays={workspaceDisplays}
         onChange={setForm}
       />
     </EditorPage>
@@ -152,6 +157,7 @@ interface WorkspaceLayoutFormEditorProps {
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
+  workspaceDisplays: WorkspaceDisplayInfo[];
 }
 
 function WorkspaceLayoutFormEditor({
@@ -160,7 +166,8 @@ function WorkspaceLayoutFormEditor({
   onChange,
   roles,
   statusByRole,
-  t
+  t,
+  workspaceDisplays
 }: WorkspaceLayoutFormEditorProps): JSX.Element {
   const [dragSlots, setDragSlots] = useState<LaunchWorkspaceSlot[] | null>(null);
   const [dropTargetSlotIndex, setDropTargetSlotIndex] = useState<number | null>(null);
@@ -291,7 +298,7 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
+      <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(240px,1.2fr)_minmax(150px,0.7fr)_minmax(210px,1fr)]">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
             <div className="grid grid-cols-9 gap-1.5">
@@ -341,6 +348,39 @@ function WorkspaceLayoutFormEditor({
               {workspaceBrowserZoomPercents.map((zoomPercent) => (
                 <option key={zoomPercent} value={zoomPercent}>
                   {zoomPercent}%
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        </Surface>
+
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField
+            htmlFor="workspace-target-display"
+            label={t("workspaces.targetDisplay")}
+            description={t("workspaces.targetDisplayDescription")}
+          >
+            <Select
+              id="workspace-target-display"
+              value={form.targetDisplayId ?? ""}
+              disabled={isSaving}
+              onChange={(event) =>
+                onChange({
+                  ...form,
+                  targetDisplayId: event.target.value === "" ? undefined : Number(event.target.value)
+                })
+              }
+            >
+              <option value="">{t("workspaces.targetDisplayFollowApp")}</option>
+              {form.targetDisplayId !== undefined &&
+              !workspaceDisplays.some((display) => display.id === form.targetDisplayId) ? (
+                <option value={form.targetDisplayId} disabled>
+                  {t("workspaces.targetDisplayUnavailable").replace("{id}", String(form.targetDisplayId))}
+                </option>
+              ) : null}
+              {workspaceDisplays.map((display, index) => (
+                <option key={display.id} value={display.id}>
+                  {formatWorkspaceDisplayLabel(display, index, t)}
                 </option>
               ))}
             </Select>

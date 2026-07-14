@@ -39,6 +39,11 @@ export interface BrowserWorkspaceLaunchItem {
   role: Role;
 }
 
+export interface BrowserWorkspaceLaunchTarget {
+  displayId: number;
+  workArea: PixelBounds;
+}
+
 export interface BrowserAutomationSession {
   role: Role;
   target: BrowserAutomationTarget;
@@ -102,6 +107,18 @@ export class BrowserRoleAlreadyRunningError extends Error {
   }
 }
 
+export class BrowserWorkspaceDisplayOccupiedError extends Error {
+  readonly code = "WORKSPACE_DISPLAY_OCCUPIED";
+
+  constructor(
+    readonly displayId: number,
+    readonly occupiedByWorkspaceId: string
+  ) {
+    super("Launch workspace target display is already occupied.");
+    this.name = "BrowserWorkspaceDisplayOccupiedError";
+  }
+}
+
 interface GameHostWindow {
   closing: boolean;
   dividers: GameDivider[];
@@ -147,6 +164,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
   private readonly hosts = new Map<string, GameHostWindow>();
   private readonly sessions = new Map<string, BrowserSession>();
+  private readonly pendingWorkspaceLaunchIds = new Set<string>();
+  private readonly workspaceDisplayReservations = new Map<string, { displayId: number; name: string }>();
   private readonly workspaceHostIds = new Map<string, string>();
   private beforeRolesStop?: BeforeRolesStop;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
@@ -156,7 +175,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     private readonly options: BrowserManagerOptions
   ) {
     super();
-    this.options.externalChromeManager?.on("change", () => this.emitChange());
+    this.options.externalChromeManager?.on("change", () => {
+      this.cleanupWorkspaceDisplayReservations();
+      this.emitChange();
+    });
   }
 
   setBeforeRolesStop(handler: BeforeRolesStop): void {
@@ -179,6 +201,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       ...[...this.sessions.entries()].map(([roleId, session]) => this.toStatus(roleId, session)),
       ...(this.options.externalChromeManager?.listStatuses() ?? [])
     ];
+  }
+
+  listWorkspaceDisplayReservations(): Array<{ workspaceId: string; workspaceName: string; displayId: number }> {
+    return [...this.workspaceDisplayReservations].map(([workspaceId, reservation]) => ({
+      workspaceId,
+      workspaceName: reservation.name,
+      displayId: reservation.displayId
+    }));
   }
 
   getRoleIdForWebContents(webContentsId: number): string | undefined {
@@ -236,13 +266,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   async launchWorkspace(
     workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "name">,
-    items: BrowserWorkspaceLaunchItem[]
+    items: BrowserWorkspaceLaunchItem[],
+    target?: BrowserWorkspaceLaunchTarget
   ): Promise<RoleStatus[]> {
-    const launchMode = await this.getBrowserLaunchMode();
-    if (launchMode === "external") {
-      return this.launchExternalWorkspace(workspace, items);
-    }
-
     const runningRoles = items
       .map((item) => item.role)
       .filter((role) => this.sessions.has(role.id) || this.options.externalChromeManager?.hasSession(role.id));
@@ -250,26 +276,42 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       throw new BrowserRoleAlreadyRunningError(runningRoles);
     }
 
-    const roleNames = items.map((item) => item.role.name).join(", ");
-    const host = this.createHost(`${workspace.name} - ${roleNames}`, workspace.id);
-    await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
-    const sessions = items.map((item) => this.createSession(item.role, host, item.rect));
-    const zoomFactor = workspace.browserZoomPercent / 100;
+    if (target) {
+      this.reserveWorkspaceDisplay(workspace.id, workspace.name, target.displayId);
+      this.pendingWorkspaceLaunchIds.add(workspace.id);
+    }
 
     try {
-      await this.createHostDividers(host);
-      host.window.show();
-      for (const session of sessions) {
-        await this.finishLaunch(session, zoomFactor);
+      const launchMode = await this.getBrowserLaunchMode();
+      if (launchMode === "external") {
+        return this.launchExternalWorkspace(workspace, items, undefined, target);
       }
-      host.window.focus();
-      return sessions.map((session) => this.toStatus(session.role.id, session));
-    } catch (error) {
-      await this.stopHost(host.id);
-      if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
-        return this.launchExternalWorkspace(workspace, items, EXTERNAL_COMPAT_NOTICE);
+
+      const roleNames = items.map((item) => item.role.name).join(", ");
+      const host = this.createHost(`${workspace.name} - ${roleNames}`, workspace.id, target?.workArea);
+      try {
+        await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
+        const sessions = items.map((item) => this.createSession(item.role, host, item.rect));
+        const zoomFactor = workspace.browserZoomPercent / 100;
+        await this.createHostDividers(host);
+        host.window.show();
+        for (const session of sessions) {
+          await this.finishLaunch(session, zoomFactor);
+        }
+        host.window.focus();
+        return sessions.map((session) => this.toStatus(session.role.id, session));
+      } catch (error) {
+        await this.stopHost(host.id);
+        if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
+          return this.launchExternalWorkspace(workspace, items, EXTERNAL_COMPAT_NOTICE, target);
+        }
+        throw error;
       }
-      throw error;
+    } finally {
+      if (target) {
+        this.pendingWorkspaceLaunchIds.delete(workspace.id);
+        this.cleanupWorkspaceDisplayReservation(workspace.id);
+      }
     }
   }
 
@@ -345,6 +387,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       await this.stopHost(hostId);
     }
     await this.options.externalChromeManager?.stopWorkspace(workspaceId);
+    this.cleanupWorkspaceDisplayReservation(workspaceId);
   }
 
   async stopAll(): Promise<void> {
@@ -379,8 +422,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.resizeDivider(host, target.divider, nextPosition);
   }
 
-  private createHost(title: string, workspaceId?: string): GameHostWindow {
-    const bounds = this.options.getLaunchWorkArea();
+  private createHost(title: string, workspaceId?: string, launchBounds?: PixelBounds): GameHostWindow {
+    const bounds = launchBounds ?? this.options.getLaunchWorkArea();
     const window = this.options.createHostWindow({
       ...bounds,
       backgroundColor: "#000000",
@@ -535,13 +578,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private async launchExternalWorkspace(
     workspace: Pick<LaunchWorkspace, "id">,
     items: ExternalChromeLaunchItem[],
-    notice?: string
+    notice?: string,
+    target?: BrowserWorkspaceLaunchTarget
   ): Promise<RoleStatus[]> {
     if (!this.options.externalChromeManager) {
       throw new Error("External Chrome compatibility mode is not available.");
     }
 
-    return this.options.externalChromeManager.launchWorkspace(workspace, items, { notice });
+    return this.options.externalChromeManager.launchWorkspace(workspace, items, {
+      notice,
+      workArea: target?.workArea
+    });
   }
 
   private async ensureSessionAuthenticated(role: Role, session: BrowserSession): Promise<void> {
@@ -831,7 +878,38 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.hosts.delete(host.id);
     if (host.workspaceId && this.workspaceHostIds.get(host.workspaceId) === host.id) {
       this.workspaceHostIds.delete(host.workspaceId);
+      this.cleanupWorkspaceDisplayReservation(host.workspaceId);
     }
+  }
+
+  private reserveWorkspaceDisplay(workspaceId: string, workspaceName: string, displayId: number): void {
+    const occupied = [...this.workspaceDisplayReservations].find(
+      ([reservedWorkspaceId, reservation]) =>
+        reservedWorkspaceId !== workspaceId && reservation.displayId === displayId
+    );
+    if (occupied) {
+      throw new BrowserWorkspaceDisplayOccupiedError(displayId, occupied[0]);
+    }
+
+    this.workspaceDisplayReservations.set(workspaceId, { displayId, name: workspaceName });
+  }
+
+  private cleanupWorkspaceDisplayReservations(): void {
+    [...this.workspaceDisplayReservations.keys()].forEach((workspaceId) => {
+      this.cleanupWorkspaceDisplayReservation(workspaceId);
+    });
+  }
+
+  private cleanupWorkspaceDisplayReservation(workspaceId: string): void {
+    if (
+      this.pendingWorkspaceLaunchIds.has(workspaceId) ||
+      this.workspaceHostIds.has(workspaceId) ||
+      this.options.externalChromeManager?.hasWorkspace?.(workspaceId)
+    ) {
+      return;
+    }
+
+    this.workspaceDisplayReservations.delete(workspaceId);
   }
 
   private emitChange(): void {

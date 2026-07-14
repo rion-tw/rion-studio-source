@@ -7,7 +7,8 @@ import type {
   AuthFlowStatus,
   MacroEditorRequest,
   MacroRunStatus,
-  RoleStatus
+  RoleStatus,
+  WorkspaceDisplayInfo
 } from "../shared/types";
 
 const api: RionStudioApi = {
@@ -32,7 +33,8 @@ const api: RionStudioApi = {
   updateLaunchWorkspace: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.workspacesUpdate, id, input),
   reorderLaunchWorkspaces: (input) => ipcRenderer.invoke(IPC_CHANNELS.workspacesReorder, input),
   deleteLaunchWorkspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.workspacesDelete, id),
-  launchWorkspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.workspacesLaunch, id),
+  listWorkspaceDisplays: () => ipcRenderer.invoke(IPC_CHANNELS.workspacesDisplays),
+  launchWorkspace: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.workspacesLaunch, id, input),
   stopLaunchWorkspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.workspacesStop, id),
   listMacros: () => ipcRenderer.invoke(IPC_CHANNELS.macrosList),
   createMacro: (input) => ipcRenderer.invoke(IPC_CHANNELS.macrosCreate, input),
@@ -63,6 +65,17 @@ const api: RionStudioApi = {
 
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.rolesStatusChanged, listener);
+    };
+  },
+  onWorkspaceDisplaysChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, displays: WorkspaceDisplayInfo[]) => {
+      callback(displays);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.workspacesDisplaysChanged, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.workspacesDisplaysChanged, listener);
     };
   },
   onAuthStatusChanged: (callback) => {

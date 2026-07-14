@@ -161,10 +161,12 @@ const EXTERNAL_COMPAT_NOTICE =
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
 
 export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
+  private readonly blockedRoleIds = new Set<string>();
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
   private readonly hosts = new Map<string, GameHostWindow>();
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly pendingWorkspaceLaunchIds = new Set<string>();
+  private readonly roleOperationTails = new Map<string, Promise<void>>();
   private readonly workspaceDisplayReservations = new Map<string, { displayId: number; name: string }>();
   private readonly workspaceHostIds = new Map<string, string>();
   private beforeRolesStop?: BeforeRolesStop;
@@ -225,7 +227,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return { role: session.role, target: session.target };
   }
 
-  async launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus> {
+  launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus> {
+    return this.runRoleOperation([role.id], () => this.launchUnlocked(role, options));
+  }
+
+  private async launchUnlocked(role: Role, options: BrowserLaunchOptions): Promise<RoleStatus> {
     const launchMode = await this.getBrowserLaunchMode();
     if (launchMode === "external") {
       return this.launchExternal(role);
@@ -264,7 +270,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
   }
 
-  async launchWorkspace(
+  launchWorkspace(
+    workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "name">,
+    items: BrowserWorkspaceLaunchItem[],
+    target?: BrowserWorkspaceLaunchTarget
+  ): Promise<RoleStatus[]> {
+    return this.runRoleOperation(
+      items.map((item) => item.role.id),
+      () => this.launchWorkspaceUnlocked(workspace, items, target)
+    );
+  }
+
+  private async launchWorkspaceUnlocked(
     workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "name">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget
@@ -315,7 +332,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
   }
 
-  async startLogin(role: Role): Promise<void> {
+  startLogin(role: Role): Promise<void> {
+    return this.runRoleOperation([role.id], () => this.startLoginUnlocked(role));
+  }
+
+  private async startLoginUnlocked(role: Role): Promise<void> {
     let session = this.sessions.get(role.id);
 
     if (!session) {
@@ -363,7 +384,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
   }
 
-  async stop(roleId: string): Promise<void> {
+  stop(roleId: string): Promise<void> {
+    return this.withRoleOperationLocks([roleId], () => this.stopUnlocked(roleId));
+  }
+
+  private async stopUnlocked(roleId: string): Promise<void> {
     const session = this.sessions.get(roleId);
     if (!session) {
       await this.options.externalChromeManager?.stop(roleId);
@@ -379,6 +404,22 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (host && host.roleIds.size === 0) {
       this.closeHostWindow(host);
     }
+  }
+
+  runRoleOperation<T>(roleIds: string[], operation: () => Promise<T>): Promise<T> {
+    return this.withRoleOperationLocks(roleIds, async () => {
+      this.assertRolesAvailable(roleIds);
+      return operation();
+    });
+  }
+
+  stopRoleAndRunMutation<T>(roleId: string, operation: () => Promise<T>): Promise<T> {
+    return this.withRoleOperationLocks([roleId], async () => {
+      this.assertRolesAvailable([roleId]);
+      this.blockedRoleIds.add(roleId);
+      await this.stopUnlocked(roleId);
+      return operation();
+    });
   }
 
   async stopWorkspace(workspaceId: string): Promise<void> {
@@ -861,6 +902,45 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     } catch (error) {
       console.warn("Failed to stop macros before closing a game window.", error);
     }
+  }
+
+  private assertRolesAvailable(roleIds: string[]): void {
+    if (roleIds.some((roleId) => this.blockedRoleIds.has(roleId))) {
+      throw new Error("Role not found.");
+    }
+  }
+
+  private withRoleOperationLocks<T>(roleIds: string[], operation: () => Promise<T>): Promise<T> {
+    const ids = [...new Set(roleIds)].sort();
+    const previous = ids.flatMap((roleId) => {
+      const tail = this.roleOperationTails.get(roleId);
+      return tail ? [tail] : [];
+    });
+    let release!: () => void;
+    const tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    ids.forEach((roleId) => this.roleOperationTails.set(roleId, tail));
+    let result: Promise<T>;
+
+    if (previous.length === 0) {
+      try {
+        result = Promise.resolve(operation());
+      } catch (error) {
+        result = Promise.reject(error);
+      }
+    } else {
+      result = Promise.all(previous).then(operation);
+    }
+
+    return result.finally(() => {
+      release();
+      ids.forEach((roleId) => {
+        if (this.roleOperationTails.get(roleId) === tail) {
+          this.roleOperationTails.delete(roleId);
+        }
+      });
+    });
   }
 
   private closeHostWindow(host: GameHostWindow): void {

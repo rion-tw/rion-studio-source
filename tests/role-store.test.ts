@@ -457,5 +457,11 @@ describe("RoleStore", () => {
     await expect(access(store.getRolePaths(role.id).browserUserDataDir)).rejects.toMatchObject({
       code: "ENOENT"
     });
+    await expect(store.ensureBrowserUserDataDir(role.id)).rejects.toMatchObject({
+      code: "ROLE_NOT_FOUND"
+    });
+    await expect(access(store.getRolePaths(role.id).browserUserDataDir)).rejects.toMatchObject({
+      code: "ENOENT"
+    });
   });
 });

@@ -45,6 +45,42 @@ describe("BrowserManager game host windows", () => {
     expect(createRoleSessionPartition("role:one/two")).toBe("persist:rion-role-role-one-two");
   });
 
+  it("serializes role deletion after active work and rejects stale queued work", async () => {
+    const harness = createHarness();
+    const events: string[] = [];
+    let releaseActiveOperation!: () => void;
+    let markActiveOperationStarted!: () => void;
+    const activeOperationStarted = new Promise<void>((resolve) => {
+      markActiveOperationStarted = resolve;
+    });
+    const activeOperationGate = new Promise<void>((resolve) => {
+      releaseActiveOperation = resolve;
+    });
+
+    const activeOperation = harness.manager.runRoleOperation([role.id], async () => {
+      events.push("active:start");
+      markActiveOperationStarted();
+      await activeOperationGate;
+      events.push("active:end");
+    });
+    await activeOperationStarted;
+
+    const deletion = harness.manager.stopRoleAndRunMutation(role.id, async () => {
+      events.push("delete");
+    });
+    const staleOperation = harness.manager.runRoleOperation([role.id], async () => {
+      events.push("stale");
+    });
+
+    expect(events).toEqual(["active:start"]);
+    releaseActiveOperation();
+
+    await activeOperation;
+    await deletion;
+    await expect(staleOperation).rejects.toThrow("Role not found.");
+    expect(events).toEqual(["active:start", "active:end", "delete"]);
+  });
+
   it("opens a single role in a standard framed work-area window without an inner control offset", async () => {
     const harness = createHarness();
     const overlayInstaller = vi.fn().mockResolvedValue(undefined);

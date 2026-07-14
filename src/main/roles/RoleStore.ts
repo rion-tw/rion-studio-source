@@ -220,9 +220,17 @@ export class RoleStore {
   }
 
   async ensureBrowserUserDataDir(id: string): Promise<string> {
-    const browserUserDataDir = this.getBrowserUserDataDir(id);
-    await mkdir(browserUserDataDir, { recursive: true });
-    return browserUserDataDir;
+    return this.taskQueue.run(async () => {
+      const roleExists = (await this.readRolesFile()).roles.some((role) => role.id === id);
+
+      if (!roleExists) {
+        throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
+      }
+
+      const browserUserDataDir = this.getBrowserUserDataDir(id);
+      await mkdir(browserUserDataDir, { recursive: true });
+      return browserUserDataDir;
+    });
   }
 
   private getBrowserUserDataDir(id: string): string {

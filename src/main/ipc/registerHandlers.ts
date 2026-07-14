@@ -237,10 +237,11 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesDelete, async (_event, id: string) => {
-    await browserManager.stop(id);
-    await roleStore.deleteRole(id);
-    await workspaceStore.clearRole(id);
-    await options.macroStore?.deleteRoleMacros(id);
+    await browserManager.stopRoleAndRunMutation(id, async () => {
+      await roleStore.deleteRole(id);
+      await workspaceStore.clearRole(id);
+      await options.macroStore?.deleteRoleMacros(id);
+    });
     options.onRolesChanged?.();
     options.onWorkspacesChanged?.();
     options.onMacrosChanged?.();
@@ -283,7 +284,12 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.workspacesList, () => workspaceStore.listWorkspaces());
 
   ipcMain.handle(IPC_CHANNELS.workspacesCreate, async (_event, input: CreateLaunchWorkspaceInput) => {
-    const workspace = await workspaceStore.createWorkspace(input);
+    const workspace = await runWithExistingRoles(
+      getWorkspaceInputRoleIds(input),
+      roleStore,
+      browserManager,
+      () => workspaceStore.createWorkspace(input)
+    );
     options.onWorkspacesChanged?.();
     return workspace;
   });
@@ -291,7 +297,12 @@ export function registerIpcHandlers(
   ipcMain.handle(
     IPC_CHANNELS.workspacesUpdate,
     async (_event, id: string, input: UpdateLaunchWorkspaceInput) => {
-      const workspace = await workspaceStore.updateWorkspace(id, input);
+      const workspace = await runWithExistingRoles(
+        getWorkspaceInputRoleIds(input),
+        roleStore,
+        browserManager,
+        () => workspaceStore.updateWorkspace(id, input)
+      );
       options.onWorkspacesChanged?.();
       return workspace;
     }
@@ -395,13 +406,23 @@ export function registerIpcHandlers(
     ipcMain.handle(IPC_CHANNELS.macrosList, () => macroStore.listMacros());
 
     ipcMain.handle(IPC_CHANNELS.macrosCreate, async (_event, input: CreateMacroInput) => {
-      const macro = await macroStore.createMacro(input);
+      const macro = await runWithExistingRoles(
+        getMacroInputRoleIds(input),
+        roleStore,
+        browserManager,
+        () => macroStore.createMacro(input)
+      );
       options.onMacrosChanged?.();
       return macro;
     });
 
     ipcMain.handle(IPC_CHANNELS.macrosUpdate, async (_event, id: string, input: UpdateMacroInput) => {
-      const macro = await macroManager.runStoppedMutation(id, () => macroStore.updateMacro(id, input));
+      const macro = await runWithExistingRoles(
+        getMacroInputRoleIds(input),
+        roleStore,
+        browserManager,
+        () => macroManager.runStoppedMutation(id, () => macroStore.updateMacro(id, input))
+      );
       options.onMacrosChanged?.();
       return macro;
     });
@@ -421,6 +442,38 @@ export function registerIpcHandlers(
 
     ipcMain.handle(IPC_CHANNELS.macrosStatuses, () => macroManager.listStatuses());
   }
+}
+
+async function runWithExistingRoles<T>(
+  roleIds: string[],
+  roleStore: RoleStore,
+  browserManager: BrowserManager,
+  operation: () => Promise<T>
+): Promise<T> {
+  const uniqueRoleIds = [...new Set(roleIds)];
+
+  return browserManager.runRoleOperation(uniqueRoleIds, async () => {
+    await Promise.all(uniqueRoleIds.map((roleId) => roleStore.getRole(roleId)));
+    return operation();
+  });
+}
+
+function getWorkspaceInputRoleIds(input: CreateLaunchWorkspaceInput | UpdateLaunchWorkspaceInput): string[] {
+  if (!Array.isArray(input?.slots)) {
+    return [];
+  }
+
+  return input.slots.flatMap((slot) =>
+    slot && typeof slot.roleId === "string" && slot.roleId ? [slot.roleId] : []
+  );
+}
+
+function getMacroInputRoleIds(input: CreateMacroInput | UpdateMacroInput): string[] {
+  if (!Array.isArray(input?.roleIds)) {
+    return [];
+  }
+
+  return input.roleIds.filter((roleId): roleId is string => typeof roleId === "string" && Boolean(roleId));
 }
 
 function isAppRendererReadyState(value: unknown): value is AppRendererReadyState {

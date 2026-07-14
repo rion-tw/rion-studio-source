@@ -78,7 +78,10 @@ const workspace: LaunchWorkspace = {
 
 describe("registerIpcHandlers workspace handlers", () => {
   let roleStore: Pick<RoleStore, "deleteRole" | "getRole" | "reorderRoles">;
-  let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace" | "reorderWorkspaces">;
+  let workspaceStore: Pick<
+    LaunchWorkspaceStore,
+    "clearRole" | "createWorkspace" | "getWorkspace" | "reorderWorkspaces" | "updateWorkspace"
+  >;
   let browserManager: Pick<
     BrowserManager,
     | "launch"
@@ -86,7 +89,9 @@ describe("registerIpcHandlers workspace handlers", () => {
     | "listStatuses"
     | "listWorkspaceDisplayReservations"
     | "on"
+    | "runRoleOperation"
     | "stop"
+    | "stopRoleAndRunMutation"
     | "stopWorkspace"
   >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
@@ -115,8 +120,10 @@ describe("registerIpcHandlers workspace handlers", () => {
     };
     workspaceStore = {
       clearRole: vi.fn().mockResolvedValue(undefined),
+      createWorkspace: vi.fn().mockResolvedValue(workspace),
       getWorkspace: vi.fn().mockResolvedValue(workspace),
-      reorderWorkspaces: vi.fn().mockResolvedValue([workspace])
+      reorderWorkspaces: vi.fn().mockResolvedValue([workspace]),
+      updateWorkspace: vi.fn().mockResolvedValue(workspace)
     };
     browserManager = {
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
@@ -126,7 +133,12 @@ describe("registerIpcHandlers workspace handlers", () => {
       listStatuses: vi.fn(() => []),
       listWorkspaceDisplayReservations: vi.fn(() => []),
       on: vi.fn(),
+      runRoleOperation: vi.fn(async (_roleIds: string[], operation: () => Promise<unknown>) => operation()) as never,
       stop: vi.fn().mockResolvedValue(undefined),
+      stopRoleAndRunMutation: vi.fn(async (roleId: string, operation: () => Promise<unknown>) => {
+        await browserManager.stop(roleId);
+        return operation();
+      }) as never,
       stopWorkspace: vi.fn().mockResolvedValue(undefined)
     };
     authManager = {
@@ -200,6 +212,23 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(workspaceStore.reorderWorkspaces).toHaveBeenCalledWith(workspaceInput);
     expect(onRolesChanged).toHaveBeenCalledOnce();
     expect(onWorkspacesChanged).toHaveBeenCalledOnce();
+  });
+
+  it("validates workspace role references inside the role operation lock", async () => {
+    const input = { name: "Party", slots: workspace.slots };
+
+    await expect(handlers.get(IPC_CHANNELS.workspacesCreate)?.({}, input)).resolves.toEqual(workspace);
+
+    expect(browserManager.runRoleOperation).toHaveBeenCalledWith(["role-1", "role-2"], expect.any(Function));
+    expect(roleStore.getRole).toHaveBeenCalledWith("role-1");
+    expect(roleStore.getRole).toHaveBeenCalledWith("role-2");
+    expect(workspaceStore.createWorkspace).toHaveBeenCalledWith(input);
+
+    vi.mocked(roleStore.getRole).mockRejectedValueOnce(new Error("Role not found."));
+    await expect(
+      handlers.get(IPC_CHANNELS.workspacesUpdate)?.({}, workspace.id, { slots: workspace.slots })
+    ).rejects.toThrow("Role not found.");
+    expect(workspaceStore.updateWorkspace).not.toHaveBeenCalled();
   });
 
   it("syncs the overlay language preference", async () => {
@@ -455,7 +484,10 @@ describe("registerIpcHandlers macro handlers", () => {
 
   let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
-  let browserManager: Pick<BrowserManager, "launch" | "listStatuses" | "on" | "stop">;
+  let browserManager: Pick<
+    BrowserManager,
+    "launch" | "listStatuses" | "on" | "runRoleOperation" | "stop" | "stopRoleAndRunMutation"
+  >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let macroStore: Pick<
     MacroStore,
@@ -481,7 +513,12 @@ describe("registerIpcHandlers macro handlers", () => {
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
       listStatuses: vi.fn(() => []),
       on: vi.fn(),
-      stop: vi.fn().mockResolvedValue(undefined)
+      runRoleOperation: vi.fn(async (_roleIds: string[], operation: () => Promise<unknown>) => operation()) as never,
+      stop: vi.fn().mockResolvedValue(undefined),
+      stopRoleAndRunMutation: vi.fn(async (roleId: string, operation: () => Promise<unknown>) => {
+        await browserManager.stop(roleId);
+        return operation();
+      }) as never
     };
     authManager = {
       listStatuses: vi.fn(() => []),
@@ -570,6 +607,21 @@ describe("registerIpcHandlers macro handlers", () => {
 
     expect(macroManager.start).toHaveBeenCalledWith("macro-1");
     expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
+  });
+
+  it("rejects a macro role reference that disappears before persistence", async () => {
+    vi.mocked(roleStore.getRole).mockRejectedValueOnce(new Error("Role not found."));
+
+    await expect(
+      handlers.get(IPC_CHANNELS.macrosCreate)?.({}, {
+        name: "Auto heal",
+        roleIds: ["role-1"],
+        steps: [{ id: "step-1", type: "key", code: "F2" }]
+      })
+    ).rejects.toThrow("Role not found.");
+
+    expect(browserManager.runRoleOperation).toHaveBeenCalledWith(["role-1"], expect.any(Function));
+    expect(macroStore.createMacro).not.toHaveBeenCalled();
   });
 
   it("stops and deletes running macro instances before deleting a macro", async () => {

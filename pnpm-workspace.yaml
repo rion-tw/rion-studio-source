@@ -1,9 +1,28 @@
 allowBuilds:
   electron: true
+  electron-winstaller: true
   esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@typescript-eslint/eslint-plugin@8.64.0'
+  - '@typescript-eslint/parser@8.64.0'
+  - '@typescript-eslint/project-service@8.64.0'
+  - '@typescript-eslint/scope-manager@8.64.0'
+  - '@typescript-eslint/tsconfig-utils@8.64.0'
+  - '@typescript-eslint/type-utils@8.64.0'
+  - '@typescript-eslint/types@8.64.0'
+  - '@typescript-eslint/typescript-estree@8.64.0'
+  - '@typescript-eslint/utils@8.64.0'
+  - '@typescript-eslint/visitor-keys@8.64.0'
+  - typescript-eslint@8.64.0
 
 onlyBuiltDependencies:
   - electron
   - esbuild
+
+peerDependencyRules:
+  allowedVersions:
+    # electron-vite 5 builds successfully with Vite 8, but its declared range stops at Vite 7.
+    "electron-vite>vite": "^8.0.0"
 
 verifyDepsBeforeRun: false

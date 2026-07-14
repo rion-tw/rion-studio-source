@@ -1,12 +1,14 @@
 import { EventEmitter } from "node:events";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   buildExternalChromeArgs,
   ExternalChromeManager
 } from "../src/main/browser/ExternalChromeManager";
 import type { Role } from "../src/shared/types";
+
+type AnyMock = Mock;
 
 const role: Role = {
   id: "role-1",
@@ -297,8 +299,8 @@ describe("ExternalChromeManager", () => {
 });
 
 function createHarness(options: {
-  connectAutomation?: ReturnType<typeof vi.fn>;
-  prepareCdnCompatibility?: ReturnType<typeof vi.fn>;
+  connectAutomation?: AnyMock;
+  prepareCdnCompatibility?: AnyMock;
 } = {}) {
   const children: Array<ReturnType<typeof createChild>> = [];
   const automationTargets: Array<ReturnType<typeof createAutomationTarget>> = [];

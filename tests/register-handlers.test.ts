@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import type { AuthManager } from "../src/main/auth/AuthManager";
@@ -21,6 +21,8 @@ import type {
   SystemFontFamily,
   WorkspaceDisplayInfo
 } from "../src/shared/types";
+
+type AnyMock = Mock;
 
 const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>()
@@ -95,15 +97,15 @@ describe("registerIpcHandlers workspace handlers", () => {
     | "stopWorkspace"
   >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
-  let onOverlayLanguageChanged: ReturnType<typeof vi.fn>;
-  let onRendererReady: ReturnType<typeof vi.fn>;
-  let onLegalAccepted: ReturnType<typeof vi.fn>;
-  let onRolesChanged: ReturnType<typeof vi.fn>;
-  let onWorkspacesChanged: ReturnType<typeof vi.fn>;
-  let quitApplication: ReturnType<typeof vi.fn>;
+  let onOverlayLanguageChanged: AnyMock;
+  let onRendererReady: AnyMock;
+  let onLegalAccepted: AnyMock;
+  let onRolesChanged: AnyMock;
+  let onWorkspacesChanged: AnyMock;
+  let quitApplication: AnyMock;
   let legalAcceptanceStore: {
-    accept: ReturnType<typeof vi.fn>;
-    getStatus: ReturnType<typeof vi.fn>;
+    accept: AnyMock;
+    getStatus: AnyMock;
   };
   let workspaceDisplays: WorkspaceDisplayInfo[];
 
@@ -497,7 +499,7 @@ describe("registerIpcHandlers macro handlers", () => {
     MacroManager,
     "listStatuses" | "on" | "runStoppedMutation" | "start" | "stop" | "stopAndRunMutation" | "stopRole"
   >;
-  let consumePendingMacroEditorRequest: ReturnType<typeof vi.fn>;
+  let consumePendingMacroEditorRequest: AnyMock;
 
   beforeEach(() => {
     handlers.clear();
@@ -645,11 +647,11 @@ describe("registerIpcHandlers game browser settings handlers", () => {
   let browserManager: Pick<BrowserManager, "listStatuses" | "on" | "stop">;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let gameBrowserSettingsStore: {
-    getSettings: ReturnType<typeof vi.fn>;
-    updateSettings: ReturnType<typeof vi.fn>;
+    getSettings: AnyMock;
+    updateSettings: AnyMock;
   };
   let systemFontService: {
-    listFonts: ReturnType<typeof vi.fn>;
+    listFonts: AnyMock;
   };
   const settings: GameBrowserSettings = {
     fonts: {
@@ -795,17 +797,17 @@ describe("registerIpcHandlers portable data handlers", () => {
   let browserManager: Pick<BrowserManager, "listStatuses" | "on" | "stop">;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let portableDataManager: {
-    applyImport: ReturnType<typeof vi.fn>;
-    exportData: ReturnType<typeof vi.fn>;
-    previewImport: ReturnType<typeof vi.fn>;
+    applyImport: AnyMock;
+    exportData: AnyMock;
+    previewImport: AnyMock;
   };
   let gameBrowserSettingsStore: {
-    getSettings: ReturnType<typeof vi.fn>;
-    updateSettings: ReturnType<typeof vi.fn>;
+    getSettings: AnyMock;
+    updateSettings: AnyMock;
   };
-  let onMacrosChanged: ReturnType<typeof vi.fn>;
-  let onRolesChanged: ReturnType<typeof vi.fn>;
-  let onWorkspacesChanged: ReturnType<typeof vi.fn>;
+  let onMacrosChanged: AnyMock;
+  let onRolesChanged: AnyMock;
+  let onWorkspacesChanged: AnyMock;
 
   beforeEach(() => {
     handlers.clear();

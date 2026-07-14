@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import type { BrowserContext } from "playwright-core";
 
 import { AuthSessionChecker, classifyAuthSession } from "../src/main/auth/AuthSessionChecker";
@@ -8,6 +8,8 @@ import {
   type LoginStorageSnapshot
 } from "../src/main/auth/loginEvidence";
 import type { Role } from "../src/shared/types";
+
+type AnyMock = Mock;
 
 const role: Role = {
   id: "role-1",
@@ -202,23 +204,23 @@ function createCheckHarness(
   snapshot: LoginStorageSnapshot,
   finalUrl = role.launchUrl,
   options: {
-    applyBrowserFonts?: ReturnType<typeof vi.fn>;
+    applyBrowserFonts?: AnyMock;
     executablePath?: string;
   } = {}
 ): {
   checker: AuthSessionChecker;
   roleStore: {
-    ensureBrowserUserDataDir: ReturnType<typeof vi.fn>;
+    ensureBrowserUserDataDir: AnyMock;
   };
-  launchPersistentContext: ReturnType<typeof vi.fn>;
+  launchPersistentContext: AnyMock;
   browserContext: {
-    cookies: ReturnType<typeof vi.fn>;
+    cookies: AnyMock;
   };
   page: {
-    evaluate: ReturnType<typeof vi.fn>;
+    evaluate: AnyMock;
   };
   context: {
-    close: ReturnType<typeof vi.fn>;
+    close: AnyMock;
   };
 } {
   const browserContext = {

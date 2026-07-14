@@ -32,6 +32,10 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // React Hooks 7 enables compiler-oriented checks in its recommended preset.
+      // Keep the pre-upgrade policy until these components adopt compiler-safe patterns.
+      "react-hooks/refs": "off",
+      "react-hooks/set-state-in-effect": "off",
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }]
     }
   },

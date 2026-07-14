@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
+          - os: macos-latest
             build_target: --mac dmg zip --arm64
             primary_asset: Rion.Studio-mac.dmg
             required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
@@ -148,7 +148,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
+          - os: macos-latest
             build_target: --mac dmg zip --arm64
             primary_asset: Rion.Studio-mac.dmg
             required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml

@@ -1,6 +1,6 @@
 import { runInNewContext } from "node:vm";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   MACRO_SHORTCUT_GUARD_SOURCE,
@@ -9,6 +9,8 @@ import {
   shouldIgnoreMacroShortcutEvent
 } from "../src/main/macros/MacroOverlayInjector";
 import type { Macro, MacroRunStatus, Role } from "../src/shared/types";
+
+type AnyMock = Mock;
 
 const role: Role = {
   id: "role-1",
@@ -554,11 +556,11 @@ function createInjector({
   onMacroEditorRequested
 }: {
   macroManager?: {
-    listStatuses: ReturnType<typeof vi.fn>;
-    start: ReturnType<typeof vi.fn>;
-    stop: ReturnType<typeof vi.fn>;
+    listStatuses: AnyMock;
+    start: AnyMock;
+    stop: AnyMock;
   };
-  onMacroEditorRequested?: ReturnType<typeof vi.fn>;
+  onMacroEditorRequested?: AnyMock;
 } = {}): MacroOverlayInjector {
   const roleAwareMacroManager = {
     listStatuses: macroManager.listStatuses,

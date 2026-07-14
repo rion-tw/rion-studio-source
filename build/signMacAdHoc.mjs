@@ -1,7 +1,7 @@
-import { signAsync } from "@electron/osx-sign";
+import { sign } from "@electron/osx-sign";
 
 export default async function signMacAdHoc(configuration) {
-  await signAsync({
+  await sign({
     ...configuration,
     identity: "-",
     identityValidation: false,

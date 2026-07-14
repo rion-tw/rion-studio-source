@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   BrowserGameLoadError,
@@ -13,6 +13,8 @@ import {
 import { LOGIN_STORAGE_EXPRESSION } from "../src/main/auth/loginEvidence";
 import type { BrowserLaunchMode, LaunchWorkspace, Role } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
+
+type AnyMock = Mock;
 
 const role: Role = {
   id: "role-1",
@@ -896,9 +898,9 @@ function createRole(id: string, name: string): Role {
 }
 
 function createHarness(options: {
-  applyCdnCompatibility?: ReturnType<typeof vi.fn>;
-  applyBrowserFonts?: ReturnType<typeof vi.fn>;
-  applyBrowserProxy?: ReturnType<typeof vi.fn>;
+  applyCdnCompatibility?: AnyMock;
+  applyBrowserFonts?: AnyMock;
+  applyBrowserProxy?: AnyMock;
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
   getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;

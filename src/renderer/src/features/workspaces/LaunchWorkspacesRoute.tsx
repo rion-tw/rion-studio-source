@@ -263,6 +263,7 @@ function WorkspaceCard({
   const isRunning = runningCount > 0;
   const isBusy = busyWorkspaceId === workspace.id;
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
+  const layoutTitle = t(workspaceTemplateLabelKeys[workspace.template]);
   const primaryActionLabel = isRunning ? t("workspaces.stop") : t("workspaces.launch");
   const zoomTitle = `${t("workspaces.browserZoom")}: ${workspace.browserZoomPercent}%`;
   const targetDisplay = getWorkspaceTargetDisplayPresentation(workspace.targetDisplayId, workspaceDisplays, t);
@@ -277,7 +278,7 @@ function WorkspaceCard({
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <div className="relative">
+      <div className="relative overflow-hidden rounded-t-lg">
         <WorkspaceLayoutPreview
           className="aspect-[4/3] p-2"
           roleById={roleById}
@@ -328,17 +329,17 @@ function WorkspaceCard({
       </div>
 
       <div className="glass-divider border-t p-3.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <span
-            className="flex shrink-0 items-center justify-center text-muted-foreground"
-            title={t(workspaceTemplateLabelKeys[workspace.template])}
-          >
-            <LayoutIcon size={18} aria-hidden="true" />
-          </span>
-          <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
-        </div>
+        <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
 
         <div className="mt-2 flex min-w-0 items-center gap-1.5">
+          <Badge
+            aria-label={layoutTitle}
+            className="shrink-0 px-1.5"
+            title={layoutTitle}
+            variant="muted"
+          >
+            <LayoutIcon size={12} aria-hidden="true" />
+          </Badge>
           <Badge
             aria-label={zoomTitle}
             className="shrink-0 gap-1.5"
@@ -550,8 +551,8 @@ interface WorkspaceLayoutPreviewSlotProps {
 
 function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
   const launchGameName = role ? resolveWorkspaceRoleLaunchGameName(role.launchUrl, t) : "";
+  const backgroundStyle = createWorkspaceSlotBackground(role);
   const style = {
-    ...createWorkspaceSlotBackground(role),
     "--workspace-slot-caption-bottom-left-radius": "0px",
     "--workspace-slot-caption-bottom-right-radius": "0px"
   } as CSSProperties & Record<"--workspace-slot-caption-bottom-left-radius" | "--workspace-slot-caption-bottom-right-radius", string>;
@@ -559,11 +560,18 @@ function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSl
   return (
     <div
       className={cn(
-        "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden bg-cover bg-center bg-clip-padding",
+        "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden",
         role ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
       )}
       style={style}
     >
+      {role ? (
+        <div
+          className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
+          style={backgroundStyle}
+          aria-hidden="true"
+        />
+      ) : null}
       <div className="workspace-slot-caption workspace-slot-caption--compact">
         <p className="workspace-slot-caption-title gap-1.5 text-[11px] font-semibold leading-4">
           {role ? (

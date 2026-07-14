@@ -97,18 +97,22 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
 
   async focus(): Promise<void> {
     await this.client.send("Page.bringToFront");
+    await this.preparePageTarget();
+  }
+
+  private async preparePageTarget(): Promise<void> {
     await this.evaluate(createExternalFocusSource()).catch(() => undefined);
   }
 
   async dispatchKey(code: string): Promise<void> {
-    await this.focus();
+    await this.preparePageTarget();
     const descriptor = getCdpKeyDescriptor(code);
     await this.client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...descriptor });
     await this.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor });
   }
 
   async dispatchClick(xPercent: number, yPercent: number): Promise<void> {
-    await this.focus();
+    await this.preparePageTarget();
     const metrics = await this.client.send<{
       cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
     }>("Page.getLayoutMetrics");

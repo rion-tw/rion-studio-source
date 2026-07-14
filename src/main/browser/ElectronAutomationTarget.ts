@@ -22,6 +22,14 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     }
 
     this.webContents.focus();
+    await this.preparePageTarget();
+  }
+
+  private async preparePageTarget(): Promise<void> {
+    if (this.webContents.isDestroyed()) {
+      return;
+    }
+
     const frames = [...this.webContents.mainFrame.framesInSubtree].reverse();
 
     for (const frame of frames) {
@@ -35,7 +43,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   async dispatchKey(code: string): Promise<void> {
-    await this.focus();
+    await this.preparePageTarget();
 
     if (this.webContents.isDestroyed()) {
       return;
@@ -47,7 +55,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   async dispatchClick(xPercent: number, yPercent: number): Promise<void> {
-    await this.focus();
+    await this.preparePageTarget();
 
     if (this.webContents.isDestroyed()) {
       return;

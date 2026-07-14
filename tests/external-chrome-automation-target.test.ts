@@ -10,14 +10,18 @@ import type {
 } from "../src/main/system-browser/SystemChromeLauncher";
 
 describe("ExternalChromeAutomationTarget", () => {
-  it("focuses external Chrome and dispatches physical key events", async () => {
+  it("dispatches physical key events without bringing external Chrome to front", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);
     await target.initialize();
 
     await target.dispatchKey("KeyQ");
 
-    expect(harness.send).toHaveBeenCalledWith("Page.bringToFront");
+    expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
+    expect(harness.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: expect.stringContaining('querySelectorAll("canvas, iframe")') })
+    );
     expect(harness.send).toHaveBeenCalledWith("Input.dispatchKeyEvent", {
       type: "rawKeyDown",
       code: "KeyQ",
@@ -45,6 +49,7 @@ describe("ExternalChromeAutomationTarget", () => {
 
     await target.dispatchClick(25, 75);
 
+    expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
     expect(harness.send).toHaveBeenCalledWith("Input.dispatchMouseEvent", {
       type: "mousePressed",
       button: "left",
@@ -59,6 +64,20 @@ describe("ExternalChromeAutomationTarget", () => {
       x: 300,
       y: 600
     });
+  });
+
+  it("brings external Chrome to front only when focus is explicitly requested", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    await target.focus();
+
+    expect(harness.send).toHaveBeenCalledWith("Page.bringToFront");
+    expect(harness.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: expect.stringContaining('querySelectorAll("canvas, iframe")') })
+    );
   });
 
   it("bridges external overlay requests back to the main process", async () => {

@@ -1,4 +1,4 @@
-import { ChevronDown, Download, FileJson, Laptop, Moon, RefreshCw, RotateCcw, Sun, Upload } from "lucide-react";
+import { ChevronDown, Download, FileJson, FileText, Laptop, Moon, RefreshCw, RotateCcw, Sun, Upload } from "lucide-react";
 import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -33,7 +33,7 @@ import {
   normalizeGameBrowserSettings,
   workspaceGapSizes
 } from "../../../../shared/browserFonts";
-import { LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
+import { CURRENT_LEGAL_RELEASE, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
   AppUpdateStatus,
   BrowserCdnCompatibilityMode,
@@ -680,31 +680,36 @@ function SettingsViewBase({
         ) : null}
 
         {activeSection === "aboutLegal" ? (
-          <SettingsSection>
-            <SettingsRow
-              title={t("settings.legalProvider")}
-              description={`${t("settings.legalProviderDescription")} ${t("settings.legalNoSupport")}`}
-              control={<ReadOnlyValue value={LEGAL_PROVIDER_NAME} />}
-            />
-            <SettingsRow
-              title={t("settings.currentVersion")}
-              description={t("settings.currentVersionDescription")}
-              control={<ReadOnlyValue value={updateVersion || updateStatus?.currentVersion || "0.0.0"} />}
-            />
-            <SettingsRow
-              title={t("settings.legalDocuments")}
-              description={t("settings.legalDocumentsDescription")}
-              control={
-                <div className="flex max-w-md flex-wrap justify-end gap-2">
-                  {(["terms", "privacy", "fairUse", "thirdParty"] as const).map((kind) => (
-                    <Button key={kind} type="button" variant="outline" onClick={() => setLegalDocumentKind(kind)}>
-                      {t(`legal.document.${kind}`)}
+          <>
+            <SettingsSection>
+              <SettingsRow
+                title={t("settings.legalProvider")}
+                description={`${t("settings.legalProviderDescription")} ${t("settings.legalNoSupport")}`}
+                control={<ReadOnlyValue value={LEGAL_PROVIDER_NAME} />}
+              />
+              <SettingsRow
+                title={t("settings.currentVersion")}
+                description={t("settings.currentVersionDescription")}
+                control={<ReadOnlyValue value={updateVersion || updateStatus?.currentVersion || "0.0.0"} />}
+              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.legalDocuments")}>
+              {(["terms", "privacy", "fairUse", "thirdParty"] as const).map((kind) => (
+                <SettingsRow
+                  key={kind}
+                  title={t(`legal.document.${kind}`)}
+                  description={t("legal.version").replace("{version}", CURRENT_LEGAL_RELEASE)}
+                  control={
+                    <Button type="button" variant="outline" onClick={() => setLegalDocumentKind(kind)}>
+                      <FileText size={14} />
+                      {t("settings.openLegalDocument")}
                     </Button>
-                  ))}
-                </div>
-              }
-            />
-          </SettingsSection>
+                  }
+                />
+              ))}
+            </SettingsSection>
+          </>
         ) : null}
       </div>
 

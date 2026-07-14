@@ -413,6 +413,7 @@
   "settings.legalNoSupport": "No individual support or contact channel is offered.",
   "settings.legalDocuments": "Legal documents",
   "settings.legalDocumentsDescription": "These offline copies match the documents published with this app version.",
+  "settings.openLegalDocument": "Open",
   "legal.document.terms": "Terms of Use",
   "legal.document.privacy": "Privacy Notice",
   "legal.document.fairUse": "Fair Use Rules",

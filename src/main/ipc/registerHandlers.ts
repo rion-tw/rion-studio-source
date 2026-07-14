@@ -191,7 +191,7 @@ export function registerIpcHandlers(
         result.preferences.gameBrowserSettings
       );
       if (savedSettings) {
-        browserManager.setWorkspaceDividerSettings(savedSettings.workspace.divider);
+        browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
       }
     }
     options.onRolesChanged?.();
@@ -214,7 +214,7 @@ export function registerIpcHandlers(
     }
 
     const savedSettings = await options.gameBrowserSettingsStore.updateSettings(settings);
-    browserManager.setWorkspaceDividerSettings(savedSettings.workspace.divider);
+    browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
     return savedSettings;
   });
 

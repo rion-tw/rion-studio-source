@@ -598,7 +598,11 @@
       field-sizing: content;
     }
 
-    .settings-segmented-menu {
+    .settings-segmented-menu.grid-cols-2 {
+      grid-template-columns: repeat(2, max-content);
+    }
+
+    .settings-segmented-menu.grid-cols-3 {
       grid-template-columns: repeat(3, max-content);
     }
 

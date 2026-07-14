@@ -665,7 +665,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
   let browserManager: Pick<
     BrowserManager,
-    "listStatuses" | "on" | "setWorkspaceDividerSettings" | "stop"
+    "listStatuses" | "on" | "setWorkspaceAppearanceSettings" | "stop"
   >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let gameBrowserSettingsStore: {
@@ -708,7 +708,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     browserManager = {
       listStatuses: vi.fn(() => []),
       on: vi.fn(),
-      setWorkspaceDividerSettings: vi.fn(),
+      setWorkspaceAppearanceSettings: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined)
     };
     authManager = {
@@ -746,7 +746,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
 
     expect(gameBrowserSettingsStore.getSettings).toHaveBeenCalledTimes(1);
     expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(settings);
-    expect(browserManager.setWorkspaceDividerSettings).toHaveBeenCalledWith(settings.workspace.divider);
+    expect(browserManager.setWorkspaceAppearanceSettings).toHaveBeenCalledWith(settings.workspace);
     expect(systemFontService.listFonts).toHaveBeenCalledTimes(1);
   });
 
@@ -846,7 +846,7 @@ describe("registerIpcHandlers portable data handlers", () => {
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
   let browserManager: Pick<
     BrowserManager,
-    "listStatuses" | "on" | "setWorkspaceDividerSettings" | "stop"
+    "listStatuses" | "on" | "setWorkspaceAppearanceSettings" | "stop"
   >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let portableDataManager: {
@@ -875,7 +875,7 @@ describe("registerIpcHandlers portable data handlers", () => {
     browserManager = {
       listStatuses: vi.fn(() => []),
       on: vi.fn(),
-      setWorkspaceDividerSettings: vi.fn(),
+      setWorkspaceAppearanceSettings: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined)
     };
     authManager = {
@@ -945,7 +945,7 @@ describe("registerIpcHandlers portable data handlers", () => {
       graphics: { mode: "automatic" },
       launchMode: "auto",
       network: DEFAULT_BROWSER_NETWORK_SETTINGS,
-      workspace: { divider: { size: 16, style: "black" } }
+      workspace: { background: "black", gap: 16 }
     };
     portableDataManager.applyImport.mockResolvedValueOnce({
       macroCount: 0,
@@ -961,8 +961,6 @@ describe("registerIpcHandlers portable data handlers", () => {
     await handlers.get(IPC_CHANNELS.portableImportApply)?.({}, "import-1");
 
     expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(importedSettings);
-    expect(browserManager.setWorkspaceDividerSettings).toHaveBeenCalledWith(
-      importedSettings.workspace.divider
-    );
+    expect(browserManager.setWorkspaceAppearanceSettings).toHaveBeenCalledWith(importedSettings.workspace);
   });
 });

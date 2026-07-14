@@ -7,7 +7,7 @@ import {
   normalizeBrowserFontFamily,
   normalizeBrowserProxyServer,
   normalizeGameBrowserSettings,
-  workspaceDividerSizes
+  workspaceGapSizes
 } from "../src/shared/browserFonts";
 
 describe("browser font settings normalization", () => {
@@ -118,18 +118,18 @@ describe("browser font settings normalization", () => {
     ).toEqual({ mode: "auto" });
   });
 
-  it("defaults legacy workspace dividers and validates style and fixed sizes", () => {
+  it("defaults workspace appearance and validates backgrounds and fixed gap sizes", () => {
     expect(normalizeGameBrowserSettings({}).workspace).toEqual(DEFAULT_WORKSPACE_APPEARANCE_SETTINGS);
     expect(
-      normalizeGameBrowserSettings({ workspace: { divider: { size: 1, style: "black" } } }).workspace
-    ).toEqual({ divider: { size: 1, style: "black" } });
+      normalizeGameBrowserSettings({ workspace: { background: "black", gap: 1 } }).workspace
+    ).toEqual({ background: "black", gap: 1 });
     expect(
-      normalizeGameBrowserSettings({ workspace: { divider: { size: 3, style: "glow" } } }).workspace
+      normalizeGameBrowserSettings({ workspace: { background: "glow", gap: 3 } }).workspace
     ).toEqual(DEFAULT_WORKSPACE_APPEARANCE_SETTINGS);
-    workspaceDividerSizes.forEach((size) => {
+    workspaceGapSizes.forEach((gap) => {
       expect(
-        normalizeGameBrowserSettings({ workspace: { divider: { size, style: "material" } } }).workspace.divider.size
-      ).toBe(size);
+        normalizeGameBrowserSettings({ workspace: { background: "material", gap } }).workspace.gap
+      ).toBe(gap);
     });
   });
 

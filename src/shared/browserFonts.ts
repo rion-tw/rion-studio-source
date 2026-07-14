@@ -12,9 +12,8 @@ import type {
   BrowserProxySettingsMode,
   GameBrowserSettings,
   WorkspaceAppearanceSettings,
-  WorkspaceDividerSettings,
-  WorkspaceDividerSize,
-  WorkspaceDividerStyle
+  WorkspaceBackgroundStyle,
+  WorkspaceGapSize
 } from "./types";
 
 export const browserFontFamilyRoles = ["standard", "serif", "sansserif", "fixed", "math"] as const;
@@ -50,15 +49,11 @@ export const DEFAULT_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {
   mode: "automatic"
 };
 
-export const workspaceDividerSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceDividerSize[];
-
-export const DEFAULT_WORKSPACE_DIVIDER_SETTINGS: WorkspaceDividerSettings = {
-  size: 4,
-  style: "material"
-};
+export const workspaceGapSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceGapSize[];
 
 export const DEFAULT_WORKSPACE_APPEARANCE_SETTINGS: WorkspaceAppearanceSettings = {
-  divider: DEFAULT_WORKSPACE_DIVIDER_SETTINGS
+  background: "material",
+  gap: 4
 };
 
 export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
@@ -90,18 +85,8 @@ export function normalizeWorkspaceAppearanceSettings(
 ): WorkspaceAppearanceSettings {
   const input = isRecord(value) ? value : {};
   return {
-    divider: normalizeWorkspaceDividerSettings(input.divider, fallback.divider)
-  };
-}
-
-export function normalizeWorkspaceDividerSettings(
-  value: unknown,
-  fallback: WorkspaceDividerSettings = DEFAULT_WORKSPACE_DIVIDER_SETTINGS
-): WorkspaceDividerSettings {
-  const input = isRecord(value) ? value : {};
-  return {
-    size: normalizeWorkspaceDividerSize(input.size, fallback.size),
-    style: normalizeWorkspaceDividerStyle(input.style, fallback.style)
+    background: normalizeWorkspaceBackgroundStyle(input.background, fallback.background),
+    gap: normalizeWorkspaceGapSize(input.gap, fallback.gap)
   };
 }
 
@@ -266,19 +251,19 @@ function normalizeBrowserCdnCompatibilityMode(
   return value === "off" || value === "auto" || value === "on" ? value : fallback;
 }
 
-function normalizeWorkspaceDividerSize(
+function normalizeWorkspaceGapSize(
   value: unknown,
-  fallback: WorkspaceDividerSize
-): WorkspaceDividerSize {
-  return workspaceDividerSizes.includes(value as WorkspaceDividerSize)
-    ? (value as WorkspaceDividerSize)
+  fallback: WorkspaceGapSize
+): WorkspaceGapSize {
+  return workspaceGapSizes.includes(value as WorkspaceGapSize)
+    ? (value as WorkspaceGapSize)
     : fallback;
 }
 
-function normalizeWorkspaceDividerStyle(
+function normalizeWorkspaceBackgroundStyle(
   value: unknown,
-  fallback: WorkspaceDividerStyle
-): WorkspaceDividerStyle {
+  fallback: WorkspaceBackgroundStyle
+): WorkspaceBackgroundStyle {
   return value === "material" || value === "black" ? value : fallback;
 }
 

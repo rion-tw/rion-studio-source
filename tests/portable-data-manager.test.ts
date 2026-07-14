@@ -72,7 +72,7 @@ describe("PortableDataManager", () => {
           graphics: { mode: "high_performance" },
           launchMode: "external",
           network: DEFAULT_BROWSER_NETWORK_SETTINGS,
-          workspace: { divider: { size: 1, style: "black" } }
+          workspace: { background: "black", gap: 1 }
         },
         language: "zh-TW",
         roleDefaults: {
@@ -100,7 +100,7 @@ describe("PortableDataManager", () => {
             },
             mode: "custom"
           },
-          workspace: { divider: { size: 1, style: "black" } }
+          workspace: { background: "black", gap: 1 }
         },
         language: "zh-TW",
         roleDefaults: {
@@ -158,7 +158,7 @@ describe("PortableDataManager", () => {
             },
             mode: "custom"
           },
-          workspace: { divider: { size: 16, style: "black" } }
+          workspace: { background: "black", gap: 16 }
         },
         language: "ja",
         roleDefaults: {
@@ -194,7 +194,7 @@ describe("PortableDataManager", () => {
             },
             mode: "custom"
           },
-          workspace: { divider: { size: 16, style: "black" } }
+          workspace: { background: "black", gap: 16 }
         },
         roleDefaults: {
           windowWidth: 1280,
@@ -373,7 +373,7 @@ describe("PortableDataManager", () => {
         graphics: { mode: "automatic" },
         launchMode: "auto",
         network: DEFAULT_BROWSER_NETWORK_SETTINGS,
-        workspace: { divider: { size: 16, style: "black" } }
+        workspace: { background: "black", gap: 16 }
       }
     };
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
@@ -451,7 +451,7 @@ function createPortableFixture(): RionPortableDataV1 {
         graphics: { mode: "automatic" },
         launchMode: "auto",
         network: DEFAULT_BROWSER_NETWORK_SETTINGS,
-        workspace: { divider: { size: 16, style: "black" } }
+        workspace: { background: "black", gap: 16 }
       },
       language: "ja",
       roleDefaults: {

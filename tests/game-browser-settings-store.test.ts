@@ -24,7 +24,7 @@ describe("GameBrowserSettingsStore", () => {
     await expect(store.getSettings()).resolves.toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
   });
 
-  it("adds default workspace divider settings to legacy persisted settings", async () => {
+  it("adds default workspace appearance settings to persisted settings that omit them", async () => {
     await writeFile(
       join(baseDir, "game-browser-settings.json"),
       JSON.stringify({
@@ -61,7 +61,7 @@ describe("GameBrowserSettingsStore", () => {
             server: " socks5://127.0.0.1:7890/ "
           }
         },
-        workspace: { divider: { size: 12, style: "black" } }
+        workspace: { background: "black", gap: 12 }
       })
     ).resolves.toEqual({
       fonts: {
@@ -80,7 +80,7 @@ describe("GameBrowserSettingsStore", () => {
           server: "socks5://127.0.0.1:7890"
         }
       },
-      workspace: { divider: { size: 12, style: "black" } }
+      workspace: { background: "black", gap: 12 }
     });
 
     await expect(readFile(join(baseDir, "game-browser-settings.json.tmp"), "utf8")).rejects.toMatchObject({
@@ -104,7 +104,7 @@ describe("GameBrowserSettingsStore", () => {
           server: "socks5://127.0.0.1:7890"
         }
       },
-      workspace: { divider: { size: 12, style: "black" } }
+      workspace: { background: "black", gap: 12 }
     });
     firstRead.fonts.families.standard = "Mutated by caller";
     await expect(store.getSettings()).resolves.toMatchObject({

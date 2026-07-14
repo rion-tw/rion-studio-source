@@ -31,7 +31,7 @@ import {
   browserFontFamilyRoles,
   normalizeBrowserProxyServer,
   normalizeGameBrowserSettings,
-  workspaceDividerSizes
+  workspaceGapSizes
 } from "../../../../shared/browserFonts";
 import { LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
@@ -50,9 +50,9 @@ import type {
   PortableImportWarning,
   RoleDefaults,
   SystemFontFamily,
-  WorkspaceDividerSettings,
-  WorkspaceDividerSize,
-  WorkspaceDividerStyle
+  WorkspaceAppearanceSettings,
+  WorkspaceBackgroundStyle,
+  WorkspaceGapSize
 } from "../../../../shared/types";
 import {
   applyGraphicsModeUpdate,
@@ -157,7 +157,7 @@ function SettingsViewBase({
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
   const [graphicsDiagnostics, setGraphicsDiagnostics] = useState<GraphicsDiagnostics | null>(null);
   const [isGraphicsBusy, setIsGraphicsBusy] = useState(false);
-  const [isWorkspaceDividerSaving, setIsWorkspaceDividerSaving] = useState(false);
+  const [isWorkspaceAppearanceSaving, setIsWorkspaceAppearanceSaving] = useState(false);
   const canCheckForUpdates = Boolean(updateStatus?.isPackaged) && !isUpdateBusy;
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
@@ -168,25 +168,22 @@ function SettingsViewBase({
   const pageTitle = t(settingsSectionTitleKeys[activeSection]);
   const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
 
-  function updateWorkspaceDividerSettings(update: Partial<WorkspaceDividerSettings>): void {
-    if (isWorkspaceDividerSaving) {
+  function updateWorkspaceAppearanceSettings(update: Partial<WorkspaceAppearanceSettings>): void {
+    if (isWorkspaceAppearanceSaving) {
       return;
     }
 
     const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
-    setIsWorkspaceDividerSaving(true);
+    setIsWorkspaceAppearanceSaving(true);
     void onGameBrowserSettingsChange({
       ...normalizedSettings,
       workspace: {
         ...normalizedSettings.workspace,
-        divider: {
-          ...normalizedSettings.workspace.divider,
-          ...update
-        }
+        ...update
       }
     })
       .catch(onError)
-      .finally(() => setIsWorkspaceDividerSaving(false));
+      .finally(() => setIsWorkspaceAppearanceSaving(false));
   }
 
   async function refreshGraphicsDiagnostics(): Promise<GraphicsDiagnostics | null> {
@@ -349,77 +346,87 @@ function SettingsViewBase({
 
       <div className="grid gap-8">
         {activeSection === "interface" ? (
-          <SettingsSection>
-            <SettingsRow
-              title={t("settings.theme")}
-              description={t("settings.themeDescription").replace("{theme}", t(resolvedThemeLabelKeys[resolvedTheme]))}
-              control={
-                <SegmentedControl<ThemeMode>
-                  className="settings-menu-control settings-segmented-menu grid-cols-3"
-                  items={themeModes.map((mode) => ({
-                    value: mode,
-                    label: t(themeLabelKeys[mode]),
-                    icon: mode === "system" ? Laptop : mode === "light" ? Sun : Moon
-                  }))}
-                  value={themeMode}
-                  onValueChange={onThemeModeChange}
-                />
-              }
-            />
-            <SettingsRow
-              title={t("settings.language")}
-              description={t("settings.languageDescription")}
-              control={
-                <Select
-                  className="settings-menu-control"
-                  value={language}
-                  onChange={(event) => onLanguageChange(event.target.value as Language)}
-                >
-                  {languages.map((option) => (
-                    <option key={option} value={option}>
-                      {t(languageLabelKeys[option])}
-                    </option>
-                  ))}
-                </Select>
-              }
-            />
-            <SettingsRow
-              showDivider={false}
-              title={t("settings.workspaceDivider")}
-              description={t("settings.workspaceDividerDescription")}
-              control={
-                <div className="settings-menu-stack grid gap-2">
-                  <SegmentedControl<WorkspaceDividerStyle>
-                    className="settings-menu-control settings-segmented-menu grid-cols-2"
-                    disabled={isWorkspaceDividerSaving}
-                    items={[
-                      { value: "material", label: t("settings.workspaceDividerMaterial") },
-                      { value: "black", label: t("settings.workspaceDividerBlack") }
-                    ]}
-                    value={normalizeGameBrowserSettings(gameBrowserSettings).workspace.divider.style}
-                    onValueChange={(style) => updateWorkspaceDividerSettings({ style })}
+          <>
+            <SettingsSection>
+              <SettingsRow
+                title={t("settings.theme")}
+                description={t("settings.themeDescription").replace("{theme}", t(resolvedThemeLabelKeys[resolvedTheme]))}
+                control={
+                  <SegmentedControl<ThemeMode>
+                    className="settings-menu-control settings-segmented-menu grid-cols-3"
+                    items={themeModes.map((mode) => ({
+                      value: mode,
+                      label: t(themeLabelKeys[mode]),
+                      icon: mode === "system" ? Laptop : mode === "light" ? Sun : Moon
+                    }))}
+                    value={themeMode}
+                    onValueChange={onThemeModeChange}
                   />
+                }
+              />
+              <SettingsRow
+                showDivider={false}
+                title={t("settings.language")}
+                description={t("settings.languageDescription")}
+                control={
                   <Select
-                    aria-label={t("settings.workspaceDividerSize")}
                     className="settings-menu-control"
-                    disabled={isWorkspaceDividerSaving}
-                    value={String(normalizeGameBrowserSettings(gameBrowserSettings).workspace.divider.size)}
+                    value={language}
+                    onChange={(event) => onLanguageChange(event.target.value as Language)}
+                  >
+                    {languages.map((option) => (
+                      <option key={option} value={option}>
+                        {t(languageLabelKeys[option])}
+                      </option>
+                    ))}
+                  </Select>
+                }
+              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.workspace")}>
+              <SettingsRow
+                title={t("settings.workspaceBackground")}
+                description={t("settings.workspaceBackgroundDescription")}
+                control={
+                  <SegmentedControl<WorkspaceBackgroundStyle>
+                    className="settings-menu-control settings-segmented-menu grid-cols-2"
+                    disabled={isWorkspaceAppearanceSaving}
+                    items={[
+                      { value: "material", label: t("settings.workspaceBackgroundMaterial") },
+                      { value: "black", label: t("settings.workspaceBackgroundBlack") }
+                    ]}
+                    value={normalizeGameBrowserSettings(gameBrowserSettings).workspace.background}
+                    onValueChange={(background) => updateWorkspaceAppearanceSettings({ background })}
+                  />
+                }
+              />
+              <SettingsRow
+                showDivider={false}
+                title={t("settings.workspaceGap")}
+                description={t("settings.workspaceGapDescription")}
+                control={
+                  <Select
+                    aria-label={t("settings.workspaceGapSize")}
+                    className="settings-menu-control"
+                    disabled={isWorkspaceAppearanceSaving}
+                    value={String(normalizeGameBrowserSettings(gameBrowserSettings).workspace.gap)}
                     onChange={(event) =>
-                      updateWorkspaceDividerSettings({
-                        size: Number(event.target.value) as WorkspaceDividerSize
+                      updateWorkspaceAppearanceSettings({
+                        gap: Number(event.target.value) as WorkspaceGapSize
                       })
                     }
                   >
-                    {workspaceDividerSizes.map((size) => (
+                    {workspaceGapSizes.map((size) => (
                       <option key={size} value={size}>
                         {size} px
                       </option>
                     ))}
                   </Select>
-                </div>
-              }
-            />
-          </SettingsSection>
+                }
+              />
+            </SettingsSection>
+          </>
         ) : null}
 
         {activeSection === "game" ? (
@@ -538,12 +545,12 @@ function SettingsViewBase({
               <SettingsRow
                 title={t("settings.graphicsDevice")}
                 description={formatGraphicsDeviceSummary(graphicsDiagnostics, t)}
-                control={<ReadOnlyValue value={formatGraphicsApiSummary(graphicsDiagnostics, t)} />}
+                control={<MetadataValue value={formatGraphicsApiSummary(graphicsDiagnostics, t)} />}
               />
               <SettingsRow
                 title={t("settings.graphicsFeatureStatus")}
                 description={formatGraphicsFeatureSummary(graphicsDiagnostics, t)}
-                control={<ReadOnlyValue value={formatGraphicsVersionSummary(graphicsDiagnostics)} />}
+                control={<MetadataValue value={formatGraphicsVersionSummary(graphicsDiagnostics)} />}
               />
               {graphicsDiagnostics?.externalRoles.length ? (
                 <SettingsRow
@@ -1203,6 +1210,14 @@ function SettingsRow({ control, description, showDivider = true, title }: Settin
 function ReadOnlyValue({ value }: { value: string }): JSX.Element {
   return (
     <span className="glass-inset inline-flex h-[30px] max-w-full items-center truncate rounded-md px-2.5 text-[12px] font-semibold leading-none text-foreground sm:max-w-[320px]">
+      {value}
+    </span>
+  );
+}
+
+function MetadataValue({ value }: { value: string }): JSX.Element {
+  return (
+    <span className="block max-w-full truncate text-right text-[12px] leading-5 text-muted-foreground sm:max-w-[320px]">
       {value}
     </span>
   );

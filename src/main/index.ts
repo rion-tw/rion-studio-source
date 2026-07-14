@@ -327,8 +327,8 @@ function initializeApplication(): void {
     externalChromeManager,
     getBrowserLaunchMode: async () => (await gameBrowserSettingsStore.getSettings()).launchMode,
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
-    getWorkspaceDividerSettings: async () =>
-      (await gameBrowserSettingsStore.getSettings()).workspace.divider,
+    getWorkspaceAppearanceSettings: async () =>
+      (await gameBrowserSettingsStore.getSettings()).workspace,
     prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
   });
   ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {

@@ -16,7 +16,7 @@ import type {
   BrowserLaunchMode,
   LaunchWorkspace,
   Role,
-  WorkspaceDividerSettings
+  WorkspaceAppearanceSettings
 } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
@@ -494,9 +494,9 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[2].view.setBackgroundBlur).not.toHaveBeenCalled();
   });
 
-  it("uses a one-pixel solid black divider from workspace settings", async () => {
+  it("uses a one-pixel gap with a solid black workspace background", async () => {
     const harness = createHarness({
-      getWorkspaceDividerSettings: () => ({ size: 1, style: "black" })
+      getWorkspaceAppearanceSettings: () => ({ background: "black", gap: 1 })
     });
 
     await harness.manager.launchWorkspace(workspace, [
@@ -510,7 +510,7 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[2].view.setBackgroundColor).toHaveBeenLastCalledWith("#FF000000");
   });
 
-  it("immediately updates open workspace divider size and style", async () => {
+  it("immediately updates the gap and background of open workspaces", async () => {
     const harness = createHarness();
 
     await harness.manager.launchWorkspace(workspace, [
@@ -518,7 +518,7 @@ describe("BrowserManager game host windows", () => {
       { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
     ]);
 
-    harness.manager.setWorkspaceDividerSettings({ size: 16, style: "black" });
+    harness.manager.setWorkspaceAppearanceSettings({ background: "black", gap: 16 });
 
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 592, height: 800 });
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 608, y: 0, width: 592, height: 800 });
@@ -1170,7 +1170,9 @@ function createHarness(options: {
   applyBrowserProxy?: AnyMock;
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
   getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
-  getWorkspaceDividerSettings?: () => WorkspaceDividerSettings | Promise<WorkspaceDividerSettings>;
+  getWorkspaceAppearanceSettings?: () =>
+    | WorkspaceAppearanceSettings
+    | Promise<WorkspaceAppearanceSettings>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
@@ -1208,8 +1210,8 @@ function createHarness(options: {
     embeddedPreloadPath: "/app/out/preload/embedded.cjs",
     ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
-    ...(options.getWorkspaceDividerSettings
-      ? { getWorkspaceDividerSettings: options.getWorkspaceDividerSettings }
+    ...(options.getWorkspaceAppearanceSettings
+      ? { getWorkspaceAppearanceSettings: options.getWorkspaceAppearanceSettings }
       : {}),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     loginPollIntervalMs: 0,

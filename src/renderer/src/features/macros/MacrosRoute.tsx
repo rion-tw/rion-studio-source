@@ -5,11 +5,11 @@ import {
   Keyboard,
   Loader2,
   MoreHorizontal,
+  Pause,
   Pencil,
   Play,
   Plus,
   Search,
-  Square,
   Trash2
 } from "lucide-react";
 import { type CSSProperties, type JSX, type MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -225,7 +225,7 @@ function MacrosRoute({
                     t={t}
                     onSort={handleSortChange}
                   />
-                  <th className="w-12 px-4 py-1.5" aria-label={t("macros.actions")} />
+                  <th className="w-20 px-4 py-1.5" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/45 text-[13px] leading-5">
@@ -489,8 +489,6 @@ function MacroActionMenu({
       return;
     }
 
-    setIsOpen(false);
-
     if (isRunning || isStopping) {
       onStopMacro(macro.id);
       return;
@@ -534,34 +532,6 @@ function MacroActionMenu({
             style={menuStyle}
           >
             <button
-              className={cn(
-                "flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-50",
-                isRunning || isStopping
-                  ? "text-destructive hover:bg-destructive/10"
-                  : "text-foreground hover:bg-accent/45 hover:text-accent-foreground"
-              )}
-              type="button"
-              role="menuitem"
-              title={
-                !isRunning && !areBrowsersRunning
-                  ? t("macros.launchRoleFirst")
-                  : !isRunning && !isAutomationReady
-                    ? t("macros.automationUnavailable")
-                    : runLabel
-              }
-              onClick={handleRun}
-              disabled={isRunDisabled}
-            >
-              {isRunBusy ? (
-                <Loader2 className="spin" size={14} />
-              ) : isRunning || isStopping ? (
-                <Square size={14} />
-              ) : (
-                <Play size={14} />
-              )}
-              <span>{runLabel}</span>
-            </button>
-            <button
               className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground"
               type="button"
               role="menuitem"
@@ -596,7 +566,31 @@ function MacroActionMenu({
       : null;
 
   return (
-    <div className="relative shrink-0">
+    <div className="relative flex shrink-0 items-center gap-0.5">
+      <Button
+        className={cn("h-7 w-7", isRunning && "text-primary hover:text-primary")}
+        type="button"
+        variant="ghost"
+        size="icon"
+        title={
+          !isRunning && !areBrowsersRunning
+            ? t("macros.launchRoleFirst")
+            : !isRunning && !isAutomationReady
+              ? t("macros.automationUnavailable")
+              : runLabel
+        }
+        aria-label={runLabel}
+        onClick={handleRun}
+        disabled={isRunDisabled}
+      >
+        {isRunBusy ? (
+          <Loader2 className="spin" size={14} />
+        ) : isRunning ? (
+          <Pause size={14} fill="currentColor" />
+        ) : (
+          <Play size={14} fill="currentColor" />
+        )}
+      </Button>
       <Button
         ref={triggerRef}
         className="h-7 w-7"

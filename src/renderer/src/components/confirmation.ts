@@ -3,6 +3,7 @@ import { createContext, useContext } from "react";
 export interface ConfirmationOptions {
   cancelLabel: string;
   confirmLabel: string;
+  confirmDisabled?: boolean;
   description: string;
   title: string;
   tone?: "default" | "destructive";

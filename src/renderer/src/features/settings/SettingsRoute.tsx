@@ -50,6 +50,10 @@ import type {
   RoleDefaults,
   SystemFontFamily
 } from "../../../../shared/types";
+import {
+  applyGraphicsModeUpdate,
+  getGraphicsRestartState
+} from "./graphicsRestart";
 import { readSettingsSection, type SettingsSectionId } from "./settingsNavigation";
 
 interface SettingsViewProps {
@@ -159,12 +163,15 @@ function SettingsViewBase({
   const pageTitle = t(settingsSectionTitleKeys[activeSection]);
   const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
 
-  async function refreshGraphicsDiagnostics(): Promise<void> {
+  async function refreshGraphicsDiagnostics(): Promise<GraphicsDiagnostics | null> {
     setIsGraphicsBusy(true);
     try {
-      setGraphicsDiagnostics(await onLoadGraphicsDiagnostics());
+      const diagnostics = await onLoadGraphicsDiagnostics();
+      setGraphicsDiagnostics(diagnostics);
+      return diagnostics;
     } catch (error) {
       onError(error);
+      return null;
     } finally {
       setIsGraphicsBusy(false);
     }
@@ -194,23 +201,43 @@ function SettingsViewBase({
       }
     }
 
+    setIsGraphicsBusy(true);
     try {
       const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
-      await onGameBrowserSettingsChange({
-        ...normalizedSettings,
-        graphics: { mode }
+      await applyGraphicsModeUpdate({
+        save: async () => {
+          await onGameBrowserSettingsChange({
+            ...normalizedSettings,
+            graphics: { mode }
+          });
+        },
+        loadDiagnostics: onLoadGraphicsDiagnostics,
+        onDiagnostics: setGraphicsDiagnostics,
+        onRestartRequired: async () => {
+          await showGraphicsRestartDialog(true);
+        }
       });
-      await refreshGraphicsDiagnostics();
     } catch (error) {
       onError(error);
+    } finally {
+      setIsGraphicsBusy(false);
     }
   }
 
-  async function handleRestartApplication(): Promise<void> {
+  async function showGraphicsRestartDialog(restartRequired = Boolean(graphicsDiagnostics?.restartRequired)): Promise<void> {
+    const restartState = getGraphicsRestartState(restartRequired, hasRunningRoles);
+    if (restartState === "not_required") {
+      return;
+    }
+
     const approved = await confirm({
-      cancelLabel: t("confirm.cancel"),
+      cancelLabel: t("settings.graphicsRestartLater"),
       confirmLabel: t("settings.graphicsRestartNow"),
-      description: t("settings.graphicsRestartDescription"),
+      confirmDisabled: restartState === "roles_running",
+      description:
+        restartState === "roles_running"
+          ? t("settings.graphicsStopRolesBeforeRestart")
+          : t("settings.graphicsRestartDescription"),
       title: t("settings.graphicsRestartTitle")
     });
     if (!approved) {
@@ -392,15 +419,28 @@ function SettingsViewBase({
                 title={t("settings.graphicsMode")}
                 description={t(graphicsModeDescriptionKeys[normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode])}
                 control={
-                  <Select
-                    className="settings-menu-control"
-                    value={normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode}
-                    onChange={(event) => void handleGraphicsModeChange(event.target.value as BrowserGraphicsMode)}
-                  >
-                    <option value="automatic">{t("settings.graphicsModeAutomatic")}</option>
-                    <option value="high_performance">{t("settings.graphicsModeHighPerformance")}</option>
-                    <option value="experimental">{t("settings.graphicsModeExperimental")}</option>
-                  </Select>
+                  <div className="flex max-w-[420px] flex-wrap items-center justify-end gap-2">
+                    <Select
+                      className="settings-menu-control"
+                      disabled={isGraphicsBusy}
+                      value={normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode}
+                      onChange={(event) => void handleGraphicsModeChange(event.target.value as BrowserGraphicsMode)}
+                    >
+                      <option value="automatic">{t("settings.graphicsModeAutomatic")}</option>
+                      <option value="high_performance">{t("settings.graphicsModeHighPerformance")}</option>
+                      <option value="experimental">{t("settings.graphicsModeExperimental")}</option>
+                    </Select>
+                    {graphicsDiagnostics?.restartRequired ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void showGraphicsRestartDialog(true)}
+                      >
+                        <RotateCcw size={14} />
+                        {t("settings.graphicsRestartPending")}
+                      </Button>
+                    ) : null}
+                  </div>
                 }
               />
               <SettingsRow
@@ -433,26 +473,6 @@ function SettingsViewBase({
                   title={t("settings.graphicsExternalSessions")}
                   description={formatExternalGraphicsSummary(graphicsDiagnostics, t)}
                   control={<ReadOnlyValue value={String(graphicsDiagnostics.externalRoles.length)} />}
-                />
-              ) : null}
-              {graphicsDiagnostics?.restartRequired ? (
-                <SettingsRow
-                  title={t("settings.graphicsRestartTitle")}
-                  description={
-                    hasRunningRoles
-                      ? t("settings.graphicsStopRolesBeforeRestart")
-                      : t("settings.graphicsRestartDescription")
-                  }
-                  control={
-                    <Button
-                      type="button"
-                      disabled={hasRunningRoles}
-                      onClick={() => void handleRestartApplication()}
-                    >
-                      <RotateCcw size={14} />
-                      {t("settings.graphicsRestartNow")}
-                    </Button>
-                  }
                 />
               ) : null}
               <BrowserFontsSettingsRows

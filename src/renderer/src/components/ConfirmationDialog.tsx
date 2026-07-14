@@ -17,21 +17,26 @@ interface PendingConfirmation extends ConfirmationOptions {
 
 export function ConfirmationProvider({ children }: { children: ReactNode }): JSX.Element {
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
+  const pendingRef = useRef<PendingConfirmation | null>(null);
 
   const confirm = useCallback<Confirm>((options) => {
-    if (pending) {
+    if (pendingRef.current) {
       return Promise.resolve(false);
     }
 
     return new Promise<boolean>((resolve) => {
-      setPending({ ...options, resolve });
+      const nextPending = { ...options, resolve };
+      pendingRef.current = nextPending;
+      setPending(nextPending);
     });
-  }, [pending]);
+  }, []);
 
   const settle = useCallback((confirmed: boolean): void => {
-    pending?.resolve(confirmed);
+    const currentPending = pendingRef.current;
+    pendingRef.current = null;
     setPending(null);
-  }, [pending]);
+    currentPending?.resolve(confirmed);
+  }, []);
 
   return (
     <ConfirmationContext.Provider value={confirm}>
@@ -92,6 +97,7 @@ function ConfirmationDialog({
             </Button>
             <Button
               type="button"
+              disabled={pending.confirmDisabled}
               variant={pending.tone === "destructive" ? "destructive" : "default"}
               onClick={() => onSettle(true)}
             >

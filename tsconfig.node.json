@@ -24,6 +24,7 @@
     "src/renderer/src/features/macros/macroListUtils.ts",
     "src/renderer/src/features/macros/macroUtils.ts",
     "src/renderer/src/features/legal/legalMarkdownParser.ts",
+    "src/renderer/src/features/settings/graphicsRestart.ts",
     "src/renderer/src/features/settings/settingsNavigation.ts",
     "src/renderer/src/features/workspaces/workspaceLayoutUtils.ts",
     "src/renderer/src/features/workspaces/workspaceDisplayUtils.ts",

@@ -263,6 +263,7 @@ function WorkspaceCard({
   const isRunning = runningCount > 0;
   const isBusy = busyWorkspaceId === workspace.id;
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
+  const primaryActionLabel = isRunning ? t("workspaces.stop") : t("workspaces.launch");
   const zoomTitle = `${t("workspaces.browserZoom")}: ${workspace.browserZoomPercent}%`;
   const targetDisplay = getWorkspaceTargetDisplayPresentation(workspace.targetDisplayId, workspaceDisplays, t);
 
@@ -276,13 +277,41 @@ function WorkspaceCard({
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <WorkspaceLayoutPreview
-        className="aspect-[4/3] p-2"
-        roleById={roleById}
-        slots={workspace.slots}
-        t={t}
-        template={workspace.template}
-      />
+      <div className="relative">
+        <WorkspaceLayoutPreview
+          className="aspect-[4/3] p-2"
+          roleById={roleById}
+          slots={workspace.slots}
+          t={t}
+          template={workspace.template}
+        />
+
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+          <Button
+            aria-label={primaryActionLabel}
+            className={cn(
+              "pointer-events-auto size-16 rounded-full border border-white/35 bg-black/35 p-0 text-white shadow-lg backdrop-blur-md",
+              "transition-[opacity,transform,background-color] duration-150 hover:bg-black/50 hover:text-white",
+              isRunning
+                ? "opacity-100"
+                : "opacity-0 group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100"
+            )}
+            disabled={isBusy || assignedCount === 0}
+            title={primaryActionLabel}
+            type="button"
+            variant="secondary"
+            onClick={isRunning ? onStop : onLaunch}
+          >
+            {isBusy ? (
+              <Loader2 className="spin" size={30} />
+            ) : isRunning ? (
+              <Square size={30} fill="currentColor" />
+            ) : (
+              <Play className="ml-0.5" size={34} fill="currentColor" />
+            )}
+          </Button>
+        </div>
+      </div>
 
       <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <WorkspaceActionMenu
@@ -299,30 +328,14 @@ function WorkspaceCard({
       </div>
 
       <div className="glass-divider border-t p-3.5">
-        <div className="flex items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className="flex shrink-0 items-center justify-center text-muted-foreground"
-                title={t(workspaceTemplateLabelKeys[workspace.template])}
-              >
-                <LayoutIcon size={18} aria-hidden="true" />
-              </span>
-              <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
-            </div>
-          </div>
-
-          <Button
-            className="h-7 min-w-[88px] shrink-0 gap-1.5 px-2.5 text-[11px]"
-            type="button"
-            variant={isRunning ? "destructive" : "secondary"}
-            size="sm"
-            onClick={isRunning ? onStop : onLaunch}
-            disabled={isBusy || assignedCount === 0}
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="flex shrink-0 items-center justify-center text-muted-foreground"
+            title={t(workspaceTemplateLabelKeys[workspace.template])}
           >
-            {isBusy ? <Loader2 className="spin" size={14} /> : isRunning ? <Square size={14} /> : <Play size={14} />}
-            {isRunning ? t("workspaces.stopShort") : t("workspaces.launchShort")}
-          </Button>
+            <LayoutIcon size={18} aria-hidden="true" />
+          </span>
+          <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
         </div>
 
         <div className="mt-2 flex min-w-0 items-center gap-1.5">

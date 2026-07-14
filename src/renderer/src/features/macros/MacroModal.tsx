@@ -38,7 +38,12 @@ import {
   commonMacroKeyCodes,
   createClientId,
   formatMacroCode,
+  formatMacroIntervalPreset,
   formatMacroShortcut,
+  isMacroIntervalPreset,
+  isValidMacroInterval,
+  MACRO_INTERVAL_CUSTOM_VALUE,
+  MACRO_INTERVAL_OPTIONS,
   isPureModifierCode
 } from "./macroUtils";
 
@@ -108,12 +113,15 @@ function MacroEditor({
     form.name.trim().length > 0 &&
     form.roleIds.length > 0 &&
     form.steps.length > 0 &&
+    (form.repeat.type === "once" || isValidMacroInterval(form.repeat.intervalMs)) &&
     !shortcutConflict;
   const saveHint = shortcutConflict ?? (
     form.roleIds.length === 0
       ? t("macroForm.saveHint.needsRole")
       : form.steps.length === 0
         ? t("macroForm.saveHint.needsStep")
+        : form.repeat.type === "loop" && !isValidMacroInterval(form.repeat.intervalMs)
+          ? t("macroForm.saveHint.invalidInterval")
         : t("macroForm.saveHint.ready")
   );
   const confirmationOptions = useMemo(() => ({
@@ -286,15 +294,10 @@ function MacroForm({ form, isSaving, onChange, roles, shortcutConflict, t }: Mac
                     }}
                   />
                   {form.repeat.type === "loop" ? (
-                    <AffixedInput
-                      aria-label={t("macroForm.intervalMs")}
+                    <MacroIntervalControl
                       disabled={isSaving}
-                      max={600000}
-                      min={1}
-                      prefix={t("macroForm.intervalMs")}
-                      suffix="ms"
+                      t={t}
                       value={form.repeat.intervalMs}
-                      widthClassName="h-[30px] w-full"
                       onChange={(intervalMs) => updateRepeat({ type: "loop", intervalMs })}
                     />
                   ) : null}
@@ -302,10 +305,17 @@ function MacroForm({ form, isSaving, onChange, roles, shortcutConflict, t }: Mac
               </FormField>
             </Surface>
 
-            <Surface className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-4" variant="inset">
-              <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={15} />
-              <p className="text-[11px] font-medium leading-5 text-foreground">{t("macroForm.fairUseNotice")}</p>
-            </Surface>
+            {form.repeat.type === "loop" ? (
+              <Surface
+                className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-4"
+                variant="inset"
+              >
+                <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={15} />
+                <p className="text-[11px] font-medium leading-5 text-foreground">
+                  {t("macroForm.fairUseNotice")}
+                </p>
+              </Surface>
+            ) : null}
           </aside>
 
           <div className="grid content-start gap-4">
@@ -452,6 +462,7 @@ interface AffixedInputProps {
   onChange: (value: number) => void;
   prefix?: string;
   suffix?: string;
+  step?: number;
   value: number;
   widthClassName: string;
 }
@@ -464,6 +475,7 @@ function AffixedInput({
   onChange,
   prefix,
   suffix,
+  step,
   value,
   widthClassName
 }: AffixedInputProps): JSX.Element {
@@ -485,6 +497,7 @@ function AffixedInput({
         type="number"
         min={min}
         max={max}
+        step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
         disabled={disabled}
@@ -495,6 +508,62 @@ function AffixedInput({
         </span>
       ) : null}
     </label>
+  );
+}
+
+function MacroIntervalControl({
+  disabled,
+  onChange,
+  t,
+  value
+}: {
+  disabled: boolean;
+  onChange: (value: number) => void;
+  t: Translator;
+  value: number;
+}): JSX.Element {
+  const [isCustom, setIsCustom] = useState(() => !isMacroIntervalPreset(value));
+  const showCustomInput = isCustom || !isMacroIntervalPreset(value);
+
+  return (
+    <div className="grid gap-2">
+      <Select
+        aria-label={t("macroForm.intervalMs")}
+        disabled={disabled}
+        value={showCustomInput ? MACRO_INTERVAL_CUSTOM_VALUE : String(value)}
+        onChange={(event) => {
+          if (event.target.value === MACRO_INTERVAL_CUSTOM_VALUE) {
+            setIsCustom(true);
+            return;
+          }
+
+          setIsCustom(false);
+          onChange(Number(event.target.value));
+        }}
+      >
+        {MACRO_INTERVAL_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option === MACRO_INTERVAL_CUSTOM_VALUE
+              ? t("macroForm.intervalCustom")
+              : formatMacroIntervalPreset(option, t)}
+          </option>
+        ))}
+      </Select>
+      {showCustomInput ? (
+        <AffixedInput
+          aria-label={t("macroForm.intervalCustomValue")}
+          disabled={disabled}
+          max={600000}
+          min={1}
+          step={1}
+          prefix={t("macroForm.intervalMs")}
+          suffix="ms"
+          value={value}
+          widthClassName="h-[30px] w-full"
+          onChange={onChange}
+        />
+      ) : null}
+    </div>
   );
 }
 

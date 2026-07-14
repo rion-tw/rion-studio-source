@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   createMacroRunKey,
+  formatMacroIntervalPreset,
   formatMacroRepeat,
   formatMacroShortcut,
+  isMacroIntervalPreset,
+  isValidMacroInterval,
+  MACRO_INTERVAL_OPTIONS,
+  MACRO_INTERVAL_PRESETS,
   summarizeMacroSteps
 } from "../src/renderer/src/features/macros/macroUtils";
 import type { Translator } from "../src/renderer/src/i18n";
@@ -14,6 +19,8 @@ const t: Translator = (key) =>
       "macro.step.click": "Click",
       "macro.step.delay": "Delay",
       "macro.step.key": "Key",
+      "macroForm.intervalMilliseconds": "{value} ms",
+      "macroForm.intervalSeconds": "{value} sec",
       "macros.noShortcut": "No shortcut",
       "macros.repeat.loop": "Every {ms} ms",
       "macros.repeat.once": "Once",
@@ -63,5 +70,23 @@ describe("macroUtils", () => {
     expect(formatMacroRepeat({ type: "once" }, t)).toBe("Once");
     expect(formatMacroRepeat({ type: "loop", intervalMs: 500 }, t)).toBe("Every 500 ms");
     expect(createMacroRunKey("role-1", "macro-1")).toBe("role-1:macro-1");
+  });
+
+  it("provides ordered interval presets and formats their units", () => {
+    expect(MACRO_INTERVAL_PRESETS).toEqual([50, 100, 250, 500, 1000, 2000, 5000, 10000]);
+    expect(MACRO_INTERVAL_OPTIONS).toEqual([50, 100, 250, 500, 1000, 2000, 5000, 10000, "custom"]);
+    expect(formatMacroIntervalPreset(50, t)).toBe("50 ms");
+    expect(formatMacroIntervalPreset(1000, t)).toBe("1 sec");
+    expect(formatMacroIntervalPreset(10000, t)).toBe("10 sec");
+  });
+
+  it("distinguishes preset and valid custom intervals", () => {
+    expect(isMacroIntervalPreset(500)).toBe(true);
+    expect(isMacroIntervalPreset(333)).toBe(false);
+    expect(isValidMacroInterval(1)).toBe(true);
+    expect(isValidMacroInterval(600000)).toBe(true);
+    expect(isValidMacroInterval(0)).toBe(false);
+    expect(isValidMacroInterval(600001)).toBe(false);
+    expect(isValidMacroInterval(1.5)).toBe(false);
   });
 });

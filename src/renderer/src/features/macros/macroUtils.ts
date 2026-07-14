@@ -2,6 +2,27 @@ import type { Macro, MacroRepeat, MacroStep, MacroTrigger, Role } from "../../..
 import type { MacroFormState } from "../../app/types";
 import type { TranslationKey, Translator } from "../../i18n";
 
+export const MACRO_INTERVAL_PRESETS = [50, 100, 250, 500, 1000, 2000, 5000, 10000] as const;
+export const MACRO_INTERVAL_CUSTOM_VALUE = "custom";
+export const MACRO_INTERVAL_OPTIONS = [...MACRO_INTERVAL_PRESETS, MACRO_INTERVAL_CUSTOM_VALUE] as const;
+
+export function isMacroIntervalPreset(value: number): boolean {
+  return MACRO_INTERVAL_PRESETS.some((preset) => preset === value);
+}
+
+export function isValidMacroInterval(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 600000;
+}
+
+export function formatMacroIntervalPreset(value: number, t: Translator): string {
+  const translationKey = value < 1000
+    ? "macroForm.intervalMilliseconds"
+    : "macroForm.intervalSeconds";
+  const displayValue = value < 1000 ? value : value / 1000;
+
+  return t(translationKey).replace("{value}", String(displayValue));
+}
+
 export const commonMacroKeyCodes = [
   "Escape",
   "Tab",

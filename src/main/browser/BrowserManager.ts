@@ -160,6 +160,7 @@ const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
 const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
+const WORKSPACE_LAUNCH_CONCURRENCY = 2;
 
 export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly blockedRoleIds = new Set<string>();
@@ -313,9 +314,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         const zoomFactor = workspace.browserZoomPercent / 100;
         await this.createHostDividers(host);
         host.window.show();
-        for (const session of sessions) {
-          await this.finishLaunch(session, zoomFactor);
-        }
+        await runInBatches(
+          sessions,
+          WORKSPACE_LAUNCH_CONCURRENCY,
+          (session) => this.finishLaunch(session, zoomFactor)
+        );
         host.window.focus();
         return sessions.map((session) => this.toStatus(session.role.id, session));
       } catch (error) {
@@ -1231,4 +1234,20 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runInBatches<T>(
+  items: T[],
+  concurrency: number,
+  operation: (item: T) => Promise<void>
+): Promise<void> {
+  for (let index = 0; index < items.length; index += concurrency) {
+    const results = await Promise.allSettled(
+      items.slice(index, index + concurrency).map((item) => operation(item))
+    );
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failure) {
+      throw failure.reason;
+    }
+  }
 }

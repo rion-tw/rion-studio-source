@@ -4,23 +4,23 @@ import { createCopyName } from "../app/copyName";
 import type { MacroFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Macro } from "../../../shared/types";
+import type { Macro, MacroRunStatus } from "../../../shared/types";
 import { DEFAULT_MACRO_LIST_SORT, type MacroListSortState } from "../features/macros/macroListUtils";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseMacroWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
-  loadData: (options?: { resetError?: boolean }) => Promise<void>;
   macros: Macro[];
   setMacros: Dispatch<SetStateAction<Macro[]>>;
+  setMacroStatuses: Dispatch<SetStateAction<MacroRunStatus[]>>;
   t: Translator;
 }
 
 export function useMacroWorkflow({
   beginErrorOperation,
-  loadData,
   macros,
   setMacros,
+  setMacroStatuses,
   t
 }: UseMacroWorkflowOptions) {
   const confirm = useConfirmation();
@@ -66,7 +66,6 @@ export function useMacroWorkflow({
         resetListState();
       }
 
-      await loadData({ resetError: false });
       return savedMacro;
     } catch (submitError) {
       reportError(submitError);
@@ -99,7 +98,8 @@ export function useMacroWorkflow({
 
     try {
       await window.rionStudio.deleteMacro(macro.id);
-      await loadData({ resetError: false });
+      setMacros((current) => current.filter((item) => item.id !== macro.id));
+      setMacroStatuses((current) => current.filter((status) => status.macroId !== macro.id));
     } catch (deleteError) {
       reportError(deleteError);
     } finally {
@@ -125,7 +125,6 @@ export function useMacroWorkflow({
       });
       setMacros((current) => [...current, copy]);
       resetListState();
-      await loadData({ resetError: false });
     } catch (copyError) {
       reportError(copyError);
     } finally {
@@ -142,10 +141,15 @@ export function useMacroWorkflow({
     const reportError = beginErrorOperation();
 
     try {
-      await window.rionStudio.startMacro(macroId);
+      const nextStatuses = await window.rionStudio.startMacro(macroId);
+      setMacroStatuses((current) => mergeMacroStatuses(current, nextStatuses));
     } catch (startError) {
       reportError(startError);
-      await loadData({ resetError: false });
+      try {
+        setMacroStatuses(await window.rionStudio.listMacroStatuses());
+      } catch (recoveryError) {
+        reportError(recoveryError);
+      }
     } finally {
       finishBusy();
     }
@@ -161,7 +165,7 @@ export function useMacroWorkflow({
 
     try {
       await window.rionStudio.stopMacro(macroId);
-      await loadData({ resetError: false });
+      setMacroStatuses((current) => current.filter((status) => status.macroId !== macroId));
     } catch (stopError) {
       reportError(stopError);
     } finally {
@@ -194,4 +198,11 @@ export function useMacroWorkflow({
     setSort,
     sort
   };
+}
+
+function mergeMacroStatuses(current: MacroRunStatus[], next: MacroRunStatus[]): MacroRunStatus[] {
+  const nextByKey = new Map(next.map((status) => [`${status.roleId}:${status.macroId}`, status]));
+  const merged = current.map((status) => nextByKey.get(`${status.roleId}:${status.macroId}`) ?? status);
+  const currentKeys = new Set(current.map((status) => `${status.roleId}:${status.macroId}`));
+  return [...merged, ...next.filter((status) => !currentKeys.has(`${status.roleId}:${status.macroId}`))];
 }

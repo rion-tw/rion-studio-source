@@ -178,20 +178,21 @@ export function App(): JSX.Element {
 
   const roleWorkflow = useRoleWorkflow({
     beginErrorOperation: data.beginErrorOperation,
-    loadData: data.loadData,
     roles: data.roles,
     setAuthStatuses: data.setAuthStatuses,
+    setMacros: data.setMacros,
     setNotice,
     setRoles: data.setRoles,
     setStatuses: data.setStatuses,
+    setWorkspaces: data.setWorkspaces,
     statusByRole: data.statusByRole,
     t: preferences.t
   });
 
   const workspaceWorkflow = useWorkspaceWorkflow({
     beginErrorOperation: data.beginErrorOperation,
-    loadData: data.loadData,
     setNotice,
+    setRoles: data.setRoles,
     setStatuses: data.setStatuses,
     setWorkspaces: data.setWorkspaces,
     t: preferences.t,
@@ -200,9 +201,9 @@ export function App(): JSX.Element {
 
   const macroWorkflow = useMacroWorkflow({
     beginErrorOperation: data.beginErrorOperation,
-    loadData: data.loadData,
     macros: data.macros,
     setMacros: data.setMacros,
+    setMacroStatuses: data.setMacroStatuses,
     t: preferences.t
   });
   const {

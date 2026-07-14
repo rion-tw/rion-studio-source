@@ -44,6 +44,14 @@ describe("RoleStore", () => {
     });
   });
 
+  it("returns isolated role copies from the in-memory cache", async () => {
+    const role = await store.createRole({ name: "Main" });
+    const listed = await store.listRoles();
+    listed[0].name = "Mutated by caller";
+
+    await expect(store.getRole(role.id)).resolves.toMatchObject({ name: "Main" });
+  });
+
   it("serializes concurrent deletions without restoring either role", async () => {
     const first = await store.createRole({ name: "First" });
     const second = await store.createRole({ name: "Second" });

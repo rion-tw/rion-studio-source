@@ -336,6 +336,33 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
+  it("launches workspace roles in batches of two", async () => {
+    const started: number[] = [];
+    const releases: Array<() => void> = [];
+    const loadUrlHandlers = Array.from({ length: 4 }, (_, index) => async () => {
+      started.push(index);
+      await new Promise<void>((resolve) => {
+        releases[index] = resolve;
+      });
+    });
+    const harness = createHarness({ loadUrlHandlers });
+    const rects = getDefaultWorkspaceRects("quad");
+    const roles = Array.from({ length: 4 }, (_, index) => createRole(`role-${index + 1}`, `Role ${index + 1}`));
+    const launch = harness.manager.launchWorkspace(
+      workspace,
+      roles.map((item, index) => ({ role: item, rect: rects[index] }))
+    );
+
+    await vi.waitFor(() => expect(started).toEqual([0, 1]));
+    releases[0]();
+    releases[1]();
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3]));
+    releases[2]();
+    releases[3]();
+
+    await expect(launch).resolves.toHaveLength(4);
+  });
+
   it("falls back a workspace to external Chrome compatibility mode after embedded game load failure", async () => {
     const externalChromeManager = createExternalChromeManager();
     const secondRole = createRole("role-2", "Alt");

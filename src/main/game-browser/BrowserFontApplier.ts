@@ -10,6 +10,11 @@ import type { GameBrowserSettings } from "../../shared/types";
 
 type JsonRecord = Record<string, unknown>;
 
+interface PreferencesReadResult {
+  isValid: boolean;
+  preferences?: JsonRecord;
+}
+
 export interface BrowserFontApplierOptions {
   appUserDataDir: string;
   getSettings: () => Promise<GameBrowserSettings>;
@@ -49,27 +54,33 @@ export class BrowserFontApplier {
 
   async applyToPreferencesFile(preferencesPath: string, settings: GameBrowserSettings): Promise<void> {
     const normalizedSettings = normalizeGameBrowserSettings(settings);
-    const currentPreferences = await this.readPreferencesFile(preferencesPath);
+    const { isValid, preferences: currentPreferences } = await this.readPreferencesFile(preferencesPath);
 
     if (!currentPreferences && normalizedSettings.fonts.mode === "default") {
       return;
     }
 
     const nextPreferences = applyBrowserFontSettingsToPreferences(currentPreferences ?? {}, normalizedSettings);
+    if (isValid && currentPreferences && areRecordsEqual(currentPreferences, nextPreferences)) {
+      return;
+    }
+
     await this.writePreferencesFile(preferencesPath, nextPreferences);
   }
 
-  private async readPreferencesFile(preferencesPath: string): Promise<JsonRecord | undefined> {
+  private async readPreferencesFile(preferencesPath: string): Promise<PreferencesReadResult> {
     try {
       const raw = await this.readTextFile(preferencesPath, "utf8");
       const parsed = JSON.parse(raw) as unknown;
-      return isRecord(parsed) ? parsed : {};
+      return isRecord(parsed)
+        ? { isValid: true, preferences: parsed }
+        : { isValid: false, preferences: {} };
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
-        return undefined;
+        return { isValid: true };
       }
 
-      return {};
+      return { isValid: false, preferences: {} };
     }
   }
 
@@ -160,6 +171,10 @@ function deleteDottedPath(target: JsonRecord, dottedPath: string): void {
 
 function cloneRecord(value: JsonRecord): JsonRecord {
   return JSON.parse(JSON.stringify(value)) as JsonRecord;
+}
+
+function areRecordsEqual(left: JsonRecord, right: JsonRecord): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function pruneEmptyRecords(value: JsonRecord): JsonRecord {

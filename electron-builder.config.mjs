@@ -9,6 +9,7 @@ const config = {
   appId: "com.rionstudio.launcher",
   productName: "Rion Studio",
   artifactName: "Rion.Studio-${os}.${ext}",
+  compression: "maximum",
   directories: {
     output: "release/${version}"
   },
@@ -40,6 +41,7 @@ const config = {
     }
   ],
   electronUpdaterCompatibility: ">=2.16",
+  electronLanguages: ["en", "en-US", "zh_TW", "zh-TW", "zh_CN", "zh-CN", "ja"],
   mac: {
     icon: "build/icon.icns",
     category: "public.app-category.utilities",

@@ -160,6 +160,28 @@ describe("BrowserFontApplier", () => {
       }
     });
   });
+
+  it("skips the atomic rewrite when managed font preferences are unchanged", async () => {
+    const preferencesPath = join(baseDir, "Default", "Preferences");
+    const currentPreferences = applyBrowserFontSettingsToPreferences({}, customSettings);
+    const writeTextFile = vi.fn().mockResolvedValue(undefined);
+    const renameFile = vi.fn().mockResolvedValue(undefined);
+    const makeDirectory = vi.fn().mockResolvedValue(undefined);
+    const applier = new BrowserFontApplier({
+      appUserDataDir: baseDir,
+      getSettings: vi.fn().mockResolvedValue(customSettings),
+      makeDirectory,
+      readTextFile: vi.fn().mockResolvedValue(JSON.stringify(currentPreferences)),
+      renameFile,
+      writeTextFile
+    });
+
+    await applier.applyToPreferencesFile(preferencesPath, customSettings);
+
+    expect(makeDirectory).not.toHaveBeenCalled();
+    expect(writeTextFile).not.toHaveBeenCalled();
+    expect(renameFile).not.toHaveBeenCalled();
+  });
 });
 
 async function readJson(path: string): Promise<unknown> {

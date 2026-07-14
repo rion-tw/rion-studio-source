@@ -8,6 +8,7 @@ import {
 import type { GameBrowserSettings } from "../../shared/types";
 
 export class GameBrowserSettingsStore {
+  private cachedSettings: GameBrowserSettings | undefined;
   private readonly settingsPath: string;
 
   constructor(userDataDir: string) {
@@ -15,22 +16,29 @@ export class GameBrowserSettingsStore {
   }
 
   async getSettings(): Promise<GameBrowserSettings> {
+    if (this.cachedSettings) {
+      return cloneSettings(this.cachedSettings);
+    }
+
     try {
       const raw = await readFile(this.settingsPath, "utf8");
-      return normalizeGameBrowserSettings(JSON.parse(raw));
+      this.cachedSettings = normalizeGameBrowserSettings(JSON.parse(raw));
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
-        return DEFAULT_GAME_BROWSER_SETTINGS;
+        this.cachedSettings = cloneSettings(DEFAULT_GAME_BROWSER_SETTINGS);
+      } else {
+        this.cachedSettings = cloneSettings(DEFAULT_GAME_BROWSER_SETTINGS);
       }
-
-      return DEFAULT_GAME_BROWSER_SETTINGS;
     }
+
+    return cloneSettings(this.cachedSettings);
   }
 
   async updateSettings(settings: GameBrowserSettings): Promise<GameBrowserSettings> {
     const normalizedSettings = normalizeGameBrowserSettings(settings);
     await this.writeSettings(normalizedSettings);
-    return normalizedSettings;
+    this.cachedSettings = cloneSettings(normalizedSettings);
+    return cloneSettings(normalizedSettings);
   }
 
   private async writeSettings(settings: GameBrowserSettings): Promise<void> {
@@ -39,6 +47,10 @@ export class GameBrowserSettingsStore {
     await writeFile(tmpPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
     await rename(tmpPath, this.settingsPath);
   }
+}
+
+function cloneSettings(settings: GameBrowserSettings): GameBrowserSettings {
+  return structuredClone(settings);
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

@@ -13,6 +13,7 @@ import type {
 
 const api: RionStudioApi = {
   notifyAppReady: (state) => ipcRenderer.invoke(IPC_CHANNELS.appRendererReady, state),
+  getAppSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.appSnapshot),
   getLegalAcceptanceStatus: () => ipcRenderer.invoke(IPC_CHANNELS.legalStatus),
   acceptLegalDocuments: (input) => ipcRenderer.invoke(IPC_CHANNELS.legalAccept, input),
   quitApplication: () => ipcRenderer.invoke(IPC_CHANNELS.appQuit),

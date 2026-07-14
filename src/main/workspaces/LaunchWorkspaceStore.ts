@@ -62,6 +62,7 @@ export class LaunchWorkspaceStoreError extends Error {
 }
 
 export class LaunchWorkspaceStore {
+  private cachedFile: LaunchWorkspacesFile | undefined;
   private readonly taskQueue = new SerialTaskQueue();
   private readonly workspacesPath: string;
 
@@ -222,6 +223,10 @@ export class LaunchWorkspaceStore {
   }
 
   private async readWorkspacesFile(): Promise<LaunchWorkspacesFile> {
+    if (this.cachedFile) {
+      return cloneWorkspacesFile(this.cachedFile);
+    }
+
     try {
       const raw = await readFile(this.workspacesPath, "utf8");
       const parsed = JSON.parse(raw) as LaunchWorkspacesFile;
@@ -243,9 +248,11 @@ export class LaunchWorkspaceStore {
 
       if (didMigrate) {
         await this.writeWorkspacesFile(file);
+      } else {
+        this.cachedFile = cloneWorkspacesFile(file);
       }
 
-      return file;
+      return cloneWorkspacesFile(file);
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
         return { workspaces: [] };
@@ -257,6 +264,11 @@ export class LaunchWorkspaceStore {
 
   private async writeWorkspacesFile(file: LaunchWorkspacesFile): Promise<void> {
     await writeJsonFileAtomically(this.workspacesPath, file);
+    this.cachedFile = cloneWorkspacesFile({
+      workspaces: file.workspaces.map((workspace) =>
+        this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
+      )
+    });
   }
 
   private normalizeStoredWorkspace(workspace: StoredLaunchWorkspace): LaunchWorkspace {
@@ -492,6 +504,18 @@ export class LaunchWorkspaceStore {
       );
     }
   }
+}
+
+function cloneWorkspacesFile(file: LaunchWorkspacesFile): LaunchWorkspacesFile {
+  return {
+    workspaces: file.workspaces.map((workspace) => ({
+      ...workspace,
+      slots: workspace.slots.map((slot) => ({
+        ...slot,
+        rect: { ...slot.rect }
+      }))
+    }))
+  };
 }
 
 function roundRectValue(value: number): number {

@@ -10,6 +10,16 @@ describe("electron-builder release configuration", () => {
     expect(config.directories).toMatchObject({
       output: "release/${version}"
     });
+    expect(config.compression).toBe("maximum");
+    expect(config.electronLanguages).toEqual([
+      "en",
+      "en-US",
+      "zh_TW",
+      "zh-TW",
+      "zh_CN",
+      "zh-CN",
+      "ja"
+    ]);
     expect(config.win).toMatchObject({
       target: ["nsis"]
     });

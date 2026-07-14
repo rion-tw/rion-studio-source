@@ -7,13 +7,13 @@ import { useConfirmation } from "../components/confirmation";
 import type { WorkspaceDisplaySelectionRequest } from "../features/workspaces/WorkspaceDisplayPickerDialog";
 import { runWorkspaceLaunch } from "../features/workspaces/workspaceLaunchUtils";
 import type { Translator } from "../i18n";
-import type { LaunchWorkspace, RoleStatus, WorkspaceLaunchResult } from "../../../shared/types";
+import type { LaunchWorkspace, Role, RoleStatus, WorkspaceLaunchResult } from "../../../shared/types";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseWorkspaceWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
-  loadData: (options?: { resetError?: boolean }) => Promise<void>;
   setNotice?: (message: string | null) => void;
+  setRoles: Dispatch<SetStateAction<Role[]>>;
   setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
   setWorkspaces: Dispatch<SetStateAction<LaunchWorkspace[]>>;
   t: Translator;
@@ -22,8 +22,8 @@ interface UseWorkspaceWorkflowOptions {
 
 export function useWorkspaceWorkflow({
   beginErrorOperation,
-  loadData,
   setNotice,
+  setRoles,
   setStatuses,
   setWorkspaces,
   t,
@@ -75,7 +75,6 @@ export function useWorkspaceWorkflow({
         listScrollTopRef.current = 0;
       }
 
-      await loadData({ resetError: false });
       return savedWorkspace;
     } catch (submitError) {
       reportError(submitError);
@@ -108,7 +107,7 @@ export function useWorkspaceWorkflow({
 
     try {
       await window.rionStudio.deleteLaunchWorkspace(workspace.id);
-      await loadData({ resetError: false });
+      setWorkspaces((current) => current.filter((item) => item.id !== workspace.id));
     } catch (deleteError) {
       reportError(deleteError);
     } finally {
@@ -138,7 +137,6 @@ export function useWorkspaceWorkflow({
       setWorkspaces((current) => [...current, copy]);
       setQuery("");
       listScrollTopRef.current = 0;
-      await loadData({ resetError: false });
     } catch (copyError) {
       reportError(copyError);
     } finally {
@@ -170,7 +168,11 @@ export function useWorkspaceWorkflow({
       setWorkspaces(savedWorkspaces);
     } catch (reorderError) {
       reportError(reorderError);
-      await loadData({ resetError: false });
+      try {
+        setWorkspaces(await window.rionStudio.listLaunchWorkspaces());
+      } catch (recoveryError) {
+        reportError(recoveryError);
+      }
     } finally {
       isReorderingWorkspacesRef.current = false;
       setIsReorderingWorkspaces(false);
@@ -208,7 +210,16 @@ export function useWorkspaceWorkflow({
       }
     } catch (launchError) {
       reportError(launchError);
-      await loadData({ resetError: false });
+      try {
+        const [nextRoles, nextStatuses] = await Promise.all([
+          window.rionStudio.listRoles(),
+          window.rionStudio.listRoleStatuses()
+        ]);
+        setRoles(nextRoles);
+        setStatuses(nextStatuses);
+      } catch (recoveryError) {
+        reportError(recoveryError);
+      }
     } finally {
       settleWorkspaceDisplaySelection(undefined);
       launchInProgressRef.current = false;

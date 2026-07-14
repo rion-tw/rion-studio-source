@@ -39,6 +39,7 @@ export class RoleStoreError extends Error {
 }
 
 export class RoleStore {
+  private cachedFile: RolesFile | undefined;
   private readonly rolesPath: string;
   private readonly rolesRoot: string;
   private readonly legacyRolesPath: string;
@@ -238,6 +239,10 @@ export class RoleStore {
   }
 
   private async readRolesFile(): Promise<RolesFile> {
+    if (this.cachedFile) {
+      return cloneRolesFile(this.cachedFile);
+    }
+
     try {
       const raw = await readFile(this.rolesPath, "utf8");
       const parsed = JSON.parse(raw) as RolesFile;
@@ -251,7 +256,8 @@ export class RoleStore {
       };
 
       await this.migrateLegacyRoleDirectories(file.roles.map((role) => role.id));
-      return file;
+      this.cachedFile = cloneRolesFile(file);
+      return cloneRolesFile(file);
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
         return this.readLegacyRolesFile();
@@ -277,7 +283,7 @@ export class RoleStore {
 
       await this.migrateLegacyRoleDirectories(file.roles.map((role) => role.id));
       await this.writeRolesFile(file);
-      return file;
+      return cloneRolesFile(file);
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
         return { roles: [] };
@@ -290,6 +296,7 @@ export class RoleStore {
   private async writeRolesFile(file: RolesFile): Promise<void> {
     await mkdir(this.rolesRoot, { recursive: true });
     await writeJsonFileAtomically(this.rolesPath, file);
+    this.cachedFile = cloneRolesFile(file);
   }
 
   private normalizeName(name: string): string {
@@ -500,6 +507,12 @@ export class RoleStore {
       await rename(legacyRoleDir, roleDir);
     }
   }
+}
+
+function cloneRolesFile(file: RolesFile): RolesFile {
+  return {
+    roles: file.roles.map((role) => ({ ...role }))
+  };
 }
 
 async function pathExists(path: string): Promise<boolean> {

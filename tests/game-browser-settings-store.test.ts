@@ -68,7 +68,8 @@ describe("GameBrowserSettingsStore", () => {
     await expect(readFile(join(baseDir, "game-browser-settings.json.tmp"), "utf8")).rejects.toMatchObject({
       code: "ENOENT"
     });
-    await expect(store.getSettings()).resolves.toEqual({
+    const firstRead = await store.getSettings();
+    expect(firstRead).toEqual({
       fonts: {
         families: {
           fixed: "Courier New",
@@ -85,6 +86,10 @@ describe("GameBrowserSettingsStore", () => {
           server: "socks5://127.0.0.1:7890"
         }
       }
+    });
+    firstRead.fonts.families.standard = "Mutated by caller";
+    await expect(store.getSettings()).resolves.toMatchObject({
+      fonts: { families: { standard: "Arial" } }
     });
   });
 });

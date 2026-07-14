@@ -91,6 +91,24 @@ export function registerIpcHandlers(
     options.onRendererReady?.(event.sender.id, state);
   });
 
+  ipcMain.handle(IPC_CHANNELS.appSnapshot, async () => {
+    const [roles, launchWorkspaces, macros] = await Promise.all([
+      roleStore.listRoles(),
+      workspaceStore.listWorkspaces(),
+      options.macroStore?.listMacros() ?? Promise.resolve([])
+    ]);
+
+    return {
+      roles,
+      roleStatuses: browserManager.listStatuses(),
+      authStatuses: authManager.listStatuses(),
+      launchWorkspaces,
+      workspaceDisplays: getWorkspaceDisplays(options),
+      macros,
+      macroStatuses: options.macroManager?.listStatuses() ?? []
+    };
+  });
+
   ipcMain.handle(IPC_CHANNELS.legalStatus, () => {
     if (!options.legalAcceptanceStore) {
       throw new Error("Legal acceptance is not available.");

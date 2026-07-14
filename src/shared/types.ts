@@ -220,6 +220,16 @@ export interface WorkspaceDisplayInfo {
   isInternal: boolean;
 }
 
+export interface AppSnapshot {
+  roles: Role[];
+  roleStatuses: RoleStatus[];
+  authStatuses: AuthFlowStatus[];
+  launchWorkspaces: LaunchWorkspace[];
+  workspaceDisplays: WorkspaceDisplayInfo[];
+  macros: Macro[];
+  macroStatuses: MacroRunStatus[];
+}
+
 export interface WorkspaceDisplayLaunchOption extends WorkspaceDisplayInfo {
   occupiedByWorkspace?: {
     id: string;

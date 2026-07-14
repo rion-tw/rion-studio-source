@@ -48,8 +48,6 @@ import {
   RendererReadyGate,
   RendererReadyTimeoutError,
   showStartupWindow,
-  swapPreparedWindows,
-  waitForPreparedRenderer,
   type StartupPageState
 } from "./startup/startupWindow";
 import { AppUpdateManager } from "./updates/AppUpdateManager";
@@ -100,11 +98,9 @@ function loadAppIcon() {
 }
 
 function createWindow({
-  bounds,
-  kind
+  bounds
 }: {
   bounds?: Electron.Rectangle;
-  kind: "renderer" | "startup";
 }): BrowserWindow {
   const appIcon = loadAppIcon();
   const macWindowOptions =
@@ -133,19 +129,17 @@ function createWindow({
     ...(appIcon ? { icon: appIcon } : {}),
     ...macWindowOptions,
     webPreferences: {
-      ...(kind === "renderer" ? { preload: join(__dirname, "../preload/index.cjs") } : {}),
-      backgroundThrottling: kind !== "renderer",
+      preload: join(__dirname, "../preload/index.cjs"),
+      backgroundThrottling: false,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true
     }
   });
 
-  if (kind === "renderer") {
-    window.webContents.on("preload-error", (_event, preloadPath, error) => {
-      console.error(`Failed to load preload script: ${preloadPath}`, error);
-    });
-  }
+  window.webContents.on("preload-error", (_event, preloadPath, error) => {
+    console.error(`Failed to load preload script: ${preloadPath}`, error);
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -156,26 +150,17 @@ function createWindow({
 }
 
 function createStartupWindow(): BrowserWindow {
-  const window = createWindow({ kind: "startup" });
-  startupWindow = window;
-
-  window.on("closed", () => {
-    if (startupWindow === window) {
-      startupWindow = null;
-    }
-  });
-
-  return window;
-}
-
-function createRendererWindow(bounds: Electron.Rectangle): BrowserWindow {
-  const window = createWindow({ bounds, kind: "renderer" });
+  const window = createWindow({});
   const webContentsId = window.webContents.id;
+  startupWindow = window;
   mainWindow = window;
   mainWindowReady = false;
 
   window.on("closed", () => {
     rendererReadyGate.cancel(webContentsId);
+    if (startupWindow === window) {
+      startupWindow = null;
+    }
     if (mainWindow === window) {
       mainWindow = null;
       mainWindowReady = false;
@@ -440,8 +425,7 @@ function initializeApplication(): void {
 }
 
 async function prepareRendererWindow(loadingWindow: BrowserWindow): Promise<void> {
-  const rendererWindow = createRendererWindow(loadingWindow.getBounds());
-  const webContentsId = rendererWindow.webContents.id;
+  const webContentsId = loadingWindow.webContents.id;
   let preparationTimeout: ReturnType<typeof setTimeout> | undefined;
   const preparationTimeoutPromise = new Promise<never>((_resolve, reject) => {
     preparationTimeout = setTimeout(() => {
@@ -455,57 +439,39 @@ async function prepareRendererWindow(loadingWindow: BrowserWindow): Promise<void
     };
 
     removePreloadErrorListener = () => {
-      rendererWindow.webContents.removeListener("preload-error", onPreloadError);
+      loadingWindow.webContents.removeListener("preload-error", onPreloadError);
     };
-    rendererWindow.webContents.once("preload-error", onPreloadError);
+    loadingWindow.webContents.once("preload-error", onPreloadError);
   });
-  const cancelForClosedStartup = (): void => {
-    if (mainWindowReady) {
-      return;
-    }
-
-    rendererReadyGate.cancel(webContentsId);
-    if (!rendererWindow.isDestroyed()) {
-      rendererWindow.destroy();
-    }
-  };
-
-  loadingWindow.once("closed", cancelForClosedStartup);
 
   try {
     const rendererState = await Promise.race([
-      waitForPreparedRenderer(
-        rendererWindow,
-        () => loadMainRenderer(rendererWindow),
+      Promise.all([
+        loadMainRenderer(loadingWindow),
         rendererReadyGate.wait(webContentsId, RENDERER_READY_TIMEOUT_MS)
-      ),
+      ]).then(([, state]) => state),
       preloadFailurePromise,
       preparationTimeoutPromise
     ]);
 
-    if (!rendererState || loadingWindow.isDestroyed() || rendererWindow.isDestroyed()) {
+    if (!rendererState || loadingWindow.isDestroyed()) {
       return;
     }
 
     mainWindowReady = true;
-    rendererWindow.webContents.setBackgroundThrottling(true);
-    if (!swapPreparedWindows(loadingWindow, rendererWindow)) {
-      mainWindowReady = false;
-      throw new Error("Prepared renderer window could not replace the startup window.");
+    loadingWindow.webContents.setBackgroundThrottling(true);
+    if (startupWindow === loadingWindow) {
+      startupWindow = null;
     }
   } catch (error) {
     mainWindowReady = false;
     rendererReadyGate.cancel(webContentsId);
-    if (!rendererWindow.isDestroyed()) {
-      rendererWindow.destroy();
-    }
     throw error;
   } finally {
     if (preparationTimeout) {
       clearTimeout(preparationTimeout);
     }
     removePreloadErrorListener();
-    loadingWindow.removeListener("closed", cancelForClosedStartup);
   }
 }
 

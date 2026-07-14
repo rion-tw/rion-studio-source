@@ -3,6 +3,7 @@ import type {
   AuthFlowStatus,
   AppLanguage,
   AppRendererReadyState,
+  AppSnapshot,
   AppUpdateStatus,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
@@ -33,6 +34,7 @@ import type {
 
 export interface RionStudioApi {
   notifyAppReady: (state: AppRendererReadyState) => Promise<void>;
+  getAppSnapshot: () => Promise<AppSnapshot>;
   getLegalAcceptanceStatus: () => Promise<LegalAcceptanceStatus>;
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;

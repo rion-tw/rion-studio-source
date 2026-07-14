@@ -17,6 +17,22 @@ describe("MacroStore", () => {
     store = new MacroStore(baseDir);
   });
 
+  it("returns isolated macro copies from the in-memory cache", async () => {
+    const macro = await store.createMacro({
+      name: "Buff",
+      roleIds: ["role-1"],
+      steps: [{ id: "step-1", type: "key", code: "F1" }]
+    });
+    const listed = await store.listMacros();
+    listed[0].roleIds.push("role-2");
+    listed[0].steps[0].id = "mutated";
+
+    await expect(store.getMacro(macro.id)).resolves.toMatchObject({
+      roleIds: ["role-1"],
+      steps: [expect.objectContaining({ id: "step-1" })]
+    });
+  });
+
   it("creates, updates, lists, and deletes macros with multiple assigned roles", async () => {
     const first = await store.createMacro({
       name: "Auto heal",

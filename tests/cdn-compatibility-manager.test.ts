@@ -117,6 +117,24 @@ describe("CdnCompatibilityManager", () => {
     expect(session.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("shares an in-flight auto detection across simultaneous sessions", async () => {
+    let finishFetch!: (response: Response) => void;
+    const session = createSession(
+      async () => new Promise<Response>((resolve) => {
+        finishFetch = resolve;
+      })
+    );
+    const manager = createManager("auto");
+
+    const first = manager.resolveForSession(session.value);
+    const second = manager.resolveForSession(session.value);
+    await vi.waitFor(() => expect(session.fetch).toHaveBeenCalledTimes(1));
+    finishFetch(createResponse(false));
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(session.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("forces on without probing and keeps off fail-open", async () => {
     const onSession = createSession(async () => createResponse(false));
     const offSession = createSession(async () => createResponse(true));

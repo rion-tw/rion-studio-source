@@ -38,6 +38,7 @@ const requestFilter = {
 
 export class CdnCompatibilityManager {
   private readonly cache = new Map<string, DetectionCacheEntry>();
+  private readonly inFlightDetections = new Map<string, Promise<boolean>>();
   private readonly detectionTimeoutMs: number;
   private readonly now: () => number;
 
@@ -83,9 +84,26 @@ export class CdnCompatibilityManager {
       return cached.enabled;
     }
 
-    const enabled = await detectRestrictedGoogleAccess(session, this.detectionTimeoutMs);
-    this.cache.set(cacheKey, { enabled, expiresAt: now + AUTO_DETECTION_CACHE_MS });
-    return enabled;
+    const inFlight = this.inFlightDetections.get(cacheKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const detection = detectRestrictedGoogleAccess(session, this.detectionTimeoutMs)
+      .then((enabled) => {
+        this.cache.set(cacheKey, {
+          enabled,
+          expiresAt: this.now() + AUTO_DETECTION_CACHE_MS
+        });
+        return enabled;
+      })
+      .finally(() => {
+        if (this.inFlightDetections.get(cacheKey) === detection) {
+          this.inFlightDetections.delete(cacheKey);
+        }
+      });
+    this.inFlightDetections.set(cacheKey, detection);
+    return detection;
   }
 }
 

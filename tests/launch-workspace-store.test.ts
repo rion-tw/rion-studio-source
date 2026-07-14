@@ -20,6 +20,14 @@ describe("LaunchWorkspaceStore", () => {
     store = new LaunchWorkspaceStore(baseDir);
   });
 
+  it("returns isolated workspace copies from the in-memory cache", async () => {
+    const workspace = await store.createWorkspace({ name: "Party" });
+    const listed = await store.listWorkspaces();
+    listed[0].slots[0].rect.width = 0.75;
+
+    expect((await store.getWorkspace(workspace.id)).slots[0].rect.width).toBe(0.5);
+  });
+
   it("creates a launch workspace with default layout slots", async () => {
     const workspace = await store.createWorkspace({ name: "Boss run" });
 

@@ -166,30 +166,14 @@ export function useAppData() {
         throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
       }
 
-      const [
-        nextRoles,
-        nextStatuses,
-        nextAuthStatuses,
-        nextWorkspaces,
-        nextMacros,
-        nextMacroStatuses,
-        nextWorkspaceDisplays
-      ] = await Promise.all([
-        window.rionStudio.listRoles(),
-        window.rionStudio.listRoleStatuses(),
-        window.rionStudio.listAuthStatuses(),
-        window.rionStudio.listLaunchWorkspaces(),
-        window.rionStudio.listMacros(),
-        window.rionStudio.listMacroStatuses(),
-        window.rionStudio.listWorkspaceDisplays()
-      ]);
-      commitRolesRequest(rolesRequest, nextRoles);
-      commitStatusesRequest(statusesRequest, nextStatuses);
-      commitAuthStatusesRequest(authStatusesRequest, nextAuthStatuses);
-      commitWorkspacesRequest(workspacesRequest, nextWorkspaces);
-      commitMacrosRequest(macrosRequest, nextMacros);
-      commitMacroStatusesRequest(macroStatusesRequest, nextMacroStatuses);
-      commitWorkspaceDisplaysRequest(workspaceDisplaysRequest, nextWorkspaceDisplays);
+      const snapshot = await window.rionStudio.getAppSnapshot();
+      commitRolesRequest(rolesRequest, snapshot.roles);
+      commitStatusesRequest(statusesRequest, snapshot.roleStatuses);
+      commitAuthStatusesRequest(authStatusesRequest, snapshot.authStatuses);
+      commitWorkspacesRequest(workspacesRequest, snapshot.launchWorkspaces);
+      commitMacrosRequest(macrosRequest, snapshot.macros);
+      commitMacroStatusesRequest(macroStatusesRequest, snapshot.macroStatuses);
+      commitWorkspaceDisplaysRequest(workspaceDisplaysRequest, snapshot.workspaceDisplays);
       if (initialLoadRequest !== undefined && initialLoadRequestRef.current === initialLoadRequest) {
         setInitialLoadState("ready");
       }
@@ -227,25 +211,8 @@ export function useAppData() {
 
     return window.rionStudio.onRoleStatusChanged((nextStatuses) => {
       setStatuses(nextStatuses);
-      const rolesRequest = beginRolesRequest();
-      const workspacesRequest = beginWorkspacesRequest();
-      const reportError = captureErrorReporter();
-      void Promise.all([window.rionStudio.listRoles(), window.rionStudio.listLaunchWorkspaces()])
-        .then(([nextRoles, nextWorkspaces]) => {
-          commitRolesRequest(rolesRequest, nextRoles);
-          commitWorkspacesRequest(workspacesRequest, nextWorkspaces);
-        })
-        .catch(reportError);
     });
-  }, [
-    beginRolesRequest,
-    beginWorkspacesRequest,
-    captureErrorReporter,
-    commitRolesRequest,
-    commitWorkspacesRequest,
-    loadData,
-    setStatuses
-  ]);
+  }, [loadData, setStatuses]);
 
   useEffect(() => {
     if (!window.rionStudio) {
@@ -254,6 +221,10 @@ export function useAppData() {
 
     return window.rionStudio.onAuthStatusChanged((nextStatuses) => {
       setAuthStatuses(nextStatuses);
+      if (!nextStatuses.some((status) => status.state === "launching" || status.state === "failed")) {
+        return;
+      }
+
       const rolesRequest = beginRolesRequest();
       const reportError = captureErrorReporter();
       void window.rionStudio.listRoles().then((nextRoles) => {
@@ -277,13 +248,8 @@ export function useAppData() {
 
     return window.rionStudio.onMacroStatusChanged((nextStatuses) => {
       setMacroStatuses(nextStatuses);
-      const macrosRequest = beginMacrosRequest();
-      const reportError = captureErrorReporter();
-      void window.rionStudio.listMacros().then((nextMacros) => {
-        commitMacrosRequest(macrosRequest, nextMacros);
-      }).catch(reportError);
     });
-  }, [beginMacrosRequest, captureErrorReporter, commitMacrosRequest, setMacroStatuses]);
+  }, [setMacroStatuses]);
 
   return {
     authStatusByRole,

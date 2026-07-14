@@ -79,10 +79,10 @@ const workspace: LaunchWorkspace = {
 };
 
 describe("registerIpcHandlers workspace handlers", () => {
-  let roleStore: Pick<RoleStore, "deleteRole" | "getRole" | "reorderRoles">;
+  let roleStore: Pick<RoleStore, "deleteRole" | "getRole" | "listRoles" | "reorderRoles">;
   let workspaceStore: Pick<
     LaunchWorkspaceStore,
-    "clearRole" | "createWorkspace" | "getWorkspace" | "reorderWorkspaces" | "updateWorkspace"
+    "clearRole" | "createWorkspace" | "getWorkspace" | "listWorkspaces" | "reorderWorkspaces" | "updateWorkspace"
   >;
   let browserManager: Pick<
     BrowserManager,
@@ -118,12 +118,14 @@ describe("registerIpcHandlers workspace handlers", () => {
         id,
         authState: id === "role-2" ? "authenticated" : authenticatedRole.authState
       })),
+      listRoles: vi.fn().mockResolvedValue([authenticatedRole]),
       reorderRoles: vi.fn().mockResolvedValue([authenticatedRole])
     };
     workspaceStore = {
       clearRole: vi.fn().mockResolvedValue(undefined),
       createWorkspace: vi.fn().mockResolvedValue(workspace),
       getWorkspace: vi.fn().mockResolvedValue(workspace),
+      listWorkspaces: vi.fn().mockResolvedValue([workspace]),
       reorderWorkspaces: vi.fn().mockResolvedValue([workspace]),
       updateWorkspace: vi.fn().mockResolvedValue(workspace)
     };
@@ -201,6 +203,20 @@ describe("registerIpcHandlers workspace handlers", () => {
         quitApplication
       }
     );
+  });
+
+  it("returns initial renderer data through one snapshot handler", async () => {
+    await expect(handlers.get(IPC_CHANNELS.appSnapshot)?.({})).resolves.toEqual({
+      roles: [authenticatedRole],
+      roleStatuses: [],
+      authStatuses: [],
+      launchWorkspaces: [workspace],
+      workspaceDisplays,
+      macros: [],
+      macroStatuses: []
+    });
+    expect(roleStore.listRoles).toHaveBeenCalledOnce();
+    expect(workspaceStore.listWorkspaces).toHaveBeenCalledOnce();
   });
 
   it("persists role and workspace orders and reports both collections changed", async () => {

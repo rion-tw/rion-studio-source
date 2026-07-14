@@ -47,6 +47,7 @@ export class MacroStoreError extends Error {
 }
 
 export class MacroStore {
+  private cachedFile: MacrosFile | undefined;
   private readonly macrosPath: string;
   private readonly taskQueue = new SerialTaskQueue();
 
@@ -162,6 +163,10 @@ export class MacroStore {
   }
 
   private async readMacrosFile(): Promise<MacrosFile> {
+    if (this.cachedFile) {
+      return cloneMacrosFile(this.cachedFile);
+    }
+
     try {
       const raw = await readFile(this.macrosPath, "utf8");
       const parsed = JSON.parse(raw) as MacrosFile;
@@ -184,9 +189,11 @@ export class MacroStore {
 
       if (didMigrate) {
         await this.writeMacrosFile(file);
+      } else {
+        this.cachedFile = cloneMacrosFile(file);
       }
 
-      return file;
+      return cloneMacrosFile(file);
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
         return { macros: [] };
@@ -198,6 +205,7 @@ export class MacroStore {
 
   private async writeMacrosFile(file: MacrosFile): Promise<void> {
     await writeJsonFileAtomically(this.macrosPath, file);
+    this.cachedFile = cloneMacrosFile(file);
   }
 
   private normalizeStoredMacro(macro: StoredMacro): Macro {
@@ -414,6 +422,18 @@ export class MacroStore {
     return value;
   }
 
+}
+
+function cloneMacrosFile(file: MacrosFile): MacrosFile {
+  return {
+    macros: file.macros.map((macro) => ({
+      ...macro,
+      roleIds: [...macro.roleIds],
+      ...(macro.trigger ? { trigger: { ...macro.trigger } } : {}),
+      repeat: { ...macro.repeat },
+      steps: macro.steps.map((step) => ({ ...step }))
+    }))
+  };
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

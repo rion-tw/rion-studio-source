@@ -102,6 +102,7 @@ rectangle. Supported layout templates are:
 - `three_columns`
 - `main_left_stack_right`
 - `main_right_stack_left`
+- `main_center_side_stacks`
 - `quad`
 - `four_columns`
 - `six_grid`

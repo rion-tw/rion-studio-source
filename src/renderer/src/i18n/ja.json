@@ -123,6 +123,7 @@
   "workspace.layout.threeColumns": "3列",
   "workspace.layout.mainLeftStackRight": "左メイン、右スタック",
   "workspace.layout.mainRightStackLeft": "右メイン、左スタック",
+  "workspace.layout.mainCenterSideStacks": "中央メイン、左右4分割",
   "workspace.layout.quad": "4分割",
   "workspace.layout.fourColumns": "4列",
   "workspace.layout.sixGrid": "6分割",

@@ -22,7 +22,12 @@ export type WorkspaceSplitAxis = keyof WorkspaceSplits;
 const EXISTING_LAYOUT_MIN_SPLIT_SIZE = 0.2;
 
 function isMultiColumnTemplate(template: WorkspaceLayoutTemplate): boolean {
-  return template === "three_columns" || template === "four_columns" || template === "six_grid";
+  return (
+    template === "three_columns" ||
+    template === "four_columns" ||
+    template === "six_grid" ||
+    template === "main_center_side_stacks"
+  );
 }
 
 export function createWorkspaceName(workspaces: LaunchWorkspace[], t: Translator): string {
@@ -159,6 +164,13 @@ export function getWorkspaceSplits(
       return { horizontal: [secondRect.height], vertical: [firstRect.width] };
     case "main_right_stack_left":
       return { horizontal: [secondRect.height], vertical: [secondRect.width] };
+    case "main_center_side_stacks": {
+      const mainRect = firstRect;
+      return {
+        horizontal: [secondRect.height],
+        vertical: [secondRect.width, mainRect.x + mainRect.width]
+      };
+    }
     case "quad":
       return { horizontal: [firstRect.height], vertical: [firstRect.width] };
     case "six_grid":
@@ -222,6 +234,16 @@ export function createWorkspaceRectsFromSplits(
         { x: 0, y: 0, width: splitX, height: splitY },
         { x: 0, y: splitY, width: splitX, height: 1 - splitY }
       ];
+    case "main_center_side_stacks": {
+      const splitX2 = splits.vertical[1] ?? defaultSplits.vertical[1] ?? 1;
+      return [
+        { x: splitX, y: 0, width: splitX2 - splitX, height: 1 },
+        { x: 0, y: 0, width: splitX, height: splitY },
+        { x: 0, y: splitY, width: splitX, height: 1 - splitY },
+        { x: splitX2, y: 0, width: 1 - splitX2, height: splitY },
+        { x: splitX2, y: splitY, width: 1 - splitX2, height: 1 - splitY }
+      ];
+    }
     case "quad":
       return [
         { x: 0, y: 0, width: splitX, height: splitY },
@@ -267,6 +289,13 @@ export function getWorkspaceSplitRange(
   splitIndex: number
 ): { min: number; max: number } {
   const positions = splits[axis];
+
+  if (template === "main_center_side_stacks" && axis === "vertical") {
+    return splitIndex === 0
+      ? { min: MIN_WORKSPACE_SLOT_SIZE, max: (positions[1] ?? 1) - EXISTING_LAYOUT_MIN_SPLIT_SIZE }
+      : { min: (positions[0] ?? 0) + EXISTING_LAYOUT_MIN_SPLIT_SIZE, max: 1 - MIN_WORKSPACE_SLOT_SIZE };
+  }
+
   const minimumSize = axis === "vertical" && isMultiColumnTemplate(template)
     ? MIN_WORKSPACE_SLOT_SIZE
     : EXISTING_LAYOUT_MIN_SPLIT_SIZE;

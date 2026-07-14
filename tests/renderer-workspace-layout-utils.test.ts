@@ -47,6 +47,7 @@ describe("renderer workspace layout helpers", () => {
     expect(getDefaultWorkspaceBrowserZoomPercent("quad")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("four_columns")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("six_grid")).toBe(80);
+    expect(getDefaultWorkspaceBrowserZoomPercent("main_center_side_stacks")).toBe(80);
     expect(getDefaultWorkspaceBrowserZoomPercent("two_columns")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_left_stack_right")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_right_stack_left")).toBe(100);
@@ -93,6 +94,12 @@ describe("renderer workspace layout helpers", () => {
       { id: "slot-2", rect: getDefaultWorkspaceRects("main_right_stack_left")[1] },
       { id: "slot-3", rect: getDefaultWorkspaceRects("main_right_stack_left")[2] }
     ]);
+    expect(applyWorkspaceTemplate([], "main_center_side_stacks")).toEqual(
+      getDefaultWorkspaceRects("main_center_side_stacks").map((rect, index) => ({
+        id: `slot-${index + 1}`,
+        rect
+      }))
+    );
   });
 
   it("assigns a role to one slot and clears duplicate assignments", () => {
@@ -223,6 +230,40 @@ describe("renderer workspace layout helpers", () => {
       vertical: [0.25, 0.7]
     });
     expect(getWorkspaceSplitRange("six_grid", initialSplits, "horizontal", 0)).toEqual({
+      min: 0.2,
+      max: 0.8
+    });
+  });
+
+  it("adjusts side columns and linked rows around a centered main pane", () => {
+    const initialSlots = applyWorkspaceTemplate([], "main_center_side_stacks");
+    const initialSplits = getWorkspaceSplits("main_center_side_stacks", initialSlots);
+    const slots = applyWorkspaceSplits("main_center_side_stacks", initialSlots, {
+      horizontal: [0.6],
+      vertical: [0.2, 0.7]
+    });
+
+    expect(initialSplits).toEqual({ horizontal: [0.5], vertical: [0.25, 0.75] });
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0.2, y: 0, width: 0.49999999999999994, height: 1 },
+      { x: 0, y: 0, width: 0.2, height: 0.6 },
+      { x: 0, y: 0.6, width: 0.2, height: 0.4 },
+      { x: 0.7, y: 0, width: 0.30000000000000004, height: 0.6 },
+      { x: 0.7, y: 0.6, width: 0.30000000000000004, height: 0.4 }
+    ]);
+    expect(getWorkspaceSplits("main_center_side_stacks", slots)).toEqual({
+      horizontal: [0.6],
+      vertical: [0.2, 0.7]
+    });
+    expect(getWorkspaceSplitRange("main_center_side_stacks", initialSplits, "vertical", 0)).toEqual({
+      min: 0.12,
+      max: 0.55
+    });
+    expect(getWorkspaceSplitRange("main_center_side_stacks", initialSplits, "vertical", 1)).toEqual({
+      min: 0.45,
+      max: 0.88
+    });
+    expect(getWorkspaceSplitRange("main_center_side_stacks", initialSplits, "horizontal", 0)).toEqual({
       min: 0.2,
       max: 0.8
     });

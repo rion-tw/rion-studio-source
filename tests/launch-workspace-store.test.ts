@@ -185,6 +185,26 @@ describe("LaunchWorkspaceStore", () => {
     await expect(store.getWorkspace(workspace.id)).resolves.toEqual(workspace);
   });
 
+  it("creates and persists a five-slot workspace with a centered main pane", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Centered main",
+      template: "main_center_side_stacks"
+    });
+
+    expect(workspace).toMatchObject({
+      template: "main_center_side_stacks",
+      browserZoomPercent: 80
+    });
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual([
+      { x: 0.25, y: 0, width: 0.5, height: 1 },
+      { x: 0, y: 0, width: 0.25, height: 0.5 },
+      { x: 0, y: 0.5, width: 0.25, height: 0.5 },
+      { x: 0.75, y: 0, width: 0.25, height: 0.5 },
+      { x: 0.75, y: 0.5, width: 0.25, height: 0.5 }
+    ]);
+    await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toEqual(workspace);
+  });
+
   it("creates and persists a resizable four-column workspace", async () => {
     const workspace = await store.createWorkspace({
       name: "Four roles",

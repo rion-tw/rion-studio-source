@@ -317,6 +317,7 @@ function WorkspaceLayoutPreview({
 }: WorkspaceLayoutPreviewProps): JSX.Element {
   const splits = getWorkspaceSplits(template, slots);
   const splitX = splits.vertical[0] ?? 1;
+  const splitX2 = splits.vertical[1] ?? 1;
   const splitY = splits.horizontal[0] ?? 1;
 
   function renderSlot(slot: LaunchWorkspaceSlot | undefined, index: number): JSX.Element | null {
@@ -405,6 +406,30 @@ function WorkspaceLayoutPreview({
             </div>
             <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitX)}>
               {renderSlot(slots[0], 0)}
+            </div>
+          </div>
+        );
+      case "main_center_side_stacks":
+        return (
+          <div className="flex h-full min-h-0 gap-1">
+            <div className="flex min-h-0 min-w-0 flex-col gap-1" style={createPreviewFlexStyle(splitX)}>
+              <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
+                {renderSlot(slots[1], 1)}
+              </div>
+              <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitY)}>
+                {renderSlot(slots[2], 2)}
+              </div>
+            </div>
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitX2 - splitX)}>
+              {renderSlot(slots[0], 0)}
+            </div>
+            <div className="flex min-h-0 min-w-0 flex-col gap-1" style={createPreviewFlexStyle(1 - splitX2)}>
+              <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
+                {renderSlot(slots[3], 3)}
+              </div>
+              <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitY)}>
+                {renderSlot(slots[4], 4)}
+              </div>
             </div>
           </div>
         );

@@ -16,6 +16,7 @@ export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "three_columns",
   "main_left_stack_right",
   "main_right_stack_left",
+  "main_center_side_stacks",
   "quad",
   "four_columns",
   "six_grid"
@@ -26,7 +27,7 @@ const readableWorkspaceLayoutTemplates: WorkspaceLayoutTemplate[] = ["single", .
 export function getDefaultWorkspaceBrowserZoomPercent(
   template: WorkspaceLayoutTemplate
 ): WorkspaceBrowserZoomPercent {
-  if (template === "six_grid") {
+  if (template === "six_grid" || template === "main_center_side_stacks") {
     return 80;
   }
 
@@ -53,6 +54,8 @@ export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate)
     case "quad":
     case "four_columns":
       return 4;
+    case "main_center_side_stacks":
+      return 5;
     case "six_grid":
       return 6;
   }
@@ -80,6 +83,14 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
         { x: 0.5, y: 0, width: 0.5, height: 1 },
         { x: 0, y: 0, width: 0.5, height: 0.5 },
         { x: 0, y: 0.5, width: 0.5, height: 0.5 }
+      ];
+    case "main_center_side_stacks":
+      return [
+        { x: 0.25, y: 0, width: 0.5, height: 1 },
+        { x: 0, y: 0, width: 0.25, height: 0.5 },
+        { x: 0, y: 0.5, width: 0.25, height: 0.5 },
+        { x: 0.75, y: 0, width: 0.25, height: 0.5 },
+        { x: 0.75, y: 0.5, width: 0.25, height: 0.5 }
       ];
     case "quad":
       return [

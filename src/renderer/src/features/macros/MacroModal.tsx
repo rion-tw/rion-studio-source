@@ -325,7 +325,7 @@ function MacroForm({ form, isSaving, onChange, roles, shortcutConflict, t }: Mac
                 description={t("macroForm.rolesDescription")}
               >
                 {roles.length > 0 ? (
-                  <div id="macro-role" className="flex max-h-44 flex-wrap gap-1.5 overflow-auto">
+                  <div id="macro-role" className="app-scroll-region flex max-h-44 flex-wrap gap-1.5 overflow-auto">
                     {missingRoleIds.map((roleId) => (
                       <div
                         key={roleId}

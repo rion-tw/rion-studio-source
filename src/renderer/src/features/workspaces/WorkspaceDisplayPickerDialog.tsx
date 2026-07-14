@@ -80,7 +80,7 @@ export function WorkspaceDisplayPickerDialog({
             </p>
           </div>
 
-          <div className="grid gap-2 overflow-auto pr-1">
+          <div className="app-scroll-region grid gap-2 overflow-auto">
             {request.displays.map((display, index) => {
               const isOccupied = Boolean(display.occupiedByWorkspace);
               const isSelected = selectedDisplayId === display.id;

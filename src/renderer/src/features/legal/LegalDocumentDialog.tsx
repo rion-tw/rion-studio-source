@@ -53,7 +53,7 @@ export function LegalDocumentDialog({ kind, language, onClose, t }: LegalDocumen
             <X size={17} />
           </Button>
         </header>
-        <div className="min-h-0 flex-1 overflow-auto px-6 py-5 md:px-10 md:py-7">
+        <div className="app-scroll-region min-h-0 flex-1 overflow-auto px-6 py-5 md:px-10 md:py-7">
           <LegalMarkdown markdown={getLegalDocument(kind, language)} />
         </div>
       </Surface>

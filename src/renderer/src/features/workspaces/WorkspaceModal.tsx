@@ -535,7 +535,7 @@ function WorkspaceLayoutFormEditor({
               <Eraser size={15} />
             </Button>
           </div>
-          <div className="grid max-h-[360px] gap-2 overflow-auto pr-1">
+          <div className="app-scroll-region grid max-h-[360px] gap-2 overflow-auto">
             {roles.length === 0 ? (
               <p className="text-xs leading-5 text-muted-foreground">{t("workspaces.noRoles")}</p>
             ) : (

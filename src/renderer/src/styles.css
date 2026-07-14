@@ -348,7 +348,8 @@
     color: hsl(var(--sidebar-foreground));
   }
 
-  .app-page {
+  .app-page,
+  .app-scroll-region {
     scrollbar-gutter: stable both-edges;
   }
 

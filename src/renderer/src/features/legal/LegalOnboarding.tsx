@@ -60,7 +60,7 @@ export function LegalOnboarding({
       </header>
 
       <main className="app-no-drag mx-auto grid min-h-0 w-full max-w-5xl flex-1 place-items-center py-5">
-        <Surface className="grid max-h-full w-full max-w-4xl overflow-auto" radius="lg" variant="strong">
+        <Surface className="app-scroll-region grid max-h-full w-full max-w-4xl overflow-auto" radius="lg" variant="strong">
           <div className="glass-divider border-b px-5 py-5 md:px-7">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t("legal.onboarding.kicker")}</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight">{t("legal.onboarding.title")}</h1>

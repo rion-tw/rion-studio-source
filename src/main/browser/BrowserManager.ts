@@ -743,10 +743,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private resizeDivider(host: GameHostWindow, divider: GameDivider, requestedPosition: number): void {
-    const beforeSessions = divider.beforeRoleIds
+    const linkedDividers = host.dividers.filter(
+      (candidate) =>
+        candidate.axis === divider.axis &&
+        Math.abs(candidate.defaultPosition - divider.defaultPosition) < DIVIDER_EPSILON
+    );
+    const beforeRoleIds = new Set(linkedDividers.flatMap((candidate) => candidate.beforeRoleIds));
+    const afterRoleIds = new Set(linkedDividers.flatMap((candidate) => candidate.afterRoleIds));
+    const beforeSessions = [...beforeRoleIds]
       .map((roleId) => this.sessions.get(roleId))
       .filter((session): session is BrowserSession => Boolean(session));
-    const afterSessions = divider.afterRoleIds
+    const afterSessions = [...afterRoleIds]
       .map((roleId) => this.sessions.get(roleId))
       .filter((session): session is BrowserSession => Boolean(session));
     if (beforeSessions.length === 0 || afterSessions.length === 0) {
@@ -978,11 +985,21 @@ function createDividerDescriptors(sessions: BrowserSession[]): DividerDescriptor
     }
   }
 
+  segments.sort((left, right) => {
+    if (left.axis !== right.axis) {
+      return left.axis === "vertical" ? -1 : 1;
+    }
+    return left.position - right.position || left.start - right.start;
+  });
+
   const groups: Array<DividerSegment & { after: Set<string>; before: Set<string> }> = [];
   segments.forEach((segment) => {
     const group = groups.find(
       (candidate) =>
-        candidate.axis === segment.axis && Math.abs(candidate.position - segment.position) < DIVIDER_EPSILON
+        candidate.axis === segment.axis &&
+        Math.abs(candidate.position - segment.position) < DIVIDER_EPSILON &&
+        segment.start <= candidate.end + DIVIDER_EPSILON &&
+        candidate.start <= segment.end + DIVIDER_EPSILON
     );
     if (group) {
       group.start = Math.min(group.start, segment.start);

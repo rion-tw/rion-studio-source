@@ -363,7 +363,7 @@ function WorkspaceLayoutFormEditor({
       <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(0,1fr)_270px]">
         <Surface className="grid gap-3 p-4" padding="none" variant="panel">
           <FieldHeader title={t("workspaces.layout")} description={t("workspaces.layoutDescription")} />
-          <div className="grid grid-cols-9 gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {workspaceLayoutTemplates.map((template) => {
               const Icon = workspaceTemplateIcons[template];
               const isActive = form.template === template;
@@ -372,7 +372,7 @@ function WorkspaceLayoutFormEditor({
                 <button
                   key={template}
                   className={cn(
-                    "glass-control flex h-[30px] min-w-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,border-color,color,box-shadow]",
+                    "glass-control flex h-[30px] w-fit items-center justify-center rounded-md px-2 text-muted-foreground transition-[background-color,border-color,color,box-shadow]",
                     isActive ? "glass-control-selected text-foreground" : "hover:bg-accent/35 hover:text-foreground"
                   )}
                   type="button"

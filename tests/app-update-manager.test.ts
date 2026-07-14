@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AppUpdateManager } from "../src/main/updates/AppUpdateManager";
+import { AppUpdateManager, DEFAULT_UPDATE_REPOSITORY } from "../src/main/updates/AppUpdateManager";
 
 class FakeUpdater extends EventEmitter {
   autoDownload = false;
@@ -95,9 +95,9 @@ describe("AppUpdateManager", () => {
     const updater = new FakeUpdater();
     const openExternal = vi.fn().mockResolvedValue(undefined);
     const fetchManualUpdateAsset = vi.fn().mockResolvedValue({
-      browserDownloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
+      browserDownloadUrl: "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
       name: "Rion.Studio-mac.dmg",
-      releasePageUrl: "https://github.com/rion-studio/rion-studio/releases/tag/v0.2.0"
+      releasePageUrl: "https://github.com/rion-tw/rion-studio/releases/tag/v0.2.0"
     });
 
     updater.checkForUpdates.mockImplementation(async () => {
@@ -122,7 +122,7 @@ describe("AppUpdateManager", () => {
       currentVersion: "0.1.0",
       fetchManualUpdateAsset,
       isPackaged: true,
-      manualUpdateRepository: "rion-studio/rion-studio",
+      manualUpdateRepository: DEFAULT_UPDATE_REPOSITORY,
       openExternal,
       platform: "darwin",
       updater: updater as never
@@ -130,10 +130,10 @@ describe("AppUpdateManager", () => {
 
     await expect(manager.checkForUpdates()).resolves.toMatchObject({
       availableVersion: "0.2.0",
-      downloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
+      downloadUrl: "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
       installMode: "manual",
       installerName: "Rion.Studio-mac.dmg",
-      releasePageUrl: "https://github.com/rion-studio/rion-studio/releases/tag/v0.2.0",
+      releasePageUrl: "https://github.com/rion-tw/rion-studio/releases/tag/v0.2.0",
       state: "available"
     });
     expect(updater.autoDownload).toBe(false);
@@ -141,14 +141,14 @@ describe("AppUpdateManager", () => {
     expect(fetchManualUpdateAsset).toHaveBeenCalledWith({
       arch: "arm64",
       productName: "Rion Studio",
-      repository: "rion-studio/rion-studio",
+      repository: DEFAULT_UPDATE_REPOSITORY,
       tag: "v0.2.0",
       version: "0.2.0"
     });
 
     await manager.openUpdateDownload();
     expect(openExternal).toHaveBeenCalledWith(
-      "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg"
+      "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg"
     );
   });
 
@@ -163,13 +163,13 @@ describe("AppUpdateManager", () => {
       arch: "arm64",
       currentVersion: "0.1.0",
       isPackaged: true,
-      manualUpdateRepository: "rion-studio/rion-studio",
+      manualUpdateRepository: DEFAULT_UPDATE_REPOSITORY,
       platform: "darwin",
       updater: updater as never
     });
 
     await expect(manager.checkForUpdates()).resolves.toMatchObject({
-      downloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
+      downloadUrl: "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
       installerName: "Rion.Studio-mac.dmg"
     });
   });
@@ -182,13 +182,13 @@ describe("AppUpdateManager", () => {
       arch: "arm64",
       currentVersion: "0.1.0",
       isPackaged: true,
-      manualUpdateRepository: "rion-studio/rion-studio",
+      manualUpdateRepository: DEFAULT_UPDATE_REPOSITORY,
       platform: "darwin",
       updater: updater as never
     });
 
     await expect(manager.checkForUpdates()).resolves.toMatchObject({
-      downloadUrl: "https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.zip",
+      downloadUrl: "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.zip",
       installerName: "Rion.Studio-mac.zip"
     });
   });
@@ -220,10 +220,10 @@ function createGitHubReleaseResponse(assetNames: string[]) {
     ok: true,
     json: async () => ({
       assets: assetNames.map((name) => ({
-        browser_download_url: `https://github.com/rion-studio/rion-studio/releases/download/v0.2.0/${name}`,
+        browser_download_url: `https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/${name}`,
         name
       })),
-      html_url: "https://github.com/rion-studio/rion-studio/releases/tag/v0.2.0"
+      html_url: "https://github.com/rion-tw/rion-studio/releases/tag/v0.2.0"
     })
   };
 }

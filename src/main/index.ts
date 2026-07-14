@@ -51,7 +51,7 @@ import {
   showStartupWindow,
   type StartupPageState
 } from "./startup/startupWindow";
-import { AppUpdateManager } from "./updates/AppUpdateManager";
+import { AppUpdateManager, DEFAULT_UPDATE_REPOSITORY } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
 import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { IPC_CHANNELS } from "../shared/ipc";
@@ -277,7 +277,7 @@ function initializeApplication(): void {
     currentVersion: app.getVersion(),
     isPackaged: app.isPackaged,
     manualUpdateRepository:
-      process.env.RION_STUDIO_RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY ?? "rion-studio/rion-studio",
+      process.env.RION_STUDIO_RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY ?? DEFAULT_UPDATE_REPOSITORY,
     openExternal: (url) => shell.openExternal(url)
   });
   let updateCheckStarted = false;

@@ -4,6 +4,8 @@ import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } 
 
 import type { AppUpdateStatus } from "../../shared/types";
 
+export const DEFAULT_UPDATE_REPOSITORY = "rion-tw/rion-studio";
+
 interface ManualUpdateAsset {
   browserDownloadUrl: string;
   name: string;

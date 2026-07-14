@@ -3,8 +3,22 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import config from "../electron-builder.config.mjs";
+import { DEFAULT_UPDATE_REPOSITORY } from "../src/main/updates/AppUpdateManager";
 
 describe("electron-builder release configuration", () => {
+  it("keeps the app updater, release publisher, and public download links on the same repository", async () => {
+    const readme = await readFile("README.md", "utf8");
+    const [owner, repo] = DEFAULT_UPDATE_REPOSITORY.split("/");
+
+    expect(config.publish).toContainEqual(
+      expect.objectContaining({
+        owner,
+        repo
+      })
+    );
+    expect(readme).toContain(`https://github.com/${DEFAULT_UPDATE_REPOSITORY}/releases/latest`);
+  });
+
   it("keeps release artifacts and Windows installer target aligned with CI expectations", () => {
     expect(config.artifactName).toBe("Rion.Studio-${os}.${ext}");
     expect(config.directories).toMatchObject({

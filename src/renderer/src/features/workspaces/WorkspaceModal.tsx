@@ -299,36 +299,7 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(240px,1.2fr)_minmax(150px,0.7fr)_minmax(210px,1fr)]">
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
-            <div className="grid grid-cols-9 gap-1.5">
-              {workspaceLayoutTemplates.map((template) => {
-                const Icon = workspaceTemplateIcons[template];
-                const isActive = form.template === template;
-
-                return (
-                  <button
-                    key={template}
-                    className={cn(
-                      "glass-control flex h-[30px] min-w-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,border-color,color,box-shadow]",
-                      isActive ? "glass-control-selected text-foreground" : "hover:bg-accent/35 hover:text-foreground"
-                    )}
-                    type="button"
-                    title={t(workspaceTemplateLabelKeys[template])}
-                    aria-label={t(workspaceTemplateLabelKeys[template])}
-                    aria-pressed={isActive}
-                    onClick={() => handleTemplateChange(template)}
-                    disabled={isSaving}
-                  >
-                    <Icon size={17} />
-                  </button>
-                );
-              })}
-            </div>
-          </FormField>
-        </Surface>
-
+      <div className="grid gap-4 min-[1180px]:grid-cols-2">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
             htmlFor="workspace-browser-zoom"
@@ -390,7 +361,32 @@ function WorkspaceLayoutFormEditor({
       </div>
 
       <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(0,1fr)_270px]">
-        <Surface className="p-4" padding="none" variant="panel">
+        <Surface className="grid gap-3 p-4" padding="none" variant="panel">
+          <FieldHeader title={t("workspaces.layout")} description={t("workspaces.layoutDescription")} />
+          <div className="grid grid-cols-9 gap-1.5">
+            {workspaceLayoutTemplates.map((template) => {
+              const Icon = workspaceTemplateIcons[template];
+              const isActive = form.template === template;
+
+              return (
+                <button
+                  key={template}
+                  className={cn(
+                    "glass-control flex h-[30px] min-w-0 items-center justify-center rounded-md text-muted-foreground transition-[background-color,border-color,color,box-shadow]",
+                    isActive ? "glass-control-selected text-foreground" : "hover:bg-accent/35 hover:text-foreground"
+                  )}
+                  type="button"
+                  title={t(workspaceTemplateLabelKeys[template])}
+                  aria-label={t(workspaceTemplateLabelKeys[template])}
+                  aria-pressed={isActive}
+                  onClick={() => handleTemplateChange(template)}
+                  disabled={isSaving}
+                >
+                  <Icon size={17} />
+                </button>
+              );
+            })}
+          </div>
           <div
             ref={previewRef}
             className="relative aspect-[16/9] min-h-[280px] overflow-hidden"

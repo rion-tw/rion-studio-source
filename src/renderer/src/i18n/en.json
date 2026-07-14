@@ -107,7 +107,7 @@
   "workspaces.edit": "Edit",
   "workspaces.copy": "Duplicate",
   "workspaces.delete": "Delete",
-  "workspaces.layout": "Fill & arrange",
+  "workspaces.layout": "Screen areas",
   "workspaces.layoutDescription": "Choose a layout, then drag divider lines to adjust the in-app game split.",
   "workspaces.browserZoom": "Browser zoom",
   "workspaces.browserZoomDescription": "Scale page content for every browser launched from this workspace.",

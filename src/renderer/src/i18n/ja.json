@@ -107,7 +107,7 @@
   "workspaces.edit": "編集",
   "workspaces.copy": "複製",
   "workspaces.delete": "削除",
-  "workspaces.layout": "Fill & arrange",
+  "workspaces.layout": "画面エリア",
   "workspaces.layoutDescription": "Choose a layout, then drag divider lines to adjust the final window split.",
   "workspaces.browserZoom": "Browser zoom",
   "workspaces.browserZoomDescription": "Scale page content for every browser launched from this workspace.",

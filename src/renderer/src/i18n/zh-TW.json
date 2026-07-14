@@ -107,7 +107,7 @@
   "workspaces.edit": "編輯",
   "workspaces.copy": "複製",
   "workspaces.delete": "刪除",
-  "workspaces.layout": "填滿與排列",
+  "workspaces.layout": "畫面區塊",
   "workspaces.layoutDescription": "選擇排列方式，拖拉分割線來調整 App 內的遊戲區域。",
   "workspaces.browserZoom": "瀏覽器縮放",
   "workspaces.browserZoomDescription": "套用至這個工作區啟動的每一個瀏覽器頁面內容。",

@@ -107,7 +107,7 @@
   "workspaces.edit": "编辑",
   "workspaces.copy": "复制",
   "workspaces.delete": "删除",
-  "workspaces.layout": "填满与排列",
+  "workspaces.layout": "画面区块",
   "workspaces.layoutDescription": "选择排列方式，拖拉分割線來调整實際窗口分割。",
   "workspaces.browserZoom": "浏览器缩放",
   "workspaces.browserZoomDescription": "应用至这个工作区启动的每一个浏览器頁面內容。",

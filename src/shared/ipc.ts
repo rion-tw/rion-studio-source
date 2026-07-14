@@ -26,6 +26,8 @@ export const IPC_CHANNELS = {
   workspacesDelete: "workspaces:delete",
   workspacesDisplays: "workspaces:displays",
   workspacesDisplaysChanged: "workspaces:displays-changed",
+  workspacesCompanionPickApplication: "workspaces:companion-pick-application",
+  workspacesCompanionOpen: "workspaces:companion-open",
   workspacesLaunch: "workspaces:launch",
   workspacesStop: "workspaces:stop",
   macrosList: "macros:list",

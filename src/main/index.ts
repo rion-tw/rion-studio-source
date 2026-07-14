@@ -53,6 +53,7 @@ import {
 } from "./startup/startupWindow";
 import { AppUpdateManager, DEFAULT_UPDATE_REPOSITORY } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
+import { WorkspaceCompanionService } from "./workspaces/WorkspaceCompanionService";
 import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
@@ -245,6 +246,14 @@ function initializeApplication(): void {
   const userDataDir = app.getPath("userData");
   const roleStore = new RoleStore(userDataDir);
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
+  const workspaceCompanionService = new WorkspaceCompanionService({
+    openExternal: (url) => shell.openExternal(url),
+    openPath: (path) => shell.openPath(path),
+    showOpenDialog: (options) =>
+      mainWindow && !mainWindow.isDestroyed()
+        ? dialog.showOpenDialog(mainWindow, options)
+        : dialog.showOpenDialog(options)
+  });
   const macroStore = new MacroStore(userDataDir);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir);
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir);
@@ -363,6 +372,7 @@ function initializeApplication(): void {
     macroManager,
     macroStore,
     portableDataManager,
+    workspaceCompanionService,
     systemFontService,
     updateManager,
     onMacrosChanged: () => {

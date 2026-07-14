@@ -11,6 +11,7 @@ import {
   assignRoleToWorkspaceSlot,
   createWorkspaceFormState,
   createWorkspaceSlotBackground,
+  getWorkspaceCompanionPreviewStyles,
   getWorkspaceHorizontalResizeHandles,
   getWorkspaceResizeAffectedSlotIndexes,
   getWorkspaceSplitRange,
@@ -72,6 +73,40 @@ describe("renderer workspace layout helpers", () => {
         updatedAt: "2026-07-10T00:00:00.000Z"
       })
     ).toMatchObject({ browserZoomPercent: 125, targetDisplayId: 22, template: "three_columns" });
+  });
+
+  it("loads and deep-clones companion settings into the workspace form", () => {
+    const workspace = {
+      id: "workspace-companion",
+      name: "Watch party",
+      template: "two_columns" as const,
+      browserZoomPercent: 100 as const,
+      companion: {
+        placement: "right" as const,
+        sizePercent: 33 as const,
+        autoOpen: true,
+        target: { kind: "url" as const, url: "https://example.com/watch" }
+      },
+      slots: applyWorkspaceTemplate([], "two_columns"),
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    };
+    const form = createWorkspaceFormState(workspace);
+
+    expect(form.companion).toEqual(workspace.companion);
+    expect(form.companion).not.toBe(workspace.companion);
+    expect(form.companion?.target).not.toBe(workspace.companion.target);
+  });
+
+  it("creates nested preview bounds for each companion edge", () => {
+    expect(getWorkspaceCompanionPreviewStyles({ placement: "left", sizePercent: 25 })).toEqual({
+      role: { left: "25%", top: 0, width: "75%", height: "100%" },
+      companion: { left: 0, top: 0, width: "25%", height: "100%" }
+    });
+    expect(getWorkspaceCompanionPreviewStyles({ placement: "bottom", sizePercent: 40 })).toEqual({
+      role: { left: 0, top: 0, width: "100%", height: "60%" },
+      companion: { left: 0, bottom: 0, width: "100%", height: "40%" }
+    });
   });
 
   it("applies a template while preserving slot ids and assigned roles by index", () => {

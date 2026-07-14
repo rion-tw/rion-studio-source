@@ -30,4 +30,16 @@ describe("renderer error localization", () => {
       "以下角色已在其他遊戲視窗執行：Main, Alt。請先停止後再啟動。"
     );
   });
+
+  it("localizes companion shortcut failures", async () => {
+    await loadTranslations("zh-TW");
+    await loadTranslations("ja");
+
+    expect(localizeErrorMessage("Unable to open workspace companion shortcut.", "zh-TW")).toBe(
+      "無法開啟工作區陪伴捷徑。"
+    );
+    expect(localizeErrorMessage("Workspace companion application could not be found.", "ja")).toBe(
+      "コンパニオンアプリが見つかりません。"
+    );
+  });
 });

@@ -1,4 +1,15 @@
-import { Check, Eraser, GripHorizontal, GripVertical, Plus, Save } from "lucide-react";
+import {
+  Check,
+  Eraser,
+  FolderOpen,
+  GripHorizontal,
+  GripVertical,
+  Link,
+  MonitorPlay,
+  Plus,
+  Save,
+  X
+} from "lucide-react";
 import {
   type DragEvent as ReactDragEvent,
   type FormEvent,
@@ -13,6 +24,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { launchUrlOptions } from "../../app/constants";
 import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
@@ -29,8 +41,15 @@ import type {
   RoleStatus,
   WorkspaceDisplayInfo,
   WorkspaceBrowserZoomPercent,
+  WorkspaceCompanion,
+  WorkspaceCompanionPlacement,
+  WorkspaceCompanionSizePercent,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
+import {
+  workspaceCompanionPlacements,
+  workspaceCompanionSizePercents
+} from "../../../../shared/workspaceCompanion";
 import {
   getDefaultWorkspaceBrowserZoomPercent,
   workspaceBrowserZoomPercents,
@@ -40,7 +59,11 @@ import {
   formatWorkspaceResizeRatio,
   snapWorkspaceResizePosition
 } from "../../../../shared/workspaceResize";
-import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
+import {
+  workspaceCompanionPlacementLabelKeys,
+  workspaceTemplateIcons,
+  workspaceTemplateLabelKeys
+} from "./workspaceConstants";
 import { formatWorkspaceDisplayLabel } from "./workspaceDisplayUtils";
 import {
   applyWorkspaceSplits,
@@ -48,6 +71,7 @@ import {
   assignRoleToWorkspaceSlot,
   createWorkspaceSlotBackground,
   getWorkspaceHorizontalResizeHandles,
+  getWorkspaceCompanionPreviewStyles,
   getWorkspaceResizeAffectedSlotIndexes,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
@@ -420,6 +444,13 @@ function WorkspaceLayoutFormEditor({
         </Surface>
       </div>
 
+      <WorkspaceCompanionEditor
+        companion={form.companion}
+        disabled={isSaving}
+        t={t}
+        onChange={(companion) => onChange({ ...form, companion })}
+      />
+
       <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(0,1fr)_270px]">
         <Surface className="grid gap-3 p-4" padding="none" variant="panel">
           <FieldHeader title={t("workspaces.layout")} description={t("workspaces.layoutDescription")} />
@@ -447,49 +478,55 @@ function WorkspaceLayoutFormEditor({
               );
             })}
           </div>
-          <div
-            ref={previewRef}
-            className="relative aspect-[16/9] min-h-[280px] overflow-hidden"
-          >
-            {slots.map((slot, index) => {
-              const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
+          <div className="relative aspect-[16/9] min-h-[280px] overflow-hidden bg-background/25">
+            {form.companion ? (
+              <WorkspaceCompanionPreview companion={form.companion} t={t} />
+            ) : null}
+            <div
+              ref={previewRef}
+              className="absolute overflow-hidden"
+              style={getWorkspaceCompanionPreviewStyles(form.companion).role}
+            >
+              {slots.map((slot, index) => {
+                const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
 
-              return (
-                <WorkspaceSlotDropZone
-                  key={slot.id}
-                  index={index}
-                  isDropTarget={index === dropTargetSlotIndex}
-                  isSelected={index === selectedSlotIndex}
-                  isSaving={isSaving}
-                  role={role}
-                  rect={slot.rect}
-                  resizeIndicator={
-                    activeResize?.affectedSlotIndexes.includes(index)
-                      ? formatWorkspaceResizeRatio(slot.rect)
-                      : undefined
-                  }
-                  t={t}
-                  onClick={() => setSelectedSlotIndex(index)}
-                  onDragEnd={handleDragEnd}
-                  onDragEnter={() => setDropTargetSlotIndex(index)}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = dragPayloadRef.current?.slotIndex === undefined ? "copy" : "move";
-                    setDropTargetSlotIndex(index);
-                  }}
-                  onDrop={(event) => handleSlotDrop(event, index)}
-                  onSlotDragStart={(event) => handleSlotDragStart(event, index)}
-                />
-              );
-            })}
+                return (
+                  <WorkspaceSlotDropZone
+                    key={slot.id}
+                    index={index}
+                    isDropTarget={index === dropTargetSlotIndex}
+                    isSelected={index === selectedSlotIndex}
+                    isSaving={isSaving}
+                    role={role}
+                    rect={slot.rect}
+                    resizeIndicator={
+                      activeResize?.affectedSlotIndexes.includes(index)
+                        ? formatWorkspaceResizeRatio(slot.rect)
+                        : undefined
+                    }
+                    t={t}
+                    onClick={() => setSelectedSlotIndex(index)}
+                    onDragEnd={handleDragEnd}
+                    onDragEnter={() => setDropTargetSlotIndex(index)}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = dragPayloadRef.current?.slotIndex === undefined ? "copy" : "move";
+                      setDropTargetSlotIndex(index);
+                    }}
+                    onDrop={(event) => handleSlotDrop(event, index)}
+                    onSlotDragStart={(event) => handleSlotDragStart(event, index)}
+                  />
+                );
+              })}
 
-            <WorkspaceResizeHandles
-              activeResize={activeResize}
-              template={form.template}
-              slots={slots}
-              t={t}
-              onResizeStart={startResize}
-            />
+              <WorkspaceResizeHandles
+                activeResize={activeResize}
+                template={form.template}
+                slots={slots}
+                t={t}
+                onResizeStart={startResize}
+              />
+            </div>
           </div>
         </Surface>
 
@@ -568,6 +605,263 @@ function WorkspaceLayoutFormEditor({
       </div>
     </div>
   );
+}
+
+interface WorkspaceCompanionEditorProps {
+  companion?: WorkspaceCompanion;
+  disabled: boolean;
+  onChange: (companion: WorkspaceCompanion | undefined) => void;
+  t: Translator;
+}
+
+function WorkspaceCompanionEditor({
+  companion,
+  disabled,
+  onChange,
+  t
+}: WorkspaceCompanionEditorProps): JSX.Element {
+  const [isPickingApplication, setIsPickingApplication] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const target = companion?.target;
+  const canAutoOpen = Boolean(
+    target && (target.kind === "application" || target.url.trim())
+  );
+
+  function updateCompanion(update: Partial<WorkspaceCompanion>): void {
+    if (!companion) {
+      return;
+    }
+    onChange({ ...companion, ...update });
+  }
+
+  async function pickApplication(): Promise<void> {
+    setPickerError(null);
+    setIsPickingApplication(true);
+    try {
+      const application = await window.rionStudio.pickWorkspaceCompanionApplication();
+      if (application && companion) {
+        onChange({ ...companion, autoOpen: false, target: application });
+      }
+    } catch (error) {
+      setPickerError(error instanceof Error ? error.message : t("workspaces.companion.pickFailed"));
+    } finally {
+      setIsPickingApplication(false);
+    }
+  }
+
+  return (
+    <Surface className="grid gap-4 p-4" padding="none" variant="inset">
+      <div className="flex items-start justify-between gap-4">
+        <FieldHeader
+          title={t("workspaces.companion.title")}
+          description={t("workspaces.companion.description")}
+        />
+        <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-foreground">
+          <input
+            checked={Boolean(companion)}
+            className="size-4 accent-primary"
+            disabled={disabled}
+            type="checkbox"
+            onChange={(event) =>
+              onChange(
+                event.target.checked
+                  ? { placement: "right", sizePercent: 33, autoOpen: false }
+                  : undefined
+              )
+            }
+          />
+          {t("workspaces.companion.enable")}
+        </label>
+      </div>
+
+      {companion ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormField
+              htmlFor="workspace-companion-placement"
+              label={t("workspaces.companion.placement")}
+            >
+              <Select
+                id="workspace-companion-placement"
+                disabled={disabled}
+                value={companion.placement}
+                onChange={(event) =>
+                  updateCompanion({ placement: event.target.value as WorkspaceCompanionPlacement })
+                }
+              >
+                {workspaceCompanionPlacements.map((placement) => (
+                  <option key={placement} value={placement}>
+                    {t(workspaceCompanionPlacementLabelKeys[placement])}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+
+            <FormField
+              htmlFor="workspace-companion-size"
+              label={t("workspaces.companion.size")}
+            >
+              <Select
+                id="workspace-companion-size"
+                disabled={disabled}
+                value={companion.sizePercent}
+                onChange={(event) =>
+                  updateCompanion({ sizePercent: Number(event.target.value) as WorkspaceCompanionSizePercent })
+                }
+              >
+                {workspaceCompanionSizePercents.map((sizePercent) => (
+                  <option key={sizePercent} value={sizePercent}>
+                    {sizePercent}%
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+          </div>
+
+          <div className="grid gap-2">
+            <FieldHeader
+              title={t("workspaces.companion.shortcut")}
+              description={t("workspaces.companion.shortcutDescription")}
+            />
+            {!target ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  className="gap-1.5"
+                  disabled={disabled}
+                  type="button"
+                  variant="outline"
+                  onClick={() => updateCompanion({ autoOpen: false, target: { kind: "url", url: "" } })}
+                >
+                  <Link size={14} />
+                  {t("workspaces.companion.addUrl")}
+                </Button>
+                <Button
+                  className="gap-1.5"
+                  disabled={disabled || isPickingApplication}
+                  type="button"
+                  variant="outline"
+                  onClick={() => void pickApplication()}
+                >
+                  <FolderOpen size={14} />
+                  {t("workspaces.companion.chooseApplication")}
+                </Button>
+              </div>
+            ) : target.kind === "url" ? (
+              <div className="flex gap-2">
+                <Input
+                  aria-label={t("workspaces.companion.url")}
+                  disabled={disabled}
+                  placeholder={t("workspaces.companion.urlPlaceholder")}
+                  type="url"
+                  value={target.url}
+                  onChange={(event) =>
+                    updateCompanion({ target: { kind: "url", url: event.target.value } })
+                  }
+                />
+                <Button
+                  aria-label={t("workspaces.companion.clearShortcut")}
+                  disabled={disabled}
+                  size="icon"
+                  title={t("workspaces.companion.clearShortcut")}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => updateCompanion({ autoOpen: false, target: undefined })}
+                >
+                  <X size={15} />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex min-w-0 items-center gap-2 rounded-md border border-border/55 bg-background/25 px-2.5 py-2">
+                <FolderOpen className="shrink-0 text-muted-foreground" size={15} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold text-foreground">{target.label}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{target.path}</p>
+                </div>
+                <Button
+                  className="shrink-0"
+                  disabled={disabled || isPickingApplication}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void pickApplication()}
+                >
+                  {t("workspaces.companion.replaceApplication")}
+                </Button>
+                <Button
+                  aria-label={t("workspaces.companion.clearShortcut")}
+                  className="shrink-0"
+                  disabled={disabled}
+                  size="icon"
+                  title={t("workspaces.companion.clearShortcut")}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => updateCompanion({ autoOpen: false, target: undefined })}
+                >
+                  <X size={15} />
+                </Button>
+              </div>
+            )}
+            {pickerError ? <p className="text-xs text-destructive">{pickerError}</p> : null}
+          </div>
+
+          <label className="flex items-start gap-2 text-xs text-foreground">
+            <input
+              checked={companion.autoOpen}
+              className="mt-0.5 size-4 accent-primary"
+              disabled={disabled || !canAutoOpen}
+              type="checkbox"
+              onChange={(event) => updateCompanion({ autoOpen: event.target.checked })}
+            />
+            <span>
+              <span className="block font-semibold">{t("workspaces.companion.autoOpen")}</span>
+              <span className="mt-0.5 block leading-5 text-muted-foreground">
+                {t("workspaces.companion.behaviorNotice")}
+              </span>
+            </span>
+          </label>
+        </>
+      ) : null}
+    </Surface>
+  );
+}
+
+function WorkspaceCompanionPreview({
+  companion,
+  t
+}: {
+  companion: WorkspaceCompanion;
+  t: Translator;
+}): JSX.Element {
+  const styles = getWorkspaceCompanionPreviewStyles(companion);
+  const label = getWorkspaceCompanionTargetLabel(companion, t);
+
+  return (
+    <div
+      className="absolute grid place-items-center overflow-hidden border border-dashed border-primary/35 bg-primary/[0.055] p-3 text-center text-primary"
+      style={styles.companion}
+    >
+      <div className="grid min-w-0 justify-items-center gap-1.5">
+        <MonitorPlay size={20} />
+        <p className="max-w-full truncate text-xs font-semibold">{label}</p>
+        <p className="text-[10px] font-medium text-muted-foreground">
+          {companion.sizePercent}%
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function getWorkspaceCompanionTargetLabel(companion: WorkspaceCompanion, t: Translator): string {
+  if (!companion.target) {
+    return t("workspaces.companion.emptyShortcut");
+  }
+  if (companion.target.kind === "application") {
+    return companion.target.label;
+  }
+  try {
+    return new URL(companion.target.url).hostname || t("workspaces.companion.url");
+  } catch {
+    return companion.target.url || t("workspaces.companion.url");
+  }
 }
 
 interface WorkspaceSlotDropZoneProps {

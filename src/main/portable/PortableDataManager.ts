@@ -35,6 +35,10 @@ import {
   type RoleDefaults
 } from "../../shared/types";
 import {
+  isWorkspaceCompanionPlacement,
+  isWorkspaceCompanionSizePercent
+} from "../../shared/workspaceCompanion";
+import {
   isWorkspaceBrowserZoomPercent,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
@@ -258,6 +262,14 @@ export class PortableDataManager {
         name: workspace.name,
         template: workspace.template,
         browserZoomPercent: workspace.browserZoomPercent,
+        ...(workspace.companion
+          ? {
+              companion: {
+                placement: workspace.companion.placement,
+                sizePercent: workspace.companion.sizePercent
+              }
+            }
+          : {}),
         slots: workspace.slots.map((slot) => ({
           id: slot.id,
           ...(slot.roleId ? { roleId: slot.roleId } : {}),
@@ -391,6 +403,14 @@ function toCreateWorkspaceInput(
     name,
     template: workspace.template,
     browserZoomPercent: workspace.browserZoomPercent,
+    ...(workspace.companion
+      ? {
+          companion: {
+            ...workspace.companion,
+            autoOpen: false
+          }
+        }
+      : {}),
     slots: workspace.slots.map((slot) => {
       const mappedRoleId = slot.roleId ? roleIdMap.get(slot.roleId) : undefined;
 
@@ -482,6 +502,7 @@ function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspa
   const workspace = toRecord(value);
   const template = workspace.template;
   const browserZoomPercent = workspace.browserZoomPercent;
+  const companion = normalizePortableWorkspaceCompanion(workspace.companion);
 
   if (!isWorkspaceLayoutTemplate(template) || !isWorkspaceBrowserZoomPercent(browserZoomPercent)) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
@@ -499,7 +520,29 @@ function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspa
     name: normalizeName(workspace.name),
     template,
     browserZoomPercent,
+    ...(companion ? { companion } : {}),
     slots
+  };
+}
+
+function normalizePortableWorkspaceCompanion(
+  value: unknown
+): PortableLaunchWorkspace["companion"] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const companion = toRecord(value);
+  if (
+    !isWorkspaceCompanionPlacement(companion.placement) ||
+    !isWorkspaceCompanionSizePercent(companion.sizePercent)
+  ) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+
+  return {
+    placement: companion.placement,
+    sizePercent: companion.sizePercent
   };
 }
 

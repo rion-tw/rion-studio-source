@@ -177,12 +177,39 @@ export interface LaunchWorkspaceSlot {
   rect: NormalizedRect;
 }
 
+export type WorkspaceCompanionPlacement = "left" | "right" | "top" | "bottom";
+export type WorkspaceCompanionSizePercent = 25 | 33 | 40 | 50;
+
+export interface WorkspaceCompanionUrlTarget {
+  kind: "url";
+  url: string;
+}
+
+export interface WorkspaceCompanionApplicationTarget {
+  kind: "application";
+  label: string;
+  path: string;
+  platform: "darwin" | "win32";
+}
+
+export type WorkspaceCompanionTarget =
+  | WorkspaceCompanionUrlTarget
+  | WorkspaceCompanionApplicationTarget;
+
+export interface WorkspaceCompanion {
+  placement: WorkspaceCompanionPlacement;
+  sizePercent: WorkspaceCompanionSizePercent;
+  autoOpen: boolean;
+  target?: WorkspaceCompanionTarget;
+}
+
 export interface LaunchWorkspace {
   id: string;
   name: string;
   template: WorkspaceLayoutTemplate;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   targetDisplayId?: number;
+  companion?: WorkspaceCompanion;
   slots: LaunchWorkspaceSlot[];
   createdAt: string;
   updatedAt: string;
@@ -193,6 +220,7 @@ export interface CreateLaunchWorkspaceInput {
   template?: WorkspaceLayoutTemplate;
   browserZoomPercent?: WorkspaceBrowserZoomPercent;
   targetDisplayId?: number | null;
+  companion?: WorkspaceCompanion | null;
   slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "rect">>>;
 }
 
@@ -248,11 +276,28 @@ export type WorkspaceLaunchResult =
       kind: "launched";
       displayId: number;
       statuses: RoleStatus[];
+      companionOpenResult?: WorkspaceCompanionOpenResult;
     }
   | {
       kind: "display_selection_required";
       reason: "target_occupied" | "target_unavailable";
       displays: WorkspaceDisplayLaunchOption[];
+    };
+
+export type WorkspaceCompanionOpenFailureReason =
+  | "not_configured"
+  | "platform_mismatch"
+  | "target_missing"
+  | "open_failed";
+
+export type WorkspaceCompanionOpenResult =
+  | {
+      kind: "opened";
+    }
+  | {
+      kind: "failed";
+      reason: WorkspaceCompanionOpenFailureReason;
+      message: string;
     };
 
 export interface AppErrorPayload {
@@ -414,6 +459,7 @@ export interface PortableLaunchWorkspace {
   name: string;
   template: WorkspaceLayoutTemplate;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
+  companion?: Pick<WorkspaceCompanion, "placement" | "sizePercent">;
   slots: LaunchWorkspaceSlot[];
 }
 

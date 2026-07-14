@@ -515,6 +515,7 @@ export function App(): JSX.Element {
                     onDeleteWorkspace={(workspace) => void workspaceWorkflow.handleDeleteWorkspace(workspace)}
                     onEditWorkspace={(workspace) => navigateToEditWorkspace(workspace.id)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
+                    onOpenWorkspaceCompanion={(workspace) => void workspaceWorkflow.handleOpenWorkspaceCompanion(workspace)}
                     onQueryChange={workspaceWorkflow.setQuery}
                     onReorderWorkspaces={(orderedIds) => void workspaceWorkflow.handleReorderWorkspaces(orderedIds)}
                     onStopWorkspace={(workspace) => void workspaceWorkflow.handleStopWorkspace(workspace)}

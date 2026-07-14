@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatWorkspaceDisplayLabel,
   getFirstAvailableWorkspaceDisplayId,
+  getWorkspaceTargetDisplayPresentation,
   hasAvailableWorkspaceDisplay
 } from "../src/renderer/src/features/workspaces/workspaceDisplayUtils";
 import type { Translator } from "../src/renderer/src/i18n";
@@ -12,7 +13,10 @@ const t = ((key: string) => {
   const translations: Record<string, string> = {
     "workspaces.displayFallback": "Display {index}",
     "workspaces.displayPrimary": "Primary",
-    "workspaces.displayInternal": "Built-in"
+    "workspaces.displayInternal": "Built-in",
+    "workspaces.targetDisplay": "Target display",
+    "workspaces.targetDisplayFollowApp": "Follow Rion Studio",
+    "workspaces.targetDisplayUnavailable": "Unavailable display (ID {id})"
   };
   return translations[key] ?? key;
 }) as Translator;
@@ -32,6 +36,38 @@ describe("workspace display picker helpers", () => {
     expect(getFirstAvailableWorkspaceDisplayId([occupied, display(22, "Side")])).toBe(22);
     expect(hasAvailableWorkspaceDisplay([occupied])).toBe(false);
     expect(getFirstAvailableWorkspaceDisplayId([occupied])).toBeNull();
+  });
+
+  it("describes a workspace that follows the app display", () => {
+    expect(getWorkspaceTargetDisplayPresentation(undefined, [], t)).toEqual({
+      isUnavailable: false,
+      label: "Follow Rion Studio",
+      title: "Target display: Follow Rion Studio"
+    });
+  });
+
+  it("uses the connected display name and includes its full details in the title", () => {
+    expect(getWorkspaceTargetDisplayPresentation(11, [display(11, "Built-in Retina Display")], t)).toEqual({
+      isUnavailable: false,
+      label: "Built-in Retina Display",
+      title: "Target display: Built-in Retina Display · 1920×1080 · Primary · Built-in"
+    });
+  });
+
+  it("uses a positional fallback for a connected display without a name", () => {
+    expect(getWorkspaceTargetDisplayPresentation(22, [display(11, "Built-in"), display(22, "")], t)).toEqual({
+      isUnavailable: false,
+      label: "Display 2",
+      title: "Target display: Display 2 · 1920×1080"
+    });
+  });
+
+  it("marks a saved display that is no longer connected as unavailable", () => {
+    expect(getWorkspaceTargetDisplayPresentation(42, [display(11, "Built-in")], t)).toEqual({
+      isUnavailable: true,
+      label: "Unavailable display (ID 42)",
+      title: "Target display: Unavailable display (ID 42)"
+    });
   });
 });
 

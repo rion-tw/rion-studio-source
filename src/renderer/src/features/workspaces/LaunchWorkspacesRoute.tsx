@@ -1,7 +1,21 @@
-import { Copy, LayoutDashboard, Loader2, MoreHorizontal, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-react";
+import {
+  Copy,
+  LayoutDashboard,
+  Loader2,
+  Monitor,
+  MoreHorizontal,
+  Pencil,
+  Play,
+  Plus,
+  Search,
+  Square,
+  Trash2,
+  ZoomIn
+} from "lucide-react";
 import { type CSSProperties, type DragEvent, type JSX, type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../../components/ui/button";
+import { Badge } from "../../components/ui/badge";
 import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
@@ -10,7 +24,15 @@ import { launchUrlOptions } from "../../app/constants";
 import { moveItemById } from "../../app/reorderItems";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
-import type { LaunchWorkspace, LaunchWorkspaceSlot, Role, RoleStatus, WorkspaceLayoutTemplate } from "../../../../shared/types";
+import type {
+  LaunchWorkspace,
+  LaunchWorkspaceSlot,
+  Role,
+  RoleStatus,
+  WorkspaceDisplayInfo,
+  WorkspaceLayoutTemplate
+} from "../../../../shared/types";
+import { getWorkspaceTargetDisplayPresentation } from "./workspaceDisplayUtils";
 import { createWorkspaceSlotBackground, getWorkspaceSplits } from "./workspaceLayoutUtils";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 
@@ -23,6 +45,7 @@ interface LaunchWorkspacesViewProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspaces: LaunchWorkspace[];
+  workspaceDisplays: WorkspaceDisplayInfo[];
   onCopyWorkspace: (workspace: LaunchWorkspace) => void;
   onCreateWorkspace: () => void;
   onDeleteWorkspace: (workspace: LaunchWorkspace) => void;
@@ -42,6 +65,7 @@ function LaunchWorkspacesView({
   statusByRole,
   t,
   workspaces,
+  workspaceDisplays,
   onCopyWorkspace,
   onCreateWorkspace,
   onDeleteWorkspace,
@@ -175,6 +199,7 @@ function LaunchWorkspacesView({
               statusByRole={statusByRole}
               t={t}
               workspace={workspace}
+              workspaceDisplays={workspaceDisplays}
               onCopy={() => onCopyWorkspace(workspace)}
               onDelete={() => onDeleteWorkspace(workspace)}
               onEdit={() => onEditWorkspace(workspace)}
@@ -210,6 +235,7 @@ interface WorkspaceCardProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspace: LaunchWorkspace;
+  workspaceDisplays: WorkspaceDisplayInfo[];
 }
 
 function WorkspaceCard({
@@ -229,13 +255,16 @@ function WorkspaceCard({
   roleById,
   statusByRole,
   t,
-  workspace
+  workspace,
+  workspaceDisplays
 }: WorkspaceCardProps): JSX.Element {
   const assignedCount = workspace.slots.filter((slot) => slot.roleId).length;
   const runningCount = workspace.slots.filter((slot) => slot.roleId && statusByRole.has(slot.roleId)).length;
   const isRunning = runningCount > 0;
   const isBusy = busyWorkspaceId === workspace.id;
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
+  const zoomTitle = `${t("workspaces.browserZoom")}: ${workspace.browserZoomPercent}%`;
+  const targetDisplay = getWorkspaceTargetDisplayPresentation(workspace.targetDisplayId, workspaceDisplays, t);
 
   return (
     <Card
@@ -294,6 +323,27 @@ function WorkspaceCard({
             {isBusy ? <Loader2 className="spin" size={14} /> : isRunning ? <Square size={14} /> : <Play size={14} />}
             {isRunning ? t("workspaces.stopShort") : t("workspaces.launchShort")}
           </Button>
+        </div>
+
+        <div className="mt-2 flex min-w-0 items-center gap-1.5">
+          <Badge
+            aria-label={zoomTitle}
+            className="shrink-0 gap-1.5"
+            title={zoomTitle}
+            variant="secondary"
+          >
+            <ZoomIn size={12} aria-hidden="true" />
+            <span>{workspace.browserZoomPercent}%</span>
+          </Badge>
+          <Badge
+            aria-label={targetDisplay.title}
+            className="min-w-0 max-w-full gap-1.5"
+            title={targetDisplay.title}
+            variant={targetDisplay.isUnavailable ? "warning" : "muted"}
+          >
+            <Monitor className="shrink-0" size={12} aria-hidden="true" />
+            <span className="min-w-0 truncate">{targetDisplay.label}</span>
+          </Badge>
         </div>
       </div>
     </Card>

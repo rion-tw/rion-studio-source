@@ -493,6 +493,7 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
+                    workspaceDisplays={data.workspaceDisplays}
                     onCopyWorkspace={(workspace) => void workspaceWorkflow.handleCopyWorkspace(workspace)}
                     onCreateWorkspace={navigateToNewWorkspace}
                     onDeleteWorkspace={(workspace) => void workspaceWorkflow.handleDeleteWorkspace(workspace)}

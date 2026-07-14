@@ -25,6 +25,7 @@ import { localizeErrorMessage, type Language, type Translator } from "./i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import type {
   GameBrowserSettings,
+  GraphicsDiagnostics,
   MacroEditorRequest,
   PortableExportInput,
   PortableExportResult,
@@ -98,6 +99,20 @@ export function App(): JSX.Element {
     setSystemFonts(nextFonts);
     return nextFonts;
   }, [systemFonts]);
+  const loadGraphicsDiagnostics = useCallback(async (): Promise<GraphicsDiagnostics> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+
+    return window.rionStudio.getGraphicsDiagnostics();
+  }, []);
+  const restartApplication = useCallback(async (): Promise<void> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+
+    await window.rionStudio.restartApplication();
+  }, []);
   const exportPortableData = useCallback(async (input: PortableExportInput): Promise<PortableExportResult | null> => {
     if (!window.rionStudio) {
       throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
@@ -564,11 +579,13 @@ export function App(): JSX.Element {
                   onError={data.setError}
                   onExportPortableData={exportPortableData}
                   onGameBrowserSettingsChange={updateGameBrowserSettings}
+                  onLoadGraphicsDiagnostics={loadGraphicsDiagnostics}
                   onLoadSystemFonts={loadSystemFonts}
                   onPreviewPortableImport={previewPortableImport}
                   onApplyPortableImport={applyPortableImport}
                   onOpenUpdateDownload={updates.openUpdateDownload}
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
+                  onRestartApplication={restartApplication}
                   onLanguageChange={preferences.handleLanguageChange}
                   onRoleDefaultsChange={preferences.handleRoleDefaultsChange}
                   onThemeModeChange={preferences.handleThemeModeChange}

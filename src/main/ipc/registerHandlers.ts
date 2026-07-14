@@ -58,7 +58,9 @@ interface RegisterIpcHandlersOptions {
   getDefaultWorkspaceDisplayId?: () => number;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
   portableDataManager?: Pick<PortableDataManager, "applyImport" | "exportData" | "previewImport">;
+  getGraphicsDiagnostics?: (sender: Electron.WebContents) => Promise<unknown>;
   quitApplication?: () => void;
+  restartApplication?: () => void;
 }
 
 export function registerIpcHandlers(
@@ -113,6 +115,17 @@ export function registerIpcHandlers(
     }
 
     options.quitApplication();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.appRestart, () => {
+    if (!options.restartApplication) {
+      throw new Error("Application restart is not available.");
+    }
+    if (browserManager.listStatuses().length > 0) {
+      throw new Error("Stop all running roles before restarting Rion Studio.");
+    }
+
+    options.restartApplication();
   });
 
   ipcMain.handle(IPC_CHANNELS.preferencesSetOverlayLanguage, (_event, language: AppLanguage) => {
@@ -178,6 +191,14 @@ export function registerIpcHandlers(
     }
 
     return options.gameBrowserSettingsStore.updateSettings(settings);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.graphicsDiagnosticsGet, (event) => {
+    if (!options.getGraphicsDiagnostics) {
+      throw new Error("Graphics diagnostics are not available.");
+    }
+
+    return options.getGraphicsDiagnostics(event.sender);
   });
 
   ipcMain.handle(IPC_CHANNELS.systemFontsList, () => {

@@ -38,10 +38,30 @@ describe("ExternalChromeManager", () => {
       "--window-position=-1280,-120",
       "--window-size=1280,720",
       "--no-first-run",
+      "--no-default-browser-check",
       "--disable-default-apps",
+      "--disable-component-extensions-with-background-pages",
+      "--metrics-recording-only",
+      "--no-service-autorun",
+      "--disable-search-engine-choice-screen",
+      "--disable-features=MediaRouter,OptimizationHints,Translate",
       "--remote-debugging-address=127.0.0.1",
       "--remote-debugging-port=0"
     ]);
+  });
+
+  it("adds only the graphics switches selected by the applied startup mode", () => {
+    const bounds = { x: 0, y: 0, width: 1280, height: 720 };
+    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, "automatic"))
+      .not.toContain("--ignore-gpu-blocklist");
+    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, "high_performance"))
+      .toContain("--force-high-performance-gpu");
+    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, "experimental"))
+      .toEqual(expect.arrayContaining([
+        "--force-high-performance-gpu",
+        "--ignore-gpu-blocklist",
+        "--enable-unsafe-webgpu"
+      ]));
   });
 
   it("launches a single role with its isolated browser directory and work-area bounds", async () => {

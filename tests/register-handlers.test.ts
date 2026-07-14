@@ -653,6 +653,8 @@ describe("registerIpcHandlers game browser settings handlers", () => {
   let systemFontService: {
     listFonts: AnyMock;
   };
+  let getGraphicsDiagnostics: AnyMock;
+  let restartApplication: AnyMock;
   const settings: GameBrowserSettings = {
     fonts: {
       families: {
@@ -661,6 +663,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
       },
       mode: "custom"
     },
+    graphics: { mode: "automatic" },
     launchMode: "auto",
     network: DEFAULT_BROWSER_NETWORK_SETTINGS
   };
@@ -695,6 +698,8 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     systemFontService = {
       listFonts: vi.fn().mockResolvedValue(fonts)
     };
+    getGraphicsDiagnostics = vi.fn().mockResolvedValue({ appliedMode: "automatic" });
+    restartApplication = vi.fn();
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -703,6 +708,8 @@ describe("registerIpcHandlers game browser settings handlers", () => {
       authManager as AuthManager,
       {
         gameBrowserSettingsStore,
+        getGraphicsDiagnostics,
+        restartApplication,
         systemFontService
       }
     );
@@ -716,6 +723,24 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     expect(gameBrowserSettingsStore.getSettings).toHaveBeenCalledTimes(1);
     expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(settings);
     expect(systemFontService.listFonts).toHaveBeenCalledTimes(1);
+  });
+
+  it("collects diagnostics from the requesting renderer and protects application restart", async () => {
+    const sender = { id: 42 };
+    await expect(
+      handlers.get(IPC_CHANNELS.graphicsDiagnosticsGet)?.({ sender })
+    ).resolves.toEqual({ appliedMode: "automatic" });
+    expect(getGraphicsDiagnostics).toHaveBeenCalledWith(sender);
+
+    await handlers.get(IPC_CHANNELS.appRestart)?.({});
+    expect(restartApplication).toHaveBeenCalledOnce();
+
+    vi.mocked(browserManager.listStatuses).mockReturnValueOnce([
+      { roleId: "role-1", state: "running", runtimeMode: "embedded" }
+    ]);
+    expect(() => handlers.get(IPC_CHANNELS.appRestart)?.({})).toThrow(
+      "Stop all running roles before restarting Rion Studio."
+    );
   });
 });
 
@@ -888,6 +913,7 @@ describe("registerIpcHandlers portable data handlers", () => {
         },
         mode: "custom"
       },
+      graphics: { mode: "automatic" },
       launchMode: "auto",
       network: DEFAULT_BROWSER_NETWORK_SETTINGS
     };

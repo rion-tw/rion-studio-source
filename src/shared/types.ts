@@ -256,6 +256,7 @@ export interface RoleDefaults {
 
 export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";
+export type BrowserGraphicsMode = "automatic" | "high_performance" | "experimental";
 export type BrowserLaunchMode = "auto" | "embedded" | "external";
 export type BrowserRuntimeMode = "embedded" | "external";
 export type BrowserProxySettingsMode = "system" | "custom";
@@ -280,10 +281,63 @@ export interface BrowserNetworkSettings {
   proxy: BrowserProxySettings;
 }
 
+export interface BrowserGraphicsSettings {
+  mode: BrowserGraphicsMode;
+}
+
 export interface GameBrowserSettings {
   fonts: BrowserFontSettings;
+  graphics: BrowserGraphicsSettings;
   launchMode: BrowserLaunchMode;
   network: BrowserNetworkSettings;
+}
+
+export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";
+
+export interface WebGraphicsDiagnostics {
+  error?: string;
+  renderer?: string;
+  vendor?: string;
+  webgl: WebGraphicsAvailability;
+  webgl2: WebGraphicsAvailability;
+  webgpu: WebGraphicsAvailability;
+}
+
+export interface GraphicsDeviceDiagnostics {
+  active?: boolean;
+  deviceId?: number;
+  deviceString?: string;
+  driverVendor?: string;
+  driverVersion?: string;
+  vendorId?: number;
+  vendorString?: string;
+}
+
+export interface ExternalGraphicsDiagnostics {
+  error?: string;
+  probe?: WebGraphicsDiagnostics;
+  roleId: string;
+  roleName: string;
+  state: "ready" | "unavailable";
+}
+
+export interface GraphicsDiagnostics {
+  appliedMode: BrowserGraphicsMode;
+  collectedAt: string;
+  embedded: WebGraphicsDiagnostics;
+  externalRoles: ExternalGraphicsDiagnostics[];
+  featureStatus: Record<string, string>;
+  gpuDevice?: GraphicsDeviceDiagnostics;
+  gpuInfoReady: boolean;
+  hardwareAccelerationEnabled: boolean | null;
+  platform: string;
+  restartRequired: boolean;
+  savedMode: BrowserGraphicsMode;
+  versions: {
+    chromium: string;
+    electron: string;
+    node: string;
+  };
 }
 
 export interface SystemFontFamily {

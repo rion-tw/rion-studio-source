@@ -1,5 +1,3 @@
-import type { Page } from "playwright-core";
-
 import { containsLoginPromptText } from "./loginDetection";
 
 export interface LoginStorageClient {
@@ -142,15 +140,6 @@ export function createLoginStorageSnapshot(cookies: unknown, runtimeValue: unkno
     indexedDb: normalizeStorageMap(readRuntimeStorageValue(runtimeValue, "indexedDb")),
     bodyText: readRuntimeBodyText(runtimeValue)
   };
-}
-
-export async function readPlaywrightLoginStorageSnapshot(page: Page, launchUrl: string): Promise<LoginStorageSnapshot> {
-  const [cookies, runtimeValue] = await Promise.all([
-    page.context().cookies(launchUrl),
-    page.evaluate(LOGIN_STORAGE_EXPRESSION)
-  ]);
-
-  return createLoginStorageSnapshot(cookies, runtimeValue);
 }
 
 export function isLoginStorageReady(

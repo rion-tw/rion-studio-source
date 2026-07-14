@@ -16,9 +16,9 @@ before changing code.
 
 - This is an Electron + React + TypeScript desktop app built with Electron Vite.
 - The main process owns Electron APIs, file system access, profile stores, auth flow,
-  system Chrome login, Playwright launch behavior, and browser lifecycle.
+  embedded Electron and external Chrome launch behavior, and browser lifecycle.
 - The renderer is a React app. It must call `window.rionStudio` through the preload
-  bridge and must not import Node, Electron, or Playwright directly.
+  bridge and must not import Node, Electron, or browser automation clients directly.
 - Shared contracts live under `src/shared` and should be treated as the source of
   truth between main, preload, renderer, and tests.
 
@@ -60,7 +60,8 @@ Avoid adding renderer-only shortcuts around this bridge.
 - Keep login and launch behavior centralized in the main process managers.
 - Preserve the existing post-launch auth verification before considering a browser
   session running.
-- Normal Playwright launches should not add remote debugging flags.
+- Normal embedded launches should not add remote debugging flags. External Chrome
+  compatibility sessions use loopback DevTools control for macros and CDN rewriting.
 
 ## Renderer And UI Rules
 
@@ -83,5 +84,4 @@ pnpm run build
 pnpm run package
 ```
 
-`pnpm run build` runs typecheck before the Electron Vite build. `pnpm install`
-runs the Playwright browser installation script used for bundled Chromium.
+`pnpm run build` runs typecheck before the Electron Vite build.

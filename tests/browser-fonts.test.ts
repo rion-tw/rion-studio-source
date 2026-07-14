@@ -49,6 +49,7 @@ describe("browser font settings normalization", () => {
         },
         mode: "custom"
       },
+      graphics: { mode: "automatic" },
       launchMode: "auto",
       network: DEFAULT_BROWSER_NETWORK_SETTINGS
     });
@@ -61,6 +62,14 @@ describe("browser font settings normalization", () => {
       normalizeGameBrowserSettings({ launchMode: "turbo" }, { ...DEFAULT_GAME_BROWSER_SETTINGS, launchMode: "embedded" })
         .launchMode
     ).toBe("embedded");
+  });
+
+  it("defaults legacy graphics settings and validates acceleration modes", () => {
+    expect(normalizeGameBrowserSettings({}).graphics).toEqual({ mode: "automatic" });
+    expect(normalizeGameBrowserSettings({ graphics: { mode: "high_performance" } }).graphics).toEqual({
+      mode: "high_performance"
+    });
+    expect(normalizeGameBrowserSettings({ graphics: { mode: "unsafe" } }).graphics).toEqual({ mode: "automatic" });
   });
 
   it("normalizes browser proxy settings", () => {

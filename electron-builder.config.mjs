@@ -12,12 +12,7 @@ const config = {
   directories: {
     output: "release/${version}"
   },
-  files: [
-    "out",
-    "package.json",
-    "!node_modules/playwright-core/.local-browsers/**",
-    "!**/node_modules/playwright-core/.local-browsers/**"
-  ],
+  files: ["out", "package.json"],
   extraResources: [
     {
       from: "build/icon.png",
@@ -45,7 +40,6 @@ const config = {
     }
   ],
   electronUpdaterCompatibility: ">=2.16",
-  afterPack: "build/afterPack.mjs",
   mac: {
     icon: "build/icon.icns",
     category: "public.app-category.utilities",

@@ -3,6 +3,7 @@ import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
+import { useConfirmation } from "../../components/confirmation";
 import { LegalDocumentDialog } from "../legal/LegalDocumentDialog";
 import type { LegalDocumentKind } from "../legal/legalDocuments";
 import { Input } from "../../components/ui/input";
@@ -36,8 +37,10 @@ import type {
   AppUpdateStatus,
   BrowserCdnCompatibilityMode,
   BrowserFontFamilyRole,
+  BrowserGraphicsMode,
   BrowserLaunchMode,
   GameBrowserSettings,
+  GraphicsDiagnostics,
   LaunchPreset,
   PortableExportInput,
   PortableExportResult,
@@ -64,11 +67,13 @@ interface SettingsViewProps {
   onError: (error: unknown) => void;
   onExportPortableData: (input: PortableExportInput) => Promise<PortableExportResult | null>;
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  onLoadGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
   onLoadSystemFonts: () => Promise<SystemFontFamily[]>;
   onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
   onApplyPortableImport: (importId: string) => Promise<PortableImportResult>;
   onOpenUpdateDownload: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
+  onRestartApplication: () => Promise<void>;
   onLanguageChange: (language: Language) => void;
   onRoleDefaultsChange: (roleDefaults: RoleDefaults) => void;
   onThemeModeChange: (themeMode: ThemeMode) => void;
@@ -103,6 +108,12 @@ const browserFontRoleLabelKeys: Record<BrowserFontFamilyRole, TranslationKey> = 
   standard: "settings.browserFonts.standard"
 };
 
+const graphicsModeDescriptionKeys: Record<BrowserGraphicsMode, TranslationKey> = {
+  automatic: "settings.graphicsModeDescription.automatic",
+  experimental: "settings.graphicsModeDescription.experimental",
+  high_performance: "settings.graphicsModeDescription.highPerformance"
+};
+
 function SettingsViewBase({
   activeSection,
   gameBrowserSettings,
@@ -119,20 +130,25 @@ function SettingsViewBase({
   onError,
   onExportPortableData,
   onGameBrowserSettingsChange,
+  onLoadGraphicsDiagnostics,
   onLoadSystemFonts,
   onPreviewPortableImport,
   onApplyPortableImport,
   onOpenUpdateDownload,
   onInstallDownloadedUpdate,
+  onRestartApplication,
   onLanguageChange,
   onRoleDefaultsChange,
   onThemeModeChange,
   systemFonts
 }: SettingsViewBaseProps): JSX.Element {
+  const confirm = useConfirmation();
   const [portableImportPreview, setPortableImportPreview] = useState<PortableImportPreview | null>(null);
   const [portableMessage, setPortableMessage] = useState<string | null>(null);
   const [isPortableBusy, setIsPortableBusy] = useState(false);
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
+  const [graphicsDiagnostics, setGraphicsDiagnostics] = useState<GraphicsDiagnostics | null>(null);
+  const [isGraphicsBusy, setIsGraphicsBusy] = useState(false);
   const canCheckForUpdates = Boolean(updateStatus?.isPackaged) && !isUpdateBusy;
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
@@ -142,6 +158,71 @@ function SettingsViewBase({
     Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
   const pageTitle = t(settingsSectionTitleKeys[activeSection]);
   const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
+
+  async function refreshGraphicsDiagnostics(): Promise<void> {
+    setIsGraphicsBusy(true);
+    try {
+      setGraphicsDiagnostics(await onLoadGraphicsDiagnostics());
+    } catch (error) {
+      onError(error);
+    } finally {
+      setIsGraphicsBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeSection !== "game") {
+      return;
+    }
+
+    void refreshGraphicsDiagnostics();
+    // The diagnostics callback is stable at the route boundary; refresh when the section opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection]);
+
+  async function handleGraphicsModeChange(mode: BrowserGraphicsMode): Promise<void> {
+    if (mode === "experimental") {
+      const approved = await confirm({
+        cancelLabel: t("confirm.cancel"),
+        confirmLabel: t("settings.graphicsExperimentalConfirm"),
+        description: t("settings.graphicsExperimentalWarning"),
+        title: t("settings.graphicsExperimentalTitle"),
+        tone: "destructive"
+      });
+      if (!approved) {
+        return;
+      }
+    }
+
+    try {
+      const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
+      await onGameBrowserSettingsChange({
+        ...normalizedSettings,
+        graphics: { mode }
+      });
+      await refreshGraphicsDiagnostics();
+    } catch (error) {
+      onError(error);
+    }
+  }
+
+  async function handleRestartApplication(): Promise<void> {
+    const approved = await confirm({
+      cancelLabel: t("confirm.cancel"),
+      confirmLabel: t("settings.graphicsRestartNow"),
+      description: t("settings.graphicsRestartDescription"),
+      title: t("settings.graphicsRestartTitle")
+    });
+    if (!approved) {
+      return;
+    }
+
+    try {
+      await onRestartApplication();
+    } catch (error) {
+      onError(error);
+    }
+  }
 
   async function handleExportPortableData(): Promise<void> {
     setIsPortableBusy(true);
@@ -307,6 +388,73 @@ function SettingsViewBase({
                   </Select>
                 }
               />
+              <SettingsRow
+                title={t("settings.graphicsMode")}
+                description={t(graphicsModeDescriptionKeys[normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode])}
+                control={
+                  <Select
+                    className="settings-menu-control"
+                    value={normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode}
+                    onChange={(event) => void handleGraphicsModeChange(event.target.value as BrowserGraphicsMode)}
+                  >
+                    <option value="automatic">{t("settings.graphicsModeAutomatic")}</option>
+                    <option value="high_performance">{t("settings.graphicsModeHighPerformance")}</option>
+                    <option value="experimental">{t("settings.graphicsModeExperimental")}</option>
+                  </Select>
+                }
+              />
+              <SettingsRow
+                title={t("settings.graphicsHardwareAcceleration")}
+                description={formatGraphicsRuntimeSummary(graphicsDiagnostics, t)}
+                control={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isGraphicsBusy}
+                    onClick={() => void refreshGraphicsDiagnostics()}
+                  >
+                    <RefreshCw size={14} className={isGraphicsBusy ? "animate-spin" : undefined} />
+                    {t("settings.graphicsRefresh")}
+                  </Button>
+                }
+              />
+              <SettingsRow
+                title={t("settings.graphicsDevice")}
+                description={formatGraphicsDeviceSummary(graphicsDiagnostics, t)}
+                control={<ReadOnlyValue value={formatGraphicsApiSummary(graphicsDiagnostics, t)} />}
+              />
+              <SettingsRow
+                title={t("settings.graphicsFeatureStatus")}
+                description={formatGraphicsFeatureSummary(graphicsDiagnostics, t)}
+                control={<ReadOnlyValue value={formatGraphicsVersionSummary(graphicsDiagnostics)} />}
+              />
+              {graphicsDiagnostics?.externalRoles.length ? (
+                <SettingsRow
+                  title={t("settings.graphicsExternalSessions")}
+                  description={formatExternalGraphicsSummary(graphicsDiagnostics, t)}
+                  control={<ReadOnlyValue value={String(graphicsDiagnostics.externalRoles.length)} />}
+                />
+              ) : null}
+              {graphicsDiagnostics?.restartRequired ? (
+                <SettingsRow
+                  title={t("settings.graphicsRestartTitle")}
+                  description={
+                    hasRunningRoles
+                      ? t("settings.graphicsStopRolesBeforeRestart")
+                      : t("settings.graphicsRestartDescription")
+                  }
+                  control={
+                    <Button
+                      type="button"
+                      disabled={hasRunningRoles}
+                      onClick={() => void handleRestartApplication()}
+                    >
+                      <RotateCcw size={14} />
+                      {t("settings.graphicsRestartNow")}
+                    </Button>
+                  }
+                />
+              ) : null}
               <BrowserFontsSettingsRows
                 hasRunningRoles={hasRunningRoles}
                 settings={gameBrowserSettings}
@@ -671,14 +819,14 @@ function BrowserFontsSettingsRows({
     setMessage(null);
     setDraft((current) =>
       normalizeGameBrowserSettings({
+        ...current,
         fonts: {
           families: {
             ...current.fonts.families,
             [role]: value
           },
           mode: "custom"
-        },
-        network: current.network
+        }
       })
     );
   }
@@ -813,6 +961,7 @@ function BrowserProxySettingsRow({
         normalizeGameBrowserSettings({
           ...normalizedSettings,
           network: {
+            ...normalizedSettings.network,
             proxy: isEmpty
               ? { mode: "system", server: "" }
               : {
@@ -964,6 +1113,102 @@ function ReadOnlyValue({ value }: { value: string }): JSX.Element {
       {value}
     </span>
   );
+}
+
+function formatGraphicsRuntimeSummary(diagnostics: GraphicsDiagnostics | null, t: Translator): string {
+  if (!diagnostics) {
+    return t("settings.graphicsLoading");
+  }
+
+  return [
+    diagnostics.hardwareAccelerationEnabled === null
+      ? t("settings.graphicsUnknown")
+      : t(diagnostics.hardwareAccelerationEnabled ? "settings.graphicsEnabled" : "settings.graphicsDisabled"),
+    t(diagnostics.gpuInfoReady ? "settings.graphicsGpuInfoReady" : "settings.graphicsGpuInfoPending"),
+    `${t("settings.graphicsMode")}: ${formatGraphicsMode(diagnostics.appliedMode, t)}`
+  ].join(" · ");
+}
+
+function formatGraphicsDeviceSummary(diagnostics: GraphicsDiagnostics | null, t: Translator): string {
+  if (!diagnostics) {
+    return t("settings.graphicsLoading");
+  }
+
+  const device = diagnostics.gpuDevice;
+  if (!device) {
+    return t("settings.graphicsNoDevice");
+  }
+
+  const name = device.deviceString || device.vendorString || formatDeviceId(device.vendorId, device.deviceId);
+  const driver = [device.driverVendor, device.driverVersion].filter(Boolean).join(" ");
+  const renderer = diagnostics.embedded.renderer;
+  return [name, driver, renderer].filter(Boolean).join(" · ");
+}
+
+function formatGraphicsApiSummary(diagnostics: GraphicsDiagnostics | null, t: Translator): string {
+  if (!diagnostics) {
+    return "WebGL · WebGL2 · WebGPU";
+  }
+
+  return [
+    `WebGL ${formatAvailability(diagnostics.embedded.webgl, t)}`,
+    `WebGL2 ${formatAvailability(diagnostics.embedded.webgl2, t)}`,
+    `WebGPU ${formatAvailability(diagnostics.embedded.webgpu, t)}`
+  ].join(" · ");
+}
+
+function formatGraphicsFeatureSummary(diagnostics: GraphicsDiagnostics | null, t: Translator): string {
+  if (!diagnostics) {
+    return t("settings.graphicsLoading");
+  }
+
+  const features = ["gpu_compositing", "rasterization", "webgl", "webgl2"]
+    .map((name) => diagnostics.featureStatus[name] ? `${name}: ${diagnostics.featureStatus[name]}` : "")
+    .filter(Boolean);
+  return features.length > 0 ? features.join(" · ") : t("settings.graphicsNoFeatureStatus");
+}
+
+function formatGraphicsVersionSummary(diagnostics: GraphicsDiagnostics | null): string {
+  return diagnostics
+    ? `Electron ${diagnostics.versions.electron} · Chromium ${diagnostics.versions.chromium}`
+    : "Electron · Chromium";
+}
+
+function formatExternalGraphicsSummary(diagnostics: GraphicsDiagnostics, t: Translator): string {
+  return diagnostics.externalRoles
+    .map((role) => {
+      if (!role.probe) {
+        return `${role.roleName}: ${t("settings.graphicsUnavailable")}`;
+      }
+      return `${role.roleName}: WebGL2 ${formatAvailability(role.probe.webgl2, t)}, WebGPU ${formatAvailability(role.probe.webgpu, t)}`;
+    })
+    .join(" · ");
+}
+
+function formatGraphicsMode(mode: BrowserGraphicsMode, t: Translator): string {
+  if (mode === "high_performance") return t("settings.graphicsModeHighPerformance");
+  if (mode === "experimental") return t("settings.graphicsModeExperimental");
+  return t("settings.graphicsModeAutomatic");
+}
+
+function formatAvailability(
+  availability: "available" | "unavailable" | "unknown",
+  t: Translator
+): string {
+  if (availability === "available") return t("settings.graphicsAvailable");
+  if (availability === "unavailable") return t("settings.graphicsUnavailable");
+  return t("settings.graphicsUnknown");
+}
+
+function formatDeviceId(vendorId?: number, deviceId?: number): string {
+  if (vendorId === undefined && deviceId === undefined) {
+    return "GPU";
+  }
+
+  return [vendorId, deviceId]
+    .filter((value): value is number => value !== undefined)
+    .map((value) => `0x${value.toString(16).padStart(4, "0")}`)
+    .join(":");
 }
 
 function formatRoleWindowSize(width: number, height: number): string {

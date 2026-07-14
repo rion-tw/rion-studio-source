@@ -1,6 +1,7 @@
 export const IPC_CHANNELS = {
   appRendererReady: "app:renderer-ready",
   appQuit: "app:quit",
+  appRestart: "app:restart",
   legalStatus: "legal:status",
   legalAccept: "legal:accept",
   rolesList: "roles:list",
@@ -42,6 +43,7 @@ export const IPC_CHANNELS = {
   portableImportApply: "portable:import-apply",
   gameBrowserSettingsGet: "game-browser-settings:get",
   gameBrowserSettingsUpdate: "game-browser-settings:update",
+  graphicsDiagnosticsGet: "graphics-diagnostics:get",
   systemFontsList: "system-fonts:list",
   appVersion: "app:version",
   updatesStatus: "updates:status",

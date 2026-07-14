@@ -9,7 +9,6 @@ Rion Studio incorporates third-party open-source software. Copyright remains wit
 - Electron — MIT License. Electron distributions also include `LICENSE.electron.txt` and `LICENSES.chromium.html` with Electron, Chromium, and bundled third-party notices.
 - Chromium — BSD-style license and the component-specific licenses included in `LICENSES.chromium.html`.
 - electron-updater — MIT License.
-- Playwright Core — Apache License 2.0.
 - React and React DOM — MIT License.
 - React Router — MIT License.
 - Lucide React — ISC License.

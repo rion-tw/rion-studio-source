@@ -8,6 +8,7 @@ import type {
   CreateMacroInput,
   CreateRoleInput,
   GameBrowserSettings,
+  GraphicsDiagnostics,
   LaunchWorkspace,
   LegalAcceptanceStatus,
   Macro,
@@ -35,6 +36,7 @@ export interface RionStudioApi {
   getLegalAcceptanceStatus: () => Promise<LegalAcceptanceStatus>;
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;
+  restartApplication: () => Promise<void>;
   listRoles: () => Promise<Role[]>;
   createRole: (input: CreateRoleInput) => Promise<Role>;
   updateRole: (id: string, input: UpdateRoleInput) => Promise<Role>;
@@ -67,6 +69,7 @@ export interface RionStudioApi {
   applyPortableImport: (importId: string) => Promise<PortableImportResult>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
   listSystemFonts: () => Promise<SystemFontFamily[]>;
   consumePendingMacroEditorRequest: () => Promise<MacroEditorRequest | null>;
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;

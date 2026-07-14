@@ -9,7 +9,12 @@ import {
   CDN_COMPATIBILITY_UNAVAILABLE_NOTICE
 } from "../game-browser/CdnCompatibilityManager";
 import { findSystemChromeExecutable } from "../system-browser/SystemChromeLauncher";
-import type { NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
+import {
+  BROWSER_BACKGROUND_FEATURES_TO_DISABLE,
+  BROWSER_BASE_SWITCHES,
+  getGraphicsModeSwitches
+} from "../../shared/browserGraphics";
+import type { BrowserGraphicsMode, NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
 import {
   connectExternalChromeAutomation,
   type ConnectExternalChromeAutomationOptions,
@@ -38,6 +43,7 @@ export interface ExternalChromeManagerOptions {
   ) => Promise<{ enabled: boolean; proxyServer?: string }>;
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
+  graphicsMode?: BrowserGraphicsMode;
   spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
   connectAutomation?: (
     browserUserDataDir: string,
@@ -208,7 +214,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     }
     const child = (this.options.spawnChrome ?? spawnChrome)(
       executablePath,
-      buildExternalChromeArgs(role, browserUserDataDir, bounds, proxyServer)
+      buildExternalChromeArgs(role, browserUserDataDir, bounds, proxyServer, this.options.graphicsMode)
     );
     const session: ExternalChromeSession = {
       cdnCompatibilityActive: false,
@@ -330,15 +336,17 @@ export function buildExternalChromeArgs(
   role: Role,
   browserUserDataDir: string,
   bounds: PixelBounds,
-  proxyServer?: string
+  proxyServer?: string,
+  graphicsMode: BrowserGraphicsMode = "automatic"
 ): string[] {
   return [
     `--user-data-dir=${browserUserDataDir}`,
     `--app=${role.launchUrl}`,
     `--window-position=${bounds.x},${bounds.y}`,
     `--window-size=${bounds.width},${bounds.height}`,
-    "--no-first-run",
-    "--disable-default-apps",
+    ...BROWSER_BASE_SWITCHES.map((name) => `--${name}`),
+    `--disable-features=${BROWSER_BACKGROUND_FEATURES_TO_DISABLE.join(",")}`,
+    ...getGraphicsModeSwitches(graphicsMode).map((name) => `--${name}`),
     "--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0",
     ...(proxyServer ? [`--proxy-server=${proxyServer}`] : [])

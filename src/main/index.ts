@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
   app,
+  BaseWindow,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -27,6 +28,11 @@ import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
 import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
 import { CdnCompatibilityManager } from "./game-browser/CdnCompatibilityManager";
 import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStore";
+import { GraphicsDiagnosticsService } from "./game-browser/GraphicsDiagnosticsService";
+import {
+  configureChromiumCommandLine,
+  readAppliedBrowserGraphicsMode
+} from "./game-browser/BrowserLaunchConfiguration";
 import { SystemFontService } from "./game-browser/SystemFontService";
 import { broadcastWorkspaceDisplaysChanged, registerIpcHandlers } from "./ipc/registerHandlers";
 import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
@@ -54,6 +60,13 @@ import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import type { MacroEditorRequest } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
+
+const appliedBrowserGraphicsMode = readAppliedBrowserGraphicsMode(app.getPath("userData"));
+configureChromiumCommandLine(app.commandLine, appliedBrowserGraphicsMode);
+let gpuInfoReady = false;
+app.on("gpu-info-update", () => {
+  gpuInfoReady = true;
+});
 
 let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
@@ -305,7 +318,8 @@ function initializeApplication(): void {
           : {})
       };
     },
-    getLaunchWorkArea: () => getMainWindowDisplayWorkArea()
+    getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
+    graphicsMode: appliedBrowserGraphicsMode
   });
   browserManager = new BrowserManager(roleStore, {
     applyBrowserFonts: async (role, partition) => {
@@ -316,7 +330,7 @@ function initializeApplication(): void {
     applyCdnCompatibility: async (_role, _partition, session) => {
       await cdnCompatibilityManager.applyToSession(session);
     },
-    createHostWindow: (options) => new BrowserWindow(options),
+    createHostWindow: (options) => new BaseWindow(options),
     createView: (options) => new WebContentsView(options),
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
@@ -338,6 +352,13 @@ function initializeApplication(): void {
     macroOverlayInjector.refreshInstalledOverlays();
   });
   const authManager = new AuthManager(roleStore, browserManager);
+  const graphicsDiagnosticsService = new GraphicsDiagnosticsService({
+    app,
+    appliedMode: appliedBrowserGraphicsMode,
+    browserManager,
+    gameBrowserSettingsStore,
+    isGpuInfoReady: () => gpuInfoReady
+  });
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
     consumePendingMacroEditorRequest,
@@ -345,6 +366,7 @@ function initializeApplication(): void {
     legalAcceptanceStore,
     getDefaultWorkspaceDisplayId: () => getMainWindowDisplay().id,
     getWorkspaceDisplays: () => getWorkspaceDisplayInfos(),
+    getGraphicsDiagnostics: (sender) => graphicsDiagnosticsService.collect(sender),
     macroManager,
     macroStore,
     portableDataManager,
@@ -374,7 +396,11 @@ function initializeApplication(): void {
     onRolesChanged: () => {
       dockRoleMenu?.scheduleRefresh();
     },
-    quitApplication: () => app.quit()
+    quitApplication: () => app.quit(),
+    restartApplication: () => {
+      app.relaunch();
+      app.exit(0);
+    }
   });
   const notifyWorkspaceDisplaysChanged = (): void => {
     broadcastWorkspaceDisplaysChanged(getWorkspaceDisplayInfos());

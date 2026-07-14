@@ -102,6 +102,19 @@ describe("BrowserManager game host windows", () => {
         title: role.name
       })
     );
+    expect(harness.createHostWindow).toHaveBeenCalledWith(
+      expect.not.objectContaining({ webPreferences: expect.anything() })
+    );
+    expect(harness.createView).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          backgroundThrottling: false,
+          spellcheck: false,
+          webgl: true
+        })
+      })
+    );
     expect(harness.views[0].setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1200, height: 800 });
     expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
     expect(harness.hosts[0].show).toHaveBeenCalledTimes(1);
@@ -380,7 +393,10 @@ describe("BrowserManager game host windows", () => {
     expect(harness.createView).toHaveBeenNthCalledWith(
       3,
       expect.objectContaining({
-        webPreferences: expect.objectContaining({ preload: "/app/out/preload/divider.cjs" })
+        webPreferences: expect.objectContaining({
+          backgroundThrottling: true,
+          preload: "/app/out/preload/divider.cjs"
+        })
       })
     );
     expect(harness.views[2].setBounds).toHaveBeenCalledWith({ x: 598, y: 0, width: 4, height: 800 });
@@ -813,6 +829,15 @@ describe("BrowserManager game host windows", () => {
     const popup = createOAuthPopup(harness.views[0], harness.views);
 
     expect(popup.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1200, height: 800 });
+    expect(harness.createView).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          backgroundThrottling: false,
+          spellcheck: false,
+          webgl: true
+        })
+      })
+    );
     expect(harness.hosts[0].contentView.addChildView).toHaveBeenLastCalledWith(popup.view);
   });
 

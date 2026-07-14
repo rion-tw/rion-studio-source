@@ -36,6 +36,7 @@ describe("GameBrowserSettingsStore", () => {
           },
           mode: "custom"
         },
+        graphics: { mode: "high_performance" },
         launchMode: "external",
         network: {
           cdnCompatibility: { mode: "on" },
@@ -53,6 +54,7 @@ describe("GameBrowserSettingsStore", () => {
         },
         mode: "custom"
       },
+      graphics: { mode: "high_performance" },
       launchMode: "external",
       network: {
         cdnCompatibility: { mode: "on" },
@@ -74,6 +76,7 @@ describe("GameBrowserSettingsStore", () => {
         },
         mode: "custom"
       },
+      graphics: { mode: "high_performance" },
       launchMode: "external",
       network: {
         cdnCompatibility: { mode: "on" },

@@ -2,6 +2,8 @@ import type {
   BrowserFontFamilyRole,
   BrowserFontSettings,
   BrowserFontSettingsMode,
+  BrowserGraphicsMode,
+  BrowserGraphicsSettings,
   BrowserCdnCompatibilityMode,
   BrowserCdnCompatibilitySettings,
   BrowserLaunchMode,
@@ -40,8 +42,13 @@ export const DEFAULT_BROWSER_NETWORK_SETTINGS: BrowserNetworkSettings = {
   proxy: DEFAULT_BROWSER_PROXY_SETTINGS
 };
 
+export const DEFAULT_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {
+  mode: "automatic"
+};
+
 export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
+  graphics: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
   launchMode: "auto",
   network: DEFAULT_BROWSER_NETWORK_SETTINGS
 };
@@ -54,8 +61,19 @@ export function normalizeGameBrowserSettings(
 
   return {
     fonts: normalizeBrowserFontSettings(input.fonts, fallback.fonts),
+    graphics: normalizeBrowserGraphicsSettings(input.graphics, fallback.graphics),
     launchMode: normalizeBrowserLaunchMode(input.launchMode, fallback.launchMode),
     network: normalizeBrowserNetworkSettings(input.network, fallback.network)
+  };
+}
+
+export function normalizeBrowserGraphicsSettings(
+  value: unknown,
+  fallback: BrowserGraphicsSettings = DEFAULT_BROWSER_GRAPHICS_SETTINGS
+): BrowserGraphicsSettings {
+  const input = isRecord(value) ? value : {};
+  return {
+    mode: normalizeBrowserGraphicsMode(input.mode, fallback.mode)
   };
 }
 
@@ -186,6 +204,10 @@ function normalizeBrowserFontSettingsMode(
   fallback: BrowserFontSettingsMode
 ): BrowserFontSettingsMode {
   return value === "default" || value === "custom" ? value : fallback;
+}
+
+function normalizeBrowserGraphicsMode(value: unknown, fallback: BrowserGraphicsMode): BrowserGraphicsMode {
+  return value === "automatic" || value === "high_performance" || value === "experimental" ? value : fallback;
 }
 
 function normalizeBrowserLaunchMode(value: unknown, fallback: BrowserLaunchMode): BrowserLaunchMode {

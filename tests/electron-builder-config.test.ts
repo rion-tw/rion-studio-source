@@ -36,7 +36,8 @@ describe("electron-builder release configuration", () => {
   });
 
   it("uses electron-builder-managed ad-hoc signing with explicit hardened runtime entitlements", () => {
-    expect(config.afterPack).toBe("build/afterPack.mjs");
+    expect(config.afterPack).toBeUndefined();
+    expect(config.files).toEqual(["out", "package.json"]);
     expect(config.mac).toMatchObject({
       identity: "-",
       hardenedRuntime: true,

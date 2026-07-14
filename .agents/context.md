@@ -4,17 +4,19 @@
 
 Rion Studio is a desktop launcher and future automation host for isolated browser
 roles. It manages isolated browser sessions for multiple roles, helps users
-log in through system Chrome when automation-controlled browsers are blocked, and
-can launch groups of roles into saved window layouts called launch workspaces.
+log in through isolated embedded Electron views, and can launch groups of roles
+into saved window layouts called launch workspaces. External Chrome remains a
+compatibility fallback for accelerator or network environments that reject the
+embedded view.
 
 The project is an Electron + React + TypeScript app using Electron Vite,
-Playwright, Tailwind CSS v4, lucide-react, React Router, and Vitest.
+Tailwind CSS v4, lucide-react, React Router, and Vitest.
 
 ## Architecture Map
 
-- `src/main`: Electron main process. Owns app startup, BrowserWindow creation,
-  IPC handlers, role/workspace stores, auth flow, system Chrome login, dock
-  integration, Playwright launch behavior, and browser lifecycle.
+- `src/main`: Electron main process. Owns app startup, BrowserWindow/BaseWindow
+  creation, IPC handlers, role/workspace stores, auth flow, embedded and external
+  Chrome launch behavior, dock integration, and browser lifecycle.
 - `src/preload`: Secure preload bridge. Exposes the typed `window.rionStudio`
   API through Electron `contextBridge`.
 - `src/shared`: Main/preload/renderer contract. Contains IPC channel names,
@@ -40,7 +42,7 @@ renderer action
 ```
 
 Renderer code should stay browser-safe. It should not access Electron, Node file
-system APIs, Playwright, or child processes directly. Add new capabilities by
+system APIs or child processes directly. Add new capabilities by
 extending the shared contract, preload bridge, and main IPC handlers together.
 
 ## Runtime Data
@@ -61,32 +63,26 @@ adding persisted data.
 
 ## Login And Browser Launch
 
-Google can reject sign-in from automation-controlled browsers. The login flow
-opens the same role directory in system Chrome, asks the user to complete
-login, waits for Chrome to close and release the browser user data lock, checks the saved
-session, and then launches the normal Playwright-controlled Chromium window when
-authentication is confirmed.
+Each role uses an isolated persistent Electron session partition and browser
+directory. Login and normal launches use a `WebContentsView`; the main process
+checks persisted session evidence before reporting the role as running. Auto mode
+falls back to an external system Chrome app window only when the embedded game
+page cannot load.
 
 Important runtime pieces:
 
 - `AuthManager` coordinates login state transitions and session checks.
-- `SystemChromeLauncher` opens system Chrome with the role directory used by
-  the app. Chrome discovery can be overridden with `RION_STUDIO_CHROME_PATH` or
-  `CHROME_PATH`.
-- `BrowserUserDataLockWatcher` waits for Chrome to release the role browser directory before
-  Playwright reuses it.
-- `AuthSessionChecker`, `authSessionClassification`, and `loginEvidence` classify
-  whether a saved login session exists.
-- `BrowserManager` launches Playwright persistent contexts, verifies auth after
-  page load, tracks running sessions, focuses existing sessions, applies launch
-  workspace bounds, and resets auth state when persisted login evidence is gone.
-- `MacHiddenBrowserHost` prepares a best-effort hidden macOS Chromium app bundle.
-  If that fails, browser launch falls back to visible bundled Chromium.
+- `BrowserManager` owns embedded `BaseWindow`/`WebContentsView` hosts, session
+  verification, workspace layout, focus, popups, and lifecycle.
+- `ExternalChromeManager` owns external Chrome compatibility sessions. Chrome
+  discovery can be overridden with `RION_STUDIO_CHROME_PATH` or `CHROME_PATH`.
+- `authSessionClassification` and `loginEvidence` classify whether a persisted
+  login session exists.
+- `GraphicsDiagnosticsService` reports Electron GPU state and probes only the
+  renderer and external Chrome sessions that are already running.
 
-Normal Playwright launches should stay app-mode and should not add remote
-debugging flags. The current build config bundles Playwright Chromium by setting
-`PLAYWRIGHT_BROWSERS_PATH=0` during install and by unpacking
-`node_modules/playwright-core/.local-browsers/**` for packaged builds.
+External Chrome uses loopback remote debugging for macro and CDN compatibility
+control. Normal embedded launches do not add remote debugging flags.
 
 ## Roles And Launch Workspaces
 

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
 import type {
-  BrowserWindow,
+  BaseWindow,
+  BaseWindowConstructorOptions,
   BrowserWindowConstructorOptions,
   Session,
   WebContents,
@@ -58,7 +59,7 @@ export interface BrowserManagerOptions {
   applyBrowserFonts?: (role: Role, partition: string) => Promise<void>;
   applyBrowserProxy?: BrowserProxyApplier;
   applyCdnCompatibility?: BrowserCdnCompatibilityApplier;
-  createHostWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
+  createHostWindow: (options: BaseWindowConstructorOptions) => BaseWindow;
   createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
   dividerPreloadPath: string;
   embeddedPreloadPath: string;
@@ -124,7 +125,7 @@ interface GameHostWindow {
   dividers: GameDivider[];
   id: string;
   roleIds: Set<string>;
-  window: BrowserWindow;
+  window: BaseWindow;
   workspaceId?: string;
 }
 
@@ -470,13 +471,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       backgroundColor: "#000000",
       frame: true,
       show: false,
-      title,
-      webPreferences: {
-        backgroundThrottling: false,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true
-      }
+      title
     });
     const host: GameHostWindow = {
       closing: false,
@@ -514,7 +509,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         nodeIntegration: false,
         partition,
         preload: this.options.embeddedPreloadPath,
-        sandbox: true
+        sandbox: true,
+        spellcheck: false,
+        webgl: true
       }
     });
     const session: BrowserSession = {
@@ -567,7 +564,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     host.dividers = descriptors.map((descriptor) => {
       const view = this.options.createView({
         webPreferences: {
-          backgroundThrottling: false,
+          backgroundThrottling: true,
           contextIsolation: true,
           nodeIntegration: false,
           preload: this.options.dividerPreloadPath,
@@ -718,10 +715,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const popupView = this.options.createView({
       webPreferences: {
         ...windowOptions.webPreferences,
+        backgroundThrottling: session.role.launchPreset !== "performance",
         contextIsolation: true,
         nodeIntegration: false,
         partition: createRoleSessionPartition(session.role.id),
-        sandbox: true
+        sandbox: true,
+        spellcheck: false,
+        webgl: true
       }
     });
 

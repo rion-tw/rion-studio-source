@@ -13,6 +13,7 @@
     "src/renderer/src/app/editorNavigation.ts",
     "src/renderer/src/app/editorTitle.ts",
     "src/renderer/src/app/launchUrlSelection.ts",
+    "src/renderer/src/app/operationState.ts",
     "src/renderer/src/app/roleDefaults.ts",
     "src/renderer/src/app/statusUtils.ts",
     "src/renderer/src/app/rendererReady.ts",

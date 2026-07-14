@@ -8,10 +8,11 @@ import type { WorkspaceDisplaySelectionRequest } from "../features/workspaces/Wo
 import { runWorkspaceLaunch } from "../features/workspaces/workspaceLaunchUtils";
 import type { Translator } from "../i18n";
 import type { LaunchWorkspace, RoleStatus, WorkspaceLaunchResult } from "../../../shared/types";
+import { useBusyIds } from "./useBusyIds";
 
 interface UseWorkspaceWorkflowOptions {
+  beginErrorOperation: () => (error: unknown) => void;
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
-  setError: (error: unknown | null) => void;
   setNotice?: (message: string | null) => void;
   setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
   setWorkspaces: Dispatch<SetStateAction<LaunchWorkspace[]>>;
@@ -20,8 +21,8 @@ interface UseWorkspaceWorkflowOptions {
 }
 
 export function useWorkspaceWorkflow({
+  beginErrorOperation,
   loadData,
-  setError,
   setNotice,
   setStatuses,
   setWorkspaces,
@@ -30,17 +31,24 @@ export function useWorkspaceWorkflow({
 }: UseWorkspaceWorkflowOptions) {
   const confirm = useConfirmation();
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
-  const [busyWorkspaceId, setBusyWorkspaceId] = useState<string | null>(null);
+  const { beginBusy, busyIds: busyWorkspaceIds } = useBusyIds();
   const [isReorderingWorkspaces, setIsReorderingWorkspaces] = useState(false);
   const [displaySelectionRequest, setDisplaySelectionRequest] = useState<WorkspaceDisplaySelectionRequest | null>(null);
   const [query, setQuery] = useState("");
   const displaySelectionResolverRef = useRef<((displayId: number | undefined) => void) | null>(null);
+  const isReorderingWorkspacesRef = useRef(false);
+  const isSavingWorkspaceRef = useRef(false);
   const launchInProgressRef = useRef(false);
   const listScrollTopRef = useRef(0);
 
   async function saveWorkspace(form: WorkspaceFormState): Promise<LaunchWorkspace | undefined> {
+    if (isSavingWorkspaceRef.current) {
+      return undefined;
+    }
+
+    isSavingWorkspaceRef.current = true;
     setIsSavingWorkspace(true);
-    setError(null);
+    const reportError = beginErrorOperation();
 
     try {
       const input = {
@@ -67,12 +75,13 @@ export function useWorkspaceWorkflow({
         listScrollTopRef.current = 0;
       }
 
-      await loadData();
+      await loadData({ resetError: false });
       return savedWorkspace;
     } catch (submitError) {
-      setError(submitError);
+      reportError(submitError);
       return undefined;
     } finally {
+      isSavingWorkspaceRef.current = false;
       setIsSavingWorkspace(false);
     }
   }
@@ -90,22 +99,30 @@ export function useWorkspaceWorkflow({
       return;
     }
 
-    setBusyWorkspaceId(workspace.id);
-    setError(null);
+    const finishBusy = beginBusy(workspace.id);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       await window.rionStudio.deleteLaunchWorkspace(workspace.id);
-      await loadData();
+      await loadData({ resetError: false });
     } catch (deleteError) {
-      setError(deleteError);
+      reportError(deleteError);
     } finally {
-      setBusyWorkspaceId(null);
+      finishBusy();
     }
   }
 
   async function handleCopyWorkspace(workspace: LaunchWorkspace): Promise<void> {
-    setBusyWorkspaceId(workspace.id);
-    setError(null);
+    const finishBusy = beginBusy(workspace.id);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       const copy = await window.rionStudio.createLaunchWorkspace({
@@ -121,16 +138,16 @@ export function useWorkspaceWorkflow({
       setWorkspaces((current) => [...current, copy]);
       setQuery("");
       listScrollTopRef.current = 0;
-      await loadData();
+      await loadData({ resetError: false });
     } catch (copyError) {
-      setError(copyError);
+      reportError(copyError);
     } finally {
-      setBusyWorkspaceId(null);
+      finishBusy();
     }
   }
 
   async function handleReorderWorkspaces(orderedIds: string[]): Promise<void> {
-    if (isReorderingWorkspaces) {
+    if (isReorderingWorkspacesRef.current) {
       return;
     }
 
@@ -143,17 +160,19 @@ export function useWorkspaceWorkflow({
       return;
     }
 
+    isReorderingWorkspacesRef.current = true;
     setIsReorderingWorkspaces(true);
-    setError(null);
+    const reportError = beginErrorOperation();
     setWorkspaces(nextWorkspaces);
 
     try {
       const savedWorkspaces = await window.rionStudio.reorderLaunchWorkspaces({ orderedIds });
       setWorkspaces(savedWorkspaces);
     } catch (reorderError) {
-      setError(reorderError);
+      reportError(reorderError);
       await loadData({ resetError: false });
     } finally {
+      isReorderingWorkspacesRef.current = false;
       setIsReorderingWorkspaces(false);
     }
   }
@@ -164,8 +183,13 @@ export function useWorkspaceWorkflow({
     }
 
     launchInProgressRef.current = true;
-    setBusyWorkspaceId(workspace.id);
-    setError(null);
+    const finishBusy = beginBusy(workspace.id);
+    if (!finishBusy) {
+      launchInProgressRef.current = false;
+      return;
+    }
+
+    const reportError = beginErrorOperation();
     setNotice?.(null);
 
     try {
@@ -183,12 +207,12 @@ export function useWorkspaceWorkflow({
         setNotice?.(notice);
       }
     } catch (launchError) {
-      setError(launchError);
+      reportError(launchError);
       await loadData({ resetError: false });
     } finally {
       settleWorkspaceDisplaySelection(undefined);
       launchInProgressRef.current = false;
-      setBusyWorkspaceId(null);
+      finishBusy();
     }
   }
 
@@ -214,22 +238,26 @@ export function useWorkspaceWorkflow({
   }
 
   async function handleStopWorkspace(workspace: LaunchWorkspace): Promise<void> {
-    setBusyWorkspaceId(workspace.id);
-    setError(null);
+    const finishBusy = beginBusy(workspace.id);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       await window.rionStudio.stopLaunchWorkspace(workspace.id);
       const workspaceRoleIds = new Set(workspace.slots.map((slot) => slot.roleId).filter(Boolean));
       setStatuses((current) => current.filter((status) => !workspaceRoleIds.has(status.roleId)));
     } catch (stopError) {
-      setError(stopError);
+      reportError(stopError);
     } finally {
-      setBusyWorkspaceId(null);
+      finishBusy();
     }
   }
 
   return {
-    busyWorkspaceId,
+    busyWorkspaceIds,
     displaySelectionRequest,
     handleDisplaySelectionCancel: () => settleWorkspaceDisplaySelection(undefined),
     handleDisplaySelectionSelect: (displayId: number) => settleWorkspaceDisplaySelection(displayId),

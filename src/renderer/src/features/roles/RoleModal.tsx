@@ -26,7 +26,7 @@ import { LoginSessionGuide } from "./LoginSessionGuide";
 
 interface RoleEditorRouteProps {
   authStatusByRole: Map<string, AuthFlowStatus>;
-  busyRoleId: string | null;
+  busyRoleIds: ReadonlySet<string>;
   isSaving: boolean;
   roleDefaults: RoleDefaults;
   roles: Role[];
@@ -70,7 +70,7 @@ function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
 
 function RoleEditor({
   authStatusByRole,
-  busyRoleId,
+  busyRoleIds,
   initialForm,
   isSaving,
   selectedRole,
@@ -94,7 +94,7 @@ function RoleEditor({
   const allowNavigation = useUnsavedChangesGuard(isDirty, confirmationOptions, isSaving);
   const authStatus = selectedRole ? authStatusByRole.get(selectedRole.id) : undefined;
   const isLoginBusy = Boolean(
-    selectedRole && (busyRoleId === selectedRole.id || shouldShowLoginGuidance(authStatus))
+    selectedRole && (busyRoleIds.has(selectedRole.id) || shouldShowLoginGuidance(authStatus))
   );
 
   function handleCancel(): void {

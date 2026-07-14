@@ -37,7 +37,7 @@ import { createWorkspaceSlotBackground, getWorkspaceSplits } from "./workspaceLa
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 
 interface LaunchWorkspacesViewProps {
-  busyWorkspaceId: string | null;
+  busyWorkspaceIds: ReadonlySet<string>;
   isReordering: boolean;
   query: string;
   roles: Role[];
@@ -57,7 +57,7 @@ interface LaunchWorkspacesViewProps {
 }
 
 function LaunchWorkspacesView({
-  busyWorkspaceId,
+  busyWorkspaceIds,
   isReordering,
   query,
   roles,
@@ -191,7 +191,7 @@ function LaunchWorkspacesView({
           {filteredWorkspaces.map((workspace) => (
             <WorkspaceCard
               key={workspace.id}
-              busyWorkspaceId={busyWorkspaceId}
+              busyWorkspaceIds={busyWorkspaceIds}
               canReorder={canReorder}
               isDragging={draggedWorkspaceId === workspace.id}
               isDropTarget={dropTargetWorkspaceId === workspace.id}
@@ -218,7 +218,7 @@ function LaunchWorkspacesView({
 }
 
 interface WorkspaceCardProps {
-  busyWorkspaceId: string | null;
+  busyWorkspaceIds: ReadonlySet<string>;
   canReorder: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
@@ -239,7 +239,7 @@ interface WorkspaceCardProps {
 }
 
 function WorkspaceCard({
-  busyWorkspaceId,
+  busyWorkspaceIds,
   canReorder,
   isDragging,
   isDropTarget,
@@ -261,7 +261,7 @@ function WorkspaceCard({
   const assignedCount = workspace.slots.filter((slot) => slot.roleId).length;
   const runningCount = workspace.slots.filter((slot) => slot.roleId && statusByRole.has(slot.roleId)).length;
   const isRunning = runningCount > 0;
-  const isBusy = busyWorkspaceId === workspace.id;
+  const isBusy = busyWorkspaceIds.has(workspace.id);
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
   const layoutTitle = t(workspaceTemplateLabelKeys[workspace.template]);
   const primaryActionLabel = isRunning ? t("workspaces.stop") : t("workspaces.launch");

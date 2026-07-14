@@ -109,12 +109,12 @@ export function createDashboardSummary({
 
 export function getDashboardRoleItems({
   authStatusByRole,
-  busyRoleId,
+  busyRoleIds,
   roles,
   statusByRole
 }: {
   authStatusByRole: Map<string, AuthFlowStatus>;
-  busyRoleId: string | null;
+  busyRoleIds: ReadonlySet<string>;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
 }): DashboardRoleItem[] {
@@ -124,7 +124,7 @@ export function getDashboardRoleItems({
       const authStatus = authStatusByRole.get(role.id);
 
       return {
-        action: createRoleActionState({ authStatus, busyRoleId, role, status }),
+        action: createRoleActionState({ authStatus, busyRoleIds, role, status }),
         authStatus,
         role,
         status
@@ -135,16 +135,16 @@ export function getDashboardRoleItems({
 
 export function getPendingAuthItems({
   authStatusByRole,
-  busyRoleId,
+  busyRoleIds,
   roles,
   statusByRole
 }: {
   authStatusByRole: Map<string, AuthFlowStatus>;
-  busyRoleId: string | null;
+  busyRoleIds: ReadonlySet<string>;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
 }): DashboardPendingAuthItem[] {
-  return getDashboardRoleItems({ authStatusByRole, busyRoleId, roles, statusByRole })
+  return getDashboardRoleItems({ authStatusByRole, busyRoleIds, roles, statusByRole })
     .flatMap((item): DashboardPendingAuthItem[] => {
       const pendingKind = getPendingAuthKind(item.role, item.authStatus);
       return pendingKind ? [{ ...item, pendingKind }] : [];
@@ -154,16 +154,16 @@ export function getPendingAuthItems({
 
 export function createWorkspaceActionState({
   assignedCount,
-  busyWorkspaceId,
+  busyWorkspaceIds,
   runningCount,
   workspaceId
 }: {
   assignedCount: number;
-  busyWorkspaceId: string | null;
+  busyWorkspaceIds: ReadonlySet<string>;
   runningCount: number;
   workspaceId: string;
 }): DashboardWorkspaceActionState {
-  const isBusy = busyWorkspaceId === workspaceId;
+  const isBusy = busyWorkspaceIds.has(workspaceId);
   const isRunning = runningCount > 0;
 
   return {
@@ -174,11 +174,11 @@ export function createWorkspaceActionState({
 }
 
 export function getDashboardWorkspaceItems({
-  busyWorkspaceId,
+  busyWorkspaceIds,
   statusByRole,
   workspaces
 }: {
-  busyWorkspaceId: string | null;
+  busyWorkspaceIds: ReadonlySet<string>;
   statusByRole: Map<string, RoleStatus>;
   workspaces: LaunchWorkspace[];
 }): DashboardWorkspaceItem[] {
@@ -190,7 +190,7 @@ export function getDashboardWorkspaceItems({
       return {
         action: createWorkspaceActionState({
           assignedCount: assignedRoleIds.length,
-          busyWorkspaceId,
+          busyWorkspaceIds,
           runningCount,
           workspaceId: workspace.id
         }),
@@ -203,15 +203,15 @@ export function getDashboardWorkspaceItems({
 }
 
 export function createMacroActionState({
-  busyMacroId,
-  busyRunKey,
+  busyMacroIds,
+  busyRunKeys,
   macro,
   macroStatusByRun,
   roleIds,
   statusByRole
 }: {
-  busyMacroId: string | null;
-  busyRunKey: string | null;
+  busyMacroIds: ReadonlySet<string>;
+  busyRunKeys: ReadonlySet<string>;
   macro: Macro;
   macroStatusByRun: Map<string, MacroRunStatus>;
   roleIds: Set<string>;
@@ -228,7 +228,7 @@ export function createMacroActionState({
   const isAutomationReady = macro.roleIds.every(
     (roleId) => statusByRole.get(roleId)?.automationState !== "unavailable"
   );
-  const isBusy = busyRunKey === macro.id || busyMacroId === macro.id || isStopping;
+  const isBusy = busyRunKeys.has(macro.id) || busyMacroIds.has(macro.id) || isStopping;
   const disabledReason = !hasRoles
     ? "noRoles"
     : !areBrowsersRunning && !isRunning
@@ -247,15 +247,15 @@ export function createMacroActionState({
 }
 
 export function getDashboardMacroItems({
-  busyMacroId,
-  busyRunKey,
+  busyMacroIds,
+  busyRunKeys,
   macroStatusByRun,
   macros,
   roles,
   statusByRole
 }: {
-  busyMacroId: string | null;
-  busyRunKey: string | null;
+  busyMacroIds: ReadonlySet<string>;
+  busyRunKeys: ReadonlySet<string>;
   macroStatusByRun: Map<string, MacroRunStatus>;
   macros: Macro[];
   roles: Role[];
@@ -271,8 +271,8 @@ export function getDashboardMacroItems({
 
       return {
         action: createMacroActionState({
-          busyMacroId,
-          busyRunKey,
+          busyMacroIds,
+          busyRunKeys,
           macro,
           macroStatusByRun,
           roleIds,
@@ -288,18 +288,18 @@ export function getDashboardMacroItems({
 
 function createRoleActionState({
   authStatus,
-  busyRoleId,
+  busyRoleIds,
   role,
   status
 }: {
   authStatus?: AuthFlowStatus;
-  busyRoleId: string | null;
+  busyRoleIds: ReadonlySet<string>;
   role: Role;
   status?: RoleStatus;
 }): DashboardRoleActionState {
   const isAuthFlowRunning = Boolean(authStatus && authStatus.state !== "failed");
   const isStatusBusy = status?.state === "launching" || status?.state === "stopping";
-  const isBusy = busyRoleId === role.id || isAuthFlowRunning || isStatusBusy;
+  const isBusy = busyRoleIds.has(role.id) || isAuthFlowRunning || isStatusBusy;
   const kind: DashboardRoleActionKind = status ? "stop" : role.authState === "authenticated" ? "launch" : "login";
 
   return {

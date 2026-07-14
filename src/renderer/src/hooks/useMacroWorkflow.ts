@@ -6,34 +6,41 @@ import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
 import type { Macro } from "../../../shared/types";
 import { DEFAULT_MACRO_LIST_SORT, type MacroListSortState } from "../features/macros/macroListUtils";
+import { useBusyIds } from "./useBusyIds";
 
 interface UseMacroWorkflowOptions {
+  beginErrorOperation: () => (error: unknown) => void;
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   macros: Macro[];
-  setError: (error: unknown | null) => void;
   setMacros: Dispatch<SetStateAction<Macro[]>>;
   t: Translator;
 }
 
 export function useMacroWorkflow({
+  beginErrorOperation,
   loadData,
   macros,
-  setError,
   setMacros,
   t
 }: UseMacroWorkflowOptions) {
   const confirm = useConfirmation();
   const [isSavingMacro, setIsSavingMacro] = useState(false);
-  const [busyRunKey, setBusyRunKey] = useState<string | null>(null);
-  const [busyMacroId, setBusyMacroId] = useState<string | null>(null);
+  const { beginBusy, busyIds: busyMacroIds } = useBusyIds();
+  const busyRunKeys = busyMacroIds;
   const [query, setQuery] = useState("");
   const [roleFilterId, setRoleFilterId] = useState("");
   const [sort, setSort] = useState<MacroListSortState>(DEFAULT_MACRO_LIST_SORT);
+  const isSavingMacroRef = useRef(false);
   const listScrollTopRef = useRef(0);
 
   async function saveMacro(form: MacroFormState): Promise<Macro | undefined> {
+    if (isSavingMacroRef.current) {
+      return undefined;
+    }
+
+    isSavingMacroRef.current = true;
     setIsSavingMacro(true);
-    setError(null);
+    const reportError = beginErrorOperation();
 
     try {
       const input = {
@@ -59,12 +66,13 @@ export function useMacroWorkflow({
         resetListState();
       }
 
-      await loadData();
+      await loadData({ resetError: false });
       return savedMacro;
     } catch (submitError) {
-      setError(submitError);
+      reportError(submitError);
       return undefined;
     } finally {
+      isSavingMacroRef.current = false;
       setIsSavingMacro(false);
     }
   }
@@ -82,22 +90,30 @@ export function useMacroWorkflow({
       return;
     }
 
-    setBusyMacroId(macro.id);
-    setError(null);
+    const finishBusy = beginBusy(macro.id);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       await window.rionStudio.deleteMacro(macro.id);
-      await loadData();
+      await loadData({ resetError: false });
     } catch (deleteError) {
-      setError(deleteError);
+      reportError(deleteError);
     } finally {
-      setBusyMacroId(null);
+      finishBusy();
     }
   }
 
   async function handleCopyMacro(macro: Macro): Promise<void> {
-    setBusyMacroId(macro.id);
-    setError(null);
+    const finishBusy = beginBusy(macro.id);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       const copy = await window.rionStudio.createMacro({
@@ -109,39 +125,47 @@ export function useMacroWorkflow({
       });
       setMacros((current) => [...current, copy]);
       resetListState();
-      await loadData();
+      await loadData({ resetError: false });
     } catch (copyError) {
-      setError(copyError);
+      reportError(copyError);
     } finally {
-      setBusyMacroId(null);
+      finishBusy();
     }
   }
 
   async function handleStartMacro(macroId: string): Promise<void> {
-    setBusyRunKey(macroId);
-    setError(null);
+    const finishBusy = beginBusy(macroId);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       await window.rionStudio.startMacro(macroId);
     } catch (startError) {
-      setError(startError);
+      reportError(startError);
       await loadData({ resetError: false });
     } finally {
-      setBusyRunKey(null);
+      finishBusy();
     }
   }
 
   async function handleStopMacro(macroId: string): Promise<void> {
-    setBusyRunKey(macroId);
-    setError(null);
+    const finishBusy = beginBusy(macroId);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       await window.rionStudio.stopMacro(macroId);
-      await loadData();
+      await loadData({ resetError: false });
     } catch (stopError) {
-      setError(stopError);
+      reportError(stopError);
     } finally {
-      setBusyRunKey(null);
+      finishBusy();
     }
   }
 
@@ -153,8 +177,8 @@ export function useMacroWorkflow({
   }
 
   return {
-    busyMacroId,
-    busyRunKey,
+    busyMacroIds,
+    busyRunKeys,
     handleCopyMacro,
     handleDeleteMacro,
     handleStartMacro,

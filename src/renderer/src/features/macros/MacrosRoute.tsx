@@ -38,8 +38,8 @@ import {
 } from "./macroUtils";
 
 interface MacrosRouteProps {
-  busyMacroId: string | null;
-  busyRunKey: string | null;
+  busyMacroIds: ReadonlySet<string>;
+  busyRunKeys: ReadonlySet<string>;
   macroStatusByRun: Map<string, MacroRunStatus>;
   macroStatuses: MacroRunStatus[];
   macros: Macro[];
@@ -62,8 +62,8 @@ interface MacrosRouteProps {
 }
 
 function MacrosRoute({
-  busyMacroId,
-  busyRunKey,
+  busyMacroIds,
+  busyRunKeys,
   macroStatusByRun,
   macroStatuses,
   macros,
@@ -270,8 +270,8 @@ function MacrosRoute({
                     <td className="px-4 py-2.5 align-baseline">
                       <div className="-my-1 flex justify-end">
                         <MacroActionMenu
-                          busyMacroId={busyMacroId}
-                          busyRunKey={busyRunKey}
+                          busyMacroIds={busyMacroIds}
+                          busyRunKeys={busyRunKeys}
                           macro={macro}
                           macroStatusByRun={macroStatusByRun}
                           onCopy={() => onCopyMacro(macro)}
@@ -354,6 +354,7 @@ function MacroRoleBadge({ macro, macroStatusByRun, roleById, statusByRole, t }: 
         const isBrowserRunning = browserStatus?.state === "running";
         const isRunning = macroStatus?.state === "running" || macroStatus?.state === "stopping";
         const isFailed = macroStatus?.state === "failed";
+        const isCancelled = macroStatus?.state === "cancelled";
 
         return (
           <Badge key={roleId} variant="outline" className="max-w-[126px] justify-start gap-1.5">
@@ -365,7 +366,9 @@ function MacroRoleBadge({ macro, macroStatusByRun, roleById, statusByRole, t }: 
                   ? "macros.status.running"
                   : isFailed
                     ? "macros.status.failed"
-                    : "macros.status.ready"
+                    : isCancelled
+                      ? "macros.status.cancelled"
+                      : "macros.status.ready"
               )}
             />
             <span className="min-w-0 truncate">{role?.name ?? t("macros.unknownRole")}</span>
@@ -377,8 +380,8 @@ function MacroRoleBadge({ macro, macroStatusByRun, roleById, statusByRole, t }: 
 }
 
 interface MacroActionMenuProps {
-  busyMacroId: string | null;
-  busyRunKey: string | null;
+  busyMacroIds: ReadonlySet<string>;
+  busyRunKeys: ReadonlySet<string>;
   macro: Macro;
   macroStatusByRun: Map<string, MacroRunStatus>;
   onCopy: () => void;
@@ -396,8 +399,8 @@ interface MacroActionMenuPosition {
 }
 
 function MacroActionMenu({
-  busyMacroId,
-  busyRunKey,
+  busyMacroIds,
+  busyRunKeys,
   macro,
   macroStatusByRun,
   onCopy,
@@ -423,8 +426,8 @@ function MacroActionMenu({
   );
   const isRunning = macroRunStatuses.some((status) => status.state === "running");
   const isStopping = macroRunStatuses.some((status) => status.state === "stopping");
-  const isRunBusy = busyRunKey === macro.id || isStopping;
-  const isDeleteBusy = busyMacroId === macro.id;
+  const isRunBusy = busyRunKeys.has(macro.id) || isStopping;
+  const isDeleteBusy = busyMacroIds.has(macro.id);
   const runLabel = t(isRunning || isStopping ? "macros.stopShort" : "macros.startShort");
   const isRunDisabled = isRunBusy || (!isRunning && (!areBrowsersRunning || !isAutomationReady));
 

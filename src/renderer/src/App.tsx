@@ -162,10 +162,10 @@ export function App(): JSX.Element {
   }, [data.initialLoadState, data.setError, hasBridge]);
 
   const roleWorkflow = useRoleWorkflow({
+    beginErrorOperation: data.beginErrorOperation,
     loadData: data.loadData,
     roles: data.roles,
     setAuthStatuses: data.setAuthStatuses,
-    setError: data.setError,
     setNotice,
     setRoles: data.setRoles,
     setStatuses: data.setStatuses,
@@ -174,8 +174,8 @@ export function App(): JSX.Element {
   });
 
   const workspaceWorkflow = useWorkspaceWorkflow({
+    beginErrorOperation: data.beginErrorOperation,
     loadData: data.loadData,
-    setError: data.setError,
     setNotice,
     setStatuses: data.setStatuses,
     setWorkspaces: data.setWorkspaces,
@@ -184,9 +184,9 @@ export function App(): JSX.Element {
   });
 
   const macroWorkflow = useMacroWorkflow({
+    beginErrorOperation: data.beginErrorOperation,
     loadData: data.loadData,
     macros: data.macros,
-    setError: data.setError,
     setMacros: data.setMacros,
     t: preferences.t
   });
@@ -327,7 +327,7 @@ export function App(): JSX.Element {
   const roleEditorElement = hasBridge ? (
     <RoleEditorRoute
       authStatusByRole={data.authStatusByRole}
-      busyRoleId={roleWorkflow.busyRoleId}
+      busyRoleIds={roleWorkflow.busyRoleIds}
       isSaving={roleWorkflow.isSaving}
       roleDefaults={preferences.roleDefaults}
       roles={data.roles}
@@ -409,10 +409,10 @@ export function App(): JSX.Element {
                 hasBridge ? (
                   <DashboardRoute
                     authStatusByRole={data.authStatusByRole}
-                    busyMacroId={macroWorkflow.busyMacroId}
-                    busyRoleId={roleWorkflow.busyRoleId}
-                    busyRunKey={macroWorkflow.busyRunKey}
-                    busyWorkspaceId={workspaceWorkflow.busyWorkspaceId}
+                    busyMacroIds={macroWorkflow.busyMacroIds}
+                    busyRoleIds={roleWorkflow.busyRoleIds}
+                    busyRunKeys={macroWorkflow.busyRunKeys}
+                    busyWorkspaceIds={workspaceWorkflow.busyWorkspaceIds}
                     macroStatusByRun={data.macroStatusByRun}
                     macroStatuses={data.macroStatuses}
                     macros={data.macros}
@@ -451,7 +451,7 @@ export function App(): JSX.Element {
                   <RolesRoute
                     activeFilter={roleWorkflow.activeFilter}
                     authStatusByRole={data.authStatusByRole}
-                    busyRoleId={roleWorkflow.busyRoleId}
+                    busyRoleIds={roleWorkflow.busyRoleIds}
                     filteredRoles={roleWorkflow.filteredRoles}
                     language={preferences.language}
                     roleStats={data.roleStats}
@@ -485,7 +485,7 @@ export function App(): JSX.Element {
               element={
                 hasBridge ? (
                   <LaunchWorkspacesRoute
-                    busyWorkspaceId={workspaceWorkflow.busyWorkspaceId}
+                    busyWorkspaceIds={workspaceWorkflow.busyWorkspaceIds}
                     query={workspaceWorkflow.query}
                     roles={data.roles}
                     scrollPositionRef={workspaceWorkflow.listScrollTopRef}
@@ -515,8 +515,8 @@ export function App(): JSX.Element {
               element={
                 hasBridge ? (
                   <MacrosRoute
-                    busyMacroId={macroWorkflow.busyMacroId}
-                    busyRunKey={macroWorkflow.busyRunKey}
+                    busyMacroIds={macroWorkflow.busyMacroIds}
+                    busyRunKeys={macroWorkflow.busyRunKeys}
                     macros={data.macros}
                     macroStatuses={data.macroStatuses}
                     macroStatusByRun={data.macroStatusByRun}

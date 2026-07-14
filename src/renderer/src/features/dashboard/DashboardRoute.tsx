@@ -43,10 +43,10 @@ import {
 
 interface DashboardRouteProps {
   authStatusByRole: Map<string, AuthFlowStatus>;
-  busyMacroId: string | null;
-  busyRoleId: string | null;
-  busyRunKey: string | null;
-  busyWorkspaceId: string | null;
+  busyMacroIds: ReadonlySet<string>;
+  busyRoleIds: ReadonlySet<string>;
+  busyRunKeys: ReadonlySet<string>;
+  busyWorkspaceIds: ReadonlySet<string>;
   macroStatusByRun: Map<string, MacroRunStatus>;
   macroStatuses: MacroRunStatus[];
   macros: Macro[];
@@ -72,10 +72,10 @@ interface DashboardRouteProps {
 
 function DashboardRoute({
   authStatusByRole,
-  busyMacroId,
-  busyRoleId,
-  busyRunKey,
-  busyWorkspaceId,
+  busyMacroIds,
+  busyRoleIds,
+  busyRunKeys,
+  busyWorkspaceIds,
   macroStatusByRun,
   macroStatuses,
   macros,
@@ -103,28 +103,28 @@ function DashboardRoute({
     [macroStatuses, macros, roleStatuses, roles, workspaces]
   );
   const roleItems = useMemo(
-    () => getDashboardRoleItems({ authStatusByRole, busyRoleId, roles, statusByRole }).slice(0, 6),
-    [authStatusByRole, busyRoleId, roles, statusByRole]
+    () => getDashboardRoleItems({ authStatusByRole, busyRoleIds, roles, statusByRole }).slice(0, 6),
+    [authStatusByRole, busyRoleIds, roles, statusByRole]
   );
   const pendingItems = useMemo(
-    () => getPendingAuthItems({ authStatusByRole, busyRoleId, roles, statusByRole }),
-    [authStatusByRole, busyRoleId, roles, statusByRole]
+    () => getPendingAuthItems({ authStatusByRole, busyRoleIds, roles, statusByRole }),
+    [authStatusByRole, busyRoleIds, roles, statusByRole]
   );
   const workspaceItems = useMemo(
-    () => getDashboardWorkspaceItems({ busyWorkspaceId, statusByRole, workspaces }).slice(0, 4),
-    [busyWorkspaceId, statusByRole, workspaces]
+    () => getDashboardWorkspaceItems({ busyWorkspaceIds, statusByRole, workspaces }).slice(0, 4),
+    [busyWorkspaceIds, statusByRole, workspaces]
   );
   const macroItems = useMemo(
     () =>
       getDashboardMacroItems({
-        busyMacroId,
-        busyRunKey,
+        busyMacroIds,
+        busyRunKeys,
         macroStatusByRun,
         macros,
         roles,
         statusByRole
       }).slice(0, 5),
-    [busyMacroId, busyRunKey, macroStatusByRun, macros, roles, statusByRole]
+    [busyMacroIds, busyRunKeys, macroStatusByRun, macros, roles, statusByRole]
   );
   const visiblePendingItems = pendingItems.slice(0, 3);
 

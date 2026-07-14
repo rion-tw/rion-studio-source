@@ -42,7 +42,7 @@ const filterOrder: SidebarFilter[] = ["all", "running", "stopped", "needsLogin"]
 interface RolesViewProps {
   activeFilter: SidebarFilter;
   authStatusByRole: Map<string, AuthFlowStatus>;
-  busyRoleId: string | null;
+  busyRoleIds: ReadonlySet<string>;
   filteredRoles: Role[];
   isReordering: boolean;
   language: Language;
@@ -68,7 +68,7 @@ interface RolesViewProps {
 function RolesView({
   activeFilter,
   authStatusByRole,
-  busyRoleId,
+  busyRoleIds,
   filteredRoles,
   isReordering,
   language,
@@ -216,7 +216,7 @@ function RolesView({
             const status = statusByRole.get(role.id);
             const authStatus = authStatusByRole.get(role.id);
             const isBusy =
-              busyRoleId === role.id ||
+              busyRoleIds.has(role.id) ||
               status?.state === "launching" ||
               status?.state === "stopping" ||
               Boolean(authStatus && authStatus.state !== "failed");

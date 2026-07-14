@@ -6,12 +6,13 @@ import type { RoleFormState, SidebarFilter } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
 import type { AuthFlowStatus, Role, RoleStatus } from "../../../shared/types";
+import { useBusyIds } from "./useBusyIds";
 
 interface UseRoleWorkflowOptions {
+  beginErrorOperation: () => (error: unknown) => void;
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   roles: Role[];
   setAuthStatuses: Dispatch<SetStateAction<AuthFlowStatus[]>>;
-  setError: (error: unknown | null) => void;
   setNotice?: (message: string | null) => void;
   setRoles: Dispatch<SetStateAction<Role[]>>;
   setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
@@ -20,10 +21,10 @@ interface UseRoleWorkflowOptions {
 }
 
 export function useRoleWorkflow({
+  beginErrorOperation,
   loadData,
   roles,
   setAuthStatuses,
-  setError,
   setNotice,
   setRoles,
   setStatuses,
@@ -34,8 +35,10 @@ export function useRoleWorkflow({
   const [activeFilter, setActiveFilter] = useState<SidebarFilter>("all");
   const [query, setQuery] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
   const [isReorderingRoles, setIsReorderingRoles] = useState(false);
+  const { beginBusy, busyIds: busyRoleIds } = useBusyIds();
+  const isReorderingRolesRef = useRef(false);
+  const isSavingRef = useRef(false);
   const listScrollTopRef = useRef(0);
 
   const filteredRoles = useMemo(() => {
@@ -68,8 +71,13 @@ export function useRoleWorkflow({
   }, [activeFilter, roles, query, statusByRole]);
 
   async function saveRole(form: RoleFormState): Promise<Role | undefined> {
+    if (isSavingRef.current) {
+      return undefined;
+    }
+
+    isSavingRef.current = true;
     setIsSaving(true);
-    setError(null);
+    const reportError = beginErrorOperation();
 
     try {
       const input = {
@@ -100,19 +108,24 @@ export function useRoleWorkflow({
         listScrollTopRef.current = 0;
       }
 
-      await loadData();
+      await loadData({ resetError: false });
       return savedRole;
     } catch (submitError) {
-      setError(submitError);
+      reportError(submitError);
       return undefined;
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
   }
 
   async function handleLaunch(roleId: string): Promise<void> {
-    setBusyRoleId(roleId);
-    setError(null);
+    const finishBusy = beginBusy(roleId);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
     setNotice?.(null);
 
     try {
@@ -122,39 +135,47 @@ export function useRoleWorkflow({
         setNotice?.(status.notice);
       }
     } catch (launchError) {
-      setError(launchError);
+      reportError(launchError);
       await loadData({ resetError: false });
     } finally {
-      setBusyRoleId(null);
+      finishBusy();
     }
   }
 
   async function handleStop(roleId: string): Promise<void> {
-    setBusyRoleId(roleId);
-    setError(null);
+    const finishBusy = beginBusy(roleId);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       await window.rionStudio.stopRole(roleId);
       setStatuses((current) => current.filter((status) => status.roleId !== roleId));
     } catch (stopError) {
-      setError(stopError);
+      reportError(stopError);
     } finally {
-      setBusyRoleId(null);
+      finishBusy();
     }
   }
 
   async function handleSystemLogin(roleId: string): Promise<void> {
-    setBusyRoleId(roleId);
-    setError(null);
+    const finishBusy = beginBusy(roleId);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       const authStatus = await window.rionStudio.startLogin(roleId);
       setAuthStatuses((current) => mergeAuthStatus(current, authStatus));
       setStatuses((current) => current.filter((status) => status.roleId !== roleId));
     } catch (loginError) {
-      setError(loginError);
+      reportError(loginError);
     } finally {
-      setBusyRoleId(null);
+      finishBusy();
     }
   }
 
@@ -171,22 +192,30 @@ export function useRoleWorkflow({
       return;
     }
 
-    setBusyRoleId(role.id);
-    setError(null);
+    const finishBusy = beginBusy(role.id);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       await window.rionStudio.deleteRole(role.id);
-      await loadData();
+      await loadData({ resetError: false });
     } catch (deleteError) {
-      setError(deleteError);
+      reportError(deleteError);
     } finally {
-      setBusyRoleId(null);
+      finishBusy();
     }
   }
 
   async function handleCopy(role: Role): Promise<void> {
-    setBusyRoleId(role.id);
-    setError(null);
+    const finishBusy = beginBusy(role.id);
+    if (!finishBusy) {
+      return;
+    }
+
+    const reportError = beginErrorOperation();
 
     try {
       await window.rionStudio.createRole({
@@ -202,16 +231,16 @@ export function useRoleWorkflow({
       setActiveFilter("all");
       setQuery("");
       listScrollTopRef.current = 0;
-      await loadData();
+      await loadData({ resetError: false });
     } catch (copyError) {
-      setError(copyError);
+      reportError(copyError);
     } finally {
-      setBusyRoleId(null);
+      finishBusy();
     }
   }
 
   async function handleReorder(orderedIds: string[]): Promise<void> {
-    if (isReorderingRoles) {
+    if (isReorderingRolesRef.current) {
       return;
     }
 
@@ -222,24 +251,26 @@ export function useRoleWorkflow({
       return;
     }
 
+    isReorderingRolesRef.current = true;
     setIsReorderingRoles(true);
-    setError(null);
+    const reportError = beginErrorOperation();
     setRoles(nextRoles);
 
     try {
       const savedRoles = await window.rionStudio.reorderRoles({ orderedIds });
       setRoles(savedRoles);
     } catch (reorderError) {
-      setError(reorderError);
+      reportError(reorderError);
       await loadData({ resetError: false });
     } finally {
+      isReorderingRolesRef.current = false;
       setIsReorderingRoles(false);
     }
   }
 
   return {
     activeFilter,
-    busyRoleId,
+    busyRoleIds,
     filteredRoles,
     handleCopy,
     handleDelete,

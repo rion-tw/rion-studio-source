@@ -58,7 +58,7 @@ describe("renderer dashboard helpers", () => {
     expect(
       getDashboardRoleItems({
         authStatusByRole: new Map(),
-        busyRoleId: null,
+        busyRoleIds: new Set(),
         roles,
         statusByRole: new Map<string, RoleStatus>([
           ["running", { roleId: "running", state: "running" }],
@@ -80,7 +80,7 @@ describe("renderer dashboard helpers", () => {
         ["flow", authStatus({ roleId: "flow", state: "checking_session" })],
         ["failed", authStatus({ roleId: "failed", state: "failed" })]
       ]),
-      busyRoleId: "login",
+      busyRoleIds: new Set(["login"]),
       roles,
       statusByRole: new Map()
     });
@@ -100,7 +100,7 @@ describe("renderer dashboard helpers", () => {
     const running = workspace({ id: "running", slots: [{ id: "s1", roleId: "r1", rect: rect() }] });
     const busy = workspace({ id: "busy", slots: [{ id: "s1", roleId: "r3", rect: rect() }] });
     const items = getDashboardWorkspaceItems({
-      busyWorkspaceId: "busy",
+      busyWorkspaceIds: new Set(["busy"]),
       statusByRole: new Map<string, RoleStatus>([["r1", { roleId: "r1", state: "running" }]]),
       workspaces: [empty, ready, running, busy]
     });
@@ -122,8 +122,8 @@ describe("renderer dashboard helpers", () => {
     const runningMacro = macro({ id: "running", roleIds: ["r1", "r2"] });
     const noRoleMacro = macro({ id: "no-role", roleIds: [] });
     const items = getDashboardMacroItems({
-      busyMacroId: null,
-      busyRunKey: null,
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
       macroStatusByRun: new Map<string, MacroRunStatus>([
         ["r1:running", macroStatus({ macroId: "running", roleId: "r1", state: "running" })]
       ]),
@@ -145,8 +145,8 @@ describe("renderer dashboard helpers", () => {
     });
 
     const blocked = getDashboardMacroItems({
-      busyMacroId: null,
-      busyRunKey: null,
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
       macroStatusByRun: new Map(),
       macros: [blockedMacro],
       roles,
@@ -160,8 +160,8 @@ describe("renderer dashboard helpers", () => {
     });
 
     const unavailable = getDashboardMacroItems({
-      busyMacroId: null,
-      busyRunKey: null,
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
       macroStatusByRun: new Map(),
       macros: [readyMacro],
       roles,

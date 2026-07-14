@@ -113,6 +113,39 @@ describe("BrowserManager game host windows", () => {
     expect(harness.manager.listStatuses()).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
   });
 
+  it("keeps the selected Windows DIP work area when a workspace falls back to external Chrome", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const target = {
+      displayId: -22,
+      workArea: { x: -984, y: -200, width: 984, height: 1280 }
+    };
+    const harness = createHarness({
+      externalChromeManager,
+      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
+      loadUrlHandlers: [
+        async () => {
+          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
+        }
+      ]
+    });
+
+    await harness.manager.launchWorkspace(
+      workspace,
+      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+      target
+    );
+
+    expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining(target.workArea));
+    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
+      workspace,
+      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+      expect.objectContaining({ workArea: target.workArea })
+    );
+    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
+      { workspaceId: workspace.id, workspaceName: workspace.name, displayId: -22 }
+    ]);
+  });
+
   it("does not fall back to external Chrome in embedded-only mode", async () => {
     const externalChromeManager = createExternalChromeManager();
     const harness = createHarness({

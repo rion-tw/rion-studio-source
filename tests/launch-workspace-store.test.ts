@@ -277,11 +277,15 @@ describe("LaunchWorkspaceStore", () => {
   });
 
   it("persists, clears, and validates a target display", async () => {
-    const workspace = await store.createWorkspace({ name: "Second screen", targetDisplayId: 42 });
-    expect(workspace.targetDisplayId).toBe(42);
+    const windowsDisplayId = 4_294_967_294;
+    const workspace = await store.createWorkspace({ name: "Second screen", targetDisplayId: windowsDisplayId });
+    expect(workspace.targetDisplayId).toBe(windowsDisplayId);
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
-      targetDisplayId: 42
+      targetDisplayId: windowsDisplayId
     });
+
+    const negativeId = await store.updateWorkspace(workspace.id, { targetDisplayId: -22 });
+    expect(negativeId.targetDisplayId).toBe(-22);
 
     const cleared = await store.updateWorkspace(workspace.id, { targetDisplayId: null });
     expect(cleared).not.toHaveProperty("targetDisplayId");

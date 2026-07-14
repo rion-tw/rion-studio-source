@@ -13,6 +13,10 @@ export function createWorkspaceDisplayInfos(
       label: display.label.trim(),
       bounds: { ...display.bounds },
       workArea: { ...display.workArea },
+      resolution: {
+        width: Math.round(display.bounds.width * display.scaleFactor),
+        height: Math.round(display.bounds.height * display.scaleFactor)
+      },
       scaleFactor: display.scaleFactor,
       isPrimary: display.id === primaryDisplayId,
       isInternal: display.internal

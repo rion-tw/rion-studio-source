@@ -71,3 +71,19 @@ drag the app to Applications. The DMG includes `Install Help.txt` with the
 Privacy & Security approval flow and a scoped quarantine-removal fallback for
 trusted downloads. Set `RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at runtime if
 release assets are hosted outside the default repository.
+
+### Windows Multi-Display Release Check
+
+Before releasing workspace display changes, smoke-test the x64 NSIS build on both
+Windows 10 and Windows 11. Use at least two displays with mixed 100% and
+125%/150% scaling, then repeat with the secondary display positioned to the left
+or above the primary display. Verify bottom and side taskbar layouts when the
+hardware permits.
+
+For each topology, launch a workspace in embedded mode, external Chrome mode,
+and automatic fallback mode. The workspace must remain on the selected display,
+fit inside that display's work area without covering the taskbar, and keep the
+same display reserved through fallback. Also verify simultaneous launches,
+all-displays-occupied cancellation, and display disconnect/reconnect behavior.
+These native checks supplement the platform-aware unit tests and the existing
+`windows-latest` x64 NSIS build job.

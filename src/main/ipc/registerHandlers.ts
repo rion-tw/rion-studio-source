@@ -450,6 +450,7 @@ function getWorkspaceDisplays(options: RegisterIpcHandlersOptions): WorkspaceDis
       label: "",
       bounds: { x: 0, y: 0, width: 1200, height: 800 },
       workArea: { x: 0, y: 0, width: 1200, height: 800 },
+      resolution: { width: 1200, height: 800 },
       scaleFactor: 1,
       isPrimary: true,
       isInternal: false

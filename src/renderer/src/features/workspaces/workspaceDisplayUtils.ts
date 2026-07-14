@@ -13,7 +13,7 @@ export function formatWorkspaceDisplayLabel(
   t: Translator
 ): string {
   const name = display.label || t("workspaces.displayFallback").replace("{index}", String(index + 1));
-  const details = [`${display.bounds.width}×${display.bounds.height}`];
+  const details = [`${display.resolution.width}×${display.resolution.height}`];
   if (display.isPrimary) {
     details.push(t("workspaces.displayPrimary"));
   }

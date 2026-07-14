@@ -25,15 +25,15 @@ describe("ExternalChromeManager", () => {
   it("builds visible Chrome app-window launch arguments", () => {
     expect(
       buildExternalChromeArgs(role, "/tmp/rion/role-1/browser", {
-        x: 100,
-        y: 50,
+        x: -1280,
+        y: -120,
         width: 1280,
         height: 720
       })
     ).toEqual([
       "--user-data-dir=/tmp/rion/role-1/browser",
       "--app=https://example.com/play",
-      "--window-position=100,50",
+      "--window-position=-1280,-120",
       "--window-size=1280,720",
       "--no-first-run",
       "--disable-default-apps",

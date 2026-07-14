@@ -153,6 +153,7 @@ describe("registerIpcHandlers workspace handlers", () => {
         label: "Main display",
         bounds: { x: 0, y: 0, width: 1200, height: 800 },
         workArea: { x: 0, y: 24, width: 1200, height: 776 },
+        resolution: { width: 1200, height: 800 },
         scaleFactor: 1,
         isPrimary: true,
         isInternal: true
@@ -162,6 +163,7 @@ describe("registerIpcHandlers workspace handlers", () => {
         label: "Side display",
         bounds: { x: 1200, y: 0, width: 1920, height: 1080 },
         workArea: { x: 1200, y: 0, width: 1920, height: 1040 },
+        resolution: { width: 1920, height: 1080 },
         scaleFactor: 1,
         isPrimary: false,
         isInternal: false
@@ -288,6 +290,28 @@ describe("registerIpcHandlers workspace handlers", () => {
       fixedWorkspace,
       expect.any(Array),
       { displayId: 11, workArea: workspaceDisplays[0].workArea }
+    );
+  });
+
+  it("accepts an opaque negative Windows display ID for a one-time launch", async () => {
+    const windowsDisplay = {
+      ...workspaceDisplays[1],
+      id: -22,
+      label: "Portrait display",
+      bounds: { x: -1024, y: -200, width: 1024, height: 1280 },
+      workArea: { x: -984, y: -200, width: 984, height: 1280 },
+      resolution: { width: 1280, height: 1600 },
+      scaleFactor: 1.25
+    };
+    workspaceDisplays.push(windowsDisplay);
+
+    await expect(
+      handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id, { displayId: -22 })
+    ).resolves.toMatchObject({ kind: "launched", displayId: -22 });
+    expect(browserManager.launchWorkspace).toHaveBeenLastCalledWith(
+      workspace,
+      expect.any(Array),
+      { displayId: -22, workArea: windowsDisplay.workArea }
     );
   });
 

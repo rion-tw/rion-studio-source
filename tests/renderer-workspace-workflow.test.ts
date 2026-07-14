@@ -63,6 +63,7 @@ function display(id: number, occupiedBy?: string): WorkspaceDisplayLaunchOption 
     label: `Display ${id}`,
     bounds: { x: 0, y: 0, width: 1920, height: 1080 },
     workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+    resolution: { width: 1920, height: 1080 },
     scaleFactor: 1,
     isPrimary: id === 11,
     isInternal: id === 11,

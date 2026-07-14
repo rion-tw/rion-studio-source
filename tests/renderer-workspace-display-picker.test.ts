@@ -75,9 +75,10 @@ function display(id: number, label: string): WorkspaceDisplayLaunchOption {
   return {
     id,
     label,
-    bounds: { x: 0, y: 0, width: 1920, height: 1080 },
-    workArea: { x: 0, y: 0, width: 1920, height: 1040 },
-    scaleFactor: 1,
+    bounds: { x: 0, y: 0, width: 1536, height: 864 },
+    workArea: { x: 0, y: 0, width: 1536, height: 832 },
+    resolution: { width: 1920, height: 1080 },
+    scaleFactor: 1.25,
     isPrimary: id === 11,
     isInternal: id === 11
   };

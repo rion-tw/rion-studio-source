@@ -254,7 +254,7 @@ describe("ExternalChromeAutomationTarget", () => {
     });
     const target = new ExternalChromeAutomationTarget(harness.client);
 
-    await target.setWindowBounds({ x: 2000, y: 40, width: 800, height: 900 });
+    await target.setWindowBounds({ x: -1280, y: -120, width: 800, height: 900 });
 
     expect(
       harness.send.mock.calls.filter(([method]) => method.startsWith("Browser."))
@@ -265,7 +265,7 @@ describe("ExternalChromeAutomationTarget", () => {
         "Browser.setWindowBounds",
         {
           windowId: 42,
-          bounds: { left: 2000, top: 40, width: 800, height: 900 }
+          bounds: { left: -1280, top: -120, width: 800, height: 900 }
         }
       ]
     ]);

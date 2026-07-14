@@ -206,8 +206,15 @@ export interface PixelBounds {
 export interface WorkspaceDisplayInfo {
   id: number;
   label: string;
+  /** Display bounds in device-independent pixels (DIP). */
   bounds: PixelBounds;
+  /** Available work area in device-independent pixels (DIP). */
   workArea: PixelBounds;
+  /** Backing resolution in physical pixels after applying the display scale factor. */
+  resolution: {
+    width: number;
+    height: number;
+  };
   scaleFactor: number;
   isPrimary: boolean;
   isInternal: boolean;

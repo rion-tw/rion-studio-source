@@ -4,7 +4,6 @@ import type {
   MacroRepeat,
   MacroStep,
   MacroTrigger,
-  WorkspaceCompanion,
   WorkspaceBrowserZoomPercent,
   WorkspaceLayoutTemplate
 } from "../../../shared/types";
@@ -27,7 +26,6 @@ export interface WorkspaceFormState {
   template: WorkspaceLayoutTemplate;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   targetDisplayId?: number;
-  companion?: WorkspaceCompanion;
   slots: LaunchWorkspaceSlot[];
 }
 

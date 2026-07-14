@@ -28,8 +28,6 @@ import type {
   UpdateMacroInput,
   UpdateRoleInput,
   WorkspaceDisplayInfo,
-  WorkspaceCompanionApplicationTarget,
-  WorkspaceCompanionOpenResult,
   WorkspaceLaunchInput,
   WorkspaceLaunchResult
 } from "./types";
@@ -59,8 +57,6 @@ export interface RionStudioApi {
   reorderLaunchWorkspaces: (input: ReorderItemsInput) => Promise<LaunchWorkspace[]>;
   deleteLaunchWorkspace: (id: string) => Promise<void>;
   listWorkspaceDisplays: () => Promise<WorkspaceDisplayInfo[]>;
-  pickWorkspaceCompanionApplication: () => Promise<WorkspaceCompanionApplicationTarget | null>;
-  openWorkspaceCompanion: (id: string) => Promise<WorkspaceCompanionOpenResult>;
   launchWorkspace: (id: string, input?: WorkspaceLaunchInput) => Promise<WorkspaceLaunchResult>;
   stopLaunchWorkspace: (id: string) => Promise<void>;
   listMacros: () => Promise<Macro[]>;

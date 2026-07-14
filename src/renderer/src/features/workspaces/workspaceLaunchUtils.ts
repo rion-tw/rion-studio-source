@@ -1,4 +1,8 @@
-import type { WorkspaceLaunchInput, WorkspaceLaunchResult } from "../../../../shared/types";
+import type {
+  RoleStatus,
+  WorkspaceLaunchInput,
+  WorkspaceLaunchResult
+} from "../../../../shared/types";
 
 export async function runWorkspaceLaunch({
   launch,
@@ -8,7 +12,7 @@ export async function runWorkspaceLaunch({
   selectDisplay: (
     result: Extract<WorkspaceLaunchResult, { kind: "display_selection_required" }>
   ) => Promise<number | undefined>;
-}): Promise<Extract<WorkspaceLaunchResult, { kind: "launched" }> | undefined> {
+}): Promise<RoleStatus[] | undefined> {
   let result = await launch();
   while (result.kind === "display_selection_required") {
     const displayId = await selectDisplay(result);
@@ -18,5 +22,5 @@ export async function runWorkspaceLaunch({
     result = await launch({ displayId });
   }
 
-  return result;
+  return result.statuses;
 }

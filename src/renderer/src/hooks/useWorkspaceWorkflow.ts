@@ -56,11 +56,6 @@ export function useWorkspaceWorkflow({
         template: form.template,
         browserZoomPercent: form.browserZoomPercent,
         targetDisplayId: form.targetDisplayId ?? null,
-        companion: form.companion
-          ? form.companion.target?.kind === "url" && !form.companion.target.url.trim()
-            ? { ...form.companion, autoOpen: false, target: undefined }
-            : form.companion
-          : null,
         slots: form.slots
       };
       const savedWorkspace = form.id
@@ -134,12 +129,6 @@ export function useWorkspaceWorkflow({
         template: workspace.template,
         browserZoomPercent: workspace.browserZoomPercent,
         targetDisplayId: workspace.targetDisplayId ?? null,
-        companion: workspace.companion
-          ? {
-              ...workspace.companion,
-              ...(workspace.companion.target ? { target: { ...workspace.companion.target } } : {})
-            }
-          : null,
         slots: workspace.slots.map((slot) => ({
           ...slot,
           rect: { ...slot.rect }
@@ -206,19 +195,16 @@ export function useWorkspaceWorkflow({
     setNotice?.(null);
 
     try {
-      const launchResult = await runWorkspaceLaunch({
+      const nextStatuses = await runWorkspaceLaunch({
         launch: (input) => window.rionStudio.launchWorkspace(workspace.id, input),
         selectDisplay: (result) => requestWorkspaceDisplaySelection(workspace, result)
       });
-      if (!launchResult) {
+      if (!nextStatuses) {
         return;
       }
 
-      setStatuses((current) => mergeStatuses(current, launchResult.statuses));
-      if (launchResult.companionOpenResult?.kind === "failed") {
-        reportError(new Error(launchResult.companionOpenResult.message));
-      }
-      const notice = launchResult.statuses.find((status) => status.notice)?.notice;
+      setStatuses((current) => mergeStatuses(current, nextStatuses));
+      const notice = nextStatuses.find((status) => status.notice)?.notice;
       if (notice) {
         setNotice?.(notice);
       }
@@ -281,25 +267,6 @@ export function useWorkspaceWorkflow({
     }
   }
 
-  async function handleOpenWorkspaceCompanion(workspace: LaunchWorkspace): Promise<void> {
-    const finishBusy = beginBusy(workspace.id);
-    if (!finishBusy) {
-      return;
-    }
-
-    const reportError = beginErrorOperation();
-    try {
-      const result = await window.rionStudio.openWorkspaceCompanion(workspace.id);
-      if (result.kind === "failed") {
-        reportError(new Error(result.message));
-      }
-    } catch (openError) {
-      reportError(openError);
-    } finally {
-      finishBusy();
-    }
-  }
-
   return {
     busyWorkspaceIds,
     displaySelectionRequest,
@@ -308,7 +275,6 @@ export function useWorkspaceWorkflow({
     handleCopyWorkspace,
     handleDeleteWorkspace,
     handleLaunchWorkspace,
-    handleOpenWorkspaceCompanion,
     handleReorderWorkspaces,
     handleStopWorkspace,
     isReorderingWorkspaces,

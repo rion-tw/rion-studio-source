@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { join, posix, win32 } from "node:path";
+import { join } from "node:path";
 
 import type {
   CreateLaunchWorkspaceInput,
@@ -10,15 +10,8 @@ import type {
   ReorderItemsInput,
   UpdateLaunchWorkspaceInput,
   WorkspaceBrowserZoomPercent,
-  WorkspaceCompanion,
-  WorkspaceCompanionApplicationTarget,
-  WorkspaceCompanionTarget,
   WorkspaceLayoutTemplate
 } from "../../shared/types";
-import {
-  isWorkspaceCompanionPlacement,
-  isWorkspaceCompanionSizePercent
-} from "../../shared/workspaceCompanion";
 import {
   createDefaultWorkspaceSlots,
   DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT,
@@ -42,12 +35,8 @@ type StoredLaunchWorkspaceSlot = Partial<LaunchWorkspaceSlot> & {
   [key: string]: unknown;
 };
 
-type StoredLaunchWorkspace = Omit<
-  LaunchWorkspace,
-  "browserZoomPercent" | "companion" | "slots" | "targetDisplayId"
-> & {
+type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserZoomPercent" | "slots" | "targetDisplayId"> & {
   browserZoomPercent?: unknown;
-  companion?: unknown;
   targetDisplayId?: unknown;
   slots: StoredLaunchWorkspaceSlot[];
 };
@@ -62,9 +51,6 @@ const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
 ];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
-const COMPANION_APP_LABEL_MAX_LENGTH = 80;
-const COMPANION_APP_PATH_MAX_LENGTH = 4_096;
-const COMPANION_URL_MAX_LENGTH = 2_048;
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
     readonly code: string,
@@ -114,7 +100,6 @@ export class LaunchWorkspaceStore {
         getDefaultWorkspaceBrowserZoomPercent(template)
       );
       const targetDisplayId = this.normalizeTargetDisplayId(input.targetDisplayId);
-      const companion = this.normalizeCompanion(input.companion);
 
       this.ensureUniqueName(file.workspaces, name);
 
@@ -124,7 +109,6 @@ export class LaunchWorkspaceStore {
         template,
         browserZoomPercent,
         ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
-        ...(companion === undefined ? {} : { companion }),
         slots: this.normalizeSlots(template, input.slots),
         createdAt: now,
         updatedAt: now
@@ -156,9 +140,6 @@ export class LaunchWorkspaceStore {
       const targetDisplayId = input.targetDisplayId === undefined
         ? current.targetDisplayId
         : this.normalizeTargetDisplayId(input.targetDisplayId);
-      const companion = input.companion === undefined
-        ? current.companion
-        : this.normalizeCompanion(input.companion);
       const sourceSlots = input.slots ?? (
         input.template === undefined
           ? current.slots
@@ -179,11 +160,6 @@ export class LaunchWorkspaceStore {
         delete updated.targetDisplayId;
       } else {
         updated.targetDisplayId = targetDisplayId;
-      }
-      if (companion === undefined) {
-        delete updated.companion;
-      } else {
-        updated.companion = companion;
       }
 
       file.workspaces[index] = updated;
@@ -298,7 +274,6 @@ export class LaunchWorkspaceStore {
   private normalizeStoredWorkspace(workspace: StoredLaunchWorkspace): LaunchWorkspace {
     const template = this.normalizeTemplate(workspace.template);
     const targetDisplayId = this.normalizeTargetDisplayId(workspace.targetDisplayId);
-    const companion = this.normalizeCompanion(workspace.companion);
     const slots = this.normalizeSlots(template, workspace.slots as StoredLaunchWorkspaceSlot[]);
     const normalizedSlots = hasLegacyCenteredMainDefaultLayout(workspace)
       ? slots.map((slot, index) => ({
@@ -316,7 +291,6 @@ export class LaunchWorkspaceStore {
         DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
       ),
       ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
-      ...(companion === undefined ? {} : { companion }),
       slots: normalizedSlots,
       createdAt: typeof workspace.createdAt === "string" ? workspace.createdAt : new Date().toISOString(),
       updatedAt: typeof workspace.updatedAt === "string" ? workspace.updatedAt : new Date().toISOString()
@@ -403,136 +377,6 @@ export class LaunchWorkspaceStore {
     }
 
     return value;
-  }
-
-  private normalizeCompanion(value: unknown): WorkspaceCompanion | undefined {
-    if (value === undefined || value === null) {
-      return undefined;
-    }
-
-    if (!isRecord(value)) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_INVALID",
-        "Launch workspace companion area is invalid."
-      );
-    }
-
-    if (!isWorkspaceCompanionPlacement(value.placement)) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_PLACEMENT_INVALID",
-        "Launch workspace companion placement is invalid."
-      );
-    }
-
-    if (!isWorkspaceCompanionSizePercent(value.sizePercent)) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_SIZE_INVALID",
-        "Launch workspace companion size is invalid."
-      );
-    }
-
-    const target = this.normalizeCompanionTarget(value.target);
-    const autoOpen = target ? value.autoOpen === true : false;
-    if (value.autoOpen !== undefined && typeof value.autoOpen !== "boolean") {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_AUTO_OPEN_INVALID",
-        "Launch workspace companion auto-open setting is invalid."
-      );
-    }
-
-    return {
-      placement: value.placement,
-      sizePercent: value.sizePercent,
-      autoOpen,
-      ...(target ? { target } : {})
-    };
-  }
-
-  private normalizeCompanionTarget(value: unknown): WorkspaceCompanionTarget | undefined {
-    if (value === undefined || value === null) {
-      return undefined;
-    }
-
-    if (!isRecord(value)) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_TARGET_INVALID",
-        "Launch workspace companion shortcut is invalid."
-      );
-    }
-
-    if (value.kind === "url") {
-      return { kind: "url", url: this.normalizeCompanionUrl(value.url) };
-    }
-
-    if (value.kind !== "application") {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_TARGET_INVALID",
-        "Launch workspace companion shortcut is invalid."
-      );
-    }
-
-    return this.normalizeCompanionApplication(value);
-  }
-
-  private normalizeCompanionUrl(value: unknown): string {
-    const normalized = typeof value === "string" ? value.trim() : "";
-    if (!normalized || normalized.length > COMPANION_URL_MAX_LENGTH) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_URL_INVALID",
-        "Launch workspace companion URL must use HTTP or HTTPS."
-      );
-    }
-
-    try {
-      const url = new URL(normalized);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        throw new Error("Unsupported protocol");
-      }
-      return url.toString();
-    } catch {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_URL_INVALID",
-        "Launch workspace companion URL must use HTTP or HTTPS."
-      );
-    }
-  }
-
-  private normalizeCompanionApplication(value: Record<string, unknown>): WorkspaceCompanionApplicationTarget {
-    const label = typeof value.label === "string" ? value.label.trim() : "";
-    const path = typeof value.path === "string" ? value.path.trim() : "";
-    const platform = value.platform;
-    if (!label || label.length > COMPANION_APP_LABEL_MAX_LENGTH) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_APPLICATION_INVALID",
-        "Launch workspace companion application is invalid."
-      );
-    }
-    const pathApi = platform === "win32" ? win32 : posix;
-    if (!path || path.length > COMPANION_APP_PATH_MAX_LENGTH || !pathApi.isAbsolute(path)) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_APPLICATION_INVALID",
-        "Launch workspace companion application is invalid."
-      );
-    }
-    if (platform !== "darwin" && platform !== "win32") {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_APPLICATION_INVALID",
-        "Launch workspace companion application is invalid."
-      );
-    }
-
-    const extension = pathApi.extname(path).toLocaleLowerCase();
-    const isSupported = platform === "darwin"
-      ? extension === ".app"
-      : extension === ".exe" || extension === ".lnk";
-    if (!isSupported) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_COMPANION_APPLICATION_INVALID",
-        "Launch workspace companion application is invalid."
-      );
-    }
-
-    return { kind: "application", label, path, platform };
   }
 
   private normalizeSlots(
@@ -666,14 +510,6 @@ function cloneWorkspacesFile(file: LaunchWorkspacesFile): LaunchWorkspacesFile {
   return {
     workspaces: file.workspaces.map((workspace) => ({
       ...workspace,
-      ...(workspace.companion
-        ? {
-            companion: {
-              ...workspace.companion,
-              ...(workspace.companion.target ? { target: { ...workspace.companion.target } } : {})
-            }
-          }
-        : {}),
       slots: workspace.slots.map((slot) => ({
         ...slot,
         rect: { ...slot.rect }
@@ -712,8 +548,4 @@ function rectMatches(value: NormalizedRect | undefined, expected: NormalizedRect
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

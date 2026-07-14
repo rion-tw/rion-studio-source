@@ -37,17 +37,6 @@ describe("PortableDataManager", () => {
       name: "Party",
       browserZoomPercent: 75,
       targetDisplayId: 42,
-      companion: {
-        placement: "right",
-        sizePercent: 33,
-        autoOpen: true,
-        target: {
-          kind: "application",
-          label: "VLC",
-          path: "/Applications/VLC.app",
-          platform: "darwin"
-        }
-      },
       slots: [
         {
           id: "slot-1",
@@ -131,13 +120,8 @@ describe("PortableDataManager", () => {
     expect(parsed.roles[0]).not.toHaveProperty("lastAuthCheckAt");
     expect(parsed.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
     expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
-    expect(parsed.launchWorkspaces[0]).toMatchObject({
-      browserZoomPercent: 75,
-      companion: { placement: "right", sizePercent: 33 }
-    });
+    expect(parsed.launchWorkspaces[0]).toMatchObject({ browserZoomPercent: 75 });
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
-    expect(parsed.launchWorkspaces[0].companion).not.toHaveProperty("target");
-    expect(parsed.launchWorkspaces[0].companion).not.toHaveProperty("autoOpen");
   });
 
   it("previews and applies an import with remapped role references", async () => {
@@ -230,11 +214,6 @@ describe("PortableDataManager", () => {
     );
     expect(importedWorkspace?.slots[0]).toMatchObject({ roleId: importedRole?.id });
     expect(importedWorkspace?.slots[1]).not.toHaveProperty("roleId");
-    expect(importedWorkspace?.companion).toEqual({
-      placement: "bottom",
-      sizePercent: 25,
-      autoOpen: false
-    });
 
     const macros = await macroStore.listMacros();
     const importedMacro = macros.find((macro) => macro.name === "Auto heal" && macro.roleIds[0] === importedRole?.id);
@@ -499,7 +478,6 @@ function createPortableFixture(): RionPortableDataV1 {
         name: "Party",
         template: "two_columns",
         browserZoomPercent: 100,
-        companion: { placement: "bottom", sizePercent: 25 },
         slots: [
           {
             id: "slot-1",

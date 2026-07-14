@@ -24,7 +24,6 @@ import type {
   WorkspaceLaunchInput,
   WorkspaceLaunchResult
 } from "../../shared/types";
-import { splitWorkspaceWorkArea } from "../../shared/workspaceCompanion";
 import type { AuthManager } from "../auth/AuthManager";
 import {
   BrowserWorkspaceDisplayOccupiedError,
@@ -40,7 +39,6 @@ import type { PortableDataManager } from "../portable/PortableDataManager";
 import { RoleStore } from "../roles/RoleStore";
 import type { AppUpdateManager } from "../updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
-import type { WorkspaceCompanionService } from "../workspaces/WorkspaceCompanionService";
 
 interface RegisterIpcHandlersOptions {
   legalAcceptanceStore?: Pick<LegalAcceptanceStore, "accept" | "getStatus">;
@@ -60,7 +58,6 @@ interface RegisterIpcHandlersOptions {
   getDefaultWorkspaceDisplayId?: () => number;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
   portableDataManager?: Pick<PortableDataManager, "applyImport" | "exportData" | "previewImport">;
-  workspaceCompanionService?: Pick<WorkspaceCompanionService, "open" | "pickApplication">;
   getGraphicsDiagnostics?: (sender: Electron.WebContents) => Promise<unknown>;
   quitApplication?: () => void;
   restartApplication?: () => void;
@@ -371,21 +368,6 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.workspacesDisplays, () => getWorkspaceDisplays(options));
 
-  ipcMain.handle(IPC_CHANNELS.workspacesCompanionPickApplication, () => {
-    if (!options.workspaceCompanionService) {
-      throw new Error("Workspace companion shortcuts are not available.");
-    }
-    return options.workspaceCompanionService.pickApplication();
-  });
-
-  ipcMain.handle(IPC_CHANNELS.workspacesCompanionOpen, async (_event, id: string) => {
-    if (!options.workspaceCompanionService || typeof id !== "string" || !id.trim()) {
-      throw new Error("Workspace companion shortcuts are not available.");
-    }
-    const workspace = await workspaceStore.getWorkspace(id);
-    return options.workspaceCompanionService.open(workspace.companion?.target);
-  });
-
   ipcMain.handle(IPC_CHANNELS.workspacesLaunch, async (_event, id: string, input?: WorkspaceLaunchInput) => {
     if (!isWorkspaceLaunchInput(input)) {
       throw new Error("Launch workspace display selection is invalid.");
@@ -437,22 +419,15 @@ export function registerIpcHandlers(
     }
 
     try {
-      const roleWorkArea = workspace.companion
-        ? splitWorkspaceWorkArea(targetDisplay.workArea, workspace.companion).roleWorkArea
-        : targetDisplay.workArea;
       const statuses = await browserManager.launchWorkspace(
         workspace,
         launchItems.map(({ role, slot }) => ({ role, rect: slot.rect })),
-        { displayId: targetDisplay.id, workArea: roleWorkArea }
+        { displayId: targetDisplay.id, workArea: targetDisplay.workArea }
       );
-      const companionOpenResult = workspace.companion?.autoOpen && workspace.companion.target
-        ? await options.workspaceCompanionService?.open(workspace.companion.target)
-        : undefined;
       return {
         kind: "launched",
         displayId: targetDisplay.id,
-        statuses,
-        ...(companionOpenResult ? { companionOpenResult } : {})
+        statuses
       } satisfies WorkspaceLaunchResult;
     } catch (error) {
       if (!(error instanceof BrowserWorkspaceDisplayOccupiedError)) {

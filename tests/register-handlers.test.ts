@@ -111,10 +111,6 @@ describe("registerIpcHandlers workspace handlers", () => {
     getStatus: AnyMock;
   };
   let workspaceDisplays: WorkspaceDisplayInfo[];
-  let workspaceCompanionService: {
-    open: AnyMock;
-    pickApplication: AnyMock;
-  };
 
   beforeEach(() => {
     handlers.clear();
@@ -192,15 +188,6 @@ describe("registerIpcHandlers workspace handlers", () => {
         isInternal: false
       }
     ];
-    workspaceCompanionService = {
-      open: vi.fn().mockResolvedValue({ kind: "opened" }),
-      pickApplication: vi.fn().mockResolvedValue({
-        kind: "application",
-        label: "VLC",
-        path: "/Applications/VLC.app",
-        platform: "darwin"
-      })
-    };
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -216,8 +203,7 @@ describe("registerIpcHandlers workspace handlers", () => {
         onRendererReady,
         onRolesChanged,
         onWorkspacesChanged,
-        quitApplication,
-        workspaceCompanionService
+        quitApplication
       }
     );
   });
@@ -329,93 +315,6 @@ describe("registerIpcHandlers workspace handlers", () => {
       { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
     );
     expect(browserManager.launch).not.toHaveBeenCalled();
-  });
-
-  it("picks and manually opens a persisted companion shortcut", async () => {
-    const companionWorkspace: LaunchWorkspace = {
-      ...workspace,
-      companion: {
-        placement: "right",
-        sizePercent: 33,
-        autoOpen: false,
-        target: { kind: "url", url: "https://example.com/watch" }
-      }
-    };
-    workspaceStore.getWorkspace = vi.fn().mockResolvedValue(companionWorkspace);
-
-    await expect(
-      handlers.get(IPC_CHANNELS.workspacesCompanionPickApplication)?.({})
-    ).resolves.toMatchObject({ label: "VLC" });
-    await expect(
-      handlers.get(IPC_CHANNELS.workspacesCompanionOpen)?.({}, companionWorkspace.id)
-    ).resolves.toEqual({ kind: "opened" });
-    expect(workspaceCompanionService.open).toHaveBeenCalledWith(companionWorkspace.companion?.target);
-  });
-
-  it("shrinks the role work area and auto-opens the companion only after roles launch", async () => {
-    const companionWorkspace: LaunchWorkspace = {
-      ...workspace,
-      companion: {
-        placement: "right",
-        sizePercent: 33,
-        autoOpen: true,
-        target: { kind: "url", url: "https://example.com/watch" }
-      }
-    };
-    workspaceStore.getWorkspace = vi.fn().mockResolvedValue(companionWorkspace);
-
-    await expect(
-      handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, companionWorkspace.id)
-    ).resolves.toEqual({
-      kind: "launched",
-      displayId: 11,
-      statuses: [
-        { roleId: "role-1", state: "running" },
-        { roleId: "role-2", state: "running" }
-      ],
-      companionOpenResult: { kind: "opened" }
-    });
-    expect(browserManager.launchWorkspace).toHaveBeenCalledWith(
-      companionWorkspace,
-      expect.any(Array),
-      { displayId: 11, workArea: { x: 0, y: 24, width: 804, height: 776 } }
-    );
-    expect(vi.mocked(browserManager.launchWorkspace).mock.invocationCallOrder[0]).toBeLessThan(
-      workspaceCompanionService.open.mock.invocationCallOrder[0]
-    );
-  });
-
-  it("keeps launched roles when companion auto-open fails and skips it when role launch fails", async () => {
-    const companionWorkspace: LaunchWorkspace = {
-      ...workspace,
-      companion: {
-        placement: "bottom",
-        sizePercent: 25,
-        autoOpen: true,
-        target: { kind: "url", url: "https://example.com/watch" }
-      }
-    };
-    workspaceStore.getWorkspace = vi.fn().mockResolvedValue(companionWorkspace);
-    workspaceCompanionService.open.mockResolvedValueOnce({
-      kind: "failed",
-      reason: "open_failed",
-      message: "Unable to open workspace companion shortcut."
-    });
-
-    await expect(
-      handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, companionWorkspace.id)
-    ).resolves.toMatchObject({
-      kind: "launched",
-      statuses: expect.any(Array),
-      companionOpenResult: { kind: "failed", reason: "open_failed" }
-    });
-
-    workspaceCompanionService.open.mockClear();
-    vi.mocked(browserManager.launchWorkspace).mockRejectedValueOnce(new Error("launch failed"));
-    await expect(
-      handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, companionWorkspace.id)
-    ).rejects.toThrow("launch failed");
-    expect(workspaceCompanionService.open).not.toHaveBeenCalled();
   });
 
   it("lists displays and launches on a saved or one-time target without changing the workspace", async () => {

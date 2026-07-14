@@ -10,14 +10,7 @@ import {
 } from "lucide-react";
 
 import type { TranslationKey } from "../../i18n";
-import type { WorkspaceCompanionPlacement, WorkspaceLayoutTemplate } from "../../../../shared/types";
-
-export const workspaceCompanionPlacementLabelKeys: Record<WorkspaceCompanionPlacement, TranslationKey> = {
-  left: "workspaces.companion.placement.left",
-  right: "workspaces.companion.placement.right",
-  top: "workspaces.companion.placement.top",
-  bottom: "workspaces.companion.placement.bottom"
-};
+import type { WorkspaceLayoutTemplate } from "../../../../shared/types";
 
 const Grid3X2 = createLucideIcon("Grid3X2", [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "outer" }],

@@ -1,10 +1,8 @@
 import {
   Copy,
-  ExternalLink,
   LayoutDashboard,
   Loader2,
   Monitor,
-  MonitorPlay,
   MoreHorizontal,
   Pencil,
   Play,
@@ -32,20 +30,11 @@ import type {
   Role,
   RoleStatus,
   WorkspaceDisplayInfo,
-  WorkspaceCompanion,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
 import { getWorkspaceTargetDisplayPresentation } from "./workspaceDisplayUtils";
-import {
-  createWorkspaceSlotBackground,
-  getWorkspaceCompanionPreviewStyles,
-  getWorkspaceSplits
-} from "./workspaceLayoutUtils";
-import {
-  workspaceCompanionPlacementLabelKeys,
-  workspaceTemplateIcons,
-  workspaceTemplateLabelKeys
-} from "./workspaceConstants";
+import { createWorkspaceSlotBackground, getWorkspaceSplits } from "./workspaceLayoutUtils";
+import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 
 interface LaunchWorkspacesViewProps {
   busyWorkspaceIds: ReadonlySet<string>;
@@ -62,7 +51,6 @@ interface LaunchWorkspacesViewProps {
   onDeleteWorkspace: (workspace: LaunchWorkspace) => void;
   onEditWorkspace: (workspace: LaunchWorkspace) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
-  onOpenWorkspaceCompanion: (workspace: LaunchWorkspace) => void;
   onQueryChange: (query: string) => void;
   onReorderWorkspaces: (orderedIds: string[]) => void;
   onStopWorkspace: (workspace: LaunchWorkspace) => void;
@@ -83,7 +71,6 @@ function LaunchWorkspacesView({
   onDeleteWorkspace,
   onEditWorkspace,
   onLaunchWorkspace,
-  onOpenWorkspaceCompanion,
   onQueryChange,
   onReorderWorkspaces,
   onStopWorkspace
@@ -104,12 +91,7 @@ function LaunchWorkspacesView({
         .map((slot) => (slot.roleId ? roleById.get(slot.roleId)?.name : ""))
         .filter(Boolean);
 
-      const companionTarget = workspace.companion?.target;
-      const companionSearchText = companionTarget?.kind === "application"
-        ? companionTarget.label
-        : companionTarget?.url ?? "";
-
-      return [workspace.name, t(workspaceTemplateLabelKeys[workspace.template]), companionSearchText, ...assignedRoleNames]
+      return [workspace.name, t(workspaceTemplateLabelKeys[workspace.template]), ...assignedRoleNames]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery);
@@ -222,7 +204,6 @@ function LaunchWorkspacesView({
               onDelete={() => onDeleteWorkspace(workspace)}
               onEdit={() => onEditWorkspace(workspace)}
               onLaunch={() => onLaunchWorkspace(workspace)}
-              onOpenCompanion={() => onOpenWorkspaceCompanion(workspace)}
               onDragEnd={clearDragState}
               onDragOver={(event) => handleDragOver(event, workspace.id)}
               onDragStart={(event) => handleDragStart(event, workspace.id)}
@@ -249,7 +230,6 @@ interface WorkspaceCardProps {
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
   onLaunch: () => void;
-  onOpenCompanion: () => void;
   onStop: () => void;
   roleById: Map<string, Role>;
   statusByRole: Map<string, RoleStatus>;
@@ -271,7 +251,6 @@ function WorkspaceCard({
   onDragStart,
   onDrop,
   onLaunch,
-  onOpenCompanion,
   onStop,
   roleById,
   statusByRole,
@@ -306,7 +285,6 @@ function WorkspaceCard({
           slots={workspace.slots}
           t={t}
           template={workspace.template}
-          companion={workspace.companion}
         />
 
         <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
@@ -345,7 +323,6 @@ function WorkspaceCard({
           onCopy={onCopy}
           onDelete={onDelete}
           onEdit={onEdit}
-          onOpenCompanion={workspace.companion?.target ? onOpenCompanion : undefined}
           onDragEnd={onDragEnd}
           onDragStart={onDragStart}
         />
@@ -354,7 +331,7 @@ function WorkspaceCard({
       <div className="glass-divider border-t p-3.5">
         <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
 
-        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex min-w-0 items-center gap-1.5">
           <Badge
             aria-label={layoutTitle}
             className="min-w-0 max-w-[45%] gap-1.5"
@@ -384,17 +361,6 @@ function WorkspaceCard({
               <span className="min-w-0 truncate">{targetDisplay.label}</span>
             </Badge>
           ) : null}
-          {workspace.companion ? (
-            <Badge
-              aria-label={formatCompanionBadgeTitle(workspace.companion, t)}
-              className="min-w-0 max-w-full gap-1.5"
-              title={formatCompanionBadgeTitle(workspace.companion, t)}
-              variant="secondary"
-            >
-              <MonitorPlay className="shrink-0" size={12} aria-hidden="true" />
-              <span className="min-w-0 truncate">{getCompanionTargetLabel(workspace.companion, t)}</span>
-            </Badge>
-          ) : null}
         </div>
       </div>
     </Card>
@@ -403,7 +369,6 @@ function WorkspaceCard({
 
 interface WorkspaceLayoutPreviewProps {
   className?: string;
-  companion?: WorkspaceCompanion;
   roleById: Map<string, Role>;
   slots: LaunchWorkspaceSlot[];
   t: Translator;
@@ -412,7 +377,6 @@ interface WorkspaceLayoutPreviewProps {
 
 function WorkspaceLayoutPreview({
   className,
-  companion,
   roleById,
   slots,
   t,
@@ -590,28 +554,9 @@ function WorkspaceLayoutPreview({
     }
   }
 
-  const previewStyles = getWorkspaceCompanionPreviewStyles(companion);
-
   return (
     <div className={cn("relative bg-background/30", className)}>
-      <div className="relative h-full w-full overflow-hidden">
-        {companion && previewStyles.companion ? (
-          <div
-            className="absolute grid place-items-center overflow-hidden border border-dashed border-primary/35 bg-primary/[0.07] p-1.5 text-center text-primary"
-            style={previewStyles.companion}
-          >
-            <div className="grid min-w-0 justify-items-center gap-1">
-              <MonitorPlay size={16} />
-              <span className="max-w-full truncate text-[10px] font-semibold">
-                {getCompanionTargetLabel(companion, t)}
-              </span>
-            </div>
-          </div>
-        ) : null}
-        <div className="absolute overflow-hidden" style={previewStyles.role}>
-          {renderLayout()}
-        </div>
-      </div>
+      {renderLayout()}
     </div>
   );
 }
@@ -687,29 +632,6 @@ function resolveWorkspaceRoleLaunchGameName(launchUrl: string, t: Translator): s
   }
 }
 
-function getCompanionTargetLabel(companion: WorkspaceCompanion, t: Translator): string {
-  if (!companion.target) {
-    return t("workspaces.companion.emptyShortcut");
-  }
-  if (companion.target.kind === "application") {
-    return companion.target.label;
-  }
-  try {
-    return new URL(companion.target.url).hostname || t("workspaces.companion.url");
-  } catch {
-    return companion.target.url || t("workspaces.companion.url");
-  }
-}
-
-function formatCompanionBadgeTitle(companion: WorkspaceCompanion, t: Translator): string {
-  return [
-    t("workspaces.companion.title"),
-    t(workspaceCompanionPlacementLabelKeys[companion.placement]),
-    `${companion.sizePercent}%`,
-    getCompanionTargetLabel(companion, t)
-  ].join(" · ");
-}
-
 interface WorkspaceActionMenuProps {
   canReorder: boolean;
   isDragging: boolean;
@@ -717,7 +639,6 @@ interface WorkspaceActionMenuProps {
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
-  onOpenCompanion?: () => void;
   onDragEnd: () => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   t: Translator;
@@ -732,7 +653,6 @@ function WorkspaceActionMenu({
   onDragEnd,
   onDragStart,
   onEdit,
-  onOpenCompanion,
   t
 }: WorkspaceActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
@@ -826,21 +746,6 @@ function WorkspaceActionMenu({
             <Pencil size={14} />
             <span>{t("workspaces.edit")}</span>
           </button>
-          {onOpenCompanion ? (
-            <button
-              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setIsOpen(false);
-                onOpenCompanion();
-              }}
-              disabled={isBusy}
-            >
-              <ExternalLink size={14} />
-              <span>{t("workspaces.companion.openShortcut")}</span>
-            </button>
-          ) : null}
           <button
             className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
             type="button"

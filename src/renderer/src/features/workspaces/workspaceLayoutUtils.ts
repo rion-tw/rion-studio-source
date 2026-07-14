@@ -3,14 +3,7 @@ import type { CSSProperties, DragEvent as ReactDragEvent } from "react";
 import type { Translator } from "../../i18n";
 import type { WorkspaceFormState } from "../../app/types";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
-import type {
-  LaunchWorkspace,
-  LaunchWorkspaceSlot,
-  NormalizedRect,
-  Role,
-  WorkspaceCompanion,
-  WorkspaceLayoutTemplate
-} from "../../../../shared/types";
+import type { LaunchWorkspace, LaunchWorkspaceSlot, NormalizedRect, Role, WorkspaceLayoutTemplate } from "../../../../shared/types";
 import {
   DEFAULT_WORKSPACE_TEMPLATE,
   getDefaultWorkspaceBrowserZoomPercent,
@@ -96,49 +89,8 @@ export function createWorkspaceFormState(workspace: LaunchWorkspace): WorkspaceF
     template,
     browserZoomPercent: workspace.browserZoomPercent,
     ...(workspace.targetDisplayId === undefined ? {} : { targetDisplayId: workspace.targetDisplayId }),
-    ...(workspace.companion
-      ? {
-          companion: {
-            ...workspace.companion,
-            ...(workspace.companion.target ? { target: { ...workspace.companion.target } } : {})
-          }
-        }
-      : {}),
     slots: template === workspace.template ? workspace.slots : applyWorkspaceTemplate(workspace.slots, template)
   };
-}
-
-export function getWorkspaceCompanionPreviewStyles(
-  companion: Pick<WorkspaceCompanion, "placement" | "sizePercent"> | undefined
-): { role: CSSProperties; companion?: CSSProperties } {
-  if (!companion) {
-    return { role: { inset: 0 } };
-  }
-
-  const companionSize = `${companion.sizePercent}%`;
-  const roleSize = `${100 - companion.sizePercent}%`;
-  switch (companion.placement) {
-    case "left":
-      return {
-        role: { left: companionSize, top: 0, width: roleSize, height: "100%" },
-        companion: { left: 0, top: 0, width: companionSize, height: "100%" }
-      };
-    case "right":
-      return {
-        role: { left: 0, top: 0, width: roleSize, height: "100%" },
-        companion: { right: 0, top: 0, width: companionSize, height: "100%" }
-      };
-    case "top":
-      return {
-        role: { left: 0, top: companionSize, width: "100%", height: roleSize },
-        companion: { left: 0, top: 0, width: "100%", height: companionSize }
-      };
-    case "bottom":
-      return {
-        role: { left: 0, top: 0, width: "100%", height: roleSize },
-        companion: { left: 0, bottom: 0, width: "100%", height: companionSize }
-      };
-  }
 }
 
 export function createWorkspaceSlotBackground(role: Role | undefined): CSSProperties | undefined {

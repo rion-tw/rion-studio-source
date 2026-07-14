@@ -9,7 +9,7 @@ describe("workspace launch workflow", () => {
     const launch = vi.fn().mockResolvedValue(launched);
     const selectDisplay = vi.fn();
 
-    await expect(runWorkspaceLaunch({ launch, selectDisplay })).resolves.toEqual(launched);
+    await expect(runWorkspaceLaunch({ launch, selectDisplay })).resolves.toEqual(launched.statuses);
     expect(launch).toHaveBeenCalledWith();
     expect(selectDisplay).not.toHaveBeenCalled();
   });
@@ -26,7 +26,7 @@ describe("workspace launch workflow", () => {
       .mockResolvedValueOnce(22)
       .mockResolvedValueOnce(33);
 
-    await expect(runWorkspaceLaunch({ launch, selectDisplay })).resolves.toEqual(launched);
+    await expect(runWorkspaceLaunch({ launch, selectDisplay })).resolves.toEqual(launched.statuses);
     expect(launch.mock.calls).toEqual([[], [{ displayId: 22 }], [{ displayId: 33 }]]);
     expect(selectDisplay).toHaveBeenNthCalledWith(1, firstSelection);
     expect(selectDisplay).toHaveBeenNthCalledWith(2, secondSelection);

@@ -6,7 +6,7 @@ import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
-import { Select } from "../../components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { launchUrlOptions } from "../../app/constants";
 import {
   CUSTOM_LAUNCH_URL_OPTION,
@@ -160,7 +160,6 @@ function RoleForm({
     hasCoverImage: true,
     isActive: false
   });
-  const selectedLaunchOption = launchUrlOptions.find((option) => option.value === form.launchUrl);
   const launchUrlSelection = resolveLaunchUrlSelection(
     form.launchUrl,
     launchUrlOptions.map((option) => option.value)
@@ -203,33 +202,39 @@ function RoleForm({
                   label={t("roleForm.launchUrl")}
                   description={t("roleForm.launchUrlDescription")}
                 >
-                  <div className="relative">
-                    {selectedLaunchOption?.iconSrc ? (
-                      <img
-                        className="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 rounded-[4px] object-cover ring-1 ring-white/45"
-                        src={selectedLaunchOption.iconSrc}
-                        alt=""
-                        aria-hidden="true"
-                      />
-                    ) : null}
+                  <div>
                     <Select
-                      id="role-launch-url"
-                      className={selectedLaunchOption?.iconSrc ? "pl-8" : undefined}
                       value={launchUrlSelection}
-                      onChange={(event) =>
+                      onValueChange={(value) =>
                         onChange((current) => ({
                           ...current,
-                          launchUrl: resolveLaunchUrlFromSelection(event.target.value)
+                          launchUrl: resolveLaunchUrlFromSelection(value)
                         }))
                       }
                       required
                     >
-                      {launchUrlOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {"label" in option ? option.label : t(option.labelKey)}
-                        </option>
-                      ))}
-                      <option value={CUSTOM_LAUNCH_URL_OPTION}>{t("roleForm.launchUrl.custom")}</option>
+                      <SelectTrigger id="role-launch-url">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {launchUrlOptions.map((option) => {
+                          const label = "label" in option ? option.label : t(option.labelKey);
+                          return (
+                            <SelectItem key={option.value} value={option.value} textValue={label}>
+                              <img
+                                className="size-4 shrink-0 rounded-[4px] object-cover ring-1 ring-white/45"
+                                src={option.iconSrc}
+                                alt=""
+                                aria-hidden="true"
+                              />
+                              <span className="truncate">{label}</span>
+                            </SelectItem>
+                          );
+                        })}
+                        <SelectItem value={CUSTOM_LAUNCH_URL_OPTION}>
+                          {t("roleForm.launchUrl.custom")}
+                        </SelectItem>
+                      </SelectContent>
                     </Select>
                   </div>
                   {isCustomLaunchUrl ? (
@@ -284,14 +289,18 @@ function RoleForm({
                 </FormField>
                 <FormField htmlFor="role-launch-preset" label={t("roleForm.launchPreset")}>
                   <Select
-                    id="role-launch-preset"
                     value={form.launchPreset}
-                    onChange={(event) =>
-                      onChange((current) => ({ ...current, launchPreset: event.target.value as LaunchPreset }))
+                    onValueChange={(value) =>
+                      onChange((current) => ({ ...current, launchPreset: value as LaunchPreset }))
                     }
                   >
-                    <option value="performance">{t("preset.performance")}</option>
-                    <option value="balanced">{t("preset.balanced")}</option>
+                    <SelectTrigger id="role-launch-preset">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="performance">{t("preset.performance")}</SelectItem>
+                      <SelectItem value="balanced">{t("preset.balanced")}</SelectItem>
+                    </SelectContent>
                   </Select>
                 </FormField>
               </FormGrid>

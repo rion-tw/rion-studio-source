@@ -4,7 +4,7 @@ import { type JSX, useState } from "react";
 import appIconUrl from "../../assets/app-icon.png";
 import { languageLabelKeys } from "../../app/constants";
 import { Button } from "../../components/ui/button";
-import { Select } from "../../components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Surface } from "../../components/ui/patterns";
 import { languages, type Language, type Translator } from "../../i18n";
 import { LegalDocumentDialog } from "./LegalDocumentDialog";
@@ -45,14 +45,17 @@ export function LegalOnboarding({
           </div>
         </div>
         <Select
-          className="app-no-drag w-36"
           value={language}
-          aria-label={t("settings.language")}
-          onChange={(event) => onLanguageChange(event.target.value as Language)}
+          onValueChange={(value) => onLanguageChange(value as Language)}
         >
-          {languages.map((option) => (
-            <option key={option} value={option}>{t(languageLabelKeys[option])}</option>
-          ))}
+          <SelectTrigger className="app-no-drag w-36" aria-label={t("settings.language")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {languages.map((option) => (
+              <SelectItem key={option} value={option}>{t(languageLabelKeys[option])}</SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </header>
 

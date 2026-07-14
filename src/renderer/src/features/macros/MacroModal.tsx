@@ -16,7 +16,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { Select } from "../../components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import {
   FormField,
   SegmentedControl,
@@ -402,15 +402,19 @@ function MacroForm({ form, isSaving, onChange, roles, shortcutConflict, t }: Mac
                     <InlineControl label={t("macroForm.stepType")} controlClassName="w-28 flex-none">
                       <Select
                         value={newStepType}
-                        onChange={(event) => setNewStepType(event.target.value as MacroStep["type"])}
+                        onValueChange={(value) => setNewStepType(value as MacroStep["type"])}
                         disabled={isSaving}
-                        aria-label={t("macroForm.stepType")}
                       >
-                        {macroStepTypeOrder.map((type) => (
-                          <option key={type} value={type}>
-                            {getMacroStepTypeLabel(type, t)}
-                          </option>
-                        ))}
+                        <SelectTrigger aria-label={t("macroForm.stepType")}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {macroStepTypeOrder.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {getMacroStepTypeLabel(type, t)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                       </Select>
                     </InlineControl>
                     <Button
@@ -528,26 +532,30 @@ function MacroIntervalControl({
   return (
     <div className="grid gap-2">
       <Select
-        aria-label={t("macroForm.intervalMs")}
         disabled={disabled}
         value={showCustomInput ? MACRO_INTERVAL_CUSTOM_VALUE : String(value)}
-        onChange={(event) => {
-          if (event.target.value === MACRO_INTERVAL_CUSTOM_VALUE) {
+        onValueChange={(nextValue) => {
+          if (nextValue === MACRO_INTERVAL_CUSTOM_VALUE) {
             setIsCustom(true);
             return;
           }
 
           setIsCustom(false);
-          onChange(Number(event.target.value));
+          onChange(Number(nextValue));
         }}
       >
-        {MACRO_INTERVAL_OPTIONS.map((option) => (
-          <option key={option} value={option}>
-            {option === MACRO_INTERVAL_CUSTOM_VALUE
-              ? t("macroForm.intervalCustom")
-              : formatMacroIntervalPreset(option, t)}
-          </option>
-        ))}
+        <SelectTrigger aria-label={t("macroForm.intervalMs")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {MACRO_INTERVAL_OPTIONS.map((option) => (
+            <SelectItem key={option} value={String(option)}>
+              {option === MACRO_INTERVAL_CUSTOM_VALUE
+                ? t("macroForm.intervalCustom")
+                : formatMacroIntervalPreset(option, t)}
+            </SelectItem>
+          ))}
+        </SelectContent>
       </Select>
       {showCustomInput ? (
         <AffixedInput
@@ -660,15 +668,19 @@ function MacroStepEditor({
 
       <Select
         value={step.type}
-        onChange={(event) => onUpdate(createStep(event.target.value as MacroStep["type"], step.id))}
+        onValueChange={(value) => onUpdate(createStep(value as MacroStep["type"], step.id))}
         disabled={isSaving}
-        aria-label={t("macroForm.stepType")}
       >
-        {macroStepTypeOrder.map((type) => (
-          <option key={type} value={type}>
-            {getMacroStepTypeLabel(type, t)}
-          </option>
-        ))}
+        <SelectTrigger aria-label={t("macroForm.stepType")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {macroStepTypeOrder.map((type) => (
+            <SelectItem key={type} value={type}>
+              {getMacroStepTypeLabel(type, t)}
+            </SelectItem>
+          ))}
+        </SelectContent>
       </Select>
 
       <MacroStepFields step={step} t={t} onUpdate={onUpdate} isSaving={isSaving} />
@@ -730,23 +742,26 @@ function MacroStepFields({
     return (
       <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
         <Select
-          className="w-28 flex-none"
           value={step.code}
-          onChange={(event) =>
+          onValueChange={(value) =>
             onUpdate({
               ...step,
-              code: event.target.value,
-              label: formatMacroCode(event.target.value)
+              code: value,
+              label: formatMacroCode(value)
             })
           }
           disabled={isSaving}
-          aria-label={t("macro.step.key")}
         >
-          {commonMacroKeyCodes.map((code) => (
-            <option key={code} value={code}>
-              {formatMacroCode(code)}
-            </option>
-          ))}
+          <SelectTrigger className="w-28 flex-none" aria-label={t("macro.step.key")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {commonMacroKeyCodes.map((code) => (
+              <SelectItem key={code} value={code}>
+                {formatMacroCode(code)}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
         <KeyRecorder
           disabled={isSaving}

@@ -20,7 +20,7 @@ import { RoleRunDot } from "../../components/RoleRunDot";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Select } from "../../components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -36,6 +36,8 @@ import {
   formatMacroShortcut,
   summarizeMacroSteps
 } from "./macroUtils";
+
+const ALL_ROLES_SELECT_VALUE = "__all_roles__";
 
 interface MacrosRouteProps {
   busyMacroIds: ReadonlySet<string>;
@@ -148,17 +150,22 @@ function MacrosRoute({
               onChange={onQueryChange}
             />
             <Select
-              className="w-full sm:w-40 lg:w-44"
-              aria-label={t("macros.filterRole")}
-              value={roleFilterId}
-              onChange={(event) => onRoleFilterChange(event.target.value)}
+              value={roleFilterId || ALL_ROLES_SELECT_VALUE}
+              onValueChange={(value) =>
+                onRoleFilterChange(value === ALL_ROLES_SELECT_VALUE ? "" : value)
+              }
             >
-              <option value="">{t("macros.filterAllRoles")}</option>
-              {roles.map((role) => (
-                <option key={role.id} value={role.id}>
-                  {role.name}
-                </option>
-              ))}
+              <SelectTrigger className="w-full sm:w-40 lg:w-44" aria-label={t("macros.filterRole")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_ROLES_SELECT_VALUE}>{t("macros.filterAllRoles")}</SelectItem>
+                {roles.map((role) => (
+                  <SelectItem key={role.id} value={role.id}>
+                    {role.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             <Button
               className="flex-1 gap-1.5 px-2.5 sm:flex-none"

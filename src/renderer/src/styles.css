@@ -103,7 +103,6 @@
     --role-cover-control-hover: 0 0% 100% / 0.34;
     --role-cover-menu-control: 0 0% 100% / 0.18;
     --role-cover-menu-control-hover: 0 0% 100% / 0.3;
-    --select-chevron: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23646b75' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
     --radius: 8px;
   }
 
@@ -172,7 +171,6 @@
     --role-cover-control-hover: 0 0% 100% / 0.2;
     --role-cover-menu-control: 0 0% 100% / 0.1;
     --role-cover-menu-control-hover: 0 0% 100% / 0.18;
-    --select-chevron: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239a9a9a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
   }
 
   * {
@@ -654,28 +652,13 @@
   }
 
   .glass-control.glass-select {
-    appearance: none;
     background-color: hsl(var(--glass-control));
-    background-image:
-      linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 58%),
-      var(--select-chevron);
-    background-position:
-      0 0,
-      right 10px center;
-    background-repeat:
-      no-repeat,
-      no-repeat;
-    background-size:
-      auto,
-      12px 12px;
-    padding-right: 2rem;
+    background-image: linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 58%);
   }
 
   .glass-control.glass-select:hover {
     background-color: hsl(var(--glass-control-hover));
-    background-image:
-      linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 58%),
-      var(--select-chevron);
+    background-image: linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 58%);
   }
 
   @media (prefers-reduced-transparency: reduce) {

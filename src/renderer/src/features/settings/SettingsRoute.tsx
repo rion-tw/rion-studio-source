@@ -7,7 +7,7 @@ import { useConfirmation } from "../../components/confirmation";
 import { LegalDocumentDialog } from "../legal/LegalDocumentDialog";
 import type { LegalDocumentKind } from "../legal/legalDocuments";
 import { Input } from "../../components/ui/input";
-import { Select } from "../../components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { PageFrame, SegmentedControl, Surface } from "../../components/ui/patterns";
 import {
   languageLabelKeys,
@@ -370,15 +370,19 @@ function SettingsViewBase({
                 description={t("settings.languageDescription")}
                 control={
                   <Select
-                    className="settings-menu-control"
                     value={language}
-                    onChange={(event) => onLanguageChange(event.target.value as Language)}
+                    onValueChange={(value) => onLanguageChange(value as Language)}
                   >
-                    {languages.map((option) => (
-                      <option key={option} value={option}>
-                        {t(languageLabelKeys[option])}
-                      </option>
-                    ))}
+                    <SelectTrigger className="settings-menu-control" aria-label={t("settings.language")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {languages.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {t(languageLabelKeys[option])}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
                 }
               />
@@ -407,21 +411,27 @@ function SettingsViewBase({
                 description={t("settings.workspaceGapDescription")}
                 control={
                   <Select
-                    aria-label={t("settings.workspaceGapSize")}
-                    className="settings-menu-control"
                     disabled={isWorkspaceAppearanceSaving}
                     value={String(normalizeGameBrowserSettings(gameBrowserSettings).workspace.gap)}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       updateWorkspaceAppearanceSettings({
-                        gap: Number(event.target.value) as WorkspaceGapSize
+                        gap: Number(value) as WorkspaceGapSize
                       })
                     }
                   >
-                    {workspaceGapSizes.map((size) => (
-                      <option key={size} value={size}>
-                        {size} px
-                      </option>
-                    ))}
+                    <SelectTrigger
+                      aria-label={t("settings.workspaceGapSize")}
+                      className="settings-menu-control"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workspaceGapSizes.map((size) => (
+                        <SelectItem key={size} value={String(size)}>
+                          {size} px
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
                 }
               />
@@ -448,17 +458,21 @@ function SettingsViewBase({
                 description={t("settings.defaultPresetDescription")}
                 control={
                   <Select
-                    className="settings-menu-control"
                     value={roleDefaults.launchPreset}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       onRoleDefaultsChange({
                         ...roleDefaults,
-                        launchPreset: event.target.value as LaunchPreset
+                        launchPreset: value as LaunchPreset
                       })
                     }
                   >
-                    <option value="performance">{t(presetLabelKeys.performance)}</option>
-                    <option value="balanced">{t(presetLabelKeys.balanced)}</option>
+                    <SelectTrigger className="settings-menu-control" aria-label={t("settings.defaultPreset")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="performance">{t(presetLabelKeys.performance)}</SelectItem>
+                      <SelectItem value="balanced">{t(presetLabelKeys.balanced)}</SelectItem>
+                    </SelectContent>
                   </Select>
                 }
               />
@@ -470,20 +484,24 @@ function SettingsViewBase({
                 description={t("settings.browserLaunchModeDescription")}
                 control={
                   <Select
-                    className="settings-menu-control"
                     value={normalizeGameBrowserSettings(gameBrowserSettings).launchMode}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       void onGameBrowserSettingsChange(
                         normalizeGameBrowserSettings({
                           ...gameBrowserSettings,
-                          launchMode: event.target.value as BrowserLaunchMode
+                          launchMode: value as BrowserLaunchMode
                         })
                       ).catch(onError)
                     }
                   >
-                    <option value="auto">{t("settings.browserLaunchModeAuto")}</option>
-                    <option value="embedded">{t("settings.browserLaunchModeEmbedded")}</option>
-                    <option value="external">{t("settings.browserLaunchModeExternal")}</option>
+                    <SelectTrigger className="settings-menu-control" aria-label={t("settings.browserLaunchMode")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">{t("settings.browserLaunchModeAuto")}</SelectItem>
+                      <SelectItem value="embedded">{t("settings.browserLaunchModeEmbedded")}</SelectItem>
+                      <SelectItem value="external">{t("settings.browserLaunchModeExternal")}</SelectItem>
+                    </SelectContent>
                   </Select>
                 }
               />
@@ -505,14 +523,20 @@ function SettingsViewBase({
                 control={
                   <div className="flex max-w-[420px] flex-wrap items-center justify-end gap-2">
                     <Select
-                      className="settings-menu-control"
                       disabled={isGraphicsBusy}
                       value={normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode}
-                      onChange={(event) => void handleGraphicsModeChange(event.target.value as BrowserGraphicsMode)}
+                      onValueChange={(value) => void handleGraphicsModeChange(value as BrowserGraphicsMode)}
                     >
-                      <option value="automatic">{t("settings.graphicsModeAutomatic")}</option>
-                      <option value="high_performance">{t("settings.graphicsModeHighPerformance")}</option>
-                      <option value="experimental">{t("settings.graphicsModeExperimental")}</option>
+                      <SelectTrigger className="settings-menu-control" aria-label={t("settings.graphicsMode")}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="automatic">{t("settings.graphicsModeAutomatic")}</SelectItem>
+                        <SelectItem value="high_performance">
+                          {t("settings.graphicsModeHighPerformance")}
+                        </SelectItem>
+                        <SelectItem value="experimental">{t("settings.graphicsModeExperimental")}</SelectItem>
+                      </SelectContent>
                     </Select>
                     {graphicsDiagnostics?.restartRequired ? (
                       <Button
@@ -578,9 +602,8 @@ function SettingsViewBase({
                 }
                 control={
                   <Select
-                    className="settings-menu-control"
                     value={normalizeGameBrowserSettings(gameBrowserSettings).network.cdnCompatibility.mode}
-                    onChange={(event) => {
+                    onValueChange={(value) => {
                       const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
                       void onGameBrowserSettingsChange(
                         normalizeGameBrowserSettings({
@@ -588,16 +611,21 @@ function SettingsViewBase({
                           network: {
                             ...normalizedSettings.network,
                             cdnCompatibility: {
-                              mode: event.target.value as BrowserCdnCompatibilityMode
+                              mode: value as BrowserCdnCompatibilityMode
                             }
                           }
                         })
                       ).catch(onError);
                     }}
                   >
-                    <option value="auto">{t("settings.cdnCompatibilityAuto")}</option>
-                    <option value="on">{t("settings.cdnCompatibilityOn")}</option>
-                    <option value="off">{t("settings.cdnCompatibilityOff")}</option>
+                    <SelectTrigger className="settings-menu-control" aria-label={t("settings.cdnCompatibility")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">{t("settings.cdnCompatibilityAuto")}</SelectItem>
+                      <SelectItem value="on">{t("settings.cdnCompatibilityOn")}</SelectItem>
+                      <SelectItem value="off">{t("settings.cdnCompatibilityOff")}</SelectItem>
+                    </SelectContent>
                   </Select>
                 }
               />
@@ -810,19 +838,23 @@ function DefaultWindowControl({
   return (
     <div className="settings-menu-stack grid gap-2">
       <Select
-        className="settings-menu-control"
         value={selectedWindowSize}
-        onChange={(event) => handleWindowSizeChange(event.target.value)}
+        onValueChange={handleWindowSizeChange}
       >
-        {roleWindowSizeOptions.map((option) => (
-          <option
-            key={createRoleWindowSizeValue(option.width, option.height)}
-            value={createRoleWindowSizeValue(option.width, option.height)}
-          >
-            {formatRoleWindowSize(option.width, option.height)}
-          </option>
-        ))}
-        <option value={ROLE_WINDOW_CUSTOM_OPTION}>{t("settings.defaultWindow.custom")}</option>
+        <SelectTrigger className="settings-menu-control" aria-label={t("settings.defaultWindow")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {roleWindowSizeOptions.map((option) => (
+            <SelectItem
+              key={createRoleWindowSizeValue(option.width, option.height)}
+              value={createRoleWindowSizeValue(option.width, option.height)}
+            >
+              {formatRoleWindowSize(option.width, option.height)}
+            </SelectItem>
+          ))}
+          <SelectItem value={ROLE_WINDOW_CUSTOM_OPTION}>{t("settings.defaultWindow.custom")}</SelectItem>
+        </SelectContent>
       </Select>
 
       {isCustomWindowSize ? (

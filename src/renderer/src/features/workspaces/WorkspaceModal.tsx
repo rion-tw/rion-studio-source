@@ -13,7 +13,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
-import { Select } from "../../components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { launchUrlOptions } from "../../app/constants";
 import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
@@ -58,6 +58,8 @@ import {
   swapWorkspaceSlotRoles,
   type WorkspaceSplitAxis
 } from "./workspaceLayoutUtils";
+
+const FOLLOW_APP_DISPLAY_SELECT_VALUE = "__follow_app_display__";
 
 interface WorkspaceEditorRouteProps {
   isSaving: boolean;
@@ -367,21 +369,25 @@ function WorkspaceLayoutFormEditor({
             description={t("workspaces.browserZoomDescription")}
           >
             <Select
-              id="workspace-browser-zoom"
-              value={form.browserZoomPercent}
+              value={String(form.browserZoomPercent)}
               disabled={isSaving}
-              onChange={(event) =>
+              onValueChange={(value) =>
                 onChange({
                   ...form,
-                  browserZoomPercent: Number(event.target.value) as WorkspaceBrowserZoomPercent
+                  browserZoomPercent: Number(value) as WorkspaceBrowserZoomPercent
                 })
               }
             >
-              {workspaceBrowserZoomPercents.map((zoomPercent) => (
-                <option key={zoomPercent} value={zoomPercent}>
-                  {zoomPercent}%
-                </option>
-              ))}
+              <SelectTrigger id="workspace-browser-zoom">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {workspaceBrowserZoomPercents.map((zoomPercent) => (
+                  <SelectItem key={zoomPercent} value={String(zoomPercent)}>
+                    {zoomPercent}%
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </FormField>
         </Surface>
@@ -393,35 +399,47 @@ function WorkspaceLayoutFormEditor({
             description={t("workspaces.targetDisplayDescription")}
           >
             <Select
-              id="workspace-target-display"
-              value={form.targetDisplayId ?? ""}
+              value={form.targetDisplayId === undefined
+                ? FOLLOW_APP_DISPLAY_SELECT_VALUE
+                : String(form.targetDisplayId)}
               disabled={isSaving}
-              onChange={(event) =>
+              onValueChange={(value) =>
                 onChange({
                   ...form,
-                  targetDisplayId: event.target.value === "" ? undefined : Number(event.target.value)
+                  targetDisplayId: value === FOLLOW_APP_DISPLAY_SELECT_VALUE ? undefined : Number(value)
                 })
               }
             >
-              <option value="">{t("workspaces.targetDisplayFollowApp")}</option>
-              {form.targetDisplayId !== undefined &&
-              !workspaceDisplays.some((display) => display.id === form.targetDisplayId) ? (
-                <option value={form.targetDisplayId} disabled>
-                  {t("workspaces.targetDisplayUnavailable").replace("{id}", String(form.targetDisplayId))}
-                </option>
-              ) : null}
-              {workspaceDisplays.map((display, index) => (
-                <option key={display.id} value={display.id}>
-                  {formatWorkspaceDisplayLabel(display, index, t)}
-                </option>
-              ))}
+              <SelectTrigger id="workspace-target-display">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={FOLLOW_APP_DISPLAY_SELECT_VALUE}>
+                  {t("workspaces.targetDisplayFollowApp")}
+                </SelectItem>
+                {form.targetDisplayId !== undefined &&
+                !workspaceDisplays.some((display) => display.id === form.targetDisplayId) ? (
+                  <SelectItem value={String(form.targetDisplayId)} disabled>
+                    {t("workspaces.targetDisplayUnavailable").replace("{id}", String(form.targetDisplayId))}
+                  </SelectItem>
+                ) : null}
+                {workspaceDisplays.map((display, index) => (
+                  <SelectItem key={display.id} value={String(display.id)}>
+                    {formatWorkspaceDisplayLabel(display, index, t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </FormField>
         </Surface>
       </div>
 
-      <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(0,1fr)_270px]">
-        <Surface className="grid gap-3 p-4" padding="none" variant="panel">
+      <Surface
+        className="grid overflow-hidden min-[1180px]:grid-cols-[minmax(0,1fr)_270px]"
+        padding="none"
+        variant="panel"
+      >
+        <div className="grid gap-3 p-4">
           <FieldHeader title={t("workspaces.layout")} description={t("workspaces.layoutDescription")} />
           <div className="flex flex-wrap gap-1.5">
             {workspaceLayoutTemplates.map((template) => {
@@ -491,9 +509,9 @@ function WorkspaceLayoutFormEditor({
               onResizeStart={startResize}
             />
           </div>
-        </Surface>
+        </div>
 
-        <Surface className="grid content-start gap-3 p-4" padding="none" variant="panel">
+        <div className="grid content-start gap-3 border-t border-border p-4 min-[1180px]:border-l min-[1180px]:border-t-0">
           <div className="flex items-start justify-between gap-3">
             <FieldHeader
               title={t("workspaces.rolePicker")}
@@ -564,8 +582,8 @@ function WorkspaceLayoutFormEditor({
               })
             )}
           </div>
-        </Surface>
-      </div>
+        </div>
+      </Surface>
     </div>
   );
 }

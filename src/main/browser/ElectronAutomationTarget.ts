@@ -1,5 +1,10 @@
 import type { WebContents, WebContentsView, WebFrameMain } from "electron";
 
+import {
+  createMacroShortcutSuppressionClearSource,
+  createMacroShortcutSuppressionSource
+} from "../../shared/macroShortcuts";
+
 export interface BrowserAutomationTarget {
   dispatchClick: (xPercent: number, yPercent: number) => Promise<void>;
   dispatchKey: (code: string) => Promise<void>;
@@ -8,6 +13,8 @@ export interface BrowserAutomationTarget {
 }
 
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
+  private keyDispatchTail: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly view: Pick<WebContentsView, "getBounds">,
     private readonly webContents: Pick<
@@ -42,16 +49,38 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     await this.webContents.executeJavaScript(createFocusSource(true)).catch(() => undefined);
   }
 
-  async dispatchKey(code: string): Promise<void> {
+  dispatchKey(code: string): Promise<void> {
+    const result = this.keyDispatchTail.then(() => this.dispatchKeyUnlocked(code));
+    this.keyDispatchTail = result.catch(() => undefined);
+    return result;
+  }
+
+  private async dispatchKeyUnlocked(code: string): Promise<void> {
     await this.preparePageTarget();
 
     if (this.webContents.isDestroyed()) {
       return;
     }
 
+    const suppressionSource = createMacroShortcutSuppressionSource(code);
+    await Promise.all(
+      [...this.webContents.mainFrame.framesInSubtree].map((frame) =>
+        executeFrameScript(frame, suppressionSource).catch(() => undefined)
+      )
+    );
+
     const keyCode = getElectronKeyCode(code);
-    this.webContents.sendInputEvent({ type: "rawKeyDown", keyCode });
-    this.webContents.sendInputEvent({ type: "keyUp", keyCode });
+    try {
+      this.webContents.sendInputEvent({ type: "rawKeyDown", keyCode });
+      this.webContents.sendInputEvent({ type: "keyUp", keyCode });
+    } finally {
+      const clearSource = createMacroShortcutSuppressionClearSource(code);
+      await Promise.all(
+        [...this.webContents.mainFrame.framesInSubtree].map((frame) =>
+          executeFrameScript(frame, clearSource).catch(() => undefined)
+        )
+      );
+    }
   }
 
   async dispatchClick(xPercent: number, yPercent: number): Promise<void> {

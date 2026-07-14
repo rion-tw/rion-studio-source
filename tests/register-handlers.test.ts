@@ -437,7 +437,10 @@ describe("registerIpcHandlers macro handlers", () => {
     MacroStore,
     "createMacro" | "deleteMacro" | "deleteRoleMacros" | "listMacros" | "updateMacro"
   >;
-  let macroManager: Pick<MacroManager, "listStatuses" | "on" | "start" | "stop" | "stopRole">;
+  let macroManager: Pick<
+    MacroManager,
+    "listStatuses" | "on" | "runStoppedMutation" | "start" | "stop" | "stopAndRunMutation" | "stopRole"
+  >;
   let consumePendingMacroEditorRequest: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -487,7 +490,9 @@ describe("registerIpcHandlers macro handlers", () => {
           updatedAt: "2026-07-10T00:00:00.000Z"
         }
       ]),
+      runStoppedMutation: vi.fn(async (_macroId: string, operation: () => Promise<unknown>) => operation()) as never,
       stop: vi.fn().mockResolvedValue(undefined),
+      stopAndRunMutation: vi.fn(async (_macroId: string, operation: () => Promise<unknown>) => operation()) as never,
       stopRole: vi.fn().mockResolvedValue(undefined)
     };
     consumePendingMacroEditorRequest = vi.fn(() => ({ macroId: "macro-1", roleId: "role-1" }));
@@ -546,7 +551,7 @@ describe("registerIpcHandlers macro handlers", () => {
   it("stops and deletes running macro instances before deleting a macro", async () => {
     await handlers.get(IPC_CHANNELS.macrosDelete)?.({}, "macro-1");
 
-    expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
+    expect(macroManager.stopAndRunMutation).toHaveBeenCalledWith("macro-1", expect.any(Function));
     expect(macroStore.deleteMacro).toHaveBeenCalledWith("macro-1");
   });
 

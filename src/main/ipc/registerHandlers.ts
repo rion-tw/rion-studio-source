@@ -401,14 +401,13 @@ export function registerIpcHandlers(
     });
 
     ipcMain.handle(IPC_CHANNELS.macrosUpdate, async (_event, id: string, input: UpdateMacroInput) => {
-      const macro = await macroStore.updateMacro(id, input);
+      const macro = await macroManager.runStoppedMutation(id, () => macroStore.updateMacro(id, input));
       options.onMacrosChanged?.();
       return macro;
     });
 
     ipcMain.handle(IPC_CHANNELS.macrosDelete, async (_event, id: string) => {
-      await macroManager.stop(id);
-      await macroStore.deleteMacro(id);
+      await macroManager.stopAndRunMutation(id, () => macroStore.deleteMacro(id));
       options.onMacrosChanged?.();
     });
 

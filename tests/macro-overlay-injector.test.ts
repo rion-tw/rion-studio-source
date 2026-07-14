@@ -107,6 +107,13 @@ describe("MacroOverlayInjector", () => {
       },
       {
         roleId: "role-2",
+        macroId: "macro-1",
+        state: "running",
+        startedAt: "2026-07-10T00:00:00.000Z",
+        updatedAt: "2026-07-10T00:00:00.000Z"
+      },
+      {
+        roleId: "role-2",
         macroId: "macro-2",
         state: "running",
         startedAt: "2026-07-10T00:00:00.000Z",
@@ -130,13 +137,36 @@ describe("MacroOverlayInjector", () => {
     expect(listState).toMatchObject({
       language: "zh-TW",
       macros: [{ id: "macro-1" }],
-      statuses: [{ roleId: "role-1", macroId: "macro-1" }]
+      statuses: [
+        { roleId: "role-1", macroId: "macro-1" },
+        { roleId: "role-2", macroId: "macro-1" }
+      ]
     });
     expect(startState).toMatchObject({
       macros: [{ id: "macro-1" }]
     });
     expect(macroManager.start).toHaveBeenCalledWith("macro-1");
     expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
+  });
+
+  it("rejects edit, start, and stop requests for macros not assigned to the overlay role", async () => {
+    const onMacroEditorRequested = vi.fn();
+    const macroManager = {
+      listStatuses: vi.fn(() => []),
+      start: vi.fn().mockResolvedValue([]),
+      stop: vi.fn().mockResolvedValue(undefined)
+    };
+    const injector = createInjector({ macroManager, onMacroEditorRequested });
+
+    for (const type of ["edit", "start", "stop"] as const) {
+      await expect(injector.handleRequest(role.id, { type, macroId: "macro-2" })).rejects.toThrow(
+        "This macro is not assigned to the current role."
+      );
+    }
+
+    expect(onMacroEditorRequested).not.toHaveBeenCalled();
+    expect(macroManager.start).not.toHaveBeenCalled();
+    expect(macroManager.stop).not.toHaveBeenCalled();
   });
 
   it("routes create and edit requests with the installed role id", async () => {
@@ -179,7 +209,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.9"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.12"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("dispose");
     expect(MACRO_OVERLAY_SCRIPT).toContain("host.style.setProperty(property, value, \"important\")");
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"right\", \"8px\"]");
@@ -479,11 +509,26 @@ function createInjector({
   };
   onMacroEditorRequested?: ReturnType<typeof vi.fn>;
 } = {}): MacroOverlayInjector {
+  const roleAwareMacroManager = {
+    listStatuses: macroManager.listStatuses,
+    startForRole: vi.fn((macroId: string, roleId: string) => {
+      if (![assignedMacro, otherMacro].find((macro) => macro.id === macroId)?.roleIds.includes(roleId)) {
+        throw new Error("This macro is not assigned to the current role.");
+      }
+      return macroManager.start(macroId);
+    }),
+    stopForRole: vi.fn((macroId: string, roleId: string) => {
+      if (![assignedMacro, otherMacro].find((macro) => macro.id === macroId)?.roleIds.includes(roleId)) {
+        throw new Error("This macro is not assigned to the current role.");
+      }
+      return macroManager.stop(macroId);
+    })
+  };
   return new MacroOverlayInjector(
     {
       listMacros: vi.fn().mockResolvedValue([assignedMacro, otherMacro])
     } as never,
-    macroManager as never,
+    roleAwareMacroManager as never,
     onMacroEditorRequested
   );
 }

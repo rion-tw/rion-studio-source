@@ -46,7 +46,7 @@ export class MacroOverlayInjector {
 
   constructor(
     private readonly macroStore: Pick<MacroStore, "listMacros">,
-    private readonly macroManager: Pick<MacroManager, "listStatuses" | "start" | "stop">,
+    private readonly macroManager: Pick<MacroManager, "listStatuses" | "startForRole" | "stopForRole">,
     private readonly onMacroEditorRequested?: (request: MacroEditorRequest) => void | Promise<void>
   ) {}
 
@@ -109,13 +109,14 @@ export class MacroOverlayInjector {
         await this.onMacroEditorRequested?.({ roleId });
         break;
       case "edit":
+        await this.assertMacroAssignedToRole(roleId, request.macroId);
         await this.onMacroEditorRequested?.({ macroId: request.macroId, roleId });
         break;
       case "start":
-        await this.macroManager.start(request.macroId);
+        await this.macroManager.startForRole(request.macroId, roleId);
         break;
       case "stop":
-        await this.macroManager.stop(request.macroId);
+        await this.macroManager.stopForRole(request.macroId, roleId);
         break;
     }
 
@@ -180,11 +181,21 @@ export class MacroOverlayInjector {
       Promise.resolve(this.macroManager.listStatuses())
     ]);
 
+    const assignedMacros = macros.filter((macro) => macro.roleIds.includes(roleId));
+    const assignedMacroIds = new Set(assignedMacros.map((macro) => macro.id));
+
     return {
       language: this.language,
-      macros: macros.filter((macro) => macro.roleIds.includes(roleId)),
-      statuses: statuses.filter((status) => status.roleId === roleId)
+      macros: assignedMacros,
+      statuses: statuses.filter((status) => assignedMacroIds.has(status.macroId))
     };
+  }
+
+  private async assertMacroAssignedToRole(roleId: string, macroId: string): Promise<void> {
+    const macro = (await this.macroStore.listMacros()).find((item) => item.id === macroId);
+    if (!macro?.roleIds.includes(roleId)) {
+      throw new Error("This macro is not assigned to the current role.");
+    }
   }
 }
 
@@ -336,7 +347,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v25"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-14.9";
+  const scriptVersion = "2026-07-14.12";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
@@ -370,6 +381,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       editError: "Unable to open this macro in Rion Studio.",
       keyStep: "Key",
       loadError: "Unable to load macros.",
+      shortcutConflict: "Multiple macros use this shortcut for the current role.",
       noShortcut: "No shortcut",
       noSteps: "No steps",
       once: "Once",
@@ -389,6 +401,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       editError: "無法在 Rion Studio 開啟此巨集。",
       keyStep: "按鍵",
       loadError: "無法載入巨集。",
+      shortcutConflict: "目前角色有多個巨集使用這組快捷鍵。",
       noShortcut: "無快捷鍵",
       noSteps: "無步驟",
       once: "執行一次",
@@ -408,6 +421,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       editError: "无法在 Rion Studio 中打开此宏。",
       keyStep: "按键",
       loadError: "无法加载宏。",
+      shortcutConflict: "当前角色有多个宏使用这组快捷键。",
       noShortcut: "无快捷键",
       noSteps: "无步骤",
       once: "执行一次",
@@ -427,6 +441,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       editError: "このマクロを Rion Studio で開けません。",
       keyStep: "キー",
       loadError: "マクロを読み込めません。",
+      shortcutConflict: "現在のロールで複数のマクロがこのショートカットを使用しています。",
       noShortcut: "ショートカットなし",
       noSteps: "ステップなし",
       once: "1回",
@@ -466,6 +481,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   let isInstalled = false;
   let cleanupInterval = undefined;
   let refreshInterval = undefined;
+  let suppressedShortcutEvents = [];
 
   if (typeof binding !== "function") {
     return;
@@ -507,6 +523,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
 
   function isStopping(macroId) {
     return state.statuses.some((status) => status.macroId === macroId && status.state === "stopping");
+  }
+
+  function isFailed(macroId) {
+    return state.statuses.some((status) => status.macroId === macroId && status.state === "failed");
   }
 
   function getRunningBadgeMacros() {
@@ -833,6 +853,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       .map((macro) => {
         const running = isRunning(macro.id);
         const stopping = isStopping(macro.id);
+        const failed = isFailed(macro.id);
         const shortcut = formatShortcut(macro.trigger);
         const steps = formatSteps(macro.steps);
         const poll = formatRepeat(macro.repeat);
@@ -840,7 +861,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
 
         return [
           '<div class="macro-row" role="menuitem"><span class="macro-title"><span class="status-dot ',
-          running || stopping ? "running" : "idle",
+          failed ? "failed" : running || stopping ? "running" : "idle",
           '"></span><strong>',
           escapeHtml(macro.name),
           '</strong></span><span class="macro-details"><span class="macro-detail-steps"><b>',
@@ -881,6 +902,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".macro-row:hover{background:rgba(255,255,255,.065);}",
       ".status-dot{border-radius:999px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);display:block;height:7px;width:7px;}",
       ".status-dot.running{background:#7dff72;color:rgba(125,255,114,.42);}",
+      ".status-dot.failed{background:#ffbd5c;color:rgba(255,189,92,.42);}",
       ".status-dot.idle{background:#ff5f57;color:rgba(255,95,87,.36);}",
       ".macro-title{align-items:center;display:flex;gap:7px;grid-area:title;min-width:0;}",
       ".macro-title strong{font-size:12px;font-weight:650;line-height:1.2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
@@ -1015,6 +1037,28 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     event.stopImmediatePropagation?.();
   }
 
+  function suppressNextShortcut(code) {
+    const now = Date.now();
+    suppressedShortcutEvents = suppressedShortcutEvents.filter((item) => item.expiresAt > now);
+    suppressedShortcutEvents.push({ code: String(code), expiresAt: now + 1000 });
+  }
+
+  function clearSuppressedShortcut(code) {
+    suppressedShortcutEvents = suppressedShortcutEvents.filter((item) => item.code !== code);
+  }
+
+  function consumeSuppressedShortcut(code) {
+    const now = Date.now();
+    suppressedShortcutEvents = suppressedShortcutEvents.filter((item) => item.expiresAt > now);
+    const index = suppressedShortcutEvents.findIndex((item) => item.code === code);
+    if (index === -1) {
+      return false;
+    }
+
+    suppressedShortcutEvents.splice(index, 1);
+    return true;
+  }
+
   function togglePanel(forceOpen) {
     const wasOpen = state.isOpen;
     state.isOpen = typeof forceOpen === "boolean" ? forceOpen : !state.isOpen;
@@ -1047,6 +1091,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   }
 
   function handleKeyDown(event) {
+    if (consumeSuppressedShortcut(event.code)) {
+      return;
+    }
+
     if (shouldIgnoreShortcutEvent(event, document.activeElement, document.designMode)) {
       return;
     }
@@ -1059,12 +1107,19 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       return;
     }
 
-    const macro = state.macros.find((item) => matchesShortcut(event, item.trigger));
-    if (!macro) {
+    const matchingMacros = state.macros.filter((item) => matchesShortcut(event, item.trigger));
+    if (matchingMacros.length === 0) {
       return;
     }
 
     consumeShortcutEvent(event);
+    if (matchingMacros.length > 1) {
+      state.error = getText().shortcutConflict;
+      render();
+      return;
+    }
+
+    const macro = matchingMacros[0];
     void runAction(isRunning(macro.id) || isStopping(macro.id) ? "stop" : "start", macro.id);
   }
 
@@ -1173,10 +1228,12 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     }, 300);
 
     window[controllerKey] = {
+      clearSuppressedShortcut,
       closePanel,
       dispose,
       focusAutomationTarget,
       refresh,
+      suppressNextShortcut,
       version: scriptVersion,
       togglePanel
     };

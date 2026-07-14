@@ -66,6 +66,23 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("suppresses overlay shortcut handling in every live execution context before key dispatch", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+    harness.notify({ method: "Runtime.executionContextCreated", params: { context: { id: 7 } } });
+    harness.notify({ method: "Runtime.executionContextCreated", params: { context: { id: 8 } } });
+
+    await target.dispatchKey("F2");
+
+    for (const contextId of [7, 8]) {
+      expect(harness.send).toHaveBeenCalledWith("Runtime.evaluate", {
+        contextId,
+        expression: expect.stringContaining('suppressNextShortcut?.("F2")')
+      });
+    }
+  });
+
   it("brings external Chrome to front only when focus is explicitly requested", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);

@@ -1,5 +1,9 @@
 import type { BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import {
+  createMacroShortcutSuppressionClearSource,
+  createMacroShortcutSuppressionSource
+} from "../../shared/macroShortcuts";
+import {
   CdpClient,
   listDevToolsTargets,
   waitForDevToolsPort,
@@ -71,18 +75,43 @@ export async function connectExternalChromeAutomation(
 }
 
 export class ExternalChromeAutomationTarget implements ExternalBrowserAutomationTarget {
+  private readonly executionContextIds = new Set<number>();
+  private keyDispatchTail: Promise<void> = Promise.resolve();
   private overlayHandler?: ExternalMacroOverlayHandler;
   private removeNotificationListener?: () => void;
 
   constructor(private readonly client: CdpEventClientLike) {}
 
   async initialize(): Promise<void> {
-    await Promise.all([this.client.send("Page.enable"), this.client.send("Runtime.enable")]);
     this.removeNotificationListener = this.client.onNotification((notification) => {
-      if (notification.method === "Runtime.bindingCalled") {
-        void this.handleBindingCalled(notification.params);
+      switch (notification.method) {
+        case "Runtime.bindingCalled":
+          void this.handleBindingCalled(notification.params);
+          break;
+        case "Runtime.executionContextCreated": {
+          const context = notification.params?.context;
+          if (typeof context === "object" && context !== null && "id" in context && typeof context.id === "number") {
+            this.executionContextIds.add(context.id);
+          }
+          break;
+        }
+        case "Runtime.executionContextDestroyed":
+          if (typeof notification.params?.executionContextId === "number") {
+            this.executionContextIds.delete(notification.params.executionContextId);
+          }
+          break;
+        case "Runtime.executionContextsCleared":
+          this.executionContextIds.clear();
+          break;
       }
     });
+    try {
+      await Promise.all([this.client.send("Page.enable"), this.client.send("Runtime.enable")]);
+    } catch (error) {
+      this.removeNotificationListener?.();
+      this.removeNotificationListener = undefined;
+      throw error;
+    }
   }
 
   onDisconnect(listener: () => void): () => void {
@@ -104,11 +133,45 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     await this.evaluate(createExternalFocusSource()).catch(() => undefined);
   }
 
-  async dispatchKey(code: string): Promise<void> {
+  dispatchKey(code: string): Promise<void> {
+    const result = this.keyDispatchTail.then(() => this.dispatchKeyUnlocked(code));
+    this.keyDispatchTail = result.catch(() => undefined);
+    return result;
+  }
+
+  private async dispatchKeyUnlocked(code: string): Promise<void> {
     await this.preparePageTarget();
+    await this.suppressNextShortcut(code);
     const descriptor = getCdpKeyDescriptor(code);
-    await this.client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...descriptor });
-    await this.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor });
+    try {
+      await this.client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...descriptor });
+      await this.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor });
+    } finally {
+      await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
+    }
+  }
+
+  private async suppressNextShortcut(code: string): Promise<void> {
+    await this.evaluateInExecutionContexts(createMacroShortcutSuppressionSource(code));
+  }
+
+  private async evaluateInExecutionContexts(expression: string): Promise<void> {
+    const contextIds = [...this.executionContextIds];
+
+    if (contextIds.length === 0) {
+      await this.evaluate(expression).catch(() => undefined);
+      return;
+    }
+
+    await Promise.all(
+      contextIds.map(async (contextId) => {
+        try {
+          await this.client.send("Runtime.evaluate", { expression, contextId });
+        } catch {
+          this.executionContextIds.delete(contextId);
+        }
+      })
+    );
   }
 
   async dispatchClick(xPercent: number, yPercent: number): Promise<void> {

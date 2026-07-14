@@ -11,6 +11,9 @@ describe("ElectronAutomationTarget", () => {
 
     expect(harness.webContents.focus).not.toHaveBeenCalled();
     expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('largest("canvas")'));
+    expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('suppressNextShortcut?.("F2")')
+    );
     expect(harness.webContents.sendInputEvent).toHaveBeenNthCalledWith(1, {
       type: "rawKeyDown",
       keyCode: "F2"
@@ -42,6 +45,42 @@ describe("ElectronAutomationTarget", () => {
       x: 200,
       y: 450
     });
+  });
+
+  it("serializes concurrent macro key dispatches for the same browser target", async () => {
+    const harness = createHarness();
+    let releaseFirstSuppression!: () => void;
+    const firstSuppression = new Promise<void>((resolve) => {
+      releaseFirstSuppression = resolve;
+    });
+    harness.frame.executeJavaScript.mockImplementation((source: string) => {
+      if (source.includes('suppressNextShortcut?.("F2")')) {
+        return firstSuppression;
+      }
+      return Promise.resolve(source.includes('largest("canvas")') ? "canvas" : undefined);
+    });
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    const first = target.dispatchKey("F2");
+    await vi.waitFor(() => {
+      expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining('suppressNextShortcut?.("F2")')
+      );
+    });
+    const second = target.dispatchKey("F3");
+    await Promise.resolve();
+    expect(harness.frame.executeJavaScript).not.toHaveBeenCalledWith(
+      expect.stringContaining('suppressNextShortcut?.("F3")')
+    );
+
+    releaseFirstSuppression();
+    await Promise.all([first, second]);
+    expect(harness.webContents.sendInputEvent.mock.calls).toEqual([
+      [{ type: "rawKeyDown", keyCode: "F2" }],
+      [{ type: "keyUp", keyCode: "F2" }],
+      [{ type: "rawKeyDown", keyCode: "F3" }],
+      [{ type: "keyUp", keyCode: "F3" }]
+    ]);
   });
 
   it("uses native focus only when focus is explicitly requested", async () => {

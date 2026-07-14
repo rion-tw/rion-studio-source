@@ -100,6 +100,20 @@ describe("MacroManager", () => {
     expect(manager.listStatuses()).toEqual([]);
   });
 
+  it("enforces the requesting overlay role inside the start and stop lifecycle lock", async () => {
+    const manager = createManager({
+      macroOverride: { ...macro, roleIds: ["role-1"] }
+    });
+
+    await expect(manager.startForRole("macro-1", "role-2")).rejects.toThrow(
+      "This macro is not assigned to the current role."
+    );
+    await expect(manager.stopForRole("macro-1", "role-2")).rejects.toThrow(
+      "This macro is not assigned to the current role."
+    );
+    expect(manager.listStatuses()).toEqual([]);
+  });
+
   it("rejects external runtime sessions before starting any assigned role", async () => {
     const manager = createManager({
       runtimeStatuses: [{ roleId: "role-1", runtimeMode: "external", state: "running" }],
@@ -165,12 +179,110 @@ describe("MacroManager", () => {
     await manager.start("macro-2");
     await manager.stop("macro-1");
 
-    expect(manager.listStatuses()).toMatchObject([{ macroId: "macro-1", state: "stopping" }, { macroId: "macro-2" }]);
+    expect(manager.listStatuses()).toMatchObject([{ macroId: "macro-2", state: "running" }]);
     await manager.stop("macro-2");
     await vi.runOnlyPendingTimersAsync();
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
+
+  it("yields to timers even when legacy input contains a zero loop interval and zero delay", async () => {
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        repeat: { type: "loop", intervalMs: 0 },
+        steps: [{ id: "step-1", type: "delay", ms: 0 }]
+      }
+    });
+    let timerFired = false;
+
+    await manager.start("macro-1");
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        timerFired = true;
+        resolve();
+      }, 5);
+    });
+
+    expect(timerFired).toBe(true);
+    await manager.stop("macro-1");
+  });
+
+  it("rejects edits while any assigned role is still running", async () => {
+    vi.useFakeTimers();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        steps: [{ id: "step-1", type: "delay", ms: 1000 }]
+      }
+    });
+    const operation = vi.fn().mockResolvedValue(undefined);
+
+    await manager.start("macro-1");
+    await expect(manager.runStoppedMutation("macro-1", operation)).rejects.toThrow(
+      "Stop the macro before editing it."
+    );
+    expect(operation).not.toHaveBeenCalled();
+    await manager.stop("macro-1");
+  });
+
+  it("waits for active dispatch to exit before a destructive mutation runs", async () => {
+    const deferred = createDeferred<void>();
+    const target = createTarget();
+    target.dispatchKey.mockImplementation(() => deferred.promise);
+    const manager = createManager({
+      macroOverride: { ...macro, roleIds: ["role-1"] },
+      targets: { "role-1": target }
+    });
+    const operation = vi.fn().mockResolvedValue("deleted");
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalled());
+    const mutation = manager.stopAndRunMutation("macro-1", operation);
+    await Promise.resolve();
+    expect(operation).not.toHaveBeenCalled();
+
+    deferred.resolve(undefined);
+    await expect(mutation).resolves.toBe("deleted");
+    expect(manager.listStatuses()).toEqual([]);
+  });
+
+  it("reports a failed role and cancels sibling roles after a partial execution failure", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const failedTarget = createTarget();
+    failedTarget.dispatchKey.mockRejectedValue(new Error("target detached"));
+    const siblingTarget = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        repeat: { type: "loop", intervalMs: 1000 }
+      },
+      targets: { "role-1": failedTarget, "role-2": siblingTarget }
+    });
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => {
+      expect(manager.listStatuses()).toEqual([
+        expect.objectContaining({ roleId: "role-1", macroId: "macro-1", state: "failed", error: "target detached" })
+      ]);
+    });
+    expect(warning).toHaveBeenCalledWith("Macro execution failed.", expect.any(Error));
+
+    await manager.stop("macro-1");
+    expect(manager.listStatuses()).toEqual([]);
+  });
 });
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
 
 function createManager(options: {
   macroById?: Record<string, Macro>;

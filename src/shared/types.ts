@@ -139,7 +139,7 @@ export interface MacroEditorRequest {
   macroId?: string;
 }
 
-export type MacroRunState = "running" | "stopping";
+export type MacroRunState = "running" | "stopping" | "failed";
 
 export interface MacroRunStatus {
   roleId: string;
@@ -147,6 +147,7 @@ export interface MacroRunStatus {
   state: MacroRunState;
   startedAt: string;
   updatedAt: string;
+  error?: string;
 }
 
 export interface AuthFlowStatus {
@@ -368,6 +369,8 @@ export type PortableImportWarningCode =
   | "WORKSPACE_ROLE_MISSING"
   | "MACRO_NAME_RENAMED"
   | "MACRO_ROLE_MISSING"
+  | "MACRO_SHORTCUT_CLEARED_CONFLICT"
+  | "MACRO_SHORTCUT_CLEARED_RESERVED"
   | "MACRO_SKIPPED_NO_ROLES";
 
 export interface PortableImportWarning {

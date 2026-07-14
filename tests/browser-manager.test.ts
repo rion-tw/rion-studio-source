@@ -312,9 +312,9 @@ describe("BrowserManager game host windows", () => {
     expect(harness.hosts[0].focus).toHaveBeenCalledTimes(2);
   });
 
-  it("lays out workspace roles edge-to-edge using normalized rectangles", async () => {
+  it("leaves a four-pixel material gap between workspace roles on macOS", async () => {
     const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
-    const harness = createHarness({ applyBrowserFonts });
+    const harness = createHarness({ applyBrowserFonts, platform: "darwin" });
     const secondRole = createRole("role-2", "Alt");
 
     await harness.manager.launchWorkspace(workspace, [
@@ -324,10 +324,24 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.createHostWindow).toHaveBeenCalledTimes(1);
     expect(harness.createHostWindow).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Party - Main, Alt" })
+      expect.objectContaining({
+        backgroundColor: "#000000",
+        closable: true,
+        maximizable: true,
+        minimizable: true,
+        resizable: true,
+        title: "Party - Main, Alt",
+        titleBarStyle: "default",
+        vibrancy: "under-window",
+        visualEffectState: "followWindow"
+      })
     );
-    expect(harness.views[0].setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 600, height: 800 });
-    expect(harness.views[1].setBounds).toHaveBeenCalledWith({ x: 600, y: 0, width: 600, height: 800 });
+    expect(harness.createHostWindow).toHaveBeenCalledWith(
+      expect.not.objectContaining({ transparent: true })
+    );
+    expect(harness.hosts[0].contentView.setBackgroundColor).toHaveBeenCalledWith("#00000000");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 598, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 800 });
     expect(harness.views[0].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
     expect(harness.views[1].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
     expect(applyBrowserFonts).toHaveBeenCalledWith(role, createRoleSessionPartition(role.id));
@@ -335,6 +349,27 @@ describe("BrowserManager game host windows", () => {
     expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
       harness.createView.mock.invocationCallOrder[0]
     );
+  });
+
+  it("uses an acrylic workspace material on Windows", async () => {
+    const harness = createHarness({ platform: "win32" });
+
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    expect(harness.createHostWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backgroundColor: "#202024",
+        backgroundMaterial: "acrylic"
+      })
+    );
+    expect(harness.createHostWindow).toHaveBeenCalledWith(
+      expect.not.objectContaining({ transparent: true })
+    );
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 598, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 800 });
   });
 
   it("launches workspace roles in batches of two", async () => {
@@ -410,7 +445,7 @@ describe("BrowserManager game host windows", () => {
     ]);
   });
 
-  it("draws a four-pixel black divider that is entirely draggable", async () => {
+  it("draws a four-pixel glass divider that is entirely draggable", async () => {
     const harness = createHarness();
 
     await harness.manager.launchWorkspace(workspace, [
@@ -428,16 +463,30 @@ describe("BrowserManager game host windows", () => {
       })
     );
     expect(harness.views[2].setBounds).toHaveBeenCalledWith({ x: 598, y: 0, width: 4, height: 800 });
+    expect(harness.views[2].view.setBackgroundColor).toHaveBeenCalledWith("#00000000");
+    expect(harness.views[2].view.setBackgroundBlur).not.toHaveBeenCalled();
     const dividerUrl = vi.mocked(harness.views[2].webContents.loadURL).mock.calls[0][0];
     const dividerHtml = decodeURIComponent(dividerUrl.split(",", 2)[1]);
     expect(dividerHtml).toContain("html,body");
-    expect(dividerHtml).toContain("background:#000");
+    expect(dividerHtml).toContain("background:transparent");
     expect(dividerHtml).not.toContain("class=\"line\"");
     expect(dividerHtml).toContain("cursor:col-resize");
-    expect(dividerHtml).toContain("body.dragging");
+    expect(dividerHtml).not.toContain("body.dragging");
     expect(dividerHtml).toContain("setDragging(true)");
     expect(dividerHtml).toContain('addEventListener("dblclick"');
     expect(dividerHtml).toContain('phase:"reset"');
+  });
+
+  it("keeps the divider transparent when reduced transparency is preferred", async () => {
+    const harness = createHarness({ prefersReducedTransparency: () => true });
+
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    expect(harness.views[2].view.setBackgroundColor).toHaveBeenCalledWith("#00000000");
+    expect(harness.views[2].view.setBackgroundBlur).not.toHaveBeenCalled();
   });
 
   it("resizes adjacent roles when the divider is dragged and enforces minimum cell size", async () => {
@@ -451,16 +500,16 @@ describe("BrowserManager game host windows", () => {
       phase: "move",
       screenPosition: 720
     });
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 720, height: 800 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 720, y: 0, width: 480, height: 800 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 718, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 722, y: 0, width: 478, height: 800 });
     expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 718, y: 0, width: 4, height: 800 });
 
     harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
       phase: "move",
       screenPosition: 0
     });
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 144, height: 800 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 144, y: 0, width: 1056, height: 800 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 142, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 146, y: 0, width: 1054, height: 800 });
   });
 
   it("shows snapped resize ratios during an active divider drag and hides them on end", async () => {
@@ -496,8 +545,8 @@ describe("BrowserManager game host windows", () => {
       phase: "move",
       screenPosition: 636
     });
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 660, height: 800 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 660, y: 0, width: 540, height: 800 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 658, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 662, y: 0, width: 538, height: 800 });
     expect(harness.views[0].webContents.send).toHaveBeenLastCalledWith(
       WORKSPACE_RESIZE_INDICATOR_CHANNEL,
       { type: "update", label: "55% × 100%" }
@@ -557,8 +606,8 @@ describe("BrowserManager game host windows", () => {
     });
     harness.manager.handleDividerPointer(harness.views[2].webContents.id, { phase: "reset" });
 
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 600, height: 800 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 0, width: 600, height: 800 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 598, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 800 });
     expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 598, y: 0, width: 4, height: 800 });
   });
 
@@ -626,8 +675,8 @@ describe("BrowserManager game host windows", () => {
     });
     harness.manager.handleDividerPointer(harness.views[3].webContents.id, { phase: "reset" });
 
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 400, height: 800 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 400, y: 0, width: 400, height: 800 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 398, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 402, y: 0, width: 396, height: 800 });
   });
 
   it("keeps centered-main row dividers out of the main pane while resizing both side stacks", async () => {
@@ -655,11 +704,11 @@ describe("BrowserManager game host windows", () => {
       screenPosition: 480
     });
 
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 360, y: 0, width: 480, height: 800 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 360, height: 480 });
-    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 480, width: 360, height: 320 });
-    expect(harness.views[3].setBounds).toHaveBeenLastCalledWith({ x: 840, y: 0, width: 360, height: 480 });
-    expect(harness.views[4].setBounds).toHaveBeenLastCalledWith({ x: 840, y: 480, width: 360, height: 320 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 362, y: 0, width: 476, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 358, height: 478 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 482, width: 358, height: 318 });
+    expect(harness.views[3].setBounds).toHaveBeenLastCalledWith({ x: 842, y: 0, width: 358, height: 478 });
+    expect(harness.views[4].setBounds).toHaveBeenLastCalledWith({ x: 842, y: 482, width: 358, height: 318 });
     expect(horizontalDividers[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 478, width: 360, height: 4 });
     expect(horizontalDividers[1].setBounds).toHaveBeenLastCalledWith({ x: 840, y: 478, width: 360, height: 4 });
   });
@@ -685,10 +734,10 @@ describe("BrowserManager game host windows", () => {
     });
     harness.manager.handleDividerPointer(verticalDivider.webContents.id, { phase: "reset" });
 
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 600, height: 480 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 0, width: 600, height: 480 });
-    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 480, width: 600, height: 320 });
-    expect(harness.views[3].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 480, width: 600, height: 320 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 598, height: 478 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 478 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 482, width: 598, height: 318 });
+    expect(harness.views[3].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 482, width: 598, height: 318 });
     expect(verticalDivider.setBounds).toHaveBeenLastCalledWith({ x: 598, y: 0, width: 4, height: 800 });
     expect(horizontalDivider.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 478, width: 1200, height: 4 });
   });
@@ -705,9 +754,9 @@ describe("BrowserManager game host windows", () => {
     harness.hosts[0].contentBounds = { x: 0, y: 0, width: 1000, height: 700 };
     harness.hosts[0].emit("resize");
 
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 500, height: 700 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 500, y: 0, width: 500, height: 700 });
-    expect(popup.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 500, height: 700 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 498, height: 700 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 502, y: 0, width: 498, height: 700 });
+    expect(popup.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 498, height: 700 });
   });
 
   it("does not resize game views while the host window is minimized", async () => {
@@ -751,10 +800,10 @@ describe("BrowserManager game host windows", () => {
     harness.hosts[0].contentBounds = { x: 0, y: 0, width: 900, height: 600 };
     harness.hosts[0].emit("restore");
 
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 450, height: 600 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 450, y: 0, width: 450, height: 600 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 448, height: 600 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 452, y: 0, width: 448, height: 600 });
     expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 448, y: 0, width: 4, height: 600 });
-    expect(popup.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 450, height: 600 });
+    expect(popup.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 448, height: 600 });
   });
 
   it("does not resize game views when host content bounds collapse", async () => {
@@ -1085,6 +1134,8 @@ function createHarness(options: {
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
   getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
+  platform?: NodeJS.Platform;
+  prefersReducedTransparency?: () => boolean;
   snapshotsByView?: Array<{ bodyText: string; localStorage: Record<string, string> }>;
 } = {}) {
   const hosts: ReturnType<typeof createMockHost>[] = [];
@@ -1120,7 +1171,11 @@ function createHarness(options: {
     ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
-    loginPollIntervalMs: 0
+    loginPollIntervalMs: 0,
+    ...(options.platform ? { platform: options.platform } : {}),
+    ...(options.prefersReducedTransparency
+      ? { prefersReducedTransparency: options.prefersReducedTransparency }
+      : {})
   });
   manager.setBeforeRolesStop(beforeRolesStop);
 
@@ -1155,7 +1210,8 @@ function createMockHost() {
     contentBounds: { x: 0, y: 0, width: 1200, height: 800 },
     contentView: {
       addChildView: vi.fn(),
-      removeChildView: vi.fn()
+      removeChildView: vi.fn(),
+      setBackgroundColor: vi.fn()
     },
     focus: vi.fn(),
     getContentBounds: vi.fn(() => host.contentBounds),
@@ -1215,6 +1271,8 @@ function createMockView(
   });
   const view = {
     getBounds: vi.fn(() => bounds),
+    setBackgroundBlur: vi.fn(),
+    setBackgroundColor: vi.fn(),
     setBounds,
     webContents
   };

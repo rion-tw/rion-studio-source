@@ -72,6 +72,8 @@ export interface BrowserManagerOptions {
   externalChromeManager?: ExternalChromeManager;
   getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getLaunchWorkArea: () => PixelBounds;
+  platform?: NodeJS.Platform;
+  prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
 }
 
@@ -181,6 +183,32 @@ const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
 const WORKSPACE_LAUNCH_CONCURRENCY = 2;
+
+function getWorkspaceWindowMaterialOptions(
+  platform: NodeJS.Platform,
+  prefersReducedTransparency: boolean
+): Partial<BaseWindowConstructorOptions> {
+  if (prefersReducedTransparency) {
+    return { backgroundColor: "#52525B" };
+  }
+
+  if (platform === "darwin") {
+    return {
+      backgroundColor: "#000000",
+      vibrancy: "under-window",
+      visualEffectState: "followWindow"
+    };
+  }
+
+  if (platform === "win32") {
+    return {
+      backgroundColor: "#202024",
+      backgroundMaterial: "acrylic"
+    };
+  }
+
+  return { backgroundColor: "#000000" };
+}
 
 export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly blockedRoleIds = new Set<string>();
@@ -526,13 +554,28 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private createHost(title: string, workspaceId?: string, launchBounds?: PixelBounds): GameHostWindow {
     const bounds = launchBounds ?? this.options.getLaunchWorkArea();
+    const isWorkspace = Boolean(workspaceId);
+    const prefersReducedTransparency = this.options.prefersReducedTransparency?.() ?? false;
     const window = this.options.createHostWindow({
       ...bounds,
-      backgroundColor: "#000000",
+      closable: true,
       frame: true,
+      maximizable: true,
+      minimizable: true,
+      resizable: true,
       show: false,
-      title
+      title,
+      titleBarStyle: "default",
+      ...(isWorkspace
+        ? getWorkspaceWindowMaterialOptions(
+            this.options.platform ?? process.platform,
+            prefersReducedTransparency
+          )
+        : { backgroundColor: "#000000" })
     });
+    if (isWorkspace) {
+      window.contentView.setBackgroundColor("#00000000");
+    }
     const host: GameHostWindow = {
       closing: false,
       dividers: [],
@@ -628,9 +671,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
           contextIsolation: true,
           nodeIntegration: false,
           preload: this.options.dividerPreloadPath,
-          sandbox: true
+          sandbox: true,
+          transparent: true
         }
       });
+      view.setBackgroundColor("#00000000");
       const divider: GameDivider = { ...descriptor, view };
       host.window.contentView.addChildView(view);
       const webContentsId = view.webContents.id;
@@ -641,7 +686,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       loadPromises.push(view.webContents.loadURL(createDividerDataUrl(divider.axis)).then(() => undefined));
       return divider;
     });
-    this.layoutDividers(host);
+    this.layoutHost(host);
     await Promise.all(loadPromises);
   }
 
@@ -829,7 +874,35 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private getSessionBounds(host: GameHostWindow, session: BrowserSession): PixelBounds {
-    return normalizedRectToPixelBounds(session.rect, host.window.getContentBounds());
+    const bounds = normalizedRectToPixelBounds(session.rect, host.window.getContentBounds());
+    const inset = Math.floor(DIVIDER_SIZE / 2);
+
+    host.dividers.forEach((divider) => {
+      if (divider.axis === "vertical") {
+        if (divider.beforeRoleIds.includes(session.role.id)) {
+          bounds.width -= inset;
+        }
+        if (divider.afterRoleIds.includes(session.role.id)) {
+          bounds.x += inset;
+          bounds.width -= inset;
+        }
+        return;
+      }
+
+      if (divider.beforeRoleIds.includes(session.role.id)) {
+        bounds.height -= inset;
+      }
+      if (divider.afterRoleIds.includes(session.role.id)) {
+        bounds.y += inset;
+        bounds.height -= inset;
+      }
+    });
+
+    return {
+      ...bounds,
+      height: Math.max(1, bounds.height),
+      width: Math.max(1, bounds.width)
+    };
   }
 
   private layoutDividers(host: GameHostWindow): void {
@@ -1307,15 +1380,13 @@ function createDividerDataUrl(axis: DividerAxis): string {
   const coordinate = axis === "vertical" ? "event.screenX" : "event.screenY";
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;cursor:${cursor};user-select:none}
-body{transition:background-color 90ms ease-out,box-shadow 90ms ease-out}
-body.dragging{background:#f4f4f5;box-shadow:0 0 10px rgba(255,255,255,.7)}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;cursor:${cursor};user-select:none}
 </style></head><body><script>
 let dragging=false;
 const send=(phase,event)=>window.rionStudioDivider.sendPointer({phase,screenPosition:${coordinate}});
 const end=()=>window.rionStudioDivider.sendPointer({phase:"end"});
 const reset=()=>window.rionStudioDivider.sendPointer({phase:"reset"});
-const setDragging=value=>{dragging=value;document.body.classList.toggle("dragging",value)};
+const setDragging=value=>{dragging=value};
 const finish=()=>{if(!dragging)return;setDragging(false);end()};
 addEventListener("pointerdown",event=>{setDragging(true);document.body.setPointerCapture?.(event.pointerId);send("start",event);event.preventDefault()});
 addEventListener("pointermove",event=>{if(dragging)send("move",event)});

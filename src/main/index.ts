@@ -326,7 +326,8 @@ function initializeApplication(): void {
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
     externalChromeManager,
     getBrowserLaunchMode: async () => (await gameBrowserSettingsStore.getSettings()).launchMode,
-    getLaunchWorkArea: () => getMainWindowDisplayWorkArea()
+    getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
+    prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
   });
   ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {
     browserManager?.handleDividerPointer(event.sender.id, payload);

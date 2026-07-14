@@ -404,10 +404,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
           WORKSPACE_LAUNCH_CONCURRENCY,
           (session) => this.finishLaunch(session, zoomFactor)
         );
+        if (host.closing || host.window.isDestroyed()) {
+          return [];
+        }
         host.window.focus();
         return sessions.map((session) => this.toStatus(session.role.id, session));
       } catch (error) {
+        const launchWasCancelled = host.closing || host.window.isDestroyed();
         await this.stopHost(host.id);
+        if (launchWasCancelled) {
+          return [];
+        }
         if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
           return this.launchExternalWorkspace(workspace, items, EXTERNAL_COMPAT_NOTICE, target);
         }

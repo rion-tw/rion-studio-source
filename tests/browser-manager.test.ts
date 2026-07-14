@@ -507,6 +507,40 @@ describe("BrowserManager game host windows", () => {
     ]);
   });
 
+  it.each(["darwin", "win32"] as const)(
+    "does not fall back to external Chrome when a %s workspace is closed during launch",
+    async (platform) => {
+      let rejectLoad!: (error: Error) => void;
+      const externalChromeManager = createExternalChromeManager();
+      externalChromeManager.hasWorkspace.mockReturnValue(false);
+      externalChromeManager.listStatuses.mockReturnValue([]);
+      const harness = createHarness({
+        externalChromeManager,
+        getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
+        loadUrlHandlers: [
+          () =>
+            new Promise<void>((_resolve, reject) => {
+              rejectLoad = reject;
+            })
+        ],
+        platform
+      });
+      const launchPromise = harness.manager.launchWorkspace(workspace, [
+        { role, rect: { x: 0, y: 0, width: 1, height: 1 } }
+      ]);
+
+      await vi.waitFor(() => expect(rejectLoad).toBeTypeOf("function"));
+      const closeEvent = { preventDefault: vi.fn() };
+      harness.hosts[0].emit("close", closeEvent);
+      rejectLoad(new Error("ERR_FAILED (-2) because the view was closed"));
+
+      await expect(launchPromise).resolves.toEqual([]);
+      await vi.waitFor(() => expect(harness.manager.listStatuses()).toEqual([]));
+      expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
+      expect(externalChromeManager.launchWorkspace).not.toHaveBeenCalled();
+    }
+  );
+
   it("draws a four-pixel glass divider that is entirely draggable", async () => {
     const harness = createHarness();
 

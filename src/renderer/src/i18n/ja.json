@@ -188,6 +188,7 @@
   "macros.status.running": "Macro running",
   "macros.status.ready": "Macro ready",
   "macros.status.failed": "Macro failed",
+  "macros.status.cancelled": "マクロはキャンセルされました",
   "macros.launchRoleFirst": "Launch every assigned role before running a macro.",
   "macros.automationUnavailable": "この互換モードセッションではマクロ制御を使用できません。ロールを再起動してもう一度お試しください。",
   "macros.startShort": "開始",

@@ -188,6 +188,7 @@
   "macros.status.running": "宏执行中",
   "macros.status.ready": "宏可执行",
   "macros.status.failed": "宏执行失败",
+  "macros.status.cancelled": "宏已取消",
   "macros.launchRoleFirst": "请先启动所有分配角色再执行宏。",
   "macros.automationUnavailable": "此兼容模式会话无法使用宏控制。请重新启动角色后再试一次。",
   "macros.startShort": "启动",

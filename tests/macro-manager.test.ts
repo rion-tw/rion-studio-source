@@ -39,8 +39,8 @@ describe("MacroManager", () => {
     await vi.waitFor(() => expect(targets["role-2"].dispatchClick).toHaveBeenCalledTimes(1));
 
     for (const target of Object.values(targets)) {
-      expect(target.dispatchKey).toHaveBeenCalledWith("F2");
-      expect(target.dispatchClick).toHaveBeenCalledWith(25, 75);
+      expect(target.dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal));
+      expect(target.dispatchClick).toHaveBeenCalledWith(25, 75, expect.any(AbortSignal));
       expect(target.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
         target.dispatchClick.mock.invocationCallOrder[0]
       );
@@ -133,8 +133,8 @@ describe("MacroManager", () => {
     });
 
     await manager.start("macro-1");
-    await vi.waitFor(() => expect(targets["role-1"].dispatchKey).toHaveBeenCalledWith("F2"));
-    await vi.waitFor(() => expect(targets["role-2"].dispatchKey).toHaveBeenCalledWith("F2"));
+    await vi.waitFor(() => expect(targets["role-1"].dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(targets["role-2"].dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal)));
   });
 
   it("rejects when any assigned role is already running the macro", async () => {
@@ -185,6 +185,21 @@ describe("MacroManager", () => {
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
 
+  it("stops every sibling run when one assigned role closes", async () => {
+    vi.useFakeTimers();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        steps: [{ id: "step-1", type: "delay", ms: 1000 }]
+      }
+    });
+
+    await manager.start("macro-1");
+    await manager.stopRole("role-1");
+
+    expect(manager.listStatuses()).toEqual([]);
+  });
+
   it("yields to timers even when legacy input contains a zero loop interval and zero delay", async () => {
     const manager = createManager({
       macroOverride: {
@@ -227,7 +242,7 @@ describe("MacroManager", () => {
     await manager.stop("macro-1");
   });
 
-  it("waits for active dispatch to exit before a destructive mutation runs", async () => {
+  it("aborts a hung dispatch before a destructive mutation runs", async () => {
     const deferred = createDeferred<void>();
     const target = createTarget();
     target.dispatchKey.mockImplementation(() => deferred.promise);
@@ -240,12 +255,31 @@ describe("MacroManager", () => {
     await manager.start("macro-1");
     await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalled());
     const mutation = manager.stopAndRunMutation("macro-1", operation);
-    await Promise.resolve();
-    expect(operation).not.toHaveBeenCalled();
 
-    deferred.resolve(undefined);
     await expect(mutation).resolves.toBe("deleted");
+    expect(target.dispatchKey.mock.calls[0]?.[1]).toMatchObject({ aborted: true });
     expect(manager.listStatuses()).toEqual([]);
+    deferred.resolve(undefined);
+  });
+
+  it("fails a hung input after the operation timeout", async () => {
+    vi.useFakeTimers();
+    const target = createTarget();
+    target.dispatchKey.mockImplementation(() => new Promise<void>(() => undefined));
+    const manager = createManager({
+      macroOverride: { ...macro, roleIds: ["role-1"] },
+      targets: { "role-1": target }
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await manager.start("macro-1");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(manager.listStatuses()).toEqual([
+      expect.objectContaining({ state: "failed", error: "Macro input timed out after 10000 ms." })
+    ]);
+    expect(target.dispatchKey.mock.calls[0]?.[1]).toMatchObject({ aborted: true });
+    warning.mockRestore();
   });
 
   it("reports a failed role and cancels sibling roles after a partial execution failure", async () => {
@@ -264,7 +298,13 @@ describe("MacroManager", () => {
     await manager.start("macro-1");
     await vi.waitFor(() => {
       expect(manager.listStatuses()).toEqual([
-        expect.objectContaining({ roleId: "role-1", macroId: "macro-1", state: "failed", error: "target detached" })
+        expect.objectContaining({ roleId: "role-1", macroId: "macro-1", state: "failed", error: "target detached" }),
+        expect.objectContaining({
+          roleId: "role-2",
+          macroId: "macro-1",
+          state: "cancelled",
+          error: "Cancelled because another assigned role failed."
+        })
       ]);
     });
     expect(warning).toHaveBeenCalledWith("Macro execution failed.", expect.any(Error));

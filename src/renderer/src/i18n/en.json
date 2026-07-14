@@ -188,6 +188,7 @@
   "macros.status.running": "Macro running",
   "macros.status.ready": "Macro ready",
   "macros.status.failed": "Macro failed",
+  "macros.status.cancelled": "Macro cancelled",
   "macros.launchRoleFirst": "Launch every assigned role before running a macro.",
   "macros.automationUnavailable": "Macro control is unavailable for this compatibility-mode session. Restart the role and try again.",
   "macros.startShort": "Start",

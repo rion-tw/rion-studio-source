@@ -188,6 +188,7 @@
   "macros.status.running": "巨集執行中",
   "macros.status.ready": "巨集可執行",
   "macros.status.failed": "巨集執行失敗",
+  "macros.status.cancelled": "巨集已取消",
   "macros.launchRoleFirst": "請先啟動所有指派角色再執行巨集。",
   "macros.automationUnavailable": "此相容模式工作階段無法使用巨集控制。請重新啟動角色後再試一次。",
   "macros.startShort": "啟動",

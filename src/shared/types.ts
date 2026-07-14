@@ -139,7 +139,7 @@ export interface MacroEditorRequest {
   macroId?: string;
 }
 
-export type MacroRunState = "running" | "stopping" | "failed";
+export type MacroRunState = "running" | "stopping" | "failed" | "cancelled";
 
 export interface MacroRunStatus {
   roleId: string;

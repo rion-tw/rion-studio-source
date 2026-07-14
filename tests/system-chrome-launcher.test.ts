@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { WebSocketServer } from "ws";
 
 import {
   buildSystemChromeArgs,
@@ -115,6 +116,64 @@ describe("SystemChromeLauncher", () => {
       params: { expression: "1 + 1" }
     });
     await expect(response).resolves.toEqual({ value: 2 });
+    client.close();
+  });
+
+  it("uses the bundled Node WebSocket transport when no global WebSocket exists", async () => {
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await new Promise<void>((resolve, reject) => {
+      server.once("listening", resolve);
+      server.once("error", reject);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Unable to determine the WebSocket test server port.");
+    }
+
+    server.on("connection", (socket) => {
+      socket.once("message", (raw) => {
+        const request = JSON.parse(raw.toString("utf8")) as { id: number };
+        socket.send(JSON.stringify({ id: request.id, result: { value: 2 } }));
+      });
+    });
+
+    vi.stubGlobal("WebSocket", undefined);
+    const client = new CdpClient(`ws://127.0.0.1:${address.port}`, { requestTimeoutMs: 500 });
+    const onDisconnect = vi.fn();
+    client.onDisconnect(onDisconnect);
+
+    try {
+      await expect(client.send("Runtime.evaluate", { expression: "1 + 1" })).resolves.toEqual({ value: 2 });
+      client.close();
+      await vi.waitFor(() => expect(onDisconnect).toHaveBeenCalledTimes(1));
+    } finally {
+      client.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("parses typed-array CDP messages without surrounding buffer bytes", async () => {
+    FakeWebSocket.reset();
+    const client = new CdpClient("ws://devtools/page-1", {
+      WebSocket: FakeWebSocket as unknown as CdpWebSocketConstructor,
+      requestTimeoutMs: 50
+    });
+    const socket = FakeWebSocket.last();
+    socket.open();
+
+    const response = client.send("Runtime.evaluate");
+    await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+    const request = JSON.parse(socket.sent[0]) as { id: number };
+    const payload = JSON.stringify({ id: request.id, result: { value: "ok" } });
+    const framedPayload = Buffer.from(`prefix${payload}suffix`);
+    socket.messageData(
+      new Uint8Array(framedPayload.buffer, framedPayload.byteOffset + "prefix".length, Buffer.byteLength(payload))
+    );
+
+    await expect(response).resolves.toEqual({ value: "ok" });
     client.close();
   });
 
@@ -410,6 +469,10 @@ class FakeWebSocket {
 
   message(payload: unknown): void {
     this.dispatch("message", { data: JSON.stringify(payload) });
+  }
+
+  messageData(data: unknown): void {
+    this.dispatch("message", { data });
   }
 
   private dispatch(type: string, event: unknown): void {

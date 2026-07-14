@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+import WebSocket from "ws";
+
 import {
   isLoginStorageReady,
   readLoginStorageSnapshot,
@@ -113,6 +115,8 @@ export interface CdpWebSocketLike {
   removeEventListener: (type: string, listener: (event: unknown) => void) => void;
 }
 
+const DEFAULT_WEB_SOCKET_CONSTRUCTOR = WebSocket as unknown as CdpWebSocketConstructor;
+
 const DEFAULT_ACTIVE_PORT_TIMEOUT_MS = 10_000;
 const DEFAULT_MONITOR_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_STORAGE_READY_TIMEOUT_MS = 30_000;
@@ -138,11 +142,7 @@ export class CdpClient implements CdpEventClientLike {
   private didDisconnect = false;
 
   constructor(url: string, options: CdpClientOptions = {}) {
-    const WebSocketConstructor = options.WebSocket ?? getDefaultWebSocketConstructor();
-
-    if (!WebSocketConstructor) {
-      throw new SystemChromeLauncherError("DEVTOOLS_WEBSOCKET_UNAVAILABLE", "Chrome DevTools WebSocket is unavailable.");
-    }
+    const WebSocketConstructor = options.WebSocket ?? DEFAULT_WEB_SOCKET_CONSTRUCTOR;
 
     this.requestTimeoutMs = options.requestTimeoutMs ?? CDP_REQUEST_TIMEOUT_MS;
     this.socket = new WebSocketConstructor(url);
@@ -603,7 +603,7 @@ function parseCdpMessage(event: unknown): unknown {
       : data instanceof ArrayBuffer
         ? Buffer.from(data).toString("utf8")
         : ArrayBuffer.isView(data)
-          ? Buffer.from(data.buffer).toString("utf8")
+          ? Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8")
           : String(data);
 
   return JSON.parse(raw);
@@ -622,10 +622,6 @@ function isCdpResponse(value: unknown): value is {
     "id" in value &&
     typeof (value as { id?: unknown }).id === "number"
   );
-}
-
-function getDefaultWebSocketConstructor(): CdpWebSocketConstructor | undefined {
-  return typeof WebSocket === "undefined" ? undefined : (WebSocket as unknown as CdpWebSocketConstructor);
 }
 
 async function fetchJson(url: string): Promise<DevToolsResponse> {

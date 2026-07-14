@@ -41,7 +41,6 @@ export async function connectExternalChromeAutomation(
 ): Promise<ExternalChromeAutomationTarget> {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const deadline = now() + ATTACH_TIMEOUT_MS;
   const portResult = await waitForDevToolsPort(browserUserDataDir, {
     timeoutMs: ATTACH_TIMEOUT_MS,
     pollIntervalMs: ATTACH_POLL_INTERVAL_MS,
@@ -55,6 +54,7 @@ export async function connectExternalChromeAutomation(
     );
   }
 
+  const deadline = now() + ATTACH_TIMEOUT_MS;
   let lastError: unknown;
   while (now() < deadline) {
     try {

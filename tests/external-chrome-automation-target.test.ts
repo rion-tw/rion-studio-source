@@ -1,6 +1,11 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  connectExternalChromeAutomation,
   ExternalChromeAutomationTarget,
   getCdpKeyDescriptor
 } from "../src/main/browser/ExternalChromeAutomationTarget";
@@ -10,6 +15,41 @@ import type {
 } from "../src/main/system-browser/SystemChromeLauncher";
 
 describe("ExternalChromeAutomationTarget", () => {
+  it("gives page discovery a full timeout after a slow DevTools port startup", async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), "rion-external-chrome-automation-"));
+    const harness = createHarness();
+    let now = 0;
+    let wrotePort = false;
+    const fetchTargets = vi.fn(async () => ({
+      ok: true,
+      json: async () => now >= 10_500
+        ? [{
+            id: "target-1",
+            type: "page",
+            url: "https://example.com/play",
+            webSocketDebuggerUrl: "ws://devtools/page-1"
+          }]
+        : []
+    }));
+
+    const target = await connectExternalChromeAutomation(userDataDir, "https://example.com/play", {
+      createClient: () => harness.client,
+      fetch: fetchTargets,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+        if (!wrotePort && now >= 9_500) {
+          wrotePort = true;
+          await writeFile(join(userDataDir, "DevToolsActivePort"), "9222\n/devtools/browser/test\n");
+        }
+      }
+    });
+
+    expect(target).toBeInstanceOf(ExternalChromeAutomationTarget);
+    expect(now).toBe(10_500);
+    expect(fetchTargets).toHaveBeenCalledTimes(3);
+  });
+
   it("dispatches physical key events without bringing external Chrome to front", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);

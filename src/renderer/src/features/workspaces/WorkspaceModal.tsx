@@ -44,6 +44,7 @@ import {
   assignRoleToWorkspaceSlot,
   clamp,
   createWorkspaceSlotBackground,
+  getWorkspaceHorizontalResizeHandles,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
   readRoleDragId,
@@ -627,18 +628,8 @@ interface WorkspaceResizeHandlesProps {
 
 function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceResizeHandlesProps): JSX.Element | null {
   const splits = getWorkspaceSplits(template, slots);
-  const splitX = splits.vertical[0] ?? 1;
   const verticalHandleY = template === "quad" || template === "six_grid" || template === "eight_grid" ? 0.25 : 0.5;
-  const horizontalHandleX =
-    template === "quad" || template === "six_grid" || template === "eight_grid"
-      ? 0.25
-      : template === "main_left_stack_right"
-        ? splitX + (1 - splitX) / 2
-        : template === "main_right_stack_left"
-          ? splitX / 2
-          : template === "main_center_side_stacks"
-            ? splitX / 2
-            : 0.5;
+  const horizontalHandles = getWorkspaceHorizontalResizeHandles(template, splits);
 
   if (splits.vertical.length === 0 && splits.horizontal.length === 0) {
     return null;
@@ -661,17 +652,17 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
         </button>
       ))}
 
-      {splits.horizontal.map((position, index) => (
+      {horizontalHandles.map((handle, handleIndex) => (
         <button
-          key={`horizontal-${index}`}
+          key={`horizontal-${handle.splitIndex}-${handleIndex}`}
           className="group/resize absolute z-20 grid h-6 w-12 -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
           type="button"
-          aria-label={`Resize rows ${index + 1}`}
+          aria-label={`Resize rows ${handle.splitIndex + 1}`}
           style={{
-            left: `${horizontalHandleX * 100}%`,
-            top: `${position * 100}%`
+            left: `${handle.x * 100}%`,
+            top: `${handle.y * 100}%`
           }}
-          onPointerDown={(event) => onResizeStart(event, "horizontal", index)}
+          onPointerDown={(event) => onResizeStart(event, "horizontal", handle.splitIndex)}
         >
           <span className="glass-popover grid h-3.5 w-9 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25">
             <GripHorizontal size={12} />

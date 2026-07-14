@@ -11,6 +11,7 @@ import {
   assignRoleToWorkspaceSlot,
   createWorkspaceFormState,
   createWorkspaceSlotBackground,
+  getWorkspaceHorizontalResizeHandles,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
   readRoleDragId,
@@ -307,6 +308,49 @@ describe("renderer workspace layout helpers", () => {
       min: 0.2,
       max: 0.8
     });
+  });
+
+  it("keeps centered-main horizontal resize handles inside both side columns", () => {
+    expect(
+      getWorkspaceHorizontalResizeHandles("main_center_side_stacks", {
+        horizontal: [0.5],
+        vertical: [0.25, 0.75]
+      })
+    ).toEqual([
+      { splitIndex: 0, x: 0.125, y: 0.5 },
+      { splitIndex: 0, x: 0.875, y: 0.5 }
+    ]);
+
+    expect(
+      getWorkspaceHorizontalResizeHandles("main_center_side_stacks", {
+        horizontal: [0.6],
+        vertical: [0.2, 0.7]
+      })
+    ).toEqual([
+      { splitIndex: 0, x: 0.1, y: 0.6 },
+      { splitIndex: 0, x: 0.85, y: 0.6 }
+    ]);
+  });
+
+  it("preserves horizontal resize handle positions for other workspace templates", () => {
+    expect(
+      getWorkspaceHorizontalResizeHandles("quad", {
+        horizontal: [0.5],
+        vertical: [0.5]
+      })
+    ).toEqual([{ splitIndex: 0, x: 0.25, y: 0.5 }]);
+    expect(
+      getWorkspaceHorizontalResizeHandles("main_left_stack_right", {
+        horizontal: [0.5],
+        vertical: [0.4]
+      })
+    ).toEqual([{ splitIndex: 0, x: 0.7, y: 0.5 }]);
+    expect(
+      getWorkspaceHorizontalResizeHandles("two_columns", {
+        horizontal: [],
+        vertical: [0.5]
+      })
+    ).toEqual([]);
   });
 });
 

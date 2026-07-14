@@ -17,6 +17,12 @@ export interface WorkspaceSplits {
   vertical: number[];
 }
 
+export interface WorkspaceHorizontalResizeHandle {
+  splitIndex: number;
+  x: number;
+  y: number;
+}
+
 export type WorkspaceSplitAxis = keyof WorkspaceSplits;
 
 const EXISTING_LAYOUT_MIN_SPLIT_SIZE = 0.2;
@@ -196,6 +202,28 @@ export function getWorkspaceSplits(
         })
       };
   }
+}
+
+export function getWorkspaceHorizontalResizeHandles(
+  template: WorkspaceLayoutTemplate,
+  splits: WorkspaceSplits
+): WorkspaceHorizontalResizeHandle[] {
+  const splitX = splits.vertical[0] ?? 1;
+  const splitX2 = splits.vertical[1] ?? 1;
+  const xPositions =
+    template === "main_center_side_stacks"
+      ? [splitX / 2, splitX2 + (1 - splitX2) / 2]
+      : template === "quad" || template === "six_grid" || template === "eight_grid"
+        ? [0.25]
+        : template === "main_left_stack_right"
+          ? [splitX + (1 - splitX) / 2]
+          : template === "main_right_stack_left"
+            ? [splitX / 2]
+            : [0.5];
+
+  return splits.horizontal.flatMap((y, splitIndex) =>
+    xPositions.map((x) => ({ splitIndex, x, y }))
+  );
 }
 
 export function applyWorkspaceSplits(

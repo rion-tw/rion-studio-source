@@ -15,8 +15,10 @@ import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
 import type {
   BrowserLaunchMode,
   LaunchWorkspace,
+  PixelBounds,
   Role,
-  WorkspaceAppearanceSettings
+  WorkspaceAppearanceSettings,
+  WorkspaceLayoutTemplate
 } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
@@ -47,6 +49,61 @@ const workspace: LaunchWorkspace = {
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
+
+const persistedLayoutDividerCases: Array<[WorkspaceLayoutTemplate, PixelBounds[]]> = [
+  ["single", []],
+  ["two_columns", [{ x: 598, y: 0, width: 4, height: 800 }]],
+  ["three_columns", [
+    { x: 398, y: 0, width: 4, height: 800 },
+    { x: 798, y: 0, width: 4, height: 800 }
+  ]],
+  ["main_left_stack_right", [
+    { x: 598, y: 0, width: 4, height: 800 },
+    { x: 600, y: 398, width: 600, height: 4 }
+  ]],
+  ["main_right_stack_left", [
+    { x: 598, y: 0, width: 4, height: 800 },
+    { x: 0, y: 398, width: 600, height: 4 }
+  ]],
+  ["main_center_side_stacks", [
+    { x: 358, y: 0, width: 4, height: 800 },
+    { x: 838, y: 0, width: 4, height: 800 },
+    { x: 0, y: 398, width: 360, height: 4 },
+    { x: 840, y: 398, width: 360, height: 4 }
+  ]],
+  ["three_top_two_bottom", [
+    { x: 398, y: 0, width: 4, height: 400 },
+    { x: 798, y: 0, width: 4, height: 400 },
+    { x: 598, y: 400, width: 4, height: 400 },
+    { x: 0, y: 398, width: 1200, height: 4 }
+  ]],
+  ["two_top_three_bottom", [
+    { x: 598, y: 0, width: 4, height: 400 },
+    { x: 398, y: 400, width: 4, height: 400 },
+    { x: 798, y: 400, width: 4, height: 400 },
+    { x: 0, y: 398, width: 1200, height: 4 }
+  ]],
+  ["quad", [
+    { x: 598, y: 0, width: 4, height: 800 },
+    { x: 0, y: 398, width: 1200, height: 4 }
+  ]],
+  ["four_columns", [
+    { x: 298, y: 0, width: 4, height: 800 },
+    { x: 598, y: 0, width: 4, height: 800 },
+    { x: 898, y: 0, width: 4, height: 800 }
+  ]],
+  ["six_grid", [
+    { x: 398, y: 0, width: 4, height: 800 },
+    { x: 798, y: 0, width: 4, height: 800 },
+    { x: 0, y: 398, width: 1200, height: 4 }
+  ]],
+  ["eight_grid", [
+    { x: 298, y: 0, width: 4, height: 800 },
+    { x: 598, y: 0, width: 4, height: 800 },
+    { x: 898, y: 0, width: 4, height: 800 },
+    { x: 0, y: 398, width: 1200, height: 4 }
+  ]]
+];
 
 describe("BrowserManager game host windows", () => {
   it("creates a persistent isolated partition for each role", () => {
@@ -698,6 +755,164 @@ describe("BrowserManager game host windows", () => {
     ]);
   });
 
+  it.each(persistedLayoutDividerCases)(
+    "creates the complete, non-overlapping divider geometry for persisted %s layouts",
+    async (template, expectedDividerBounds) => {
+      const harness = createHarness();
+      const rects = toLegacyStoredRects(template);
+
+      await harness.manager.launchWorkspace(
+        workspace,
+        rects.map((rect, index) => ({
+          role: createRole(`persisted-${template}-${index + 1}`, `Role ${index + 1}`),
+          rect
+        }))
+      );
+
+      const dividerBounds = harness.views
+        .slice(rects.length)
+        .map((view) => view.view.getBounds());
+      expect(dividerBounds).toHaveLength(expectedDividerBounds.length);
+      expect(dividerBounds).toEqual(expect.arrayContaining(expectedDividerBounds));
+    }
+  );
+
+  it.each([
+    ["darwin", 1001, 701],
+    ["win32", 5121, 1441]
+  ] as const)(
+    "keeps persisted six-grid gaps pixel-perfect on %s at %sx%s",
+    async (platform, width, height) => {
+      const harness = createHarness({ platform });
+      const rects = toLegacyStoredRects("six_grid");
+      await harness.manager.launchWorkspace(
+        workspace,
+        rects.map((rect, index) => ({
+          role: createRole(`sized-${platform}-${index + 1}`, `Role ${index + 1}`),
+          rect
+        }))
+      );
+
+      harness.hosts[0].contentBounds = { x: 0, y: 0, width, height };
+      harness.hosts[0].emit("resize");
+
+      const firstColumnEnd = Math.round(0.3333 * width);
+      const secondColumnEnd = Math.round(0.6667 * width);
+      const firstRowEnd = Math.round(0.5 * height);
+      const columnBounds = [
+        { x: 0, width: firstColumnEnd - 2 },
+        { x: firstColumnEnd + 2, width: secondColumnEnd - firstColumnEnd - 4 },
+        { x: secondColumnEnd + 2, width: width - secondColumnEnd - 2 }
+      ];
+      const expectedSessionBounds = [0, 1].flatMap((rowIndex) =>
+        columnBounds.map((column) => ({
+          ...column,
+          y: rowIndex === 0 ? 0 : firstRowEnd + 2,
+          height: rowIndex === 0 ? firstRowEnd - 2 : height - firstRowEnd - 2
+        }))
+      );
+      expect(harness.views.slice(0, 6).map((view) => view.view.getBounds())).toEqual(expectedSessionBounds);
+      expect(harness.views.slice(6).map((view) => view.view.getBounds())).toEqual(expect.arrayContaining([
+        { x: firstColumnEnd - 2, y: 0, width: 4, height },
+        { x: secondColumnEnd - 2, y: 0, width: 4, height },
+        { x: 0, y: firstRowEnd - 2, width, height: 4 }
+      ]));
+    }
+  );
+
+  it.each(["three_top_two_bottom", "two_top_three_bottom"] as const)(
+    "keeps every persisted %s divider draggable and scoped to its row",
+    async (template) => {
+      const harness = createHarness();
+      const rects = toLegacyStoredRects(template);
+      await harness.manager.launchWorkspace(
+        workspace,
+        rects.map((rect, index) => ({
+          role: createRole(`mixed-${template}-${index + 1}`, `Role ${index + 1}`),
+          rect
+        }))
+      );
+
+      const dividers = harness.views.slice(rects.length);
+      const targetVerticalBounds = template === "three_top_two_bottom"
+        ? { x: 798, y: 0, width: 4, height: 400 }
+        : { x: 798, y: 400, width: 4, height: 400 };
+      const verticalDivider = dividers.find((view) =>
+        equalPixelBounds(view.view.getBounds(), targetVerticalBounds)
+      );
+      const horizontalDivider = dividers.find((view) =>
+        equalPixelBounds(view.view.getBounds(), { x: 0, y: 398, width: 1200, height: 4 })
+      );
+      expect(verticalDivider).toBeDefined();
+      expect(horizontalDivider).toBeDefined();
+      if (!verticalDivider || !horizontalDivider) {
+        throw new Error("Expected mixed-layout dividers to exist.");
+      }
+
+      harness.manager.handleDividerPointer(verticalDivider.webContents.id, {
+        phase: "start",
+        screenPosition: 800
+      });
+      const verticalRoleIndexes = template === "three_top_two_bottom" ? [1, 2] : [3, 4];
+      expect(harness.views.slice(0, 5).map((view) => view.webContents.send.mock.calls.length)).toEqual(
+        [0, 1, 2, 3, 4].map((index) => verticalRoleIndexes.includes(index) ? 1 : 0)
+      );
+      harness.manager.handleDividerPointer(verticalDivider.webContents.id, {
+        phase: "move",
+        screenPosition: 900
+      });
+      harness.manager.handleDividerPointer(verticalDivider.webContents.id, { phase: "end" });
+
+      const afterVerticalBounds = template === "three_top_two_bottom"
+        ? [
+            { x: 0, y: 0, width: 398, height: 398 },
+            { x: 402, y: 0, width: 496, height: 398 },
+            { x: 902, y: 0, width: 298, height: 398 },
+            { x: 0, y: 402, width: 598, height: 398 },
+            { x: 602, y: 402, width: 598, height: 398 }
+          ]
+        : [
+            { x: 0, y: 0, width: 598, height: 398 },
+            { x: 602, y: 0, width: 598, height: 398 },
+            { x: 0, y: 402, width: 398, height: 398 },
+            { x: 402, y: 402, width: 496, height: 398 },
+            { x: 902, y: 402, width: 298, height: 398 }
+          ];
+      expect(harness.views.slice(0, 5).map((view) => view.view.getBounds())).toEqual(afterVerticalBounds);
+
+      harness.manager.handleDividerPointer(horizontalDivider.webContents.id, {
+        phase: "start",
+        screenPosition: 400
+      });
+      harness.views.slice(0, 5).forEach((view) => {
+        expect(view.webContents.send).toHaveBeenLastCalledWith(
+          WORKSPACE_RESIZE_INDICATOR_CHANNEL,
+          expect.objectContaining({ type: "show" })
+        );
+      });
+      harness.manager.handleDividerPointer(horizontalDivider.webContents.id, {
+        phase: "move",
+        screenPosition: 480
+      });
+      harness.manager.handleDividerPointer(horizontalDivider.webContents.id, { phase: "end" });
+
+      const topRoleCount = template === "three_top_two_bottom" ? 3 : 2;
+      expect(harness.views.slice(0, 5).map((view) => view.view.getBounds())).toEqual(
+        afterVerticalBounds.map((bounds, index) => ({
+          ...bounds,
+          y: index < topRoleCount ? 0 : 482,
+          height: index < topRoleCount ? 478 : 318
+        }))
+      );
+      expect(horizontalDivider.view.getBounds()).toEqual({ x: 0, y: 478, width: 1200, height: 4 });
+      expect(verticalDivider.view.getBounds()).toEqual(
+        template === "three_top_two_bottom"
+          ? { x: 898, y: 0, width: 4, height: 480 }
+          : { x: 898, y: 480, width: 4, height: 320 }
+      );
+    }
+  );
+
   it("resets a snapped three-column divider to its exact one-third launch position", async () => {
     const harness = createHarness();
     const rects = getDefaultWorkspaceRects("three_columns");
@@ -1162,6 +1377,23 @@ describe("normalizedRectToPixelBounds", () => {
 
 function createRole(id: string, name: string): Role {
   return { ...role, id, name };
+}
+
+function toLegacyStoredRects(template: WorkspaceLayoutTemplate) {
+  return getDefaultWorkspaceRects(template).map((rect) => ({
+    x: roundLegacyRectValue(rect.x),
+    y: roundLegacyRectValue(rect.y),
+    width: roundLegacyRectValue(rect.width),
+    height: roundLegacyRectValue(rect.height)
+  }));
+}
+
+function roundLegacyRectValue(value: number): number {
+  return Math.round(value * 10_000) / 10_000;
+}
+
+function equalPixelBounds(left: PixelBounds, right: PixelBounds): boolean {
+  return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
 }
 
 function createHarness(options: {

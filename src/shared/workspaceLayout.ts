@@ -11,6 +11,23 @@ export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns"
 export const DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT: WorkspaceBrowserZoomPercent = 100;
 export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [75, 80, 90, 100, 110, 125];
 
+const WORKSPACE_RECT_PRECISION_SCALE = 10_000;
+const WORKSPACE_RECT_EDGE_TOLERANCE = 0.0001;
+
+interface WorkspaceRectEdges {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
+type WorkspaceRectEdgeSide = "bottom" | "left" | "right" | "top";
+
+interface WorkspaceRectEdgeReference {
+  rectIndex: number;
+  side: WorkspaceRectEdgeSide;
+}
+
 export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "two_columns",
   "three_columns",
@@ -126,6 +143,143 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
     case "eight_grid":
       return createGridRects(4, 2);
   }
+}
+
+export function normalizeWorkspaceRectEdges(rects: NormalizedRect[]): NormalizedRect[] {
+  const edges = rects.map(toWorkspaceRectEdges);
+  const references = edges.flatMap((_rect, rectIndex): WorkspaceRectEdgeReference[] => [
+    { rectIndex, side: "left" },
+    { rectIndex, side: "right" },
+    { rectIndex, side: "top" },
+    { rectIndex, side: "bottom" }
+  ]);
+  const parents = references.map((_reference, index) => index);
+
+  const find = (index: number): number => {
+    let root = index;
+    while (parents[root] !== root) {
+      root = parents[root];
+    }
+    while (parents[index] !== index) {
+      const parent = parents[index];
+      parents[index] = root;
+      index = parent;
+    }
+    return root;
+  };
+  const union = (leftIndex: number, rightIndex: number): void => {
+    const leftRoot = find(leftIndex);
+    const rightRoot = find(rightIndex);
+    if (leftRoot !== rightRoot) {
+      parents[rightRoot] = leftRoot;
+    }
+  };
+  const referenceIndex = (rectIndex: number, side: WorkspaceRectEdgeSide): number =>
+    rectIndex * 4 + workspaceRectEdgeSideIndex(side);
+
+  for (let leftIndex = 0; leftIndex < edges.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < edges.length; rightIndex += 1) {
+      const left = edges[leftIndex];
+      const right = edges[rightIndex];
+      const verticalOverlap = Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top);
+      const horizontalOverlap = Math.min(left.right, right.right) - Math.max(left.left, right.left);
+
+      if (verticalOverlap > 0) {
+        if (workspaceRectEdgesTouch(left.right, right.left)) {
+          union(referenceIndex(leftIndex, "right"), referenceIndex(rightIndex, "left"));
+        }
+        if (workspaceRectEdgesTouch(right.right, left.left)) {
+          union(referenceIndex(rightIndex, "right"), referenceIndex(leftIndex, "left"));
+        }
+      }
+
+      if (horizontalOverlap > 0) {
+        if (workspaceRectEdgesTouch(left.bottom, right.top)) {
+          union(referenceIndex(leftIndex, "bottom"), referenceIndex(rightIndex, "top"));
+        }
+        if (workspaceRectEdgesTouch(right.bottom, left.top)) {
+          union(referenceIndex(rightIndex, "bottom"), referenceIndex(leftIndex, "top"));
+        }
+      }
+    }
+  }
+
+  const groupedReferenceIndexes = new Map<number, number[]>();
+  references.forEach((_reference, index) => {
+    const root = find(index);
+    const group = groupedReferenceIndexes.get(root) ?? [];
+    group.push(index);
+    groupedReferenceIndexes.set(root, group);
+  });
+  const normalizedValues = references.map((reference) =>
+    toWorkspaceRectPrecisionUnits(edges[reference.rectIndex][reference.side])
+  );
+
+  groupedReferenceIndexes.forEach((group) => {
+    if (group.length < 2) {
+      return;
+    }
+
+    const preferred = group.filter((index) => {
+      const side = references[index].side;
+      return side === "left" || side === "top";
+    });
+    const candidates = preferred.length > 0 ? preferred : group;
+    const value = Math.round(
+      candidates.reduce((sum, index) => sum + normalizedValues[index], 0) / candidates.length
+    );
+    group.forEach((index) => {
+      normalizedValues[index] = value;
+    });
+  });
+
+  return edges.map((_rect, rectIndex) => {
+    const left = normalizedValues[referenceIndex(rectIndex, "left")];
+    const right = normalizedValues[referenceIndex(rectIndex, "right")];
+    const top = normalizedValues[referenceIndex(rectIndex, "top")];
+    const bottom = normalizedValues[referenceIndex(rectIndex, "bottom")];
+
+    return {
+      x: fromWorkspaceRectPrecisionUnits(left),
+      y: fromWorkspaceRectPrecisionUnits(top),
+      width: fromWorkspaceRectPrecisionUnits(right - left),
+      height: fromWorkspaceRectPrecisionUnits(bottom - top)
+    };
+  });
+}
+
+function toWorkspaceRectEdges(rect: NormalizedRect): WorkspaceRectEdges {
+  return {
+    left: rect.x,
+    right: rect.x + rect.width,
+    top: rect.y,
+    bottom: rect.y + rect.height
+  };
+}
+
+function workspaceRectEdgeSideIndex(side: WorkspaceRectEdgeSide): number {
+  switch (side) {
+    case "left":
+      return 0;
+    case "right":
+      return 1;
+    case "top":
+      return 2;
+    case "bottom":
+      return 3;
+  }
+}
+
+function workspaceRectEdgesTouch(left: number, right: number): boolean {
+  return Math.abs(left - right) <= WORKSPACE_RECT_EDGE_TOLERANCE + Number.EPSILON;
+}
+
+function toWorkspaceRectPrecisionUnits(value: number): number {
+  return Math.round(value * WORKSPACE_RECT_PRECISION_SCALE);
+}
+
+function fromWorkspaceRectPrecisionUnits(value: number): number {
+  return value / WORKSPACE_RECT_PRECISION_SCALE;
 }
 
 function createGridRects(columnCount: number, rowCount: number): NormalizedRect[] {

@@ -38,7 +38,8 @@ import {
   isWorkspaceBrowserZoomPercent,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
-  MIN_WORKSPACE_SLOT_SIZE
+  MIN_WORKSPACE_SLOT_SIZE,
+  normalizeWorkspaceRectEdges
 } from "../../shared/workspaceLayout";
 
 interface PortableSaveDialogOptions {
@@ -491,7 +492,12 @@ function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspa
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
   const slots = workspace.slots.map((slot, index) => normalizePortableWorkspaceSlot(slot, index));
-  const assignedRoleIds = slots.map((slot) => slot.roleId).filter(isString);
+  const normalizedRects = normalizeWorkspaceRectEdges(slots.map((slot) => slot.rect));
+  const normalizedSlots = slots.map((slot, index) => ({
+    ...slot,
+    rect: normalizedRects[index]
+  }));
+  const assignedRoleIds = normalizedSlots.map((slot) => slot.roleId).filter(isString);
   ensureUniqueIds(assignedRoleIds);
 
   return {
@@ -499,7 +505,7 @@ function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspa
     name: normalizeName(workspace.name),
     template,
     browserZoomPercent,
-    slots
+    slots: normalizedSlots
   };
 }
 

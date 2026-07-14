@@ -172,10 +172,37 @@ describe("LaunchWorkspaceStore", () => {
     const workspace = await store.createWorkspace({ name: "Equal thirds", template: "three_columns" });
 
     expect(workspace.slots.map((slot) => slot.rect)).toEqual([
-      { x: 0, y: 0, width: 1 / 3, height: 1 },
-      { x: 1 / 3, y: 0, width: 1 / 3, height: 1 },
-      { x: 2 / 3, y: 0, width: 1 / 3, height: 1 }
+      { x: 0, y: 0, width: 0.3333, height: 1 },
+      { x: 0.3333, y: 0, width: 0.3334, height: 1 },
+      { x: 0.6667, y: 0, width: 0.3333, height: 1 }
     ]);
+  });
+
+  it("repairs legacy rounded thirds while preserving the saved split ratio", async () => {
+    const path = join(baseDir, "launch-workspaces.json");
+    const legacyWorkspace = {
+      id: "workspace-legacy-thirds",
+      name: "Legacy thirds",
+      template: "three_columns",
+      browserZoomPercent: 90,
+      slots: [
+        { id: "slot-1", rect: { x: 0, y: 0, width: 0.3333, height: 1 } },
+        { id: "slot-2", rect: { x: 0.3333, y: 0, width: 0.3333, height: 1 } },
+        { id: "slot-3", rect: { x: 0.6667, y: 0, width: 0.3333, height: 1 } }
+      ],
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    };
+    await writeFile(path, JSON.stringify({ workspaces: [legacyWorkspace] }), "utf8");
+
+    const workspace = await store.getWorkspace(legacyWorkspace.id);
+
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual([
+      { x: 0, y: 0, width: 0.3333, height: 1 },
+      { x: 0.3333, y: 0, width: 0.3334, height: 1 },
+      { x: 0.6667, y: 0, width: 0.3333, height: 1 }
+    ]);
+    await expect(readFile(path, "utf8")).resolves.toBe(JSON.stringify({ workspaces: [legacyWorkspace] }));
   });
 
   it("uses a right main pane with stacked left panes for main_right_stack_left", async () => {
@@ -328,7 +355,7 @@ describe("LaunchWorkspaceStore", () => {
       "three_top_two_bottom",
       [
         { x: 0, y: 0, width: 0.3333, height: 0.5 },
-        { x: 0.3333, y: 0, width: 0.3333, height: 0.5 },
+        { x: 0.3333, y: 0, width: 0.3334, height: 0.5 },
         { x: 0.6667, y: 0, width: 0.3333, height: 0.5 },
         { x: 0, y: 0.5, width: 0.5, height: 0.5 },
         { x: 0.5, y: 0.5, width: 0.5, height: 0.5 }
@@ -340,7 +367,7 @@ describe("LaunchWorkspaceStore", () => {
         { x: 0, y: 0, width: 0.5, height: 0.5 },
         { x: 0.5, y: 0, width: 0.5, height: 0.5 },
         { x: 0, y: 0.5, width: 0.3333, height: 0.5 },
-        { x: 0.3333, y: 0.5, width: 0.3333, height: 0.5 },
+        { x: 0.3333, y: 0.5, width: 0.3334, height: 0.5 },
         { x: 0.6667, y: 0.5, width: 0.3333, height: 0.5 }
       ]
     ]
@@ -371,22 +398,22 @@ describe("LaunchWorkspaceStore", () => {
 
     expect(workspace.browserZoomPercent).toBe(80);
     expect(workspace.slots.map((slot) => slot.rect)).toEqual([
-      { x: 0, y: 0, width: 1 / 3, height: 0.5 },
-      { x: 1 / 3, y: 0, width: 1 / 3, height: 0.5 },
-      { x: 2 / 3, y: 0, width: 1 / 3, height: 0.5 },
-      { x: 0, y: 0.5, width: 1 / 3, height: 0.5 },
-      { x: 1 / 3, y: 0.5, width: 1 / 3, height: 0.5 },
-      { x: 2 / 3, y: 0.5, width: 1 / 3, height: 0.5 }
+      { x: 0, y: 0, width: 0.3333, height: 0.5 },
+      { x: 0.3333, y: 0, width: 0.3334, height: 0.5 },
+      { x: 0.6667, y: 0, width: 0.3333, height: 0.5 },
+      { x: 0, y: 0.5, width: 0.3333, height: 0.5 },
+      { x: 0.3333, y: 0.5, width: 0.3334, height: 0.5 },
+      { x: 0.6667, y: 0.5, width: 0.3333, height: 0.5 }
     ]);
     await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
       template: "six_grid",
       browserZoomPercent: 80,
       slots: [
         { rect: { x: 0, y: 0, width: 0.3333, height: 0.5 } },
-        { rect: { x: 0.3333, y: 0, width: 0.3333, height: 0.5 } },
+        { rect: { x: 0.3333, y: 0, width: 0.3334, height: 0.5 } },
         { rect: { x: 0.6667, y: 0, width: 0.3333, height: 0.5 } },
         { rect: { x: 0, y: 0.5, width: 0.3333, height: 0.5 } },
-        { rect: { x: 0.3333, y: 0.5, width: 0.3333, height: 0.5 } },
+        { rect: { x: 0.3333, y: 0.5, width: 0.3334, height: 0.5 } },
         { rect: { x: 0.6667, y: 0.5, width: 0.3333, height: 0.5 } }
       ]
     });

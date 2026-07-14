@@ -33,7 +33,10 @@ import type {
   WorkspaceAppearanceSettings
 } from "../../shared/types";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
-import { MIN_WORKSPACE_SLOT_SIZE } from "../../shared/workspaceLayout";
+import {
+  MIN_WORKSPACE_SLOT_SIZE,
+  normalizeWorkspaceRectEdges
+} from "../../shared/workspaceLayout";
 import {
   formatWorkspaceResizeRatio,
   snapWorkspaceResizePosition,
@@ -389,7 +392,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       );
       try {
         await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
-        const sessions = items.map((item) => this.createSession(item.role, host, item.rect));
+        const normalizedRects = normalizeWorkspaceRectEdges(items.map((item) => item.rect));
+        const sessions = items.map((item, index) =>
+          this.createSession(item.role, host, normalizedRects[index])
+        );
         const zoomFactor = workspace.browserZoomPercent / 100;
         await this.createHostDividers(host);
         host.window.show();

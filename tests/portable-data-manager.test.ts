@@ -263,6 +263,35 @@ describe("PortableDataManager", () => {
     await expect(invalidManager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
+  it("repairs legacy rounded thirds while importing portable workspaces", async () => {
+    const importPath = join(baseDir, "legacy-thirds.json");
+    const fixture = createPortableFixture();
+    fixture.launchWorkspaces[0] = {
+      ...fixture.launchWorkspaces[0],
+      template: "three_columns",
+      browserZoomPercent: 90,
+      slots: [
+        { id: "slot-1", roleId: "old-role", rect: { x: 0, y: 0, width: 0.3333, height: 1 } },
+        { id: "slot-2", rect: { x: 0.3333, y: 0, width: 0.3333, height: 1 } },
+        { id: "slot-3", rect: { x: 0.6667, y: 0, width: 0.3333, height: 1 } }
+      ]
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    const preview = await manager.previewImport();
+    await manager.applyImport(preview!.importId);
+
+    const importedWorkspace = (await workspaceStore.listWorkspaces()).find(
+      (candidate) => candidate.template === "three_columns"
+    );
+    expect(importedWorkspace?.slots.map((slot) => slot.rect)).toEqual([
+      { x: 0, y: 0, width: 0.3333, height: 1 },
+      { x: 0.3333, y: 0, width: 0.3334, height: 1 },
+      { x: 0.6667, y: 0, width: 0.3333, height: 1 }
+    ]);
+  });
+
   it("clears reserved and overlapping shortcuts before applying an import", async () => {
     const importPath = join(baseDir, "shortcut-conflicts.json");
     const fixture = createPortableFixture();

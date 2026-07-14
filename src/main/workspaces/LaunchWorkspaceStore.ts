@@ -22,7 +22,8 @@ import {
   isWorkspaceBrowserZoomPercent,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
-  MIN_WORKSPACE_SLOT_SIZE
+  MIN_WORKSPACE_SLOT_SIZE,
+  normalizeWorkspaceRectEdges
 } from "../../shared/workspaceLayout";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
@@ -409,7 +410,7 @@ export class LaunchWorkspaceStore {
       }
     }
 
-    return defaultSlots.map((defaultSlot, index) => {
+    const normalizedSlots = defaultSlots.map((defaultSlot, index) => {
       const inputSlot = sourceSlots[index];
       const roleId = this.normalizeRoleId(this.readSlotRoleId(inputSlot));
 
@@ -430,6 +431,12 @@ export class LaunchWorkspaceStore {
         rect: this.normalizeRect(inputSlot?.rect, getDefaultWorkspaceRects(template)[index])
       };
     });
+    const normalizedRects = normalizeWorkspaceRectEdges(normalizedSlots.map((slot) => slot.rect));
+
+    return normalizedSlots.map((slot, index) => ({
+      ...slot,
+      rect: normalizedRects[index]
+    }));
   }
 
   private normalizeSlotId(value: string | undefined, index: number): string {
@@ -476,12 +483,7 @@ export class LaunchWorkspaceStore {
       throw new LaunchWorkspaceStoreError("WORKSPACE_RECT_INVALID", "Launch workspace slot rectangle is invalid.");
     }
 
-    return {
-      x: roundRectValue(rect.x),
-      y: roundRectValue(rect.y),
-      width: roundRectValue(rect.width),
-      height: roundRectValue(rect.height)
-    };
+    return rect;
   }
 
   private normalizeUnit(value: number, field: keyof NormalizedRect): number {
@@ -516,10 +518,6 @@ function cloneWorkspacesFile(file: LaunchWorkspacesFile): LaunchWorkspacesFile {
       }))
     }))
   };
-}
-
-function roundRectValue(value: number): number {
-  return Math.round(value * 10_000) / 10_000;
 }
 
 function hasLegacyRoleSlotReference(workspace: LaunchWorkspace): boolean {

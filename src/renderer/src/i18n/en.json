@@ -139,6 +139,8 @@
   "workspace.layout.mainLeftStackRight": "Main left, stack right",
   "workspace.layout.mainRightStackLeft": "Main right, stack left",
   "workspace.layout.mainCenterSideStacks": "Main center, side stacks",
+  "workspace.layout.threeTopTwoBottom": "Three top, two bottom",
+  "workspace.layout.twoTopThreeBottom": "Two top, three bottom",
   "workspace.layout.quad": "Four grid",
   "workspace.layout.fourColumns": "Four columns",
   "workspace.layout.sixGrid": "Six grid",

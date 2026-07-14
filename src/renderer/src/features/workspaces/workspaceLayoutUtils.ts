@@ -23,6 +23,12 @@ export interface WorkspaceHorizontalResizeHandle {
   y: number;
 }
 
+export interface WorkspaceVerticalResizeHandle {
+  splitIndex: number;
+  x: number;
+  y: number;
+}
+
 export type WorkspaceSplitAxis = keyof WorkspaceSplits;
 
 const EXISTING_LAYOUT_MIN_SPLIT_SIZE = 0.2;
@@ -33,8 +39,22 @@ function isMultiColumnTemplate(template: WorkspaceLayoutTemplate): boolean {
     template === "four_columns" ||
     template === "six_grid" ||
     template === "eight_grid" ||
-    template === "main_center_side_stacks"
+    template === "main_center_side_stacks" ||
+    template === "three_top_two_bottom" ||
+    template === "two_top_three_bottom"
   );
+}
+
+function getSplitRowVerticalIndexGroups(template: WorkspaceLayoutTemplate): number[][] | undefined {
+  if (template === "three_top_two_bottom") {
+    return [[0, 1], [2]];
+  }
+
+  if (template === "two_top_three_bottom") {
+    return [[0], [1, 2]];
+  }
+
+  return undefined;
 }
 
 export function createWorkspaceName(workspaces: LaunchWorkspace[], t: Translator): string {
@@ -179,6 +199,30 @@ export function getWorkspaceSplits(
         vertical: [secondRect.width, mainRect.x + mainRect.width]
       };
     }
+    case "three_top_two_bottom": {
+      const topMiddleRect = slots[1]?.rect ?? defaultRects[1];
+      const bottomLeftRect = slots[3]?.rect ?? defaultRects[3];
+      return {
+        horizontal: [firstRect.height],
+        vertical: [
+          firstRect.x + firstRect.width,
+          topMiddleRect.x + topMiddleRect.width,
+          bottomLeftRect.x + bottomLeftRect.width
+        ]
+      };
+    }
+    case "two_top_three_bottom": {
+      const bottomLeftRect = slots[2]?.rect ?? defaultRects[2];
+      const bottomMiddleRect = slots[3]?.rect ?? defaultRects[3];
+      return {
+        horizontal: [firstRect.height],
+        vertical: [
+          firstRect.x + firstRect.width,
+          bottomLeftRect.x + bottomLeftRect.width,
+          bottomMiddleRect.x + bottomMiddleRect.width
+        ]
+      };
+    }
     case "quad":
       return { horizontal: [firstRect.height], vertical: [firstRect.width] };
     case "six_grid":
@@ -224,6 +268,29 @@ export function getWorkspaceHorizontalResizeHandles(
   return splits.horizontal.flatMap((y, splitIndex) =>
     xPositions.map((x) => ({ splitIndex, x, y }))
   );
+}
+
+export function getWorkspaceVerticalResizeHandles(
+  template: WorkspaceLayoutTemplate,
+  splits: WorkspaceSplits
+): WorkspaceVerticalResizeHandle[] {
+  const splitRowGroups = getSplitRowVerticalIndexGroups(template);
+
+  if (splitRowGroups) {
+    const splitY = splits.horizontal[0] ?? 0.5;
+    const rowCenters = [splitY / 2, splitY + (1 - splitY) / 2];
+
+    return splitRowGroups.flatMap((splitIndices, rowIndex) =>
+      splitIndices.map((splitIndex) => ({
+        splitIndex,
+        x: splits.vertical[splitIndex],
+        y: rowCenters[rowIndex]
+      }))
+    );
+  }
+
+  const y = template === "quad" || template === "six_grid" || template === "eight_grid" ? 0.25 : 0.5;
+  return splits.vertical.map((x, splitIndex) => ({ splitIndex, x, y }));
 }
 
 export function applyWorkspaceSplits(
@@ -277,6 +344,20 @@ export function createWorkspaceRectsFromSplits(
         { x: splitX2, y: splitY, width: 1 - splitX2, height: 1 - splitY }
       ];
     }
+    case "three_top_two_bottom": {
+      const vertical = defaultSplits.vertical.map((value, index) => splits.vertical[index] ?? value);
+      return [
+        ...createWorkspaceRowRects([0, vertical[0], vertical[1], 1], 0, splitY),
+        ...createWorkspaceRowRects([0, vertical[2], 1], splitY, 1 - splitY)
+      ];
+    }
+    case "two_top_three_bottom": {
+      const vertical = defaultSplits.vertical.map((value, index) => splits.vertical[index] ?? value);
+      return [
+        ...createWorkspaceRowRects([0, vertical[0], 1], 0, splitY),
+        ...createWorkspaceRowRects([0, vertical[1], vertical[2], 1], splitY, 1 - splitY)
+      ];
+    }
     case "quad":
       return [
         { x: 0, y: 0, width: splitX, height: splitY },
@@ -316,6 +397,15 @@ export function createWorkspaceRectsFromSplits(
   }
 }
 
+function createWorkspaceRowRects(boundaries: number[], y: number, height: number): NormalizedRect[] {
+  return boundaries.slice(0, -1).map((x, index) => ({
+    x,
+    y,
+    width: boundaries[index + 1] - x,
+    height
+  }));
+}
+
 export function getWorkspaceSplitRange(
   template: WorkspaceLayoutTemplate,
   splits: WorkspaceSplits,
@@ -328,6 +418,21 @@ export function getWorkspaceSplitRange(
     return splitIndex === 0
       ? { min: MIN_WORKSPACE_SLOT_SIZE, max: (positions[1] ?? 1) - EXISTING_LAYOUT_MIN_SPLIT_SIZE }
       : { min: (positions[0] ?? 0) + EXISTING_LAYOUT_MIN_SPLIT_SIZE, max: 1 - MIN_WORKSPACE_SLOT_SIZE };
+  }
+
+  const splitRowGroup = axis === "vertical"
+    ? getSplitRowVerticalIndexGroups(template)?.find((group) => group.includes(splitIndex))
+    : undefined;
+
+  if (splitRowGroup) {
+    const indexInGroup = splitRowGroup.indexOf(splitIndex);
+    const previousSplitIndex = splitRowGroup[indexInGroup - 1];
+    const nextSplitIndex = splitRowGroup[indexInGroup + 1];
+
+    return {
+      min: (previousSplitIndex === undefined ? 0 : positions[previousSplitIndex]) + MIN_WORKSPACE_SLOT_SIZE,
+      max: (nextSplitIndex === undefined ? 1 : positions[nextSplitIndex]) - MIN_WORKSPACE_SLOT_SIZE
+    };
   }
 
   const minimumSize = axis === "vertical" && isMultiColumnTemplate(template)

@@ -14,6 +14,7 @@ import {
   getWorkspaceHorizontalResizeHandles,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
+  getWorkspaceVerticalResizeHandles,
   readRoleDragId,
   readWorkspaceSlotDragIndex,
   swapWorkspaceSlotRoles
@@ -50,6 +51,8 @@ describe("renderer workspace layout helpers", () => {
     expect(getDefaultWorkspaceBrowserZoomPercent("four_columns")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("six_grid")).toBe(80);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_center_side_stacks")).toBe(80);
+    expect(getDefaultWorkspaceBrowserZoomPercent("three_top_two_bottom")).toBe(80);
+    expect(getDefaultWorkspaceBrowserZoomPercent("two_top_three_bottom")).toBe(80);
     expect(getDefaultWorkspaceBrowserZoomPercent("two_columns")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_left_stack_right")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_right_stack_left")).toBe(100);
@@ -104,6 +107,18 @@ describe("renderer workspace layout helpers", () => {
     ]);
     expect(applyWorkspaceTemplate([], "main_center_side_stacks")).toEqual(
       getDefaultWorkspaceRects("main_center_side_stacks").map((rect, index) => ({
+        id: `slot-${index + 1}`,
+        rect
+      }))
+    );
+    expect(applyWorkspaceTemplate([], "three_top_two_bottom")).toEqual(
+      getDefaultWorkspaceRects("three_top_two_bottom").map((rect, index) => ({
+        id: `slot-${index + 1}`,
+        rect
+      }))
+    );
+    expect(applyWorkspaceTemplate([], "two_top_three_bottom")).toEqual(
+      getDefaultWorkspaceRects("two_top_three_bottom").map((rect, index) => ({
         id: `slot-${index + 1}`,
         rect
       }))
@@ -274,6 +289,74 @@ describe("renderer workspace layout helpers", () => {
       min: 0.2,
       max: 0.8
     });
+  });
+
+  it("adjusts three top columns independently from two bottom columns", () => {
+    const template = "three_top_two_bottom";
+    const initialSlots = applyWorkspaceTemplate([], template);
+    const initialSplits = getWorkspaceSplits(template, initialSlots);
+    const adjustedSplits = {
+      horizontal: [0.6],
+      vertical: [0.25, 0.7, 0.4]
+    };
+    const slots = applyWorkspaceSplits(template, initialSlots, adjustedSplits);
+
+    expect(initialSplits).toEqual({ horizontal: [0.5], vertical: [1 / 3, 2 / 3, 0.5] });
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0, y: 0, width: 0.25, height: 0.6 },
+      { x: 0.25, y: 0, width: 0.7 - 0.25, height: 0.6 },
+      { x: 0.7, y: 0, width: 1 - 0.7, height: 0.6 },
+      { x: 0, y: 0.6, width: 0.4, height: 1 - 0.6 },
+      { x: 0.4, y: 0.6, width: 1 - 0.4, height: 1 - 0.6 }
+    ]);
+    expect(getWorkspaceSplits(template, slots)).toEqual(adjustedSplits);
+    expect(getWorkspaceSplitRange(template, initialSplits, "vertical", 0)).toEqual({
+      min: 0.12,
+      max: 2 / 3 - 0.12
+    });
+    expect(getWorkspaceSplitRange(template, initialSplits, "vertical", 2)).toEqual({
+      min: 0.12,
+      max: 0.88
+    });
+    expect(getWorkspaceVerticalResizeHandles(template, adjustedSplits)).toEqual([
+      { splitIndex: 0, x: 0.25, y: 0.3 },
+      { splitIndex: 1, x: 0.7, y: 0.3 },
+      { splitIndex: 2, x: 0.4, y: 0.8 }
+    ]);
+  });
+
+  it("adjusts two top columns independently from three bottom columns", () => {
+    const template = "two_top_three_bottom";
+    const initialSlots = applyWorkspaceTemplate([], template);
+    const initialSplits = getWorkspaceSplits(template, initialSlots);
+    const adjustedSplits = {
+      horizontal: [0.4],
+      vertical: [0.45, 0.2, 0.75]
+    };
+    const slots = applyWorkspaceSplits(template, initialSlots, adjustedSplits);
+
+    expect(initialSplits).toEqual({ horizontal: [0.5], vertical: [0.5, 1 / 3, 2 / 3] });
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0, y: 0, width: 0.45, height: 0.4 },
+      { x: 0.45, y: 0, width: 1 - 0.45, height: 0.4 },
+      { x: 0, y: 0.4, width: 0.2, height: 1 - 0.4 },
+      { x: 0.2, y: 0.4, width: 0.75 - 0.2, height: 1 - 0.4 },
+      { x: 0.75, y: 0.4, width: 1 - 0.75, height: 1 - 0.4 }
+    ]);
+    expect(getWorkspaceSplits(template, slots)).toEqual(adjustedSplits);
+    expect(getWorkspaceSplitRange(template, initialSplits, "vertical", 0)).toEqual({
+      min: 0.12,
+      max: 0.88
+    });
+    expect(getWorkspaceSplitRange(template, initialSplits, "vertical", 1)).toEqual({
+      min: 0.12,
+      max: 2 / 3 - 0.12
+    });
+    expect(getWorkspaceVerticalResizeHandles(template, adjustedSplits)).toEqual([
+      { splitIndex: 0, x: 0.45, y: 0.2 },
+      { splitIndex: 1, x: 0.2, y: 0.7 },
+      { splitIndex: 2, x: 0.75, y: 0.7 }
+    ]);
   });
 
   it("adjusts side columns and linked rows around a centered main pane", () => {

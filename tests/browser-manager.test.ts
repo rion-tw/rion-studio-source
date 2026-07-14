@@ -918,6 +918,20 @@ describe("normalizedRectToPixelBounds", () => {
       { x: 600, y: 0, width: 300, height: 800 },
       { x: 900, y: 0, width: 300, height: 800 }
     ]],
+    ["three_top_two_bottom", [
+      { x: 0, y: 0, width: 400, height: 400 },
+      { x: 400, y: 0, width: 400, height: 400 },
+      { x: 800, y: 0, width: 400, height: 400 },
+      { x: 0, y: 400, width: 600, height: 400 },
+      { x: 600, y: 400, width: 600, height: 400 }
+    ]],
+    ["two_top_three_bottom", [
+      { x: 0, y: 0, width: 600, height: 400 },
+      { x: 600, y: 0, width: 600, height: 400 },
+      { x: 0, y: 400, width: 400, height: 400 },
+      { x: 400, y: 400, width: 400, height: 400 },
+      { x: 800, y: 400, width: 400, height: 400 }
+    ]],
     ["six_grid", [
       { x: 0, y: 0, width: 400, height: 400 },
       { x: 400, y: 0, width: 400, height: 400 },

@@ -35,6 +35,22 @@ const MainCenterSideStacks = createLucideIcon("MainCenterSideStacks", [
   ["path", { d: "M16 12h5", key: "right-row" }]
 ]);
 
+const ThreeTopTwoBottom = createLucideIcon("ThreeTopTwoBottom", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "outer" }],
+  ["path", { d: "M3 12h18", key: "row" }],
+  ["path", { d: "M9 3v9", key: "top-column-1" }],
+  ["path", { d: "M15 3v9", key: "top-column-2" }],
+  ["path", { d: "M12 12v9", key: "bottom-column" }]
+]);
+
+const TwoTopThreeBottom = createLucideIcon("TwoTopThreeBottom", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "outer" }],
+  ["path", { d: "M3 12h18", key: "row" }],
+  ["path", { d: "M12 3v9", key: "top-column" }],
+  ["path", { d: "M9 12v9", key: "bottom-column-1" }],
+  ["path", { d: "M15 12v9", key: "bottom-column-2" }]
+]);
+
 export const workspaceTemplateLabelKeys: Record<WorkspaceLayoutTemplate, TranslationKey> = {
   single: "workspace.layout.single",
   two_columns: "workspace.layout.twoColumns",
@@ -42,6 +58,8 @@ export const workspaceTemplateLabelKeys: Record<WorkspaceLayoutTemplate, Transla
   main_left_stack_right: "workspace.layout.mainLeftStackRight",
   main_right_stack_left: "workspace.layout.mainRightStackLeft",
   main_center_side_stacks: "workspace.layout.mainCenterSideStacks",
+  three_top_two_bottom: "workspace.layout.threeTopTwoBottom",
+  two_top_three_bottom: "workspace.layout.twoTopThreeBottom",
   quad: "workspace.layout.quad",
   four_columns: "workspace.layout.fourColumns",
   six_grid: "workspace.layout.sixGrid",
@@ -55,6 +73,8 @@ export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon>
   main_left_stack_right: PanelsLeftBottom,
   main_right_stack_left: PanelsRightBottom,
   main_center_side_stacks: MainCenterSideStacks,
+  three_top_two_bottom: ThreeTopTwoBottom,
+  two_top_three_bottom: TwoTopThreeBottom,
   quad: Grid2X2,
   four_columns: Columns4,
   six_grid: Grid3X2,

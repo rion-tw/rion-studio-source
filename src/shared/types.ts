@@ -10,6 +10,8 @@ export type WorkspaceLayoutTemplate =
   | "main_left_stack_right"
   | "main_right_stack_left"
   | "main_center_side_stacks"
+  | "three_top_two_bottom"
+  | "two_top_three_bottom"
   | "quad"
   | "four_columns"
   | "six_grid"

@@ -511,6 +511,21 @@ function WorkspaceLayoutPreview({
             </div>
           </div>
         );
+      case "three_top_two_bottom":
+      case "two_top_three_bottom": {
+        const topColumnCount = template === "three_top_two_bottom" ? 3 : 2;
+        const bottomColumnCount = 5 - topColumnCount;
+        return (
+          <div className="flex h-full min-h-0 flex-col gap-1">
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
+              {renderGridRow(0, topColumnCount)}
+            </div>
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitY)}>
+              {renderGridRow(topColumnCount, bottomColumnCount)}
+            </div>
+          </div>
+        );
+      }
       case "six_grid":
       case "eight_grid": {
         const columnCount = template === "eight_grid" ? 4 : 3;

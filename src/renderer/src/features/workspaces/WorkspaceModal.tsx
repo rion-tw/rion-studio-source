@@ -47,6 +47,7 @@ import {
   getWorkspaceHorizontalResizeHandles,
   getWorkspaceSplitRange,
   getWorkspaceSplits,
+  getWorkspaceVerticalResizeHandles,
   readRoleDragId,
   readWorkspaceSlotDragIndex,
   rectToPreviewStyle,
@@ -624,7 +625,7 @@ interface WorkspaceResizeHandlesProps {
 
 function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceResizeHandlesProps): JSX.Element | null {
   const splits = getWorkspaceSplits(template, slots);
-  const verticalHandleY = template === "quad" || template === "six_grid" || template === "eight_grid" ? 0.25 : 0.5;
+  const verticalHandles = getWorkspaceVerticalResizeHandles(template, splits);
   const horizontalHandles = getWorkspaceHorizontalResizeHandles(template, splits);
 
   if (splits.vertical.length === 0 && splits.horizontal.length === 0) {
@@ -633,14 +634,14 @@ function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceRes
 
   return (
     <>
-      {splits.vertical.map((position, index) => (
+      {verticalHandles.map((handle) => (
         <button
-          key={`vertical-${index}`}
+          key={`vertical-${handle.splitIndex}`}
           className="group/resize absolute z-20 grid h-12 w-6 -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
           type="button"
-          aria-label={`Resize columns ${index + 1}`}
-          style={{ left: `${position * 100}%`, top: `${verticalHandleY * 100}%` }}
-          onPointerDown={(event) => onResizeStart(event, "vertical", index)}
+          aria-label={`Resize columns ${handle.splitIndex + 1}`}
+          style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%` }}
+          onPointerDown={(event) => onResizeStart(event, "vertical", handle.splitIndex)}
         >
           <span className="glass-popover grid h-9 w-3.5 place-items-center rounded-full border-border/55 text-muted-foreground/80 shadow-sm transition-[border-color,color,transform] group-hover/resize:scale-105 group-hover/resize:border-primary/45 group-hover/resize:text-foreground group-focus-visible/resize:ring-2 group-focus-visible/resize:ring-ring/25">
             <GripVertical size={12} />

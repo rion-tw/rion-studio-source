@@ -8,6 +8,7 @@ import {
   LaunchWorkspaceStore,
   LaunchWorkspaceStoreError
 } from "../src/main/workspaces/LaunchWorkspaceStore";
+import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
 const legacyRoleIdField = "profile" + "Id";
 
@@ -320,6 +321,49 @@ describe("LaunchWorkspaceStore", () => {
       { x: 0.5, y: 0, width: 0.25, height: 1 },
       { x: 0.75, y: 0, width: 0.25, height: 1 }
     ]);
+  });
+
+  it.each([
+    [
+      "three_top_two_bottom",
+      [
+        { x: 0, y: 0, width: 0.3333, height: 0.5 },
+        { x: 0.3333, y: 0, width: 0.3333, height: 0.5 },
+        { x: 0.6667, y: 0, width: 0.3333, height: 0.5 },
+        { x: 0, y: 0.5, width: 0.5, height: 0.5 },
+        { x: 0.5, y: 0.5, width: 0.5, height: 0.5 }
+      ]
+    ],
+    [
+      "two_top_three_bottom",
+      [
+        { x: 0, y: 0, width: 0.5, height: 0.5 },
+        { x: 0.5, y: 0, width: 0.5, height: 0.5 },
+        { x: 0, y: 0.5, width: 0.3333, height: 0.5 },
+        { x: 0.3333, y: 0.5, width: 0.3333, height: 0.5 },
+        { x: 0.6667, y: 0.5, width: 0.3333, height: 0.5 }
+      ]
+    ]
+  ] as const)("creates and reloads the %s five-slot layout in row-major order", async (template, expectedRects) => {
+    const workspace = await store.createWorkspace({
+      name: template,
+      template,
+      slots: getDefaultWorkspaceRects(template).map((rect, index) => ({
+        roleId: `role-${index + 1}`,
+        rect
+      }))
+    });
+
+    expect(workspace.browserZoomPercent).toBe(80);
+    expect(workspace.slots.map((slot) => slot.roleId)).toEqual([
+      "role-1",
+      "role-2",
+      "role-3",
+      "role-4",
+      "role-5"
+    ]);
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual(expectedRects);
+    await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toEqual(workspace);
   });
 
   it("creates a six-grid workspace with three slots per row and 80 percent zoom", async () => {

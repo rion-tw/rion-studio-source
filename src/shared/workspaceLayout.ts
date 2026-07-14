@@ -17,6 +17,8 @@ export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "main_left_stack_right",
   "main_right_stack_left",
   "main_center_side_stacks",
+  "three_top_two_bottom",
+  "two_top_three_bottom",
   "quad",
   "four_columns",
   "six_grid",
@@ -32,7 +34,12 @@ export function getDefaultWorkspaceBrowserZoomPercent(
     return 75;
   }
 
-  if (template === "six_grid" || template === "main_center_side_stacks") {
+  if (
+    template === "six_grid" ||
+    template === "main_center_side_stacks" ||
+    template === "three_top_two_bottom" ||
+    template === "two_top_three_bottom"
+  ) {
     return 80;
   }
 
@@ -60,6 +67,8 @@ export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate)
     case "four_columns":
       return 4;
     case "main_center_side_stacks":
+    case "three_top_two_bottom":
+    case "two_top_three_bottom":
       return 5;
     case "six_grid":
       return 6;
@@ -99,6 +108,10 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
         { x: 0.7, y: 0, width: 0.3, height: 0.5 },
         { x: 0.7, y: 0.5, width: 0.3, height: 0.5 }
       ];
+    case "three_top_two_bottom":
+      return createSplitRowRects(3, 2);
+    case "two_top_three_bottom":
+      return createSplitRowRects(2, 3);
     case "quad":
       return [
         { x: 0, y: 0, width: 0.5, height: 0.5 },
@@ -127,6 +140,13 @@ function createGridRects(columnCount: number, rowCount: number): NormalizedRect[
       height: 1 / rowCount
     };
   });
+}
+
+function createSplitRowRects(topColumnCount: number, bottomColumnCount: number): NormalizedRect[] {
+  return [
+    ...createEqualColumnRects(topColumnCount).map((rect) => ({ ...rect, height: 0.5 })),
+    ...createEqualColumnRects(bottomColumnCount).map((rect) => ({ ...rect, y: 0.5, height: 0.5 }))
+  ];
 }
 
 function createEqualColumnRects(columnCount: number): NormalizedRect[] {

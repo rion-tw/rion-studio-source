@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -64,7 +66,7 @@ describe("WindowsExternalChromeWindowBoundsAdapter", () => {
       adapter?.alignVisibleBounds({ browserProcessId: 4321, physicalBounds: targetBounds })
     ).resolves.toBeUndefined();
     expect(execFile).toHaveBeenCalledWith(
-      "/app/build/native/win32-x64/rion-window-frame-helper.exe",
+      join("/app", "build", "native", "win32-x64", "rion-window-frame-helper.exe"),
       [
         "align-visible-frame",
         "--protocol",
@@ -102,7 +104,7 @@ describe("WindowsExternalChromeWindowBoundsAdapter", () => {
     await adapter?.alignVisibleBounds({ browserProcessId: 12, physicalBounds: targetBounds });
 
     expect(execFile).toHaveBeenCalledWith(
-      "/resources/native/rion-window-frame-helper.exe",
+      join("/resources", "native", "rion-window-frame-helper.exe"),
       expect.any(Array),
       expect.any(Object)
     );

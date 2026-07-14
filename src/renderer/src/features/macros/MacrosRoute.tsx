@@ -85,7 +85,14 @@ function MacrosRoute({
   t
 }: MacrosRouteProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
-  const runningCount = macroStatuses.filter((status) => status.state === "running").length;
+  const runningCount = new Set(
+    macroStatuses.filter((status) => status.state === "running").map((status) => status.macroId)
+  ).size;
+  const activeMacroIds = new Set(
+    macroStatuses
+      .filter((status) => status.state === "running" || status.state === "stopping")
+      .map((status) => status.macroId)
+  );
   const filteredMacros = useMemo(
     () => getMacroListItems({ macros, query, roleFilterId, roles, sort, t }),
     [macros, query, roleFilterId, roles, sort, t]
@@ -236,6 +243,7 @@ function MacrosRoute({
                         className="-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                         type="button"
                         title={t("macros.edit")}
+                        disabled={activeMacroIds.has(macro.id)}
                         onClick={() => onEditMacro(macro)}
                       >
                         <span className="block truncate">{macro.name}</span>
@@ -344,14 +352,21 @@ function MacroRoleBadge({ macro, macroStatusByRun, roleById, statusByRole, t }: 
         const macroStatus = macroStatusByRun.get(runKey);
         const browserStatus = statusByRole.get(roleId);
         const isBrowserRunning = browserStatus?.state === "running";
-        const isRunning = macroStatus?.state === "running";
+        const isRunning = macroStatus?.state === "running" || macroStatus?.state === "stopping";
+        const isFailed = macroStatus?.state === "failed";
 
         return (
           <Badge key={roleId} variant="outline" className="max-w-[126px] justify-start gap-1.5">
             <RoleRunDot
               className={cn(!isBrowserRunning && "opacity-45")}
               isActive={Boolean(isRunning)}
-              label={t(isRunning ? "macros.status.running" : "macros.status.ready")}
+              label={t(
+                isRunning
+                  ? "macros.status.running"
+                  : isFailed
+                    ? "macros.status.failed"
+                    : "macros.status.ready"
+              )}
             />
             <span className="min-w-0 truncate">{role?.name ?? t("macros.unknownRole")}</span>
           </Badge>
@@ -536,6 +551,7 @@ function MacroActionMenu({
               type="button"
               role="menuitem"
               onClick={handleEdit}
+              disabled={isRunning || isStopping}
             >
               <Pencil size={14} />
               <span>{t("macros.edit")}</span>

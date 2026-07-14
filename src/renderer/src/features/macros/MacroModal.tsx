@@ -28,6 +28,11 @@ import type { MacroFormState } from "../../app/types";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
+import {
+  areMacroTriggersEqual,
+  macroRoleAssignmentsOverlap,
+  MACRO_OVERLAY_TRIGGER
+} from "../../../../shared/macroShortcuts";
 import type { Macro, MacroRepeat, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
@@ -72,6 +77,7 @@ function MacroEditorRoute(props: MacroEditorRouteProps): JSX.Element {
 function MacroEditor({
   initialForm,
   isSaving,
+  macros,
   roles,
   t,
   onSave
@@ -80,12 +86,36 @@ function MacroEditor({
   const initialFormRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
   const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
-  const canSubmit = form.name.trim().length > 0 && form.roleIds.length > 0 && form.steps.length > 0;
-  const saveHint = form.roleIds.length === 0
-    ? t("macroForm.saveHint.needsRole")
-    : form.steps.length === 0
-      ? t("macroForm.saveHint.needsStep")
-      : t("macroForm.saveHint.ready");
+  const shortcutConflict = useMemo(() => {
+    if (!form.trigger) {
+      return undefined;
+    }
+    if (areMacroTriggersEqual(form.trigger, MACRO_OVERLAY_TRIGGER)) {
+      return t("macroForm.shortcutReserved");
+    }
+
+    const conflictingMacro = macros.find(
+      (macro) =>
+        macro.id !== form.id &&
+        areMacroTriggersEqual(macro.trigger, form.trigger) &&
+        macroRoleAssignmentsOverlap(macro.roleIds, form.roleIds)
+    );
+    return conflictingMacro
+      ? t("macroForm.shortcutConflict").replace("{name}", conflictingMacro.name)
+      : undefined;
+  }, [form.id, form.roleIds, form.trigger, macros, t]);
+  const canSubmit =
+    form.name.trim().length > 0 &&
+    form.roleIds.length > 0 &&
+    form.steps.length > 0 &&
+    !shortcutConflict;
+  const saveHint = shortcutConflict ?? (
+    form.roleIds.length === 0
+      ? t("macroForm.saveHint.needsRole")
+      : form.steps.length === 0
+        ? t("macroForm.saveHint.needsStep")
+        : t("macroForm.saveHint.ready")
+  );
   const confirmationOptions = useMemo(() => ({
     title: t("confirm.unsaved.title"),
     description: t("confirm.unsaved.description"),
@@ -126,7 +156,14 @@ function MacroEditor({
       titlePlaceholder={t("macroForm.namePlaceholder")}
       contentClassName="min-[1180px]:grid-cols-[320px_minmax(0,1fr)] min-[1180px]:items-start xl:grid-cols-[340px_minmax(0,1fr)]"
     >
-      <MacroForm form={form} isSaving={isSaving} roles={roles} t={t} onChange={setForm} />
+      <MacroForm
+        form={form}
+        isSaving={isSaving}
+        roles={roles}
+        shortcutConflict={shortcutConflict}
+        t={t}
+        onChange={setForm}
+      />
     </EditorPage>
   );
 }
@@ -136,10 +173,11 @@ interface MacroFormProps {
   isSaving: boolean;
   onChange: (form: MacroFormState | ((current: MacroFormState) => MacroFormState)) => void;
   roles: Role[];
+  shortcutConflict?: string;
   t: Translator;
 }
 
-function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.Element {
+function MacroForm({ form, isSaving, onChange, roles, shortcutConflict, t }: MacroFormProps): JSX.Element {
   const [newStepType, setNewStepType] = useState<MacroStep["type"]>("key");
   const roleIds = useMemo(() => new Set(form.roleIds), [form.roleIds]);
   const missingRoleIds = useMemo(
@@ -210,6 +248,11 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
                   t={t}
                   onChange={(trigger) => update((current) => ({ ...current, trigger }))}
                 />
+                {shortcutConflict ? (
+                  <p className="mt-2 text-[11px] font-semibold leading-4 text-destructive">
+                    {shortcutConflict}
+                  </p>
+                ) : null}
               </FormField>
             </Surface>
 
@@ -247,7 +290,7 @@ function MacroForm({ form, isSaving, onChange, roles, t }: MacroFormProps): JSX.
                       aria-label={t("macroForm.intervalMs")}
                       disabled={isSaving}
                       max={600000}
-                      min={0}
+                      min={1}
                       prefix={t("macroForm.intervalMs")}
                       suffix="ms"
                       value={form.repeat.intervalMs}

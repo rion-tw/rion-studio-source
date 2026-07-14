@@ -1139,6 +1139,10 @@ function formatPortableWarning(warning: PortableImportWarning, t: Translator): s
       return t("settings.warningMacroRenamed").replace("{name}", itemName).replace("{next}", replacementName);
     case "MACRO_ROLE_MISSING":
       return t("settings.warningMacroRoleMissing").replace("{name}", itemName).replace("{count}", count);
+    case "MACRO_SHORTCUT_CLEARED_CONFLICT":
+      return t("settings.warningMacroShortcutConflict").replace("{name}", itemName);
+    case "MACRO_SHORTCUT_CLEARED_RESERVED":
+      return t("settings.warningMacroShortcutReserved").replace("{name}", itemName);
     case "MACRO_SKIPPED_NO_ROLES":
       return t("settings.warningMacroSkipped").replace("{name}", itemName);
     default:

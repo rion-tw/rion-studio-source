@@ -187,7 +187,6 @@ export function App(): JSX.Element {
     loadData: data.loadData,
     macros: data.macros,
     setError: data.setError,
-    setMacroStatuses: data.setMacroStatuses,
     setMacros: data.setMacros,
     t: preferences.t
   });

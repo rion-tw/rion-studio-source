@@ -4,15 +4,13 @@ import { createCopyName } from "../app/copyName";
 import type { MacroFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Macro, MacroRunStatus } from "../../../shared/types";
+import type { Macro } from "../../../shared/types";
 import { DEFAULT_MACRO_LIST_SORT, type MacroListSortState } from "../features/macros/macroListUtils";
-import { createMacroRunKey } from "../features/macros/macroUtils";
 
 interface UseMacroWorkflowOptions {
   loadData: (options?: { resetError?: boolean }) => Promise<void>;
   macros: Macro[];
   setError: (error: unknown | null) => void;
-  setMacroStatuses: Dispatch<SetStateAction<MacroRunStatus[]>>;
   setMacros: Dispatch<SetStateAction<Macro[]>>;
   t: Translator;
 }
@@ -21,7 +19,6 @@ export function useMacroWorkflow({
   loadData,
   macros,
   setError,
-  setMacroStatuses,
   setMacros,
   t
 }: UseMacroWorkflowOptions) {
@@ -108,7 +105,7 @@ export function useMacroWorkflow({
         roleIds: [...macro.roleIds],
         repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
         steps: macro.steps.map((step) => ({ ...step })),
-        trigger: macro.trigger ? { ...macro.trigger } : null
+        trigger: null
       });
       setMacros((current) => [...current, copy]);
       resetListState();
@@ -125,12 +122,7 @@ export function useMacroWorkflow({
     setError(null);
 
     try {
-      const statuses = await window.rionStudio.startMacro(macroId);
-      setMacroStatuses((current) => {
-        const nextRunKeys = new Set(statuses.map((status) => createMacroRunKey(status.roleId, status.macroId)));
-        const next = current.filter((item) => !nextRunKeys.has(createMacroRunKey(item.roleId, item.macroId)));
-        return [...next, ...statuses];
-      });
+      await window.rionStudio.startMacro(macroId);
     } catch (startError) {
       setError(startError);
       await loadData({ resetError: false });

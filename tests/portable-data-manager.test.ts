@@ -258,6 +258,46 @@ describe("PortableDataManager", () => {
     await expect(invalidManager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
+  it("clears reserved and overlapping shortcuts before applying an import", async () => {
+    const importPath = join(baseDir, "shortcut-conflicts.json");
+    const fixture = createPortableFixture();
+    fixture.macros[0].trigger = { code: "F2", ctrl: false, alt: false, shift: false, meta: false };
+    fixture.macros.push(
+      {
+        id: "conflicting-macro",
+        name: "Conflict",
+        roleIds: ["old-role"],
+        trigger: { code: "F2", ctrl: false, alt: false, shift: false, meta: false },
+        repeat: { type: "once" },
+        steps: [{ id: "step-3", type: "key", code: "F3" }]
+      },
+      {
+        id: "reserved-macro",
+        name: "Reserved",
+        roleIds: ["old-role"],
+        trigger: { code: "KeyM", ctrl: true, alt: false, shift: true, meta: false },
+        repeat: { type: "once" },
+        steps: [{ id: "step-4", type: "key", code: "F4" }]
+      }
+    );
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    expect(preview?.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "MACRO_SHORTCUT_CLEARED_CONFLICT", itemName: "Conflict" }),
+        expect.objectContaining({ code: "MACRO_SHORTCUT_CLEARED_RESERVED", itemName: "Reserved" })
+      ])
+    );
+
+    await manager.applyImport(preview!.importId);
+    const macros = await macroStore.listMacros();
+    expect(macros.find((macro) => macro.name === "Auto heal")?.trigger).toMatchObject({ code: "F2" });
+    expect(macros.find((macro) => macro.name === "Conflict")?.trigger).toBeUndefined();
+    expect(macros.find((macro) => macro.name === "Reserved")?.trigger).toBeUndefined();
+  });
+
   it("accepts missing role defaults and ignores invalid role defaults in portable preferences", async () => {
     const legacyImportPath = join(baseDir, "legacy-preferences.json");
     const legacyFixture = createPortableFixture();

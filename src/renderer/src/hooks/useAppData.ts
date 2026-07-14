@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AuthFlowStatus,
@@ -23,6 +23,8 @@ export function useAppData() {
   const [macroStatuses, setMacroStatuses] = useState<MacroRunStatus[]>([]);
   const [error, setError] = useState<unknown | null>(null);
   const [initialLoadState, setInitialLoadState] = useState<InitialLoadState>("loading");
+  const macroStatusLoadRequestRef = useRef(0);
+  const macroStatusVersionRef = useRef(0);
 
   const statusByRole = useMemo(() => {
     return new Map(statuses.map((status) => [status.roleId, status]));
@@ -41,6 +43,8 @@ export function useAppData() {
   }, [authStatuses, roles, statuses]);
 
   const loadData = useCallback(async (options: { markInitialLoad?: boolean; resetError?: boolean } = {}) => {
+    const macroStatusLoadRequest = ++macroStatusLoadRequestRef.current;
+    const macroStatusVersion = macroStatusVersionRef.current;
     if (options.resetError ?? true) {
       setError(null);
     }
@@ -76,7 +80,12 @@ export function useAppData() {
       setAuthStatuses(nextAuthStatuses);
       setWorkspaces(nextWorkspaces);
       setMacros(nextMacros);
-      setMacroStatuses(nextMacroStatuses);
+      if (
+        macroStatusLoadRequestRef.current === macroStatusLoadRequest &&
+        macroStatusVersionRef.current === macroStatusVersion
+      ) {
+        setMacroStatuses(nextMacroStatuses);
+      }
       setWorkspaceDisplays(nextWorkspaceDisplays);
       if (options.markInitialLoad) {
         setInitialLoadState("ready");
@@ -136,6 +145,7 @@ export function useAppData() {
     }
 
     return window.rionStudio.onMacroStatusChanged((nextStatuses) => {
+      macroStatusVersionRef.current += 1;
       setMacroStatuses(nextStatuses);
       void window.rionStudio.listMacros().then(setMacros).catch((macroError) => {
         setError(macroError);

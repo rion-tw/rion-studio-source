@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 
 import { normalizeGameBrowserSettings } from "../../shared/browserFonts";
+import {
+  areMacroTriggersEqual,
+  macroRoleAssignmentsOverlap,
+  MACRO_OVERLAY_TRIGGER
+} from "../../shared/macroShortcuts";
 import type { MacroStore } from "../macros/MacroStore";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
@@ -74,7 +79,7 @@ interface PortableDataManagerOptions {
 interface ImportPlan {
   roles: Array<{ name: string; source: PortableRole }>;
   workspaces: Array<{ name: string; source: PortableLaunchWorkspace }>;
-  macros: Array<{ name: string; roleIds: string[]; source: PortableMacro }>;
+  macros: Array<{ name: string; roleIds: string[]; source: PortableMacro; trigger?: MacroTrigger }>;
   warnings: PortableImportWarning[];
 }
 
@@ -203,7 +208,15 @@ export class PortableDataManager {
     }
 
     for (const macroPlan of plan.macros) {
-      await this.options.macroStore.createMacro(toCreateMacroInput(macroPlan.source, macroPlan.name, macroPlan.roleIds, roleIdMap));
+      await this.options.macroStore.createMacro(
+        toCreateMacroInput(
+          macroPlan.source,
+          macroPlan.name,
+          macroPlan.roleIds,
+          macroPlan.trigger,
+          roleIdMap
+        )
+      );
       macroCount += 1;
     }
 
@@ -311,7 +324,8 @@ export class PortableDataManager {
       return { name, source: workspace };
     });
 
-    const macros = data.macros.flatMap((macro) => {
+    const macros: ImportPlan["macros"] = [];
+    data.macros.forEach((macro) => {
       const importedRoleIdList = macro.roleIds.filter((roleId) => importedRoleIds.has(roleId));
       const roleIds = [...new Set(importedRoleIdList)];
       const missingRoleCount = [...new Set(macro.roleIds)].filter((roleId) => !importedRoleIds.has(roleId)).length;
@@ -321,7 +335,7 @@ export class PortableDataManager {
           code: "MACRO_SKIPPED_NO_ROLES",
           itemName: macro.name
         });
-        return [];
+        return;
       }
 
       if (missingRoleCount > 0) {
@@ -332,7 +346,23 @@ export class PortableDataManager {
         });
       }
 
-      return [{ name: macro.name, roleIds, source: macro }];
+      let trigger = macro.trigger ? { ...macro.trigger } : undefined;
+      if (trigger && areMacroTriggersEqual(trigger, MACRO_OVERLAY_TRIGGER)) {
+        warnings.push({ code: "MACRO_SHORTCUT_CLEARED_RESERVED", itemName: macro.name });
+        trigger = undefined;
+      } else if (
+        trigger &&
+        macros.some(
+          (plannedMacro) =>
+            areMacroTriggersEqual(plannedMacro.trigger, trigger) &&
+            macroRoleAssignmentsOverlap(plannedMacro.roleIds, roleIds)
+        )
+      ) {
+        warnings.push({ code: "MACRO_SHORTCUT_CLEARED_CONFLICT", itemName: macro.name });
+        trigger = undefined;
+      }
+
+      macros.push({ name: macro.name, roleIds, source: macro, trigger });
     });
 
     return { roles, workspaces, macros, warnings };
@@ -377,12 +407,13 @@ function toCreateMacroInput(
   macro: PortableMacro,
   name: string,
   roleIds: string[],
+  trigger: MacroTrigger | undefined,
   roleIdMap: Map<string, string>
 ): CreateMacroInput {
   return {
     name,
     roleIds: roleIds.map((roleId) => roleIdMap.get(roleId)).filter(isString),
-    trigger: macro.trigger ? { ...macro.trigger } : null,
+    trigger: trigger ? { ...trigger } : null,
     repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
     steps: macro.steps.map((step) => ({ ...step }))
   };
@@ -605,7 +636,7 @@ function normalizeRepeat(value: unknown): MacroRepeat {
 
   return {
     type: "loop",
-    intervalMs: normalizeMilliseconds(repeat.intervalMs)
+    intervalMs: normalizeLoopInterval(repeat.intervalMs)
   };
 }
 
@@ -798,6 +829,14 @@ function normalizePercent(value: unknown): number {
 
 function normalizeMilliseconds(value: unknown): number {
   if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > MACRO_DELAY_MAX_MS) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+
+  return Number(value);
+}
+
+function normalizeLoopInterval(value: unknown): number {
+  if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > MACRO_DELAY_MAX_MS) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 

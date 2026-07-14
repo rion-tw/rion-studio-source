@@ -93,11 +93,11 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
       ];
     case "main_center_side_stacks":
       return [
-        { x: 0.25, y: 0, width: 0.5, height: 1 },
-        { x: 0, y: 0, width: 0.25, height: 0.5 },
-        { x: 0, y: 0.5, width: 0.25, height: 0.5 },
-        { x: 0.75, y: 0, width: 0.25, height: 0.5 },
-        { x: 0.75, y: 0.5, width: 0.25, height: 0.5 }
+        { x: 0.3, y: 0, width: 0.4, height: 1 },
+        { x: 0, y: 0, width: 0.3, height: 0.5 },
+        { x: 0, y: 0.5, width: 0.3, height: 0.5 },
+        { x: 0.7, y: 0, width: 0.3, height: 0.5 },
+        { x: 0.7, y: 0.5, width: 0.3, height: 0.5 }
       ];
     case "quad":
       return [

@@ -42,6 +42,13 @@ type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserZoomPercent" | "slots
 };
 
 const LEGACY_ROLE_ID_FIELD = "profile" + "Id";
+const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
+  { x: 0.25, y: 0, width: 0.5, height: 1 },
+  { x: 0, y: 0, width: 0.25, height: 0.5 },
+  { x: 0, y: 0.5, width: 0.25, height: 0.5 },
+  { x: 0.75, y: 0, width: 0.25, height: 0.5 },
+  { x: 0.75, y: 0.5, width: 0.25, height: 0.5 }
+];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
 export class LaunchWorkspaceStoreError extends Error {
@@ -223,7 +230,11 @@ export class LaunchWorkspaceStore {
         throw new LaunchWorkspaceStoreError("WORKSPACE_FILE_INVALID", "Launch workspace data file is invalid.");
       }
 
-      const didMigrate = parsed.workspaces.some(hasLegacyRoleSlotReference);
+      const didMigrate = parsed.workspaces.some(
+        (workspace) =>
+          hasLegacyRoleSlotReference(workspace) ||
+          hasLegacyCenteredMainDefaultLayout(workspace as StoredLaunchWorkspace)
+      );
       const file = {
         workspaces: parsed.workspaces.map((workspace) =>
           this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
@@ -251,6 +262,13 @@ export class LaunchWorkspaceStore {
   private normalizeStoredWorkspace(workspace: StoredLaunchWorkspace): LaunchWorkspace {
     const template = this.normalizeTemplate(workspace.template);
     const targetDisplayId = this.normalizeTargetDisplayId(workspace.targetDisplayId);
+    const slots = this.normalizeSlots(template, workspace.slots as StoredLaunchWorkspaceSlot[]);
+    const normalizedSlots = hasLegacyCenteredMainDefaultLayout(workspace)
+      ? slots.map((slot, index) => ({
+          ...slot,
+          rect: getDefaultWorkspaceRects(template)[index]
+        }))
+      : slots;
 
     return {
       id: typeof workspace.id === "string" && workspace.id.trim() ? workspace.id : randomUUID(),
@@ -261,7 +279,7 @@ export class LaunchWorkspaceStore {
         DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
       ),
       ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
-      slots: this.normalizeSlots(template, workspace.slots as StoredLaunchWorkspaceSlot[]),
+      slots: normalizedSlots,
       createdAt: typeof workspace.createdAt === "string" ? workspace.createdAt : new Date().toISOString(),
       updatedAt: typeof workspace.updatedAt === "string" ? workspace.updatedAt : new Date().toISOString()
     };
@@ -482,6 +500,26 @@ function roundRectValue(value: number): number {
 
 function hasLegacyRoleSlotReference(workspace: LaunchWorkspace): boolean {
   return workspace.slots.some((slot) => LEGACY_ROLE_ID_FIELD in (slot as StoredLaunchWorkspaceSlot));
+}
+
+function hasLegacyCenteredMainDefaultLayout(workspace: StoredLaunchWorkspace): boolean {
+  return (
+    workspace.template === "main_center_side_stacks" &&
+    Array.isArray(workspace.slots) &&
+    workspace.slots.length === LEGACY_CENTERED_MAIN_DEFAULT_RECTS.length &&
+    workspace.slots.every((slot, index) =>
+      rectMatches(slot.rect, LEGACY_CENTERED_MAIN_DEFAULT_RECTS[index])
+    )
+  );
+}
+
+function rectMatches(value: NormalizedRect | undefined, expected: NormalizedRect): boolean {
+  return (
+    value?.x === expected.x &&
+    value.y === expected.y &&
+    value.width === expected.width &&
+    value.height === expected.height
+  );
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

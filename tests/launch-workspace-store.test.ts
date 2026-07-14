@@ -213,11 +213,11 @@ describe("LaunchWorkspaceStore", () => {
       browserZoomPercent: 80
     });
     expect(workspace.slots.map((slot) => slot.rect)).toEqual([
-      { x: 0.25, y: 0, width: 0.5, height: 1 },
-      { x: 0, y: 0, width: 0.25, height: 0.5 },
-      { x: 0, y: 0.5, width: 0.25, height: 0.5 },
-      { x: 0.75, y: 0, width: 0.25, height: 0.5 },
-      { x: 0.75, y: 0.5, width: 0.25, height: 0.5 }
+      { x: 0.3, y: 0, width: 0.4, height: 1 },
+      { x: 0, y: 0, width: 0.3, height: 0.5 },
+      { x: 0, y: 0.5, width: 0.3, height: 0.5 },
+      { x: 0.7, y: 0, width: 0.3, height: 0.5 },
+      { x: 0.7, y: 0.5, width: 0.3, height: 0.5 }
     ]);
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toEqual(workspace);
   });
@@ -461,6 +461,72 @@ describe("LaunchWorkspaceStore", () => {
     expect(migrated).toContain('"roleId": "role-1"');
     expect(migrated).toContain('"roleId": "role-2"');
     expect(migrated).not.toContain(legacyRoleIdField);
+  });
+
+  it("migrates the legacy centered-main default layout and preserves workspace metadata", async () => {
+    const path = join(baseDir, "launch-workspaces.json");
+    const legacyWorkspace = {
+      id: "workspace-centered",
+      name: "Centered main",
+      template: "main_center_side_stacks",
+      browserZoomPercent: 80,
+      targetDisplayId: 22,
+      slots: [
+        { id: "main", roleId: "role-1", rect: { x: 0.25, y: 0, width: 0.5, height: 1 } },
+        { id: "left-top", roleId: "role-2", rect: { x: 0, y: 0, width: 0.25, height: 0.5 } },
+        { id: "left-bottom", roleId: "role-3", rect: { x: 0, y: 0.5, width: 0.25, height: 0.5 } },
+        { id: "right-top", roleId: "role-4", rect: { x: 0.75, y: 0, width: 0.25, height: 0.5 } },
+        { id: "right-bottom", roleId: "role-5", rect: { x: 0.75, y: 0.5, width: 0.25, height: 0.5 } }
+      ],
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:00.000Z"
+    };
+    await writeFile(path, JSON.stringify({ workspaces: [legacyWorkspace] }), "utf8");
+
+    const workspace = await store.getWorkspace(legacyWorkspace.id);
+
+    expect(workspace).toMatchObject({
+      id: legacyWorkspace.id,
+      name: legacyWorkspace.name,
+      browserZoomPercent: 80,
+      targetDisplayId: 22,
+      createdAt: legacyWorkspace.createdAt,
+      updatedAt: legacyWorkspace.updatedAt
+    });
+    expect(workspace.slots.map(({ id, roleId, rect }) => ({ id, roleId, rect }))).toEqual([
+      { id: "main", roleId: "role-1", rect: { x: 0.3, y: 0, width: 0.4, height: 1 } },
+      { id: "left-top", roleId: "role-2", rect: { x: 0, y: 0, width: 0.3, height: 0.5 } },
+      { id: "left-bottom", roleId: "role-3", rect: { x: 0, y: 0.5, width: 0.3, height: 0.5 } },
+      { id: "right-top", roleId: "role-4", rect: { x: 0.7, y: 0, width: 0.3, height: 0.5 } },
+      { id: "right-bottom", roleId: "role-5", rect: { x: 0.7, y: 0.5, width: 0.3, height: 0.5 } }
+    ]);
+    await expect(readFile(path, "utf8")).resolves.toBe(`${JSON.stringify({ workspaces: [workspace] }, null, 2)}\n`);
+  });
+
+  it("does not migrate a customized centered-main layout", async () => {
+    const path = join(baseDir, "launch-workspaces.json");
+    const customWorkspace = {
+      id: "workspace-custom-centered",
+      name: "Custom centered main",
+      template: "main_center_side_stacks",
+      browserZoomPercent: 80,
+      slots: [
+        { id: "main", rect: { x: 0.2, y: 0, width: 0.5, height: 1 } },
+        { id: "left-top", rect: { x: 0, y: 0, width: 0.2, height: 0.6 } },
+        { id: "left-bottom", rect: { x: 0, y: 0.6, width: 0.2, height: 0.4 } },
+        { id: "right-top", rect: { x: 0.7, y: 0, width: 0.3, height: 0.6 } },
+        { id: "right-bottom", rect: { x: 0.7, y: 0.6, width: 0.3, height: 0.4 } }
+      ],
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:00.000Z"
+    };
+    const unchanged = JSON.stringify({ workspaces: [customWorkspace] });
+    await writeFile(path, unchanged, "utf8");
+
+    const workspace = await store.getWorkspace(customWorkspace.id);
+
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual(customWorkspace.slots.map((slot) => slot.rect));
+    await expect(readFile(path, "utf8")).resolves.toBe(unchanged);
   });
 
   it("clears deleted role references without deleting the workspace", async () => {

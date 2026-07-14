@@ -284,7 +284,7 @@ describe("renderer workspace layout helpers", () => {
       vertical: [0.2, 0.7]
     });
 
-    expect(initialSplits).toEqual({ horizontal: [0.5], vertical: [0.25, 0.75] });
+    expect(initialSplits).toEqual({ horizontal: [0.5], vertical: [0.3, 0.7] });
     expect(slots.map((item) => item.rect)).toEqual([
       { x: 0.2, y: 0, width: 0.49999999999999994, height: 1 },
       { x: 0, y: 0, width: 0.2, height: 0.6 },
@@ -296,12 +296,11 @@ describe("renderer workspace layout helpers", () => {
       horizontal: [0.6],
       vertical: [0.2, 0.7]
     });
-    expect(getWorkspaceSplitRange("main_center_side_stacks", initialSplits, "vertical", 0)).toEqual({
-      min: 0.12,
-      max: 0.55
-    });
+    const leftSplitRange = getWorkspaceSplitRange("main_center_side_stacks", initialSplits, "vertical", 0);
+    expect(leftSplitRange.min).toBe(0.12);
+    expect(leftSplitRange.max).toBeCloseTo(0.5);
     expect(getWorkspaceSplitRange("main_center_side_stacks", initialSplits, "vertical", 1)).toEqual({
-      min: 0.45,
+      min: 0.5,
       max: 0.88
     });
     expect(getWorkspaceSplitRange("main_center_side_stacks", initialSplits, "horizontal", 0)).toEqual({
@@ -314,11 +313,11 @@ describe("renderer workspace layout helpers", () => {
     expect(
       getWorkspaceHorizontalResizeHandles("main_center_side_stacks", {
         horizontal: [0.5],
-        vertical: [0.25, 0.75]
+        vertical: [0.3, 0.7]
       })
     ).toEqual([
-      { splitIndex: 0, x: 0.125, y: 0.5 },
-      { splitIndex: 0, x: 0.875, y: 0.5 }
+      { splitIndex: 0, x: 0.15, y: 0.5 },
+      { splitIndex: 0, x: 0.85, y: 0.5 }
     ]);
 
     expect(

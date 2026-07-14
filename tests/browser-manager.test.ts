@@ -450,8 +450,8 @@ describe("BrowserManager game host windows", () => {
       return bounds.height === 4;
     });
     expect(horizontalDividers.map((view) => vi.mocked(view.setBounds).mock.calls[0][0])).toEqual([
-      { x: 0, y: 398, width: 300, height: 4 },
-      { x: 900, y: 398, width: 300, height: 4 }
+      { x: 0, y: 398, width: 360, height: 4 },
+      { x: 840, y: 398, width: 360, height: 4 }
     ]);
 
     harness.manager.handleDividerPointer(horizontalDividers[0].webContents.id, {
@@ -459,13 +459,13 @@ describe("BrowserManager game host windows", () => {
       screenPosition: 480
     });
 
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 300, y: 0, width: 600, height: 800 });
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 300, height: 480 });
-    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 480, width: 300, height: 320 });
-    expect(harness.views[3].setBounds).toHaveBeenLastCalledWith({ x: 900, y: 0, width: 300, height: 480 });
-    expect(harness.views[4].setBounds).toHaveBeenLastCalledWith({ x: 900, y: 480, width: 300, height: 320 });
-    expect(horizontalDividers[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 478, width: 300, height: 4 });
-    expect(horizontalDividers[1].setBounds).toHaveBeenLastCalledWith({ x: 900, y: 478, width: 300, height: 4 });
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 360, y: 0, width: 480, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 360, height: 480 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 480, width: 360, height: 320 });
+    expect(harness.views[3].setBounds).toHaveBeenLastCalledWith({ x: 840, y: 0, width: 360, height: 480 });
+    expect(harness.views[4].setBounds).toHaveBeenLastCalledWith({ x: 840, y: 480, width: 360, height: 320 });
+    expect(horizontalDividers[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 478, width: 360, height: 4 });
+    expect(horizontalDividers[1].setBounds).toHaveBeenLastCalledWith({ x: 840, y: 478, width: 360, height: 4 });
   });
 
   it("resets only the double-clicked divider in a multi-divider game workspace", async () => {

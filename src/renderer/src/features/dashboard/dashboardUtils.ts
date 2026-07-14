@@ -223,17 +223,21 @@ export function createMacroActionState({
   const isRunning = assignedRunStatuses.some((status) => status.state === "running");
   const isStopping = assignedRunStatuses.some((status) => status.state === "stopping");
   const hasRoles = macro.roleIds.length > 0;
-  const areBrowsersRunning =
-    hasRoles && macro.roleIds.every((roleId) => roleIds.has(roleId) && statusByRole.get(roleId)?.state === "running");
-  const isAutomationReady = macro.roleIds.every(
-    (roleId) => statusByRole.get(roleId)?.automationState !== "unavailable"
+  const hasRunningBrowser = macro.roleIds.some(
+    (roleId) => roleIds.has(roleId) && statusByRole.get(roleId)?.state === "running"
+  );
+  const hasRunnableRole = macro.roleIds.some(
+    (roleId) =>
+      roleIds.has(roleId) &&
+      statusByRole.get(roleId)?.state === "running" &&
+      statusByRole.get(roleId)?.automationState !== "unavailable"
   );
   const isBusy = busyRunKeys.has(macro.id) || busyMacroIds.has(macro.id) || isStopping;
   const disabledReason = !hasRoles
     ? "noRoles"
-    : !areBrowsersRunning && !isRunning
+    : !hasRunningBrowser && !isRunning
       ? "rolesNotRunning"
-      : !isAutomationReady && !isRunning
+      : !hasRunnableRole && !isRunning
         ? "automationUnavailable"
         : undefined;
 

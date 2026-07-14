@@ -6,6 +6,7 @@ import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
 import type { Macro, MacroRunStatus } from "../../../shared/types";
 import { DEFAULT_MACRO_LIST_SORT, type MacroListSortState } from "../features/macros/macroListUtils";
+import { getMacroPartialStartCounts } from "../features/macros/macroUtils";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseMacroWorkflowOptions {
@@ -13,6 +14,7 @@ interface UseMacroWorkflowOptions {
   macros: Macro[];
   setMacros: Dispatch<SetStateAction<Macro[]>>;
   setMacroStatuses: Dispatch<SetStateAction<MacroRunStatus[]>>;
+  setNotice?: (message: string | null) => void;
   t: Translator;
 }
 
@@ -21,6 +23,7 @@ export function useMacroWorkflow({
   macros,
   setMacros,
   setMacroStatuses,
+  setNotice,
   t
 }: UseMacroWorkflowOptions) {
   const confirm = useConfirmation();
@@ -139,10 +142,22 @@ export function useMacroWorkflow({
     }
 
     const reportError = beginErrorOperation();
+    setNotice?.(null);
 
     try {
       const nextStatuses = await window.rionStudio.startMacro(macroId);
       setMacroStatuses((current) => mergeMacroStatuses(current, nextStatuses));
+      const partialStart = getMacroPartialStartCounts(
+        macros.find((macro) => macro.id === macroId),
+        nextStatuses
+      );
+      if (partialStart) {
+        setNotice?.(
+          t("macros.partialStartNotice")
+            .replace("{started}", String(partialStart.startedCount))
+            .replace("{skipped}", String(partialStart.skippedCount))
+        );
+      }
     } catch (startError) {
       reportError(startError);
       try {

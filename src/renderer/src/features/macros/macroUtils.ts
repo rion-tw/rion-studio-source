@@ -1,4 +1,11 @@
-import type { Macro, MacroRepeat, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import type {
+  Macro,
+  MacroRepeat,
+  MacroRunStatus,
+  MacroStep,
+  MacroTrigger,
+  Role
+} from "../../../../shared/types";
 import type { MacroFormState } from "../../app/types";
 import type { TranslationKey, Translator } from "../../i18n";
 
@@ -211,6 +218,16 @@ export function formatMacroStep(step: MacroStep, t: Translator): string {
 
 export function createMacroRunKey(roleId: string, macroId: string): string {
   return `${roleId}:${macroId}`;
+}
+
+export function getMacroPartialStartCounts(
+  macro: Macro | undefined,
+  startedStatuses: MacroRunStatus[]
+): { skippedCount: number; startedCount: number } | undefined {
+  const startedCount = startedStatuses.length;
+  const skippedCount = Math.max(0, (macro?.roleIds.length ?? startedCount) - startedCount);
+
+  return skippedCount > 0 ? { skippedCount, startedCount } : undefined;
 }
 
 export function createClientId(): string {

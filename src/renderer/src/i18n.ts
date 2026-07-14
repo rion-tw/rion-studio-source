@@ -80,6 +80,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "This macro is not assigned to the current role.": "error.macroNotAssigned",
   "Macro is not assigned to this role.": "error.macroNotAssigned",
   "Launch this role before running a macro.": "error.macroRoleNotRunning",
+  "Launch at least one assigned role before running a macro.": "error.macroNoRunnableRoles",
   "Macro control is unavailable for this compatibility-mode session. Restart the role and try again.":
     "error.macroExternalRuntimeUnsupported",
   "Macro control could not connect to compatibility mode. Restart this role to try again.":

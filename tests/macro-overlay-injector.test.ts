@@ -145,8 +145,13 @@ describe("MacroOverlayInjector", () => {
       ]
     });
     expect(startState).toMatchObject({
-      macros: [{ id: "macro-1" }]
+      macros: [{ id: "macro-1" }],
+      startSummary: { skippedCount: 1, startedCount: 1 }
     });
+    macroManager.start.mockResolvedValueOnce([statuses[0], statuses[1]]);
+    await expect(
+      injector.handleRequest(role.id, { type: "start", macroId: "macro-1" })
+    ).resolves.toMatchObject({ startSummary: { skippedCount: 0, startedCount: 2 } });
     expect(macroManager.start).toHaveBeenCalledWith("macro-1");
     expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
   });
@@ -257,7 +262,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.13"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.14"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
@@ -370,6 +375,9 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('pollLabel: "輪詢"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('keyStep: "按鍵"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('everyMs: "每 {ms} ms"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain(
+      'partialStartNotice: "已在 {started} 個角色啟動，略過 {skipped} 個未啟動或無法控制的角色。"'
+    );
     expect(MACRO_OVERLAY_SCRIPT).toContain("language: detectOverlayLanguage()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("function getText()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("function normalizeOverlayLanguage(language)");
@@ -380,6 +388,15 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("function isJapaneseLocale(locale)");
     expect(MACRO_OVERLAY_SCRIPT).toContain('return "zh-CN";');
     expect(MACRO_OVERLAY_SCRIPT).toContain('return "ja";');
+  });
+
+  it("renders a transient partial-start notice outside the menu panel", () => {
+    expect(MACRO_OVERLAY_SCRIPT).toContain("function showStartNotice(summary)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('if (action === "start")');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("showStartNotice(nextState?.startSummary)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("}, 4000);");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('state.notice ? \'<div class="notice" role="status">\'');
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".notice{");
   });
 
   it("renders passive running macro badges at the top-center of the browser view", () => {

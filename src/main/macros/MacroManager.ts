@@ -36,7 +36,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private readonly runs = new Map<string, MacroRun>();
 
   constructor(
-    private readonly browserManager: Pick<BrowserManager, "getAutomationSession" | "listStatuses">,
+    private readonly browserManager: Pick<BrowserManager, "getAutomationSession">,
     private readonly macroStore: Pick<MacroStore, "getMacro">
   ) {
     super();
@@ -116,7 +116,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     if (requestingRoleId) {
       this.assertMacroAssignedToRole(macro, requestingRoleId);
     }
-    const sessions = macro.roleIds.map((roleId) => {
+    const sessions = macro.roleIds.flatMap((roleId) => {
       const key = createRunKey(roleId, macroId);
       if (this.runs.has(key)) {
         throw new Error("Macro is already running for this role.");
@@ -124,18 +124,15 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
       const session = this.browserManager.getAutomationSession(roleId);
       if (!session) {
-        const status = this.browserManager.listStatuses().find((item) => item.roleId === roleId);
-        if (status?.runtimeMode === "external") {
-          throw new Error(
-            "Macro control is unavailable for this compatibility-mode session. Restart the role and try again."
-          );
-        }
-
-        throw new Error("Launch this role before running a macro.");
+        return [];
       }
 
-      return { key, roleId, target: session.target };
+      return [{ key, roleId, target: session.target }];
     });
+
+    if (sessions.length === 0) {
+      throw new Error("Launch at least one assigned role before running a macro.");
+    }
 
     this.clearTerminalStatuses((status) => status.macroId === macroId, false);
     const now = new Date().toISOString();

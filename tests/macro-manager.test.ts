@@ -89,14 +89,24 @@ describe("MacroManager", () => {
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
 
-  it("rejects unavailable sessions before starting any assigned role", async () => {
+  it("starts available assigned roles and skips unavailable sessions", async () => {
     const target = createTarget();
     const manager = createManager({
       targets: { "role-1": target }
     });
 
-    await expect(manager.start("macro-1")).rejects.toThrow("Launch this role before running a macro.");
-    expect(target.dispatchKey).not.toHaveBeenCalled();
+    await expect(manager.start("macro-1")).resolves.toMatchObject([
+      { roleId: "role-1", macroId: "macro-1", state: "running" }
+    ]);
+    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal)));
+  });
+
+  it("rejects when no assigned role has an available automation session", async () => {
+    const manager = createManager({ targets: {} });
+
+    await expect(manager.start("macro-1")).rejects.toThrow(
+      "Launch at least one assigned role before running a macro."
+    );
     expect(manager.listStatuses()).toEqual([]);
   });
 
@@ -114,14 +124,43 @@ describe("MacroManager", () => {
     expect(manager.listStatuses()).toEqual([]);
   });
 
-  it("rejects external runtime sessions before starting any assigned role", async () => {
+  it("starts available sibling roles from an assigned overlay role", async () => {
+    const target = createTarget();
+    const manager = createManager({ targets: { "role-1": target } });
+
+    await expect(manager.startForRole("macro-1", "role-1")).resolves.toMatchObject([
+      { roleId: "role-1", macroId: "macro-1", state: "running" }
+    ]);
+    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal)));
+  });
+
+  it("rejects when compatibility sessions have no automation target", async () => {
     const manager = createManager({
       runtimeStatuses: [{ roleId: "role-1", runtimeMode: "external", state: "running" }],
       targets: {}
     });
 
-    await expect(manager.start("macro-1")).rejects.toThrow("Macro control is unavailable");
+    await expect(manager.start("macro-1")).rejects.toThrow(
+      "Launch at least one assigned role before running a macro."
+    );
     expect(manager.listStatuses()).toEqual([]);
+  });
+
+  it("does not add a skipped role after a looping macro has started", async () => {
+    const firstTarget = createTarget();
+    const targets: Record<string, ReturnType<typeof createTarget>> = { "role-1": firstTarget };
+    const manager = createManager({
+      macroOverride: { ...macro, repeat: { type: "loop", intervalMs: 1 } },
+      targets
+    });
+
+    await manager.start("macro-1");
+    const lateTarget = createTarget();
+    targets["role-2"] = lateTarget;
+    await vi.waitFor(() => expect(firstTarget.dispatchKey.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    expect(lateTarget.dispatchKey).not.toHaveBeenCalled();
+    await manager.stop("macro-1");
   });
 
   it("runs macros across embedded and compatibility-mode automation targets", async () => {
@@ -349,8 +388,7 @@ function createManager(options: {
               target: targets[roleId]
             }
           : undefined
-      ),
-      listStatuses: vi.fn(() => options.runtimeStatuses ?? [])
+      )
     } as never,
     {
       getMacro: vi.fn((macroId: string) => Promise.resolve(macroById[macroId] ?? options.macroOverride ?? macro))

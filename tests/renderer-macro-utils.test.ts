@@ -5,6 +5,7 @@ import {
   formatMacroIntervalPreset,
   formatMacroRepeat,
   formatMacroShortcut,
+  getMacroPartialStartCounts,
   isMacroIntervalPreset,
   isValidMacroInterval,
   MACRO_INTERVAL_OPTIONS,
@@ -70,6 +71,28 @@ describe("macroUtils", () => {
     expect(formatMacroRepeat({ type: "once" }, t)).toBe("Once");
     expect(formatMacroRepeat({ type: "loop", intervalMs: 500 }, t)).toBe("Every 500 ms");
     expect(createMacroRunKey("role-1", "macro-1")).toBe("role-1:macro-1");
+  });
+
+  it("reports partial starts only when assigned roles were skipped", () => {
+    const macro = {
+      id: "macro-1",
+      name: "Partial",
+      roleIds: ["role-1", "role-2"],
+      repeat: { type: "once" as const },
+      steps: [{ id: "step-1", type: "key" as const, code: "F2" }],
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    };
+    const status = {
+      roleId: "role-1",
+      macroId: macro.id,
+      state: "running" as const,
+      startedAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    };
+
+    expect(getMacroPartialStartCounts(macro, [status])).toEqual({ skippedCount: 1, startedCount: 1 });
+    expect(getMacroPartialStartCounts(macro, [status, { ...status, roleId: "role-2" }])).toBeUndefined();
   });
 
   it("provides ordered interval presets and formats their units", () => {

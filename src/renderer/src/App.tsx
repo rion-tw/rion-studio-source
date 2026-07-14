@@ -204,6 +204,7 @@ export function App(): JSX.Element {
     macros: data.macros,
     setMacros: data.setMacros,
     setMacroStatuses: data.setMacroStatuses,
+    setNotice,
     t: preferences.t
   });
   const {

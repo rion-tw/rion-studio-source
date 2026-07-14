@@ -144,13 +144,27 @@ describe("renderer dashboard helpers", () => {
       kind: "start"
     });
 
-    const blocked = getDashboardMacroItems({
+    const partiallyReady = getDashboardMacroItems({
       busyMacroIds: new Set(),
       busyRunKeys: new Set(),
       macroStatusByRun: new Map(),
       macros: [blockedMacro],
       roles,
       statusByRole: new Map<string, RoleStatus>([["r1", { roleId: "r1", state: "running" }]])
+    })[0];
+
+    expect(partiallyReady.action).toMatchObject({
+      disabled: false,
+      kind: "start"
+    });
+
+    const blocked = getDashboardMacroItems({
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
+      macroStatusByRun: new Map(),
+      macros: [blockedMacro],
+      roles,
+      statusByRole: new Map()
     })[0];
 
     expect(blocked.action).toMatchObject({
@@ -166,7 +180,7 @@ describe("renderer dashboard helpers", () => {
       macros: [readyMacro],
       roles,
       statusByRole: new Map([
-        ["r1", { roleId: "r1", state: "running", automationState: "ready" }],
+        ["r1", { roleId: "r1", state: "running", automationState: "unavailable" }],
         ["r2", { roleId: "r2", state: "running", automationState: "unavailable" }]
       ])
     })[0];

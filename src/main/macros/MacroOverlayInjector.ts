@@ -7,6 +7,10 @@ import type { MacroStore } from "./MacroStore";
 interface MacroOverlayState {
   language?: AppLanguage;
   macros: Macro[];
+  startSummary?: {
+    skippedCount: number;
+    startedCount: number;
+  };
   statuses: MacroRunStatus[];
 }
 
@@ -102,6 +106,8 @@ export class MacroOverlayInjector {
   }
 
   async handleRequest(roleId: string, request: MacroOverlayRequest): Promise<MacroOverlayState> {
+    let startedCount: number | undefined;
+
     switch (request.type) {
       case "list":
         break;
@@ -119,14 +125,26 @@ export class MacroOverlayInjector {
         await this.onMacroEditorRequested?.({ macroId: request.macroId, roleId });
         break;
       case "start":
-        await this.macroManager.startForRole(request.macroId, roleId);
+        startedCount = (await this.macroManager.startForRole(request.macroId, roleId)).length;
         break;
       case "stop":
         await this.macroManager.stopForRole(request.macroId, roleId);
         break;
     }
 
-    return this.getOverlayState(roleId);
+    const state = await this.getOverlayState(roleId);
+    if (request.type !== "start" || startedCount === undefined) {
+      return state;
+    }
+
+    const macro = state.macros.find((item) => item.id === request.macroId);
+    return {
+      ...state,
+      startSummary: {
+        skippedCount: Math.max(0, (macro?.roleIds.length ?? startedCount) - startedCount),
+        startedCount
+      }
+    };
   }
 
   private trackInstalledContents(roleId: string, webContents: WebContents): void {
@@ -351,7 +369,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v25"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-14.13";
+  const scriptVersion = "2026-07-14.14";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
@@ -389,6 +407,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       noShortcut: "No shortcut",
       noSteps: "No steps",
       once: "Once",
+      partialStartNotice: "Started for {started} role(s); skipped {skipped} unavailable role(s).",
       runError: "Unable to run macro.",
       stepsMore: "+{count} more",
       triggerAria: "Rion Studio Macros",
@@ -409,6 +428,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       noShortcut: "無快捷鍵",
       noSteps: "無步驟",
       once: "執行一次",
+      partialStartNotice: "已在 {started} 個角色啟動，略過 {skipped} 個未啟動或無法控制的角色。",
       runError: "無法執行巨集。",
       stepsMore: "另有 {count} 個",
       triggerAria: "Rion Studio 巨集",
@@ -429,6 +449,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       noShortcut: "无快捷键",
       noSteps: "无步骤",
       once: "执行一次",
+      partialStartNotice: "已在 {started} 个角色启动，略过 {skipped} 个未启动或无法控制的角色。",
       runError: "无法执行宏。",
       stepsMore: "另有 {count} 个",
       triggerAria: "Rion Studio 宏",
@@ -449,6 +470,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       noShortcut: "ショートカットなし",
       noSteps: "ステップなし",
       once: "1回",
+      partialStartNotice: "{started} 件のロールで開始し、利用できない {skipped} 件をスキップしました。",
       runError: "マクロを実行できません。",
       stepsMore: "ほか {count} 件",
       triggerAria: "Rion Studio マクロ",
@@ -484,6 +506,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   let root = null;
   let isInstalled = false;
   let cleanupInterval = undefined;
+  let noticeTimeout = undefined;
   let refreshInterval = undefined;
   let suppressedShortcutEvents = [];
 
@@ -508,6 +531,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     language: detectOverlayLanguage(),
     lastRefreshAt: 0,
     macros: [],
+    notice: "",
     requestVersion: 0,
     statuses: []
   };
@@ -521,6 +545,29 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     return language === "en" || language === "zh-TW" || language === "zh-CN" || language === "ja"
       ? language
       : undefined;
+  }
+
+  function showStartNotice(summary) {
+    if (noticeTimeout !== undefined) {
+      clearTimeout(noticeTimeout);
+      noticeTimeout = undefined;
+    }
+
+    const startedCount = Number(summary?.startedCount);
+    const skippedCount = Number(summary?.skippedCount);
+    if (!Number.isFinite(startedCount) || !Number.isFinite(skippedCount) || skippedCount <= 0) {
+      state.notice = "";
+      return;
+    }
+
+    state.notice = getText().partialStartNotice
+      .replace("{started}", String(startedCount))
+      .replace("{skipped}", String(skippedCount));
+    noticeTimeout = setTimeout(() => {
+      noticeTimeout = undefined;
+      state.notice = "";
+      render();
+    }, 4000);
   }
 
   function isRunning(macroId) {
@@ -903,6 +950,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       state.isOpen ? "grid" : "none",
       ";-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.22);gap:0;margin-top:7px;max-width:296px;overflow:hidden;padding:4px;pointer-events:auto;text-shadow:none;width:min(288px,calc(100vw - 16px));}",
       ".macro-row,.create-row,.empty,.error{background:transparent;border:0;box-shadow:none;}",
+      ".notice{-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);background:rgba(20,23,31,.82);border:1px solid rgba(125,255,114,.24);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);color:rgba(255,255,255,.92);font-size:11px;font-weight:550;line-height:1.35;margin-top:7px;max-width:288px;padding:8px 10px;pointer-events:none;width:max-content;}",
       ".panel>*+*{margin-top:6px;position:relative;}",
       ".panel>*+*::before{background:rgba(255,255,255,.085);content:'';height:1px;left:7px;pointer-events:none;position:absolute;right:7px;top:-3px;}",
       ".create-row{align-items:center;border-radius:8px;color:rgba(255,255,255,.9);cursor:pointer;display:flex;font-size:11.5px;font-weight:600;gap:7px;height:30px;justify-content:flex-start;line-height:1;padding:0 9px;text-align:left;width:100%;}",
@@ -941,6 +989,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       '<button class="trigger" type="button" tabindex="-1" title="' + escapeHtml(text.triggerTitle) + '" aria-label="' + escapeHtml(text.triggerAria) + '">',
       triggerIconMarkup,
       "</button>",
+      state.notice ? '<div class="notice" role="status">' + escapeHtml(state.notice) + "</div>" : "",
       '<div class="panel" role="menu">',
       state.error ? '<div class="error">' + escapeHtml(state.error) + "</div>" : "",
       state.macros.length > 0 ? macroRows : '<div class="empty">' + escapeHtml(text.empty) + "</div>",
@@ -1050,6 +1099,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
         state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
         state.statuses = Array.isArray(nextState?.statuses) ? nextState.statuses : state.statuses;
         state.lastRefreshAt = Date.now();
+        if (action === "start") {
+          showStartNotice(nextState?.startSummary);
+        }
       }
     } catch (error) {
       if (requestVersion === state.requestVersion) {
@@ -1227,6 +1279,11 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     if (refreshInterval !== undefined) {
       clearInterval(refreshInterval);
       refreshInterval = undefined;
+    }
+
+    if (noticeTimeout !== undefined) {
+      clearTimeout(noticeTimeout);
+      noticeTimeout = undefined;
     }
 
     removeHost(hostId);

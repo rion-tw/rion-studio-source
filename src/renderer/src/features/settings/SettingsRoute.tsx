@@ -30,7 +30,8 @@ import {
   DEFAULT_BROWSER_FONT_SETTINGS,
   browserFontFamilyRoles,
   normalizeBrowserProxyServer,
-  normalizeGameBrowserSettings
+  normalizeGameBrowserSettings,
+  workspaceDividerSizes
 } from "../../../../shared/browserFonts";
 import { LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
@@ -48,7 +49,10 @@ import type {
   PortableImportResult,
   PortableImportWarning,
   RoleDefaults,
-  SystemFontFamily
+  SystemFontFamily,
+  WorkspaceDividerSettings,
+  WorkspaceDividerSize,
+  WorkspaceDividerStyle
 } from "../../../../shared/types";
 import {
   applyGraphicsModeUpdate,
@@ -153,6 +157,7 @@ function SettingsViewBase({
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
   const [graphicsDiagnostics, setGraphicsDiagnostics] = useState<GraphicsDiagnostics | null>(null);
   const [isGraphicsBusy, setIsGraphicsBusy] = useState(false);
+  const [isWorkspaceDividerSaving, setIsWorkspaceDividerSaving] = useState(false);
   const canCheckForUpdates = Boolean(updateStatus?.isPackaged) && !isUpdateBusy;
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
@@ -162,6 +167,27 @@ function SettingsViewBase({
     Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
   const pageTitle = t(settingsSectionTitleKeys[activeSection]);
   const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
+
+  function updateWorkspaceDividerSettings(update: Partial<WorkspaceDividerSettings>): void {
+    if (isWorkspaceDividerSaving) {
+      return;
+    }
+
+    const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
+    setIsWorkspaceDividerSaving(true);
+    void onGameBrowserSettingsChange({
+      ...normalizedSettings,
+      workspace: {
+        ...normalizedSettings.workspace,
+        divider: {
+          ...normalizedSettings.workspace.divider,
+          ...update
+        }
+      }
+    })
+      .catch(onError)
+      .finally(() => setIsWorkspaceDividerSaving(false));
+  }
 
   async function refreshGraphicsDiagnostics(): Promise<GraphicsDiagnostics | null> {
     setIsGraphicsBusy(true);
@@ -313,7 +339,7 @@ function SettingsViewBase({
   return (
     <PageFrame
       maxWidth="settings"
-      className="settings-page"
+      className="settings-page py-10 md:py-14"
       contentClassName="mx-auto flex min-h-full w-full max-w-[840px] flex-col gap-8"
     >
       <header className="settings-page-header">
@@ -357,6 +383,42 @@ function SettingsViewBase({
                 </Select>
               }
             />
+            <SettingsRow
+              showDivider={false}
+              title={t("settings.workspaceDivider")}
+              description={t("settings.workspaceDividerDescription")}
+              control={
+                <div className="settings-menu-stack grid gap-2">
+                  <SegmentedControl<WorkspaceDividerStyle>
+                    className="settings-menu-control settings-segmented-menu grid-cols-2"
+                    disabled={isWorkspaceDividerSaving}
+                    items={[
+                      { value: "material", label: t("settings.workspaceDividerMaterial") },
+                      { value: "black", label: t("settings.workspaceDividerBlack") }
+                    ]}
+                    value={normalizeGameBrowserSettings(gameBrowserSettings).workspace.divider.style}
+                    onValueChange={(style) => updateWorkspaceDividerSettings({ style })}
+                  />
+                  <Select
+                    aria-label={t("settings.workspaceDividerSize")}
+                    className="settings-menu-control"
+                    disabled={isWorkspaceDividerSaving}
+                    value={String(normalizeGameBrowserSettings(gameBrowserSettings).workspace.divider.size)}
+                    onChange={(event) =>
+                      updateWorkspaceDividerSettings({
+                        size: Number(event.target.value) as WorkspaceDividerSize
+                      })
+                    }
+                  >
+                    {workspaceDividerSizes.map((size) => (
+                      <option key={size} value={size}>
+                        {size} px
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              }
+            />
           </SettingsSection>
         ) : null}
 
@@ -393,6 +455,9 @@ function SettingsViewBase({
                   </Select>
                 }
               />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.gameGroupBrowser")}>
               <SettingsRow
                 title={t("settings.browserLaunchMode")}
                 description={t("settings.browserLaunchModeDescription")}
@@ -415,6 +480,18 @@ function SettingsViewBase({
                   </Select>
                 }
               />
+              <BrowserFontsSettingsRows
+                hasRunningRoles={hasRunningRoles}
+                settings={gameBrowserSettings}
+                systemFonts={systemFonts}
+                t={t}
+                onError={onError}
+                onLoadSystemFonts={onLoadSystemFonts}
+                onSave={onGameBrowserSettingsChange}
+              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.gameGroupGraphics")}>
               <SettingsRow
                 title={t("settings.graphicsMode")}
                 description={t(graphicsModeDescriptionKeys[normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode])}
@@ -475,15 +552,9 @@ function SettingsViewBase({
                   control={<ReadOnlyValue value={String(graphicsDiagnostics.externalRoles.length)} />}
                 />
               ) : null}
-              <BrowserFontsSettingsRows
-                hasRunningRoles={hasRunningRoles}
-                settings={gameBrowserSettings}
-                systemFonts={systemFonts}
-                t={t}
-                onError={onError}
-                onLoadSystemFonts={onLoadSystemFonts}
-                onSave={onGameBrowserSettingsChange}
-              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.gameGroupNetwork")}>
               <BrowserProxySettingsRow
                 hasRunningRoles={hasRunningRoles}
                 settings={gameBrowserSettings}
@@ -1092,12 +1163,14 @@ function BrowserFontsPreview({ settings, t }: { settings: GameBrowserSettings; t
 
 interface SettingsSectionProps {
   children: ReactNode;
+  title?: string;
 }
 
-function SettingsSection({ children }: SettingsSectionProps): JSX.Element {
+function SettingsSection({ children, title }: SettingsSectionProps): JSX.Element {
   return (
-    <section>
-      <Surface className="settings-group overflow-hidden" radius="md">
+    <section className="grid gap-2">
+      {title ? <h2 className="px-1 text-xs font-semibold leading-5 text-muted-foreground">{title}</h2> : null}
+      <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
         {children}
       </Surface>
     </section>

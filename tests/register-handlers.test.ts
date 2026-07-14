@@ -12,7 +12,10 @@ import type { MacroStore } from "../src/main/macros/MacroStore";
 import type { RoleStore } from "../src/main/roles/RoleStore";
 import type { AppUpdateManager } from "../src/main/updates/AppUpdateManager";
 import type { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
-import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
+import {
+  DEFAULT_BROWSER_NETWORK_SETTINGS,
+  DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+} from "../src/shared/browserFonts";
 import type {
   GameBrowserSettings,
   LaunchWorkspace,
@@ -660,7 +663,10 @@ describe("registerIpcHandlers macro handlers", () => {
 describe("registerIpcHandlers game browser settings handlers", () => {
   let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
-  let browserManager: Pick<BrowserManager, "listStatuses" | "on" | "stop">;
+  let browserManager: Pick<
+    BrowserManager,
+    "listStatuses" | "on" | "setWorkspaceDividerSettings" | "stop"
+  >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let gameBrowserSettingsStore: {
     getSettings: AnyMock;
@@ -681,7 +687,8 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     },
     graphics: { mode: "automatic" },
     launchMode: "auto",
-    network: DEFAULT_BROWSER_NETWORK_SETTINGS
+    network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+    workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
   };
   const fonts: SystemFontFamily[] = [
     { family: "Arial", label: "Arial" },
@@ -701,6 +708,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     browserManager = {
       listStatuses: vi.fn(() => []),
       on: vi.fn(),
+      setWorkspaceDividerSettings: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined)
     };
     authManager = {
@@ -738,6 +746,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
 
     expect(gameBrowserSettingsStore.getSettings).toHaveBeenCalledTimes(1);
     expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(settings);
+    expect(browserManager.setWorkspaceDividerSettings).toHaveBeenCalledWith(settings.workspace.divider);
     expect(systemFontService.listFonts).toHaveBeenCalledTimes(1);
   });
 
@@ -835,7 +844,10 @@ describe("registerIpcHandlers update handlers", () => {
 describe("registerIpcHandlers portable data handlers", () => {
   let roleStore: Pick<RoleStore, "deleteRole" | "getRole">;
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
-  let browserManager: Pick<BrowserManager, "listStatuses" | "on" | "stop">;
+  let browserManager: Pick<
+    BrowserManager,
+    "listStatuses" | "on" | "setWorkspaceDividerSettings" | "stop"
+  >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let portableDataManager: {
     applyImport: AnyMock;
@@ -863,6 +875,7 @@ describe("registerIpcHandlers portable data handlers", () => {
     browserManager = {
       listStatuses: vi.fn(() => []),
       on: vi.fn(),
+      setWorkspaceDividerSettings: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined)
     };
     authManager = {
@@ -931,7 +944,8 @@ describe("registerIpcHandlers portable data handlers", () => {
       },
       graphics: { mode: "automatic" },
       launchMode: "auto",
-      network: DEFAULT_BROWSER_NETWORK_SETTINGS
+      network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+      workspace: { divider: { size: 16, style: "black" } }
     };
     portableDataManager.applyImport.mockResolvedValueOnce({
       macroCount: 0,
@@ -942,9 +956,13 @@ describe("registerIpcHandlers portable data handlers", () => {
       warnings: [],
       workspaceCount: 0
     });
+    gameBrowserSettingsStore.updateSettings.mockResolvedValueOnce(importedSettings);
 
     await handlers.get(IPC_CHANNELS.portableImportApply)?.({}, "import-1");
 
     expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(importedSettings);
+    expect(browserManager.setWorkspaceDividerSettings).toHaveBeenCalledWith(
+      importedSettings.workspace.divider
+    );
   });
 });

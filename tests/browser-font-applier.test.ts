@@ -10,7 +10,10 @@ import {
   getChromeDefaultProfilePreferencesPath,
   getElectronPartitionPreferencesPath
 } from "../src/main/game-browser/BrowserFontApplier";
-import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
+import {
+  DEFAULT_BROWSER_NETWORK_SETTINGS,
+  DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+} from "../src/shared/browserFonts";
 import type { GameBrowserSettings } from "../src/shared/types";
 
 const customSettings: GameBrowserSettings = {
@@ -26,7 +29,8 @@ const customSettings: GameBrowserSettings = {
   },
   graphics: { mode: "automatic" },
   launchMode: "auto",
-  network: DEFAULT_BROWSER_NETWORK_SETTINGS
+  network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+  workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 };
 
 describe("applyBrowserFontSettingsToPreferences", () => {
@@ -77,7 +81,13 @@ describe("applyBrowserFontSettingsToPreferences", () => {
             }
           }
         },
-        { fonts: { families: {}, mode: "default" }, graphics: { mode: "automatic" }, launchMode: "auto", network: DEFAULT_BROWSER_NETWORK_SETTINGS }
+        {
+          fonts: { families: {}, mode: "default" },
+          graphics: { mode: "automatic" },
+          launchMode: "auto",
+          network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+          workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+        }
       )
     ).toEqual({
       profile: { name: "Default" },
@@ -141,7 +151,8 @@ describe("BrowserFontApplier", () => {
         fonts: { families: {}, mode: "default" },
         graphics: { mode: "automatic" },
         launchMode: "auto",
-        network: DEFAULT_BROWSER_NETWORK_SETTINGS
+        network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+        workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
       })
     });
 
@@ -149,7 +160,8 @@ describe("BrowserFontApplier", () => {
       fonts: { families: {}, mode: "default" },
       graphics: { mode: "automatic" },
       launchMode: "auto",
-      network: DEFAULT_BROWSER_NETWORK_SETTINGS
+      network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+      workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });
 
     await expect(readJson(preferencesPath)).resolves.toEqual({

@@ -71,7 +71,8 @@ describe("PortableDataManager", () => {
           },
           graphics: { mode: "high_performance" },
           launchMode: "external",
-          network: DEFAULT_BROWSER_NETWORK_SETTINGS
+          network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+          workspace: { divider: { size: 1, style: "black" } }
         },
         language: "zh-TW",
         roleDefaults: {
@@ -98,7 +99,8 @@ describe("PortableDataManager", () => {
               standard: "Arial"
             },
             mode: "custom"
-          }
+          },
+          workspace: { divider: { size: 1, style: "black" } }
         },
         language: "zh-TW",
         roleDefaults: {
@@ -155,7 +157,8 @@ describe("PortableDataManager", () => {
               standard: "Missing But Valid Font"
             },
             mode: "custom"
-          }
+          },
+          workspace: { divider: { size: 16, style: "black" } }
         },
         language: "ja",
         roleDefaults: {
@@ -190,7 +193,8 @@ describe("PortableDataManager", () => {
               standard: "Missing But Valid Font"
             },
             mode: "custom"
-          }
+          },
+          workspace: { divider: { size: 16, style: "black" } }
         },
         roleDefaults: {
           windowWidth: 1280,
@@ -368,7 +372,8 @@ describe("PortableDataManager", () => {
         },
         graphics: { mode: "automatic" },
         launchMode: "auto",
-        network: DEFAULT_BROWSER_NETWORK_SETTINGS
+        network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+        workspace: { divider: { size: 16, style: "black" } }
       }
     };
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
@@ -445,7 +450,8 @@ function createPortableFixture(): RionPortableDataV1 {
         },
         graphics: { mode: "automatic" },
         launchMode: "auto",
-        network: DEFAULT_BROWSER_NETWORK_SETTINGS
+        network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+        workspace: { divider: { size: 16, style: "black" } }
       },
       language: "ja",
       roleDefaults: {

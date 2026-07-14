@@ -187,7 +187,12 @@ export function registerIpcHandlers(
 
     const result = await options.portableDataManager.applyImport(importId);
     if (result.preferences?.gameBrowserSettings) {
-      await options.gameBrowserSettingsStore?.updateSettings(result.preferences.gameBrowserSettings);
+      const savedSettings = await options.gameBrowserSettingsStore?.updateSettings(
+        result.preferences.gameBrowserSettings
+      );
+      if (savedSettings) {
+        browserManager.setWorkspaceDividerSettings(savedSettings.workspace.divider);
+      }
     }
     options.onRolesChanged?.();
     options.onWorkspacesChanged?.();
@@ -203,12 +208,14 @@ export function registerIpcHandlers(
     return options.gameBrowserSettingsStore.getSettings();
   });
 
-  ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsUpdate, (_event, settings: GameBrowserSettings) => {
+  ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsUpdate, async (_event, settings: GameBrowserSettings) => {
     if (!options.gameBrowserSettingsStore) {
       throw new Error("Game browser settings are not available.");
     }
 
-    return options.gameBrowserSettingsStore.updateSettings(settings);
+    const savedSettings = await options.gameBrowserSettingsStore.updateSettings(settings);
+    browserManager.setWorkspaceDividerSettings(savedSettings.workspace.divider);
+    return savedSettings;
   });
 
   ipcMain.handle(IPC_CHANNELS.graphicsDiagnosticsGet, (event) => {

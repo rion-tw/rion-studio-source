@@ -24,6 +24,22 @@ describe("GameBrowserSettingsStore", () => {
     await expect(store.getSettings()).resolves.toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
   });
 
+  it("adds default workspace divider settings to legacy persisted settings", async () => {
+    await writeFile(
+      join(baseDir, "game-browser-settings.json"),
+      JSON.stringify({
+        fonts: { families: {}, mode: "default" },
+        graphics: { mode: "automatic" },
+        launchMode: "auto",
+        network: { cdnCompatibility: { mode: "auto" }, proxy: { mode: "system", server: "" } }
+      }),
+      "utf8"
+    );
+
+    const store = new GameBrowserSettingsStore(baseDir);
+    await expect(store.getSettings()).resolves.toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
+  });
+
   it("normalizes and atomically writes browser font settings", async () => {
     const store = new GameBrowserSettingsStore(baseDir);
 
@@ -44,7 +60,8 @@ describe("GameBrowserSettingsStore", () => {
             mode: "custom",
             server: " socks5://127.0.0.1:7890/ "
           }
-        }
+        },
+        workspace: { divider: { size: 12, style: "black" } }
       })
     ).resolves.toEqual({
       fonts: {
@@ -62,7 +79,8 @@ describe("GameBrowserSettingsStore", () => {
           mode: "custom",
           server: "socks5://127.0.0.1:7890"
         }
-      }
+      },
+      workspace: { divider: { size: 12, style: "black" } }
     });
 
     await expect(readFile(join(baseDir, "game-browser-settings.json.tmp"), "utf8")).rejects.toMatchObject({
@@ -85,7 +103,8 @@ describe("GameBrowserSettingsStore", () => {
           mode: "custom",
           server: "socks5://127.0.0.1:7890"
         }
-      }
+      },
+      workspace: { divider: { size: 12, style: "black" } }
     });
     firstRead.fonts.families.standard = "Mutated by caller";
     await expect(store.getSettings()).resolves.toMatchObject({

@@ -12,7 +12,12 @@ import {
 } from "../src/main/browser/BrowserManager";
 import { LOGIN_STORAGE_EXPRESSION } from "../src/main/auth/loginEvidence";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
-import type { BrowserLaunchMode, LaunchWorkspace, Role } from "../src/shared/types";
+import type {
+  BrowserLaunchMode,
+  LaunchWorkspace,
+  Role,
+  WorkspaceDividerSettings
+} from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
 type AnyMock = Mock;
@@ -487,6 +492,38 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.views[2].view.setBackgroundColor).toHaveBeenCalledWith("#00000000");
     expect(harness.views[2].view.setBackgroundBlur).not.toHaveBeenCalled();
+  });
+
+  it("uses a one-pixel solid black divider from workspace settings", async () => {
+    const harness = createHarness({
+      getWorkspaceDividerSettings: () => ({ size: 1, style: "black" })
+    });
+
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 600, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 601, y: 0, width: 599, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 600, y: 0, width: 1, height: 800 });
+    expect(harness.views[2].view.setBackgroundColor).toHaveBeenLastCalledWith("#FF000000");
+  });
+
+  it("immediately updates open workspace divider size and style", async () => {
+    const harness = createHarness();
+
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    harness.manager.setWorkspaceDividerSettings({ size: 16, style: "black" });
+
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 592, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 608, y: 0, width: 592, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 592, y: 0, width: 16, height: 800 });
+    expect(harness.views[2].view.setBackgroundColor).toHaveBeenLastCalledWith("#FF000000");
   });
 
   it("resizes adjacent roles when the divider is dragged and enforces minimum cell size", async () => {
@@ -1133,6 +1170,7 @@ function createHarness(options: {
   applyBrowserProxy?: AnyMock;
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
   getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
+  getWorkspaceDividerSettings?: () => WorkspaceDividerSettings | Promise<WorkspaceDividerSettings>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
@@ -1170,6 +1208,9 @@ function createHarness(options: {
     embeddedPreloadPath: "/app/out/preload/embedded.cjs",
     ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
+    ...(options.getWorkspaceDividerSettings
+      ? { getWorkspaceDividerSettings: options.getWorkspaceDividerSettings }
+      : {}),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     loginPollIntervalMs: 0,
     ...(options.platform ? { platform: options.platform } : {}),

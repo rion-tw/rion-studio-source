@@ -273,6 +273,8 @@ export type BrowserLaunchMode = "auto" | "embedded" | "external";
 export type BrowserRuntimeMode = "embedded" | "external";
 export type BrowserProxySettingsMode = "system" | "custom";
 export type BrowserCdnCompatibilityMode = "off" | "auto" | "on";
+export type WorkspaceDividerStyle = "material" | "black";
+export type WorkspaceDividerSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 
 export interface BrowserFontSettings {
   mode: BrowserFontSettingsMode;
@@ -297,11 +299,21 @@ export interface BrowserGraphicsSettings {
   mode: BrowserGraphicsMode;
 }
 
+export interface WorkspaceDividerSettings {
+  size: WorkspaceDividerSize;
+  style: WorkspaceDividerStyle;
+}
+
+export interface WorkspaceAppearanceSettings {
+  divider: WorkspaceDividerSettings;
+}
+
 export interface GameBrowserSettings {
   fonts: BrowserFontSettings;
   graphics: BrowserGraphicsSettings;
   launchMode: BrowserLaunchMode;
   network: BrowserNetworkSettings;
+  workspace: WorkspaceAppearanceSettings;
 }
 
 export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";

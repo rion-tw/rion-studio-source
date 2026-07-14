@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BROWSER_NETWORK_SETTINGS,
   DEFAULT_GAME_BROWSER_SETTINGS,
+  DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
   normalizeBrowserFontFamily,
   normalizeBrowserProxyServer,
-  normalizeGameBrowserSettings
+  normalizeGameBrowserSettings,
+  workspaceDividerSizes
 } from "../src/shared/browserFonts";
 
 describe("browser font settings normalization", () => {
@@ -51,7 +53,8 @@ describe("browser font settings normalization", () => {
       },
       graphics: { mode: "automatic" },
       launchMode: "auto",
-      network: DEFAULT_BROWSER_NETWORK_SETTINGS
+      network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+      workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });
   });
 
@@ -113,6 +116,21 @@ describe("browser font settings normalization", () => {
         }
       }).network.cdnCompatibility
     ).toEqual({ mode: "auto" });
+  });
+
+  it("defaults legacy workspace dividers and validates style and fixed sizes", () => {
+    expect(normalizeGameBrowserSettings({}).workspace).toEqual(DEFAULT_WORKSPACE_APPEARANCE_SETTINGS);
+    expect(
+      normalizeGameBrowserSettings({ workspace: { divider: { size: 1, style: "black" } } }).workspace
+    ).toEqual({ divider: { size: 1, style: "black" } });
+    expect(
+      normalizeGameBrowserSettings({ workspace: { divider: { size: 3, style: "glow" } } }).workspace
+    ).toEqual(DEFAULT_WORKSPACE_APPEARANCE_SETTINGS);
+    workspaceDividerSizes.forEach((size) => {
+      expect(
+        normalizeGameBrowserSettings({ workspace: { divider: { size, style: "material" } } }).workspace.divider.size
+      ).toBe(size);
+    });
   });
 
   it("drops invalid font family strings and keeps valid uninstalled names", () => {

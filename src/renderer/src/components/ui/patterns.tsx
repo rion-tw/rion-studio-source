@@ -252,6 +252,7 @@ export interface SegmentedItem<T extends string> {
 }
 
 export interface SegmentedControlProps<T extends string> extends HTMLAttributes<HTMLDivElement> {
+  disabled?: boolean;
   items: Array<SegmentedItem<T>>;
   onValueChange: (value: T) => void;
   value: T;
@@ -259,6 +260,7 @@ export interface SegmentedControlProps<T extends string> extends HTMLAttributes<
 
 export function SegmentedControl<T extends string>({
   className,
+  disabled = false,
   items,
   onValueChange,
   value,
@@ -274,8 +276,9 @@ export function SegmentedControl<T extends string>({
           <button
             key={item.value}
             aria-pressed={isActive}
+            disabled={disabled}
             className={cn(
-              "flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-[5px] border border-transparent px-3 text-[11px] font-semibold leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20",
+              "flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-[5px] border border-transparent px-3 text-[11px] font-semibold leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-45",
               isActive
                 ? "glass-control-selected border-[hsl(var(--glass-border))] text-foreground"
                 : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"

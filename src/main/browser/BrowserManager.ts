@@ -22,7 +22,16 @@ import {
   LOGIN_STORAGE_EXPRESSION
 } from "../auth/loginEvidence";
 import type { RoleStore } from "../roles/RoleStore";
-import type { BrowserLaunchMode, LaunchWorkspace, NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
+import { DEFAULT_WORKSPACE_DIVIDER_SETTINGS } from "../../shared/browserFonts";
+import type {
+  BrowserLaunchMode,
+  LaunchWorkspace,
+  NormalizedRect,
+  PixelBounds,
+  Role,
+  RoleStatus,
+  WorkspaceDividerSettings
+} from "../../shared/types";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
 import { MIN_WORKSPACE_SLOT_SIZE } from "../../shared/workspaceLayout";
 import {
@@ -72,6 +81,7 @@ export interface BrowserManagerOptions {
   externalChromeManager?: ExternalChromeManager;
   getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getLaunchWorkArea: () => PixelBounds;
+  getWorkspaceDividerSettings?: () => WorkspaceDividerSettings | Promise<WorkspaceDividerSettings>;
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
@@ -134,6 +144,7 @@ interface GameHostWindow {
   dividers: GameDivider[];
   id: string;
   roleIds: Set<string>;
+  dividerSettings: WorkspaceDividerSettings;
   window: BaseWindow;
   workspaceId?: string;
 }
@@ -236,6 +247,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   setBeforeRolesStop(handler: BeforeRolesStop): void {
     this.beforeRolesStop = handler;
     this.options.externalChromeManager?.setBeforeRoleStop((roleId) => handler([roleId]));
+  }
+
+  setWorkspaceDividerSettings(settings: WorkspaceDividerSettings): void {
+    this.hosts.forEach((host) => {
+      if (!host.workspaceId) {
+        return;
+      }
+
+      host.dividerSettings = { ...settings };
+      host.dividers.forEach((divider) => this.applyDividerStyle(divider, settings));
+      this.layoutHost(host);
+    });
   }
 
   setMacroOverlayInstaller(installer: BrowserMacroOverlayInstaller): void {
@@ -355,7 +378,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       }
 
       const roleNames = items.map((item) => item.role.name).join(", ");
-      const host = this.createHost(`${workspace.name} - ${roleNames}`, workspace.id, target?.workArea);
+      const dividerSettings = await this.getWorkspaceDividerSettings();
+      const host = this.createHost(
+        `${workspace.name} - ${roleNames}`,
+        workspace.id,
+        target?.workArea,
+        dividerSettings
+      );
       try {
         await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
         const sessions = items.map((item) => this.createSession(item.role, host, item.rect));
@@ -552,7 +581,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.sendDividerResizeIndicators(result.roleIds, "update");
   }
 
-  private createHost(title: string, workspaceId?: string, launchBounds?: PixelBounds): GameHostWindow {
+  private createHost(
+    title: string,
+    workspaceId?: string,
+    launchBounds?: PixelBounds,
+    dividerSettings: WorkspaceDividerSettings = DEFAULT_WORKSPACE_DIVIDER_SETTINGS
+  ): GameHostWindow {
     const bounds = launchBounds ?? this.options.getLaunchWorkArea();
     const isWorkspace = Boolean(workspaceId);
     const prefersReducedTransparency = this.options.prefersReducedTransparency?.() ?? false;
@@ -578,6 +612,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
     const host: GameHostWindow = {
       closing: false,
+      dividerSettings: { ...dividerSettings },
       dividers: [],
       id: randomUUID(),
       roleIds: new Set(),
@@ -675,8 +710,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
           transparent: true
         }
       });
-      view.setBackgroundColor("#00000000");
       const divider: GameDivider = { ...descriptor, view };
+      this.applyDividerStyle(divider, host.dividerSettings);
       host.window.contentView.addChildView(view);
       const webContentsId = view.webContents.id;
       this.dividerByWebContentsId.set(webContentsId, { divider, hostId: host.id });
@@ -708,6 +743,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private getBrowserLaunchMode(): BrowserLaunchMode | Promise<BrowserLaunchMode> {
     return this.options.getBrowserLaunchMode?.() ?? "embedded";
+  }
+
+  private getWorkspaceDividerSettings(): WorkspaceDividerSettings | Promise<WorkspaceDividerSettings> {
+    return this.options.getWorkspaceDividerSettings?.() ?? DEFAULT_WORKSPACE_DIVIDER_SETTINGS;
+  }
+
+  private applyDividerStyle(divider: GameDivider, settings: WorkspaceDividerSettings): void {
+    divider.view.setBackgroundColor(settings.style === "black" ? "#FF000000" : "#00000000");
   }
 
   private async launchExternal(role: Role, notice?: string): Promise<RoleStatus> {
@@ -875,26 +918,27 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private getSessionBounds(host: GameHostWindow, session: BrowserSession): PixelBounds {
     const bounds = normalizedRectToPixelBounds(session.rect, host.window.getContentBounds());
-    const inset = Math.floor(DIVIDER_SIZE / 2);
+    const beforeInset = Math.floor(host.dividerSettings.size / 2);
+    const afterInset = host.dividerSettings.size - beforeInset;
 
     host.dividers.forEach((divider) => {
       if (divider.axis === "vertical") {
         if (divider.beforeRoleIds.includes(session.role.id)) {
-          bounds.width -= inset;
+          bounds.width -= beforeInset;
         }
         if (divider.afterRoleIds.includes(session.role.id)) {
-          bounds.x += inset;
-          bounds.width -= inset;
+          bounds.x += afterInset;
+          bounds.width -= afterInset;
         }
         return;
       }
 
       if (divider.beforeRoleIds.includes(session.role.id)) {
-        bounds.height -= inset;
+        bounds.height -= beforeInset;
       }
       if (divider.afterRoleIds.includes(session.role.id)) {
-        bounds.y += inset;
-        bounds.height -= inset;
+        bounds.y += afterInset;
+        bounds.height -= afterInset;
       }
     });
 
@@ -912,7 +956,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (!geometry) {
         return;
       }
-      divider.view.setBounds(dividerGeometryToPixelBounds(divider.axis, geometry, contentBounds));
+      divider.view.setBounds(
+        dividerGeometryToPixelBounds(divider.axis, geometry, contentBounds, host.dividerSettings.size)
+      );
     });
   }
 
@@ -1230,8 +1276,6 @@ interface DividerSegment {
 }
 
 const DIVIDER_EPSILON = 0.000_001;
-const DIVIDER_SIZE = 4;
-
 function createDividerDescriptors(sessions: BrowserSession[]): DividerDescriptor[] {
   const segments: DividerSegment[] = [];
 
@@ -1350,16 +1394,18 @@ function getDividerGeometry(
 function dividerGeometryToPixelBounds(
   axis: DividerAxis,
   geometry: DividerGeometry,
-  contentBounds: PixelBounds
+  contentBounds: PixelBounds,
+  dividerSize: number
 ): PixelBounds {
+  const beforeInset = Math.floor(dividerSize / 2);
   if (axis === "vertical") {
     const lineX = Math.round(geometry.position * contentBounds.width);
     const top = Math.round(geometry.start * contentBounds.height);
     const bottom = Math.round(geometry.end * contentBounds.height);
     return {
-      x: lineX - Math.floor(DIVIDER_SIZE / 2),
+      x: lineX - beforeInset,
       y: top,
-      width: DIVIDER_SIZE,
+      width: dividerSize,
       height: Math.max(1, bottom - top)
     };
   }
@@ -1369,9 +1415,9 @@ function dividerGeometryToPixelBounds(
   const right = Math.round(geometry.end * contentBounds.width);
   return {
     x: left,
-    y: lineY - Math.floor(DIVIDER_SIZE / 2),
+    y: lineY - beforeInset,
     width: Math.max(1, right - left),
-    height: DIVIDER_SIZE
+    height: dividerSize
   };
 }
 

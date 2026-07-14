@@ -10,7 +10,11 @@ import type {
   BrowserNetworkSettings,
   BrowserProxySettings,
   BrowserProxySettingsMode,
-  GameBrowserSettings
+  GameBrowserSettings,
+  WorkspaceAppearanceSettings,
+  WorkspaceDividerSettings,
+  WorkspaceDividerSize,
+  WorkspaceDividerStyle
 } from "./types";
 
 export const browserFontFamilyRoles = ["standard", "serif", "sansserif", "fixed", "math"] as const;
@@ -46,11 +50,23 @@ export const DEFAULT_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {
   mode: "automatic"
 };
 
+export const workspaceDividerSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceDividerSize[];
+
+export const DEFAULT_WORKSPACE_DIVIDER_SETTINGS: WorkspaceDividerSettings = {
+  size: 4,
+  style: "material"
+};
+
+export const DEFAULT_WORKSPACE_APPEARANCE_SETTINGS: WorkspaceAppearanceSettings = {
+  divider: DEFAULT_WORKSPACE_DIVIDER_SETTINGS
+};
+
 export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   graphics: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
   launchMode: "auto",
-  network: DEFAULT_BROWSER_NETWORK_SETTINGS
+  network: DEFAULT_BROWSER_NETWORK_SETTINGS,
+  workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 };
 
 export function normalizeGameBrowserSettings(
@@ -63,7 +79,29 @@ export function normalizeGameBrowserSettings(
     fonts: normalizeBrowserFontSettings(input.fonts, fallback.fonts),
     graphics: normalizeBrowserGraphicsSettings(input.graphics, fallback.graphics),
     launchMode: normalizeBrowserLaunchMode(input.launchMode, fallback.launchMode),
-    network: normalizeBrowserNetworkSettings(input.network, fallback.network)
+    network: normalizeBrowserNetworkSettings(input.network, fallback.network),
+    workspace: normalizeWorkspaceAppearanceSettings(input.workspace, fallback.workspace)
+  };
+}
+
+export function normalizeWorkspaceAppearanceSettings(
+  value: unknown,
+  fallback: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+): WorkspaceAppearanceSettings {
+  const input = isRecord(value) ? value : {};
+  return {
+    divider: normalizeWorkspaceDividerSettings(input.divider, fallback.divider)
+  };
+}
+
+export function normalizeWorkspaceDividerSettings(
+  value: unknown,
+  fallback: WorkspaceDividerSettings = DEFAULT_WORKSPACE_DIVIDER_SETTINGS
+): WorkspaceDividerSettings {
+  const input = isRecord(value) ? value : {};
+  return {
+    size: normalizeWorkspaceDividerSize(input.size, fallback.size),
+    style: normalizeWorkspaceDividerStyle(input.style, fallback.style)
   };
 }
 
@@ -226,6 +264,22 @@ function normalizeBrowserCdnCompatibilityMode(
   fallback: BrowserCdnCompatibilityMode
 ): BrowserCdnCompatibilityMode {
   return value === "off" || value === "auto" || value === "on" ? value : fallback;
+}
+
+function normalizeWorkspaceDividerSize(
+  value: unknown,
+  fallback: WorkspaceDividerSize
+): WorkspaceDividerSize {
+  return workspaceDividerSizes.includes(value as WorkspaceDividerSize)
+    ? (value as WorkspaceDividerSize)
+    : fallback;
+}
+
+function normalizeWorkspaceDividerStyle(
+  value: unknown,
+  fallback: WorkspaceDividerStyle
+): WorkspaceDividerStyle {
+  return value === "material" || value === "black" ? value : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

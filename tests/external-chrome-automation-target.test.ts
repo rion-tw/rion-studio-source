@@ -213,6 +213,64 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("serializes concurrent clicks into complete press and release pairs", async () => {
+    const harness = createHarness();
+    const firstPress = createDeferred<void>();
+    harness.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Page.getLayoutMetrics") {
+        return { cssVisualViewport: { clientWidth: 100, clientHeight: 100 } };
+      }
+      if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed" && params.x === 10) {
+        await firstPress.promise;
+      }
+      return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+    });
+    const target = new ExternalChromeAutomationTarget(harness.client);
+
+    const first = target.dispatchClick(10, 10);
+    await vi.waitFor(() => expect(harness.send).toHaveBeenCalledWith(
+      "Input.dispatchMouseEvent",
+      expect.objectContaining({ type: "mousePressed", x: 10, y: 10 })
+    ));
+    const second = target.dispatchClick(90, 90);
+    await Promise.resolve();
+    expect(harness.send).not.toHaveBeenCalledWith(
+      "Input.dispatchMouseEvent",
+      expect.objectContaining({ type: "mousePressed", x: 90, y: 90 })
+    );
+
+    firstPress.resolve(undefined);
+    await Promise.all([first, second]);
+    expect(
+      harness.send.mock.calls
+        .filter(([method]) => method === "Input.dispatchMouseEvent")
+        .map(([, params]) => [params?.type, params?.x, params?.y])
+    ).toEqual([
+      ["mousePressed", 10, 10],
+      ["mouseReleased", 10, 10],
+      ["mousePressed", 90, 90],
+      ["mouseReleased", 90, 90]
+    ]);
+  });
+
+  it("retries key release when the first keyUp request fails", async () => {
+    const harness = createHarness();
+    let keyUpCalls = 0;
+    harness.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Input.dispatchKeyEvent" && params?.type === "keyUp") {
+        keyUpCalls += 1;
+        if (keyUpCalls === 1) {
+          throw new Error("keyUp timed out");
+        }
+      }
+      return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+    });
+    const target = new ExternalChromeAutomationTarget(harness.client);
+
+    await expect(target.dispatchKey("F2")).rejects.toThrow("keyUp timed out");
+    expect(keyUpCalls).toBe(2);
+  });
+
   it("suppresses overlay shortcut handling in every live execution context before key dispatch", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);
@@ -326,4 +384,14 @@ function createHarness() {
     onNotification,
     send
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }

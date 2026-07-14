@@ -83,6 +83,72 @@ describe("ElectronAutomationTarget", () => {
     ]);
   });
 
+  it("serializes key and click input through the same target queue", async () => {
+    const harness = createHarness();
+    let releaseSuppression!: () => void;
+    const suppression = new Promise<void>((resolve) => {
+      releaseSuppression = resolve;
+    });
+    harness.frame.executeJavaScript.mockImplementation((source: string) =>
+      source.includes('suppressNextShortcut?.("F2")')
+        ? suppression
+        : Promise.resolve(source.includes('largest("canvas")') ? "canvas" : undefined)
+    );
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    const key = target.dispatchKey("F2");
+    await vi.waitFor(() => expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('suppressNextShortcut?.("F2")')
+    ));
+    const click = target.dispatchClick(20, 30);
+    await Promise.resolve();
+    expect(harness.webContents.sendInputEvent).not.toHaveBeenCalled();
+
+    releaseSuppression();
+    await Promise.all([key, click]);
+    expect(harness.webContents.sendInputEvent.mock.calls).toEqual([
+      [{ type: "rawKeyDown", keyCode: "F2" }],
+      [{ type: "keyUp", keyCode: "F2" }],
+      [{ type: "mouseDown", button: "left", clickCount: 1, x: 256, y: 216 }],
+      [{ type: "mouseUp", button: "left", clickCount: 1, x: 256, y: 216 }]
+    ]);
+  });
+
+  it("releases native key and mouse state after a partial dispatch failure", async () => {
+    const keyHarness = createHarness();
+    keyHarness.webContents.sendInputEvent
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error("key up failed");
+      })
+      .mockImplementation(() => undefined);
+    const keyTarget = new ElectronAutomationTarget(keyHarness.view as never, keyHarness.webContents as never);
+
+    await expect(keyTarget.dispatchKey("F2")).rejects.toThrow("key up failed");
+    expect(keyHarness.webContents.sendInputEvent).toHaveBeenNthCalledWith(3, {
+      type: "keyUp",
+      keyCode: "F2"
+    });
+
+    const clickHarness = createHarness();
+    clickHarness.webContents.sendInputEvent
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error("mouse up failed");
+      })
+      .mockImplementation(() => undefined);
+    const clickTarget = new ElectronAutomationTarget(clickHarness.view as never, clickHarness.webContents as never);
+
+    await expect(clickTarget.dispatchClick(25, 75)).rejects.toThrow("mouse up failed");
+    expect(clickHarness.webContents.sendInputEvent).toHaveBeenNthCalledWith(3, {
+      type: "mouseUp",
+      button: "left",
+      clickCount: 1,
+      x: 320,
+      y: 540
+    });
+  });
+
   it("uses native focus only when focus is explicitly requested", async () => {
     const harness = createHarness();
     const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);

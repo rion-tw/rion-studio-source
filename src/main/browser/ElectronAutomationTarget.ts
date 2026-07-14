@@ -6,14 +6,14 @@ import {
 } from "../../shared/macroShortcuts";
 
 export interface BrowserAutomationTarget {
-  dispatchClick: (xPercent: number, yPercent: number) => Promise<void>;
-  dispatchKey: (code: string) => Promise<void>;
+  dispatchClick: (xPercent: number, yPercent: number, signal?: AbortSignal) => Promise<void>;
+  dispatchKey: (code: string, signal?: AbortSignal) => Promise<void>;
   evaluate: <T = unknown>(source: string) => Promise<T>;
   focus: () => Promise<void>;
 }
 
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
-  private keyDispatchTail: Promise<void> = Promise.resolve();
+  private inputDispatchTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly view: Pick<WebContentsView, "getBounds">,
@@ -32,7 +32,8 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     await this.preparePageTarget();
   }
 
-  private async preparePageTarget(): Promise<void> {
+  private async preparePageTarget(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
     }
@@ -41,23 +42,24 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
 
     for (const frame of frames) {
       const result = await executeFrameScript(frame, createFocusSource(false)).catch(() => "");
+      signal?.throwIfAborted();
       if (result === "canvas") {
         return;
       }
     }
 
     await this.webContents.executeJavaScript(createFocusSource(true)).catch(() => undefined);
+    signal?.throwIfAborted();
   }
 
-  dispatchKey(code: string): Promise<void> {
-    const result = this.keyDispatchTail.then(() => this.dispatchKeyUnlocked(code));
-    this.keyDispatchTail = result.catch(() => undefined);
-    return result;
+  dispatchKey(code: string, signal?: AbortSignal): Promise<void> {
+    return this.enqueueInput(() => this.dispatchKeyUnlocked(code, signal));
   }
 
-  private async dispatchKeyUnlocked(code: string): Promise<void> {
-    await this.preparePageTarget();
+  private async dispatchKeyUnlocked(code: string, signal?: AbortSignal): Promise<void> {
+    await this.preparePageTarget(signal);
 
+    signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
     }
@@ -70,10 +72,22 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     );
 
     const keyCode = getElectronKeyCode(code);
+    let didSendKeyDown = false;
+    let didSendKeyUp = false;
     try {
+      signal?.throwIfAborted();
       this.webContents.sendInputEvent({ type: "rawKeyDown", keyCode });
+      didSendKeyDown = true;
       this.webContents.sendInputEvent({ type: "keyUp", keyCode });
+      didSendKeyUp = true;
     } finally {
+      if (didSendKeyDown && !didSendKeyUp && !this.webContents.isDestroyed()) {
+        try {
+          this.webContents.sendInputEvent({ type: "keyUp", keyCode });
+        } catch {
+          // Best-effort recovery for a partially dispatched native key sequence.
+        }
+      }
       const clearSource = createMacroShortcutSuppressionClearSource(code);
       await Promise.all(
         [...this.webContents.mainFrame.framesInSubtree].map((frame) =>
@@ -83,9 +97,14 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     }
   }
 
-  async dispatchClick(xPercent: number, yPercent: number): Promise<void> {
-    await this.preparePageTarget();
+  dispatchClick(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
+    return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, signal));
+  }
 
+  private async dispatchClickUnlocked(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
+    await this.preparePageTarget(signal);
+
+    signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
     }
@@ -93,9 +112,29 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     const bounds = this.view.getBounds();
     const x = Math.max(0, Math.min(bounds.width - 1, Math.round((bounds.width * xPercent) / 100)));
     const y = Math.max(0, Math.min(bounds.height - 1, Math.round((bounds.height * yPercent) / 100)));
+    const release = { type: "mouseUp" as const, button: "left" as const, clickCount: 1, x, y };
+    let didPress = false;
+    let didRelease = false;
+    try {
+      this.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, x, y });
+      didPress = true;
+      this.webContents.sendInputEvent(release);
+      didRelease = true;
+    } finally {
+      if (didPress && !didRelease && !this.webContents.isDestroyed()) {
+        try {
+          this.webContents.sendInputEvent(release);
+        } catch {
+          // Best-effort recovery for a partially dispatched native click sequence.
+        }
+      }
+    }
+  }
 
-    this.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, x, y });
-    this.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, x, y });
+  private enqueueInput(operation: () => Promise<void>): Promise<void> {
+    const result = this.inputDispatchTail.then(operation);
+    this.inputDispatchTail = result.catch(() => undefined);
+    return result;
   }
 
   async evaluate<T = unknown>(source: string): Promise<T> {

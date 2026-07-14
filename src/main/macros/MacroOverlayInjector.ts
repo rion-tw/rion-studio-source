@@ -110,6 +110,12 @@ export class MacroOverlayInjector {
         break;
       case "edit":
         await this.assertMacroAssignedToRole(roleId, request.macroId);
+        if (this.macroManager.listStatuses().some(
+          (status) => status.macroId === request.macroId &&
+            (status.state === "running" || status.state === "stopping")
+        )) {
+          throw new Error("Stop the macro before editing it.");
+        }
         await this.onMacroEditorRequested?.({ macroId: request.macroId, roleId });
         break;
       case "start":
@@ -176,10 +182,8 @@ export class MacroOverlayInjector {
   }
 
   private async getOverlayState(roleId: string): Promise<MacroOverlayState> {
-    const [macros, statuses] = await Promise.all([
-      this.macroStore.listMacros(),
-      Promise.resolve(this.macroManager.listStatuses())
-    ]);
+    const macros = await this.macroStore.listMacros();
+    const statuses = this.macroManager.listStatuses();
 
     const assignedMacros = macros.filter((macro) => macro.roleIds.includes(roleId));
     const assignedMacroIds = new Set(assignedMacros.map((macro) => macro.id));
@@ -347,7 +351,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v25"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-14.12";
+  const scriptVersion = "2026-07-14.13";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
@@ -504,8 +508,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     language: detectOverlayLanguage(),
     lastRefreshAt: 0,
     macros: [],
+    requestVersion: 0,
     statuses: []
   };
+  const pendingMacroActions = new Set();
 
   function getText() {
     return overlayTexts[state.language] ?? overlayTexts[detectOverlayLanguage()] ?? overlayTexts.en;
@@ -526,7 +532,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   }
 
   function isFailed(macroId) {
-    return state.statuses.some((status) => status.macroId === macroId && status.state === "failed");
+    return state.statuses.some(
+      (status) => status.macroId === macroId && (status.state === "failed" || status.state === "cancelled")
+    );
   }
 
   function getRunningBadgeMacros() {
@@ -876,7 +884,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
           escapeHtml(editLabel),
           '" aria-label="',
           escapeHtml(editLabel),
-          '">',
+          '"',
+          running || stopping ? ' disabled aria-disabled="true"' : "",
+          '>',
           editIconMarkup,
           "</button></div>"
         ].join("");
@@ -918,6 +928,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".macro-detail-steps b{color:rgba(255,255,255,.7);display:block;font-size:9.5px;line-height:1.35;}",
       ".macro-edit{align-items:center;background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.11);border-radius:999px;color:rgba(255,255,255,.88);cursor:pointer;display:flex;grid-area:edit;height:24px;justify-content:center;padding:0;width:24px;}",
       ".macro-edit:hover{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.18);}",
+      ".macro-edit:disabled{cursor:not-allowed;opacity:.42;}",
       ".edit-icon{display:block;fill:none;height:12px;width:12px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;}",
       ".active-badges{align-items:center;display:flex;flex-wrap:nowrap;gap:5px;justify-content:center;left:50%;max-width:min(76vw,620px);pointer-events:none;position:fixed;top:20%;transform:translateX(-50%);z-index:2147483647;}",
       ".active-badge{-webkit-backdrop-filter:blur(30px) saturate(140%);-webkit-font-smoothing:antialiased;align-items:center;backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.5);border:1px solid rgba(255,255,255,.14);border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.2);color:rgba(255,255,255,.92);display:flex;font-size:10px;gap:5px;letter-spacing:0;line-height:1.15;max-width:156px;min-height:20px;padding:4px 8px;pointer-events:none;white-space:nowrap;}",
@@ -960,6 +971,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (button.disabled) {
+          return;
+        }
         const macroId = button.getAttribute("data-macro-id");
         if (macroId) {
           void requestEditMacro(macroId);
@@ -991,17 +1005,27 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   }
 
   async function refresh(options = {}) {
+    if (pendingMacroActions.size > 0) {
+      return;
+    }
     const renderAfter = options.renderAfter !== false;
     const previousRunningBadgeSignature = getRunningBadgeSignature();
+    const requestVersion = ++state.requestVersion;
 
     try {
       const nextState = await binding({ type: "list" });
+      if (requestVersion !== state.requestVersion) {
+        return;
+      }
       state.error = "";
       state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
       state.macros = Array.isArray(nextState?.macros) ? nextState.macros : [];
       state.statuses = Array.isArray(nextState?.statuses) ? nextState.statuses : [];
       state.lastRefreshAt = Date.now();
     } catch (error) {
+      if (requestVersion !== state.requestVersion) {
+        return;
+      }
       state.error = error instanceof Error ? error.message : getText().loadError;
     }
 
@@ -1011,23 +1035,37 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   }
 
   async function runAction(action, macroId, options = {}) {
+    if (pendingMacroActions.has(macroId)) {
+      return;
+    }
     const closeAfter = options.closeAfter === true;
+    const requestVersion = ++state.requestVersion;
+    pendingMacroActions.add(macroId);
 
     try {
       const nextState = await binding({ type: action, macroId });
-      state.error = "";
-      state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
-      state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
-      state.statuses = Array.isArray(nextState?.statuses) ? nextState.statuses : state.statuses;
-      state.lastRefreshAt = Date.now();
+      if (requestVersion === state.requestVersion) {
+        state.error = "";
+        state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
+        state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
+        state.statuses = Array.isArray(nextState?.statuses) ? nextState.statuses : state.statuses;
+        state.lastRefreshAt = Date.now();
+      }
     } catch (error) {
-      state.error = error instanceof Error ? error.message : getText().runError;
+      if (requestVersion === state.requestVersion) {
+        state.error = error instanceof Error ? error.message : getText().runError;
+      }
+    } finally {
+      pendingMacroActions.delete(macroId);
     }
 
     if (closeAfter) {
       closePanel({ focus: true });
     } else {
       render();
+    }
+    if (pendingMacroActions.size === 0) {
+      void refresh({ renderAfter: !closeAfter });
     }
   }
 
@@ -1096,6 +1134,13 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     }
 
     if (shouldIgnoreShortcutEvent(event, document.activeElement, document.designMode)) {
+      return;
+    }
+
+    if (event.repeat) {
+      if (matchesMenuToggle(event) || state.macros.some((item) => matchesShortcut(event, item.trigger))) {
+        consumeShortcutEvent(event);
+      }
       return;
     }
 

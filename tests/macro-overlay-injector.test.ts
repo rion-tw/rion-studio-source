@@ -186,6 +186,52 @@ describe("MacroOverlayInjector", () => {
     });
   });
 
+  it("rejects overlay edits while any assigned role is active", async () => {
+    const onMacroEditorRequested = vi.fn();
+    const macroManager = {
+      listStatuses: vi.fn(() => [{
+        roleId: "role-2",
+        macroId: "macro-1",
+        state: "running",
+        startedAt: "2026-07-10T00:00:00.000Z",
+        updatedAt: "2026-07-10T00:00:00.000Z"
+      }] satisfies MacroRunStatus[]),
+      start: vi.fn().mockResolvedValue([]),
+      stop: vi.fn().mockResolvedValue(undefined)
+    };
+    const injector = createInjector({ macroManager, onMacroEditorRequested });
+
+    await expect(injector.handleRequest(role.id, { type: "edit", macroId: "macro-1" })).rejects.toThrow(
+      "Stop the macro before editing it."
+    );
+    expect(onMacroEditorRequested).not.toHaveBeenCalled();
+  });
+
+  it("captures statuses after an asynchronous macro list finishes", async () => {
+    const macros = createDeferred<Macro[]>();
+    let statuses: MacroRunStatus[] = [];
+    const injector = new MacroOverlayInjector(
+      { listMacros: vi.fn(() => macros.promise) } as never,
+      {
+        listStatuses: vi.fn(() => statuses),
+        startForRole: vi.fn(),
+        stopForRole: vi.fn()
+      } as never
+    );
+
+    const state = injector.handleRequest(role.id, { type: "list" });
+    statuses = [{
+      roleId: role.id,
+      macroId: assignedMacro.id,
+      state: "running",
+      startedAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    }];
+    macros.resolve([assignedMacro]);
+
+    await expect(state).resolves.toMatchObject({ statuses: [{ state: "running" }] });
+  });
+
   it("can proactively refresh installed overlay pages", async () => {
     const page = createPage();
     const injector = createInjector();
@@ -209,7 +255,10 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.12"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.13"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
     expect(MACRO_OVERLAY_SCRIPT).toContain("dispose");
     expect(MACRO_OVERLAY_SCRIPT).toContain("host.style.setProperty(property, value, \"important\")");
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"right\", \"8px\"]");
@@ -271,6 +320,8 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('<span class="macro-detail-shortcut"><b>');
     expect(MACRO_OVERLAY_SCRIPT).toContain('<span class="macro-detail-poll"><b>');
     expect(MACRO_OVERLAY_SCRIPT).toContain('<button class="macro-edit" type="button"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('disabled aria-disabled="true"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("if (button.disabled)");
     expect(MACRO_OVERLAY_SCRIPT).toContain('<svg class="create-icon" viewBox="0 0 24 24"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('<path d="M12 5v14"/>');
     expect(MACRO_OVERLAY_SCRIPT).toContain('<path d="M5 12h14"/>');
@@ -547,6 +598,16 @@ function createPage() {
   };
 
   return { handlers, page };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
 
 interface ElementStubOptions {

@@ -88,7 +88,7 @@ export async function connectExternalChromeAutomation(
 
 export class ExternalChromeAutomationTarget implements ExternalBrowserAutomationTarget {
   private readonly executionContextIds = new Set<number>();
-  private keyDispatchTail: Promise<void> = Promise.resolve();
+  private inputDispatchTail: Promise<void> = Promise.resolve();
   private mainFrameId?: string;
   private overlayHandler?: ExternalMacroOverlayHandler;
   private removeNotificationListener?: () => void;
@@ -172,24 +172,33 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     await this.preparePageTarget();
   }
 
-  private async preparePageTarget(): Promise<void> {
+  private async preparePageTarget(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     await this.evaluate(createExternalFocusSource()).catch(() => undefined);
+    signal?.throwIfAborted();
   }
 
-  dispatchKey(code: string): Promise<void> {
-    const result = this.keyDispatchTail.then(() => this.dispatchKeyUnlocked(code));
-    this.keyDispatchTail = result.catch(() => undefined);
-    return result;
+  dispatchKey(code: string, signal?: AbortSignal): Promise<void> {
+    return this.enqueueInput(() => this.dispatchKeyUnlocked(code, signal));
   }
 
-  private async dispatchKeyUnlocked(code: string): Promise<void> {
-    await this.preparePageTarget();
+  private async dispatchKeyUnlocked(code: string, signal?: AbortSignal): Promise<void> {
+    await this.preparePageTarget(signal);
     await this.suppressNextShortcut(code);
     const descriptor = getCdpKeyDescriptor(code);
+    let didSendKeyDown = false;
+    let didSendKeyUp = false;
     try {
+      signal?.throwIfAborted();
       await this.client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...descriptor });
+      didSendKeyDown = true;
+      signal?.throwIfAborted();
       await this.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor });
+      didSendKeyUp = true;
     } finally {
+      if (didSendKeyDown && !didSendKeyUp) {
+        await this.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor }).catch(() => undefined);
+      }
       await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
     }
   }
@@ -217,17 +226,40 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     );
   }
 
-  async dispatchClick(xPercent: number, yPercent: number): Promise<void> {
-    await this.preparePageTarget();
+  dispatchClick(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
+    return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, signal));
+  }
+
+  private async dispatchClickUnlocked(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
+    await this.preparePageTarget(signal);
     const metrics = await this.client.send<{
       cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
     }>("Page.getLayoutMetrics");
+    signal?.throwIfAborted();
     const width = Math.max(1, metrics.cssVisualViewport?.clientWidth ?? 1);
     const height = Math.max(1, metrics.cssVisualViewport?.clientHeight ?? 1);
     const x = clamp(Math.round((width * xPercent) / 100), 0, width - 1);
     const y = clamp(Math.round((height * yPercent) / 100), 0, height - 1);
-    await this.client.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, x, y });
-    await this.client.send("Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, x, y });
+    const release = { type: "mouseReleased", button: "left", clickCount: 1, x, y };
+    let didPress = false;
+    let didRelease = false;
+    try {
+      await this.client.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, x, y });
+      didPress = true;
+      signal?.throwIfAborted();
+      await this.client.send("Input.dispatchMouseEvent", release);
+      didRelease = true;
+    } finally {
+      if (didPress && !didRelease) {
+        await this.client.send("Input.dispatchMouseEvent", release).catch(() => undefined);
+      }
+    }
+  }
+
+  private enqueueInput(operation: () => Promise<void>): Promise<void> {
+    const result = this.inputDispatchTail.then(operation);
+    this.inputDispatchTail = result.catch(() => undefined);
+    return result;
   }
 
   async evaluate<T = unknown>(source: string): Promise<T> {

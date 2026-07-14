@@ -349,7 +349,7 @@
   }
 
   .app-page {
-    scrollbar-gutter: stable;
+    scrollbar-gutter: stable both-edges;
   }
 
   .app-page-header {

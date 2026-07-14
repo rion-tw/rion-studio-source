@@ -5,11 +5,11 @@ import type {
   WorkspaceLayoutTemplate
 } from "./types";
 
-export const MAX_WORKSPACE_SLOTS = 6;
+export const MAX_WORKSPACE_SLOTS = 8;
 export const MIN_WORKSPACE_SLOT_SIZE = 0.12;
 export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns";
 export const DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT: WorkspaceBrowserZoomPercent = 100;
-export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [80, 90, 100, 110, 125];
+export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [75, 80, 90, 100, 110, 125];
 
 export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "two_columns",
@@ -19,7 +19,8 @@ export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "main_center_side_stacks",
   "quad",
   "four_columns",
-  "six_grid"
+  "six_grid",
+  "eight_grid"
 ];
 
 const readableWorkspaceLayoutTemplates: WorkspaceLayoutTemplate[] = ["single", ...workspaceLayoutTemplates];
@@ -27,6 +28,10 @@ const readableWorkspaceLayoutTemplates: WorkspaceLayoutTemplate[] = ["single", .
 export function getDefaultWorkspaceBrowserZoomPercent(
   template: WorkspaceLayoutTemplate
 ): WorkspaceBrowserZoomPercent {
+  if (template === "eight_grid") {
+    return 75;
+  }
+
   if (template === "six_grid" || template === "main_center_side_stacks") {
     return 80;
   }
@@ -58,6 +63,8 @@ export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate)
       return 5;
     case "six_grid":
       return 6;
+    case "eight_grid":
+      return 8;
   }
 }
 
@@ -103,6 +110,8 @@ export function getDefaultWorkspaceRects(template: WorkspaceLayoutTemplate): Nor
       return createEqualColumnRects(4);
     case "six_grid":
       return createGridRects(3, 2);
+    case "eight_grid":
+      return createGridRects(4, 2);
   }
 }
 

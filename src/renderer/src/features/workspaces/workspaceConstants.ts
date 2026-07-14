@@ -19,6 +19,14 @@ const Grid3X2 = createLucideIcon("Grid3X2", [
   ["path", { d: "M3 12h18", key: "row" }]
 ]);
 
+const Grid4X2 = createLucideIcon("Grid4X2", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "outer" }],
+  ["path", { d: "M7.5 3v18", key: "column-1" }],
+  ["path", { d: "M12 3v18", key: "column-2" }],
+  ["path", { d: "M16.5 3v18", key: "column-3" }],
+  ["path", { d: "M3 12h18", key: "row" }]
+]);
+
 const MainCenterSideStacks = createLucideIcon("MainCenterSideStacks", [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "outer" }],
   ["path", { d: "M8 3v18", key: "left-column" }],
@@ -36,7 +44,8 @@ export const workspaceTemplateLabelKeys: Record<WorkspaceLayoutTemplate, Transla
   main_center_side_stacks: "workspace.layout.mainCenterSideStacks",
   quad: "workspace.layout.quad",
   four_columns: "workspace.layout.fourColumns",
-  six_grid: "workspace.layout.sixGrid"
+  six_grid: "workspace.layout.sixGrid",
+  eight_grid: "workspace.layout.eightGrid"
 };
 
 export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon> = {
@@ -48,5 +57,6 @@ export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon>
   main_center_side_stacks: MainCenterSideStacks,
   quad: Grid2X2,
   four_columns: Columns4,
-  six_grid: Grid3X2
+  six_grid: Grid3X2,
+  eight_grid: Grid4X2
 };

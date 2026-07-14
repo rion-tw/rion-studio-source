@@ -35,6 +35,7 @@ describe("PortableDataManager", () => {
     await roleStore.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
     await workspaceStore.createWorkspace({
       name: "Party",
+      browserZoomPercent: 75,
       slots: [
         {
           id: "slot-1",
@@ -115,6 +116,7 @@ describe("PortableDataManager", () => {
     expect(parsed.roles[0]).not.toHaveProperty("lastAuthCheckAt");
     expect(parsed.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
     expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
+    expect(parsed.launchWorkspaces[0]).toMatchObject({ browserZoomPercent: 75 });
   });
 
   it("previews and applies an import with remapped role references", async () => {
@@ -226,14 +228,14 @@ describe("PortableDataManager", () => {
     await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
-  it("accepts six-grid portable workspaces and rejects a seventh slot", async () => {
-    const importPath = join(baseDir, "six-grid.json");
+  it("accepts eight-grid portable workspaces and rejects a ninth slot", async () => {
+    const importPath = join(baseDir, "eight-grid.json");
     const fixture = createPortableFixture();
     fixture.launchWorkspaces[0] = {
       ...fixture.launchWorkspaces[0],
-      template: "six_grid",
-      browserZoomPercent: 80,
-      slots: getDefaultWorkspaceRects("six_grid").map((rect, index) => ({
+      template: "eight_grid",
+      browserZoomPercent: 75,
+      slots: getDefaultWorkspaceRects("eight_grid").map((rect, index) => ({
         id: `slot-${index + 1}`,
         ...(index === 0 ? { roleId: "old-role" } : {}),
         rect
@@ -245,7 +247,7 @@ describe("PortableDataManager", () => {
     await expect(manager.previewImport()).resolves.toMatchObject({ workspaceCount: 1 });
 
     fixture.launchWorkspaces[0].slots.push({
-      id: "slot-7",
+      id: "slot-9",
       rect: { x: 0, y: 0, width: 0.5, height: 0.5 }
     });
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");

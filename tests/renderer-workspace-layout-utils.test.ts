@@ -43,6 +43,7 @@ describe("renderer workspace layout helpers", () => {
   });
 
   it("uses compact-layout browser zoom defaults", () => {
+    expect(getDefaultWorkspaceBrowserZoomPercent("eight_grid")).toBe(75);
     expect(getDefaultWorkspaceBrowserZoomPercent("three_columns")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("quad")).toBe(90);
     expect(getDefaultWorkspaceBrowserZoomPercent("four_columns")).toBe(90);
@@ -80,6 +81,11 @@ describe("renderer workspace layout helpers", () => {
     ).toEqual([
       { id: "custom-1", roleId: "p1", rect: getDefaultWorkspaceRects("two_columns")[0] },
       { id: "custom-2", roleId: "p2", rect: getDefaultWorkspaceRects("two_columns")[1] }
+    ]);
+
+    const eightSlots = Array.from({ length: 8 }, (_value, index) => slot(`custom-${index + 1}`, `p${index + 1}`));
+    expect(applyWorkspaceTemplate(eightSlots, "eight_grid").map((item) => item.roleId)).toEqual([
+      "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"
     ]);
   });
 
@@ -230,6 +236,39 @@ describe("renderer workspace layout helpers", () => {
       vertical: [0.25, 0.7]
     });
     expect(getWorkspaceSplitRange("six_grid", initialSplits, "horizontal", 0)).toEqual({
+      min: 0.2,
+      max: 0.8
+    });
+  });
+
+  it("adjusts four linked columns and two linked rows in an eight-grid workspace", () => {
+    const initialSlots = applyWorkspaceTemplate([], "eight_grid");
+    const initialSplits = getWorkspaceSplits("eight_grid", initialSlots);
+    const slots = applyWorkspaceSplits("eight_grid", initialSlots, {
+      horizontal: [0.6],
+      vertical: [0.2, 0.45, 0.8]
+    });
+
+    expect(initialSplits).toEqual({ horizontal: [0.5], vertical: [0.25, 0.5, 0.75] });
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0, y: 0, width: 0.2, height: 0.6 },
+      { x: 0.2, y: 0, width: 0.25, height: 0.6 },
+      { x: 0.45, y: 0, width: 0.35000000000000003, height: 0.6 },
+      { x: 0.8, y: 0, width: 0.19999999999999996, height: 0.6 },
+      { x: 0, y: 0.6, width: 0.2, height: 0.4 },
+      { x: 0.2, y: 0.6, width: 0.25, height: 0.4 },
+      { x: 0.45, y: 0.6, width: 0.35000000000000003, height: 0.4 },
+      { x: 0.8, y: 0.6, width: 0.19999999999999996, height: 0.4 }
+    ]);
+    expect(getWorkspaceSplits("eight_grid", slots)).toEqual({
+      horizontal: [0.6],
+      vertical: [0.2, 0.45, 0.8]
+    });
+    expect(getWorkspaceSplitRange("eight_grid", initialSplits, "vertical", 1)).toEqual({
+      min: 0.37,
+      max: 0.63
+    });
+    expect(getWorkspaceSplitRange("eight_grid", initialSplits, "horizontal", 0)).toEqual({
       min: 0.2,
       max: 0.8
     });

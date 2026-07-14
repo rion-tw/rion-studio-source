@@ -294,7 +294,7 @@ function WorkspaceLayoutFormEditor({
       <div className="grid gap-4 min-[1180px]:grid-cols-[minmax(240px,1.3fr)_minmax(150px,0.7fr)]">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField label={t("workspaces.layout")} description={t("workspaces.layoutDescription")}>
-            <div className="grid grid-cols-8 gap-1.5">
+            <div className="grid grid-cols-9 gap-1.5">
               {workspaceLayoutTemplates.map((template) => {
                 const Icon = workspaceTemplateIcons[template];
                 const isActive = form.template === template;
@@ -588,9 +588,9 @@ interface WorkspaceResizeHandlesProps {
 function WorkspaceResizeHandles({ onResizeStart, slots, template }: WorkspaceResizeHandlesProps): JSX.Element | null {
   const splits = getWorkspaceSplits(template, slots);
   const splitX = splits.vertical[0] ?? 1;
-  const verticalHandleY = template === "quad" || template === "six_grid" ? 0.25 : 0.5;
+  const verticalHandleY = template === "quad" || template === "six_grid" || template === "eight_grid" ? 0.25 : 0.5;
   const horizontalHandleX =
-    template === "quad" || template === "six_grid"
+    template === "quad" || template === "six_grid" || template === "eight_grid"
       ? 0.25
       : template === "main_left_stack_right"
         ? splitX + (1 - splitX) / 2

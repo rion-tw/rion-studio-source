@@ -665,6 +665,16 @@ describe("normalizedRectToPixelBounds", () => {
       { x: 0, y: 400, width: 400, height: 400 },
       { x: 400, y: 400, width: 400, height: 400 },
       { x: 800, y: 400, width: 400, height: 400 }
+    ]],
+    ["eight_grid", [
+      { x: 0, y: 0, width: 300, height: 400 },
+      { x: 300, y: 0, width: 300, height: 400 },
+      { x: 600, y: 0, width: 300, height: 400 },
+      { x: 900, y: 0, width: 300, height: 400 },
+      { x: 0, y: 400, width: 300, height: 400 },
+      { x: 300, y: 400, width: 300, height: 400 },
+      { x: 600, y: 400, width: 300, height: 400 },
+      { x: 900, y: 400, width: 300, height: 400 }
     ]]
   ] as const)("maps %s without title or control-bar offsets", (template, expected) => {
     expect(

@@ -26,6 +26,7 @@ function isMultiColumnTemplate(template: WorkspaceLayoutTemplate): boolean {
     template === "three_columns" ||
     template === "four_columns" ||
     template === "six_grid" ||
+    template === "eight_grid" ||
     template === "main_center_side_stacks"
   );
 }
@@ -174,13 +175,16 @@ export function getWorkspaceSplits(
     case "quad":
       return { horizontal: [firstRect.height], vertical: [firstRect.width] };
     case "six_grid":
+    case "eight_grid": {
+      const columnCount = template === "eight_grid" ? 4 : 3;
       return {
         horizontal: [firstRect.height],
-        vertical: defaultRects.slice(0, 2).map((defaultRect, index) => {
+        vertical: defaultRects.slice(0, columnCount - 1).map((defaultRect, index) => {
           const rect = slots[index]?.rect ?? defaultRect;
           return rect.x + rect.width;
         })
       };
+    }
     case "three_columns":
     case "four_columns":
       return {
@@ -251,7 +255,8 @@ export function createWorkspaceRectsFromSplits(
         { x: 0, y: splitY, width: splitX, height: 1 - splitY },
         { x: splitX, y: splitY, width: 1 - splitX, height: 1 - splitY }
       ];
-    case "six_grid": {
+    case "six_grid":
+    case "eight_grid": {
       const columnBoundaries = [
         0,
         ...defaultSplits.vertical.map((value, index) => splits.vertical[index] ?? value),

@@ -46,7 +46,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Launch workspace layout is invalid.": "error.workspaceTemplateInvalid",
   "Launch workspace browser zoom is invalid.": "error.workspaceBrowserZoomInvalid",
   "Launch workspace role is outside the selected layout.": "error.workspaceSlotOutsideLayout",
-  "Launch workspace can contain at most 6 slots.": "error.workspaceTooManySlots",
+  "Launch workspace can contain at most 8 slots.": "error.workspaceTooManySlots",
   "A role can only appear once in a launch workspace.": "error.workspaceRoleDuplicate",
   "Launch workspace slot rectangle is invalid.": "error.workspaceRectInvalid",
   "A launch workspace with this name already exists.": "error.workspaceNameDuplicate",

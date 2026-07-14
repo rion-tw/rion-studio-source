@@ -12,8 +12,9 @@ export type WorkspaceLayoutTemplate =
   | "main_center_side_stacks"
   | "quad"
   | "four_columns"
-  | "six_grid";
-export type WorkspaceBrowserZoomPercent = 80 | 90 | 100 | 110 | 125;
+  | "six_grid"
+  | "eight_grid";
+export type WorkspaceBrowserZoomPercent = 75 | 80 | 90 | 100 | 110 | 125;
 export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppThemeMode = "system" | "light" | "dark";
 export type AppRendererReadyState = "failed" | "ready";

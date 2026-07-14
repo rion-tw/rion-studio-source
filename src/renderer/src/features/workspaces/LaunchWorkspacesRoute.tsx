@@ -350,10 +350,10 @@ function WorkspaceLayoutPreview({
     );
   }
 
-  function renderThreeSlotRow(startSlotIndex: number): JSX.Element {
+  function renderGridRow(startSlotIndex: number, slotCount: number): JSX.Element {
     return (
       <div className="flex h-full min-h-0 min-w-0 gap-1">
-        {slots.slice(startSlotIndex, startSlotIndex + 3).map((slot, offset) => (
+        {slots.slice(startSlotIndex, startSlotIndex + slotCount).map((slot, offset) => (
           <div key={slot.id} className="min-h-0 min-w-0" style={createPreviewFlexStyle(slot.rect.width)}>
             {renderSlot(slot, startSlotIndex + offset)}
           </div>
@@ -445,16 +445,19 @@ function WorkspaceLayoutPreview({
           </div>
         );
       case "six_grid":
+      case "eight_grid": {
+        const columnCount = template === "eight_grid" ? 4 : 3;
         return (
           <div className="flex h-full min-h-0 flex-col gap-1">
             <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
-              {renderThreeSlotRow(0)}
+              {renderGridRow(0, columnCount)}
             </div>
             <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitY)}>
-              {renderThreeSlotRow(3)}
+              {renderGridRow(columnCount, columnCount)}
             </div>
           </div>
         );
+      }
       case "three_columns":
       case "four_columns":
         return (

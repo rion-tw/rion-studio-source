@@ -239,16 +239,16 @@ describe("LaunchWorkspaceStore", () => {
   it("persists, updates, and validates a custom browser zoom", async () => {
     const workspace = await store.createWorkspace({
       name: "Custom zoom",
-      browserZoomPercent: 125
+      browserZoomPercent: 75
     });
 
-    expect(workspace.browserZoomPercent).toBe(125);
+    expect(workspace.browserZoomPercent).toBe(75);
 
     const preserved = await store.updateWorkspace(workspace.id, {
       name: "Custom zoom renamed",
       template: "three_columns"
     });
-    expect(preserved.browserZoomPercent).toBe(125);
+    expect(preserved.browserZoomPercent).toBe(75);
 
     const updated = await store.updateWorkspace(workspace.id, { browserZoomPercent: 80 });
     expect(updated.browserZoomPercent).toBe(80);
@@ -296,6 +296,23 @@ describe("LaunchWorkspaceStore", () => {
     });
   });
 
+  it("creates an eight-grid workspace with four slots per row and 75 percent zoom", async () => {
+    const workspace = await store.createWorkspace({ name: "Eight roles", template: "eight_grid" });
+
+    expect(workspace.browserZoomPercent).toBe(75);
+    expect(workspace.slots.map((slot) => slot.rect)).toEqual([
+      { x: 0, y: 0, width: 0.25, height: 0.5 },
+      { x: 0.25, y: 0, width: 0.25, height: 0.5 },
+      { x: 0.5, y: 0, width: 0.25, height: 0.5 },
+      { x: 0.75, y: 0, width: 0.25, height: 0.5 },
+      { x: 0, y: 0.5, width: 0.25, height: 0.5 },
+      { x: 0.25, y: 0.5, width: 0.25, height: 0.5 },
+      { x: 0.5, y: 0.5, width: 0.25, height: 0.5 },
+      { x: 0.75, y: 0.5, width: 0.25, height: 0.5 }
+    ]);
+    await expect(store.getWorkspace(workspace.id)).resolves.toEqual(workspace);
+  });
+
   it("rejects duplicate names and roles outside the selected template", async () => {
     await store.createWorkspace({ name: "Party" });
 
@@ -328,7 +345,7 @@ describe("LaunchWorkspaceStore", () => {
       store.createWorkspace({
         name: "Too many",
         template: "quad",
-        slots: [{}, {}, {}, {}, {}, {}, {}]
+        slots: [{}, {}, {}, {}, {}, {}, {}, {}, {}]
       })
     ).rejects.toMatchObject({
       code: "WORKSPACE_TOO_MANY_SLOTS"

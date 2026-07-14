@@ -361,7 +361,38 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 min-[1180px]:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField
+            htmlFor="workspace-layout-template"
+            label={t("workspaces.layout")}
+            description={t("workspaces.layoutDescription")}
+          >
+            <Select
+              value={form.template}
+              onValueChange={(value) => handleTemplateChange(value as WorkspaceLayoutTemplate)}
+              disabled={isSaving}
+            >
+              <SelectTrigger id="workspace-layout-template">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {workspaceLayoutTemplates.map((template) => {
+                  const Icon = workspaceTemplateIcons[template];
+                  const label = t(workspaceTemplateLabelKeys[template]);
+
+                  return (
+                    <SelectItem key={template} value={template} textValue={label}>
+                      <Icon className="size-4 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{label}</span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </FormField>
+        </Surface>
+
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
             htmlFor="workspace-browser-zoom"
@@ -440,31 +471,6 @@ function WorkspaceLayoutFormEditor({
         variant="panel"
       >
         <div className="grid gap-3 p-4">
-          <FieldHeader title={t("workspaces.layout")} description={t("workspaces.layoutDescription")} />
-          <div className="flex flex-wrap gap-1.5">
-            {workspaceLayoutTemplates.map((template) => {
-              const Icon = workspaceTemplateIcons[template];
-              const isActive = form.template === template;
-
-              return (
-                <button
-                  key={template}
-                  className={cn(
-                    "glass-control flex h-[30px] w-fit items-center justify-center rounded-md px-2 text-muted-foreground transition-[background-color,border-color,color,box-shadow]",
-                    isActive ? "glass-control-selected text-foreground" : "hover:bg-accent/35 hover:text-foreground"
-                  )}
-                  type="button"
-                  title={t(workspaceTemplateLabelKeys[template])}
-                  aria-label={t(workspaceTemplateLabelKeys[template])}
-                  aria-pressed={isActive}
-                  onClick={() => handleTemplateChange(template)}
-                  disabled={isSaving}
-                >
-                  <Icon size={17} />
-                </button>
-              );
-            })}
-          </div>
           <div
             ref={previewRef}
             className="relative aspect-[16/9] min-h-[280px] overflow-hidden"

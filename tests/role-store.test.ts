@@ -44,6 +44,18 @@ describe("RoleStore", () => {
     });
   });
 
+  it("serializes concurrent deletions without restoring either role", async () => {
+    const first = await store.createRole({ name: "First" });
+    const second = await store.createRole({ name: "Second" });
+    const remaining = await store.createRole({ name: "Remaining" });
+
+    await expect(Promise.all([store.deleteRole(first.id), store.deleteRole(second.id)])).resolves.toEqual([
+      undefined,
+      undefined
+    ]);
+    await expect(store.listRoles()).resolves.toEqual([remaining]);
+  });
+
   it("reorders roles atomically without changing timestamps and keeps new roles last", async () => {
     const first = await store.createRole({ name: "First" });
     const second = await store.createRole({ name: "Second" });

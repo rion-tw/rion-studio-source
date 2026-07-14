@@ -44,6 +44,23 @@ describe("LaunchWorkspaceStore", () => {
     });
   });
 
+  it("serializes concurrent role cleanup across the same workspace", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Concurrent cleanup",
+      slots: [
+        { roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+        { roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+      ]
+    });
+
+    await expect(Promise.all([store.clearRole("role-1"), store.clearRole("role-2")])).resolves.toEqual([
+      undefined,
+      undefined
+    ]);
+    const updated = await store.getWorkspace(workspace.id);
+    expect(updated.slots.every((slot) => slot.roleId === undefined)).toBe(true);
+  });
+
   it("reorders workspaces atomically without changing timestamps and keeps new workspaces last", async () => {
     const first = await store.createWorkspace({ name: "First" });
     const second = await store.createWorkspace({ name: "Second" });

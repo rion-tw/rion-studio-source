@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import type {
   CreateLaunchWorkspaceInput,
@@ -24,6 +24,8 @@ import {
   MAX_WORKSPACE_SLOTS,
   MIN_WORKSPACE_SLOT_SIZE
 } from "../../shared/workspaceLayout";
+import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
+import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
 
 interface LaunchWorkspacesFile {
   workspaces: LaunchWorkspace[];
@@ -53,6 +55,7 @@ export class LaunchWorkspaceStoreError extends Error {
 }
 
 export class LaunchWorkspaceStore {
+  private readonly taskQueue = new SerialTaskQueue();
   private readonly workspacesPath: string;
 
   constructor(private readonly userDataDir: string) {
@@ -60,140 +63,155 @@ export class LaunchWorkspaceStore {
   }
 
   async listWorkspaces(): Promise<LaunchWorkspace[]> {
-    const file = await this.readWorkspacesFile();
-    return [...file.workspaces];
+    return this.taskQueue.run(async () => {
+      const file = await this.readWorkspacesFile();
+      return [...file.workspaces];
+    });
   }
 
   async getWorkspace(id: string): Promise<LaunchWorkspace> {
-    const workspace = (await this.listWorkspaces()).find((item) => item.id === id);
+    return this.taskQueue.run(async () => {
+      const workspace = (await this.readWorkspacesFile()).workspaces.find((item) => item.id === id);
 
-    if (!workspace) {
-      throw new LaunchWorkspaceStoreError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
-    }
+      if (!workspace) {
+        throw new LaunchWorkspaceStoreError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
+      }
 
-    return workspace;
+      return workspace;
+    });
   }
 
   async createWorkspace(input: CreateLaunchWorkspaceInput): Promise<LaunchWorkspace> {
-    const file = await this.readWorkspacesFile();
-    const now = new Date().toISOString();
-    const name = this.normalizeName(input.name);
-    const template = this.normalizeTemplate(input.template);
-    const browserZoomPercent = this.normalizeBrowserZoomPercent(
-      input.browserZoomPercent,
-      getDefaultWorkspaceBrowserZoomPercent(template)
-    );
-    const targetDisplayId = this.normalizeTargetDisplayId(input.targetDisplayId);
+    return this.taskQueue.run(async () => {
+      const file = await this.readWorkspacesFile();
+      const now = new Date().toISOString();
+      const name = this.normalizeName(input.name);
+      const template = this.normalizeTemplate(input.template);
+      const browserZoomPercent = this.normalizeBrowserZoomPercent(
+        input.browserZoomPercent,
+        getDefaultWorkspaceBrowserZoomPercent(template)
+      );
+      const targetDisplayId = this.normalizeTargetDisplayId(input.targetDisplayId);
 
-    this.ensureUniqueName(file.workspaces, name);
+      this.ensureUniqueName(file.workspaces, name);
 
-    const workspace: LaunchWorkspace = {
-      id: randomUUID(),
-      name,
-      template,
-      browserZoomPercent,
-      ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
-      slots: this.normalizeSlots(template, input.slots),
-      createdAt: now,
-      updatedAt: now
-    };
+      const workspace: LaunchWorkspace = {
+        id: randomUUID(),
+        name,
+        template,
+        browserZoomPercent,
+        ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
+        slots: this.normalizeSlots(template, input.slots),
+        createdAt: now,
+        updatedAt: now
+      };
 
-    file.workspaces.push(workspace);
-    await this.writeWorkspacesFile(file);
+      file.workspaces.push(workspace);
+      await this.writeWorkspacesFile(file);
 
-    return workspace;
+      return workspace;
+    });
   }
 
   async updateWorkspace(id: string, input: UpdateLaunchWorkspaceInput): Promise<LaunchWorkspace> {
-    const file = await this.readWorkspacesFile();
-    const index = file.workspaces.findIndex((workspace) => workspace.id === id);
+    return this.taskQueue.run(async () => {
+      const file = await this.readWorkspacesFile();
+      const index = file.workspaces.findIndex((workspace) => workspace.id === id);
 
-    if (index === -1) {
-      throw new LaunchWorkspaceStoreError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
-    }
+      if (index === -1) {
+        throw new LaunchWorkspaceStoreError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
+      }
 
-    const current = file.workspaces[index];
-    const name = input.name === undefined ? current.name : this.normalizeName(input.name);
-    const template = input.template === undefined ? current.template : this.normalizeTemplate(input.template);
-    const browserZoomPercent = this.normalizeBrowserZoomPercent(
-      input.browserZoomPercent,
-      current.browserZoomPercent
-    );
-    const targetDisplayId =
-      input.targetDisplayId === undefined
+      const current = file.workspaces[index];
+      const name = input.name === undefined ? current.name : this.normalizeName(input.name);
+      const template = input.template === undefined ? current.template : this.normalizeTemplate(input.template);
+      const browserZoomPercent = this.normalizeBrowserZoomPercent(
+        input.browserZoomPercent,
+        current.browserZoomPercent
+      );
+      const targetDisplayId = input.targetDisplayId === undefined
         ? current.targetDisplayId
         : this.normalizeTargetDisplayId(input.targetDisplayId);
-    const sourceSlots =
-      input.slots ??
-      (input.template === undefined ? current.slots : current.slots.slice(0, getWorkspaceTemplateSlotCount(template)));
+      const sourceSlots = input.slots ?? (
+        input.template === undefined
+          ? current.slots
+          : current.slots.slice(0, getWorkspaceTemplateSlotCount(template))
+      );
 
-    this.ensureUniqueName(file.workspaces, name, id);
+      this.ensureUniqueName(file.workspaces, name, id);
 
-    const updated: LaunchWorkspace = {
-      ...current,
-      name,
-      template,
-      browserZoomPercent,
-      slots: this.normalizeSlots(template, sourceSlots),
-      updatedAt: new Date().toISOString()
-    };
-    if (targetDisplayId === undefined) {
-      delete updated.targetDisplayId;
-    } else {
-      updated.targetDisplayId = targetDisplayId;
-    }
+      const updated: LaunchWorkspace = {
+        ...current,
+        name,
+        template,
+        browserZoomPercent,
+        slots: this.normalizeSlots(template, sourceSlots),
+        updatedAt: new Date().toISOString()
+      };
+      if (targetDisplayId === undefined) {
+        delete updated.targetDisplayId;
+      } else {
+        updated.targetDisplayId = targetDisplayId;
+      }
 
-    file.workspaces[index] = updated;
-    await this.writeWorkspacesFile(file);
+      file.workspaces[index] = updated;
+      await this.writeWorkspacesFile(file);
 
-    return updated;
+      return updated;
+    });
   }
 
   async reorderWorkspaces(input: ReorderItemsInput): Promise<LaunchWorkspace[]> {
-    const file = await this.readWorkspacesFile();
-    const workspaces = this.reorderItems(file.workspaces, input);
+    return this.taskQueue.run(async () => {
+      const file = await this.readWorkspacesFile();
+      const workspaces = this.reorderItems(file.workspaces, input);
 
-    await this.writeWorkspacesFile({ workspaces });
-    return [...workspaces];
+      await this.writeWorkspacesFile({ workspaces });
+      return [...workspaces];
+    });
   }
 
   async deleteWorkspace(id: string): Promise<void> {
-    const file = await this.readWorkspacesFile();
-    const nextWorkspaces = file.workspaces.filter((workspace) => workspace.id !== id);
+    return this.taskQueue.run(async () => {
+      const file = await this.readWorkspacesFile();
+      const nextWorkspaces = file.workspaces.filter((workspace) => workspace.id !== id);
 
-    if (nextWorkspaces.length === file.workspaces.length) {
-      throw new LaunchWorkspaceStoreError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
-    }
+      if (nextWorkspaces.length === file.workspaces.length) {
+        throw new LaunchWorkspaceStoreError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
+      }
 
-    await this.writeWorkspacesFile({ workspaces: nextWorkspaces });
+      await this.writeWorkspacesFile({ workspaces: nextWorkspaces });
+    });
   }
 
   async clearRole(roleId: string): Promise<void> {
-    const file = await this.readWorkspacesFile();
-    let didChange = false;
-    const now = new Date().toISOString();
+    return this.taskQueue.run(async () => {
+      const file = await this.readWorkspacesFile();
+      let didChange = false;
+      const now = new Date().toISOString();
 
-    const workspaces = file.workspaces.map((workspace) => {
-      let workspaceChanged = false;
-      const slots = workspace.slots.map((slot) => {
-        if (slot.roleId !== roleId) {
-          return slot;
-        }
+      const workspaces = file.workspaces.map((workspace) => {
+        let workspaceChanged = false;
+        const slots = workspace.slots.map((slot) => {
+          if (slot.roleId !== roleId) {
+            return slot;
+          }
 
-        didChange = true;
-        workspaceChanged = true;
-        const { roleId: _roleId, ...nextSlot } = slot;
-        return nextSlot;
+          didChange = true;
+          workspaceChanged = true;
+          const { roleId: _roleId, ...nextSlot } = slot;
+          return nextSlot;
+        });
+
+        return workspaceChanged ? { ...workspace, slots, updatedAt: now } : workspace;
       });
 
-      return workspaceChanged ? { ...workspace, slots, updatedAt: now } : workspace;
+      if (!didChange) {
+        return;
+      }
+
+      await this.writeWorkspacesFile({ workspaces });
     });
-
-    if (!didChange) {
-      return;
-    }
-
-    await this.writeWorkspacesFile({ workspaces });
   }
 
   private async readWorkspacesFile(): Promise<LaunchWorkspacesFile> {
@@ -227,10 +245,7 @@ export class LaunchWorkspaceStore {
   }
 
   private async writeWorkspacesFile(file: LaunchWorkspacesFile): Promise<void> {
-    await mkdir(dirname(this.workspacesPath), { recursive: true });
-    const tmpPath = `${this.workspacesPath}.tmp`;
-    await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-    await rename(tmpPath, this.workspacesPath);
+    await writeJsonFileAtomically(this.workspacesPath, file);
   }
 
   private normalizeStoredWorkspace(workspace: StoredLaunchWorkspace): LaunchWorkspace {

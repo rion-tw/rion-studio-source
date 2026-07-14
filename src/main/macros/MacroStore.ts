@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import type {
   CreateMacroInput,
@@ -10,6 +10,13 @@ import type {
   MacroTrigger,
   UpdateMacroInput
 } from "../../shared/types";
+import {
+  areMacroTriggersEqual,
+  macroRoleAssignmentsOverlap,
+  MACRO_OVERLAY_TRIGGER
+} from "../../shared/macroShortcuts";
+import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
+import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
 
 interface MacrosFile {
   macros: Macro[];
@@ -41,100 +48,117 @@ export class MacroStoreError extends Error {
 
 export class MacroStore {
   private readonly macrosPath: string;
+  private readonly taskQueue = new SerialTaskQueue();
 
   constructor(private readonly userDataDir: string) {
     this.macrosPath = join(userDataDir, "macros.json");
   }
 
   async listMacros(): Promise<Macro[]> {
-    const file = await this.readMacrosFile();
-    return [...file.macros].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return this.taskQueue.run(async () => {
+      const file = await this.readMacrosFile();
+      return [...file.macros].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    });
   }
 
   async getMacro(id: string): Promise<Macro> {
-    const macro = (await this.listMacros()).find((item) => item.id === id);
+    return this.taskQueue.run(async () => {
+      const macro = (await this.readMacrosFile()).macros.find((item) => item.id === id);
 
-    if (!macro) {
-      throw new MacroStoreError("MACRO_NOT_FOUND", "Macro not found.");
-    }
+      if (!macro) {
+        throw new MacroStoreError("MACRO_NOT_FOUND", "Macro not found.");
+      }
 
-    return macro;
+      return macro;
+    });
   }
 
   async createMacro(input: CreateMacroInput): Promise<Macro> {
-    const file = await this.readMacrosFile();
-    const now = new Date().toISOString();
-    const name = this.normalizeName(input.name);
+    return this.taskQueue.run(async () => {
+      const file = await this.readMacrosFile();
+      const now = new Date().toISOString();
+      const name = this.normalizeName(input.name);
 
-    const macro: Macro = {
-      id: randomUUID(),
-      name,
-      roleIds: this.normalizeRoleIds(input.roleIds),
-      trigger: this.normalizeTrigger(input.trigger),
-      repeat: this.normalizeRepeat(input.repeat),
-      steps: this.normalizeSteps(input.steps),
-      createdAt: now,
-      updatedAt: now
-    };
+      const macro: Macro = {
+        id: randomUUID(),
+        name,
+        roleIds: this.normalizeRoleIds(input.roleIds),
+        trigger: this.normalizeTrigger(input.trigger),
+        repeat: this.normalizeRepeat(input.repeat),
+        steps: this.normalizeSteps(input.steps),
+        createdAt: now,
+        updatedAt: now
+      };
 
-    file.macros.push(macro);
-    await this.writeMacrosFile(file);
+      this.assertTriggerAvailable(macro.trigger, macro.roleIds, file.macros);
 
-    return macro;
+      file.macros.push(macro);
+      await this.writeMacrosFile(file);
+
+      return macro;
+    });
   }
 
   async updateMacro(id: string, input: UpdateMacroInput): Promise<Macro> {
-    const file = await this.readMacrosFile();
-    const index = file.macros.findIndex((macro) => macro.id === id);
+    return this.taskQueue.run(async () => {
+      const file = await this.readMacrosFile();
+      const index = file.macros.findIndex((macro) => macro.id === id);
 
-    if (index === -1) {
-      throw new MacroStoreError("MACRO_NOT_FOUND", "Macro not found.");
-    }
+      if (index === -1) {
+        throw new MacroStoreError("MACRO_NOT_FOUND", "Macro not found.");
+      }
 
-    const current = file.macros[index];
-    const name = input.name === undefined ? current.name : this.normalizeName(input.name);
+      const current = file.macros[index];
+      const name = input.name === undefined ? current.name : this.normalizeName(input.name);
 
-    const updated: Macro = {
-      ...current,
-      name,
-      roleIds: input.roleIds === undefined ? current.roleIds : this.normalizeRoleIds(input.roleIds),
-      trigger: input.trigger === undefined ? current.trigger : this.normalizeTrigger(input.trigger),
-      repeat: input.repeat === undefined ? current.repeat : this.normalizeRepeat(input.repeat),
-      steps: input.steps === undefined ? current.steps : this.normalizeSteps(input.steps),
-      updatedAt: new Date().toISOString()
-    };
+      const updated: Macro = {
+        ...current,
+        name,
+        roleIds: input.roleIds === undefined ? current.roleIds : this.normalizeRoleIds(input.roleIds),
+        trigger: input.trigger === undefined ? current.trigger : this.normalizeTrigger(input.trigger),
+        repeat: input.repeat === undefined ? current.repeat : this.normalizeRepeat(input.repeat),
+        steps: input.steps === undefined ? current.steps : this.normalizeSteps(input.steps),
+        updatedAt: new Date().toISOString()
+      };
 
-    file.macros[index] = updated;
-    await this.writeMacrosFile(file);
+      this.assertTriggerAvailable(updated.trigger, updated.roleIds, file.macros, id);
 
-    return updated;
+      file.macros[index] = updated;
+      await this.writeMacrosFile(file);
+
+      return updated;
+    });
   }
 
   async deleteMacro(id: string): Promise<void> {
-    const file = await this.readMacrosFile();
-    const nextMacros = file.macros.filter((macro) => macro.id !== id);
+    return this.taskQueue.run(async () => {
+      const file = await this.readMacrosFile();
+      const nextMacros = file.macros.filter((macro) => macro.id !== id);
 
-    if (nextMacros.length === file.macros.length) {
-      throw new MacroStoreError("MACRO_NOT_FOUND", "Macro not found.");
-    }
+      if (nextMacros.length === file.macros.length) {
+        throw new MacroStoreError("MACRO_NOT_FOUND", "Macro not found.");
+      }
 
-    await this.writeMacrosFile({ macros: nextMacros });
+      await this.writeMacrosFile({ macros: nextMacros });
+    });
   }
 
   async deleteRoleMacros(roleId: string): Promise<void> {
-    const file = await this.readMacrosFile();
-    const macros = file.macros
-      .map((macro) => ({
-        ...macro,
-        roleIds: macro.roleIds.filter((assignedRoleId) => assignedRoleId !== roleId)
-      }))
-      .filter((macro) => macro.roleIds.length > 0);
+    return this.taskQueue.run(async () => {
+      const file = await this.readMacrosFile();
+      const macros = file.macros
+        .map((macro) => ({
+          ...macro,
+          roleIds: macro.roleIds.filter((assignedRoleId) => assignedRoleId !== roleId)
+        }))
+        .filter((macro) => macro.roleIds.length > 0);
 
-    if (JSON.stringify(macros) === JSON.stringify(file.macros)) {
-      return;
-    }
+      if (JSON.stringify(macros) === JSON.stringify(file.macros)) {
+        return;
+      }
 
-    await this.writeMacrosFile({ macros });
+      await this.writeMacrosFile({ macros });
+    });
   }
 
   private async readMacrosFile(): Promise<MacrosFile> {
@@ -148,7 +172,11 @@ export class MacroStore {
 
       const didMigrate = parsed.macros.some((macro) => {
         const storedMacro = macro as StoredMacro;
-        return "roleId" in storedMacro || LEGACY_ROLE_ID_FIELD in storedMacro;
+        return (
+          "roleId" in storedMacro ||
+          LEGACY_ROLE_ID_FIELD in storedMacro ||
+          (storedMacro.repeat?.type === "loop" && storedMacro.repeat.intervalMs === 0)
+        );
       });
       const file = {
         macros: parsed.macros.map((macro) => this.normalizeStoredMacro(macro as StoredMacro))
@@ -169,10 +197,7 @@ export class MacroStore {
   }
 
   private async writeMacrosFile(file: MacrosFile): Promise<void> {
-    await mkdir(dirname(this.macrosPath), { recursive: true });
-    const tmpPath = `${this.macrosPath}.tmp`;
-    await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-    await rename(tmpPath, this.macrosPath);
+    await writeJsonFileAtomically(this.macrosPath, file);
   }
 
   private normalizeStoredMacro(macro: StoredMacro): Macro {
@@ -183,7 +208,7 @@ export class MacroStore {
       name: this.normalizeName(macro.name),
       roleIds: this.normalizeRoleIds(this.readMacroRoleIds(macro)),
       trigger: this.normalizeTrigger(macro.trigger),
-      repeat: this.normalizeRepeat(macro.repeat),
+      repeat: this.normalizeStoredRepeat(macro.repeat),
       steps: this.normalizeSteps(macro.steps),
       createdAt: typeof macro.createdAt === "string" ? macro.createdAt : now,
       updatedAt: typeof macro.updatedAt === "string" ? macro.updatedAt : now
@@ -242,6 +267,37 @@ export class MacroStore {
     };
   }
 
+  private assertTriggerAvailable(
+    trigger: MacroTrigger | undefined,
+    roleIds: string[],
+    macros: Macro[],
+    currentMacroId?: string
+  ): void {
+    if (!trigger) {
+      return;
+    }
+
+    if (areMacroTriggersEqual(trigger, MACRO_OVERLAY_TRIGGER)) {
+      throw new MacroStoreError(
+        "MACRO_TRIGGER_RESERVED",
+        "Ctrl+Shift+M is reserved for the macro overlay."
+      );
+    }
+
+    const conflict = macros.find(
+      (macro) =>
+        macro.id !== currentMacroId &&
+        areMacroTriggersEqual(macro.trigger, trigger) &&
+        macroRoleAssignmentsOverlap(macro.roleIds, roleIds)
+    );
+    if (conflict) {
+      throw new MacroStoreError(
+        "MACRO_TRIGGER_CONFLICT",
+        "Macro shortcut conflicts with another macro assigned to the same role."
+      );
+    }
+  }
+
   private normalizeRepeat(repeat: MacroRepeat | undefined): MacroRepeat {
     if (repeat === undefined || repeat.type === "once") {
       return { type: "once" };
@@ -253,8 +309,16 @@ export class MacroStore {
 
     return {
       type: "loop",
-      intervalMs: this.normalizeMilliseconds(repeat.intervalMs, "Macro interval must be between 0 and 600000 ms.")
+      intervalMs: this.normalizeLoopInterval(repeat.intervalMs)
     };
+  }
+
+  private normalizeStoredRepeat(repeat: MacroRepeat | undefined): MacroRepeat {
+    if (repeat?.type === "loop" && repeat.intervalMs === 0) {
+      return { type: "loop", intervalMs: 1 };
+    }
+
+    return this.normalizeRepeat(repeat);
   }
 
   private normalizeSteps(steps: MacroStep[] | undefined): MacroStep[] {
@@ -337,6 +401,14 @@ export class MacroStore {
   private normalizeMilliseconds(value: number, message: string): number {
     if (!Number.isInteger(value) || value < 0 || value > MACRO_DELAY_MAX_MS) {
       throw new MacroStoreError("MACRO_TIME_INVALID", message);
+    }
+
+    return value;
+  }
+
+  private normalizeLoopInterval(value: number): number {
+    if (!Number.isInteger(value) || value < 1 || value > MACRO_DELAY_MAX_MS) {
+      throw new MacroStoreError("MACRO_TIME_INVALID", "Macro interval must be between 1 and 600000 ms.");
     }
 
     return value;

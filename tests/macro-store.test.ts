@@ -259,4 +259,83 @@ describe("MacroStore", () => {
       roleIds: ["role-2"]
     });
   });
+
+  it("serializes concurrent role cleanup without losing either mutation", async () => {
+    const macro = await store.createMacro({
+      name: "Shared",
+      roleIds: ["role-1", "role-2", "role-3"],
+      steps: [{ id: "step-1", type: "key", code: "F1" }]
+    });
+
+    await expect(
+      Promise.all([store.deleteRoleMacros("role-1"), store.deleteRoleMacros("role-2")])
+    ).resolves.toEqual([undefined, undefined]);
+    await expect(store.getMacro(macro.id)).resolves.toMatchObject({ roleIds: ["role-3"] });
+  });
+
+  it("rejects zero loop intervals and migrates stored zero intervals to one millisecond", async () => {
+    await expect(
+      store.createMacro({
+        name: "Unsafe loop",
+        roleIds: ["role-1"],
+        repeat: { type: "loop", intervalMs: 0 },
+        steps: [{ id: "step-1", type: "delay", ms: 0 }]
+      })
+    ).rejects.toMatchObject({ code: "MACRO_TIME_INVALID" });
+
+    await writeFile(
+      join(baseDir, "macros.json"),
+      JSON.stringify({
+        macros: [{
+          id: "legacy-loop",
+          name: "Legacy loop",
+          roleIds: ["role-1"],
+          repeat: { type: "loop", intervalMs: 0 },
+          steps: [{ id: "step-1", type: "delay", ms: 0 }],
+          createdAt: "2026-07-10T00:00:00.000Z",
+          updatedAt: "2026-07-10T00:00:00.000Z"
+        }]
+      }),
+      "utf8"
+    );
+
+    await expect(store.getMacro("legacy-loop")).resolves.toMatchObject({
+      repeat: { type: "loop", intervalMs: 1 }
+    });
+  });
+
+  it("rejects reserved and overlapping shortcuts while allowing separate roles", async () => {
+    const trigger = { code: "F2", ctrl: false, alt: false, shift: false, meta: false };
+    await expect(
+      store.createMacro({
+        name: "Reserved",
+        roleIds: ["role-1"],
+        trigger: { code: "KeyM", ctrl: true, alt: false, shift: true, meta: false },
+        steps: [{ id: "step-1", type: "key", code: "F1" }]
+      })
+    ).rejects.toMatchObject({ code: "MACRO_TRIGGER_RESERVED" });
+
+    await store.createMacro({
+      name: "First",
+      roleIds: ["role-1"],
+      trigger,
+      steps: [{ id: "step-1", type: "key", code: "F1" }]
+    });
+    await expect(
+      store.createMacro({
+        name: "Conflict",
+        roleIds: ["role-1", "role-2"],
+        trigger,
+        steps: [{ id: "step-2", type: "key", code: "F1" }]
+      })
+    ).rejects.toMatchObject({ code: "MACRO_TRIGGER_CONFLICT" });
+    await expect(
+      store.createMacro({
+        name: "Separate role",
+        roleIds: ["role-2"],
+        trigger,
+        steps: [{ id: "step-3", type: "key", code: "F1" }]
+      })
+    ).resolves.toMatchObject({ trigger });
+  });
 });

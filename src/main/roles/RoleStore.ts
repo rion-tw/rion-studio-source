@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { access, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   DEFAULT_LAUNCH_URL,
@@ -14,6 +14,8 @@ import {
   type RolePaths,
   type UpdateRoleInput
 } from "../../shared/types";
+import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
+import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
 
 interface RolesFile {
   roles: Role[];
@@ -41,6 +43,7 @@ export class RoleStore {
   private readonly rolesRoot: string;
   private readonly legacyRolesPath: string;
   private readonly legacyRolesRoot: string;
+  private readonly taskQueue = new SerialTaskQueue();
 
   constructor(private readonly userDataDir: string) {
     this.rolesPath = join(userDataDir, "roles.json");
@@ -50,123 +53,135 @@ export class RoleStore {
   }
 
   async listRoles(): Promise<Role[]> {
-    const file = await this.readRolesFile();
-    return [...file.roles];
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      return [...file.roles];
+    });
   }
 
   async getRole(id: string): Promise<Role> {
-    const role = (await this.listRoles()).find((item) => item.id === id);
+    return this.taskQueue.run(async () => {
+      const role = (await this.readRolesFile()).roles.find((item) => item.id === id);
 
-    if (!role) {
-      throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
-    }
+      if (!role) {
+        throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
+      }
 
-    return role;
+      return role;
+    });
   }
 
   async createRole(input: CreateRoleInput): Promise<Role> {
-    const file = await this.readRolesFile();
-    const now = new Date().toISOString();
-    const name = this.normalizeName(input.name);
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      const now = new Date().toISOString();
+      const name = this.normalizeName(input.name);
 
-    this.ensureUniqueName(file.roles, name);
-    const launchUrl = this.normalizeLaunchUrl(input.launchUrl);
-    const coverImageDataUrl = this.normalizeCoverImageDataUrl(input.coverImageDataUrl);
-    const coverImageDominantColor = this.normalizeCoverImageDominantColor(input.coverImageDominantColor);
+      this.ensureUniqueName(file.roles, name);
+      const launchUrl = this.normalizeLaunchUrl(input.launchUrl);
+      const coverImageDataUrl = this.normalizeCoverImageDataUrl(input.coverImageDataUrl);
+      const coverImageDominantColor = this.normalizeCoverImageDominantColor(input.coverImageDominantColor);
 
-    const role: Role = {
-      id: randomUUID(),
-      name,
-      launchUrl,
-      windowWidth: this.normalizeWindowSize(input.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH, "windowWidth"),
-      windowHeight: this.normalizeWindowSize(input.windowHeight, DEFAULT_ROLE_WINDOW_HEIGHT, "windowHeight"),
-      notes: input.notes?.trim() ?? "",
-      launchPreset: this.normalizeLaunchPreset(input.launchPreset),
-      authState: "login_required",
-      coverImageDataUrl,
-      coverImageDominantColor: coverImageDataUrl ? coverImageDominantColor : undefined,
-      createdAt: now,
-      updatedAt: now
-    };
+      const role: Role = {
+        id: randomUUID(),
+        name,
+        launchUrl,
+        windowWidth: this.normalizeWindowSize(input.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH, "windowWidth"),
+        windowHeight: this.normalizeWindowSize(input.windowHeight, DEFAULT_ROLE_WINDOW_HEIGHT, "windowHeight"),
+        notes: input.notes?.trim() ?? "",
+        launchPreset: this.normalizeLaunchPreset(input.launchPreset),
+        authState: "login_required",
+        coverImageDataUrl,
+        coverImageDominantColor: coverImageDataUrl ? coverImageDominantColor : undefined,
+        createdAt: now,
+        updatedAt: now
+      };
 
-    file.roles.push(role);
-    await this.writeRolesFile(file);
-    await mkdir(this.getBrowserUserDataDir(role.id), { recursive: true });
+      file.roles.push(role);
+      await this.writeRolesFile(file);
+      await mkdir(this.getBrowserUserDataDir(role.id), { recursive: true });
 
-    return role;
+      return role;
+    });
   }
 
   async updateRole(id: string, input: UpdateRoleInput): Promise<Role> {
-    const file = await this.readRolesFile();
-    const index = file.roles.findIndex((role) => role.id === id);
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      const index = file.roles.findIndex((role) => role.id === id);
 
-    if (index === -1) {
-      throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
-    }
+      if (index === -1) {
+        throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
+      }
 
-    const current = file.roles[index];
-    const nextName = input.name === undefined ? current.name : this.normalizeName(input.name);
-    const nextLaunchUrl =
-      input.launchUrl === undefined ? current.launchUrl : this.normalizeLaunchUrl(input.launchUrl, current.launchUrl);
-    const isLaunchUrlChanged = nextLaunchUrl !== current.launchUrl;
-    this.ensureUniqueName(file.roles, nextName, id);
-    const isCoverImageUpdated = input.coverImageDataUrl !== undefined;
-    const coverImageDataUrl = isCoverImageUpdated
-      ? this.normalizeCoverImageDataUrl(input.coverImageDataUrl)
-      : current.coverImageDataUrl;
-    const coverImageDominantColor = this.normalizeUpdatedCoverImageDominantColor(
-      current,
-      coverImageDataUrl,
-      isCoverImageUpdated,
-      input.coverImageDominantColor
-    );
+      const current = file.roles[index];
+      const nextName = input.name === undefined ? current.name : this.normalizeName(input.name);
+      const nextLaunchUrl = input.launchUrl === undefined
+        ? current.launchUrl
+        : this.normalizeLaunchUrl(input.launchUrl, current.launchUrl);
+      const isLaunchUrlChanged = nextLaunchUrl !== current.launchUrl;
+      this.ensureUniqueName(file.roles, nextName, id);
+      const isCoverImageUpdated = input.coverImageDataUrl !== undefined;
+      const coverImageDataUrl = isCoverImageUpdated
+        ? this.normalizeCoverImageDataUrl(input.coverImageDataUrl)
+        : current.coverImageDataUrl;
+      const coverImageDominantColor = this.normalizeUpdatedCoverImageDominantColor(
+        current,
+        coverImageDataUrl,
+        isCoverImageUpdated,
+        input.coverImageDominantColor
+      );
 
-    const updated: Role = {
-      ...current,
-      name: nextName,
-      launchUrl: nextLaunchUrl,
-      windowWidth:
-        input.windowWidth === undefined
+      const updated: Role = {
+        ...current,
+        name: nextName,
+        launchUrl: nextLaunchUrl,
+        windowWidth: input.windowWidth === undefined
           ? current.windowWidth
           : this.normalizeWindowSize(input.windowWidth, current.windowWidth, "windowWidth"),
-      windowHeight:
-        input.windowHeight === undefined
+        windowHeight: input.windowHeight === undefined
           ? current.windowHeight
           : this.normalizeWindowSize(input.windowHeight, current.windowHeight, "windowHeight"),
-      notes: input.notes === undefined ? current.notes : input.notes.trim(),
-      launchPreset:
-        input.launchPreset === undefined ? current.launchPreset : this.normalizeLaunchPreset(input.launchPreset),
-      authState: isLaunchUrlChanged ? "login_required" : current.authState,
-      lastSuccessfulLoginAt: isLaunchUrlChanged ? undefined : current.lastSuccessfulLoginAt,
-      coverImageDataUrl,
-      coverImageDominantColor,
-      updatedAt: new Date().toISOString()
-    };
+        notes: input.notes === undefined ? current.notes : input.notes.trim(),
+        launchPreset: input.launchPreset === undefined
+          ? current.launchPreset
+          : this.normalizeLaunchPreset(input.launchPreset),
+        authState: isLaunchUrlChanged ? "login_required" : current.authState,
+        lastSuccessfulLoginAt: isLaunchUrlChanged ? undefined : current.lastSuccessfulLoginAt,
+        coverImageDataUrl,
+        coverImageDominantColor,
+        updatedAt: new Date().toISOString()
+      };
 
-    file.roles[index] = updated;
-    await this.writeRolesFile(file);
+      file.roles[index] = updated;
+      await this.writeRolesFile(file);
 
-    return updated;
+      return updated;
+    });
   }
 
   async reorderRoles(input: ReorderItemsInput): Promise<Role[]> {
-    const file = await this.readRolesFile();
-    const roles = this.reorderItems(file.roles, input);
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      const roles = this.reorderItems(file.roles, input);
 
-    await this.writeRolesFile({ roles });
-    return [...roles];
+      await this.writeRolesFile({ roles });
+      return [...roles];
+    });
   }
 
   async deleteRole(id: string): Promise<void> {
-    const file = await this.readRolesFile();
-    const nextRoles = file.roles.filter((role) => role.id !== id);
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      const nextRoles = file.roles.filter((role) => role.id !== id);
 
-    if (nextRoles.length === file.roles.length) {
-      throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
-    }
+      if (nextRoles.length === file.roles.length) {
+        throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
+      }
 
-    await this.writeRolesFile({ roles: nextRoles });
-    await rm(join(this.rolesRoot, id), { force: true, recursive: true });
+      await this.writeRolesFile({ roles: nextRoles });
+      await rm(join(this.rolesRoot, id), { force: true, recursive: true });
+    });
   }
 
   async updateAuthState(
@@ -174,26 +189,28 @@ export class RoleStore {
     authState: AuthState,
     messageTimestamp = new Date().toISOString()
   ): Promise<Role> {
-    const file = await this.readRolesFile();
-    const index = file.roles.findIndex((role) => role.id === id);
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      const index = file.roles.findIndex((role) => role.id === id);
 
-    if (index === -1) {
-      throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
-    }
+      if (index === -1) {
+        throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
+      }
 
-    const current = file.roles[index];
-    const updated: Role = {
-      ...current,
-      authState,
-      lastAuthCheckAt: messageTimestamp,
-      lastSuccessfulLoginAt: authState === "authenticated" ? messageTimestamp : current.lastSuccessfulLoginAt,
-      updatedAt: messageTimestamp
-    };
+      const current = file.roles[index];
+      const updated: Role = {
+        ...current,
+        authState,
+        lastAuthCheckAt: messageTimestamp,
+        lastSuccessfulLoginAt: authState === "authenticated" ? messageTimestamp : current.lastSuccessfulLoginAt,
+        updatedAt: messageTimestamp
+      };
 
-    file.roles[index] = updated;
-    await this.writeRolesFile(file);
+      file.roles[index] = updated;
+      await this.writeRolesFile(file);
 
-    return updated;
+      return updated;
+    });
   }
 
   getRolePaths(id: string): RolePaths {
@@ -263,12 +280,8 @@ export class RoleStore {
   }
 
   private async writeRolesFile(file: RolesFile): Promise<void> {
-    await mkdir(dirname(this.rolesPath), { recursive: true });
     await mkdir(this.rolesRoot, { recursive: true });
-
-    const tmpPath = `${this.rolesPath}.tmp`;
-    await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-    await rename(tmpPath, this.rolesPath);
+    await writeJsonFileAtomically(this.rolesPath, file);
   }
 
   private normalizeName(name: string): string {

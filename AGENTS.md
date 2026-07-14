@@ -22,6 +22,19 @@ before changing code.
 - Shared contracts live under `src/shared` and should be treated as the source of
   truth between main, preload, renderer, and tests.
 
+## Cross-Platform Development
+
+- macOS and Windows are both required target platforms. Every new or changed
+  feature must be designed, implemented, and verified for both operating systems.
+- A feature is not complete if it works on only one target platform. When behavior
+  differs by platform, keep the shared behavior consistent and provide explicit
+  macOS and Windows implementations instead of omitting or deferring one platform.
+- Isolate operating-system-specific APIs behind main-process modules or adapters;
+  do not leak platform assumptions into the renderer or shared contracts.
+- Add focused coverage for shared behavior and each platform branch. Where local
+  end-to-end verification is unavailable, use platform-aware unit tests or mocks
+  and document any remaining native verification required before release.
+
 ## IPC Contract Changes
 
 When adding or changing an app capability exposed to the renderer, update the full

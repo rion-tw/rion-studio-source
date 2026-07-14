@@ -4,7 +4,7 @@ import { createCopyName } from "../app/copyName";
 import type { MacroFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Macro, MacroRunStatus, RoleStatus } from "../../../shared/types";
+import type { Macro, MacroRunStatus } from "../../../shared/types";
 import { DEFAULT_MACRO_LIST_SORT, type MacroListSortState } from "../features/macros/macroListUtils";
 import { createMacroRunKey } from "../features/macros/macroUtils";
 
@@ -14,7 +14,6 @@ interface UseMacroWorkflowOptions {
   setError: (error: unknown | null) => void;
   setMacroStatuses: Dispatch<SetStateAction<MacroRunStatus[]>>;
   setMacros: Dispatch<SetStateAction<Macro[]>>;
-  statusByRole: Map<string, RoleStatus>;
   t: Translator;
 }
 
@@ -24,7 +23,6 @@ export function useMacroWorkflow({
   setError,
   setMacroStatuses,
   setMacros,
-  statusByRole,
   t
 }: UseMacroWorkflowOptions) {
   const confirm = useConfirmation();
@@ -127,11 +125,6 @@ export function useMacroWorkflow({
     setError(null);
 
     try {
-      const macro = macros.find((item) => item.id === macroId);
-      if (macro?.roleIds.some((roleId) => statusByRole.get(roleId)?.runtimeMode === "external")) {
-        throw new Error(t("error.macroExternalRuntimeUnsupported"));
-      }
-
       const statuses = await window.rionStudio.startMacro(macroId);
       setMacroStatuses((current) => {
         const nextRunKeys = new Set(statuses.map((status) => createMacroRunKey(status.roleId, status.macroId)));

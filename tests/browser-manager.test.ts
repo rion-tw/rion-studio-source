@@ -736,11 +736,14 @@ function createExternalChromeManager() {
   };
 
   return {
+    getAutomationSession: vi.fn(() => undefined),
     hasSession: vi.fn(() => false),
     launch: vi.fn().mockResolvedValue(status),
     launchWorkspace: vi.fn().mockResolvedValue([status]),
     listStatuses: vi.fn(() => [status]),
     on: vi.fn(),
+    setBeforeRoleStop: vi.fn(),
+    setMacroOverlayInstaller: vi.fn(),
     stop: vi.fn().mockResolvedValue(undefined),
     stopWorkspace: vi.fn().mockResolvedValue(undefined)
   };

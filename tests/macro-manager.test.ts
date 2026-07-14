@@ -106,8 +106,21 @@ describe("MacroManager", () => {
       targets: {}
     });
 
-    await expect(manager.start("macro-1")).rejects.toThrow("Compatibility mode does not support macros yet.");
+    await expect(manager.start("macro-1")).rejects.toThrow("Macro control is unavailable");
     expect(manager.listStatuses()).toEqual([]);
+  });
+
+  it("runs macros across embedded and compatibility-mode automation targets", async () => {
+    const targets = { "role-1": createTarget(), "role-2": createTarget() };
+    const manager = createManager({
+      macroOverride: { ...macro, roleIds: ["role-1", "role-2"] },
+      runtimeStatuses: [{ roleId: "role-2", runtimeMode: "external", state: "running" }],
+      targets
+    });
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => expect(targets["role-1"].dispatchKey).toHaveBeenCalledWith("F2"));
+    await vi.waitFor(() => expect(targets["role-2"].dispatchKey).toHaveBeenCalledWith("F2"));
   });
 
   it("rejects when any assigned role is already running the macro", async () => {

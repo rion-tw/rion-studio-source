@@ -36,7 +36,9 @@ describe("ExternalChromeManager", () => {
       "--window-position=100,50",
       "--window-size=1280,720",
       "--no-first-run",
-      "--disable-default-apps"
+      "--disable-default-apps",
+      "--remote-debugging-address=127.0.0.1",
+      "--remote-debugging-port=0"
     ]);
   });
 
@@ -58,6 +60,7 @@ describe("ExternalChromeManager", () => {
       ])
     );
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
+    expect(status.automationState).toBe("ready");
   });
 
   it("loads a prepared role-local CDN compatibility extension", async () => {
@@ -98,6 +101,27 @@ describe("ExternalChromeManager", () => {
     const args = (harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>)[0][1];
     expect(args.some((argument: string) => argument.startsWith("--load-extension="))).toBe(false);
     expect(status.notice).toContain("original resource URLs");
+  });
+
+  it("keeps external Chrome running when macro automation cannot connect", async () => {
+    const harness = createHarness({
+      connectAutomation: vi.fn().mockRejectedValue(new Error("CDP unavailable"))
+    });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    expect(status).toMatchObject({
+      roleId: role.id,
+      runtimeMode: "external",
+      state: "running",
+      automationState: "unavailable"
+    });
+    expect(status.notice).toContain("Restart this role");
+    expect(harness.manager.getAutomationSession(role.id)).toBeUndefined();
+    expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
   it("launches workspace roles using normalized slot rectangles", async () => {
@@ -158,6 +182,7 @@ describe("ExternalChromeManager", () => {
 });
 
 function createHarness(options: {
+  connectAutomation?: ReturnType<typeof vi.fn>;
   prepareCdnCompatibility?: ReturnType<typeof vi.fn>;
 } = {}) {
   const children: Array<ReturnType<typeof createChild>> = [];
@@ -169,7 +194,9 @@ function createHarness(options: {
     children.push(child);
     return child as never;
   });
+  const connectAutomation = options.connectAutomation ?? vi.fn().mockResolvedValue(createAutomationTarget());
   const manager = new ExternalChromeManager(roleStore, {
+    connectAutomation,
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     ...(options.prepareCdnCompatibility
@@ -178,7 +205,19 @@ function createHarness(options: {
     spawnChrome
   });
 
-  return { children, manager, roleStore, spawnChrome };
+  return { children, connectAutomation, manager, roleStore, spawnChrome };
+}
+
+function createAutomationTarget() {
+  return {
+    close: vi.fn(),
+    dispatchClick: vi.fn().mockResolvedValue(undefined),
+    dispatchKey: vi.fn().mockResolvedValue(undefined),
+    evaluate: vi.fn().mockResolvedValue(undefined),
+    focus: vi.fn().mockResolvedValue(undefined),
+    installMacroOverlay: vi.fn().mockResolvedValue(undefined),
+    onDisconnect: vi.fn(() => () => undefined)
+  };
 }
 
 function createChild() {

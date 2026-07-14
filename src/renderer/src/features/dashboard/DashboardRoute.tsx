@@ -689,6 +689,10 @@ function getMacroStatusLabel(item: DashboardMacroItem, t: Translator): string {
     return t("dashboard.status.waitingForRoles");
   }
 
+  if (item.action.disabledReason === "automationUnavailable") {
+    return t("macros.automationUnavailable");
+  }
+
   return t("dashboard.status.ready");
 }
 
@@ -777,6 +781,10 @@ function getMacroActionTitle(item: DashboardMacroItem, t: Translator): string | 
 
   if (item.action.disabledReason === "rolesNotRunning") {
     return t("macros.launchRoleFirst");
+  }
+
+  if (item.action.disabledReason === "automationUnavailable") {
+    return t("macros.automationUnavailable");
   }
 
   return undefined;

@@ -48,9 +48,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       if (!session) {
         const status = this.browserManager.listStatuses().find((item) => item.roleId === roleId);
         if (status?.runtimeMode === "external") {
-          throw new Error(
-            "Compatibility mode does not support macros yet. Relaunch the role in embedded mode before running macros."
-          );
+          throw new Error("Macro control is unavailable for this compatibility-mode session. Restart the role and try again.");
         }
 
         throw new Error("Launch this role before running a macro.");

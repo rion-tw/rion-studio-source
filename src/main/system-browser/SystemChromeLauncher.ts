@@ -86,6 +86,16 @@ export interface CdpClientLike {
   close: () => void;
 }
 
+export interface CdpNotification {
+  method: string;
+  params?: Record<string, unknown>;
+}
+
+export interface CdpEventClientLike extends CdpClientLike {
+  onDisconnect: (listener: () => void) => () => void;
+  onNotification: (listener: (notification: CdpNotification) => void) => () => void;
+}
+
 export interface CdpClientOptions {
   WebSocket?: CdpWebSocketConstructor;
   requestTimeoutMs?: number;
@@ -110,7 +120,7 @@ const DEFAULT_POLL_INTERVAL_MS = 500;
 const CDP_REQUEST_TIMEOUT_MS = 5_000;
 const CLOSE_TIMEOUT_MS = 5_000;
 
-export class CdpClient implements CdpClientLike {
+export class CdpClient implements CdpEventClientLike {
   private readonly socket: CdpWebSocketLike;
   private readonly ready: Promise<void>;
   private readonly requestTimeoutMs: number;
@@ -123,6 +133,9 @@ export class CdpClient implements CdpClientLike {
     }
   >();
   private nextId = 1;
+  private readonly disconnectListeners = new Set<() => void>();
+  private readonly notificationListeners = new Set<(notification: CdpNotification) => void>();
+  private didDisconnect = false;
 
   constructor(url: string, options: CdpClientOptions = {}) {
     const WebSocketConstructor = options.WebSocket ?? getDefaultWebSocketConstructor();
@@ -162,10 +175,26 @@ export class CdpClient implements CdpClientLike {
     });
     this.socket.addEventListener("error", () => {
       this.rejectPending(new SystemChromeLauncherError("DEVTOOLS_WEBSOCKET_ERROR", "Chrome DevTools WebSocket failed."));
+      this.emitDisconnect();
     });
     this.socket.addEventListener("close", () => {
       this.rejectPending(new SystemChromeLauncherError("DEVTOOLS_WEBSOCKET_CLOSED", "Chrome DevTools WebSocket closed."));
+      this.emitDisconnect();
     });
+  }
+
+  onDisconnect(listener: () => void): () => void {
+    if (this.didDisconnect) {
+      queueMicrotask(listener);
+      return () => undefined;
+    }
+    this.disconnectListeners.add(listener);
+    return () => this.disconnectListeners.delete(listener);
+  }
+
+  onNotification(listener: (notification: CdpNotification) => void): () => void {
+    this.notificationListeners.add(listener);
+    return () => this.notificationListeners.delete(listener);
   }
 
   async send<T>(method: string, params?: Record<string, unknown>, timeoutMs = this.requestTimeoutMs): Promise<T> {
@@ -204,6 +233,9 @@ export class CdpClient implements CdpClientLike {
     const payload = parseCdpMessage(event);
 
     if (!isCdpResponse(payload)) {
+      if (isCdpNotification(payload)) {
+        this.notificationListeners.forEach((listener) => listener(payload));
+      }
       return;
     }
 
@@ -230,6 +262,15 @@ export class CdpClient implements CdpClientLike {
       this.pending.delete(id);
       pendingRequest.reject(error);
     }
+  }
+
+  private emitDisconnect(): void {
+    if (this.didDisconnect) {
+      return;
+    }
+
+    this.didDisconnect = true;
+    this.disconnectListeners.forEach((listener) => listener());
   }
 }
 
@@ -520,7 +561,7 @@ function createCdpClientForTarget(target: DevToolsTarget): CdpClient {
   return new CdpClient(target.webSocketDebuggerUrl);
 }
 
-async function listDevToolsTargets(port: number, fetchDevTools: DevToolsFetch): Promise<DevToolsTarget[]> {
+export async function listDevToolsTargets(port: number, fetchDevTools: DevToolsFetch = fetchJson): Promise<DevToolsTarget[]> {
   const response = await fetchDevTools(`http://127.0.0.1:${port}/json/list`);
 
   if (!response.ok) {
@@ -534,6 +575,15 @@ async function listDevToolsTargets(port: number, fetchDevTools: DevToolsFetch): 
   }
 
   return payload.filter(isDevToolsTarget);
+}
+
+function isCdpNotification(value: unknown): value is CdpNotification {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "method" in value &&
+    typeof (value as { method?: unknown }).method === "string"
+  );
 }
 
 function isDevToolsTarget(value: unknown): value is DevToolsTarget {

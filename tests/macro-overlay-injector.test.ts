@@ -51,6 +51,38 @@ describe("MacroOverlayInjector", () => {
     expect(page.page.executeJavaScript).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT);
   });
 
+  it("installs and routes the same overlay in external Chrome", async () => {
+    let requestHandler: ((request: unknown) => Promise<unknown>) | undefined;
+    const host = {
+      evaluate: vi.fn().mockResolvedValue(undefined),
+      installMacroOverlay: vi.fn(async (_source: string, handler: (request: unknown) => Promise<unknown>) => {
+        requestHandler = handler;
+      }),
+      onDisconnect: vi.fn(() => () => undefined)
+    };
+    const macroManager = {
+      listStatuses: vi.fn(() => []),
+      start: vi.fn().mockResolvedValue([]),
+      stop: vi.fn().mockResolvedValue(undefined)
+    };
+    const injector = createInjector({ macroManager });
+
+    await injector.installExternal(role, host);
+    expect(host.installMacroOverlay).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT, expect.any(Function));
+    await expect(requestHandler?.({ type: "start", macroId: "macro-1" })).resolves.toMatchObject({
+      macros: [{ id: "macro-1" }]
+    });
+    await expect(requestHandler?.({ type: "unknown" })).rejects.toThrow("Invalid macro overlay request");
+    expect(macroManager.start).toHaveBeenCalledWith("macro-1");
+
+    injector.refreshInstalledOverlays(role.id);
+    await vi.waitFor(() =>
+      expect(host.evaluate).toHaveBeenCalledWith(
+        "window.__rionStudioMacroOverlay?.refresh?.({ renderAfter: true })"
+      )
+    );
+  });
+
   it("reinstalls after navigation and keeps event setup idempotent", async () => {
     const page = createPage();
     const injector = createInjector();

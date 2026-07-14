@@ -403,12 +403,15 @@ function MacroActionMenu({
     .filter((status): status is MacroRunStatus => Boolean(status));
   const areBrowsersRunning =
     macro.roleIds.length > 0 && macro.roleIds.every((roleId) => statusByRole.get(roleId)?.state === "running");
+  const isAutomationReady = macro.roleIds.every(
+    (roleId) => statusByRole.get(roleId)?.automationState !== "unavailable"
+  );
   const isRunning = macroRunStatuses.some((status) => status.state === "running");
   const isStopping = macroRunStatuses.some((status) => status.state === "stopping");
   const isRunBusy = busyRunKey === macro.id || isStopping;
   const isDeleteBusy = busyMacroId === macro.id;
   const runLabel = t(isRunning || isStopping ? "macros.stopShort" : "macros.startShort");
-  const isRunDisabled = isRunBusy || (!isRunning && !areBrowsersRunning);
+  const isRunDisabled = isRunBusy || (!isRunning && (!areBrowsersRunning || !isAutomationReady));
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -539,7 +542,13 @@ function MacroActionMenu({
               )}
               type="button"
               role="menuitem"
-              title={!areBrowsersRunning && !isRunning ? t("macros.launchRoleFirst") : runLabel}
+              title={
+                !isRunning && !areBrowsersRunning
+                  ? t("macros.launchRoleFirst")
+                  : !isRunning && !isAutomationReady
+                    ? t("macros.automationUnavailable")
+                    : runLabel
+              }
               onClick={handleRun}
               disabled={isRunDisabled}
             >

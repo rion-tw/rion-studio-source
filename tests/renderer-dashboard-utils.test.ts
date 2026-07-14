@@ -158,6 +158,24 @@ describe("renderer dashboard helpers", () => {
       disabledReason: "rolesNotRunning",
       kind: "start"
     });
+
+    const unavailable = getDashboardMacroItems({
+      busyMacroId: null,
+      busyRunKey: null,
+      macroStatusByRun: new Map(),
+      macros: [readyMacro],
+      roles,
+      statusByRole: new Map([
+        ["r1", { roleId: "r1", state: "running", automationState: "ready" }],
+        ["r2", { roleId: "r2", state: "running", automationState: "unavailable" }]
+      ])
+    })[0];
+
+    expect(unavailable.action).toMatchObject({
+      disabled: true,
+      disabledReason: "automationUnavailable",
+      kind: "start"
+    });
   });
 });
 

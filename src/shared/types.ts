@@ -72,6 +72,7 @@ export interface RoleStatus {
   launchedAt?: string;
   notice?: string;
   runtimeMode?: BrowserRuntimeMode;
+  automationState?: "ready" | "unavailable";
 }
 
 export interface MacroTrigger {

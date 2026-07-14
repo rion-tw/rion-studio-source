@@ -342,6 +342,7 @@ function initializeApplication(): void {
   });
   const macroOverlayInjector = new MacroOverlayInjector(macroStore, macroManager, requestMacroEditorFromOverlay);
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
+  browserManager.setExternalMacroOverlayInstaller((role, target) => macroOverlayInjector.installExternal(role, target));
   macroManager.on("change", () => {
     macroOverlayInjector.refreshInstalledOverlays();
   });

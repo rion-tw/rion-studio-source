@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { unlink } from "node:fs/promises";
+import { join } from "node:path";
 
 import type { RoleStore } from "../roles/RoleStore";
 import {
@@ -8,6 +10,10 @@ import {
 } from "../game-browser/CdnCompatibilityManager";
 import { findSystemChromeExecutable } from "../system-browser/SystemChromeLauncher";
 import type { NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
+import {
+  connectExternalChromeAutomation,
+  type ExternalBrowserAutomationTarget
+} from "./ExternalChromeAutomationTarget";
 
 export interface ExternalChromeManagerEvents {
   change: [RoleStatus[]];
@@ -31,9 +37,16 @@ export interface ExternalChromeManagerOptions {
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
   spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
+  connectAutomation?: (browserUserDataDir: string, launchUrl: string) => Promise<ExternalBrowserAutomationTarget>;
 }
 
+export type ExternalMacroOverlayInstaller = (
+  role: Role,
+  target: ExternalBrowserAutomationTarget
+) => Promise<void>;
+
 interface ExternalChromeSession {
+  automationTarget?: ExternalBrowserAutomationTarget;
   child: ChildProcess;
   launchedAt?: string;
   notice?: string;
@@ -53,6 +66,8 @@ export class ExternalChromeRoleAlreadyRunningError extends Error {
 
 export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEvents> {
   private readonly sessions = new Map<string, ExternalChromeSession>();
+  private beforeRoleStop?: (roleId: string) => Promise<void>;
+  private macroOverlayInstaller?: ExternalMacroOverlayInstaller;
 
   constructor(
     private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">,
@@ -63,6 +78,22 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
   hasSession(roleId: string): boolean {
     return this.sessions.has(roleId);
+  }
+
+  setBeforeRoleStop(handler: (roleId: string) => Promise<void>): void {
+    this.beforeRoleStop = handler;
+  }
+
+  setMacroOverlayInstaller(installer: ExternalMacroOverlayInstaller): void {
+    this.macroOverlayInstaller = installer;
+  }
+
+  getAutomationSession(roleId: string): { role: Role; target: ExternalBrowserAutomationTarget } | undefined {
+    const session = this.sessions.get(roleId);
+    if (session?.state !== "running" || !session.automationTarget) {
+      return undefined;
+    }
+    return { role: session.role, target: session.automationTarget };
   }
 
   listStatuses(): RoleStatus[] {
@@ -125,7 +156,11 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
     session.state = "stopping";
     this.emitChange();
+    await this.beforeRoleStop?.(roleId);
     this.sessions.delete(roleId);
+    const target = session.automationTarget;
+    session.automationTarget = undefined;
+    target?.close();
     terminateChild(session.child);
     this.emitChange();
   }
@@ -145,6 +180,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   ): Promise<ExternalChromeSession> {
     const executablePath = (this.options.findExecutable ?? findSystemChromeExecutable)();
     const browserUserDataDir = await this.roleStore.ensureBrowserUserDataDir(role.id);
+    await removeStaleDevToolsPort(browserUserDataDir);
     await this.options.applyBrowserFonts?.(role, browserUserDataDir).catch((error) => {
       console.warn("Failed to apply browser font settings before opening external Chrome.", error);
     });
@@ -186,12 +222,49 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       throw error;
     }
 
+    child.once("close", () => this.deleteSession(role.id, session));
+    child.once("error", () => this.deleteSession(role.id, session));
+
+    try {
+      const target = await (this.options.connectAutomation ?? connectExternalChromeAutomation)(
+        browserUserDataDir,
+        role.launchUrl
+      );
+      if (this.sessions.get(role.id) !== session) {
+        target.close();
+        throw new Error("External Chrome closed before macro control connected.");
+      }
+      session.automationTarget = target;
+      target.onDisconnect(() => this.handleAutomationDisconnect(role.id, session, target));
+      await this.macroOverlayInstaller?.(role, target).catch((error) => {
+        console.warn("Failed to install the macro overlay in external Chrome.", error);
+      });
+    } catch (error) {
+      if (this.sessions.get(role.id) !== session) {
+        throw error;
+      }
+      console.warn("External Chrome macro automation is unavailable.", error);
+      session.notice = appendNotice(session.notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
+    }
+
     session.state = "running";
     session.launchedAt = new Date().toISOString();
     this.emitChange();
-    child.once("close", () => this.deleteSession(role.id, session));
-    child.once("error", () => this.deleteSession(role.id, session));
     return session;
+  }
+
+  private handleAutomationDisconnect(
+    roleId: string,
+    session: ExternalChromeSession,
+    target: ExternalBrowserAutomationTarget
+  ): void {
+    if (this.sessions.get(roleId) !== session || session.automationTarget !== target) {
+      return;
+    }
+    session.automationTarget = undefined;
+    session.notice = appendNotice(session.notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
+    void this.beforeRoleStop?.(roleId);
+    this.emitChange();
   }
 
   private deleteSession(roleId: string, session: ExternalChromeSession): void {
@@ -200,6 +273,10 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     }
 
     this.sessions.delete(roleId);
+    const target = session.automationTarget;
+    session.automationTarget = undefined;
+    target?.close();
+    void this.beforeRoleStop?.(roleId);
     this.emitChange();
   }
 
@@ -213,7 +290,10 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       state: session.state,
       launchedAt: session.launchedAt,
       notice: session.notice,
-      runtimeMode: "external"
+      runtimeMode: "external",
+      ...(session.state === "running"
+        ? { automationState: session.automationTarget ? "ready" as const : "unavailable" as const }
+        : {})
     };
   }
 }
@@ -232,9 +312,28 @@ export function buildExternalChromeArgs(
     `--window-size=${bounds.width},${bounds.height}`,
     "--no-first-run",
     "--disable-default-apps",
+    "--remote-debugging-address=127.0.0.1",
+    "--remote-debugging-port=0",
     ...(proxyServer ? [`--proxy-server=${proxyServer}`] : []),
     ...(extensionPath ? [`--load-extension=${extensionPath}`] : [])
   ];
+}
+
+const EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE =
+  "Macro control could not connect to compatibility mode. Restart this role to try again.";
+
+async function removeStaleDevToolsPort(browserUserDataDir: string): Promise<void> {
+  await unlink(join(browserUserDataDir, "DevToolsActivePort")).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  });
+}
+
+function appendNotice(current: string | undefined, next: string): string {
+  if (!current) return next;
+  if (current.includes(next)) return current;
+  return `${current} ${next}`;
 }
 
 function spawnChrome(executablePath: string, args: string[]): ChildProcess {

@@ -74,8 +74,10 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro is already running for this role.": "error.macroAlreadyRunning",
   "Macro is not assigned to this role.": "error.macroNotAssigned",
   "Launch this role before running a macro.": "error.macroRoleNotRunning",
-  "Compatibility mode does not support macros yet. Relaunch the role in embedded mode before running macros.":
+  "Macro control is unavailable for this compatibility-mode session. Restart the role and try again.":
     "error.macroExternalRuntimeUnsupported",
+  "Macro control could not connect to compatibility mode. Restart this role to try again.":
+    "notice.externalMacroUnavailable",
   "Launch workspace has no roles.": "error.workspaceEmpty",
   "Login required. Use Login before launching every role in this workspace.": "error.workspaceLoginRequired",
   "Login required. Use Login before launching this role.": "error.loginRequired",

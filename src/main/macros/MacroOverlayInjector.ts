@@ -10,6 +10,12 @@ interface MacroOverlayState {
   statuses: MacroRunStatus[];
 }
 
+export interface ExternalMacroOverlayHost {
+  evaluate: <T = unknown>(source: string) => Promise<T>;
+  installMacroOverlay: (source: string, handler: (request: unknown) => Promise<unknown>) => Promise<void>;
+  onDisconnect: (listener: () => void) => () => void;
+}
+
 export type MacroOverlayRequest =
   | {
       type: "list";
@@ -31,6 +37,8 @@ export type MacroOverlayRequest =
     };
 
 export class MacroOverlayInjector {
+  private readonly externalHosts = new Set<ExternalMacroOverlayHost>();
+  private readonly externalHostRoleIds = new WeakMap<ExternalMacroOverlayHost, string>();
   private readonly installedContents = new Set<WebContents>();
   private readonly initializedContents = new WeakSet<WebContents>();
   private readonly contentRoleIds = new WeakMap<WebContents, string>();
@@ -55,6 +63,23 @@ export class MacroOverlayInjector {
     await this.installContents(webContents);
   }
 
+  async installExternal(role: Role, host: ExternalMacroOverlayHost): Promise<void> {
+    this.externalHosts.add(host);
+    this.externalHostRoleIds.set(host, role.id);
+    host.onDisconnect(() => this.externalHosts.delete(host));
+    try {
+      await host.installMacroOverlay(MACRO_OVERLAY_SCRIPT, async (request) => {
+        if (!isMacroOverlayRequest(request)) {
+          throw new Error("Invalid macro overlay request.");
+        }
+        return this.handleRequest(role.id, request);
+      });
+    } catch (error) {
+      this.externalHosts.delete(host);
+      throw error;
+    }
+  }
+
   refreshInstalledOverlays(roleId?: string): void {
     this.installedContents.forEach((webContents) => {
       if (roleId && this.contentRoleIds.get(webContents) !== roleId) {
@@ -62,6 +87,12 @@ export class MacroOverlayInjector {
       }
 
       void this.refreshContentsOverlay(webContents);
+    });
+    this.externalHosts.forEach((host) => {
+      if (roleId && this.externalHostRoleIds.get(host) !== roleId) {
+        return;
+      }
+      void this.refreshExternalOverlay(host);
     });
   }
 
@@ -119,6 +150,16 @@ export class MacroOverlayInjector {
     }
   }
 
+  private async refreshExternalOverlay(host: ExternalMacroOverlayHost): Promise<void> {
+    try {
+      await host.evaluate("window.__rionStudioMacroOverlay?.refresh?.({ renderAfter: true })");
+    } catch (error) {
+      if (!isBenignFrameInstallError(error)) {
+        console.warn("Failed to refresh the external Chrome macro overlay.", error);
+      }
+    }
+  }
+
   private async installContents(webContents: WebContents): Promise<void> {
     if (webContents.isDestroyed()) {
       return;
@@ -145,6 +186,21 @@ export class MacroOverlayInjector {
       statuses: statuses.filter((status) => status.roleId === roleId)
     };
   }
+}
+
+export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequest {
+  if (typeof value !== "object" || value === null || !("type" in value)) {
+    return false;
+  }
+  const request = value as { type?: unknown; macroId?: unknown };
+  if (request.type === "list" || request.type === "create") {
+    return true;
+  }
+  return (
+    (request.type === "edit" || request.type === "start" || request.type === "stop") &&
+    typeof request.macroId === "string" &&
+    Boolean(request.macroId)
+  );
 }
 
 function isBenignFrameInstallError(error: unknown): boolean {

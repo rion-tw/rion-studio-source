@@ -161,10 +161,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   setBeforeRolesStop(handler: BeforeRolesStop): void {
     this.beforeRolesStop = handler;
+    this.options.externalChromeManager?.setBeforeRoleStop((roleId) => handler([roleId]));
   }
 
   setMacroOverlayInstaller(installer: BrowserMacroOverlayInstaller): void {
     this.macroOverlayInstaller = installer;
+  }
+
+  setExternalMacroOverlayInstaller(
+    installer: Parameters<ExternalChromeManager["setMacroOverlayInstaller"]>[0]
+  ): void {
+    this.options.externalChromeManager?.setMacroOverlayInstaller(installer);
   }
 
   listStatuses(): RoleStatus[] {
@@ -182,7 +189,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const session = this.sessions.get(roleId);
 
     if (session?.state !== "running" || session.view.webContents.isDestroyed()) {
-      return undefined;
+      return this.options.externalChromeManager?.getAutomationSession(roleId);
     }
 
     return { role: session.role, target: session.target };

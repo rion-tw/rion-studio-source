@@ -188,7 +188,6 @@ export function App(): JSX.Element {
     setError: data.setError,
     setMacroStatuses: data.setMacroStatuses,
     setMacros: data.setMacros,
-    statusByRole: data.statusByRole,
     t: preferences.t
   });
   const {

@@ -1,6 +1,6 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import { forwardRef } from "react";
+import { Children, forwardRef, isValidElement, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 
@@ -127,7 +127,7 @@ export const SelectItem = forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-7 w-full max-w-full cursor-default select-none items-center overflow-hidden rounded-[5px] py-1.5 pl-7 pr-2 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2 [&>span:last-child]:truncate",
+      "relative flex min-h-7 w-full max-w-full cursor-default select-none items-center overflow-hidden rounded-[5px] py-1.5 pl-7 pr-2 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1 [&>span:last-child]:overflow-hidden",
       className
     )}
     {...props}
@@ -137,11 +137,31 @@ export const SelectItem = forwardRef<
         <Check className="size-3.5" aria-hidden="true" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <SelectPrimitive.ItemText>
+      <SelectItemContent>{children}</SelectItemContent>
+    </SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
 ));
 
 SelectItem.displayName = SelectPrimitive.Item.displayName;
+
+function SelectItemContent({ children }: { children: ReactNode }): React.ReactElement {
+  const hasStructuredContent = Children.toArray(children).some(isValidElement);
+
+  return (
+    <span
+      data-slot="select-item-content"
+      className={cn(
+        "min-w-0 flex-1",
+        hasStructuredContent
+          ? "flex items-center gap-2 overflow-hidden [&>span]:min-w-0 [&>span]:flex-1 [&>span]:truncate"
+          : "block truncate"
+      )}
+    >
+      {children}
+    </span>
+  );
+}
 
 export const SelectSeparator = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Separator>,

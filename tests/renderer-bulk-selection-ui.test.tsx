@@ -109,7 +109,7 @@ describe("bulk selection UI", () => {
     fireEvent.pointerMove(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
 
     expect(screen.getByText("1 selected")).toBeTruthy();
-    expect(item!.className).toContain("ring-blue-500/70");
+    expectSelectedCardOverlay(item!);
     fireEvent.pointerUp(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
   });
 
@@ -146,8 +146,11 @@ describe("bulk selection UI", () => {
       />
     );
 
+    const card = screen.getByRole("button", { name: "Select Main role" }).closest<HTMLElement>("[data-selection-id]");
+    expect(card).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "Select Main role" }));
     expect(screen.getByText("1 selected")).toBeTruthy();
+    expectSelectedCardOverlay(card!);
   });
 
   it("adds a selectable state to workspace cards", async () => {
@@ -177,8 +180,11 @@ describe("bulk selection UI", () => {
       />
     );
 
+    const card = screen.getByRole("button", { name: "Select Party" }).closest<HTMLElement>("[data-selection-id]");
+    expect(card).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "Select Party" }));
     expect(screen.getByText("1 selected")).toBeTruthy();
+    expectSelectedCardOverlay(card!);
   });
 
   it("adds a selectable state and selection column to macro rows", async () => {
@@ -215,6 +221,7 @@ describe("bulk selection UI", () => {
     expect(checkbox.className).toContain("opacity-100");
     await user.click(checkbox);
     expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(document.querySelector("[data-selection-overlay]")).toBeNull();
   });
 });
 
@@ -288,4 +295,12 @@ function setBounds(element: HTMLElement, left: number, top: number, width: numbe
       toJSON: () => ({})
     })
   });
+}
+
+function expectSelectedCardOverlay(card: HTMLElement): void {
+  const overlay = card.querySelector<HTMLElement>("[data-selection-overlay]");
+  expect(overlay).not.toBeNull();
+  expect(overlay!.className).toContain("bg-blue-500/10");
+  expect(overlay!.className).toContain("outline-blue-500/90");
+  expect(overlay!.className).toContain("outline-1");
 }

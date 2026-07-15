@@ -13,7 +13,12 @@ import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 
 import { getGameCoverUrl, getGameIconUrl, sortGames } from "../../app/gamePresentation";
 import { EmptyState } from "../../components/EmptyState";
-import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
+import {
+  SelectionActionBar,
+  SelectionCardOverlay,
+  SelectionMarquee,
+  SelectionToggle
+} from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -21,7 +26,6 @@ import { Card } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { useListSelection } from "../../hooks/useListSelection";
-import { cn } from "../../lib/utils";
 import type { Game, GameCompatibilityReport, GameCompatibilityRunStatus, Role, RoleStatus } from "../../../../shared/types";
 
 interface GamesRouteProps {
@@ -120,13 +124,11 @@ function GamesRoute({
               <Card
                 key={game.id}
                 ref={selection.registerItem(game.id)}
-                className={cn(
-                  "group relative overflow-hidden transition-[box-shadow,background-color]",
-                  selection.isSelected(game.id) && "ring-2 ring-blue-500/70 ring-offset-2 ring-offset-background"
-                )}
+                className="group relative overflow-hidden transition-[box-shadow,background-color]"
                 data-selection-id={game.id}
                 onClickCapture={(event) => selection.handleItemClick(event, game.id)}
               >
+                <SelectionCardOverlay isSelected={selection.isSelected(game.id)} />
                 <SelectionToggle
                   className="absolute left-3 top-3 z-30"
                   isSelected={selection.isSelected(game.id)}

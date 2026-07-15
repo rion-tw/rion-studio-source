@@ -27,7 +27,12 @@ import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
-import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
+import {
+  SelectionActionBar,
+  SelectionCardOverlay,
+  SelectionMarquee,
+  SelectionToggle
+} from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { getGameIconUrl } from "../../app/gamePresentation";
 import { moveItemById } from "../../app/reorderItems";
@@ -397,7 +402,7 @@ function RoleCard({
       className={cn(
         "role-cover-card group relative aspect-[4/5] overflow-hidden transition-[box-shadow,opacity] duration-150",
         isDragging && "opacity-45",
-        (isDropTarget || isSelected) && "ring-2 ring-blue-500/70 ring-offset-2 ring-offset-background"
+        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
       )}
       data-selection-id={role.id}
       style={cardStyle}
@@ -409,6 +414,8 @@ function RoleCard({
         className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
         style={{ backgroundImage: `url("${coverImageUrl}")` }}
       />
+
+      <SelectionCardOverlay isSelected={isSelected} />
 
       <SelectionToggle
         className="absolute left-3 top-3 z-30"

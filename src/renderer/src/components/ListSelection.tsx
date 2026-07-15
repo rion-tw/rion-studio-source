@@ -16,6 +16,20 @@ interface SelectionToggleProps {
   onToggle: () => void;
 }
 
+export function SelectionCardOverlay({ isSelected }: { isSelected: boolean }): JSX.Element | null {
+  if (!isSelected) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-20 rounded-[inherit] bg-blue-500/10 outline outline-1 outline-offset-[-1px] outline-blue-500/90"
+      data-selection-overlay
+    />
+  );
+}
+
 export function SelectionToggle({
   alwaysVisible = false,
   className,

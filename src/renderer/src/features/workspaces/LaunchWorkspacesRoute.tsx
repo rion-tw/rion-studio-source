@@ -30,7 +30,12 @@ import { Badge } from "../../components/ui/badge";
 import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
-import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
+import {
+  SelectionActionBar,
+  SelectionCardOverlay,
+  SelectionMarquee,
+  SelectionToggle
+} from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { moveItemById } from "../../app/reorderItems";
 import type { Translator } from "../../i18n";
@@ -333,13 +338,14 @@ function WorkspaceCard({
       className={cn(
         "group relative overflow-visible glass-panel-strong transition-[box-shadow,opacity] duration-150",
         isDragging && "opacity-45",
-        (isDropTarget || isSelected) && "ring-2 ring-blue-500/70 ring-offset-2 ring-offset-background"
+        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
       )}
       data-selection-id={workspace.id}
       onClickCapture={onSelectionClick}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
+      <SelectionCardOverlay isSelected={isSelected} />
       <SelectionToggle
         className="absolute left-3 top-3 z-30"
         isSelected={isSelected}

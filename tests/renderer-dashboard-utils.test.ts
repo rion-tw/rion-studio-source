@@ -121,13 +121,14 @@ describe("renderer dashboard helpers", () => {
     const blockedMacro = macro({ id: "blocked", roleIds: ["r1", "r2"] });
     const runningMacro = macro({ id: "running", roleIds: ["r1", "r2"] });
     const noRoleMacro = macro({ id: "no-role", roleIds: [] });
+    const disabledMacro = macro({ id: "disabled", enabled: false, roleIds: ["r1"] });
     const items = getDashboardMacroItems({
       busyMacroIds: new Set(),
       busyRunKeys: new Set(),
       macroStatusByRun: new Map<string, MacroRunStatus>([
         ["r1:running", macroStatus({ macroId: "running", roleId: "r1", state: "running" })]
       ]),
-      macros: [readyMacro, blockedMacro, runningMacro, noRoleMacro],
+      macros: [readyMacro, blockedMacro, runningMacro, noRoleMacro, disabledMacro],
       roles,
       statusByRole: new Map<string, RoleStatus>([
         ["r1", { roleId: "r1", state: "running" }],
@@ -141,6 +142,11 @@ describe("renderer dashboard helpers", () => {
     expect(byId.get("no-role")?.action).toMatchObject({
       disabled: true,
       disabledReason: "noRoles",
+      kind: "start"
+    });
+    expect(byId.get("disabled")?.action).toMatchObject({
+      disabled: true,
+      disabledReason: "macroDisabled",
       kind: "start"
     });
 
@@ -238,6 +244,7 @@ function workspace(overrides: Partial<LaunchWorkspace>): LaunchWorkspace {
 function macro(overrides: Partial<Macro>): Macro {
   return {
     id: "macro",
+    enabled: true,
     name: "Macro",
     roleIds: [],
     repeat: { type: "once" },

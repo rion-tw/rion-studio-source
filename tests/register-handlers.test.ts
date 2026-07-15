@@ -756,6 +756,7 @@ describe("registerIpcHandlers workspace handlers", () => {
 describe("registerIpcHandlers macro handlers", () => {
   const macro: Macro = {
     id: "macro-1",
+    enabled: true,
     name: "Auto heal",
     roleIds: ["role-1"],
     repeat: { type: "once" },
@@ -889,6 +890,14 @@ describe("registerIpcHandlers macro handlers", () => {
 
     expect(macroManager.start).toHaveBeenCalledWith("macro-1");
     expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
+  });
+
+  it("stops a running macro before disabling it", async () => {
+    await handlers.get(IPC_CHANNELS.macrosUpdate)?.({}, macro.id, { enabled: false });
+
+    expect(macroManager.stopAndRunMutation).toHaveBeenCalledWith(macro.id, expect.any(Function));
+    expect(macroManager.runStoppedMutation).not.toHaveBeenCalled();
+    expect(macroStore.updateMacro).toHaveBeenCalledWith(macro.id, { enabled: false });
   });
 
   it("rejects a macro role reference that disappears before persistence", async () => {

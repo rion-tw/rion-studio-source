@@ -236,6 +236,7 @@ function role(overrides: Partial<Role>): Role {
 function macro(overrides: Partial<Macro>): Macro {
   return {
     id: "macro",
+    enabled: true,
     name: "Macro",
     roleIds: [],
     repeat: { type: "once" },

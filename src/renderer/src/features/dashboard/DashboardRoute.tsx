@@ -701,6 +701,10 @@ function getMacroStatusLabel(item: DashboardMacroItem, t: Translator): string {
     return t("dashboard.status.notConfigured");
   }
 
+  if (item.action.disabledReason === "macroDisabled") {
+    return t("macros.status.disabled");
+  }
+
   if (item.action.disabledReason === "rolesNotRunning") {
     return t("dashboard.status.waitingForRoles");
   }
@@ -791,6 +795,10 @@ function getRoleActionIcon(kind: DashboardRoleItem["action"]["kind"]): JSX.Eleme
 }
 
 function getMacroActionTitle(item: DashboardMacroItem, t: Translator): string | undefined {
+  if (item.action.disabledReason === "macroDisabled") {
+    return t("macros.disabledHint");
+  }
+
   if (item.action.disabledReason === "noRoles") {
     return t("dashboard.macro.noRoles");
   }

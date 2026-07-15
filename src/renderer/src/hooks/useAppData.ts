@@ -292,6 +292,14 @@ export function useAppData() {
       return;
     }
 
+    return window.rionStudio.onMacrosChanged(setMacros);
+  }, [setMacros]);
+
+  useEffect(() => {
+    if (!window.rionStudio) {
+      return;
+    }
+
     return window.rionStudio.onGamesChanged(setGames);
   }, [setGames]);
 

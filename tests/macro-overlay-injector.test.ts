@@ -28,6 +28,7 @@ const role: Role = {
 
 const assignedMacro: Macro = {
   id: "macro-1",
+  enabled: true,
   name: "Auto heal",
   roleIds: ["role-1", "role-2"],
   trigger: { code: "F2", ctrl: false, alt: false, shift: false, meta: false },
@@ -167,6 +168,41 @@ describe("MacroOverlayInjector", () => {
     expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
   });
 
+  it("disables a macro through the lifecycle lock and includes all assigned role names", async () => {
+    let currentMacro = assignedMacro;
+    const updateMacro = vi.fn(async (_macroId: string, input: { enabled?: boolean }) => {
+      currentMacro = { ...currentMacro, enabled: input.enabled ?? currentMacro.enabled };
+      return currentMacro;
+    });
+    const stopAndRunMutation = vi.fn(async (_macroId: string, operation: () => Promise<Macro>) => operation());
+    const onMacrosChanged = vi.fn();
+    const supportRole = { ...role, id: "role-2", name: "Support" };
+    const injector = new MacroOverlayInjector(
+      { listMacros: vi.fn(async () => [currentMacro]), updateMacro } as never,
+      {
+        listStatuses: vi.fn(() => []),
+        startForRole: vi.fn(),
+        stopForRole: vi.fn(),
+        stopAndRunMutation
+      } as never,
+      undefined,
+      undefined,
+      { listRoles: vi.fn(async () => [role, supportRole]) } as never,
+      onMacrosChanged
+    );
+
+    await expect(injector.handleRequest(role.id, { type: "list" })).resolves.toMatchObject({
+      macros: [{ roleNames: ["Main", "Support"] }]
+    });
+    await expect(
+      injector.handleRequest(role.id, { type: "set-enabled", macroId: assignedMacro.id, enabled: false })
+    ).resolves.toMatchObject({ macros: [{ enabled: false }] });
+
+    expect(stopAndRunMutation).toHaveBeenCalledWith(assignedMacro.id, expect.any(Function));
+    expect(updateMacro).toHaveBeenCalledWith(assignedMacro.id, { enabled: false });
+    expect(onMacrosChanged).toHaveBeenCalledOnce();
+  });
+
   it("rejects edit, start, and stop requests for macros not assigned to the overlay role", async () => {
     const onMacroEditorRequested = vi.fn();
     const macroManager = {
@@ -273,7 +309,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-15.2"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.1"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
@@ -334,7 +370,9 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="create-row"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('data-action="create"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "create" });');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('</strong></span><span class="macro-details"><span class="macro-detail-steps"><b>');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('"</strong>",');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('multiRoleBadge');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('</span><span class="macro-details"><span class="macro-detail-steps"><b>');
     expect(MACRO_OVERLAY_SCRIPT).toContain('<span class="macro-detail-shortcut"><b>');
     expect(MACRO_OVERLAY_SCRIPT).toContain('<span class="macro-detail-poll"><b>');
     expect(MACRO_OVERLAY_SCRIPT).toContain('<button class="macro-edit" type="button"');
@@ -358,7 +396,7 @@ describe("MacroOverlayInjector", () => {
     expect(createRowIndex).toBeGreaterThan(-1);
     expect(macroContentIndex).toBeLessThan(createRowIndex);
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-row{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-areas:'title shortcut poll edit' 'steps steps steps steps'");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-areas:'title title toggle edit' 'steps shortcut poll poll'");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-header{");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-title{");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details{display:contents;}");
@@ -367,6 +405,12 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("grid-area:steps");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-edit{");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".edit-icon{");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-enabled-switch{");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('role="switch"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('void runAction("set-enabled", macroId');
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.disabled");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('class="people-icon"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('class="macro-role-count" data-tooltip="');
     expect(MACRO_OVERLAY_SCRIPT).toContain(".panel{display:");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".trigger{");
     expect(MACRO_OVERLAY_SCRIPT).toContain("pointer-events:auto");
@@ -421,7 +465,9 @@ describe("MacroOverlayInjector", () => {
     );
 
     expect(MACRO_OVERLAY_SCRIPT).toContain("function getRunningBadgeMacros()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("return state.macros.filter((macro) => isRunning(macro.id));");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(
+      "return state.macros.filter((macro) => macro.enabled !== false && isRunning(macro.id));"
+    );
     expect(MACRO_OVERLAY_SCRIPT).toContain("function getRunningBadgeSignature()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("[macro.id, macro.name, formatShortcut(macro.trigger)]");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const shortcut = formatShortcut(macro.trigger);");

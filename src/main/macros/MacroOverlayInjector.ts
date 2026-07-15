@@ -3,11 +3,16 @@ import type { WebContents } from "electron";
 import type { AppLanguage, Macro, MacroEditorRequest, MacroRunStatus, Role, RoleStatus } from "../../shared/types";
 import type { MacroManager } from "./MacroManager";
 import type { MacroStore } from "./MacroStore";
+import type { RoleStore } from "../roles/RoleStore";
+
+interface MacroOverlayItem extends Macro {
+  roleNames: string[];
+}
 
 interface MacroOverlayState {
   cpuThrottleRate?: RoleStatus["cpuThrottleRate"];
   language?: AppLanguage;
-  macros: Macro[];
+  macros: MacroOverlayItem[];
   resourceState?: RoleStatus["resourceState"];
   startSummary?: {
     skippedCount: number;
@@ -40,6 +45,11 @@ export type MacroOverlayRequest =
   | {
       macroId: string;
       type: "stop";
+    }
+  | {
+      enabled: boolean;
+      macroId: string;
+      type: "set-enabled";
     };
 
 export class MacroOverlayInjector {
@@ -51,10 +61,15 @@ export class MacroOverlayInjector {
   private language: AppLanguage | undefined;
 
   constructor(
-    private readonly macroStore: Pick<MacroStore, "listMacros">,
-    private readonly macroManager: Pick<MacroManager, "listStatuses" | "startForRole" | "stopForRole">,
+    private readonly macroStore: Pick<MacroStore, "listMacros" | "updateMacro">,
+    private readonly macroManager: Pick<
+      MacroManager,
+      "listStatuses" | "startForRole" | "stopForRole" | "stopAndRunMutation"
+    >,
     private readonly onMacroEditorRequested?: (request: MacroEditorRequest) => void | Promise<void>,
-    private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined
+    private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined,
+    private readonly roleStore?: Pick<RoleStore, "listRoles">,
+    private readonly onMacrosChanged?: () => void
   ) {}
 
   async install(role: Role, webContents: WebContents): Promise<void> {
@@ -133,6 +148,14 @@ export class MacroOverlayInjector {
       case "stop":
         await this.macroManager.stopForRole(request.macroId, roleId);
         break;
+      case "set-enabled":
+        await this.assertMacroAssignedToRole(roleId, request.macroId);
+        await this.macroManager.stopAndRunMutation(request.macroId, () =>
+          this.macroStore.updateMacro(request.macroId, { enabled: request.enabled })
+        );
+        this.refreshInstalledOverlays();
+        this.onMacrosChanged?.();
+        break;
     }
 
     const state = await this.getOverlayState(roleId);
@@ -203,11 +226,20 @@ export class MacroOverlayInjector {
   }
 
   private async getOverlayState(roleId: string): Promise<MacroOverlayState> {
-    const macros = await this.macroStore.listMacros();
+    const [macros, roles] = await Promise.all([
+      this.macroStore.listMacros(),
+      this.roleStore?.listRoles() ?? Promise.resolve([])
+    ]);
     const statuses = this.macroManager.listStatuses();
     const roleStatus = this.getRoleStatus?.(roleId);
+    const roleNameById = new Map(roles.map((role) => [role.id, role.name]));
 
-    const assignedMacros = macros.filter((macro) => macro.roleIds.includes(roleId));
+    const assignedMacros = macros
+      .filter((macro) => macro.roleIds.includes(roleId))
+      .map((macro) => ({
+        ...macro,
+        roleNames: macro.roleIds.map((assignedRoleId) => roleNameById.get(assignedRoleId) ?? assignedRoleId)
+      }));
     const assignedMacroIds = new Set(assignedMacros.map((macro) => macro.id));
 
     return {
@@ -231,9 +263,12 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
   if (typeof value !== "object" || value === null || !("type" in value)) {
     return false;
   }
-  const request = value as { type?: unknown; macroId?: unknown };
+  const request = value as { type?: unknown; macroId?: unknown; enabled?: unknown };
   if (request.type === "list" || request.type === "create") {
     return true;
+  }
+  if (request.type === "set-enabled") {
+    return typeof request.macroId === "string" && Boolean(request.macroId) && typeof request.enabled === "boolean";
   }
   return (
     (request.type === "edit" || request.type === "start" || request.type === "stop") &&
@@ -375,7 +410,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v25"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-15.2";
+  const scriptVersion = "2026-07-16.1";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
@@ -403,7 +438,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       addMacro: "Add macro",
       createError: "Unable to open Rion Studio.",
       delayStep: "Delay",
+      disable: "Disable",
       empty: "No macros assigned to this role.",
+      enable: "Enable",
       everyMs: "Every {ms} ms",
       edit: "Edit",
       editError: "Unable to open this macro in Rion Studio.",
@@ -428,7 +465,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       addMacro: "新增巨集",
       createError: "無法開啟 Rion Studio。",
       delayStep: "延遲",
+      disable: "停用",
       empty: "此角色未指派巨集。",
+      enable: "啟用",
       everyMs: "每 {ms} ms",
       edit: "編輯",
       editError: "無法在 Rion Studio 開啟此巨集。",
@@ -453,7 +492,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       addMacro: "新增宏",
       createError: "无法打开 Rion Studio。",
       delayStep: "延迟",
+      disable: "停用",
       empty: "此角色未分配宏。",
+      enable: "启用",
       everyMs: "每 {ms} ms",
       edit: "编辑",
       editError: "无法在 Rion Studio 中打开此宏。",
@@ -478,7 +519,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       addMacro: "マクロを追加",
       createError: "Rion Studio を開けません。",
       delayStep: "遅延",
+      disable: "無効にする",
       empty: "このロールに割り当てられたマクロはありません。",
+      enable: "有効にする",
       everyMs: "{ms} ms ごと",
       edit: "編集",
       editError: "このマクロを Rion Studio で開けません。",
@@ -522,6 +565,14 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     '<svg class="edit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">',
     '<path d="M12 20h9"/>',
     '<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    "</svg>"
+  ].join("");
+  const peopleIconMarkup = [
+    '<svg class="people-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">',
+    '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>',
+    '<circle cx="9" cy="7" r="4"/>',
+    '<path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
+    '<path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     "</svg>"
   ].join("");
   let host = null;
@@ -621,7 +672,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   }
 
   function getRunningBadgeMacros() {
-    return state.macros.filter((macro) => isRunning(macro.id));
+    return state.macros.filter((macro) => macro.enabled !== false && isRunning(macro.id));
   }
 
   function getRunningBadgeSignature() {
@@ -943,6 +994,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       .join("");
     const macroRows = state.macros
       .map((macro) => {
+        const enabled = macro.enabled !== false;
         const running = isRunning(macro.id);
         const stopping = isStopping(macro.id);
         const failed = isFailed(macro.id);
@@ -950,19 +1002,38 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
         const steps = formatSteps(macro.steps);
         const poll = formatRepeat(macro.repeat);
         const editLabel = text.edit + " " + macro.name;
+        const toggleLabel = (enabled ? text.disable : text.enable) + " " + macro.name;
+        const roleNames = Array.isArray(macro.roleNames) ? macro.roleNames : [];
+        const roleTooltip = roleNames.join(", ");
+        const roleCount = Array.isArray(macro.roleIds) ? macro.roleIds.length : roleNames.length;
+        const multiRoleBadge = roleCount > 1
+          ? '<span class="macro-role-count" data-tooltip="' + escapeHtml(roleTooltip) + '" aria-label="' + escapeHtml(roleTooltip) + '">' + peopleIconMarkup + '<span>' + roleCount + "</span></span>"
+          : "";
 
         return [
           '<div class="macro-row" role="menuitem"><span class="macro-title"><span class="status-dot ',
-          failed ? "failed" : running || stopping ? "running" : "idle",
+          !enabled ? "disabled" : failed ? "failed" : running || stopping ? "running" : "idle",
           '"></span><strong>',
           escapeHtml(macro.name),
-          '</strong></span><span class="macro-details"><span class="macro-detail-steps"><b>',
+          "</strong>",
+          multiRoleBadge,
+          '</span><span class="macro-details"><span class="macro-detail-steps"><b>',
           escapeHtml(steps),
           '</b></span><span class="macro-detail-shortcut"><b>',
           escapeHtml(shortcut),
           '</b></span><span class="macro-detail-poll"><b>',
           escapeHtml(poll),
-          '</b></span></span><button class="macro-edit" type="button" tabindex="-1" data-macro-id="',
+          '</b></span></span><button class="macro-enabled-switch" type="button" role="switch" tabindex="-1" data-macro-id="',
+          escapeHtml(macro.id),
+          '" data-enabled="',
+          enabled ? "true" : "false",
+          '" aria-checked="',
+          enabled ? "true" : "false",
+          '" title="',
+          escapeHtml(toggleLabel),
+          '" aria-label="',
+          escapeHtml(toggleLabel),
+          '"><span></span></button><button class="macro-edit" type="button" tabindex="-1" data-macro-id="',
           escapeHtml(macro.id),
           '" title="',
           escapeHtml(editLabel),
@@ -987,7 +1058,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".resource-state{-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);background:rgba(20,23,31,.7);border:1px solid rgba(255,255,255,.14);border-radius:999px;color:rgba(255,255,255,.92);font-size:9.5px;font-weight:650;line-height:1;max-width:170px;overflow:hidden;padding:6px 8px;pointer-events:none;text-overflow:ellipsis;white-space:nowrap;}",
       ".panel{display:",
       state.isOpen ? "grid" : "none",
-      ";-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.22);gap:0;margin-top:7px;max-width:296px;overflow:hidden;padding:4px;pointer-events:auto;text-shadow:none;width:min(288px,calc(100vw - 16px));}",
+      ";-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.22);gap:0;margin-top:7px;max-width:296px;overflow:visible;padding:4px;pointer-events:auto;text-shadow:none;width:min(288px,calc(100vw - 16px));}",
       ".macro-row,.create-row,.empty,.error{background:transparent;border:0;box-shadow:none;}",
       ".notice{-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);background:rgba(20,23,31,.82);border:1px solid rgba(125,255,114,.24);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);color:rgba(255,255,255,.92);font-size:11px;font-weight:550;line-height:1.35;margin-top:7px;max-width:288px;padding:8px 10px;pointer-events:none;width:max-content;}",
       ".panel>*+*{margin-top:6px;position:relative;}",
@@ -995,14 +1066,18 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".create-row{align-items:center;border-radius:8px;color:rgba(255,255,255,.9);cursor:pointer;display:flex;font-size:11.5px;font-weight:600;gap:7px;height:30px;justify-content:flex-start;line-height:1;padding:0 9px;text-align:left;width:100%;}",
       ".create-row:hover{background:rgba(255,255,255,.065);}",
       ".create-icon{color:rgba(255,255,255,.72);display:block;fill:none;flex:0 0 auto;height:14px;stroke:currentColor;stroke-linecap:round;stroke-width:2;width:14px;}",
-      ".macro-row{align-items:center;border-radius:10px;color:rgba(255,255,255,.94);display:grid;gap:6px 7px;grid-template-areas:'title shortcut poll edit' 'steps steps steps steps';grid-template-columns:minmax(60px,1fr) auto auto 24px;min-height:56px;padding:8px 9px;text-align:left;width:100%;}",
+      ".macro-row{align-items:center;border-radius:10px;color:rgba(255,255,255,.94);display:grid;gap:6px 7px;grid-template-areas:'title title toggle edit' 'steps shortcut poll poll';grid-template-columns:minmax(60px,1fr) auto 32px 24px;min-height:56px;padding:8px 9px;text-align:left;width:100%;}",
       ".macro-row:hover{background:rgba(255,255,255,.065);}",
       ".status-dot{border-radius:999px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);display:block;height:7px;width:7px;}",
       ".status-dot.running{background:#7dff72;color:rgba(125,255,114,.42);}",
       ".status-dot.failed{background:#ffbd5c;color:rgba(255,189,92,.42);}",
       ".status-dot.idle{background:#ff5f57;color:rgba(255,95,87,.36);}",
+      ".status-dot.disabled{background:#7d828c;color:rgba(125,130,140,.36);}",
       ".macro-title{align-items:center;display:flex;gap:7px;grid-area:title;min-width:0;}",
       ".macro-title strong{font-size:12px;font-weight:650;line-height:1.2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+      ".macro-role-count{align-items:center;background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.11);border-radius:999px;color:rgba(255,255,255,.76);display:inline-flex;flex:0 0 auto;font-size:9px;font-weight:650;gap:3px;height:18px;padding:0 5px;position:relative;}",
+      ".macro-role-count:hover::after{background:rgba(12,14,20,.96);border:1px solid rgba(255,255,255,.16);border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.3);color:rgba(255,255,255,.94);content:attr(data-tooltip);font-size:10px;font-weight:550;left:0;line-height:1.35;max-width:230px;min-width:max-content;padding:6px 8px;position:absolute;top:calc(100% + 5px);white-space:normal;width:max-content;z-index:3;}",
+      ".people-icon{display:block;fill:none;height:11px;width:11px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.8;}",
       ".macro-details{display:contents;}",
       ".macro-details span{color:rgba(255,255,255,.78);font-size:9.5px;font-weight:500;line-height:1.1;min-width:0;}",
       ".macro-details b{font-weight:550;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
@@ -1017,6 +1092,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".macro-edit:hover{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.18);}",
       ".macro-edit:disabled{cursor:not-allowed;opacity:.42;}",
       ".edit-icon{display:block;fill:none;height:12px;width:12px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;}",
+      ".macro-enabled-switch{align-items:center;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.15);border-radius:999px;cursor:pointer;display:flex;grid-area:toggle;height:18px;padding:2px;width:32px;}",
+      ".macro-enabled-switch[aria-checked='true']{background:#5cae58;border-color:rgba(125,255,114,.45);}",
+      ".macro-enabled-switch span{background:#fff;border-radius:999px;box-shadow:0 1px 3px rgba(0,0,0,.28);display:block;height:12px;transform:translateX(0);transition:transform .14s ease;width:12px;}",
+      ".macro-enabled-switch[aria-checked='true'] span{transform:translateX(14px);}",
       ".active-badges{align-items:center;display:flex;flex-wrap:nowrap;gap:5px;justify-content:center;left:50%;max-width:min(76vw,620px);pointer-events:none;position:fixed;top:20%;transform:translateX(-50%);z-index:2147483647;}",
       ".active-badge{-webkit-backdrop-filter:blur(30px) saturate(140%);-webkit-font-smoothing:antialiased;align-items:center;backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.5);border:1px solid rgba(255,255,255,.14);border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.2);color:rgba(255,255,255,.92);display:flex;font-size:10px;gap:5px;letter-spacing:0;line-height:1.15;max-width:156px;min-height:20px;padding:4px 8px;pointer-events:none;white-space:nowrap;}",
       ".active-badge-name{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
@@ -1068,6 +1147,19 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
         const macroId = button.getAttribute("data-macro-id");
         if (macroId) {
           void requestEditMacro(macroId);
+        }
+      });
+    });
+
+    targetRoot.querySelectorAll(".macro-enabled-switch").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const macroId = button.getAttribute("data-macro-id");
+        if (macroId) {
+          void runAction("set-enabled", macroId, {
+            enabled: button.getAttribute("data-enabled") !== "true"
+          });
         }
       });
     });
@@ -1136,7 +1228,11 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     pendingMacroActions.add(macroId);
 
     try {
-      const nextState = await binding({ type: action, macroId });
+      const nextState = await binding(
+        action === "set-enabled"
+          ? { type: action, macroId, enabled: options.enabled === true }
+          : { type: action, macroId }
+      );
       if (requestVersion === state.requestVersion) {
         state.error = "";
         state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
@@ -1240,7 +1336,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     }
 
     if (event.repeat) {
-      if (matchesMenuToggle(event) || state.macros.some((item) => matchesShortcut(event, item.trigger))) {
+      if (matchesMenuToggle(event) || state.macros.some((item) => item.enabled !== false && matchesShortcut(event, item.trigger))) {
         consumeShortcutEvent(event);
       }
       return;
@@ -1254,7 +1350,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       return;
     }
 
-    const matchingMacros = state.macros.filter((item) => matchesShortcut(event, item.trigger));
+    const matchingMacros = state.macros.filter(
+      (item) => item.enabled !== false && matchesShortcut(event, item.trigger)
+    );
     if (matchingMacros.length === 0) {
       return;
     }

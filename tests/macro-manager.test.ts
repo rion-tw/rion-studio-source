@@ -5,6 +5,7 @@ import type { Macro } from "../src/shared/types";
 
 const macro: Macro = {
   id: "macro-1",
+  enabled: true,
   name: "Auto heal",
   roleIds: ["role-1", "role-2"],
   repeat: { type: "once" },
@@ -129,6 +130,18 @@ describe("MacroManager", () => {
     await expect(manager.start("macro-1")).rejects.toThrow(
       "Launch at least one assigned role before running a macro."
     );
+    expect(manager.listStatuses()).toEqual([]);
+  });
+
+  it("does not start a disabled macro", async () => {
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: { ...macro, enabled: false },
+      targets: { "role-1": target }
+    });
+
+    await expect(manager.start("macro-1")).rejects.toThrow("Enable this macro before running it.");
+    expect(target.dispatchKey).not.toHaveBeenCalled();
     expect(manager.listStatuses()).toEqual([]);
   });
 

@@ -141,6 +141,9 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     if (requestingRoleId) {
       this.assertMacroAssignedToRole(macro, requestingRoleId);
     }
+    if (!macro.enabled) {
+      throw new Error("Enable this macro before running it.");
+    }
     const sessions = macro.roleIds.flatMap((roleId) => {
       const key = createRunKey(roleId, macroId);
       if (this.runs.has(key)) {

@@ -48,6 +48,7 @@ export function useMacroWorkflow({
 
     try {
       const input = {
+        ...(form.id ? {} : { enabled: true }),
         name: form.name,
         roleIds: form.roleIds,
         repeat: form.repeat,
@@ -147,6 +148,7 @@ export function useMacroWorkflow({
 
     try {
       const copy = await window.rionStudio.createMacro({
+        enabled: macro.enabled,
         name: createCopyName(macro.name, macros.map((item) => item.name), t("copyName.suffix")),
         roleIds: [...macro.roleIds],
         repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
@@ -197,6 +199,30 @@ export function useMacroWorkflow({
     }
   }
 
+  async function handleSetMacroEnabled(macro: Macro, enabled: boolean): Promise<void> {
+    if (macro.enabled === enabled) {
+      return;
+    }
+
+    const finishBusy = beginBusy(macro.id);
+    if (!finishBusy) {
+      return;
+    }
+    const reportError = beginErrorOperation();
+
+    try {
+      const updated = await window.rionStudio.updateMacro(macro.id, { enabled });
+      setMacros((current) => current.map((item) => item.id === updated.id ? updated : item));
+      if (!enabled) {
+        setMacroStatuses((current) => current.filter((status) => status.macroId !== macro.id));
+      }
+    } catch (updateError) {
+      reportError(updateError);
+    } finally {
+      finishBusy();
+    }
+  }
+
   async function handleStopMacro(macroId: string): Promise<void> {
     const finishBusy = beginBusy(macroId);
     if (!finishBusy) {
@@ -229,6 +255,7 @@ export function useMacroWorkflow({
     handleDeleteMacro,
     handleDeleteMacros,
     handleStartMacro,
+    handleSetMacroEnabled,
     handleStopMacro,
     isSavingMacro,
     listScrollTopRef,

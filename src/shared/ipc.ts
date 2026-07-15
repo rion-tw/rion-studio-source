@@ -51,6 +51,7 @@ export const IPC_CHANNELS = {
   macrosStop: "macros:stop",
   macrosStatuses: "macros:statuses",
   macrosStatusChanged: "macros:status-changed",
+  macrosChanged: "macros:changed",
   macrosEditorRequested: "macros:editor-requested",
   macrosConsumeEditorRequest: "macros:consume-editor-request",
   macrosOverlayRequest: "macros:overlay-request",

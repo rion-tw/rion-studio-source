@@ -1,6 +1,15 @@
 name: Publish Public Release
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Verified private release tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+    secrets:
+      RION_RELEASE_APP_PRIVATE_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       tag:
@@ -202,6 +211,88 @@ jobs:
           --notes-file public-release-marker.md
           --verify-tag
 
+      - name: Remove verified migration canary
+        if: inputs.tag == 'v1.19.1'
+        shell: bash
+        env:
+          CANARY_ASSET_ID: "478185887"
+          CANARY_RELEASE_ID: "354597707"
+          CANARY_TAG: migration-canary-20260716
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" --jq .tag_name)" = "${TAG}"
+
+          set +e
+          gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${CANARY_RELEASE_ID}" \
+            > canary-release.json 2> canary-release-error.txt
+          release_status=$?
+          set -e
+
+          if [[ "${release_status}" -eq 0 ]]; then
+            test "$(jq -r .id canary-release.json)" = "${CANARY_RELEASE_ID}"
+            test "$(jq -r .tag_name canary-release.json)" = "${CANARY_TAG}"
+            test "$(jq -r .draft canary-release.json)" = "true"
+            test "$(jq -r '.assets | length' canary-release.json)" = "1"
+            test "$(jq -r '.assets[0].id' canary-release.json)" = "${CANARY_ASSET_ID}"
+
+            gh api --method DELETE \
+              "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${CANARY_RELEASE_ID}"
+          elif ! grep -Fq "HTTP 404" canary-release-error.txt; then
+            cat canary-release-error.txt >&2
+            exit "${release_status}"
+          fi
+
+          set +e
+          gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/tags/${CANARY_TAG}" \
+            > canary-tag.json 2> canary-tag-error.txt
+          tag_status=$?
+          set -e
+
+          if [[ "${tag_status}" -eq 0 ]]; then
+            test "$(jq -r .ref canary-tag.json)" = "refs/tags/${CANARY_TAG}"
+            gh api --method DELETE \
+              "repos/${PUBLIC_RELEASE_REPOSITORY}/git/refs/tags/${CANARY_TAG}"
+          elif ! grep -Fq "HTTP 404" canary-tag-error.txt; then
+            cat canary-tag-error.txt >&2
+            exit "${tag_status}"
+          fi
+
+          assert_missing() {
+            local endpoint="$1"
+            local label="$2"
+            local error_file="$3"
+            local status
+
+            set +e
+            gh api "${endpoint}" > /dev/null 2> "${error_file}"
+            status=$?
+            set -e
+
+            if [[ "${status}" -eq 0 ]]; then
+              echo "${label} still exists." >&2
+              exit 1
+            fi
+
+            if ! grep -Fq "HTTP 404" "${error_file}"; then
+              cat "${error_file}" >&2
+              exit "${status}"
+            fi
+          }
+
+          assert_missing \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${CANARY_RELEASE_ID}" \
+            "Migration canary release" \
+            canary-release-verify-error.txt
+          assert_missing \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/tags/${CANARY_TAG}" \
+            "Migration canary tag" \
+            canary-tag-verify-error.txt
+
+          test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" --jq .tag_name)" = "${TAG}"
+
       - name: Record public release summary
         shell: bash
         run: |
@@ -209,4 +300,7 @@ jobs:
             echo "## Public release"
             echo
             echo "Published and verified: https://github.com/${PUBLIC_RELEASE_REPOSITORY}/releases/tag/${{ inputs.tag }}"
+            if [[ "${{ inputs.tag }}" == "v1.19.1" ]]; then
+              echo "Migration canary: removed and verified"
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"

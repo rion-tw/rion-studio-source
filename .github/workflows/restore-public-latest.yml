@@ -1,0 +1,114 @@
+name: Restore Public Latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published public release to restore as latest (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+      confirm:
+        description: Confirm that this changes the public latest release
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
+
+concurrency:
+  group: restore-public-latest
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate rollback request
+        shell: bash
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: ${TAG}" >&2
+            exit 1
+          fi
+          test "${CONFIRM}" = "true"
+
+      - name: Checkout verification scripts
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Create public repository token
+        id: public-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RION_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}
+          owner: rion-tw
+          repositories: rion-studio
+          permission-contents: write
+
+      - name: Verify rollback target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          release_json="$(
+            gh release view "${TAG}" \
+              --repo "${PUBLIC_RELEASE_REPOSITORY}" \
+              --json isDraft,isPrerelease,tagName
+          )"
+
+          test "$(jq -r .tagName <<< "${release_json}")" = "${TAG}"
+          test "$(jq -r .isDraft <<< "${release_json}")" = "false"
+          test "$(jq -r .isPrerelease <<< "${release_json}")" = "false"
+
+          for forbidden_path in src tests native package.json pnpm-lock.yaml electron-builder.config.mjs; do
+            if gh api \
+              "repos/${PUBLIC_RELEASE_REPOSITORY}/contents/${forbidden_path}?ref=${TAG}" \
+              > /dev/null 2>&1; then
+              echo "Rollback tag contains forbidden source path: ${forbidden_path}" >&2
+              exit 1
+            fi
+          done
+
+          gh release download "${TAG}" \
+            --repo "${PUBLIC_RELEASE_REPOSITORY}" \
+            --dir rollback-assets
+          node scripts/releaseArtifacts.mjs rollback-assets "${version}" --write-checksums
+
+      - name: Restore verified public latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release edit "${TAG}" \
+            --repo "${PUBLIC_RELEASE_REPOSITORY}" \
+            --latest \
+            --verify-tag
+          test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" --jq .tag_name)" = "${TAG}"
+
+      - name: Record rollback summary
+        shell: bash
+        run: |
+          {
+            echo "## Public latest restored"
+            echo
+            echo "Verified latest: https://github.com/${PUBLIC_RELEASE_REPOSITORY}/releases/tag/${{ inputs.tag }}"
+            echo
+            echo "Existing installations on newer versions are not downgraded."
+          } >> "${GITHUB_STEP_SUMMARY}"

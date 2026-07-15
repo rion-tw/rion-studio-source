@@ -23,6 +23,10 @@ const config = {
       to: "icon.png"
     },
     {
+      from: "build/icon.ico",
+      to: "icon.ico"
+    },
+    {
       from: "docs/legal",
       to: "legal"
     },

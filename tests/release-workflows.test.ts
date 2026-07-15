@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("private and public release workflows", () => {
   it("keeps App credentials out of candidate jobs and calls publication after verification", async () => {
-    const workflow = await readFile(".github/workflows/release.yml", "utf8");
+    const workflow = await readWorkflow(".github/workflows/release.yml");
     const publisherJobIndex = workflow.indexOf("\n  publish-public-release:");
     const candidateJobs = workflow.slice(0, publisherJobIndex);
     const publisherJob = workflow.slice(publisherJobIndex);
@@ -25,7 +25,7 @@ describe("private and public release workflows", () => {
   });
 
   it("supports automatic calls and CI retries with only the named App secret", async () => {
-    const workflow = await readFile(".github/workflows/publish-public-release.yml", "utf8");
+    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("workflow_dispatch:");
@@ -40,7 +40,7 @@ describe("private and public release workflows", () => {
   });
 
   it("publishes only after draft upload verification", async () => {
-    const workflow = await readFile(".github/workflows/publish-public-release.yml", "utf8");
+    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
 
     const draftIndex = workflow.indexOf("gh release create");
     const uploadIndex = workflow.indexOf("gh release upload");
@@ -54,7 +54,7 @@ describe("private and public release workflows", () => {
   });
 
   it("uses the private token only before public mutations", async () => {
-    const workflow = await readFile(".github/workflows/publish-public-release.yml", "utf8");
+    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
     const appTokenIndex = workflow.indexOf("- name: Create public repository token");
 
     expect(appTokenIndex).toBeGreaterThan(
@@ -66,7 +66,7 @@ describe("private and public release workflows", () => {
   });
 
   it("blocks publication while public source paths remain", async () => {
-    const workflow = await readFile(".github/workflows/publish-public-release.yml", "utf8");
+    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
 
     for (const path of [
       "src",
@@ -81,7 +81,7 @@ describe("private and public release workflows", () => {
   });
 
   it("fails closed on a conflicting public tag and safely retries an existing draft", async () => {
-    const workflow = await readFile(".github/workflows/publish-public-release.yml", "utf8");
+    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
 
     expect(workflow).toContain("verify_marker");
     expect(workflow).toContain("cmp public-release-marker.md existing-public-marker.md");
@@ -91,7 +91,7 @@ describe("private and public release workflows", () => {
   });
 
   it("removes only the verified v1.19.1 migration canary after publication", async () => {
-    const workflow = await readFile(".github/workflows/publish-public-release.yml", "utf8");
+    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
     const publishIndex = workflow.indexOf("- name: Publish verified public release");
     const cleanupIndex = workflow.indexOf("- name: Remove verified migration canary");
     const deleteReleaseIndex = workflow.indexOf(
@@ -119,7 +119,7 @@ describe("private and public release workflows", () => {
   });
 
   it("restores public latest only through a verified App-token workflow", async () => {
-    const workflow = await readFile(".github/workflows/restore-public-latest.yml", "utf8");
+    const workflow = await readWorkflow(".github/workflows/restore-public-latest.yml");
 
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("CONFIRM: ${{ inputs.confirm }}");
@@ -133,3 +133,7 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain('releases/latest" --jq .tag_name)" = "${TAG}"');
   });
 });
+
+async function readWorkflow(path: string): Promise<string> {
+  return (await readFile(path, "utf8")).replaceAll("\r\n", "\n");
+}

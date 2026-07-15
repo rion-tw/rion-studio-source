@@ -179,7 +179,7 @@
   "workspaceForm.createWorkspace": "ワークスペースを作成",
   "macros.kicker": "Automation",
   "macros.title": "マクロ",
-  "macros.description": "Build physical-key, click, delay, and loop actions for one role browser.",
+  "macros.description": "1つ以上の実行中のロールブラウザー向けに、物理キー、クリック、遅延、繰り返しの各アクションを作成します。",
   "macros.searchPlaceholder": "マクロを検索",
   "macros.filterRole": "ロールで絞り込み",
   "macros.filterAllRoles": "すべてのロール",

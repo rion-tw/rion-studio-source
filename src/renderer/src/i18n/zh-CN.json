@@ -179,7 +179,7 @@
   "workspaceForm.createWorkspace": "创建工作区",
   "macros.kicker": "自动化",
   "macros.title": "宏",
-  "macros.description": "为单一执行中的角色浏览器创建实体按键、点击、延迟与轮询动作。",
+  "macros.description": "为一个或多个执行中的角色浏览器创建实体按键、点击、延迟与轮询动作。",
   "macros.searchPlaceholder": "搜索宏",
   "macros.filterRole": "按角色筛选",
   "macros.filterAllRoles": "所有角色",

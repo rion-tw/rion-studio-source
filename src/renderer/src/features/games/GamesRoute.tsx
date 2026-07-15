@@ -120,6 +120,22 @@ function GamesRoute({
               && !report?.isStale
               && report?.recommendation?.reason !== "graphics_unavailable"
               && report?.load?.state === "available";
+            const isGraphicsLimited = !checking
+              && !isReportStale
+              && report?.recommendation?.reason === "graphics_unavailable";
+            const isFailed = !checking
+              && !isReportStale
+              && !isGraphicsLimited
+              && report?.load?.state === "failed";
+            const isCancelled = !checking
+              && !isReportStale
+              && report?.load?.state === "cancelled";
+            const isNotChecked = !checking
+              && !isReportStale
+              && !isEmbeddedAvailable
+              && !isGraphicsLimited
+              && !isFailed
+              && !isCancelled;
             return (
               <Card
                 key={game.id}
@@ -168,6 +184,26 @@ function GamesRoute({
                           >
                             <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.5} />
                           </span>
+                        ) : checking ? (
+                          <Badge className="shrink-0" variant="warning">
+                            {t("games.compatibility.running")}
+                          </Badge>
+                        ) : isGraphicsLimited ? (
+                          <Badge className="shrink-0" variant="warning">
+                            {t("games.compatibility.graphicsLimited")}
+                          </Badge>
+                        ) : isFailed ? (
+                          <Badge className="shrink-0" variant="destructive">
+                            {t("games.compatibility.failed")}
+                          </Badge>
+                        ) : isCancelled ? (
+                          <Badge className="shrink-0" variant="muted">
+                            {t("games.compatibility.cancelled")}
+                          </Badge>
+                        ) : isNotChecked ? (
+                          <Badge className="shrink-0" variant="muted">
+                            {t("games.compatibility.notChecked")}
+                          </Badge>
                         ) : null}
                       </div>
                       <p className="mt-1 truncate text-xs text-muted-foreground">{game.defaultLaunchUrl}</p>
@@ -185,19 +221,12 @@ function GamesRoute({
                     onRunCheck={() => onRunCheck(game.id)}
                   />
                 </div>
-                <div className="grid gap-4 p-4 pt-3">
+                <div className="p-4 pt-3">
                   <div className="grid grid-cols-3 gap-2 text-center text-xs">
                     <Metric label={t("games.roles")} value={gameRoles.length} />
                     <Metric label={t("games.running")} value={running} />
                     <Metric label={t("games.needsLogin")} value={needsLogin} />
                   </div>
-                  {!isEmbeddedAvailable && !isReportStale ? (
-                    <div className="flex items-center gap-2">
-                      <Badge variant={checking ? "warning" : report?.recommendation?.reason === "graphics_unavailable" ? "warning" : report?.load?.state === "failed" ? "destructive" : "muted"}>
-                        {checking ? t("games.compatibility.running") : report?.recommendation?.reason === "graphics_unavailable" ? t("games.compatibility.graphicsLimited") : report?.load?.state === "failed" ? t("games.compatibility.failed") : report?.load?.state === "cancelled" ? t("games.compatibility.cancelled") : t("games.compatibility.notChecked")}
-                      </Badge>
-                    </div>
-                  ) : null}
                 </div>
               </Card>
             );

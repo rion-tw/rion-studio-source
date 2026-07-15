@@ -155,6 +155,98 @@ describe("games cover UI", () => {
     expect(cardQueries.getAllByText("Result may be outdated")).toHaveLength(1);
   });
 
+  it("shows the not-checked status beside the game name", () => {
+    const uncheckedGame = game({ id: "unchecked-game", name: "Unchecked game" });
+    render(
+      <GamesRoute
+        games={[uncheckedGame]}
+        reports={[]}
+        roles={[]}
+        runStatuses={[]}
+        statusByRole={new Map()}
+        t={t}
+        onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
+        onEdit={vi.fn()}
+        onNewGame={vi.fn()}
+        onNewRole={vi.fn()}
+        onRunCheck={vi.fn()}
+      />
+    );
+
+    const card = screen.getByText("Unchecked game").closest(".glass-panel");
+    const cardQueries = within(card as HTMLElement);
+    const notCheckedBadge = cardQueries.getByText("Not checked");
+
+    expect(notCheckedBadge.parentElement).toBe(cardQueries.getByText("Unchecked game").parentElement);
+    expect(notCheckedBadge.closest("button")).toBeTruthy();
+    expect(cardQueries.getAllByText("Not checked")).toHaveLength(1);
+  });
+
+  it("shows every compatibility status in the shield position beside the game name", () => {
+    const checkingGame = game({ id: "checking-game", name: "Checking game" });
+    const failedGame = game({ id: "failed-game", name: "Failed game" });
+    const cancelledGame = game({ id: "cancelled-game", name: "Cancelled game" });
+    const graphicsGame = game({ id: "graphics-game", name: "Graphics game" });
+    render(
+      <GamesRoute
+        games={[checkingGame, failedGame, cancelledGame, graphicsGame]}
+        reports={[
+          {
+            gameId: failedGame.id,
+            isStale: false,
+            load: { state: "failed", durationMs: 321 },
+            recommendation: { mode: "external", reason: "external_recommended" },
+            observations: {}
+          },
+          {
+            gameId: cancelledGame.id,
+            isStale: false,
+            load: { state: "cancelled", durationMs: 321 },
+            observations: {}
+          },
+          {
+            gameId: graphicsGame.id,
+            isStale: false,
+            load: { state: "available", durationMs: 321 },
+            recommendation: { mode: "external", reason: "graphics_unavailable" },
+            observations: {}
+          }
+        ]}
+        roles={[]}
+        runStatuses={[{
+          gameId: checkingGame.id,
+          phase: "loading",
+          startedAt: "2026-07-15T01:00:00.000Z",
+          updatedAt: "2026-07-15T01:00:01.000Z"
+        }]}
+        statusByRole={new Map()}
+        t={t}
+        onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
+        onEdit={vi.fn()}
+        onNewGame={vi.fn()}
+        onNewRole={vi.fn()}
+        onRunCheck={vi.fn()}
+      />
+    );
+
+    for (const [gameName, status] of [
+      ["Checking game", "Checking"],
+      ["Failed game", "Embedded failed"],
+      ["Cancelled game", "Check cancelled"],
+      ["Graphics game", "Graphics capability limited"]
+    ]) {
+      const card = screen.getByText(gameName).closest(".glass-panel");
+      const cardQueries = within(card as HTMLElement);
+      const statusBadge = cardQueries.getByText(status);
+
+      expect(statusBadge.parentElement).toBe(cardQueries.getByText(gameName).parentElement);
+      expect(statusBadge.closest("button")).toBeTruthy();
+      expect(cardQueries.getAllByText(status)).toHaveLength(1);
+    }
+  });
+
   it("uploads and removes a custom game cover in the editor", async () => {
     const user = userEvent.setup();
     const customGame = game({ id: "game-1", name: "Custom game" });

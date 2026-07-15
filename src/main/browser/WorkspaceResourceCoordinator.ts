@@ -1,0 +1,282 @@
+import { EventEmitter } from "node:events";
+
+import type {
+  BrowserRuntimeMode,
+  WorkspaceCpuThrottleRate,
+  WorkspaceResourcePolicy,
+  WorkspaceResourceState
+} from "../../shared/types";
+
+export interface WorkspaceResourceTarget {
+  roleId: string;
+  runtimeMode: BrowserRuntimeMode;
+  focus?: () => Promise<void>;
+  getProcessId?: () => number | undefined;
+  onFocus: (listener: () => void) => () => void;
+  onInvalidated?: (listener: () => void) => () => void;
+  releaseThrottle: () => Promise<void>;
+  setCpuThrottleRate: (rate: 1 | WorkspaceCpuThrottleRate) => Promise<void>;
+}
+
+export interface WorkspaceResourceStatus {
+  resourceState: WorkspaceResourceState;
+  cpuThrottleRate: 1 | WorkspaceCpuThrottleRate;
+}
+
+interface ManagedWorkspace {
+  id: string;
+  macroRoleIds: Set<string>;
+  policy: WorkspaceResourcePolicy;
+  primaryRoleId: string;
+  removeListeners: Array<() => void>;
+  tail: Promise<void>;
+  targets: Map<string, WorkspaceResourceTarget>;
+  unavailableRoleIds: Set<string>;
+}
+
+interface TargetGroup {
+  key: string;
+  targets: WorkspaceResourceTarget[];
+}
+
+export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
+  private readonly roleStatuses = new Map<string, WorkspaceResourceStatus>();
+  private readonly workspaces = new Map<string, ManagedWorkspace>();
+  private macroRoleIds = new Set<string>();
+
+  getStatus(roleId: string): WorkspaceResourceStatus | undefined {
+    return this.roleStatuses.get(roleId);
+  }
+
+  async activateWorkspace(
+    workspaceId: string,
+    policy: WorkspaceResourcePolicy,
+    targets: WorkspaceResourceTarget[]
+  ): Promise<void> {
+    await this.deactivateWorkspace(workspaceId);
+    if (policy.mode !== "primary_priority" || targets.length < 2) {
+      return;
+    }
+
+    const targetByRoleId = new Map(targets.map((target) => [target.roleId, target]));
+    const primaryRoleId = policy.primaryRoleId && targetByRoleId.has(policy.primaryRoleId)
+      ? policy.primaryRoleId
+      : targets[0]?.roleId;
+    if (!primaryRoleId) {
+      return;
+    }
+
+    const managed: ManagedWorkspace = {
+      id: workspaceId,
+      macroRoleIds: new Set([...this.macroRoleIds].filter((roleId) => targetByRoleId.has(roleId))),
+      policy: { ...policy, primaryRoleId },
+      primaryRoleId,
+      removeListeners: [],
+      tail: Promise.resolve(),
+      targets: targetByRoleId,
+      unavailableRoleIds: new Set()
+    };
+    this.workspaces.set(workspaceId, managed);
+    targets.forEach((target) => {
+      managed.removeListeners.push(target.onFocus(() => {
+        void this.enqueue(managed, () => this.promoteRole(managed, target.roleId));
+      }));
+      if (target.onInvalidated) {
+        managed.removeListeners.push(target.onInvalidated(() => {
+          void this.enqueue(managed, () => this.applyWorkspace(managed));
+        }));
+      }
+    });
+
+    await this.enqueue(managed, () => this.applyWorkspace(managed));
+    await targetByRoleId.get(primaryRoleId)?.focus?.().catch(() => undefined);
+  }
+
+  async deactivateWorkspace(workspaceId: string): Promise<void> {
+    const managed = this.workspaces.get(workspaceId);
+    if (!managed) {
+      return;
+    }
+
+    this.workspaces.delete(workspaceId);
+    managed.removeListeners.splice(0).forEach((remove) => remove());
+    await managed.tail.catch(() => undefined);
+    await Promise.all(
+      [...managed.targets.values()].map((target) => target.releaseThrottle().catch(() => undefined))
+    );
+    let changed = false;
+    managed.targets.forEach((target) => {
+      changed = this.roleStatuses.delete(target.roleId) || changed;
+    });
+    if (changed) {
+      this.emit("change");
+    }
+  }
+
+  async setMacroActiveRoleIds(roleIds: Iterable<string>): Promise<void> {
+    this.macroRoleIds = new Set(roleIds);
+    await Promise.all([...this.workspaces.values()].map(async (managed) => {
+      managed.macroRoleIds = new Set(
+        [...this.macroRoleIds].filter((roleId) => managed.targets.has(roleId))
+      );
+      await this.enqueue(managed, () => this.applyWorkspace(managed));
+    }));
+  }
+
+  async reconcileRuntimeRoleIds(
+    runtimeMode: BrowserRuntimeMode,
+    activeRoleIds: Iterable<string>
+  ): Promise<void> {
+    const active = new Set(activeRoleIds);
+    await Promise.all([...this.workspaces.values()].map(async (managed) => {
+      const missingRoleIds = [...managed.targets.values()]
+        .filter((target) => target.runtimeMode === runtimeMode && !active.has(target.roleId))
+        .map((target) => target.roleId);
+      if (missingRoleIds.length === 0) {
+        return;
+      }
+      await this.enqueue(managed, () => this.removeTargets(managed, missingRoleIds));
+    }));
+  }
+
+  private enqueue(managed: ManagedWorkspace, operation: () => Promise<void>): Promise<void> {
+    const result = managed.tail.then(async () => {
+      if (this.workspaces.get(managed.id) !== managed) {
+        return;
+      }
+      await operation();
+    });
+    managed.tail = result.catch(() => undefined);
+    return result;
+  }
+
+  private async promoteRole(managed: ManagedWorkspace, roleId: string): Promise<void> {
+    if (managed.primaryRoleId === roleId || !managed.targets.has(roleId)) {
+      return;
+    }
+
+    const group = this.createGroups(managed).find((candidate) =>
+      candidate.targets.some((target) => target.roleId === roleId)
+    );
+    if (!group) {
+      return;
+    }
+
+    await this.applyGroupRate(managed, group, 1);
+    managed.primaryRoleId = roleId;
+    await this.applyWorkspace(managed);
+  }
+
+  private async applyWorkspace(managed: ManagedWorkspace): Promise<void> {
+    if (managed.targets.size < 2) {
+      await Promise.all(
+        [...managed.targets.values()].map((target) => target.releaseThrottle().catch(() => undefined))
+      );
+      let changed = false;
+      managed.targets.forEach((target) => {
+        changed = this.roleStatuses.delete(target.roleId) || changed;
+      });
+      if (changed) {
+        this.emit("change");
+      }
+      return;
+    }
+    if (!managed.targets.has(managed.primaryRoleId)) {
+      managed.primaryRoleId = managed.targets.keys().next().value ?? "";
+    }
+
+    const groups = this.createGroups(managed);
+    const fullSpeedRoleIds = new Set([managed.primaryRoleId, ...managed.macroRoleIds]);
+    const fullSpeedGroups = groups.filter((group) =>
+      group.targets.some((target) => fullSpeedRoleIds.has(target.roleId))
+    );
+    const throttledGroups = groups.filter((group) => !fullSpeedGroups.includes(group));
+
+    await Promise.all(fullSpeedGroups.map((group) => this.applyGroupRate(managed, group, 1)));
+    await Promise.all(
+      throttledGroups.map((group) =>
+        this.applyGroupRate(managed, group, managed.policy.backgroundCpuThrottleRate)
+      )
+    );
+    this.updateStatuses(managed, groups, fullSpeedRoleIds);
+  }
+
+  private async removeTargets(managed: ManagedWorkspace, roleIds: string[]): Promise<void> {
+    const removedTargets = roleIds.flatMap((roleId) => {
+      const target = managed.targets.get(roleId);
+      if (!target) {
+        return [];
+      }
+      managed.targets.delete(roleId);
+      managed.macroRoleIds.delete(roleId);
+      managed.unavailableRoleIds.delete(roleId);
+      this.roleStatuses.delete(roleId);
+      return [target];
+    });
+    await Promise.all(removedTargets.map((target) => target.releaseThrottle().catch(() => undefined)));
+    if (!managed.targets.has(managed.primaryRoleId)) {
+      managed.primaryRoleId = managed.targets.keys().next().value ?? "";
+    }
+    await this.applyWorkspace(managed);
+  }
+
+  private createGroups(managed: ManagedWorkspace): TargetGroup[] {
+    const groups = new Map<string, WorkspaceResourceTarget[]>();
+    managed.targets.forEach((target) => {
+      const processId = target.getProcessId?.();
+      const key = processId && processId > 0
+        ? `${target.runtimeMode}:process:${processId}`
+        : `${target.runtimeMode}:role:${target.roleId}`;
+      const existing = groups.get(key) ?? [];
+      existing.push(target);
+      groups.set(key, existing);
+    });
+    return [...groups].map(([key, targets]) => ({ key, targets }));
+  }
+
+  private async applyGroupRate(
+    managed: ManagedWorkspace,
+    group: TargetGroup,
+    rate: 1 | WorkspaceCpuThrottleRate
+  ): Promise<void> {
+    await Promise.all(group.targets.map(async (target) => {
+      try {
+        await target.setCpuThrottleRate(rate);
+        managed.unavailableRoleIds.delete(target.roleId);
+      } catch (error) {
+        managed.unavailableRoleIds.add(target.roleId);
+        await target.releaseThrottle().catch(() => undefined);
+        console.warn(`Workspace CPU throttling is unavailable for role ${target.roleId}.`, error);
+      }
+    }));
+  }
+
+  private updateStatuses(
+    managed: ManagedWorkspace,
+    groups: TargetGroup[],
+    fullSpeedRoleIds: Set<string>
+  ): void {
+    groups.forEach((group) => {
+      const groupHasFullSpeedRole = group.targets.some((target) => fullSpeedRoleIds.has(target.roleId));
+      group.targets.forEach((target) => {
+        let status: WorkspaceResourceStatus;
+        if (managed.unavailableRoleIds.has(target.roleId)) {
+          status = { resourceState: "unavailable", cpuThrottleRate: 1 };
+        } else if (target.roleId === managed.primaryRoleId) {
+          status = { resourceState: "primary", cpuThrottleRate: 1 };
+        } else if (managed.macroRoleIds.has(target.roleId)) {
+          status = { resourceState: "macro_override", cpuThrottleRate: 1 };
+        } else if (groupHasFullSpeedRole) {
+          status = { resourceState: "shared_process", cpuThrottleRate: 1 };
+        } else {
+          status = {
+            resourceState: "throttled",
+            cpuThrottleRate: managed.policy.backgroundCpuThrottleRate
+          };
+        }
+        this.roleStatuses.set(target.roleId, status);
+      });
+    });
+    this.emit("change");
+  }
+}

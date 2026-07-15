@@ -8,7 +8,7 @@ import {
   MacroOverlayInjector,
   shouldIgnoreMacroShortcutEvent
 } from "../src/main/macros/MacroOverlayInjector";
-import type { Macro, MacroRunStatus, Role } from "../src/shared/types";
+import type { Macro, MacroRunStatus, Role, RoleStatus } from "../src/shared/types";
 
 type AnyMock = Mock;
 
@@ -128,7 +128,15 @@ describe("MacroOverlayInjector", () => {
       start: vi.fn().mockResolvedValue([statuses[0]]),
       stop: vi.fn().mockResolvedValue(undefined)
     };
-    const injector = createInjector({ macroManager });
+    const injector = createInjector({
+      macroManager,
+      getRoleStatus: () => ({
+        roleId: role.id,
+        state: "running",
+        resourceState: "throttled",
+        cpuThrottleRate: 2
+      })
+    });
 
     await injector.install(role, page.page as never);
     injector.setLanguage("zh-TW");
@@ -139,6 +147,8 @@ describe("MacroOverlayInjector", () => {
 
     expect(listState).toMatchObject({
       language: "zh-TW",
+      resourceState: "throttled",
+      cpuThrottleRate: 2,
       macros: [{ id: "macro-1" }],
       statuses: [
         { roleId: "role-1", macroId: "macro-1" },
@@ -263,7 +273,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-15.1"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-15.2"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
@@ -576,6 +586,7 @@ describe("macro shortcut editable guard", () => {
 });
 
 function createInjector({
+  getRoleStatus,
   macroManager = {
     listStatuses: vi.fn(() => []),
     start: vi.fn().mockResolvedValue(undefined),
@@ -588,6 +599,7 @@ function createInjector({
     start: AnyMock;
     stop: AnyMock;
   };
+  getRoleStatus?: (roleId: string) => RoleStatus | undefined;
   onMacroEditorRequested?: AnyMock;
 } = {}): MacroOverlayInjector {
   const roleAwareMacroManager = {
@@ -610,7 +622,8 @@ function createInjector({
       listMacros: vi.fn().mockResolvedValue([assignedMacro, otherMacro])
     } as never,
     roleAwareMacroManager as never,
-    onMacroEditorRequested
+    onMacroEditorRequested,
+    getRoleStatus
   );
 }
 

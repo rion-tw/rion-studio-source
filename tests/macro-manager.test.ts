@@ -47,6 +47,28 @@ describe("MacroManager", () => {
     }
   });
 
+  it("waits for resource overrides before dispatch and clears them after completion", async () => {
+    const target = createTarget();
+    const setMacroActiveRoleIds = vi.fn(async () => undefined);
+    const manager = new MacroManager(
+      {
+        getAutomationSession: vi.fn(() => ({ role: macroRole, target })),
+        setMacroActiveRoleIds
+      } as never,
+      { getMacro: vi.fn(async () => ({ ...macro, roleIds: ["role-1"] })) } as never
+    );
+
+    await manager.start("macro-1");
+
+    expect(setMacroActiveRoleIds).toHaveBeenCalledWith(["role-1"]);
+    expect(setMacroActiveRoleIds.mock.invocationCallOrder[0]).toBeLessThan(
+      target.dispatchKey.mock.invocationCallOrder[0]
+    );
+    await vi.waitFor(() => {
+      expect(setMacroActiveRoleIds).toHaveBeenLastCalledWith([]);
+    });
+  });
+
   it("cancels delays for every assigned role when the macro is stopped", async () => {
     vi.useFakeTimers();
     const targets = {

@@ -370,10 +370,18 @@ async function initializeApplication(): Promise<void> {
   browserManager.setBeforeRolesStop(async (roleIds) => {
     await Promise.all(roleIds.map((roleId) => macroManager.stopRole(roleId)));
   });
-  const macroOverlayInjector = new MacroOverlayInjector(macroStore, macroManager, requestMacroEditorFromOverlay);
+  const macroOverlayInjector = new MacroOverlayInjector(
+    macroStore,
+    macroManager,
+    requestMacroEditorFromOverlay,
+    (roleId) => browserManager?.listStatuses().find((status) => status.roleId === roleId)
+  );
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
   browserManager.setExternalMacroOverlayInstaller((role, target) => macroOverlayInjector.installExternal(role, target));
   macroManager.on("change", () => {
+    macroOverlayInjector.refreshInstalledOverlays();
+  });
+  browserManager.on("change", () => {
     macroOverlayInjector.refreshInstalledOverlays();
   });
   const authManager = new AuthManager(transactionalRoleAuthStore, browserManager);

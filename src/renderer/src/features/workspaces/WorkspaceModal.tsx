@@ -1,4 +1,4 @@
-import { Check, Eraser, GripHorizontal, GripVertical, Plus, Save } from "lucide-react";
+import { Check, Crown, Eraser, GripHorizontal, GripVertical, Plus, Save } from "lucide-react";
 import {
   type DragEvent as ReactDragEvent,
   type FormEvent,
@@ -30,7 +30,8 @@ import type {
   RoleStatus,
   WorkspaceDisplayInfo,
   WorkspaceBrowserZoomPercent,
-  WorkspaceLayoutTemplate
+  WorkspaceLayoutTemplate,
+  WorkspaceResourceMode
 } from "../../../../shared/types";
 import {
   getDefaultWorkspaceBrowserZoomPercent,
@@ -219,7 +220,11 @@ function WorkspaceLayoutFormEditor({
   }, [form.slots.length]);
 
   function updateSlots(nextSlots: LaunchWorkspaceSlot[]): void {
-    onChange({ ...form, slots: nextSlots });
+    onChange({
+      ...form,
+      resourcePolicy: reconcileWorkspaceResourcePolicy(form.resourcePolicy, nextSlots),
+      slots: nextSlots
+    });
   }
 
   function handleTemplateChange(template: WorkspaceLayoutTemplate): void {
@@ -229,6 +234,7 @@ function WorkspaceLayoutFormEditor({
       ...form,
       template,
       browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(template),
+      resourcePolicy: reconcileWorkspaceResourcePolicy(form.resourcePolicy, nextSlots),
       slots: nextSlots
     });
     setSelectedSlotIndex((current) => Math.min(current, Math.max(nextSlots.length - 1, 0)));
@@ -481,6 +487,94 @@ function WorkspaceLayoutFormEditor({
         </Surface>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-3">
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField
+            htmlFor="workspace-resource-mode"
+            label={t("workspaces.resourceMode")}
+            description={t("workspaces.resourceModeDescription")}
+          >
+            <Select
+              value={form.resourcePolicy.mode}
+              disabled={isSaving}
+              onValueChange={(value) => {
+                const mode = value as WorkspaceResourceMode;
+                const assignedRoleIds = form.slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
+                onChange({
+                  ...form,
+                  resourcePolicy: mode === "primary_priority" && assignedRoleIds[0]
+                    ? {
+                        ...form.resourcePolicy,
+                        mode,
+                        primaryRoleId: form.resourcePolicy.primaryRoleId ?? assignedRoleIds[0]
+                      }
+                    : { mode: "unrestricted", backgroundCpuThrottleRate: form.resourcePolicy.backgroundCpuThrottleRate }
+                });
+              }}
+            >
+              <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
+                <SelectItem value="primary_priority" disabled={!form.slots.some((slot) => slot.roleId)}>
+                  {t("workspaces.resourceModePrimary")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        </Surface>
+
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField
+            htmlFor="workspace-throttle-rate"
+            label={t("workspaces.throttleRate")}
+            description={t("workspaces.throttleRateDescription")}
+          >
+            <Select
+              value={String(form.resourcePolicy.backgroundCpuThrottleRate)}
+              disabled={isSaving || form.resourcePolicy.mode === "unrestricted"}
+              onValueChange={(value) => onChange({
+                ...form,
+                resourcePolicy: {
+                  ...form.resourcePolicy,
+                  backgroundCpuThrottleRate: Number(value) as 2 | 4
+                }
+              })}
+            >
+              <SelectTrigger id="workspace-throttle-rate"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="2">{t("workspaces.throttleRateBalanced")}</SelectItem>
+                <SelectItem value="4">{t("workspaces.throttleRateAggressive")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        </Surface>
+
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField
+            htmlFor="workspace-primary-role"
+            label={t("workspaces.primaryRole")}
+            description={t("workspaces.primaryRoleDescription")}
+          >
+            <Select
+              value={form.resourcePolicy.primaryRoleId ?? ""}
+              disabled={isSaving || form.resourcePolicy.mode === "unrestricted"}
+              onValueChange={(primaryRoleId) => onChange({
+                ...form,
+                resourcePolicy: { ...form.resourcePolicy, primaryRoleId }
+              })}
+            >
+              <SelectTrigger id="workspace-primary-role"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {form.slots.flatMap((slot) => {
+                  const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
+                  return role ? [<SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>] : [];
+                })}
+              </SelectContent>
+            </Select>
+          </FormField>
+        </Surface>
+      </div>
+
       <Surface
         className="grid overflow-hidden min-[1180px]:grid-cols-[minmax(0,1fr)_270px]"
         padding="none"
@@ -499,6 +593,7 @@ function WorkspaceLayoutFormEditor({
                   key={slot.id}
                   index={index}
                   isDropTarget={index === dropTargetSlotIndex}
+                  isPrimary={role?.id === form.resourcePolicy.primaryRoleId && form.resourcePolicy.mode === "primary_priority"}
                   isSelected={index === selectedSlotIndex}
                   isSaving={isSaving}
                   launchGameName={role ? gameNameById.get(role.gameId) : undefined}
@@ -612,6 +707,7 @@ function WorkspaceLayoutFormEditor({
 interface WorkspaceSlotDropZoneProps {
   index: number;
   isDropTarget: boolean;
+  isPrimary: boolean;
   isSelected: boolean;
   isSaving: boolean;
   launchGameName?: string;
@@ -630,6 +726,7 @@ interface WorkspaceSlotDropZoneProps {
 function WorkspaceSlotDropZone({
   index,
   isDropTarget,
+  isPrimary,
   isSelected,
   isSaving,
   launchGameName,
@@ -693,6 +790,12 @@ function WorkspaceSlotDropZone({
           <p className="rounded-md border border-border/35 bg-background/45 px-2 py-1 text-[11px] font-semibold leading-none text-muted-foreground backdrop-blur-md">
             {t("workspaces.slot").replace("{index}", String(index + 1))}
           </p>
+          {isPrimary ? (
+            <span className="glass-popover inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold leading-none">
+              <Crown size={11} />
+              {t("workspaces.primaryBadge")}
+            </span>
+          ) : null}
         </div>
 
         {role ? (
@@ -732,6 +835,23 @@ function WorkspaceSlotDropZone({
       </button>
     </div>
   );
+}
+
+function reconcileWorkspaceResourcePolicy(
+  policy: WorkspaceFormState["resourcePolicy"],
+  slots: LaunchWorkspaceSlot[]
+): WorkspaceFormState["resourcePolicy"] {
+  if (policy.mode === "unrestricted") {
+    return { mode: policy.mode, backgroundCpuThrottleRate: policy.backgroundCpuThrottleRate };
+  }
+
+  const roleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
+  const primaryRoleId = policy.primaryRoleId && roleIds.includes(policy.primaryRoleId)
+    ? policy.primaryRoleId
+    : roleIds[0];
+  return primaryRoleId
+    ? { ...policy, primaryRoleId }
+    : { mode: "unrestricted", backgroundCpuThrottleRate: policy.backgroundCpuThrottleRate };
 }
 
 interface WorkspaceResizeHandlesProps {

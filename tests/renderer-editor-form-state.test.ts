@@ -30,13 +30,22 @@ describe("editor form state", () => {
 
   it("creates workspace forms with defaults and copies saved slot state", () => {
     const newForm = createNewWorkspaceForm([], t);
-    expect(newForm).toMatchObject({ template: "two_columns", browserZoomPercent: 100 });
+    expect(newForm).toMatchObject({
+      template: "two_columns",
+      browserZoomPercent: 100,
+      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
+    });
     expect(newForm).not.toHaveProperty("targetDisplayId");
     expect(newForm.slots).toHaveLength(2);
 
     const savedForm = createWorkspaceFormState(workspace());
     expect(savedForm.id).toBe("workspace-1");
     expect(savedForm.targetDisplayId).toBe(22);
+    expect(savedForm.resourcePolicy).toEqual({
+      mode: "primary_priority",
+      backgroundCpuThrottleRate: 4,
+      primaryRoleId: "role-1"
+    });
     expect(savedForm.slots[0].roleId).toBe("role-1");
   });
 
@@ -100,6 +109,11 @@ function workspace(): LaunchWorkspace {
     name: "Party",
     template: "two_columns",
     browserZoomPercent: 100,
+    resourcePolicy: {
+      mode: "primary_priority",
+      backgroundCpuThrottleRate: 4,
+      primaryRoleId: "role-1"
+    },
     targetDisplayId: 22,
     slots: [
       { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },

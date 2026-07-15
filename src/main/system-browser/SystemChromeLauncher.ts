@@ -84,13 +84,19 @@ export interface DevToolsTarget {
 }
 
 export interface CdpClientLike {
-  send: <T>(method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<T>;
+  send: <T>(
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs?: number,
+    sessionId?: string
+  ) => Promise<T>;
   close: () => void;
 }
 
 export interface CdpNotification {
   method: string;
   params?: Record<string, unknown>;
+  sessionId?: string;
 }
 
 export interface CdpEventClientLike extends CdpClientLike {
@@ -197,7 +203,12 @@ export class CdpClient implements CdpEventClientLike {
     return () => this.notificationListeners.delete(listener);
   }
 
-  async send<T>(method: string, params?: Record<string, unknown>, timeoutMs = this.requestTimeoutMs): Promise<T> {
+  async send<T>(
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs = this.requestTimeoutMs,
+    sessionId?: string
+  ): Promise<T> {
     await this.ready;
     const id = this.nextId++;
 
@@ -216,7 +227,7 @@ export class CdpClient implements CdpEventClientLike {
       });
 
       try {
-        this.socket.send(JSON.stringify({ id, method, params }));
+        this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
       } catch (error) {
         clearTimeout(timeout);
         this.pending.delete(id);

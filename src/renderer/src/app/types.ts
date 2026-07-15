@@ -7,7 +7,8 @@ import type {
   MacroStep,
   MacroTrigger,
   WorkspaceBrowserZoomPercent,
-  WorkspaceLayoutTemplate
+  WorkspaceLayoutTemplate,
+  WorkspaceResourcePolicy
 } from "../../../shared/types";
 
 export interface RoleFormState {
@@ -29,6 +30,7 @@ export interface WorkspaceFormState {
   template: WorkspaceLayoutTemplate;
   browserLaunchMode: InheritableBrowserLaunchMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
+  resourcePolicy: WorkspaceResourcePolicy;
   targetDisplayId?: number;
   slots: LaunchWorkspaceSlot[];
 }

@@ -44,6 +44,7 @@ const workspace: LaunchWorkspace = {
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 90,
+  resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
   slots: [
     { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
     { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
@@ -336,6 +337,52 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
+  it("applies the same primary-priority policy to external Chrome targets", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const secondRole = createRole("role-2", "Alt");
+    const firstTarget = createExternalResourceTarget();
+    const secondTarget = createExternalResourceTarget();
+    const statuses = [
+      { roleId: role.id, runtimeMode: "external" as const, state: "running" as const },
+      { roleId: secondRole.id, runtimeMode: "external" as const, state: "running" as const }
+    ];
+    externalChromeManager.getAutomationSession.mockImplementation((roleId: string) => ({
+      role: roleId === role.id ? role : secondRole,
+      target: roleId === role.id ? firstTarget.target : secondTarget.target
+    }));
+    externalChromeManager.launchWorkspace.mockResolvedValue(statuses);
+    externalChromeManager.listStatuses.mockReturnValue(statuses);
+    const harness = createHarness({ externalChromeManager });
+    const priorityWorkspace: LaunchWorkspace = {
+      ...workspace,
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 4,
+        primaryRoleId: role.id
+      }
+    };
+
+    await harness.manager.launchWorkspace(
+      priorityWorkspace,
+      [
+        { role, rect: priorityWorkspace.slots[0].rect },
+        { role: secondRole, rect: priorityWorkspace.slots[1].rect }
+      ],
+      undefined,
+      "external"
+    );
+
+    expect(firstTarget.setRate).toHaveBeenCalledWith(1);
+    expect(secondTarget.setRate).toHaveBeenCalledWith(4);
+    secondTarget.emitFocus();
+    await vi.waitFor(() => {
+      expect(harness.manager.listStatuses()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roleId: secondRole.id, resourceState: "primary" }),
+        expect.objectContaining({ roleId: role.id, resourceState: "throttled", cpuThrottleRate: 4 })
+      ]));
+    });
+  });
+
   it("applies browser font preferences before creating a new role view", async () => {
     const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
     const harness = createHarness({ applyBrowserFonts });
@@ -476,6 +523,45 @@ describe("BrowserManager game host windows", () => {
     );
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 598, height: 800 });
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 800 });
+  });
+
+  it("applies and follows the primary-priority policy in embedded workspaces", async () => {
+    const harness = createHarness({ platform: "win32" });
+    const secondRole = createRole("role-2", "Alt");
+    const priorityWorkspace: LaunchWorkspace = {
+      ...workspace,
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 2,
+        primaryRoleId: role.id
+      }
+    };
+
+    const statuses = await harness.manager.launchWorkspace(priorityWorkspace, [
+      { role, rect: priorityWorkspace.slots[0].rect },
+      { role: secondRole, rect: priorityWorkspace.slots[1].rect }
+    ]);
+
+    expect(statuses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ roleId: role.id, resourceState: "primary", cpuThrottleRate: 1 }),
+      expect.objectContaining({ roleId: secondRole.id, resourceState: "throttled", cpuThrottleRate: 2 })
+    ]));
+    expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      { rate: 1 }
+    );
+    expect(harness.views[1].debuggerApi.sendCommand).toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      { rate: 2 }
+    );
+
+    harness.views[1].webContents.emit("focus");
+    await vi.waitFor(() => {
+      expect(harness.manager.listStatuses()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roleId: secondRole.id, resourceState: "primary", cpuThrottleRate: 1 }),
+        expect.objectContaining({ roleId: role.id, resourceState: "throttled", cpuThrottleRate: 2 })
+      ]));
+    });
   });
 
   it("launches workspace roles in batches of two", async () => {
@@ -1563,7 +1649,9 @@ function createExternalChromeManager() {
   };
 
   return {
-    getAutomationSession: vi.fn(() => undefined),
+    getAutomationSession: vi.fn((
+      _roleId: string
+    ): { role: Role; target: ReturnType<typeof createExternalResourceTarget>["target"] } | undefined => undefined),
     hasSession: vi.fn(() => false),
     hasWorkspace: vi.fn(() => true),
     launch: vi.fn().mockResolvedValue(status),
@@ -1574,6 +1662,32 @@ function createExternalChromeManager() {
     setMacroOverlayInstaller: vi.fn(),
     stop: vi.fn().mockResolvedValue(undefined),
     stopWorkspace: vi.fn().mockResolvedValue(undefined)
+  };
+}
+
+function createExternalResourceTarget() {
+  const focusListeners = new Set<() => void>();
+  const setRate = vi.fn().mockResolvedValue(undefined);
+  const target = {
+    close: vi.fn(),
+    dispatchClick: vi.fn().mockResolvedValue(undefined),
+    dispatchKey: vi.fn().mockResolvedValue(undefined),
+    evaluate: vi.fn().mockResolvedValue(undefined),
+    focus: vi.fn().mockResolvedValue(undefined),
+    installMacroOverlay: vi.fn().mockResolvedValue(undefined),
+    onDisconnect: vi.fn(() => () => undefined),
+    onFocus: vi.fn((listener: () => void) => {
+      focusListeners.add(listener);
+      return () => focusListeners.delete(listener);
+    }),
+    releaseThrottle: vi.fn().mockResolvedValue(undefined),
+    setCpuThrottleRate: setRate,
+    setWindowBounds: vi.fn().mockResolvedValue(undefined)
+  };
+  return {
+    emitFocus: () => focusListeners.forEach((listener) => listener()),
+    setRate,
+    target
   };
 }
 
@@ -1606,7 +1720,20 @@ function createMockView(
   let bounds = { x: 0, y: 0, width: 1, height: 1 };
   let currentUrl = "about:blank";
   let destroyed = false;
+  let debuggerAttached = false;
+  const debuggerApi = Object.assign(new EventEmitter(), {
+    attach: vi.fn(() => {
+      debuggerAttached = true;
+    }),
+    detach: vi.fn(() => {
+      debuggerAttached = false;
+    }),
+    isAttached: vi.fn(() => debuggerAttached),
+    sendCommand: vi.fn().mockResolvedValue({})
+  });
+  const processId = Math.floor(Math.random() * 100_000) + 1;
   const webContents = Object.assign(emitter, {
+    debugger: debuggerApi,
     id: Math.floor(Math.random() * 100_000),
     close: vi.fn(() => {
       destroyed = true;
@@ -1624,8 +1751,10 @@ function createMockView(
       return "";
     }),
     focus: vi.fn(),
+    getOSProcessId: vi.fn(() => processId),
     getURL: vi.fn(() => currentUrl),
     isDestroyed: vi.fn(() => destroyed),
+    isDevToolsOpened: vi.fn(() => false),
     loadURL: vi.fn(async (url: string) => {
       if (loadUrlHandler) {
         await loadUrlHandler(url);
@@ -1650,7 +1779,7 @@ function createMockView(
     webContents
   };
 
-  return { setBounds, view, webContents };
+  return { debuggerApi, setBounds, view, webContents };
 }
 
 function createOAuthPopup(

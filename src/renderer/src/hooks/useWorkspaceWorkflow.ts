@@ -57,6 +57,7 @@ export function useWorkspaceWorkflow({
         template: form.template,
         browserLaunchMode: form.browserLaunchMode,
         browserZoomPercent: form.browserZoomPercent,
+        resourcePolicy: form.resourcePolicy,
         targetDisplayId: form.targetDisplayId ?? null,
         slots: form.slots
       };
@@ -159,6 +160,7 @@ export function useWorkspaceWorkflow({
         template: workspace.template,
         browserLaunchMode: workspace.browserLaunchMode,
         browserZoomPercent: workspace.browserZoomPercent,
+        resourcePolicy: workspace.resourcePolicy,
         targetDisplayId: workspace.targetDisplayId ?? null,
         slots: workspace.slots.map((slot) => ({
           ...slot,

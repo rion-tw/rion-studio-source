@@ -2,13 +2,18 @@ import type {
   LaunchWorkspaceSlot,
   NormalizedRect,
   WorkspaceBrowserZoomPercent,
-  WorkspaceLayoutTemplate
+  WorkspaceLayoutTemplate,
+  WorkspaceResourcePolicy
 } from "./types";
 
 export const MAX_WORKSPACE_SLOTS = 8;
 export const MIN_WORKSPACE_SLOT_SIZE = 0.12;
 export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns";
 export const DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT: WorkspaceBrowserZoomPercent = 100;
+export const DEFAULT_WORKSPACE_RESOURCE_POLICY: WorkspaceResourcePolicy = {
+  mode: "unrestricted",
+  backgroundCpuThrottleRate: 2
+};
 export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [75, 80, 90, 100, 110, 125];
 
 const WORKSPACE_RECT_PRECISION_SCALE = 10_000;

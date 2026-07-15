@@ -48,9 +48,11 @@ import {
   type PortableRole,
   type RionPortableDataV2,
   type Role,
-  type RoleDefaults
+  type RoleDefaults,
+  type WorkspaceResourcePolicy
 } from "../../shared/types";
 import {
+  DEFAULT_WORKSPACE_RESOURCE_POLICY,
   getDefaultWorkspaceRects,
   getWorkspaceTemplateSlotCount,
   isWorkspaceBrowserZoomPercent,
@@ -361,6 +363,7 @@ export class PortableDataManager {
         template: workspace.template,
         browserLaunchMode: workspace.browserLaunchMode,
         browserZoomPercent: workspace.browserZoomPercent,
+        resourcePolicy: { ...workspace.resourcePolicy },
         slots: workspace.slots.map((slot) => ({
           id: slot.id,
           ...(slot.roleId ? { roleId: slot.roleId } : {}),
@@ -1043,6 +1046,7 @@ function createImportedWorkspace(
     template: source.template,
     browserLaunchMode: source.browserLaunchMode ?? "inherit",
     browserZoomPercent: source.browserZoomPercent,
+    resourcePolicy: remapWorkspaceResourcePolicy(source.resourcePolicy, roleIdMap, slots),
     ...(existing?.targetDisplayId === undefined ? {} : { targetDisplayId: existing.targetDisplayId }),
     slots,
     createdAt: existing?.createdAt ?? timestamp,
@@ -1061,6 +1065,7 @@ function toPortableWorkspace(workspace: LaunchWorkspace): PortableLaunchWorkspac
     template: workspace.template,
     browserLaunchMode: workspace.browserLaunchMode,
     browserZoomPercent: workspace.browserZoomPercent,
+    resourcePolicy: { ...workspace.resourcePolicy },
     slots: workspace.slots.map((slot) => ({
       id: slot.id,
       ...(slot.roleId ? { roleId: slot.roleId } : {}),
@@ -1440,8 +1445,58 @@ function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspa
     template,
     browserLaunchMode: normalizeInheritableBrowserLaunchMode(workspace.browserLaunchMode),
     browserZoomPercent,
+    resourcePolicy: normalizePortableWorkspaceResourcePolicy(workspace.resourcePolicy, normalizedSlots),
     slots: normalizedSlots
   };
+}
+
+function normalizePortableWorkspaceResourcePolicy(
+  value: unknown,
+  slots: PortableLaunchWorkspace["slots"]
+): WorkspaceResourcePolicy {
+  if (value === undefined || value === null) {
+    return { ...DEFAULT_WORKSPACE_RESOURCE_POLICY };
+  }
+
+  const input = toRecord(value);
+  if (
+    (input.mode !== "unrestricted" && input.mode !== "primary_priority") ||
+    (input.backgroundCpuThrottleRate !== 2 && input.backgroundCpuThrottleRate !== 4)
+  ) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+
+  if (input.mode === "unrestricted") {
+    return { mode: input.mode, backgroundCpuThrottleRate: input.backgroundCpuThrottleRate };
+  }
+
+  const roleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
+  const primaryRoleId = typeof input.primaryRoleId === "string" && roleIds.includes(input.primaryRoleId)
+    ? input.primaryRoleId
+    : roleIds[0];
+  return primaryRoleId
+    ? { mode: input.mode, backgroundCpuThrottleRate: input.backgroundCpuThrottleRate, primaryRoleId }
+    : { mode: "unrestricted", backgroundCpuThrottleRate: input.backgroundCpuThrottleRate };
+}
+
+function remapWorkspaceResourcePolicy(
+  policy: WorkspaceResourcePolicy | undefined,
+  roleIdMap: Map<string, string>,
+  slots: LaunchWorkspace["slots"]
+): WorkspaceResourcePolicy {
+  const source = policy ?? DEFAULT_WORKSPACE_RESOURCE_POLICY;
+  if (source.mode === "unrestricted") {
+    return { mode: source.mode, backgroundCpuThrottleRate: source.backgroundCpuThrottleRate };
+  }
+
+  const assignedRoleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
+  const mappedPrimaryRoleId = source.primaryRoleId ? roleIdMap.get(source.primaryRoleId) : undefined;
+  const primaryRoleId = mappedPrimaryRoleId && assignedRoleIds.includes(mappedPrimaryRoleId)
+    ? mappedPrimaryRoleId
+    : assignedRoleIds[0];
+  return primaryRoleId
+    ? { ...source, primaryRoleId }
+    : { mode: "unrestricted", backgroundCpuThrottleRate: source.backgroundCpuThrottleRate };
 }
 
 function normalizePortableWorkspaceSlot(value: unknown, index: number): PortableLaunchWorkspace["slots"][number] {

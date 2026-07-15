@@ -4,6 +4,7 @@ import {
   createMacroShortcutSuppressionSource
 } from "../../shared/macroShortcuts";
 import type { PixelBounds } from "../../shared/types";
+import type { WorkspaceCpuThrottleRate } from "../../shared/types";
 import {
   createCdnCompatibilityRequestPatterns,
   rewriteCdnCompatibilityUrl
@@ -21,13 +22,18 @@ const ATTACH_TIMEOUT_MS = 10_000;
 const ATTACH_POLL_INTERVAL_MS = 500;
 const OVERLAY_BINDING_NAME = "rionStudioMacroOverlay";
 const OVERLAY_BRIDGE_KEY = "__rionStudioExternalMacroBridge";
+const FOCUS_BINDING_NAME = "rionStudioWindowFocus";
+const FOCUS_TRACKER_KEY = "__rionStudioWindowFocusTracker";
 
 export type ExternalMacroOverlayHandler = (request: unknown) => Promise<unknown>;
 
 export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget {
   close: () => void;
   installMacroOverlay: (source: string, handler: ExternalMacroOverlayHandler) => Promise<void>;
+  onFocus: (listener: () => void) => () => void;
   onDisconnect: (listener: () => void) => () => void;
+  releaseThrottle: () => Promise<void>;
+  setCpuThrottleRate: (rate: 1 | WorkspaceCpuThrottleRate) => Promise<void>;
   setWindowBounds: (bounds: PixelBounds) => Promise<void>;
 }
 
@@ -88,10 +94,15 @@ export async function connectExternalChromeAutomation(
 
 export class ExternalChromeAutomationTarget implements ExternalBrowserAutomationTarget {
   private readonly executionContextIds = new Set<number>();
+  private readonly iframeSessionIds = new Set<string>();
   private inputDispatchTail: Promise<void> = Promise.resolve();
   private mainFrameId?: string;
   private overlayHandler?: ExternalMacroOverlayHandler;
   private removeNotificationListener?: () => void;
+  private readonly focusListeners = new Set<() => void>();
+  private currentCpuThrottleRate: 1 | WorkspaceCpuThrottleRate = 1;
+  private desiredCpuThrottleRate: 1 | WorkspaceCpuThrottleRate = 1;
+  private resourceControlPromise?: Promise<void>;
 
   constructor(private readonly client: CdpEventClientLike) {}
 
@@ -119,6 +130,14 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         case "Runtime.executionContextsCleared":
           this.executionContextIds.clear();
           break;
+        case "Target.attachedToTarget":
+          this.handleTargetAttached(notification.params);
+          break;
+        case "Target.detachedFromTarget":
+          if (typeof notification.params?.sessionId === "string") {
+            this.iframeSessionIds.delete(notification.params.sessionId);
+          }
+          break;
       }
     });
     try {
@@ -137,10 +156,43 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     return this.client.onDisconnect(listener);
   }
 
+  onFocus(listener: () => void): () => void {
+    this.focusListeners.add(listener);
+    void this.prepareResourceControl().catch(() => undefined);
+    return () => this.focusListeners.delete(listener);
+  }
+
   close(): void {
     this.removeNotificationListener?.();
     this.removeNotificationListener = undefined;
     this.client.close();
+  }
+
+  async setCpuThrottleRate(rate: 1 | WorkspaceCpuThrottleRate): Promise<void> {
+    await this.prepareResourceControl();
+    if (this.currentCpuThrottleRate === rate) {
+      return;
+    }
+    this.desiredCpuThrottleRate = rate;
+    try {
+      await Promise.all([
+        this.client.send("Emulation.setCPUThrottlingRate", { rate }),
+        ...[...this.iframeSessionIds].map((sessionId) =>
+          this.client.send("Emulation.setCPUThrottlingRate", { rate }, undefined, sessionId)
+        )
+      ]);
+      this.currentCpuThrottleRate = rate;
+    } catch (error) {
+      this.desiredCpuThrottleRate = this.currentCpuThrottleRate;
+      throw error;
+    }
+  }
+
+  async releaseThrottle(): Promise<void> {
+    if (this.currentCpuThrottleRate === 1) {
+      return;
+    }
+    await this.setCpuThrottleRate(1);
   }
 
   async setWindowBounds(bounds: PixelBounds): Promise<void> {
@@ -319,6 +371,12 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   }
 
   private async handleBindingCalled(params: Record<string, unknown> | undefined): Promise<void> {
+    if (params?.name === FOCUS_BINDING_NAME) {
+      if (params.payload === "focused") {
+        this.focusListeners.forEach((listener) => listener());
+      }
+      return;
+    }
     if (params?.name !== OVERLAY_BINDING_NAME || typeof params.payload !== "string" || !this.overlayHandler) {
       return;
     }
@@ -353,6 +411,43 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       expression,
       ...(contextId === undefined ? {} : { contextId })
     }).catch(() => undefined);
+  }
+
+  private async installFocusTracking(): Promise<void> {
+    const source = createFocusTrackingSource();
+    await this.client.send("Runtime.addBinding", { name: FOCUS_BINDING_NAME });
+    await this.client.send("Page.addScriptToEvaluateOnNewDocument", { source });
+    await this.evaluate(source);
+  }
+
+  private prepareResourceControl(): Promise<void> {
+    this.resourceControlPromise ??= Promise.all([
+      this.client.send("Target.setAutoAttach", {
+        autoAttach: true,
+        flatten: true,
+        waitForDebuggerOnStart: false
+      }),
+      this.installFocusTracking()
+    ]).then(() => undefined);
+    return this.resourceControlPromise;
+  }
+
+  private handleTargetAttached(params: Record<string, unknown> | undefined): void {
+    const sessionId = typeof params?.sessionId === "string" ? params.sessionId : undefined;
+    const targetInfo = isRecord(params?.targetInfo) ? params.targetInfo : undefined;
+    if (!sessionId || targetInfo?.type !== "iframe") {
+      return;
+    }
+
+    this.iframeSessionIds.add(sessionId);
+    void this.client.send(
+      "Emulation.setCPUThrottlingRate",
+      { rate: this.desiredCpuThrottleRate },
+      undefined,
+      sessionId
+    ).catch(() => {
+      this.iframeSessionIds.delete(sessionId);
+    });
   }
 }
 
@@ -421,6 +516,18 @@ function createExternalFocusSource(): string {
     if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     try { target.focus({ preventScroll: true }); } catch { target.focus(); }
     return document.activeElement === target;
+  })()`;
+}
+
+function createFocusTrackingSource(): string {
+  return `(() => {
+    const key = ${JSON.stringify(FOCUS_TRACKER_KEY)};
+    const bindingName = ${JSON.stringify(FOCUS_BINDING_NAME)};
+    if (window[key] || typeof window[bindingName] !== "function") return;
+    window[key] = true;
+    const reportFocus = () => window[bindingName]("focused");
+    window.addEventListener("focus", reportFocus, true);
+    if (document.hasFocus()) reportFocus();
   })()`;
 }
 

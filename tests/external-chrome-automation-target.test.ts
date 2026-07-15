@@ -76,6 +76,68 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("reports page focus through a one-shot binding listener", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    const listener = vi.fn();
+    await target.initialize();
+    target.onFocus(listener);
+    await vi.waitFor(() => {
+      expect(harness.send).toHaveBeenCalledWith("Runtime.addBinding", {
+        name: "rionStudioWindowFocus"
+      });
+    });
+
+    harness.notify({
+      method: "Runtime.bindingCalled",
+      params: { name: "rionStudioWindowFocus", payload: "focused" }
+    });
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(harness.send).toHaveBeenCalledWith(
+      "Page.addScriptToEvaluateOnNewDocument",
+      expect.objectContaining({ source: expect.stringContaining('addEventListener("focus"') })
+    );
+  });
+
+  it("applies CPU slowdown to the page and attached iframe targets only", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    harness.notify({
+      method: "Target.attachedToTarget",
+      params: { sessionId: "iframe-session", targetInfo: { type: "iframe" } }
+    });
+    harness.notify({
+      method: "Target.attachedToTarget",
+      params: { sessionId: "worker-session", targetInfo: { type: "service_worker" } }
+    });
+    await target.setCpuThrottleRate(4);
+
+    expect(harness.send).toHaveBeenCalledWith("Emulation.setCPUThrottlingRate", { rate: 4 });
+    expect(harness.send).toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      { rate: 4 },
+      undefined,
+      "iframe-session"
+    );
+    expect(harness.send).not.toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      expect.anything(),
+      undefined,
+      "worker-session"
+    );
+
+    await target.releaseThrottle();
+    expect(harness.send).toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      { rate: 1 },
+      undefined,
+      "iframe-session"
+    );
+  });
+
   it("registers request handling before enabling CDN interception and then reloads without cache", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);

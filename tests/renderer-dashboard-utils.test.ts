@@ -230,7 +230,8 @@ function workspace(overrides: Partial<LaunchWorkspace>): LaunchWorkspace {
     slots: [],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
-    ...overrides
+    ...overrides,
+    resourcePolicy: overrides.resourcePolicy ?? { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
   };
 }
 

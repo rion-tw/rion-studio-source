@@ -126,6 +126,8 @@ export interface RoleStatus {
   notice?: string;
   runtimeMode?: BrowserRuntimeMode;
   automationState?: "ready" | "unavailable";
+  resourceState?: WorkspaceResourceState;
+  cpuThrottleRate?: WorkspaceCpuThrottleRate | 1;
 }
 
 export interface MacroTrigger {
@@ -226,12 +228,28 @@ export interface LaunchWorkspaceSlot {
   rect: NormalizedRect;
 }
 
+export type WorkspaceResourceMode = "unrestricted" | "primary_priority";
+export type WorkspaceCpuThrottleRate = 2 | 4;
+export type WorkspaceResourceState =
+  | "primary"
+  | "throttled"
+  | "macro_override"
+  | "shared_process"
+  | "unavailable";
+
+export interface WorkspaceResourcePolicy {
+  mode: WorkspaceResourceMode;
+  backgroundCpuThrottleRate: WorkspaceCpuThrottleRate;
+  primaryRoleId?: string;
+}
+
 export interface LaunchWorkspace {
   id: string;
   name: string;
   template: WorkspaceLayoutTemplate;
   browserLaunchMode: InheritableBrowserLaunchMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
+  resourcePolicy: WorkspaceResourcePolicy;
   targetDisplayId?: number;
   slots: LaunchWorkspaceSlot[];
   createdAt: string;
@@ -243,6 +261,7 @@ export interface CreateLaunchWorkspaceInput {
   template?: WorkspaceLayoutTemplate;
   browserLaunchMode?: InheritableBrowserLaunchMode;
   browserZoomPercent?: WorkspaceBrowserZoomPercent;
+  resourcePolicy?: WorkspaceResourcePolicy;
   targetDisplayId?: number | null;
   slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "rect">>>;
 }
@@ -575,6 +594,7 @@ export interface PortableLaunchWorkspace {
   template: WorkspaceLayoutTemplate;
   browserLaunchMode?: InheritableBrowserLaunchMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
+  resourcePolicy?: WorkspaceResourcePolicy;
   slots: LaunchWorkspaceSlot[];
 }
 

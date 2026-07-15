@@ -263,6 +263,7 @@ function workspace(id: string, name: string): LaunchWorkspace {
     template: "single",
     browserLaunchMode: "inherit",
     browserZoomPercent: 90,
+    resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
     slots: [{ id: "slot-1", rect: { x: 0, y: 0, width: 1, height: 1 } }],
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"

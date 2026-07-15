@@ -6,6 +6,7 @@ import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/rol
 import type { LaunchWorkspace, LaunchWorkspaceSlot, NormalizedRect, Role, WorkspaceLayoutTemplate } from "../../../../shared/types";
 import {
   DEFAULT_WORKSPACE_TEMPLATE,
+  DEFAULT_WORKSPACE_RESOURCE_POLICY,
   getDefaultWorkspaceBrowserZoomPercent,
   getDefaultWorkspaceRects,
   getWorkspaceTemplateSlotCount,
@@ -77,6 +78,7 @@ export function createEmptyWorkspaceForm(workspaces: LaunchWorkspace[], t: Trans
     template: DEFAULT_WORKSPACE_TEMPLATE,
     browserLaunchMode: "inherit",
     browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(DEFAULT_WORKSPACE_TEMPLATE),
+    resourcePolicy: { ...DEFAULT_WORKSPACE_RESOURCE_POLICY },
     slots: applyWorkspaceTemplate([], DEFAULT_WORKSPACE_TEMPLATE)
   };
 }
@@ -90,6 +92,7 @@ export function createWorkspaceFormState(workspace: LaunchWorkspace): WorkspaceF
     template,
     browserLaunchMode: workspace.browserLaunchMode,
     browserZoomPercent: workspace.browserZoomPercent,
+    resourcePolicy: { ...workspace.resourcePolicy },
     ...(workspace.targetDisplayId === undefined ? {} : { targetDisplayId: workspace.targetDisplayId }),
     slots: template === workspace.template ? workspace.slots : applyWorkspaceTemplate(workspace.slots, template)
   };

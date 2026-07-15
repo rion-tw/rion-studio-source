@@ -120,6 +120,30 @@ describe("SystemChromeLauncher", () => {
     client.close();
   });
 
+  it("routes flattened CDP commands to an attached target session", async () => {
+    FakeWebSocket.reset();
+    const client = new CdpClient("ws://devtools/page-1", {
+      WebSocket: FakeWebSocket as unknown as CdpWebSocketConstructor,
+      requestTimeoutMs: 50
+    });
+    const socket = FakeWebSocket.last();
+    socket.open();
+
+    const response = client.send(
+      "Emulation.setCPUThrottlingRate",
+      { rate: 4 },
+      undefined,
+      "iframe-session"
+    );
+    await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+    const sent = JSON.parse(socket.sent[0]) as { id: number; sessionId?: string };
+    expect(sent.sessionId).toBe("iframe-session");
+    socket.message({ id: sent.id, sessionId: "iframe-session", result: {} });
+
+    await expect(response).resolves.toEqual({});
+    client.close();
+  });
+
   it("uses the bundled Node WebSocket transport when no global WebSocket exists", async () => {
     const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await new Promise<void>((resolve, reject) => {

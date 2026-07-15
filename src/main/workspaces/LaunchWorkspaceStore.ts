@@ -11,11 +11,13 @@ import type {
   ReorderItemsInput,
   UpdateLaunchWorkspaceInput,
   WorkspaceBrowserZoomPercent,
+  WorkspaceResourcePolicy,
   WorkspaceLayoutTemplate
 } from "../../shared/types";
 import {
   createDefaultWorkspaceSlots,
   DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT,
+  DEFAULT_WORKSPACE_RESOURCE_POLICY,
   DEFAULT_WORKSPACE_TEMPLATE,
   getDefaultWorkspaceBrowserZoomPercent,
   getDefaultWorkspaceRects,
@@ -37,9 +39,10 @@ type StoredLaunchWorkspaceSlot = Partial<LaunchWorkspaceSlot> & {
   [key: string]: unknown;
 };
 
-type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserLaunchMode" | "browserZoomPercent" | "slots" | "targetDisplayId"> & {
+type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserLaunchMode" | "browserZoomPercent" | "resourcePolicy" | "slots" | "targetDisplayId"> & {
   browserLaunchMode?: unknown;
   browserZoomPercent?: unknown;
+  resourcePolicy?: unknown;
   targetDisplayId?: unknown;
   slots: StoredLaunchWorkspaceSlot[];
 };
@@ -121,6 +124,7 @@ export class LaunchWorkspaceStore {
         getDefaultWorkspaceBrowserZoomPercent(template)
       );
       const targetDisplayId = this.normalizeTargetDisplayId(input.targetDisplayId);
+      const slots = this.normalizeSlots(template, input.slots);
 
       this.ensureUniqueName(file.workspaces, name);
 
@@ -130,8 +134,9 @@ export class LaunchWorkspaceStore {
         template,
         browserLaunchMode: this.normalizeBrowserLaunchMode(input.browserLaunchMode),
         browserZoomPercent,
+        resourcePolicy: this.normalizeResourcePolicy(input.resourcePolicy, slots),
         ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
-        slots: this.normalizeSlots(template, input.slots),
+        slots,
         createdAt: now,
         updatedAt: now
       };
@@ -170,6 +175,11 @@ export class LaunchWorkspaceStore {
           ? current.slots
           : current.slots.slice(0, getWorkspaceTemplateSlotCount(template))
       );
+      const slots = this.normalizeSlots(template, sourceSlots);
+      const resourcePolicy = this.normalizeResourcePolicy(
+        input.resourcePolicy ?? current.resourcePolicy,
+        slots
+      );
 
       this.ensureUniqueName(file.workspaces, name, id);
 
@@ -179,7 +189,8 @@ export class LaunchWorkspaceStore {
         template,
         browserLaunchMode,
         browserZoomPercent,
-        slots: this.normalizeSlots(template, sourceSlots),
+        resourcePolicy,
+        slots,
         updatedAt: new Date().toISOString()
       };
       if (targetDisplayId === undefined) {
@@ -237,7 +248,14 @@ export class LaunchWorkspaceStore {
           return nextSlot;
         });
 
-        return workspaceChanged ? { ...workspace, slots, updatedAt: now } : workspace;
+        return workspaceChanged
+          ? {
+              ...workspace,
+              resourcePolicy: this.normalizeResourcePolicy(workspace.resourcePolicy, slots),
+              slots,
+              updatedAt: now
+            }
+          : workspace;
       });
 
       if (!didChange) {
@@ -264,6 +282,7 @@ export class LaunchWorkspaceStore {
       const didMigrate = parsed.workspaces.some(
         (workspace) =>
           !("browserLaunchMode" in workspace) ||
+          !("resourcePolicy" in workspace) ||
           hasLegacyRoleSlotReference(workspace) ||
           hasLegacyCenteredMainDefaultLayout(workspace as StoredLaunchWorkspace)
       );
@@ -320,6 +339,7 @@ export class LaunchWorkspaceStore {
         workspace.browserZoomPercent,
         DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
       ),
+      resourcePolicy: this.normalizeResourcePolicy(workspace.resourcePolicy, normalizedSlots),
       ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
       slots: normalizedSlots,
       createdAt: typeof workspace.createdAt === "string" ? workspace.createdAt : new Date().toISOString(),
@@ -405,6 +425,52 @@ export class LaunchWorkspaceStore {
       "WORKSPACE_BROWSER_LAUNCH_MODE_INVALID",
       "Launch workspace browser mode is invalid."
     );
+  }
+
+  private normalizeResourcePolicy(
+    value: unknown,
+    slots: LaunchWorkspaceSlot[]
+  ): WorkspaceResourcePolicy {
+    if (value === undefined || value === null) {
+      return { ...DEFAULT_WORKSPACE_RESOURCE_POLICY };
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new LaunchWorkspaceStoreError(
+        "WORKSPACE_RESOURCE_POLICY_INVALID",
+        "Launch workspace resource policy is invalid."
+      );
+    }
+
+    const input = value as Record<string, unknown>;
+    const mode = input.mode;
+    const backgroundCpuThrottleRate = input.backgroundCpuThrottleRate;
+    if (
+      (mode !== "unrestricted" && mode !== "primary_priority") ||
+      (backgroundCpuThrottleRate !== 2 && backgroundCpuThrottleRate !== 4)
+    ) {
+      throw new LaunchWorkspaceStoreError(
+        "WORKSPACE_RESOURCE_POLICY_INVALID",
+        "Launch workspace resource policy is invalid."
+      );
+    }
+
+    if (mode === "unrestricted") {
+      return { mode, backgroundCpuThrottleRate };
+    }
+
+    const assignedRoleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
+    const requestedPrimaryRoleId = typeof input.primaryRoleId === "string"
+      ? input.primaryRoleId.trim()
+      : undefined;
+    const primaryRoleId = requestedPrimaryRoleId && assignedRoleIds.includes(requestedPrimaryRoleId)
+      ? requestedPrimaryRoleId
+      : assignedRoleIds[0];
+
+    if (!primaryRoleId) {
+      return { mode: "unrestricted", backgroundCpuThrottleRate };
+    }
+
+    return { mode, backgroundCpuThrottleRate, primaryRoleId };
   }
 
   private normalizeTargetDisplayId(value: unknown): number | undefined {
@@ -554,6 +620,7 @@ function cloneWorkspacesFile(file: LaunchWorkspacesFile): LaunchWorkspacesFile {
   return {
     workspaces: file.workspaces.map((workspace) => ({
       ...workspace,
+      resourcePolicy: { ...workspace.resourcePolicy },
       slots: workspace.slots.map((slot) => ({
         ...slot,
         rect: { ...slot.rect }

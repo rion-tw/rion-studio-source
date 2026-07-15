@@ -43,7 +43,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private readonly runs = new Map<string, MacroRun>();
 
   constructor(
-    private readonly browserManager: Pick<BrowserManager, "getAutomationSession">,
+    private readonly browserManager: Pick<BrowserManager, "getAutomationSession"> &
+      Partial<Pick<BrowserManager, "setMacroActiveRoleIds">>,
     private readonly macroStore: Pick<MacroStore, "getMacro">
   ) {
     super();
@@ -182,6 +183,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     });
 
     runItems.forEach(({ key, run }) => this.runs.set(key, run));
+    await this.syncResourceOverrides();
     this.emitChange();
 
     runItems.forEach(({ key, run, target }) => {
@@ -191,13 +193,14 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
             this.handleRunFailure(key, run, error);
           }
         })
-        .finally(() => {
+        .finally(async () => {
           if (this.runs.get(key) === run) {
             this.runs.delete(key);
           }
           if (run.terminalStatus) {
             this.terminalStatuses.set(key, run.terminalStatus);
           }
+          await this.syncResourceOverrides();
           run.resolveCompletion();
           this.emitChange();
         });
@@ -267,6 +270,14 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
   private hasActiveMacroRun(macroId: string): boolean {
     return [...this.runs.values()].some((run) => run.status.macroId === macroId);
+  }
+
+  private async syncResourceOverrides(): Promise<void> {
+    await this.browserManager.setMacroActiveRoleIds?.(
+      [...this.runs.values()]
+        .filter((run) => run.status.state === "running" || run.status.state === "stopping")
+        .map((run) => run.status.roleId)
+    );
   }
 
   private assertMacroAssignedToRole(macro: Macro, roleId: string): void {

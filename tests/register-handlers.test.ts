@@ -86,6 +86,7 @@ const workspace: LaunchWorkspace = {
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 100,
+  resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
   slots: [
     {
       id: "slot-1",

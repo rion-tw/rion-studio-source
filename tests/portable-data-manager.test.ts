@@ -54,6 +54,11 @@ describe("PortableDataManager", () => {
     await workspaceStore.createWorkspace({
       name: "Party",
       browserZoomPercent: 75,
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 4,
+        primaryRoleId: role.id
+      },
       targetDisplayId: 42,
       slots: [
         {
@@ -146,7 +151,14 @@ describe("PortableDataManager", () => {
     expect(parsed.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
     expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
     expect(parsed).not.toHaveProperty("gameCompatibilityReports");
-    expect(parsed.launchWorkspaces[0]).toMatchObject({ browserZoomPercent: 75 });
+    expect(parsed.launchWorkspaces[0]).toMatchObject({
+      browserZoomPercent: 75,
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 4,
+        primaryRoleId: role.id
+      }
+    });
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
   });
 
@@ -315,6 +327,11 @@ describe("PortableDataManager", () => {
       steps: [{ id: "step-existing", type: "key", code: "F1" }]
     });
     const legacyFixture = createPortableFixture();
+    legacyFixture.launchWorkspaces[0].resourcePolicy = {
+      mode: "primary_priority",
+      backgroundCpuThrottleRate: 2,
+      primaryRoleId: "old-role"
+    };
     const fixture: RionPortableDataV2 = {
       ...legacyFixture,
       schemaVersion: 2,
@@ -409,7 +426,15 @@ describe("PortableDataManager", () => {
     const importedWorkspace = (await workspaceStore.listWorkspaces()).find(
       (workspace) => workspace.name === "Party"
     );
-    expect(importedWorkspace).toMatchObject({ id: existingWorkspace.id, targetDisplayId: 42 });
+    expect(importedWorkspace).toMatchObject({
+      id: existingWorkspace.id,
+      targetDisplayId: 42,
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 2,
+        primaryRoleId: importedRole?.id
+      }
+    });
     expect(importedWorkspace?.slots[0]).toMatchObject({ roleId: importedRole?.id });
     expect(importedWorkspace?.slots[1]).not.toHaveProperty("roleId");
 
@@ -738,6 +763,10 @@ describe("PortableDataManager", () => {
       { x: 0.3333, y: 0, width: 0.3334, height: 1 },
       { x: 0.6667, y: 0, width: 0.3333, height: 1 }
     ]);
+    expect(importedWorkspace?.resourcePolicy).toEqual({
+      mode: "unrestricted",
+      backgroundCpuThrottleRate: 2
+    });
   });
 
   it("clears reserved and overlapping shortcuts before applying an import", async () => {

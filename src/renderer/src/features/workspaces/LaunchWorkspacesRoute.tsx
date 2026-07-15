@@ -350,6 +350,7 @@ function WorkspaceCard({
           gameNameById={gameNameById}
           roleById={roleById}
           slots={workspace.slots}
+          statusByRole={statusByRole}
           t={t}
           template={workspace.template}
         />
@@ -447,6 +448,7 @@ interface WorkspaceLayoutPreviewProps {
   gameNameById: Map<string, string>;
   roleById: Map<string, Role>;
   slots: LaunchWorkspaceSlot[];
+  statusByRole: Map<string, RoleStatus>;
   t: Translator;
   template: WorkspaceLayoutTemplate;
 }
@@ -456,6 +458,7 @@ function WorkspaceLayoutPreview({
   gameNameById,
   roleById,
   slots,
+  statusByRole,
   t,
   template
 }: WorkspaceLayoutPreviewProps): JSX.Element {
@@ -477,6 +480,7 @@ function WorkspaceLayoutPreview({
         index={index}
         launchGameName={role ? gameNameById.get(role.gameId) : undefined}
         role={role}
+        status={role ? statusByRole.get(role.id) : undefined}
         t={t}
       />
     );
@@ -643,10 +647,17 @@ interface WorkspaceLayoutPreviewSlotProps {
   index: number;
   launchGameName?: string;
   role: Role | undefined;
+  status?: RoleStatus;
   t: Translator;
 }
 
-function WorkspaceLayoutPreviewSlot({ index, launchGameName, role, t }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
+function WorkspaceLayoutPreviewSlot({
+  index,
+  launchGameName,
+  role,
+  status,
+  t
+}: WorkspaceLayoutPreviewSlotProps): JSX.Element {
   const resolvedLaunchGameName = launchGameName ?? role?.launchUrl ?? "";
   const backgroundStyle = createWorkspaceSlotBackground(role);
   const style = {
@@ -686,8 +697,33 @@ function WorkspaceLayoutPreviewSlot({ index, launchGameName, role, t }: Workspac
           {index + 1}
         </div>
       ) : null}
+      {status?.resourceState ? (
+        <div
+          className="absolute right-1.5 top-1.5 rounded-full border border-white/20 bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold leading-3 text-white shadow-sm backdrop-blur-md"
+          title={getResourceStateLabel(status, t)}
+        >
+          {getResourceStateLabel(status, t)}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function getResourceStateLabel(status: RoleStatus, t: Translator): string {
+  switch (status.resourceState) {
+    case "primary":
+      return t("workspaces.resourceState.primary");
+    case "throttled":
+      return `${status.cpuThrottleRate ?? 1}x`;
+    case "macro_override":
+      return t("workspaces.resourceState.macroOverride");
+    case "shared_process":
+      return t("workspaces.resourceState.sharedProcess");
+    case "unavailable":
+      return t("workspaces.resourceState.unavailable");
+    default:
+      return "";
+  }
 }
 
 function createPreviewFlexStyle(weight: number): CSSProperties {

@@ -1,12 +1,14 @@
 import type { WebContents } from "electron";
 
-import type { AppLanguage, Macro, MacroEditorRequest, MacroRunStatus, Role } from "../../shared/types";
+import type { AppLanguage, Macro, MacroEditorRequest, MacroRunStatus, Role, RoleStatus } from "../../shared/types";
 import type { MacroManager } from "./MacroManager";
 import type { MacroStore } from "./MacroStore";
 
 interface MacroOverlayState {
+  cpuThrottleRate?: RoleStatus["cpuThrottleRate"];
   language?: AppLanguage;
   macros: Macro[];
+  resourceState?: RoleStatus["resourceState"];
   startSummary?: {
     skippedCount: number;
     startedCount: number;
@@ -51,7 +53,8 @@ export class MacroOverlayInjector {
   constructor(
     private readonly macroStore: Pick<MacroStore, "listMacros">,
     private readonly macroManager: Pick<MacroManager, "listStatuses" | "startForRole" | "stopForRole">,
-    private readonly onMacroEditorRequested?: (request: MacroEditorRequest) => void | Promise<void>
+    private readonly onMacroEditorRequested?: (request: MacroEditorRequest) => void | Promise<void>,
+    private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined
   ) {}
 
   async install(role: Role, webContents: WebContents): Promise<void> {
@@ -202,13 +205,16 @@ export class MacroOverlayInjector {
   private async getOverlayState(roleId: string): Promise<MacroOverlayState> {
     const macros = await this.macroStore.listMacros();
     const statuses = this.macroManager.listStatuses();
+    const roleStatus = this.getRoleStatus?.(roleId);
 
     const assignedMacros = macros.filter((macro) => macro.roleIds.includes(roleId));
     const assignedMacroIds = new Set(assignedMacros.map((macro) => macro.id));
 
     return {
+      cpuThrottleRate: roleStatus?.cpuThrottleRate,
       language: this.language,
       macros: assignedMacros,
+      resourceState: roleStatus?.resourceState,
       statuses: statuses.filter((status) => assignedMacroIds.has(status.macroId))
     };
   }
@@ -369,7 +375,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v25"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-15.1";
+  const scriptVersion = "2026-07-15.2";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
@@ -408,6 +414,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       noSteps: "No steps",
       once: "Once",
       partialStartNotice: "Started for {started} role(s); skipped {skipped} unavailable role(s).",
+      resourceMacroOverride: "Temporarily full speed",
+      resourcePrimary: "Primary",
+      resourceSharedProcess: "Shared process / full speed",
+      resourceUnavailable: "Throttling unavailable",
       runError: "Unable to run macro.",
       stepsMore: "+{count} more",
       triggerAria: "Rion Studio Macros",
@@ -429,6 +439,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       noSteps: "無步驟",
       once: "執行一次",
       partialStartNotice: "已在 {started} 個角色啟動，略過 {skipped} 個未啟動或無法控制的角色。",
+      resourceMacroOverride: "暫時全速",
+      resourcePrimary: "主控",
+      resourceSharedProcess: "共用程序／全速",
+      resourceUnavailable: "無法節流",
       runError: "無法執行巨集。",
       stepsMore: "另有 {count} 個",
       triggerAria: "Rion Studio 巨集",
@@ -450,6 +464,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       noSteps: "无步骤",
       once: "执行一次",
       partialStartNotice: "已在 {started} 个角色启动，略过 {skipped} 个未启动或无法控制的角色。",
+      resourceMacroOverride: "暂时全速",
+      resourcePrimary: "主控",
+      resourceSharedProcess: "共享进程／全速",
+      resourceUnavailable: "无法限速",
       runError: "无法执行宏。",
       stepsMore: "另有 {count} 个",
       triggerAria: "Rion Studio 宏",
@@ -471,6 +489,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       noSteps: "ステップなし",
       once: "1回",
       partialStartNotice: "{started} 件のロールで開始し、利用できない {skipped} 件をスキップしました。",
+      resourceMacroOverride: "一時的にフル速度",
+      resourcePrimary: "メイン",
+      resourceSharedProcess: "共有プロセス／フル速度",
+      resourceUnavailable: "速度制限不可",
       runError: "マクロを実行できません。",
       stepsMore: "ほか {count} 件",
       triggerAria: "Rion Studio マクロ",
@@ -526,6 +548,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
   delete window[controllerKey];
 
   const state = {
+    cpuThrottleRate: 1,
     error: "",
     isOpen: false,
     language: detectOverlayLanguage(),
@@ -533,12 +556,25 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     macros: [],
     notice: "",
     requestVersion: 0,
+    resourceState: undefined,
     statuses: []
   };
   const pendingMacroActions = new Set();
 
   function getText() {
     return overlayTexts[state.language] ?? overlayTexts[detectOverlayLanguage()] ?? overlayTexts.en;
+  }
+
+  function getResourceLabel() {
+    const text = getText();
+    switch (state.resourceState) {
+      case "primary": return text.resourcePrimary;
+      case "throttled": return String(state.cpuThrottleRate || 1) + "x";
+      case "macro_override": return text.resourceMacroOverride;
+      case "shared_process": return text.resourceSharedProcess;
+      case "unavailable": return text.resourceUnavailable;
+      default: return "";
+    }
   }
 
   function normalizeOverlayLanguage(language) {
@@ -889,6 +925,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     }
 
     const text = getText();
+    const resourceLabel = getResourceLabel();
     const runningBadges = getRunningBadgeMacros()
       .map((macro) => {
         const shortcut = formatShortcut(macro.trigger);
@@ -946,6 +983,8 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".trigger{-webkit-backdrop-filter:blur(30px) saturate(140%);align-items:center;backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.5);border:1px solid rgba(255,255,255,.14);border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.2);color:rgba(255,255,255,.94);cursor:pointer;display:flex;height:32px;justify-content:center;line-height:1;padding:0;pointer-events:auto;width:32px;}",
       ".trigger-icon{display:block;fill:none;height:16px;width:16px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.75;}",
       ".trigger:hover{background:linear-gradient(180deg,rgba(255,255,255,.075),rgba(255,255,255,0) 46%),rgba(30,34,44,.82);border-color:rgba(255,255,255,.2);}",
+      ".toolbar{align-items:center;display:flex;gap:6px;justify-content:flex-end;pointer-events:none;}",
+      ".resource-state{-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);background:rgba(20,23,31,.7);border:1px solid rgba(255,255,255,.14);border-radius:999px;color:rgba(255,255,255,.92);font-size:9.5px;font-weight:650;line-height:1;max-width:170px;overflow:hidden;padding:6px 8px;pointer-events:none;text-overflow:ellipsis;white-space:nowrap;}",
       ".panel{display:",
       state.isOpen ? "grid" : "none",
       ";-webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.22);gap:0;margin-top:7px;max-width:296px;overflow:hidden;padding:4px;pointer-events:auto;text-shadow:none;width:min(288px,calc(100vw - 16px));}",
@@ -986,9 +1025,12 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".error{color:#ffb4b4;}",
       "</style>",
       runningBadges ? '<div class="active-badges" aria-hidden="true">' + runningBadges + "</div>" : "",
+      '<div class="toolbar">',
+      resourceLabel ? '<div class="resource-state" title="' + escapeHtml(resourceLabel) + '">' + escapeHtml(resourceLabel) + "</div>" : "",
       '<button class="trigger" type="button" tabindex="-1" title="' + escapeHtml(text.triggerTitle) + '" aria-label="' + escapeHtml(text.triggerAria) + '">',
       triggerIconMarkup,
       "</button>",
+      "</div>",
       state.notice ? '<div class="notice" role="status">' + escapeHtml(state.notice) + "</div>" : "",
       '<div class="panel" role="menu">',
       state.error ? '<div class="error">' + escapeHtml(state.error) + "</div>" : "",
@@ -1069,6 +1111,8 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       state.error = "";
       state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
       state.macros = Array.isArray(nextState?.macros) ? nextState.macros : [];
+      state.resourceState = nextState?.resourceState;
+      state.cpuThrottleRate = nextState?.cpuThrottleRate || 1;
       state.statuses = Array.isArray(nextState?.statuses) ? nextState.statuses : [];
       state.lastRefreshAt = Date.now();
     } catch (error) {
@@ -1097,6 +1141,8 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
         state.error = "";
         state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
         state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
+        state.resourceState = nextState?.resourceState;
+        state.cpuThrottleRate = nextState?.cpuThrottleRate || 1;
         state.statuses = Array.isArray(nextState?.statuses) ? nextState.statuses : state.statuses;
         state.lastRefreshAt = Date.now();
         if (action === "start") {

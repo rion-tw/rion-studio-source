@@ -25,8 +25,10 @@ describe("LaunchWorkspaceStore", () => {
     const workspace = await store.createWorkspace({ name: "Party" });
     const listed = await store.listWorkspaces();
     listed[0].slots[0].rect.width = 0.75;
+    listed[0].resourcePolicy.backgroundCpuThrottleRate = 4;
 
     expect((await store.getWorkspace(workspace.id)).slots[0].rect.width).toBe(0.5);
+    expect((await store.getWorkspace(workspace.id)).resourcePolicy.backgroundCpuThrottleRate).toBe(2);
   });
 
   it("creates a launch workspace with default layout slots", async () => {
@@ -35,7 +37,8 @@ describe("LaunchWorkspaceStore", () => {
     expect(workspace).toMatchObject({
       name: "Boss run",
       template: "two_columns",
-      browserZoomPercent: 100
+      browserZoomPercent: 100,
+      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
     });
     expect(workspace.slots).toEqual([
       {
@@ -50,6 +53,27 @@ describe("LaunchWorkspaceStore", () => {
     await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
       id: workspace.id,
       name: "Boss run"
+    });
+  });
+
+  it("normalizes and persists a primary-priority resource policy", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Priority party",
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 4,
+        primaryRoleId: "missing-role"
+      },
+      slots: [{ roleId: "role-1" }, { roleId: "role-2" }]
+    });
+
+    expect(workspace.resourcePolicy).toEqual({
+      mode: "primary_priority",
+      backgroundCpuThrottleRate: 4,
+      primaryRoleId: "role-1"
+    });
+    await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
+      resourcePolicy: workspace.resourcePolicy
     });
   });
 
@@ -622,5 +646,31 @@ describe("LaunchWorkspaceStore", () => {
 
     expect(updated.slots[0]).not.toHaveProperty("roleId");
     expect(updated.slots[1]).toMatchObject({ roleId: "role-2" });
+  });
+
+  it("selects the next primary role and disables the policy after the last role is removed", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Priority party",
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 2,
+        primaryRoleId: "role-1"
+      },
+      slots: [{ roleId: "role-1" }, { roleId: "role-2" }]
+    });
+
+    await store.clearRole("role-1");
+    await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 2,
+        primaryRoleId: "role-2"
+      }
+    });
+
+    await store.clearRole("role-2");
+    await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
+      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
+    });
   });
 });

@@ -1,5 +1,15 @@
-import { Gamepad2, Pencil, Plus, Search, Trash2, Users } from "lucide-react";
-import { type JSX, useMemo, useState } from "react";
+import {
+  Gamepad2,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  ShieldCheck,
+  Trash2,
+  Users
+} from "lucide-react";
+import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 
 import { getGameCoverUrl, getGameIconUrl, sortGames } from "../../app/gamePresentation";
 import { EmptyState } from "../../components/EmptyState";
@@ -7,7 +17,7 @@ import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
-import { PageFrame, PageHeader } from "../../components/ui/patterns";
+import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import type { Game, GameCompatibilityReport, GameCompatibilityRunStatus, Role, RoleStatus } from "../../../../shared/types";
 
@@ -22,7 +32,7 @@ interface GamesRouteProps {
   onEdit: (game: Game) => void;
   onNewGame: () => void;
   onNewRole: (gameId: string) => void;
-  onView: (game: Game) => void;
+  onRunCheck: (gameId: string) => void;
 }
 
 function GamesRoute({
@@ -36,7 +46,7 @@ function GamesRoute({
   onEdit,
   onNewGame,
   onNewRole,
-  onView
+  onRunCheck
 }: GamesRouteProps): JSX.Element {
   const [query, setQuery] = useState("");
   const filteredGames = useMemo(() => {
@@ -71,8 +81,8 @@ function GamesRoute({
             const iconUrl = getGameIconUrl(game);
             const coverUrl = getGameCoverUrl(game);
             return (
-              <Card key={game.id} className="overflow-hidden">
-                <button className="group block w-full min-w-0 text-left" type="button" onClick={() => onView(game)}>
+              <Card key={game.id} className="group relative overflow-hidden">
+                <button className="block w-full min-w-0 text-left" type="button" onClick={() => onEdit(game)}>
                   <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15">
                     {coverUrl ? (
                       <img
@@ -100,21 +110,27 @@ function GamesRoute({
                     </div>
                   </div>
                 </button>
+                <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                  <GameActionMenu
+                    checking={checking}
+                    game={game}
+                    t={t}
+                    onDelete={() => onDelete(game)}
+                    onEdit={() => onEdit(game)}
+                    onNewRole={() => onNewRole(game.id)}
+                    onRunCheck={() => onRunCheck(game.id)}
+                  />
+                </div>
                 <div className="grid gap-4 p-4 pt-3">
                   <div className="grid grid-cols-3 gap-2 text-center text-xs">
                     <Metric label={t("games.roles")} value={gameRoles.length} />
                     <Metric label={t("games.running")} value={running} />
                     <Metric label={t("games.needsLogin")} value={needsLogin} />
                   </div>
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
                     <Badge variant={checking ? "warning" : report?.recommendation?.reason === "graphics_unavailable" ? "warning" : report?.load?.state === "available" ? "success" : report?.load?.state === "failed" ? "destructive" : "muted"}>
                       {checking ? t("games.compatibility.running") : report?.isStale ? t("games.compatibility.stale") : report?.recommendation?.reason === "graphics_unavailable" ? t("games.compatibility.graphicsLimited") : report?.load?.state === "available" ? t("games.compatibility.available") : report?.load?.state === "failed" ? t("games.compatibility.failed") : report?.load?.state === "cancelled" ? t("games.compatibility.cancelled") : t("games.compatibility.notChecked")}
                     </Badge>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" title={t("games.addRole")} onClick={() => onNewRole(game.id)}><Users size={15} /></Button>
-                      <Button size="icon" variant="ghost" title={t("common.edit")} onClick={() => onEdit(game)}><Pencil size={15} /></Button>
-                      {game.source === "custom" ? <Button size="icon" variant="ghost" title={t("confirm.delete")} onClick={() => onDelete(game)}><Trash2 size={15} /></Button> : null}
-                    </div>
                   </div>
                 </div>
               </Card>
@@ -123,6 +139,103 @@ function GamesRoute({
         </div>
       )}
     </PageFrame>
+  );
+}
+
+function GameActionMenu({
+  checking,
+  game,
+  t,
+  onDelete,
+  onEdit,
+  onNewRole,
+  onRunCheck
+}: {
+  checking: boolean;
+  game: Game;
+  t: Translator;
+  onDelete: () => void;
+  onEdit: () => void;
+  onNewRole: () => void;
+  onRunCheck: () => void;
+}): JSX.Element {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handlePointerDown(event: PointerEvent): void {
+      if (!menuRef.current?.contains(event.target as Node)) setIsOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  function run(action: () => void): void {
+    setIsOpen(false);
+    action();
+  }
+
+  const itemClassName = "flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50";
+
+  return (
+    <div ref={menuRef} className="relative shrink-0">
+      <Button
+        className="role-cover-menu-control h-7 w-7 text-white hover:text-white"
+        type="button"
+        variant="ghost"
+        size="icon"
+        title={t("games.actions")}
+        aria-label={t("games.actions")}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <MoreHorizontal size={14} />
+      </Button>
+      {isOpen ? (
+        <Surface
+          className="absolute right-0 top-8 z-20 min-w-44 overflow-hidden text-popover-foreground"
+          padding="xs"
+          variant="popover"
+          role="menu"
+        >
+          <button className={itemClassName} type="button" role="menuitem" onClick={() => run(onNewRole)}>
+            <Users size={14} />
+            <span>{t("games.addRole")}</span>
+          </button>
+          <button className={itemClassName} type="button" role="menuitem" onClick={() => run(onEdit)}>
+            <Pencil size={14} />
+            <span>{t("common.edit")}</span>
+          </button>
+          <button className={itemClassName} type="button" role="menuitem" disabled={checking} onClick={() => run(onRunCheck)}>
+            {checking ? <Loader2 className="spin" size={14} /> : <ShieldCheck size={14} />}
+            <span>{checking ? t("games.compatibility.running") : t("games.compatibility.run")}</span>
+          </button>
+          {game.source === "custom" ? (
+            <button
+              className={`${itemClassName} text-destructive hover:bg-destructive/10 hover:text-destructive`}
+              type="button"
+              role="menuitem"
+              onClick={() => run(onDelete)}
+            >
+              <Trash2 size={14} />
+              <span>{t("confirm.delete")}</span>
+            </button>
+          ) : null}
+        </Surface>
+      ) : null}
+    </div>
   );
 }
 

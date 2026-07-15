@@ -12,16 +12,30 @@ import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/p
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
-import type { Game, InheritableBrowserLaunchMode, LaunchPreset, RoleDefaults } from "../../../../shared/types";
+import type {
+  Game,
+  GameCompatibilityReport,
+  GameCompatibilityRunStatus,
+  InheritableBrowserLaunchMode,
+  LaunchPreset,
+  RoleDefaults
+} from "../../../../shared/types";
+import { GameCompatibilityPanel } from "./GameCompatibilityPanel";
 import { createGameCoverImageDataUrl } from "./gameCover";
 
 interface GameEditorRouteProps {
   games: Game[];
   isSaving: boolean;
+  reports: GameCompatibilityReport[];
   roleDefaults: RoleDefaults;
+  runStatuses: GameCompatibilityRunStatus[];
   t: Translator;
+  onApplyRecommendation: (game: Game) => Promise<Game | undefined>;
+  onCancelCheck: (gameId: string) => void;
   onError: (error: unknown | null) => void;
+  onOpenGraphicsSettings: (gameId: string) => void;
   onReset: (game: Game) => Promise<Game | undefined>;
+  onRunCheck: (gameId: string) => void;
   onSave: (form: GameFormState) => Promise<Game | undefined>;
 }
 
@@ -36,7 +50,23 @@ function GameEditorRoute(props: GameEditorRouteProps): JSX.Element {
   return <GameEditor key={id ?? "new"} {...props} game={game} initialForm={initialForm} />;
 }
 
-function GameEditor({ games: _games, game, initialForm, isSaving, roleDefaults, t, onError, onReset, onSave }: GameEditorRouteProps & { game?: Game; initialForm: GameFormState }): JSX.Element {
+function GameEditor({
+  games: _games,
+  game,
+  initialForm,
+  isSaving,
+  reports,
+  roleDefaults,
+  runStatuses,
+  t,
+  onApplyRecommendation,
+  onCancelCheck,
+  onError,
+  onOpenGraphicsSettings,
+  onReset,
+  onRunCheck,
+  onSave
+}: GameEditorRouteProps & { game?: Game; initialForm: GameFormState }): JSX.Element {
   const navigate = useNavigate();
   const initialRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
@@ -48,7 +78,7 @@ function GameEditor({ games: _games, game, initialForm, isSaving, roleDefaults, 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const saved = await onSave(form);
-    if (saved) { guard(); navigate(`/games/${saved.id}`, { replace: true }); }
+    if (saved) { guard(); navigate("/games", { replace: true }); }
   }
 
   async function resetBuiltin(): Promise<void> {
@@ -58,6 +88,15 @@ function GameEditor({ games: _games, game, initialForm, isSaving, roleDefaults, 
     const resetForm = createGameFormState(saved, roleDefaults);
     initialRef.current = resetForm;
     setForm(resetForm);
+  }
+
+  async function applyRecommendation(): Promise<void> {
+    if (!game) return;
+    const saved = await onApplyRecommendation(game);
+    if (!saved) return;
+    const nextForm = { ...form, browserLaunchMode: saved.browserLaunchMode };
+    initialRef.current = { ...initialRef.current, browserLaunchMode: saved.browserLaunchMode };
+    setForm(nextForm);
   }
 
   return (
@@ -89,6 +128,18 @@ function GameEditor({ games: _games, game, initialForm, isSaving, roleDefaults, 
           </FormGrid> : null}
           <FormField label={t("games.form.launchMode")}><Select value={form.browserLaunchMode} onValueChange={(value) => setForm({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.mode.inherit")}</SelectItem><SelectItem value="auto">{t("games.mode.auto")}</SelectItem><SelectItem value="embedded">{t("games.mode.embedded")}</SelectItem><SelectItem value="external">{t("games.mode.external")}</SelectItem></SelectContent></Select></FormField>
         </Surface>
+        {game ? (
+          <GameCompatibilityPanel
+            game={game}
+            report={reports.find((item) => item.gameId === game.id)}
+            runStatus={runStatuses.find((item) => item.gameId === game.id)}
+            t={t}
+            onApply={() => void applyRecommendation()}
+            onCancel={() => onCancelCheck(game.id)}
+            onOpenGraphicsSettings={() => onOpenGraphicsSettings(game.id)}
+            onRun={() => onRunCheck(game.id)}
+          />
+        ) : null}
       </div>
       <div className="grid gap-4">
         <GameIconEditor form={form} game={game} isSaving={isSaving} t={t} onChange={setForm} onError={onError} />

@@ -31,7 +31,8 @@ describe("games cover UI", () => {
     const covered = game({ id: "covered", name: "Covered", coverImageDataUrl: processedCover });
     const uncovered = game({ id: "uncovered", name: "Uncovered" });
     const onEdit = vi.fn();
-    const onView = vi.fn();
+    const onNewRole = vi.fn();
+    const onRunCheck = vi.fn();
     const { container } = render(
       <GamesRoute
         games={[covered, uncovered]}
@@ -43,8 +44,8 @@ describe("games cover UI", () => {
         onDelete={vi.fn()}
         onEdit={onEdit}
         onNewGame={vi.fn()}
-        onNewRole={vi.fn()}
-        onView={onView}
+        onNewRole={onNewRole}
+        onRunCheck={onRunCheck}
       />
     );
 
@@ -57,12 +58,22 @@ describe("games cover UI", () => {
     expect(container.querySelectorAll(".aspect-video")).toHaveLength(2);
 
     await user.click(screen.getByText("Covered"));
-    expect(onView).toHaveBeenCalledWith(covered);
-
-    onView.mockClear();
-    await user.click(within(coveredCard as HTMLElement).getByTitle("Edit"));
     expect(onEdit).toHaveBeenCalledWith(covered);
-    expect(onView).not.toHaveBeenCalled();
+
+    onEdit.mockClear();
+    const coveredCardQueries = within(coveredCard as HTMLElement);
+    await user.click(coveredCardQueries.getByRole("button", { name: "Game actions" }));
+    await user.click(coveredCardQueries.getByRole("menuitem", { name: "Add role" }));
+    expect(onNewRole).toHaveBeenCalledWith("covered");
+    expect(onEdit).not.toHaveBeenCalled();
+
+    await user.click(coveredCardQueries.getByRole("button", { name: "Game actions" }));
+    await user.click(coveredCardQueries.getByRole("menuitem", { name: "Run compatibility check" }));
+    expect(onRunCheck).toHaveBeenCalledWith("covered");
+
+    await user.click(coveredCardQueries.getByRole("button", { name: "Game actions" }));
+    await user.click(coveredCardQueries.getByRole("menuitem", { name: "Edit" }));
+    expect(onEdit).toHaveBeenCalledWith(covered);
   });
 
   it("uploads and removes a custom game cover in the editor", async () => {
@@ -73,10 +84,16 @@ describe("games cover UI", () => {
       element: <ConfirmationProvider><GameEditorRoute
         games={[customGame]}
         isSaving={false}
+        reports={[]}
         roleDefaults={roleDefaults}
+        runStatuses={[]}
         t={t}
+        onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
+        onCancelCheck={vi.fn()}
         onError={vi.fn()}
+        onOpenGraphicsSettings={vi.fn()}
         onReset={vi.fn()}
+        onRunCheck={vi.fn()}
         onSave={vi.fn()}
       /></ConfirmationProvider>
     }], { initialEntries: ["/games/game-1/edit"] });
@@ -102,10 +119,16 @@ describe("games cover UI", () => {
       element: <ConfirmationProvider><GameEditorRoute
         games={[builtinGame]}
         isSaving={false}
+        reports={[]}
         roleDefaults={roleDefaults}
+        runStatuses={[]}
         t={t}
+        onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
+        onCancelCheck={vi.fn()}
         onError={vi.fn()}
+        onOpenGraphicsSettings={vi.fn()}
         onReset={vi.fn()}
+        onRunCheck={vi.fn()}
         onSave={vi.fn()}
       /></ConfirmationProvider>
     }], { initialEntries: ["/games/builtin-flyff-universe/edit"] });
@@ -115,6 +138,43 @@ describe("games cover UI", () => {
     expect(screen.queryByLabelText("Choose cover")).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove cover" })).toBeNull();
     expect(container.querySelector('img[src*="flyff-universe-cover"]')).toBeTruthy();
+  });
+
+  it("shows compatibility information and controls inside the game editor", async () => {
+    const user = userEvent.setup();
+    const customGame = game({ id: "game-1", name: "Custom game" });
+    const onRunCheck = vi.fn();
+    const router = createMemoryRouter([{
+      path: "/games/:id/edit",
+      element: <ConfirmationProvider><GameEditorRoute
+        games={[customGame]}
+        isSaving={false}
+        reports={[{
+          gameId: customGame.id,
+          checkedAt: "2026-07-15T01:00:00.000Z",
+          isStale: false,
+          load: { state: "available", durationMs: 321, finalOrigin: "https://example.test" },
+          recommendation: { mode: "embedded", reason: "embedded_available" },
+          observations: {}
+        }]}
+        roleDefaults={roleDefaults}
+        runStatuses={[]}
+        t={t}
+        onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
+        onCancelCheck={vi.fn()}
+        onError={vi.fn()}
+        onOpenGraphicsSettings={vi.fn()}
+        onReset={vi.fn()}
+        onRunCheck={onRunCheck}
+        onSave={vi.fn()}
+      /></ConfirmationProvider>
+    }], { initialEntries: ["/games/game-1/edit"] });
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("Embedded available")).toBeTruthy();
+    expect(screen.getByText("321 ms")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Run compatibility check" }));
+    expect(onRunCheck).toHaveBeenCalledWith(customGame.id);
   });
 });
 

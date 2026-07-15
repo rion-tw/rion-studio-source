@@ -38,7 +38,6 @@ import type {
 
 const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
 const GamesRoute = lazy(() => import("./features/games/GamesRoute"));
-const GameDetailRoute = lazy(() => import("./features/games/GameDetailRoute"));
 const GameEditorRoute = lazy(() => import("./features/games/GameModal"));
 const RoleEditorRoute = lazy(() => import("./features/roles/RoleModal"));
 const DashboardRoute = lazy(() => import("./features/dashboard/DashboardRoute"));
@@ -379,10 +378,16 @@ export function App(): JSX.Element {
     <GameEditorRoute
       games={data.games}
       isSaving={gameWorkflow.isSavingGame}
+      reports={data.gameCompatibilityReports}
       roleDefaults={preferences.roleDefaults}
+      runStatuses={data.gameCompatibilityStatuses}
       t={preferences.t}
+      onApplyRecommendation={gameWorkflow.applyRecommendation}
+      onCancelCheck={(gameId) => void gameWorkflow.cancelCompatibilityCheck(gameId)}
       onError={data.setError}
+      onOpenGraphicsSettings={(gameId) => navigate("/settings?section=game", { state: { returnTo: `/games/${gameId}/edit` } })}
       onReset={gameWorkflow.resetBuiltinGame}
+      onRunCheck={(gameId) => void gameWorkflow.runCompatibilityCheck(gameId)}
       onSave={gameWorkflow.saveGame}
     />
   ) : <BridgeUnavailable t={preferences.t} />;
@@ -466,45 +471,12 @@ export function App(): JSX.Element {
                 onEdit={(game) => navigateToEditGame(game.id)}
                 onNewGame={navigateToNewGame}
                 onNewRole={navigateToNewRoleForGame}
-                onView={(game) => navigate(`/games/${game.id}`)}
+                onRunCheck={(gameId) => void gameWorkflow.runCompatibilityCheck(gameId)}
               /> : <BridgeUnavailable t={preferences.t} />}
             />
             <Route path="/games/new" element={gameEditorElement} />
             <Route path="/games/:id/edit" element={gameEditorElement} />
-            <Route
-              path="/games/:id"
-              element={hasBridge ? <GameDetailRoute
-                authStatusByRole={data.authStatusByRole}
-                busyMacroIds={macroWorkflow.busyMacroIds}
-                busyRoleIds={roleWorkflow.busyRoleIds}
-                busyWorkspaceIds={workspaceWorkflow.busyWorkspaceIds}
-                games={data.games}
-                macroStatuses={data.macroStatuses}
-                macros={data.macros}
-                reports={data.gameCompatibilityReports}
-                roles={data.roles}
-                runStatuses={data.gameCompatibilityStatuses}
-                statusByRole={data.statusByRole}
-                t={preferences.t}
-                workspaces={data.workspaces}
-                onApplyRecommendation={(game) => void gameWorkflow.applyRecommendation(game)}
-                onCancelCheck={(gameId) => void gameWorkflow.cancelCompatibilityCheck(gameId)}
-                onEdit={(game) => navigateToEditGame(game.id)}
-                onEditMacro={(macro) => navigateToEditMacro(macro.id)}
-                onEditRole={(role) => navigateToEditRole(role.id)}
-                onEditWorkspace={(workspace) => navigateToEditWorkspace(workspace.id)}
-                onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
-                onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
-                onLoginRole={(roleId) => void roleWorkflow.requestSystemLogin(roleId)}
-                onNewRole={navigateToNewRoleForGame}
-                onOpenGraphicsSettings={(gameId) => navigate("/settings?section=game", { state: { returnTo: `/games/${gameId}` } })}
-                onRunCheck={(gameId) => void gameWorkflow.runCompatibilityCheck(gameId)}
-                onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
-                onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
-                onStopRole={(roleId) => void roleWorkflow.handleStop(roleId)}
-                onStopWorkspace={(workspace) => void workspaceWorkflow.handleStopWorkspace(workspace)}
-              /> : <BridgeUnavailable t={preferences.t} />}
-            />
+            <Route path="/games/:id" element={<Navigate to="edit" replace />} />
             <Route
               path="/dashboard"
               element={

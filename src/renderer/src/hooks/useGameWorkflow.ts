@@ -129,13 +129,15 @@ export function useGameWorkflow({
     }
   }
 
-  async function applyRecommendation(game: Game): Promise<void> {
+  async function applyRecommendation(game: Game): Promise<Game | undefined> {
     const reportError = beginErrorOperation();
     try {
       const saved = await window.rionStudio.updateGame(game.id, { browserLaunchMode: "external" });
       setGames((current) => current.map((item) => item.id === saved.id ? saved : item));
+      return saved;
     } catch (error) {
       reportError(error);
+      return undefined;
     }
   }
 

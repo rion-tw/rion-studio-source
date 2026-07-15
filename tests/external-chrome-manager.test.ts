@@ -299,6 +299,47 @@ describe("ExternalChromeManager", () => {
       ]);
   });
 
+  it("normalizes shared edges and tiles external Chrome without gaps on every platform", async () => {
+    const harness = createHarness();
+    const roles = Array.from({ length: 8 }, (_value, index) => ({
+      ...role,
+      id: `eight-grid-role-${index + 1}`,
+      name: `Eight Grid Role ${index + 1}`
+    }));
+    const rects = Array.from({ length: 8 }, (_value, index) => {
+      const column = index % 4;
+      const row = Math.floor(index / 4);
+      const x = column === 2 ? 0.50002 : column / 4;
+      const y = row === 1 ? 0.50002 : 0;
+      const right = column === 1 ? 0.49998 : (column + 1) / 4;
+      const bottom = row === 0 ? 0.49998 : 1;
+      return { x, y, width: right - x, height: bottom - y };
+    });
+
+    const launchPromise = harness.manager.launchWorkspace(
+      { id: "workspace-eight-grid" },
+      roles.map((gridRole, index) => ({ role: gridRole, rect: rects[index] })),
+      { workArea: { x: 2000, y: 40, width: 1603, height: 903 } }
+    );
+    for (let index = 0; index < roles.length; index += 1) {
+      await waitForChild(harness.children, index);
+      harness.children[index].emit("spawn");
+    }
+    await launchPromise;
+
+    const bounds = harness.automationTargets.map((target) => target.setWindowBounds.mock.calls[0][0]);
+    expect(bounds).toEqual([
+      { x: 2000, y: 40, width: 401, height: 452 },
+      { x: 2401, y: 40, width: 401, height: 452 },
+      { x: 2802, y: 40, width: 400, height: 452 },
+      { x: 3202, y: 40, width: 401, height: 452 },
+      { x: 2000, y: 492, width: 401, height: 451 },
+      { x: 2401, y: 492, width: 401, height: 451 },
+      { x: 2802, y: 492, width: 400, height: 451 },
+      { x: 3202, y: 492, width: 401, height: 451 }
+    ]);
+  });
+
   it("derives Windows workspace slots from one converted physical work area", async () => {
     const windowBoundsAdapter = createWindowBoundsAdapter(() => ({
       x: -1920,

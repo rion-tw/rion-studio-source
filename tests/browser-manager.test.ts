@@ -229,8 +229,9 @@ describe("BrowserManager game host windows", () => {
     expect(harness.manager.listStatuses()).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
   });
 
-  it("keeps the selected Windows DIP work area when a workspace falls back to external Chrome", async () => {
+  it("keeps the selected work area when a workspace falls back to external Chrome", async () => {
     const externalChromeManager = createExternalChromeManager();
+    const secondRole = createRole("role-2", "Alt");
     const target = {
       displayId: -22,
       workArea: { x: -984, y: -200, width: 984, height: 1280 }
@@ -238,23 +239,31 @@ describe("BrowserManager game host windows", () => {
     const harness = createHarness({
       externalChromeManager,
       getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
+      getWorkspaceAppearanceSettings: () => ({ background: "black", gap: 16 }),
       loadUrlHandlers: [
+        async () => {
+          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
+        },
         async () => {
           throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
         }
       ]
     });
 
+    const launchItems = [
+      { role, rect: workspace.slots[0].rect },
+      { role: secondRole, rect: workspace.slots[1].rect }
+    ];
     await harness.manager.launchWorkspace(
       workspace,
-      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+      launchItems,
       target
     );
 
     expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining(target.workArea));
     expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
       workspace,
-      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+      launchItems,
       expect.objectContaining({ workArea: target.workArea })
     );
     expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
@@ -296,22 +305,33 @@ describe("BrowserManager game host windows", () => {
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external" });
   });
 
-  it("uses an explicit workspace mode without resolving any role game mode", async () => {
+  it("ignores the embedded workspace gap in explicit external mode on every platform", async () => {
     const externalChromeManager = createExternalChromeManager();
     const getBrowserLaunchMode = vi.fn().mockResolvedValue("embedded");
-    const harness = createHarness({ externalChromeManager, getBrowserLaunchMode });
+    const getWorkspaceAppearanceSettings = vi.fn(() => ({ background: "black" as const, gap: 16 as const }));
+    const secondRole = createRole("role-2", "Alt");
+    const harness = createHarness({
+      externalChromeManager,
+      getBrowserLaunchMode,
+      getWorkspaceAppearanceSettings
+    });
+    const launchItems = [
+      { role, rect: workspace.slots[0].rect },
+      { role: secondRole, rect: workspace.slots[1].rect }
+    ];
 
     await harness.manager.launchWorkspace(
       workspace,
-      [{ role, rect: workspace.slots[0].rect }],
+      launchItems,
       undefined,
       "external"
     );
 
     expect(getBrowserLaunchMode).not.toHaveBeenCalled();
+    expect(getWorkspaceAppearanceSettings).not.toHaveBeenCalled();
     expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
       workspace,
-      [{ role, rect: workspace.slots[0].rect }],
+      launchItems,
       expect.objectContaining({ notice: undefined })
     );
   });

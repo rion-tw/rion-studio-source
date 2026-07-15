@@ -15,6 +15,7 @@ import {
   getGraphicsModeSwitches
 } from "../../shared/browserGraphics";
 import type { BrowserGraphicsMode, NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
+import { normalizeWorkspaceRectEdges } from "../../shared/workspaceLayout";
 import {
   connectExternalChromeAutomation,
   type ConnectExternalChromeAutomationOptions,
@@ -153,13 +154,16 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
     const workArea = options.workArea ?? this.options.getLaunchWorkArea();
     const physicalWorkArea = this.toPhysicalBounds(workArea);
+    // External Chrome always tiles the complete work area; appearance gaps apply only to embedded hosts.
+    const normalizedRects = normalizeWorkspaceRectEdges(items.map((item) => item.rect));
     const sessions: Array<{ roleId: string; session: ExternalChromeSession }> = [];
 
     try {
-      for (const item of items) {
-        const bounds = normalizedRectToPixelBounds(item.rect, workArea);
+      for (const [index, item] of items.entries()) {
+        const rect = normalizedRects[index];
+        const bounds = normalizedRectToPixelBounds(rect, workArea);
         const physicalBounds = physicalWorkArea
-          ? normalizedRectToPixelBounds(item.rect, physicalWorkArea)
+          ? normalizedRectToPixelBounds(rect, physicalWorkArea)
           : undefined;
         const session = await this.launchSession(
           item.role,

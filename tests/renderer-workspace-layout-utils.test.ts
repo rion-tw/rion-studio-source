@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { LaunchWorkspaceSlot, Role } from "../src/shared/types";
 import {
   getDefaultWorkspaceBrowserZoomPercent,
-  getDefaultWorkspaceRects
+  getDefaultWorkspaceRects,
+  isWorkspaceBrowserZoomPercent,
+  workspaceBrowserZoomPercents
 } from "../src/shared/workspaceLayout";
 import {
   applyWorkspaceSplits,
@@ -58,6 +60,12 @@ describe("renderer workspace layout helpers", () => {
     expect(getDefaultWorkspaceBrowserZoomPercent("two_columns")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_left_stack_right")).toBe(100);
     expect(getDefaultWorkspaceBrowserZoomPercent("main_right_stack_left")).toBe(100);
+  });
+
+  it("offers and validates every supported browser zoom percentage", () => {
+    expect(workspaceBrowserZoomPercents).toEqual([25, 33, 50, 67, 75, 80, 90, 100, 110, 125]);
+    expect(workspaceBrowserZoomPercents.every(isWorkspaceBrowserZoomPercent)).toBe(true);
+    expect(isWorkspaceBrowserZoomPercent(34)).toBe(false);
   });
 
   it("loads the saved browser zoom into the workspace form", () => {

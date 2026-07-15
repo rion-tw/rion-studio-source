@@ -14,7 +14,18 @@ export const DEFAULT_WORKSPACE_RESOURCE_POLICY: WorkspaceResourcePolicy = {
   mode: "primary_priority",
   backgroundCpuThrottleRate: 2
 };
-export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [75, 80, 90, 100, 110, 125];
+export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [
+  25,
+  33,
+  50,
+  67,
+  75,
+  80,
+  90,
+  100,
+  110,
+  125
+];
 
 const WORKSPACE_RECT_PRECISION_SCALE = 10_000;
 const WORKSPACE_RECT_EDGE_TOLERANCE = 0.0001;

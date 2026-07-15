@@ -48,6 +48,44 @@ describe("GameStore", () => {
     expect(repaired[0].coverImageDataUrl).toBeUndefined();
   });
 
+  it("migrates custom role defaults to balanced without changing game timestamps", async () => {
+    await store.initialize();
+    const game = await store.createGame({
+      name: "Performance defaults",
+      defaultLaunchUrl: "https://example.test/performance",
+      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "performance" }
+    });
+
+    await expect(store.migrateLaunchPresetsToBalanced()).resolves.toBe(true);
+    await expect(store.getGame(game.id)).resolves.toEqual({
+      ...game,
+      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" }
+    });
+    await expect(store.migrateLaunchPresetsToBalanced()).resolves.toBe(false);
+  });
+
+  it("normalizes an invalid stored game launch preset to balanced during migration", async () => {
+    await store.initialize();
+    const game = await store.createGame({
+      name: "Invalid stored defaults",
+      defaultLaunchUrl: "https://example.test/invalid",
+      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "performance" }
+    });
+    const gamesPath = join(baseDir, "games.json");
+    const file = JSON.parse(await readFile(gamesPath, "utf8")) as { games: Array<Record<string, unknown>> };
+    const storedGame = file.games.find((item) => item.id === game.id);
+    (storedGame?.roleDefaults as Record<string, unknown>).launchPreset = "turbo";
+    await writeFile(gamesPath, JSON.stringify(file), "utf8");
+    const reloadedStore = new GameStore(baseDir, roleStore);
+
+    await expect(reloadedStore.getGame(game.id)).resolves.toEqual({
+      ...game,
+      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" }
+    });
+    await reloadedStore.migrateLaunchPresetsToBalanced();
+    await expect(readFile(gamesPath, "utf8")).resolves.toContain('"launchPreset": "balanced"');
+  });
+
   it("migrates known and unknown role URLs idempotently without changing role metadata", async () => {
     const known = await roleStore.createRole({
       gameId: "legacy-missing",

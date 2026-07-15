@@ -3,6 +3,7 @@ export const DEFAULT_ROLE_WINDOW_WIDTH = 1440;
 export const DEFAULT_ROLE_WINDOW_HEIGHT = 900;
 
 export type LaunchPreset = "balanced" | "performance";
+export const DEFAULT_LAUNCH_PRESET: LaunchPreset = "balanced";
 export type WorkspaceLayoutTemplate =
   | "single"
   | "two_columns"

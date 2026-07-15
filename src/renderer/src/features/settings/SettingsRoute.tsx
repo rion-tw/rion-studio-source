@@ -539,8 +539,8 @@ function SettingsViewBase({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="performance">{t(presetLabelKeys.performance)}</SelectItem>
                       <SelectItem value="balanced">{t(presetLabelKeys.balanced)}</SelectItem>
+                      <SelectItem value="performance">{t(presetLabelKeys.performance)}</SelectItem>
                     </SelectContent>
                   </Select>
                 }

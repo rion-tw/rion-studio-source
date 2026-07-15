@@ -863,6 +863,40 @@ describe("PortableDataManager", () => {
     });
   });
 
+  it("defaults missing and invalid portable launch presets to balanced", async () => {
+    const importPath = join(baseDir, "missing-launch-preset.json");
+    const fixture = createPortableFixture();
+    const rawFixture = fixture as unknown as {
+      preferences: { roleDefaults: Record<string, unknown> };
+      roles: Array<Record<string, unknown>>;
+    };
+    delete rawFixture.roles[0].launchPreset;
+    rawFixture.preferences.roleDefaults.launchPreset = "turbo";
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    expect(preview?.preferences?.roleDefaults?.launchPreset).toBe("balanced");
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+    expect((await roleStore.listRoles()).find((role) => role.name === "Main")?.launchPreset)
+      .toBe("balanced");
+  });
+
+  it("preserves an explicitly imported performance launch preset", async () => {
+    const importPath = join(baseDir, "performance-launch-preset.json");
+    const fixture = createPortableFixture();
+    fixture.roles[0].launchPreset = "performance";
+    fixture.preferences!.roleDefaults!.launchPreset = "performance";
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    expect(preview?.preferences?.roleDefaults?.launchPreset).toBe("performance");
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+    expect((await roleStore.listRoles()).find((role) => role.name === "Main")?.launchPreset)
+      .toBe("performance");
+  });
+
   it("normalizes invalid portable browser font settings without blocking import", async () => {
     const importPath = join(baseDir, "invalid-browser-fonts.json");
     const fixture = createPortableFixture();

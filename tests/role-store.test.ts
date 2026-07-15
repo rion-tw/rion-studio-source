@@ -36,12 +36,49 @@ describe("RoleStore", () => {
       launchUrl: DEFAULT_LAUNCH_URL,
       windowWidth: DEFAULT_ROLE_WINDOW_WIDTH,
       windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT,
-      launchPreset: "performance",
+      launchPreset: "balanced",
       authState: "login_required"
     });
     await expect(mkdir(store.getRolePaths(role.id).browserUserDataDir)).rejects.toMatchObject({
       code: "EEXIST"
     });
+  });
+
+  it("migrates every existing launch preset to balanced without changing timestamps", async () => {
+    const performanceRole = await store.createRole({
+      gameId: "game-1",
+      name: "Performance",
+      launchPreset: "performance"
+    });
+    const balancedRole = await store.createRole({
+      gameId: "game-1",
+      name: "Balanced",
+      launchPreset: "balanced"
+    });
+
+    await expect(store.migrateLaunchPresetsToBalanced()).resolves.toBe(true);
+    await expect(store.listRoles()).resolves.toEqual([
+      { ...performanceRole, launchPreset: "balanced" },
+      balancedRole
+    ]);
+    await expect(store.migrateLaunchPresetsToBalanced()).resolves.toBe(false);
+  });
+
+  it("normalizes an invalid stored launch preset to balanced during migration", async () => {
+    const role = await store.createRole({
+      gameId: "game-1",
+      name: "Invalid stored preset",
+      launchPreset: "performance"
+    });
+    const rolesPath = join(baseDir, "roles.json");
+    const file = JSON.parse(await readFile(rolesPath, "utf8")) as { roles: Array<Record<string, unknown>> };
+    file.roles[0].launchPreset = "turbo";
+    await writeFile(rolesPath, JSON.stringify(file), "utf8");
+    const reloadedStore = new RoleStore(baseDir);
+
+    await expect(reloadedStore.listRoles()).resolves.toEqual([{ ...role, launchPreset: "balanced" }]);
+    await reloadedStore.migrateLaunchPresetsToBalanced();
+    await expect(readFile(rolesPath, "utf8")).resolves.toContain('"launchPreset": "balanced"');
   });
 
   it("returns isolated role copies from the in-memory cache", async () => {

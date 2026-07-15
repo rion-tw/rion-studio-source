@@ -271,7 +271,11 @@ function RoleForm({
                     }
                   />
                 </FormField>
-                <FormField htmlFor="role-launch-preset" label={t("roleForm.launchPreset")}>
+                <FormField
+                  htmlFor="role-launch-preset"
+                  label={t("roleForm.launchPreset")}
+                  description={t("roleForm.backgroundActivityDescription")}
+                >
                   <Select
                     value={form.launchPreset}
                     onValueChange={(value) =>
@@ -282,8 +286,8 @@ function RoleForm({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="performance">{t("preset.performance")}</SelectItem>
                       <SelectItem value="balanced">{t("preset.balanced")}</SelectItem>
+                      <SelectItem value="performance">{t("preset.performance")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </FormField>

@@ -3,6 +3,7 @@ import { access, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
+  DEFAULT_LAUNCH_PRESET,
   DEFAULT_LAUNCH_URL,
   DEFAULT_ROLE_WINDOW_HEIGHT,
   DEFAULT_ROLE_WINDOW_WIDTH,
@@ -61,6 +62,24 @@ export class RoleStore {
     return this.taskQueue.run(async () => {
       const file = await this.readRolesFile();
       return [...file.roles];
+    });
+  }
+
+  async migrateLaunchPresetsToBalanced(): Promise<boolean> {
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      let changed = false;
+      const roles = file.roles.map((role) => {
+        if (role.launchPreset === DEFAULT_LAUNCH_PRESET) {
+          return role;
+        }
+
+        changed = true;
+        return { ...role, launchPreset: DEFAULT_LAUNCH_PRESET };
+      });
+
+      await this.writeRolesFile({ roles });
+      return changed;
     });
   }
 
@@ -385,7 +404,7 @@ export class RoleStore {
 
   private normalizeLaunchPreset(value: LaunchPreset | undefined): LaunchPreset {
     if (value === undefined) {
-      return "performance";
+      return DEFAULT_LAUNCH_PRESET;
     }
 
     if (value !== "balanced" && value !== "performance") {
@@ -393,6 +412,10 @@ export class RoleStore {
     }
 
     return value;
+  }
+
+  private normalizeStoredLaunchPreset(value: unknown): LaunchPreset {
+    return value === "balanced" || value === "performance" ? value : DEFAULT_LAUNCH_PRESET;
   }
 
   private normalizeStoredRole(role: Role): Role {
@@ -416,7 +439,7 @@ export class RoleStore {
       launchUrl,
       authState: this.normalizeAuthState(storedRole.authState),
       notes: storedRole.notes ?? "",
-      launchPreset: this.normalizeLaunchPreset(storedRole.launchPreset),
+      launchPreset: this.normalizeStoredLaunchPreset(storedRole.launchPreset),
       coverImageDataUrl,
       coverImageDominantColor: coverImageDataUrl
         ? this.normalizeCoverImageDominantColor(storedRole.coverImageDominantColor)

@@ -399,6 +399,12 @@ describe("registerIpcHandlers workspace handlers", () => {
     await handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id, defaults);
 
     expect(gameCompatibilityManager.runCheck).toHaveBeenCalledWith(customGame.id, defaults);
+    await handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id);
+    expect(gameCompatibilityManager.runCheck).toHaveBeenLastCalledWith(customGame.id, {
+      windowWidth: 1440,
+      windowHeight: 900,
+      launchPreset: "balanced"
+    });
     await expect(handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id, {
       ...defaults,
       windowWidth: 100

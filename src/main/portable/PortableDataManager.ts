@@ -18,6 +18,7 @@ import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import {
+  DEFAULT_LAUNCH_PRESET,
   DEFAULT_LAUNCH_URL,
   DEFAULT_ROLE_WINDOW_HEIGHT,
   DEFAULT_ROLE_WINDOW_WIDTH,
@@ -1581,8 +1582,7 @@ function normalizeOptionalPortableRoleDefaults(value: unknown): RoleDefaults | u
 
     if (
       !isValidRoleDefaultWindowSize(windowWidth) ||
-      !isValidRoleDefaultWindowSize(windowHeight) ||
-      (launchPreset !== "balanced" && launchPreset !== "performance")
+      !isValidRoleDefaultWindowSize(windowHeight)
     ) {
       return undefined;
     }
@@ -1590,7 +1590,7 @@ function normalizeOptionalPortableRoleDefaults(value: unknown): RoleDefaults | u
     return {
       windowWidth,
       windowHeight,
-      launchPreset
+      launchPreset: normalizeLaunchPreset(launchPreset)
     };
   } catch {
     return undefined;
@@ -1735,7 +1735,7 @@ function normalizeLaunchPreset(value: unknown): LaunchPreset {
     return value;
   }
 
-  return "performance";
+  return DEFAULT_LAUNCH_PRESET;
 }
 
 function normalizeLaunchUrl(value: unknown): string {

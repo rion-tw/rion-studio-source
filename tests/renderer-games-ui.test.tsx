@@ -347,6 +347,37 @@ describe("games cover UI", () => {
     await user.click(screen.getByRole("button", { name: "Run compatibility check" }));
     expect(onRunCheck).toHaveBeenCalledWith(customGame.id);
   });
+
+  it("describes custom role defaults as embedded background activity", () => {
+    const customGame = game({
+      id: "game-1",
+      name: "Custom game",
+      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" }
+    });
+    const router = createMemoryRouter([{
+      path: "/games/:id/edit",
+      element: <ConfirmationProvider><GameEditorRoute
+        games={[customGame]}
+        isSaving={false}
+        reports={[]}
+        roleDefaults={roleDefaults}
+        runStatuses={[]}
+        t={t}
+        onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
+        onCancelCheck={vi.fn()}
+        onError={vi.fn()}
+        onOpenGraphicsSettings={vi.fn()}
+        onReset={vi.fn()}
+        onRunCheck={vi.fn()}
+        onSave={vi.fn()}
+      /></ConfirmationProvider>
+    }], { initialEntries: ["/games/game-1/edit"] });
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("Background activity")).toBeTruthy();
+    expect(screen.getAllByText("Power saving (Recommended)").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Embedded mode only/)).toBeTruthy();
+  });
 });
 
 const roleDefaults: RoleDefaults = {

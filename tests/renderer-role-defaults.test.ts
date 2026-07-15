@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY,
   DEFAULT_ROLE_DEFAULTS,
   ROLE_DEFAULTS_STORAGE_KEY,
   createEmptyRoleForm,
@@ -24,6 +25,30 @@ describe("renderer role defaults", () => {
       windowHeight: 900,
       launchPreset: "balanced"
     });
+  });
+
+  it("migrates an existing performance default once and preserves later explicit choices", () => {
+    const storage = createStorage({
+      [ROLE_DEFAULTS_STORAGE_KEY]: JSON.stringify({
+        windowWidth: 1920,
+        windowHeight: 1080,
+        launchPreset: "performance"
+      })
+    });
+
+    expect(readStoredRoleDefaults(storage)).toEqual({
+      windowWidth: 1920,
+      windowHeight: 1080,
+      launchPreset: "balanced"
+    });
+    expect(storage.getItem(BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY)).toBe("1");
+
+    writeStoredRoleDefaults({
+      windowWidth: 1920,
+      windowHeight: 1080,
+      launchPreset: "performance"
+    }, storage);
+    expect(readStoredRoleDefaults(storage).launchPreset).toBe("performance");
   });
 
   it("falls back field-by-field for missing values", () => {

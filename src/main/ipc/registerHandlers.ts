@@ -1,6 +1,11 @@
 import { BrowserWindow, ipcMain } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc";
+import {
+  DEFAULT_LAUNCH_PRESET,
+  DEFAULT_ROLE_WINDOW_HEIGHT,
+  DEFAULT_ROLE_WINDOW_WIDTH
+} from "../../shared/types";
 import type {
   AcceptLegalDocumentsInput,
   AppLanguage,
@@ -834,7 +839,11 @@ function isWorkspaceLaunchInput(value: unknown): value is WorkspaceLaunchInput |
 }
 
 function normalizeCompatibilityRoleDefaults(value: RoleDefaults | undefined): RoleDefaults {
-  const defaults = value ?? { windowWidth: 1440, windowHeight: 900, launchPreset: "performance" as const };
+  const defaults = value ?? {
+    windowWidth: DEFAULT_ROLE_WINDOW_WIDTH,
+    windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT,
+    launchPreset: DEFAULT_LAUNCH_PRESET
+  };
   if (
     !Number.isInteger(defaults.windowWidth) || defaults.windowWidth < 640 || defaults.windowWidth > 7680 ||
     !Number.isInteger(defaults.windowHeight) || defaults.windowHeight < 640 || defaults.windowHeight > 7680 ||

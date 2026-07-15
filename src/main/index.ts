@@ -48,6 +48,7 @@ import {
   recoverPortableImportTransaction
 } from "./portable/PortableDataManager";
 import { SerialTaskQueue } from "./persistence/SerialTaskQueue";
+import { runBackgroundActivityMigration } from "./persistence/BackgroundActivityMigration";
 import { RoleStore } from "./roles/RoleStore";
 import { findSystemChromeExecutable } from "./system-browser/SystemChromeLauncher";
 import {
@@ -262,6 +263,7 @@ async function initializeApplication(): Promise<void> {
   };
   const gameStore = new GameStore(userDataDir, roleStore);
   await gameStore.initialize();
+  await runBackgroundActivityMigration(userDataDir, { gameStore, roleStore });
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
   const macroStore = new MacroStore(userDataDir);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir);

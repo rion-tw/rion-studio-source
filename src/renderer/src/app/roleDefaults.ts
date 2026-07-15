@@ -1,4 +1,5 @@
 import {
+  DEFAULT_LAUNCH_PRESET,
   DEFAULT_LAUNCH_URL,
   DEFAULT_ROLE_WINDOW_HEIGHT,
   DEFAULT_ROLE_WINDOW_WIDTH,
@@ -13,12 +14,14 @@ interface RoleDefaultsStorage {
 }
 
 export const ROLE_DEFAULTS_STORAGE_KEY = "rion-studio-role-defaults";
+export const BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY =
+  "rion-studio-background-activity-migration-v1";
 export const ROLE_WINDOW_CUSTOM_OPTION = "custom";
 
 export const DEFAULT_ROLE_DEFAULTS: RoleDefaults = {
   windowWidth: DEFAULT_ROLE_WINDOW_WIDTH,
   windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT,
-  launchPreset: "performance"
+  launchPreset: DEFAULT_LAUNCH_PRESET
 };
 
 export const roleWindowSizeOptions = [
@@ -80,15 +83,23 @@ export function readStoredRoleDefaults(storage = getLocalStorage()): RoleDefault
   }
 
   const storedValue = storage.getItem(ROLE_DEFAULTS_STORAGE_KEY);
-  if (!storedValue) {
-    return DEFAULT_ROLE_DEFAULTS;
+  let roleDefaults: RoleDefaults;
+  try {
+    roleDefaults = storedValue
+      ? normalizeRoleDefaults(JSON.parse(storedValue) as unknown)
+      : DEFAULT_ROLE_DEFAULTS;
+  } catch {
+    roleDefaults = DEFAULT_ROLE_DEFAULTS;
   }
 
-  try {
-    return normalizeRoleDefaults(JSON.parse(storedValue) as unknown);
-  } catch {
-    return DEFAULT_ROLE_DEFAULTS;
+  if (storage.getItem(BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY) === "1") {
+    return roleDefaults;
   }
+
+  const migrated = { ...roleDefaults, launchPreset: DEFAULT_LAUNCH_PRESET };
+  storage.setItem(ROLE_DEFAULTS_STORAGE_KEY, JSON.stringify(migrated));
+  storage.setItem(BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY, "1");
+  return migrated;
 }
 
 export function writeStoredRoleDefaults(
@@ -97,6 +108,7 @@ export function writeStoredRoleDefaults(
 ): RoleDefaults {
   const normalizedDefaults = normalizeRoleDefaults(roleDefaults);
   storage?.setItem(ROLE_DEFAULTS_STORAGE_KEY, JSON.stringify(normalizedDefaults));
+  storage?.setItem(BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY, "1");
   return normalizedDefaults;
 }
 

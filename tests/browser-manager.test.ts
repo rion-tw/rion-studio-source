@@ -564,7 +564,7 @@ describe("BrowserManager game host windows", () => {
     });
   });
 
-  it("launches workspace roles in batches of two", async () => {
+  it("launches the primary first and then workspace roles in batches of two", async () => {
     const started: number[] = [];
     const releases: Array<() => void> = [];
     const loadUrlHandlers = Array.from({ length: 4 }, (_, index) => async () => {
@@ -581,11 +581,12 @@ describe("BrowserManager game host windows", () => {
       roles.map((item, index) => ({ role: item, rect: rects[index] }))
     );
 
-    await vi.waitFor(() => expect(started).toEqual([0, 1]));
+    await vi.waitFor(() => expect(started).toEqual([0]));
     releases[0]();
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2]));
     releases[1]();
-    await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3]));
     releases[2]();
+    await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3]));
     releases[3]();
 
     await expect(launch).resolves.toHaveLength(4);

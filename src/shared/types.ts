@@ -129,6 +129,8 @@ export interface RoleStatus {
   automationState?: "ready" | "unavailable";
   resourceState?: WorkspaceResourceState;
   cpuThrottleRate?: WorkspaceCpuThrottleRate | 1;
+  resourcePressureLevel?: WorkspacePressureLevel;
+  resourceReason?: WorkspaceResourceReason;
 }
 
 export interface MacroTrigger {
@@ -231,8 +233,17 @@ export interface LaunchWorkspaceSlot {
   rect: NormalizedRect;
 }
 
-export type WorkspaceResourceMode = "unrestricted" | "primary_priority";
+export type WorkspaceResourceMode = "unrestricted" | "primary_priority" | "adaptive";
 export type WorkspaceCpuThrottleRate = 2 | 4;
+export type WorkspacePressureLevel = "normal" | "constrained";
+export type WorkspaceResourceReason =
+  | "baseline"
+  | "cpu"
+  | "memory"
+  | "thermal"
+  | "macro"
+  | "shared_process"
+  | "unavailable";
 export type WorkspaceResourceState =
   | "primary"
   | "throttled"

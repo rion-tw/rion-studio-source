@@ -18,7 +18,7 @@ import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import type { RoleStore } from "../roles/RoleStore";
 import {
   LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
-  migrateLegacyWorkspaceResourcePolicyDefault,
+  migrateWorkspaceResourcePolicyToAdaptive,
   type LaunchWorkspaceStore
 } from "../workspaces/LaunchWorkspaceStore";
 import {
@@ -845,7 +845,7 @@ export async function recoverPortableImportTransaction(userDataDir: string): Pro
     ) ||
     (
       journal.workspaceFileSchemaVersion !== undefined &&
-      journal.workspaceFileSchemaVersion !== LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
+      journal.workspaceFileSchemaVersion > LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
     )
   ) {
     throw new PortableDataError("PORTABLE_IMPORT_RECOVERY_INVALID", "Portable import recovery data is invalid.");
@@ -856,8 +856,8 @@ export async function recoverPortableImportTransaction(userDataDir: string): Pro
   const journalWorkspaces = isCommitted
     ? journal.targetWorkspaces as LaunchWorkspace[]
     : journal.workspaces;
-  const recoveryWorkspaces = journal.workspaceFileSchemaVersion === undefined
-    ? journalWorkspaces.map(migrateLegacyWorkspaceResourcePolicyDefault)
+  const recoveryWorkspaces = (journal.workspaceFileSchemaVersion ?? 0) < LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
+    ? journalWorkspaces.map(migrateWorkspaceResourcePolicyToAdaptive)
     : journalWorkspaces;
   const recoveryMacros = isCommitted ? journal.targetMacros as Macro[] : journal.macros;
   const recoverySettings = isCommitted
@@ -1477,7 +1477,7 @@ function normalizePortableWorkspaceResourcePolicy(
     value === undefined || value === null ? DEFAULT_WORKSPACE_RESOURCE_POLICY : value
   );
   if (
-    (input.mode !== "unrestricted" && input.mode !== "primary_priority") ||
+    (input.mode !== "unrestricted" && input.mode !== "primary_priority" && input.mode !== "adaptive") ||
     (input.backgroundCpuThrottleRate !== 2 && input.backgroundCpuThrottleRate !== 4)
   ) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");

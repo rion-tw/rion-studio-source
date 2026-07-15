@@ -45,6 +45,7 @@ import {
 import type { ExternalChromeLaunchItem, ExternalChromeManager } from "./ExternalChromeManager";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import { ElectronWorkspaceResourceTarget } from "./ElectronWorkspaceResourceTarget";
+import type { SystemPressureSource } from "./SystemPressureMonitor";
 import {
   WorkspaceResourceCoordinator,
   type WorkspaceResourceTarget
@@ -96,6 +97,7 @@ export interface BrowserManagerOptions {
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
+  resourcePressureMonitor?: SystemPressureSource;
 }
 
 export class BrowserLaunchAuthError extends Error {
@@ -150,6 +152,7 @@ export class BrowserWorkspaceDisplayOccupiedError extends Error {
 }
 
 interface GameHostWindow {
+  adaptiveResources: boolean;
   activeDividerResize?: ActiveGameDividerResize;
   closing: boolean;
   dividers: GameDivider[];
@@ -241,7 +244,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly roleOperationTails = new Map<string, Promise<void>>();
   private readonly workspaceDisplayReservations = new Map<string, { displayId: number; name: string }>();
   private readonly workspaceHostIds = new Map<string, string>();
-  private readonly resourceCoordinator = new WorkspaceResourceCoordinator();
+  private readonly resourceCoordinator: WorkspaceResourceCoordinator;
   private beforeRolesStop?: BeforeRolesStop;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
 
@@ -250,6 +253,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     private readonly options: BrowserManagerOptions
   ) {
     super();
+    this.resourceCoordinator = new WorkspaceResourceCoordinator(options.resourcePressureMonitor);
     this.options.externalChromeManager?.on("change", () => {
       this.cleanupWorkspaceDisplayReservations();
       void this.resourceCoordinator.reconcileRuntimeRoleIds(
@@ -406,7 +410,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         `${workspace.name} - ${roleNames}`,
         workspace.id,
         target?.workArea,
-        workspaceAppearance
+        workspaceAppearance,
+        workspace.resourcePolicy.mode === "adaptive"
       );
       try {
         await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
@@ -417,9 +422,19 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         const zoomFactor = workspace.browserZoomPercent / 100;
         await this.createHostDividers(host);
         host.window.show();
+        const primaryRoleId = workspace.resourcePolicy.primaryRoleId ?? sessions[0]?.role.id;
+        const primarySession = sessions.find((session) => session.role.id === primaryRoleId) ?? sessions[0];
+        if (primarySession) {
+          await this.finishLaunch(primarySession, zoomFactor);
+        }
+        const backgroundSessions = sessions.filter((session) => session !== primarySession);
+        const launchConcurrency = workspace.resourcePolicy.mode === "adaptive" &&
+          this.options.resourcePressureMonitor?.getSnapshot().level === "constrained"
+          ? 1
+          : WORKSPACE_LAUNCH_CONCURRENCY;
         await runInBatches(
-          sessions,
-          WORKSPACE_LAUNCH_CONCURRENCY,
+          backgroundSessions,
+          launchConcurrency,
           (session) => this.finishLaunch(session, zoomFactor)
         );
         if (host.closing || host.window.isDestroyed()) {
@@ -628,7 +643,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     title: string,
     workspaceId?: string,
     launchBounds?: PixelBounds,
-    workspaceAppearance: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+    workspaceAppearance: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
+    adaptiveResources = false
   ): GameHostWindow {
     const bounds = launchBounds ?? this.options.getLaunchWorkArea();
     const isWorkspace = Boolean(workspaceId);
@@ -654,6 +670,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       window.contentView.setBackgroundColor("#00000000");
     }
     const host: GameHostWindow = {
+      adaptiveResources,
       closing: false,
       dividers: [],
       id: randomUUID(),
@@ -685,7 +702,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const partition = createRoleSessionPartition(role.id);
     const view = this.options.createView({
       webPreferences: {
-        backgroundThrottling: role.launchPreset !== "performance",
+        backgroundThrottling: host.adaptiveResources || role.launchPreset !== "performance",
         contextIsolation: true,
         nodeIntegration: false,
         partition,
@@ -946,7 +963,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const popupView = this.options.createView({
       webPreferences: {
         ...windowOptions.webPreferences,
-        backgroundThrottling: session.role.launchPreset !== "performance",
+        backgroundThrottling: host.adaptiveResources || session.role.launchPreset !== "performance",
         contextIsolation: true,
         nodeIntegration: false,
         partition: createRoleSessionPartition(session.role.id),

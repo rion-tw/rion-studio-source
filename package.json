@@ -28,7 +28,7 @@
   "engines": {
     "node": ">=24.10.0"
   },
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.13.0",
   "dependencies": {
     "electron-updater": "^6.8.9",
     "ws": "^8.21.0"

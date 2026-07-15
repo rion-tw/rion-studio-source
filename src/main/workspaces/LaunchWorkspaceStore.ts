@@ -58,7 +58,7 @@ const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
 ];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
-export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 1;
+export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 2;
 
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
@@ -298,10 +298,9 @@ export class LaunchWorkspaceStore {
         throw new LaunchWorkspaceStoreError("WORKSPACE_FILE_INVALID", "Launch workspace data file is invalid.");
       }
 
-      const shouldMigrateResourcePolicyDefault = parsed.schemaVersion === undefined;
+      const storedSchemaVersion = parsed.schemaVersion ?? 0;
       if (
-        parsed.schemaVersion !== undefined &&
-        parsed.schemaVersion !== LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
+        storedSchemaVersion > LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
       ) {
         throw new LaunchWorkspaceStoreError(
           "WORKSPACE_FILE_INVALID",
@@ -315,14 +314,14 @@ export class LaunchWorkspaceStore {
           !("resourcePolicy" in workspace) ||
           hasLegacyRoleSlotReference(workspace) ||
           hasLegacyCenteredMainDefaultLayout(workspace as StoredLaunchWorkspace)
-      ) || shouldMigrateResourcePolicyDefault;
+      ) || storedSchemaVersion < LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION;
       const normalizedWorkspaces = parsed.workspaces.map((workspace) =>
         this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
       );
       const file = {
         schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
-        workspaces: shouldMigrateResourcePolicyDefault
-          ? normalizedWorkspaces.map(migrateLegacyWorkspaceResourcePolicyDefault)
+        workspaces: storedSchemaVersion < LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
+          ? normalizedWorkspaces.map(migrateWorkspaceResourcePolicyToAdaptive)
           : normalizedWorkspaces
       };
 
@@ -483,7 +482,7 @@ export class LaunchWorkspaceStore {
     const mode = input.mode;
     const backgroundCpuThrottleRate = input.backgroundCpuThrottleRate;
     if (
-      (mode !== "unrestricted" && mode !== "primary_priority") ||
+      (mode !== "unrestricted" && mode !== "primary_priority" && mode !== "adaptive") ||
       (backgroundCpuThrottleRate !== 2 && backgroundCpuThrottleRate !== 4)
     ) {
       throw new LaunchWorkspaceStoreError(
@@ -679,6 +678,21 @@ export function migrateLegacyWorkspaceResourcePolicyDefault(
     resourcePolicy: {
       mode: "primary_priority",
       backgroundCpuThrottleRate: 2,
+      ...(primaryRoleId ? { primaryRoleId } : {})
+    }
+  };
+}
+
+export function migrateWorkspaceResourcePolicyToAdaptive(
+  workspace: LaunchWorkspace
+): LaunchWorkspace {
+  const primaryRoleId = workspace.resourcePolicy.primaryRoleId ??
+    workspace.slots.find((slot) => slot.roleId)?.roleId;
+  return {
+    ...workspace,
+    resourcePolicy: {
+      mode: "adaptive",
+      backgroundCpuThrottleRate: 4,
       ...(primaryRoleId ? { primaryRoleId } : {})
     }
   };

@@ -700,7 +700,7 @@ function WorkspaceLayoutPreviewSlot({
       {status?.resourceState ? (
         <div
           className="absolute right-1.5 top-1.5 rounded-full border border-white/20 bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold leading-3 text-white shadow-sm backdrop-blur-md"
-          title={getResourceStateLabel(status, t)}
+          title={getResourceStateTitle(status, t)}
         >
           {getResourceStateLabel(status, t)}
         </div>
@@ -709,12 +709,29 @@ function WorkspaceLayoutPreviewSlot({
   );
 }
 
+function getResourceStateTitle(status: RoleStatus, t: Translator): string {
+  const label = getResourceStateLabel(status, t);
+  if (status.resourceState !== "throttled" || !status.resourcePressureLevel) return label;
+  switch (status.resourceReason) {
+    case "cpu":
+      return `${label} — ${t("workspaces.resourceReason.cpu")}`;
+    case "memory":
+      return `${label} — ${t("workspaces.resourceReason.memory")}`;
+    case "thermal":
+      return `${label} — ${t("workspaces.resourceReason.thermal")}`;
+    default:
+      return `${label} — ${t("workspaces.resourceReason.baseline")}`;
+  }
+}
+
 function getResourceStateLabel(status: RoleStatus, t: Translator): string {
   switch (status.resourceState) {
     case "primary":
       return t("workspaces.resourceState.primary");
     case "throttled":
-      return `${status.cpuThrottleRate ?? 1}x`;
+      return status.resourcePressureLevel
+        ? `${t("workspaces.resourceState.auto")} ${status.cpuThrottleRate ?? 1}x`
+        : `${status.cpuThrottleRate ?? 1}x`;
     case "macro_override":
       return t("workspaces.resourceState.macroOverride");
     case "shared_process":

@@ -26,10 +26,10 @@ describe("LaunchWorkspaceStore", () => {
     const workspace = await store.createWorkspace({ name: "Party" });
     const listed = await store.listWorkspaces();
     listed[0].slots[0].rect.width = 0.75;
-    listed[0].resourcePolicy.backgroundCpuThrottleRate = 4;
+    listed[0].resourcePolicy.backgroundCpuThrottleRate = 2;
 
     expect((await store.getWorkspace(workspace.id)).slots[0].rect.width).toBe(0.5);
-    expect((await store.getWorkspace(workspace.id)).resourcePolicy.backgroundCpuThrottleRate).toBe(2);
+    expect((await store.getWorkspace(workspace.id)).resourcePolicy.backgroundCpuThrottleRate).toBe(4);
   });
 
   it("creates a launch workspace with default layout slots", async () => {
@@ -39,7 +39,7 @@ describe("LaunchWorkspaceStore", () => {
       name: "Boss run",
       template: "two_columns",
       browserZoomPercent: 100,
-      resourcePolicy: { mode: "primary_priority", backgroundCpuThrottleRate: 2 }
+      resourcePolicy: { mode: "adaptive", backgroundCpuThrottleRate: 4 }
     });
     expect(workspace.slots).toEqual([
       {
@@ -60,8 +60,8 @@ describe("LaunchWorkspaceStore", () => {
       slots: [{ roleId: "role-1" }, {}]
     });
     expect(updated.resourcePolicy).toEqual({
-      mode: "primary_priority",
-      backgroundCpuThrottleRate: 2,
+      mode: "adaptive",
+      backgroundCpuThrottleRate: 4,
       primaryRoleId: "role-1"
     });
   });
@@ -540,8 +540,8 @@ describe("LaunchWorkspaceStore", () => {
     expect(unchanged).toContain('"browserZoomPercent": 100');
     expect(unchanged).toContain(`"schemaVersion": ${LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION}`);
     expect(workspace.resourcePolicy).toEqual({
-      mode: "primary_priority",
-      backgroundCpuThrottleRate: 2,
+      mode: "adaptive",
+      backgroundCpuThrottleRate: 4,
       primaryRoleId: "role-1"
     });
     expect(workspace.slots).toMatchObject([
@@ -595,13 +595,13 @@ describe("LaunchWorkspaceStore", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 2,
+        mode: "adaptive",
+        backgroundCpuThrottleRate: 4,
         primaryRoleId: "role-1"
       }
     });
     expect(migrated[1].resourcePolicy).toEqual({
-      mode: "primary_priority",
+      mode: "adaptive",
       backgroundCpuThrottleRate: 4,
       primaryRoleId: "role-2"
     });

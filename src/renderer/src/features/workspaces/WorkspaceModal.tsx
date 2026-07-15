@@ -514,6 +514,7 @@ function WorkspaceLayoutFormEditor({
             >
               <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="adaptive">{t("workspaces.resourceModeAdaptive")}</SelectItem>
                 <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
                 <SelectItem value="primary_priority">
                   {t("workspaces.resourceModePrimary")}
@@ -531,7 +532,7 @@ function WorkspaceLayoutFormEditor({
           >
             <Select
               value={String(form.resourcePolicy.backgroundCpuThrottleRate)}
-              disabled={isSaving || form.resourcePolicy.mode === "unrestricted"}
+              disabled={isSaving || form.resourcePolicy.mode !== "primary_priority"}
               onValueChange={(value) => onChange({
                 ...form,
                 resourcePolicy: {
@@ -604,7 +605,7 @@ function WorkspaceLayoutFormEditor({
                   key={slot.id}
                   index={index}
                   isDropTarget={index === dropTargetSlotIndex}
-                  isPrimary={role?.id === form.resourcePolicy.primaryRoleId && form.resourcePolicy.mode === "primary_priority"}
+                  isPrimary={role?.id === form.resourcePolicy.primaryRoleId && form.resourcePolicy.mode !== "unrestricted"}
                   isSelected={index === selectedSlotIndex}
                   isSaving={isSaving}
                   launchGameName={role ? gameNameById.get(role.gameId) : undefined}

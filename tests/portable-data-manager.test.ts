@@ -1133,8 +1133,8 @@ describe("PortableDataManager", () => {
     await expect(recoveredStore.getRole(role.id)).resolves.toMatchObject({ name: "Before" });
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 2,
+        mode: "adaptive",
+        backgroundCpuThrottleRate: 4,
         primaryRoleId: role.id
       }
     });

@@ -284,7 +284,7 @@ async function initializeApplication(): Promise<void> {
     currentVersion: app.getVersion(),
     isPackaged: app.isPackaged,
     manualUpdateRepository:
-      process.env.RION_STUDIO_RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY ?? DEFAULT_UPDATE_REPOSITORY,
+      process.env.RION_STUDIO_RELEASE_REPOSITORY ?? DEFAULT_UPDATE_REPOSITORY,
     openExternal: (url) => shell.openExternal(url)
   });
   let updateCheckStarted = false;

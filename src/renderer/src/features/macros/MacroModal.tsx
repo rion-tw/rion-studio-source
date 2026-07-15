@@ -403,7 +403,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                       </div>
                     </div>
                   ) : (
-                    <div className="grid gap-2">
+                    <div className="glass-control grid overflow-hidden rounded-md [&>*:last-child]:border-b-0">
                       {form.steps.map((step, index) => (
                         <MacroStepEditor
                           key={step.id}
@@ -685,7 +685,7 @@ function MacroStepEditor({
   t
 }: MacroStepEditorProps): JSX.Element {
   return (
-    <div className="glass-control grid gap-2 rounded-md p-2.5 md:grid-cols-[auto_128px_minmax(0,1fr)_auto] md:items-center">
+    <div className="glass-divider grid gap-2 border-b p-2.5 md:grid-cols-[auto_128px_minmax(0,1fr)_auto] md:items-center">
       <span className="grid size-7 shrink-0 place-items-center rounded-md bg-background/35 text-[11px] font-bold text-muted-foreground">
         {index + 1}
       </span>

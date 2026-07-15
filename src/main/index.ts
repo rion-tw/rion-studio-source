@@ -14,6 +14,7 @@ import {
   screen,
   session as electronSession,
   shell,
+  Tray,
   WebContentsView
 } from "electron";
 
@@ -27,6 +28,7 @@ import {
   GAME_DIVIDER_POINTER_CHANNEL
 } from "./browser/BrowserManager";
 import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
+import { buildWindowsTrayMenuTemplate } from "./tray/WindowsTrayMenu";
 import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
 import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
 import { CdnCompatibilityManager } from "./game-browser/CdnCompatibilityManager";
@@ -69,6 +71,7 @@ import {
 import { AppUpdateManager, DEFAULT_UPDATE_REPOSITORY } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
 import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
+import { handleMainWindowClose } from "./window/mainWindowLifecycle";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import type { MacroEditorRequest } from "../shared/types";
@@ -86,11 +89,14 @@ let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let dockRoleMenu: MacDockRoleMenu | null = null;
+let windowsTray: Tray | null = null;
 let pendingMacroEditorRequest: MacroEditorRequest | null = null;
 let appInitialized = false;
 let initializationFailed = false;
 let mainWindowReady = false;
 let startupPromise: Promise<void> | null = null;
+let isApplicationQuitting = false;
+let quitCleanupPromise: Promise<void> | null = null;
 const rendererReadyGate = new RendererReadyGate();
 const RENDERER_READY_TIMEOUT_MS = 15_000;
 
@@ -100,6 +106,14 @@ function getAppIconPath(): string {
   }
 
   return join(__dirname, "../../build/icon.png");
+}
+
+function getWindowsTrayIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, "icon.ico");
+  }
+
+  return join(__dirname, "../../build/icon.ico");
 }
 
 function loadAppIcon() {
@@ -172,6 +186,10 @@ function createStartupWindow(): BrowserWindow {
   mainWindow = window;
   mainWindowReady = false;
 
+  window.on("close", (event) => {
+    handleMainWindowClose(event, window, isApplicationQuitting);
+  });
+
   window.on("closed", () => {
     rendererReadyGate.cancel(webContentsId);
     if (startupWindow === window) {
@@ -184,6 +202,36 @@ function createStartupWindow(): BrowserWindow {
   });
 
   return window;
+}
+
+function createWindowsTray(): void {
+  if (process.platform !== "win32" || windowsTray) {
+    return;
+  }
+
+  const iconPath = getWindowsTrayIconPath();
+  if (!existsSync(iconPath)) {
+    console.error(`Windows tray icon was not found: ${iconPath}`);
+    return;
+  }
+
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    console.error(`Windows tray icon could not be loaded: ${iconPath}`);
+    return;
+  }
+
+  windowsTray = new Tray(icon);
+  windowsTray.setToolTip("Rion Studio");
+  windowsTray.setContextMenu(
+    Menu.buildFromTemplate(
+      buildWindowsTrayMenuTemplate({
+        openApp: showMainWindow,
+        quitApp: () => app.quit()
+      })
+    )
+  );
+  windowsTray.on("click", showMainWindow);
 }
 
 function loadMainRenderer(window: BrowserWindow): Promise<void> {
@@ -625,6 +673,8 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
   }
 
+  createWindowsTray();
+
   ensureApplicationStarted();
 
   app.on("activate", () => {
@@ -653,16 +703,30 @@ function getWorkspaceDisplayInfos() {
   return createWorkspaceDisplayInfos(screen.getAllDisplays(), screen.getPrimaryDisplay().id);
 }
 
-app.on("before-quit", async (event) => {
-  if (!browserManager) {
+app.on("before-quit", (event) => {
+  if (isApplicationQuitting) {
     return;
   }
 
   event.preventDefault();
-  const manager = browserManager;
-  browserManager = null;
-  await manager.stopAll();
-  app.quit();
+  if (quitCleanupPromise) {
+    return;
+  }
+
+  quitCleanupPromise = (async () => {
+    const manager = browserManager;
+
+    try {
+      await manager?.stopAll();
+    } catch (error) {
+      console.error("Failed to stop all browser sessions while quitting.", error);
+    } finally {
+      isApplicationQuitting = true;
+      app.quit();
+      isApplicationQuitting = false;
+      quitCleanupPromise = null;
+    }
+  })();
 });
 
 app.on("window-all-closed", () => {

@@ -60,6 +60,10 @@ describe("electron-builder release configuration", () => {
       to: "cdn-compat-extension"
     });
     expect(config.extraResources).toContainEqual({
+      from: "build/icon.ico",
+      to: "icon.ico"
+    });
+    expect(config.extraResources).toContainEqual({
       from: "docs/legal",
       to: "legal"
     });

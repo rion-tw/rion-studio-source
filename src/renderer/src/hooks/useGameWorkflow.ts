@@ -32,6 +32,7 @@ export function useGameWorkflow({
       const input = {
         name: form.name,
         iconImageDataUrl: form.source === "custom" ? form.iconImageDataUrl ?? null : undefined,
+        coverImageDataUrl: form.source === "custom" ? form.coverImageDataUrl ?? null : undefined,
         defaultLaunchUrl: form.defaultLaunchUrl,
         loginUrl: form.loginUrl.trim() || null,
         roleDefaults: form.usesGlobalRoleDefaults

@@ -41,6 +41,7 @@ export interface Game {
   builtinKey?: BuiltinGameKey;
   name: string;
   iconImageDataUrl?: string;
+  coverImageDataUrl?: string;
   defaultLaunchUrl: string;
   loginUrl?: string;
   roleDefaults?: RoleDefaults;
@@ -52,6 +53,7 @@ export interface Game {
 export interface CreateGameInput {
   name: string;
   iconImageDataUrl?: string | null;
+  coverImageDataUrl?: string | null;
   defaultLaunchUrl: string;
   loginUrl?: string | null;
   roleDefaults?: RoleDefaults | null;
@@ -528,6 +530,7 @@ export interface PortableGame {
   builtinKey?: BuiltinGameKey;
   name: string;
   iconImageDataUrl?: string;
+  coverImageDataUrl?: string;
   defaultLaunchUrl: string;
   loginUrl?: string;
   roleDefaults?: RoleDefaults;

@@ -190,7 +190,12 @@ describe("PortableDataManager", () => {
 
   it("round-trips games without requiring roles", async () => {
     const filePath = join(baseDir, "games-only.json");
-    await gameStore.createGame({ name: "Custom web game", defaultLaunchUrl: "https://custom.test/play" });
+    const coverImageDataUrl = "data:image/webp;base64,QQ==";
+    await gameStore.createGame({
+      name: "Custom web game",
+      defaultLaunchUrl: "https://custom.test/play",
+      coverImageDataUrl
+    });
     const manager = createManager({
       exportPath: filePath,
       importId: "games-only-import",
@@ -209,6 +214,9 @@ describe("PortableDataManager", () => {
         preferences: false
       }
     })).resolves.toMatchObject({ gameCount: 3, roleCount: 0, selection: { games: true, roles: false } });
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV2;
+    expect(exported.games.find((game) => game.name === "Custom web game"))
+      .toMatchObject({ coverImageDataUrl });
     const preview = await manager.previewImport();
     expect(preview).toMatchObject({ gameCount: 3, roleCount: 0 });
     await expect(manager.applyImport({
@@ -222,6 +230,33 @@ describe("PortableDataManager", () => {
       }
     })).resolves.toMatchObject({ gameCount: 3, roleCount: 0, selection: { games: true, roles: false } });
     expect((await gameStore.listGames()).filter((game) => game.source === "custom")).toHaveLength(2);
+    expect((await gameStore.listGames()).find((game) => game.name === "Custom web game (Imported)"))
+      .toMatchObject({ coverImageDataUrl });
+  });
+
+  it("rejects an invalid custom game cover in portable v2 data", async () => {
+    const importPath = join(baseDir, "invalid-game-cover.json");
+    const fixture: RionPortableDataV2 = {
+      app: "Rion Studio",
+      schemaVersion: 2,
+      exportedAt: "2026-07-13T09:00:00.000Z",
+      appVersion: "1.2.3",
+      games: [{
+        id: "bad-cover-game",
+        source: "custom",
+        name: "Bad cover",
+        coverImageDataUrl: "data:text/plain;base64,QQ==",
+        defaultLaunchUrl: "https://bad-cover.test/play",
+        browserLaunchMode: "inherit"
+      }],
+      roles: [],
+      launchWorkspaces: [],
+      macros: []
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
   it("rejects an export without any available selected content", async () => {
@@ -357,6 +392,7 @@ describe("PortableDataManager", () => {
           source: "builtin",
           builtinKey: "flyff-universe",
           name: "Ignored imported name",
+          coverImageDataUrl: "data:image/webp;base64,QQ==",
           defaultLaunchUrl: "https://override.test/play",
           loginUrl: "https://override.test/login",
           roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" },
@@ -429,6 +465,8 @@ describe("PortableDataManager", () => {
       loginUrl: "https://override.test/login",
       browserLaunchMode: "external"
     });
+    expect(games.find((game) => game.builtinKey === "flyff-universe")?.coverImageDataUrl)
+      .toBeUndefined();
     expect(games).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: "custom", name: "Shared (Imported)" }),
       expect.objectContaining({ source: "custom", name: "recovery.test · custom/path" })

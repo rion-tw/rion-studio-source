@@ -123,6 +123,7 @@ export class GameStore {
         defaultLaunchUrl: normalizeHttpUrl(input.defaultLaunchUrl),
         loginUrl: normalizeOptionalHttpUrl(input.loginUrl),
         iconImageDataUrl: normalizeImageDataUrl(input.iconImageDataUrl),
+        coverImageDataUrl: normalizeCoverImageDataUrl(input.coverImageDataUrl),
         roleDefaults: normalizeOptionalRoleDefaults(input.roleDefaults),
         browserLaunchMode: normalizeBrowserLaunchMode(input.browserLaunchMode),
         createdAt: timestamp,
@@ -151,6 +152,9 @@ export class GameStore {
         if (input.iconImageDataUrl !== undefined) {
           throw new GameStoreError("GAME_BUILTIN_FIELD_PROTECTED", "Built-in game icon cannot be changed.");
         }
+        if (input.coverImageDataUrl !== undefined) {
+          throw new GameStoreError("GAME_BUILTIN_FIELD_PROTECTED", "Built-in game cover cannot be changed.");
+        }
       }
 
       const name = input.name === undefined ? current.name : normalizeName(input.name);
@@ -165,6 +169,9 @@ export class GameStore {
         iconImageDataUrl: input.iconImageDataUrl === undefined
           ? current.iconImageDataUrl
           : normalizeImageDataUrl(input.iconImageDataUrl),
+        coverImageDataUrl: input.coverImageDataUrl === undefined
+          ? current.coverImageDataUrl
+          : normalizeCoverImageDataUrl(input.coverImageDataUrl),
         roleDefaults: input.roleDefaults === undefined
           ? current.roleDefaults
           : normalizeOptionalRoleDefaults(input.roleDefaults),
@@ -272,14 +279,16 @@ export class GameStore {
         source: "builtin" as const,
         builtinKey: definition.builtinKey,
         name: definition.name,
-        iconImageDataUrl: undefined
+        iconImageDataUrl: undefined,
+        coverImageDataUrl: undefined
       };
       if (
         current.id !== protectedFields.id ||
         current.source !== protectedFields.source ||
         current.builtinKey !== protectedFields.builtinKey ||
         current.name !== protectedFields.name ||
-        current.iconImageDataUrl !== undefined
+        current.iconImageDataUrl !== undefined ||
+        current.coverImageDataUrl !== undefined
       ) {
         storedGames[index] = { ...current, ...protectedFields };
         shouldWrite = true;
@@ -336,6 +345,7 @@ function normalizeStoredGame(value: unknown): Game {
     defaultLaunchUrl: normalizeHttpUrl(value.defaultLaunchUrl),
     loginUrl: normalizeOptionalHttpUrl(value.loginUrl),
     iconImageDataUrl: definition ? undefined : normalizeImageDataUrl(value.iconImageDataUrl),
+    coverImageDataUrl: definition ? undefined : normalizeCoverImageDataUrl(value.coverImageDataUrl),
     roleDefaults: normalizeOptionalRoleDefaults(value.roleDefaults),
     browserLaunchMode: normalizeBrowserLaunchMode(value.browserLaunchMode),
     createdAt: normalizeTimestamp(value.createdAt),
@@ -414,6 +424,22 @@ function normalizeOptionalHttpUrl(value: unknown): string | undefined {
 }
 
 function normalizeImageDataUrl(value: unknown): string | undefined {
+  return normalizeGameImageDataUrl(
+    value,
+    "GAME_ICON_INVALID",
+    "Game icon must be a valid image data URL."
+  );
+}
+
+function normalizeCoverImageDataUrl(value: unknown): string | undefined {
+  return normalizeGameImageDataUrl(
+    value,
+    "GAME_COVER_INVALID",
+    "Game cover must be a valid image data URL up to 1.5 MB."
+  );
+}
+
+function normalizeGameImageDataUrl(value: unknown, code: string, message: string): string | undefined {
   if (value === undefined || value === null || value === "") {
     return undefined;
   }
@@ -424,7 +450,7 @@ function normalizeImageDataUrl(value: unknown): string | undefined {
     !IMAGE_DATA_URL_PATTERN.test(image) ||
     getBase64PayloadByteLength(image) > MAX_IMAGE_BYTES
   ) {
-    throw new GameStoreError("GAME_ICON_INVALID", "Game icon must be a valid image data URL.");
+    throw new GameStoreError(code, message);
   }
   return image;
 }

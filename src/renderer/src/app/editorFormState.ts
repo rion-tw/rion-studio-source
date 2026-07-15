@@ -47,6 +47,7 @@ export function createGameFormState(game: Game, roleDefaults: RoleDefaults): Gam
     source: game.source,
     name: game.name,
     iconImageDataUrl: game.iconImageDataUrl,
+    coverImageDataUrl: game.coverImageDataUrl,
     defaultLaunchUrl: game.defaultLaunchUrl,
     loginUrl: game.loginUrl ?? "",
     usesGlobalRoleDefaults: !game.roleDefaults,

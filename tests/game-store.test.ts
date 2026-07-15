@@ -34,7 +34,8 @@ describe("GameStore", () => {
       ...flyff,
       id: "tampered",
       name: "Tampered",
-      iconImageDataUrl: "data:image/png;base64,QQ=="
+      iconImageDataUrl: "data:image/png;base64,QQ==",
+      coverImageDataUrl: "data:image/webp;base64,QQ=="
     }, games[1]] }), "utf8");
 
     const repaired = await new GameStore(baseDir, roleStore).listGames();
@@ -44,6 +45,7 @@ describe("GameStore", () => {
       source: "builtin"
     });
     expect(repaired[0].iconImageDataUrl).toBeUndefined();
+    expect(repaired[0].coverImageDataUrl).toBeUndefined();
   });
 
   it("migrates known and unknown role URLs idempotently without changing role metadata", async () => {
@@ -129,12 +131,28 @@ describe("GameStore", () => {
       .rejects.toMatchObject({ code: "GAME_LAUNCH_MODE_INVALID" });
     await expect(store.createGame({ name: "Bad icon", defaultLaunchUrl: "https://icon.test", iconImageDataUrl: "data:text/plain;base64,QQ==" }))
       .rejects.toMatchObject({ code: "GAME_ICON_INVALID" });
+    await expect(store.createGame({ name: "Bad cover", defaultLaunchUrl: "https://cover.test", coverImageDataUrl: "data:text/plain;base64,QQ==" }))
+      .rejects.toMatchObject({ code: "GAME_COVER_INVALID" });
     const validLargeIcon = `data:image/png;base64,${Buffer.alloc(1_200_000).toString("base64")}`;
     await expect(store.createGame({ name: "Large icon", defaultLaunchUrl: "https://large-icon.test", iconImageDataUrl: validLargeIcon }))
       .resolves.toMatchObject({ iconImageDataUrl: validLargeIcon });
     const oversizedIcon = `data:image/png;base64,${Buffer.alloc(1_500_001).toString("base64")}`;
     await expect(store.createGame({ name: "Oversized icon", defaultLaunchUrl: "https://oversized-icon.test", iconImageDataUrl: oversizedIcon }))
       .rejects.toMatchObject({ code: "GAME_ICON_INVALID" });
+    const validCover = `data:image/webp;base64,${Buffer.alloc(1_200_000).toString("base64")}`;
+    const gameWithCover = await store.createGame({
+      name: "Covered",
+      defaultLaunchUrl: "https://covered.test",
+      coverImageDataUrl: validCover
+    });
+    expect(gameWithCover.coverImageDataUrl).toBe(validCover);
+    expect(JSON.parse(await readFile(join(baseDir, "games.json"), "utf8")).games
+      .find((game: { id: string }) => game.id === gameWithCover.id).coverImageDataUrl).toBe(validCover);
+    await expect(store.updateGame(gameWithCover.id, { coverImageDataUrl: null }))
+      .resolves.toMatchObject({ coverImageDataUrl: undefined });
+    const oversizedCover = `data:image/jpeg;base64,${Buffer.alloc(1_500_001).toString("base64")}`;
+    await expect(store.updateGame(gameWithCover.id, { coverImageDataUrl: oversizedCover }))
+      .rejects.toMatchObject({ code: "GAME_COVER_INVALID" });
     await expect(store.createGame({
       name: "Bad defaults",
       defaultLaunchUrl: "https://defaults.test",
@@ -145,6 +163,8 @@ describe("GameStore", () => {
   it("protects and resets built-in game fields", async () => {
     await store.initialize();
     await expect(store.updateGame(FLYFF_UNIVERSE_GAME_ID, { name: "Renamed" }))
+      .rejects.toMatchObject({ code: "GAME_BUILTIN_FIELD_PROTECTED" });
+    await expect(store.updateGame(FLYFF_UNIVERSE_GAME_ID, { coverImageDataUrl: null }))
       .rejects.toMatchObject({ code: "GAME_BUILTIN_FIELD_PROTECTED" });
     await expect(store.deleteGame(FLYFF_UNIVERSE_GAME_ID))
       .rejects.toMatchObject({ code: "GAME_BUILTIN_DELETE_FORBIDDEN" });

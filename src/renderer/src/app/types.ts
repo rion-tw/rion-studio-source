@@ -38,6 +38,7 @@ export interface GameFormState {
   source: GameSource;
   name: string;
   iconImageDataUrl?: string;
+  coverImageDataUrl?: string;
   defaultLaunchUrl: string;
   loginUrl: string;
   usesGlobalRoleDefaults: boolean;

@@ -102,8 +102,8 @@ interface PendingImport {
 const PORTABLE_APP_NAME = "Rion Studio";
 const PORTABLE_SCHEMA_VERSION = 2;
 const MAX_COVER_IMAGE_DATA_URL_LENGTH = 1_500_000;
-const MAX_GAME_ICON_BYTES = 1_500_000;
-const MAX_GAME_ICON_DATA_URL_LENGTH = 2_000_128;
+const MAX_GAME_IMAGE_BYTES = 1_500_000;
+const MAX_GAME_IMAGE_DATA_URL_LENGTH = 2_000_128;
 const MAX_LAUNCH_URL_LENGTH = 2_048;
 const MAX_NAME_LENGTH = 80;
 const MACRO_STEPS_MAX_LENGTH = 100;
@@ -553,6 +553,7 @@ function toPortableGame(game: Game): PortableGame {
     ...(game.builtinKey ? { builtinKey: game.builtinKey } : {}),
     name: game.name,
     ...(game.iconImageDataUrl ? { iconImageDataUrl: game.iconImageDataUrl } : {}),
+    ...(game.coverImageDataUrl ? { coverImageDataUrl: game.coverImageDataUrl } : {}),
     defaultLaunchUrl: game.defaultLaunchUrl,
     ...(game.loginUrl ? { loginUrl: game.loginUrl } : {}),
     ...(game.roleDefaults ? { roleDefaults: { ...game.roleDefaults } } : {}),
@@ -566,6 +567,7 @@ function toCreateGameInput(game: PortableGame, name: string): CreateGameInput {
     defaultLaunchUrl: game.defaultLaunchUrl,
     loginUrl: game.loginUrl ?? null,
     iconImageDataUrl: game.source === "custom" ? game.iconImageDataUrl ?? null : undefined,
+    coverImageDataUrl: game.source === "custom" ? game.coverImageDataUrl ?? null : undefined,
     roleDefaults: game.roleDefaults ?? null,
     browserLaunchMode: game.browserLaunchMode
   };
@@ -669,6 +671,9 @@ function normalizePortableGame(value: unknown): PortableGame {
   const iconImageDataUrl = source === "custom"
     ? normalizeOptionalGameIconDataUrl(game.iconImageDataUrl)
     : undefined;
+  const coverImageDataUrl = source === "custom"
+    ? normalizeOptionalGameCoverDataUrl(game.coverImageDataUrl)
+    : undefined;
   const loginUrl = normalizeOptionalPortableUrl(game.loginUrl);
   const roleDefaults = normalizeOptionalPortableRoleDefaults(game.roleDefaults);
   return {
@@ -677,6 +682,7 @@ function normalizePortableGame(value: unknown): PortableGame {
     ...(builtinKey ? { builtinKey } : {}),
     name: normalizeName(game.name),
     ...(iconImageDataUrl ? { iconImageDataUrl } : {}),
+    ...(coverImageDataUrl ? { coverImageDataUrl } : {}),
     defaultLaunchUrl: normalizeLaunchUrl(game.defaultLaunchUrl),
     ...(loginUrl ? { loginUrl } : {}),
     ...(roleDefaults ? { roleDefaults } : {}),
@@ -1067,9 +1073,25 @@ function normalizeOptionalGameIconDataUrl(value: unknown): string | undefined {
 
   const trimmed = normalizeRequiredString(value);
   if (
-    trimmed.length > MAX_GAME_ICON_DATA_URL_LENGTH ||
+    trimmed.length > MAX_GAME_IMAGE_DATA_URL_LENGTH ||
     !COVER_IMAGE_DATA_URL_PATTERN.test(trimmed) ||
-    getBase64PayloadByteLength(trimmed) > MAX_GAME_ICON_BYTES
+    getBase64PayloadByteLength(trimmed) > MAX_GAME_IMAGE_BYTES
+  ) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+  return trimmed;
+}
+
+function normalizeOptionalGameCoverDataUrl(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const trimmed = normalizeRequiredString(value);
+  if (
+    trimmed.length > MAX_GAME_IMAGE_DATA_URL_LENGTH ||
+    !COVER_IMAGE_DATA_URL_PATTERN.test(trimmed) ||
+    getBase64PayloadByteLength(trimmed) > MAX_GAME_IMAGE_BYTES
   ) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }

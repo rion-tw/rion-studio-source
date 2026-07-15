@@ -3,7 +3,7 @@ import { type ChangeEvent, type FormEvent, type JSX, useMemo, useRef, useState }
 import { useNavigate, useParams } from "react-router";
 
 import { createGameFormState, createNewGameForm, areEditorFormsEqual } from "../../app/editorFormState";
-import { getGameIconUrl } from "../../app/gamePresentation";
+import { getGameCoverUrl, getGameIconUrl } from "../../app/gamePresentation";
 import type { GameFormState } from "../../app/types";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import type { Game, InheritableBrowserLaunchMode, LaunchPreset, RoleDefaults } from "../../../../shared/types";
+import { createGameCoverImageDataUrl } from "./gameCover";
 
 interface GameEditorRouteProps {
   games: Game[];
@@ -89,9 +90,43 @@ function GameEditor({ games: _games, game, initialForm, isSaving, roleDefaults, 
           <FormField label={t("games.form.launchMode")}><Select value={form.browserLaunchMode} onValueChange={(value) => setForm({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.mode.inherit")}</SelectItem><SelectItem value="auto">{t("games.mode.auto")}</SelectItem><SelectItem value="embedded">{t("games.mode.embedded")}</SelectItem><SelectItem value="external">{t("games.mode.external")}</SelectItem></SelectContent></Select></FormField>
         </Surface>
       </div>
-      <GameIconEditor form={form} game={game} isSaving={isSaving} t={t} onChange={setForm} onError={onError} />
+      <div className="grid gap-4">
+        <GameIconEditor form={form} game={game} isSaving={isSaving} t={t} onChange={setForm} onError={onError} />
+        <GameCoverEditor form={form} game={game} isSaving={isSaving} t={t} onChange={setForm} onError={onError} />
+      </div>
     </EditorPage>
   );
+}
+
+function GameCoverEditor({ form, game, isSaving, t, onChange, onError }: { form: GameFormState; game?: Game; isSaving: boolean; t: Translator; onChange: (form: GameFormState) => void; onError: (error: unknown | null) => void }): JSX.Element {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const coverUrl = form.coverImageDataUrl ?? getGameCoverUrl(game);
+
+  async function change(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      onChange({ ...form, coverImageDataUrl: await createGameCoverImageDataUrl(file) });
+      onError(null);
+    } catch (error) {
+      onError(error);
+    }
+  }
+
+  return <Surface className="grid gap-3 p-4" variant="inset">
+    <FieldHeader title={t("games.form.cover")} description={form.source === "builtin" ? t("games.form.coverBuiltin") : t("games.form.coverDescription")} />
+    <div className="grid aspect-video w-full place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15">
+      {coverUrl ? <img className="size-full object-cover" src={coverUrl} alt="" /> : <ImagePlus size={30} />}
+    </div>
+    {form.source === "custom" ? <>
+      <input ref={inputRef} aria-label={t("games.form.chooseCover")} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={isSaving} onChange={(event) => void change(event)} />
+      <div className="flex gap-2">
+        <Button className="flex-1" type="button" variant="outline" onClick={() => inputRef.current?.click()}><ImagePlus size={15} />{t("games.form.chooseCover")}</Button>
+        {form.coverImageDataUrl ? <Button aria-label={t("games.form.removeCover")} type="button" variant="ghost" onClick={() => onChange({ ...form, coverImageDataUrl: undefined })}><Trash2 size={15} /></Button> : null}
+      </div>
+    </> : null}
+  </Surface>;
 }
 
 function GameIconEditor({ form, game, isSaving, t, onChange, onError }: { form: GameFormState; game?: Game; isSaving: boolean; t: Translator; onChange: (form: GameFormState) => void; onError: (error: unknown | null) => void }): JSX.Element {

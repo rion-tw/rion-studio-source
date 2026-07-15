@@ -43,6 +43,18 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes game cover validation and processing errors", async () => {
+    await loadTranslations("zh-TW");
+    await loadTranslations("ja");
+
+    expect(localizeErrorMessage(
+      "Game cover must be a PNG, JPEG, WebP, or GIF image up to 8 MB.",
+      "zh-TW"
+    )).toBe("遊戲封面必須是 PNG、JPEG、WebP 或 GIF，且不超過 8 MB。");
+    expect(localizeErrorMessage("Unable to process game cover.", "ja"))
+      .toBe("ゲームカバーを処理できません。");
+  });
+
   it("preserves role names when localizing duplicate game-window errors", async () => {
     await loadTranslations("zh-TW");
     expect(localizeErrorMessage("Already running in another game window: Main, Alt.", "zh-TW")).toBe(

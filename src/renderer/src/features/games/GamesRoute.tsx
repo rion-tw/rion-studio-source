@@ -1,7 +1,7 @@
 import { Gamepad2, Pencil, Plus, Search, Trash2, Users } from "lucide-react";
 import { type JSX, useMemo, useState } from "react";
 
-import { getGameIconUrl, sortGames } from "../../app/gamePresentation";
+import { getGameCoverUrl, getGameIconUrl, sortGames } from "../../app/gamePresentation";
 import { EmptyState } from "../../components/EmptyState";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
@@ -69,30 +69,52 @@ function GamesRoute({
             const needsLogin = gameRoles.filter((role) => role.authState !== "authenticated").length;
             const checking = runStatuses.some((item) => item.gameId === game.id);
             const iconUrl = getGameIconUrl(game);
+            const coverUrl = getGameCoverUrl(game);
             return (
-              <Card key={game.id} className="grid gap-4 p-4">
-                <button className="flex min-w-0 items-center gap-3 text-left" type="button" onClick={() => onView(game)}>
-                  <div className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
-                    {iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" /> : <Gamepad2 size={23} />}
+              <Card key={game.id} className="overflow-hidden">
+                <button className="group block w-full min-w-0 text-left" type="button" onClick={() => onView(game)}>
+                  <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15">
+                    {coverUrl ? (
+                      <img
+                        className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
+                        src={coverUrl}
+                        alt=""
+                      />
+                    ) : (
+                      <div className="absolute inset-0 grid place-items-center">
+                        {iconUrl ? (
+                          <img className="size-16 rounded-2xl object-cover opacity-85 shadow-lg ring-1 ring-white/25" src={iconUrl} alt="" />
+                        ) : (
+                          <Gamepad2 className="text-muted-foreground/65" size={42} />
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2"><h2 className="truncate text-sm font-semibold">{game.name}</h2><Badge variant={game.source === "builtin" ? "secondary" : "muted"}>{t(game.source === "builtin" ? "games.builtin" : "games.custom")}</Badge></div>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">{game.defaultLaunchUrl}</p>
+                  <div className="flex min-w-0 items-center gap-3 px-4 pt-4">
+                    <div className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                      {iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" /> : <Gamepad2 size={20} />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2"><h2 className="truncate text-sm font-semibold">{game.name}</h2><Badge variant={game.source === "builtin" ? "secondary" : "muted"}>{t(game.source === "builtin" ? "games.builtin" : "games.custom")}</Badge></div>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">{game.defaultLaunchUrl}</p>
+                    </div>
                   </div>
                 </button>
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <Metric label={t("games.roles")} value={gameRoles.length} />
-                  <Metric label={t("games.running")} value={running} />
-                  <Metric label={t("games.needsLogin")} value={needsLogin} />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <Badge variant={checking ? "warning" : report?.recommendation?.reason === "graphics_unavailable" ? "warning" : report?.load?.state === "available" ? "success" : report?.load?.state === "failed" ? "destructive" : "muted"}>
-                    {checking ? t("games.compatibility.running") : report?.isStale ? t("games.compatibility.stale") : report?.recommendation?.reason === "graphics_unavailable" ? t("games.compatibility.graphicsLimited") : report?.load?.state === "available" ? t("games.compatibility.available") : report?.load?.state === "failed" ? t("games.compatibility.failed") : report?.load?.state === "cancelled" ? t("games.compatibility.cancelled") : t("games.compatibility.notChecked")}
-                  </Badge>
-                  <div className="flex gap-1">
-                    <Button size="icon" variant="ghost" title={t("games.addRole")} onClick={() => onNewRole(game.id)}><Users size={15} /></Button>
-                    <Button size="icon" variant="ghost" title={t("common.edit")} onClick={() => onEdit(game)}><Pencil size={15} /></Button>
-                    {game.source === "custom" ? <Button size="icon" variant="ghost" title={t("confirm.delete")} onClick={() => onDelete(game)}><Trash2 size={15} /></Button> : null}
+                <div className="grid gap-4 p-4 pt-3">
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <Metric label={t("games.roles")} value={gameRoles.length} />
+                    <Metric label={t("games.running")} value={running} />
+                    <Metric label={t("games.needsLogin")} value={needsLogin} />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge variant={checking ? "warning" : report?.recommendation?.reason === "graphics_unavailable" ? "warning" : report?.load?.state === "available" ? "success" : report?.load?.state === "failed" ? "destructive" : "muted"}>
+                      {checking ? t("games.compatibility.running") : report?.isStale ? t("games.compatibility.stale") : report?.recommendation?.reason === "graphics_unavailable" ? t("games.compatibility.graphicsLimited") : report?.load?.state === "available" ? t("games.compatibility.available") : report?.load?.state === "failed" ? t("games.compatibility.failed") : report?.load?.state === "cancelled" ? t("games.compatibility.cancelled") : t("games.compatibility.notChecked")}
+                    </Badge>
+                    <div className="flex gap-1">
+                      <Button size="icon" variant="ghost" title={t("games.addRole")} onClick={() => onNewRole(game.id)}><Users size={15} /></Button>
+                      <Button size="icon" variant="ghost" title={t("common.edit")} onClick={() => onEdit(game)}><Pencil size={15} /></Button>
+                      {game.source === "custom" ? <Button size="icon" variant="ghost" title={t("confirm.delete")} onClick={() => onDelete(game)}><Trash2 size={15} /></Button> : null}
+                    </div>
                   </div>
                 </div>
               </Card>

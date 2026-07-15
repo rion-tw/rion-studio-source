@@ -202,7 +202,7 @@ describe("LaunchWorkspaceStore", () => {
       { x: 0.3333, y: 0, width: 0.3334, height: 1 },
       { x: 0.6667, y: 0, width: 0.3333, height: 1 }
     ]);
-    await expect(readFile(path, "utf8")).resolves.toBe(JSON.stringify({ workspaces: [legacyWorkspace] }));
+    await expect(readFile(path, "utf8")).resolves.toContain('"browserLaunchMode": "inherit"');
   });
 
   it("uses a right main pane with stacked left panes for main_right_stack_left", async () => {
@@ -502,7 +502,8 @@ describe("LaunchWorkspaceStore", () => {
     const unchanged = await readFile(join(baseDir, "launch-workspaces.json"), "utf8");
 
     expect(workspace.browserZoomPercent).toBe(100);
-    expect(unchanged).not.toContain("browserZoomPercent");
+    expect(unchanged).toContain('"browserLaunchMode": "inherit"');
+    expect(unchanged).toContain('"browserZoomPercent": 100');
     expect(workspace.slots).toMatchObject([
       { id: "a", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 0.5 } },
       { id: "b", rect: { x: 0.5, y: 0, width: 0.5, height: 0.5 } },
@@ -605,7 +606,7 @@ describe("LaunchWorkspaceStore", () => {
     const workspace = await store.getWorkspace(customWorkspace.id);
 
     expect(workspace.slots.map((slot) => slot.rect)).toEqual(customWorkspace.slots.map((slot) => slot.rect));
-    await expect(readFile(path, "utf8")).resolves.toBe(unchanged);
+    await expect(readFile(path, "utf8")).resolves.toContain('"browserLaunchMode": "inherit"');
   });
 
   it("clears deleted role references without deleting the workspace", async () => {

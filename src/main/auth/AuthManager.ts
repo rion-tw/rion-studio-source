@@ -2,10 +2,11 @@ import { EventEmitter } from "node:events";
 
 import { BrowserLoginCancelledError, type BrowserManager } from "../browser/BrowserManager";
 import type { RoleStore } from "../roles/RoleStore";
-import type { AuthFlowStatus, Role } from "../../shared/types";
+import type { AuthFlowStatus, AuthState, Role } from "../../shared/types";
 
 export interface AuthManagerEvents {
   change: [AuthFlowStatus[]];
+  result: [Role, AuthState];
 }
 
 export class AuthManager extends EventEmitter<AuthManagerEvents> {
@@ -57,6 +58,7 @@ export class AuthManager extends EventEmitter<AuthManagerEvents> {
       const result = await this.browserManager.waitForAuthentication(role.id);
       this.setStatus(role.id, "checking_session", "Checking embedded login session.");
       await this.roleStore.updateAuthState(role.id, result.authState);
+      this.emit("result", role, result.authState);
 
       if (result.authState !== "authenticated") {
         this.setStatus(role.id, "failed", result.message ?? "Login is still required.");
@@ -74,6 +76,7 @@ export class AuthManager extends EventEmitter<AuthManagerEvents> {
       }
 
       await this.roleStore.updateAuthState(role.id, "auth_failed").catch(() => undefined);
+      this.emit("result", role, "auth_failed");
       this.setStatus(role.id, "failed", toMessage(error));
     }
   }

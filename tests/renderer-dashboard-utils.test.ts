@@ -196,6 +196,7 @@ describe("renderer dashboard helpers", () => {
 function role(overrides: Partial<Role>): Role {
   return {
     id: "role",
+    gameId: "game-1",
     name: "Role",
     launchUrl: "https://example.test/play",
     windowWidth: 1280,
@@ -222,6 +223,7 @@ function authStatus(overrides: Partial<AuthFlowStatus>): AuthFlowStatus {
 function workspace(overrides: Partial<LaunchWorkspace>): LaunchWorkspace {
   return {
     id: "workspace",
+    browserLaunchMode: "inherit",
     name: "Workspace",
     template: "two_columns",
     browserZoomPercent: 100,

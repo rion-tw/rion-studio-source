@@ -26,6 +26,7 @@ type AnyMock = Mock;
 
 const role: Role = {
   id: "role-1",
+  gameId: "game-1",
   name: "Main",
   launchUrl: "https://example.com/play",
   windowWidth: 1280,
@@ -39,6 +40,7 @@ const role: Role = {
 
 const workspace: LaunchWorkspace = {
   id: "workspace-1",
+  browserLaunchMode: "inherit",
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 90,
@@ -279,17 +281,39 @@ describe("BrowserManager game host windows", () => {
 
   it("launches external Chrome directly in external mode without creating embedded views", async () => {
     const externalChromeManager = createExternalChromeManager();
+    const getBrowserLaunchMode = vi.fn().mockResolvedValue("external");
     const harness = createHarness({
       externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("external")
+      getBrowserLaunchMode
     });
 
     const status = await harness.manager.launch(role);
 
+    expect(getBrowserLaunchMode).toHaveBeenCalledWith(role);
     expect(harness.createHostWindow).not.toHaveBeenCalled();
     expect(harness.createView).not.toHaveBeenCalled();
     expect(externalChromeManager.launch).toHaveBeenCalledWith(role, { notice: undefined });
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external" });
+  });
+
+  it("uses an explicit workspace mode without resolving any role game mode", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const getBrowserLaunchMode = vi.fn().mockResolvedValue("embedded");
+    const harness = createHarness({ externalChromeManager, getBrowserLaunchMode });
+
+    await harness.manager.launchWorkspace(
+      workspace,
+      [{ role, rect: workspace.slots[0].rect }],
+      undefined,
+      "external"
+    );
+
+    expect(getBrowserLaunchMode).not.toHaveBeenCalled();
+    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
+      workspace,
+      [{ role, rect: workspace.slots[0].rect }],
+      expect.objectContaining({ notice: undefined })
+    );
   });
 
   it("applies browser font preferences before creating a new role view", async () => {
@@ -1330,6 +1354,24 @@ describe("BrowserManager game host windows", () => {
     expect(harness.hosts[0].show).toHaveBeenCalledTimes(1);
     expect(harness.manager.listStatuses()).toMatchObject([{ roleId: role.id, state: "running" }]);
   });
+
+  it("opens the game login URL but verifies persisted cookies against the role launch URL", async () => {
+    const loginUrl = "https://accounts.example.com/login";
+    const getLoginUrl = vi.fn().mockResolvedValue(loginUrl);
+    const harness = createHarness({ getLoginUrl });
+
+    await harness.manager.startLogin({ ...role, authState: "login_required" });
+    await harness.views[0].webContents.loadURL(role.launchUrl);
+    await expect(harness.manager.waitForAuthentication(role.id)).resolves.toMatchObject({
+      authState: "authenticated"
+    });
+
+    expect(getLoginUrl).toHaveBeenCalledWith(expect.objectContaining({ id: role.id }));
+    expect(harness.views[0].webContents.loadURL).toHaveBeenNthCalledWith(1, loginUrl);
+    expect(harness.views[0].webContents.session.cookies.get).toHaveBeenCalledWith({
+      url: role.launchUrl
+    });
+  });
 });
 
 describe("normalizedRectToPixelBounds", () => {
@@ -1435,7 +1477,8 @@ function createHarness(options: {
   applyBrowserFonts?: AnyMock;
   applyBrowserProxy?: AnyMock;
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
-  getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
+  getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
+  getLoginUrl?: (role: Role) => string | Promise<string>;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
     | Promise<WorkspaceAppearanceSettings>;
@@ -1476,6 +1519,7 @@ function createHarness(options: {
     embeddedPreloadPath: "/app/out/preload/embedded.cjs",
     ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
+    ...(options.getLoginUrl ? { getLoginUrl: options.getLoginUrl } : {}),
     ...(options.getWorkspaceAppearanceSettings
       ? { getWorkspaceAppearanceSettings: options.getWorkspaceAppearanceSettings }
       : {}),

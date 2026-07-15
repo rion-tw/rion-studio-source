@@ -56,12 +56,17 @@ export function parseRoleWindowSizeValue(value: string): Pick<RoleDefaults, "win
   return { windowWidth, windowHeight };
 }
 
-export function createEmptyRoleForm(roleDefaults: RoleDefaults = DEFAULT_ROLE_DEFAULTS): RoleFormState {
+export function createEmptyRoleForm(
+  roleDefaults: RoleDefaults = DEFAULT_ROLE_DEFAULTS,
+  gameId = "",
+  launchUrl = DEFAULT_LAUNCH_URL
+): RoleFormState {
   const normalizedDefaults = normalizeRoleDefaults(roleDefaults);
 
   return {
+    gameId,
     name: "",
-    launchUrl: DEFAULT_LAUNCH_URL,
+    launchUrl,
     windowWidth: normalizedDefaults.windowWidth,
     windowHeight: normalizedDefaults.windowHeight,
     notes: "",

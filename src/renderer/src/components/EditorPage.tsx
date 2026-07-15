@@ -33,6 +33,7 @@ interface EditorPageProps {
   saveLabel: string;
   title: string;
   titleAriaLabel: string;
+  titleDisabled?: boolean;
   titlePlaceholder: string;
 }
 
@@ -52,6 +53,7 @@ export function EditorPage({
   saveLabel,
   title,
   titleAriaLabel,
+  titleDisabled = false,
   titlePlaceholder
 }: EditorPageProps): JSX.Element {
   const formRef = useRef<HTMLFormElement>(null);
@@ -94,7 +96,7 @@ export function EditorPage({
               <h1 className="app-page-title min-w-0 truncate">
                 <EditableEditorTitle
                   ariaLabel={titleAriaLabel}
-                  disabled={isSaving}
+                  disabled={isSaving || titleDisabled}
                   placeholder={titlePlaceholder}
                   value={title}
                   onChange={onTitleChange}

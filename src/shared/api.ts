@@ -5,10 +5,14 @@ import type {
   AppRendererReadyState,
   AppSnapshot,
   AppUpdateStatus,
+  CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
   CreateRoleInput,
   GameBrowserSettings,
+  Game,
+  GameCompatibilityReport,
+  GameCompatibilityRunStatus,
   GraphicsDiagnostics,
   LaunchWorkspace,
   LegalAcceptanceStatus,
@@ -22,10 +26,12 @@ import type {
   PortableImportResult,
   ReorderItemsInput,
   Role,
+  RoleDefaults,
   RolePaths,
   RoleStatus,
   SystemFontFamily,
   UpdateLaunchWorkspaceInput,
+  UpdateGameInput,
   UpdateMacroInput,
   UpdateRoleInput,
   WorkspaceDisplayInfo,
@@ -40,6 +46,14 @@ export interface RionStudioApi {
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;
   restartApplication: () => Promise<void>;
+  listGames: () => Promise<Game[]>;
+  createGame: (input: CreateGameInput) => Promise<Game>;
+  updateGame: (id: string, input: UpdateGameInput) => Promise<Game>;
+  resetBuiltinGame: (id: string) => Promise<Game>;
+  deleteGame: (id: string) => Promise<void>;
+  listGameCompatibilityReports: () => Promise<GameCompatibilityReport[]>;
+  runGameCompatibilityCheck: (id: string, fallbackRoleDefaults: RoleDefaults) => Promise<GameCompatibilityReport>;
+  cancelGameCompatibilityCheck: (id: string) => Promise<void>;
   listRoles: () => Promise<Role[]>;
   createRole: (input: CreateRoleInput) => Promise<Role>;
   updateRole: (id: string, input: UpdateRoleInput) => Promise<Role>;
@@ -82,6 +96,10 @@ export interface RionStudioApi {
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<void>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
+  onGamesChanged: (callback: (games: Game[]) => void) => () => void;
+  onGameCompatibilityChanged: (
+    callback: (reports: GameCompatibilityReport[], statuses: GameCompatibilityRunStatus[]) => void
+  ) => () => void;
   onWorkspaceDisplaysChanged: (callback: (displays: WorkspaceDisplayInfo[]) => void) => () => void;
   onAuthStatusChanged: (callback: (statuses: AuthFlowStatus[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;

@@ -7,6 +7,7 @@ import type {
   AppRendererReadyState,
   AppUpdateStatus,
   AuthFlowStatus,
+  CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
   CreateRoleInput,
@@ -16,8 +17,10 @@ import type {
   PortableExportInput,
   PortableImportInput,
   ReorderItemsInput,
+  RoleDefaults,
   RoleStatus,
   UpdateLaunchWorkspaceInput,
+  UpdateGameInput,
   UpdateMacroInput,
   UpdateRoleInput,
   WorkspaceDisplayInfo,
@@ -28,10 +31,13 @@ import type {
 import type { AuthManager } from "../auth/AuthManager";
 import {
   BrowserWorkspaceDisplayOccupiedError,
+  EXTERNAL_COMPAT_NOTICE,
   type BrowserManager
 } from "../browser/BrowserManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { SystemFontService } from "../game-browser/SystemFontService";
+import type { GameCompatibilityManager } from "../games/GameCompatibilityManager";
+import type { GameStore } from "../games/GameStore";
 import type { LegalAcceptanceStore } from "../legal/LegalAcceptanceStore";
 import type { MacroManager } from "../macros/MacroManager";
 import type { MacroOverlayRequest } from "../macros/MacroOverlayInjector";
@@ -46,6 +52,11 @@ interface RegisterIpcHandlersOptions {
   macroManager?: MacroManager;
   macroStore?: MacroStore;
   gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings" | "updateSettings">;
+  gameStore?: Pick<GameStore, "createGame" | "deleteGame" | "getGame" | "listGames" | "resetBuiltinGame" | "updateGame">;
+  gameCompatibilityManager?: Pick<
+    GameCompatibilityManager,
+    "cancelCheck" | "deleteGame" | "listReports" | "listStatuses" | "on" | "recordObservation" | "runCheck"
+  >;
   systemFontService?: Pick<SystemFontService, "listFonts">;
   updateManager?: AppUpdateManager;
   consumePendingMacroEditorRequest?: () => MacroEditorRequest | null;
@@ -83,6 +94,9 @@ export function registerIpcHandlers(
   options.updateManager?.on("change", (status) => {
     broadcastUpdateStatusChange(status);
   });
+  options.gameCompatibilityManager?.on("change", () => {
+    void broadcastGameCompatibilityChange(options);
+  });
 
   ipcMain.handle(IPC_CHANNELS.appRendererReady, (event, state: AppRendererReadyState) => {
     if (!isAppRendererReadyState(state)) {
@@ -93,13 +107,18 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.appSnapshot, async () => {
-    const [roles, launchWorkspaces, macros] = await Promise.all([
+    const [games, gameCompatibilityReports, roles, launchWorkspaces, macros] = await Promise.all([
+      options.gameStore?.listGames() ?? Promise.resolve([]),
+      options.gameCompatibilityManager?.listReports() ?? Promise.resolve([]),
       roleStore.listRoles(),
       workspaceStore.listWorkspaces(),
       options.macroStore?.listMacros() ?? Promise.resolve([])
     ]);
 
     return {
+      games,
+      gameCompatibilityReports,
+      gameCompatibilityStatuses: options.gameCompatibilityManager?.listStatuses() ?? [],
       roles,
       roleStatuses: browserManager.listStatuses(),
       authStatuses: authManager.listStatuses(),
@@ -109,6 +128,42 @@ export function registerIpcHandlers(
       macroStatuses: options.macroManager?.listStatuses() ?? []
     };
   });
+
+  ipcMain.handle(IPC_CHANNELS.gamesList, () => requireGameStore(options).listGames());
+  ipcMain.handle(IPC_CHANNELS.gamesCreate, async (_event, input: CreateGameInput) => {
+    const game = await requireGameStore(options).createGame(input);
+    await broadcastGamesChange(options);
+    return game;
+  });
+  ipcMain.handle(IPC_CHANNELS.gamesUpdate, async (_event, id: string, input: UpdateGameInput) => {
+    const game = await requireGameStore(options).updateGame(id, input);
+    await broadcastGamesChange(options);
+    await broadcastGameCompatibilityChange(options);
+    return game;
+  });
+  ipcMain.handle(IPC_CHANNELS.gamesResetBuiltin, async (_event, id: string) => {
+    const game = await requireGameStore(options).resetBuiltinGame(id);
+    await broadcastGamesChange(options);
+    await broadcastGameCompatibilityChange(options);
+    return game;
+  });
+  ipcMain.handle(IPC_CHANNELS.gamesDelete, async (_event, id: string) => {
+    await requireGameStore(options).deleteGame(id);
+    await options.gameCompatibilityManager?.deleteGame(id);
+    await broadcastGamesChange(options);
+  });
+  ipcMain.handle(IPC_CHANNELS.gamesCompatibilityList, () =>
+    options.gameCompatibilityManager?.listReports() ?? Promise.resolve([])
+  );
+  ipcMain.handle(IPC_CHANNELS.gamesCompatibilityRun, async (_event, id: string, fallbackRoleDefaults?: RoleDefaults) => {
+    if (!options.gameCompatibilityManager) {
+      throw new Error("Game compatibility checks are not available.");
+    }
+    return options.gameCompatibilityManager.runCheck(id, normalizeCompatibilityRoleDefaults(fallbackRoleDefaults));
+  });
+  ipcMain.handle(IPC_CHANNELS.gamesCompatibilityCancel, (_event, id: string) =>
+    options.gameCompatibilityManager?.cancelCheck(id)
+  );
 
   ipcMain.handle(IPC_CHANNELS.legalStatus, () => {
     if (!options.legalAcceptanceStore) {
@@ -187,12 +242,16 @@ export function registerIpcHandlers(
     }
 
     const result = await options.portableDataManager.applyImport(input);
+    if (result.gameCount > 0 && options.gameStore) {
+      await broadcastGamesChange(options);
+    }
     if (result.preferences?.gameBrowserSettings) {
       const savedSettings = await options.gameBrowserSettingsStore?.updateSettings(
         result.preferences.gameBrowserSettings
       );
       if (savedSettings) {
         browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
+        await broadcastGameCompatibilityChange(options);
       }
     }
     if (result.roleCount > 0) {
@@ -222,6 +281,7 @@ export function registerIpcHandlers(
 
     const savedSettings = await options.gameBrowserSettingsStore.updateSettings(settings);
     browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
+    await broadcastGameCompatibilityChange(options);
     return savedSettings;
   });
 
@@ -272,13 +332,29 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.rolesList, () => roleStore.listRoles());
 
   ipcMain.handle(IPC_CHANNELS.rolesCreate, async (_event, input: CreateRoleInput) => {
-    const role = await roleStore.createRole(input);
+    const game = options.gameStore ? await options.gameStore.getGame(input.gameId) : undefined;
+    const role = await roleStore.createRole(game ? {
+      ...input,
+      launchUrl: input.launchUrl ?? game.defaultLaunchUrl,
+      windowWidth: input.windowWidth ?? game.roleDefaults?.windowWidth,
+      windowHeight: input.windowHeight ?? game.roleDefaults?.windowHeight,
+      launchPreset: input.launchPreset ?? game.roleDefaults?.launchPreset
+    } : input);
     options.onRolesChanged?.();
     return role;
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesUpdate, async (_event, id: string, input: UpdateRoleInput) => {
-    const role = await roleStore.updateRole(id, input);
+    const current = await roleStore.getRole(id);
+    if (input.gameId !== undefined && options.gameStore) {
+      await options.gameStore.getGame(input.gameId);
+    }
+    const sessionIdentityChanged =
+      (input.gameId !== undefined && input.gameId !== current.gameId) ||
+      (input.launchUrl !== undefined && new URL(input.launchUrl).toString() !== current.launchUrl);
+    const role = sessionIdentityChanged
+      ? await browserManager.stopRoleAndRunMutation(id, () => roleStore.updateRole(id, input))
+      : await roleStore.updateRole(id, input);
     options.onRolesChanged?.();
     return role;
   });
@@ -319,7 +395,14 @@ export function registerIpcHandlers(
       throw new Error("Login required. Use Login before launching this role.");
     }
 
-    return browserManager.launch(role);
+    try {
+      const status = await browserManager.launch(role);
+      await recordLaunchSuccess(options, role.gameId, status);
+      return status;
+    } catch (error) {
+      await recordLaunchFailure(options, role.gameId, error);
+      throw error;
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesOpenSystemLogin, async (_event, id: string) => {
@@ -426,11 +509,22 @@ export function registerIpcHandlers(
     }
 
     try {
+      const globalLaunchMode = options.gameBrowserSettingsStore
+        ? (await options.gameBrowserSettingsStore.getSettings()).launchMode
+        : "embedded";
+      const workspaceLaunchMode = workspace.browserLaunchMode === "inherit"
+        ? globalLaunchMode
+        : workspace.browserLaunchMode;
       const statuses = await browserManager.launchWorkspace(
         workspace,
         launchItems.map(({ role, slot }) => ({ role, rect: slot.rect })),
-        { displayId: targetDisplay.id, workArea: targetDisplay.workArea }
+        { displayId: targetDisplay.id, workArea: targetDisplay.workArea },
+        workspaceLaunchMode
       );
+      await Promise.all(statuses.map((status) => {
+        const role = launchItems.find((item) => item.role.id === status.roleId)?.role;
+        return role ? recordLaunchSuccess(options, role.gameId, status) : Promise.resolve();
+      }));
       return {
         kind: "launched",
         displayId: targetDisplay.id,
@@ -438,6 +532,10 @@ export function registerIpcHandlers(
       } satisfies WorkspaceLaunchResult;
     } catch (error) {
       if (!(error instanceof BrowserWorkspaceDisplayOccupiedError)) {
+        await Promise.all(
+          [...new Set(launchItems.map((item) => item.role.gameId))]
+            .map((gameId) => recordLaunchFailure(options, gameId, error))
+        );
         throw error;
       }
 
@@ -549,6 +647,18 @@ function isWorkspaceLaunchInput(value: unknown): value is WorkspaceLaunchInput |
   );
 }
 
+function normalizeCompatibilityRoleDefaults(value: RoleDefaults | undefined): RoleDefaults {
+  const defaults = value ?? { windowWidth: 1440, windowHeight: 900, launchPreset: "performance" as const };
+  if (
+    !Number.isInteger(defaults.windowWidth) || defaults.windowWidth < 640 || defaults.windowWidth > 7680 ||
+    !Number.isInteger(defaults.windowHeight) || defaults.windowHeight < 640 || defaults.windowHeight > 7680 ||
+    (defaults.launchPreset !== "balanced" && defaults.launchPreset !== "performance")
+  ) {
+    throw new Error("Compatibility role defaults are invalid.");
+  }
+  return defaults;
+}
+
 function getWorkspaceDisplays(options: RegisterIpcHandlersOptions): WorkspaceDisplayInfo[] {
   return options.getWorkspaceDisplays?.() ?? [
     {
@@ -637,6 +747,69 @@ function broadcastUpdateStatusChange(status: AppUpdateStatus): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.updatesStatusChanged, status);
   });
+}
+
+function requireGameStore(options: RegisterIpcHandlersOptions): NonNullable<RegisterIpcHandlersOptions["gameStore"]> {
+  if (!options.gameStore) {
+    throw new Error("Game library is not available.");
+  }
+  return options.gameStore;
+}
+
+async function broadcastGamesChange(options: RegisterIpcHandlersOptions): Promise<void> {
+  const games = await requireGameStore(options).listGames();
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.gamesChanged, games);
+  });
+}
+
+async function broadcastGameCompatibilityChange(options: RegisterIpcHandlersOptions): Promise<void> {
+  if (!options.gameCompatibilityManager) {
+    return;
+  }
+  const reports = await options.gameCompatibilityManager.listReports();
+  const statuses = options.gameCompatibilityManager.listStatuses();
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.gamesCompatibilityChanged, reports, statuses);
+  });
+}
+
+async function recordLaunchSuccess(
+  options: RegisterIpcHandlersOptions,
+  gameId: string,
+  status: RoleStatus
+): Promise<void> {
+  if (!options.gameCompatibilityManager) {
+    return;
+  }
+  const timestamp = new Date().toISOString();
+  await options.gameCompatibilityManager.recordObservation(gameId, status.runtimeMode === "external"
+    ? {
+        lastExternalSuccessAt: timestamp,
+        ...(status.notice?.includes(EXTERNAL_COMPAT_NOTICE) ? { lastFallbackAt: timestamp } : {})
+      }
+    : { lastEmbeddedSuccessAt: timestamp });
+}
+
+async function recordLaunchFailure(
+  options: RegisterIpcHandlersOptions,
+  gameId: string,
+  error: unknown
+): Promise<void> {
+  if (!options.gameCompatibilityManager) {
+    return;
+  }
+  await options.gameCompatibilityManager.recordObservation(gameId, {
+    lastLaunchFailureAt: new Date().toISOString(),
+    lastLaunchFailureCode: readErrorCode(error)
+  });
+}
+
+function readErrorCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) {
+    return String(error.code);
+  }
+  return "LAUNCH_FAILED";
 }
 
 function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequest {

@@ -5,6 +5,9 @@ import type { RionStudioApi } from "../shared/api";
 import type {
   AppUpdateStatus,
   AuthFlowStatus,
+  Game,
+  GameCompatibilityReport,
+  GameCompatibilityRunStatus,
   MacroEditorRequest,
   MacroRunStatus,
   RoleStatus,
@@ -18,6 +21,15 @@ const api: RionStudioApi = {
   acceptLegalDocuments: (input) => ipcRenderer.invoke(IPC_CHANNELS.legalAccept, input),
   quitApplication: () => ipcRenderer.invoke(IPC_CHANNELS.appQuit),
   restartApplication: () => ipcRenderer.invoke(IPC_CHANNELS.appRestart),
+  listGames: () => ipcRenderer.invoke(IPC_CHANNELS.gamesList),
+  createGame: (input) => ipcRenderer.invoke(IPC_CHANNELS.gamesCreate, input),
+  updateGame: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.gamesUpdate, id, input),
+  resetBuiltinGame: (id) => ipcRenderer.invoke(IPC_CHANNELS.gamesResetBuiltin, id),
+  deleteGame: (id) => ipcRenderer.invoke(IPC_CHANNELS.gamesDelete, id),
+  listGameCompatibilityReports: () => ipcRenderer.invoke(IPC_CHANNELS.gamesCompatibilityList),
+  runGameCompatibilityCheck: (id, fallbackRoleDefaults) =>
+    ipcRenderer.invoke(IPC_CHANNELS.gamesCompatibilityRun, id, fallbackRoleDefaults),
+  cancelGameCompatibilityCheck: (id) => ipcRenderer.invoke(IPC_CHANNELS.gamesCompatibilityCancel, id),
   listRoles: () => ipcRenderer.invoke(IPC_CHANNELS.rolesList),
   createRole: (input) => ipcRenderer.invoke(IPC_CHANNELS.rolesCreate, input),
   updateRole: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.rolesUpdate, id, input),
@@ -69,6 +81,20 @@ const api: RionStudioApi = {
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.rolesStatusChanged, listener);
     };
+  },
+  onGamesChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, games: Game[]) => callback(games);
+    ipcRenderer.on(IPC_CHANNELS.gamesChanged, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.gamesChanged, listener);
+  },
+  onGameCompatibilityChanged: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      reports: GameCompatibilityReport[],
+      statuses: GameCompatibilityRunStatus[]
+    ) => callback(reports, statuses);
+    ipcRenderer.on(IPC_CHANNELS.gamesCompatibilityChanged, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.gamesCompatibilityChanged, listener);
   },
   onWorkspaceDisplaysChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, displays: WorkspaceDisplayInfo[]) => {

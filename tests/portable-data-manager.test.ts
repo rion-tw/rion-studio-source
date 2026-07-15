@@ -5,19 +5,23 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MacroStore } from "../src/main/macros/MacroStore";
+import { GameStore } from "../src/main/games/GameStore";
 import { PortableDataManager } from "../src/main/portable/PortableDataManager";
 import { RoleStore } from "../src/main/roles/RoleStore";
 import { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
-import type { PortableDataSelection, RionPortableDataV1 } from "../src/shared/types";
+import type { PortableDataSelection, RionPortableDataV1, RionPortableDataV2 } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
 const ALL_PORTABLE_DATA: PortableDataSelection = {
+  games: true,
   roles: true,
   launchWorkspaces: true,
   macros: true,
   preferences: true
 };
+
+let gameStore: GameStore;
 
 describe("PortableDataManager", () => {
   let baseDir: string;
@@ -28,6 +32,8 @@ describe("PortableDataManager", () => {
   beforeEach(async () => {
     baseDir = await mkdtemp(join(tmpdir(), "rion-studio-portable-test-"));
     roleStore = new RoleStore(baseDir);
+    gameStore = new GameStore(baseDir, roleStore);
+    await gameStore.initialize();
     workspaceStore = new LaunchWorkspaceStore(baseDir);
     macroStore = new MacroStore(baseDir);
   });
@@ -35,6 +41,7 @@ describe("PortableDataManager", () => {
   it("exports portable JSON without browser session or auth metadata", async () => {
     const exportPath = join(baseDir, "rion-export.json");
     const role = await roleStore.createRole({
+      gameId: "builtin-flyff-universe",
       name: "Main",
       launchUrl: "https://example.com/play",
       notes: "Carry me"
@@ -93,6 +100,7 @@ describe("PortableDataManager", () => {
     const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV1;
 
     expect(result).toMatchObject({
+      gameCount: 2,
       roleCount: 1,
       workspaceCount: 1,
       macroCount: 1,
@@ -101,7 +109,7 @@ describe("PortableDataManager", () => {
     });
     expect(parsed).toMatchObject({
       app: "Rion Studio",
-      schemaVersion: 1,
+      schemaVersion: 2,
       appVersion: "1.2.3",
       preferences: {
         gameBrowserSettings: {
@@ -133,13 +141,14 @@ describe("PortableDataManager", () => {
     expect(parsed.roles[0]).not.toHaveProperty("lastAuthCheckAt");
     expect(parsed.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
     expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
+    expect(parsed).not.toHaveProperty("gameCompatibilityReports");
     expect(parsed.launchWorkspaces[0]).toMatchObject({ browserZoomPercent: 75 });
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
   });
 
   it("exports selected categories and automatically includes roles required by macros", async () => {
     const exportPath = join(baseDir, "selected-export.json");
-    const role = await roleStore.createRole({ name: "Main" });
+    const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
     await workspaceStore.createWorkspace({ name: "Party" });
     await macroStore.createMacro({
       name: "Auto heal",
@@ -151,6 +160,7 @@ describe("PortableDataManager", () => {
     const result = await manager.exportData({
       preferences: { language: "zh-TW" },
       selection: {
+        games: false,
         roles: false,
         launchWorkspaces: false,
         macros: true,
@@ -165,6 +175,7 @@ describe("PortableDataManager", () => {
       macroCount: 1,
       preferencesIncluded: false,
       selection: {
+        games: true,
         roles: true,
         launchWorkspaces: false,
         macros: true,
@@ -175,6 +186,42 @@ describe("PortableDataManager", () => {
     expect(parsed.launchWorkspaces).toEqual([]);
     expect(parsed.macros).toHaveLength(1);
     expect(parsed).not.toHaveProperty("preferences");
+  });
+
+  it("round-trips games without requiring roles", async () => {
+    const filePath = join(baseDir, "games-only.json");
+    await gameStore.createGame({ name: "Custom web game", defaultLaunchUrl: "https://custom.test/play" });
+    const manager = createManager({
+      exportPath: filePath,
+      importId: "games-only-import",
+      importPath: filePath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await expect(manager.exportData({
+      selection: {
+        games: true,
+        roles: false,
+        launchWorkspaces: false,
+        macros: false,
+        preferences: false
+      }
+    })).resolves.toMatchObject({ gameCount: 3, roleCount: 0, selection: { games: true, roles: false } });
+    const preview = await manager.previewImport();
+    expect(preview).toMatchObject({ gameCount: 3, roleCount: 0 });
+    await expect(manager.applyImport({
+      importId: preview!.importId,
+      selection: {
+        games: true,
+        roles: false,
+        launchWorkspaces: false,
+        macros: false,
+        preferences: false
+      }
+    })).resolves.toMatchObject({ gameCount: 3, roleCount: 0, selection: { games: true, roles: false } });
+    expect((await gameStore.listGames()).filter((game) => game.source === "custom")).toHaveLength(2);
   });
 
   it("rejects an export without any available selected content", async () => {
@@ -188,6 +235,7 @@ describe("PortableDataManager", () => {
     await expect(
       manager.exportData({
         selection: {
+          games: false,
           roles: false,
           launchWorkspaces: false,
           macros: false,
@@ -199,7 +247,7 @@ describe("PortableDataManager", () => {
 
   it("previews and applies an import with remapped role references", async () => {
     const importPath = join(baseDir, "incoming.json");
-    const existingRole = await roleStore.createRole({ name: "Main" });
+    const existingRole = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
     await workspaceStore.createWorkspace({ name: "Party" });
     await macroStore.createMacro({
       name: "Auto heal",
@@ -295,6 +343,105 @@ describe("PortableDataManager", () => {
     expect(macros.some((macro) => macro.name === "Orphan")).toBe(false);
   });
 
+  it("maps v2 built-ins, renames custom games, and recovers missing role games", async () => {
+    const importPath = join(baseDir, "v2-games.json");
+    await gameStore.createGame({ name: "Shared", defaultLaunchUrl: "https://local-shared.test/play" });
+    const fixture: RionPortableDataV2 = {
+      app: "Rion Studio",
+      schemaVersion: 2,
+      exportedAt: "2026-07-13T09:00:00.000Z",
+      appVersion: "1.2.3",
+      games: [
+        {
+          id: "remote-builtin",
+          source: "builtin",
+          builtinKey: "flyff-universe",
+          name: "Ignored imported name",
+          defaultLaunchUrl: "https://override.test/play",
+          loginUrl: "https://override.test/login",
+          roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" },
+          browserLaunchMode: "external"
+        },
+        {
+          id: "remote-custom",
+          source: "custom",
+          name: "Shared",
+          defaultLaunchUrl: "https://remote-shared.test/play",
+          browserLaunchMode: "inherit"
+        }
+      ],
+      roles: [
+        {
+          id: "remote-role",
+          gameId: "remote-custom",
+          name: "Remote",
+          launchUrl: "https://remote-shared.test/play",
+          windowWidth: 1280,
+          windowHeight: 720,
+          notes: "",
+          launchPreset: "performance"
+        },
+        {
+          id: "recovered-role",
+          gameId: "missing-game",
+          name: "Recovered",
+          launchUrl: "https://recovery.test/custom/path",
+          windowWidth: 1280,
+          windowHeight: 720,
+          notes: "",
+          launchPreset: "balanced"
+        }
+      ],
+      launchWorkspaces: [{
+        id: "remote-workspace",
+        name: "Imported workspace",
+        template: "two_columns",
+        browserLaunchMode: "inherit",
+        browserZoomPercent: 100,
+        slots: [
+          { id: "slot-1", roleId: "remote-role", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+          { id: "slot-2", roleId: "recovered-role", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+        ]
+      }],
+      macros: [{
+        id: "remote-macro",
+        name: "Imported macro",
+        roleIds: ["remote-role", "recovered-role"],
+        repeat: { type: "once" },
+        steps: [{ id: "step-1", type: "key", code: "F2" }]
+      }]
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, importId: "v2-import", macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    expect(preview?.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "BUILTIN_GAME_DEFAULTS_REPLACED" }),
+      expect.objectContaining({ code: "GAME_NAME_RENAMED", replacementName: "Shared (Imported)" }),
+      expect.objectContaining({ code: "ROLE_GAME_RECOVERED", itemName: "Recovered" })
+    ]));
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+
+    const games = await gameStore.listGames();
+    expect(games.find((game) => game.builtinKey === "flyff-universe")).toMatchObject({
+      id: "builtin-flyff-universe",
+      defaultLaunchUrl: "https://override.test/play",
+      loginUrl: "https://override.test/login",
+      browserLaunchMode: "external"
+    });
+    expect(games).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "custom", name: "Shared (Imported)" }),
+      expect.objectContaining({ source: "custom", name: "recovery.test · custom/path" })
+    ]));
+
+    const roles = await roleStore.listRoles();
+    expect(roles).toHaveLength(2);
+    expect(roles.every((role) => games.some((game) => game.id === role.gameId))).toBe(true);
+    const importedRoleIds = new Set(roles.map((role) => role.id));
+    expect((await workspaceStore.listWorkspaces())[0].slots.every((slot) => !slot.roleId || importedRoleIds.has(slot.roleId))).toBe(true);
+    expect((await macroStore.listMacros())[0].roleIds.every((roleId) => importedRoleIds.has(roleId))).toBe(true);
+  });
+
   it("imports only preferences when all stored data categories are unselected", async () => {
     const importPath = join(baseDir, "preferences-only.json");
     await writeFile(importPath, `${JSON.stringify(createPortableFixture(), null, 2)}\n`, "utf8");
@@ -304,6 +451,7 @@ describe("PortableDataManager", () => {
     const result = await manager.applyImport({
       importId: preview!.importId,
       selection: {
+        games: false,
         roles: false,
         launchWorkspaces: false,
         macros: false,
@@ -317,6 +465,7 @@ describe("PortableDataManager", () => {
       macroCount: 0,
       preferencesIncluded: true,
       selection: {
+        games: false,
         roles: false,
         launchWorkspaces: false,
         macros: false,
@@ -340,6 +489,7 @@ describe("PortableDataManager", () => {
       manager.applyImport({
         importId: preview!.importId,
         selection: {
+          games: false,
           roles: false,
           launchWorkspaces: false,
           macros: false,
@@ -352,6 +502,7 @@ describe("PortableDataManager", () => {
       manager.applyImport({
         importId: preview!.importId,
         selection: {
+          games: false,
           roles: false,
           launchWorkspaces: false,
           macros: false,
@@ -370,6 +521,7 @@ describe("PortableDataManager", () => {
     const result = await manager.applyImport({
       importId: preview!.importId,
       selection: {
+        games: false,
         roles: false,
         launchWorkspaces: true,
         macros: false,
@@ -383,6 +535,7 @@ describe("PortableDataManager", () => {
       macroCount: 0,
       preferencesIncluded: false,
       selection: {
+        games: true,
         roles: true,
         launchWorkspaces: true,
         macros: false,
@@ -621,6 +774,7 @@ function createManager({
   return new PortableDataManager({
     createImportId: () => importId,
     getAppVersion: () => "1.2.3",
+    gameStore,
     macroStore,
     now: () => new Date("2026-07-13T10:00:00.000Z"),
     roleStore,

@@ -82,7 +82,8 @@ export interface BrowserManagerOptions {
   dividerPreloadPath: string;
   embeddedPreloadPath: string;
   externalChromeManager?: ExternalChromeManager;
-  getBrowserLaunchMode?: () => BrowserLaunchMode | Promise<BrowserLaunchMode>;
+  getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
+  getLoginUrl?: (role: Role) => string | Promise<string>;
   getLaunchWorkArea: () => PixelBounds;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
@@ -195,7 +196,7 @@ interface BrowserSession {
 }
 
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
-const EXTERNAL_COMPAT_NOTICE =
+export const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
 const WORKSPACE_LAUNCH_CONCURRENCY = 2;
@@ -310,7 +311,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async launchUnlocked(role: Role, options: BrowserLaunchOptions): Promise<RoleStatus> {
-    const launchMode = await this.getBrowserLaunchMode();
+    const launchMode = await this.getBrowserLaunchMode(role);
     if (launchMode === "external") {
       return this.launchExternal(role);
     }
@@ -351,18 +352,20 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   launchWorkspace(
     workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "name">,
     items: BrowserWorkspaceLaunchItem[],
-    target?: BrowserWorkspaceLaunchTarget
+    target?: BrowserWorkspaceLaunchTarget,
+    launchMode?: BrowserLaunchMode
   ): Promise<RoleStatus[]> {
     return this.runRoleOperation(
       items.map((item) => item.role.id),
-      () => this.launchWorkspaceUnlocked(workspace, items, target)
+      () => this.launchWorkspaceUnlocked(workspace, items, target, launchMode)
     );
   }
 
   private async launchWorkspaceUnlocked(
     workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "name">,
     items: BrowserWorkspaceLaunchItem[],
-    target?: BrowserWorkspaceLaunchTarget
+    target?: BrowserWorkspaceLaunchTarget,
+    requestedLaunchMode?: BrowserLaunchMode
   ): Promise<RoleStatus[]> {
     const runningRoles = items
       .map((item) => item.role)
@@ -377,7 +380,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     try {
-      const launchMode = await this.getBrowserLaunchMode();
+      const launchMode = requestedLaunchMode ?? await this.getBrowserLaunchMode();
       if (launchMode === "external") {
         return this.launchExternalWorkspace(workspace, items, undefined, target);
       }
@@ -451,7 +454,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (!currentUrl || currentUrl === "about:blank") {
       await this.applyBrowserProxy(session);
       await this.applyCdnCompatibility(session);
-      await session.view.webContents.loadURL(role.launchUrl);
+      await session.view.webContents.loadURL(await this.getLoginUrl(role));
     }
     await this.focusSession(session);
   }
@@ -756,8 +759,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.emitChange();
   }
 
-  private getBrowserLaunchMode(): BrowserLaunchMode | Promise<BrowserLaunchMode> {
-    return this.options.getBrowserLaunchMode?.() ?? "embedded";
+  private getBrowserLaunchMode(role?: Role): BrowserLaunchMode | Promise<BrowserLaunchMode> {
+    return this.options.getBrowserLaunchMode?.(role) ?? "embedded";
+  }
+
+  private getLoginUrl(role: Role): string | Promise<string> {
+    return this.options.getLoginUrl?.(role) ?? role.launchUrl;
   }
 
   private getWorkspaceAppearanceSettings():

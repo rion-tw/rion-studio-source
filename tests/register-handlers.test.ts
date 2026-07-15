@@ -9,6 +9,8 @@ import {
 import { registerIpcHandlers } from "../src/main/ipc/registerHandlers";
 import type { MacroManager } from "../src/main/macros/MacroManager";
 import type { MacroStore } from "../src/main/macros/MacroStore";
+import type { GameStore } from "../src/main/games/GameStore";
+import type { GameCompatibilityManager } from "../src/main/games/GameCompatibilityManager";
 import type { RoleStore } from "../src/main/roles/RoleStore";
 import type { AppUpdateManager } from "../src/main/updates/AppUpdateManager";
 import type { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
@@ -18,6 +20,7 @@ import {
 } from "../src/shared/browserFonts";
 import type {
   GameBrowserSettings,
+  Game,
   LaunchWorkspace,
   Macro,
   Role,
@@ -49,6 +52,7 @@ vi.mock("electron", () => ({
 
 const authenticatedRole: Role = {
   id: "role-1",
+  gameId: "game-1",
   name: "Main",
   launchUrl: "https://example.com/play",
   windowWidth: 1280,
@@ -60,8 +64,19 @@ const authenticatedRole: Role = {
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
 
+const customGame: Game = {
+  id: "game-1",
+  source: "custom",
+  name: "Example",
+  defaultLaunchUrl: "https://example.com/play",
+  browserLaunchMode: "inherit",
+  createdAt: "2026-07-10T00:00:00.000Z",
+  updatedAt: "2026-07-10T00:00:00.000Z"
+};
+
 const workspace: LaunchWorkspace = {
   id: "workspace-1",
+  browserLaunchMode: "inherit",
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 100,
@@ -82,7 +97,9 @@ const workspace: LaunchWorkspace = {
 };
 
 describe("registerIpcHandlers workspace handlers", () => {
-  let roleStore: Pick<RoleStore, "deleteRole" | "getRole" | "listRoles" | "reorderRoles">;
+  let roleStore: Pick<RoleStore, "createRole" | "deleteRole" | "getRole" | "listRoles" | "reorderRoles" | "updateRole">;
+  let gameStore: Pick<GameStore, "createGame" | "deleteGame" | "getGame" | "listGames" | "resetBuiltinGame" | "updateGame">;
+  let gameCompatibilityManager: Pick<GameCompatibilityManager, "cancelCheck" | "deleteGame" | "listReports" | "listStatuses" | "on" | "recordObservation" | "runCheck">;
   let workspaceStore: Pick<
     LaunchWorkspaceStore,
     "clearRole" | "createWorkspace" | "getWorkspace" | "listWorkspaces" | "reorderWorkspaces" | "updateWorkspace"
@@ -115,6 +132,7 @@ describe("registerIpcHandlers workspace handlers", () => {
   beforeEach(() => {
     handlers.clear();
     roleStore = {
+      createRole: vi.fn(async (input) => ({ ...authenticatedRole, ...input })),
       deleteRole: vi.fn().mockResolvedValue(undefined),
       getRole: vi.fn(async (id: string) => ({
         ...authenticatedRole,
@@ -122,7 +140,25 @@ describe("registerIpcHandlers workspace handlers", () => {
         authState: id === "role-2" ? "authenticated" : authenticatedRole.authState
       })),
       listRoles: vi.fn().mockResolvedValue([authenticatedRole]),
-      reorderRoles: vi.fn().mockResolvedValue([authenticatedRole])
+      reorderRoles: vi.fn().mockResolvedValue([authenticatedRole]),
+      updateRole: vi.fn(async (_id, input) => ({ ...authenticatedRole, ...input }))
+    };
+    gameStore = {
+      createGame: vi.fn(async (input) => ({ ...customGame, ...input })),
+      deleteGame: vi.fn().mockResolvedValue(undefined),
+      getGame: vi.fn(async (id) => ({ ...customGame, id })),
+      listGames: vi.fn().mockResolvedValue([customGame]),
+      resetBuiltinGame: vi.fn().mockResolvedValue(customGame),
+      updateGame: vi.fn(async (_id, input) => ({ ...customGame, ...input }))
+    };
+    gameCompatibilityManager = {
+      cancelCheck: vi.fn().mockResolvedValue(undefined),
+      deleteGame: vi.fn().mockResolvedValue(undefined),
+      listReports: vi.fn().mockResolvedValue([]),
+      listStatuses: vi.fn(() => []),
+      on: vi.fn(),
+      recordObservation: vi.fn().mockResolvedValue(undefined),
+      runCheck: vi.fn().mockResolvedValue({ gameId: customGame.id, isStale: false, observations: {} })
     };
     workspaceStore = {
       clearRole: vi.fn().mockResolvedValue(undefined),
@@ -195,6 +231,8 @@ describe("registerIpcHandlers workspace handlers", () => {
       browserManager as BrowserManager,
       authManager as AuthManager,
       {
+        gameCompatibilityManager,
+        gameStore,
         legalAcceptanceStore,
         getDefaultWorkspaceDisplayId: () => 11,
         getWorkspaceDisplays: () => workspaceDisplays,
@@ -210,6 +248,9 @@ describe("registerIpcHandlers workspace handlers", () => {
 
   it("returns initial renderer data through one snapshot handler", async () => {
     await expect(handlers.get(IPC_CHANNELS.appSnapshot)?.({})).resolves.toEqual({
+      games: [customGame],
+      gameCompatibilityReports: [],
+      gameCompatibilityStatuses: [],
       roles: [authenticatedRole],
       roleStatuses: [],
       authStatuses: [],
@@ -220,6 +261,89 @@ describe("registerIpcHandlers workspace handlers", () => {
     });
     expect(roleStore.listRoles).toHaveBeenCalledOnce();
     expect(workspaceStore.listWorkspaces).toHaveBeenCalledOnce();
+  });
+
+  it("exposes game CRUD and validates role game references", async () => {
+    await expect(handlers.get(IPC_CHANNELS.gamesList)?.({})).resolves.toEqual([customGame]);
+    await expect(handlers.get(IPC_CHANNELS.gamesCreate)?.({}, {
+      name: "Another",
+      defaultLaunchUrl: "https://another.test"
+    })).resolves.toMatchObject({ name: "Another" });
+    await expect(handlers.get(IPC_CHANNELS.gamesUpdate)?.({}, customGame.id, {
+      browserLaunchMode: "external"
+    })).resolves.toMatchObject({ browserLaunchMode: "external" });
+    await expect(handlers.get(IPC_CHANNELS.gamesResetBuiltin)?.({}, customGame.id)).resolves.toBe(customGame);
+    await expect(handlers.get(IPC_CHANNELS.gamesDelete)?.({}, customGame.id)).resolves.toBeUndefined();
+
+    vi.mocked(gameStore.getGame).mockResolvedValueOnce({
+      ...customGame,
+      defaultLaunchUrl: "https://defaults.test/play",
+      roleDefaults: { windowWidth: 1600, windowHeight: 1000, launchPreset: "balanced" }
+    });
+    await handlers.get(IPC_CHANNELS.rolesCreate)?.({}, { gameId: customGame.id, name: "Defaults" });
+    expect(roleStore.createRole).toHaveBeenLastCalledWith(expect.objectContaining({
+      gameId: customGame.id,
+      launchUrl: "https://defaults.test/play",
+      windowWidth: 1600,
+      windowHeight: 1000,
+      launchPreset: "balanced"
+    }));
+    vi.mocked(roleStore.createRole).mockClear();
+
+    vi.mocked(gameStore.getGame).mockRejectedValueOnce(new Error("Game not found."));
+    await expect(handlers.get(IPC_CHANNELS.rolesCreate)?.({}, {
+      gameId: "missing",
+      name: "Invalid"
+    })).rejects.toThrow("Game not found");
+    expect(roleStore.createRole).not.toHaveBeenCalled();
+  });
+
+  it("passes resolved role defaults to compatibility checks", async () => {
+    const defaults = { windowWidth: 1200, windowHeight: 800, launchPreset: "balanced" as const };
+    await handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id, defaults);
+
+    expect(gameCompatibilityManager.runCheck).toHaveBeenCalledWith(customGame.id, defaults);
+    await expect(handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id, {
+      ...defaults,
+      windowWidth: 100
+    })).rejects.toThrow("Compatibility role defaults are invalid");
+  });
+
+  it("records launch mode, fallback, and stable failures as game observations", async () => {
+    vi.mocked(browserManager.launch).mockResolvedValueOnce({
+      roleId: authenticatedRole.id,
+      state: "running",
+      runtimeMode: "external",
+      notice: "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support."
+    });
+    await handlers.get(IPC_CHANNELS.rolesLaunch)?.({}, authenticatedRole.id);
+    expect(gameCompatibilityManager.recordObservation).toHaveBeenCalledWith(customGame.id, expect.objectContaining({
+      lastExternalSuccessAt: expect.any(String),
+      lastFallbackAt: expect.any(String)
+    }));
+
+    vi.mocked(browserManager.launch).mockRejectedValueOnce(Object.assign(new Error("failed"), { code: "GAME_PAGE_LOAD_FAILED" }));
+    await expect(handlers.get(IPC_CHANNELS.rolesLaunch)?.({}, authenticatedRole.id)).rejects.toThrow("failed");
+    expect(gameCompatibilityManager.recordObservation).toHaveBeenLastCalledWith(customGame.id, expect.objectContaining({
+      lastLaunchFailureAt: expect.any(String),
+      lastLaunchFailureCode: "GAME_PAGE_LOAD_FAILED"
+    }));
+  });
+
+  it("stops a role before changing its game or launch URL but not for metadata-only edits", async () => {
+    await expect(handlers.get(IPC_CHANNELS.rolesUpdate)?.({}, authenticatedRole.id, {
+      notes: "Metadata only"
+    })).resolves.toMatchObject({ notes: "Metadata only" });
+    expect(browserManager.stopRoleAndRunMutation).not.toHaveBeenCalled();
+
+    await expect(handlers.get(IPC_CHANNELS.rolesUpdate)?.({}, authenticatedRole.id, {
+      gameId: "game-2"
+    })).resolves.toMatchObject({ gameId: "game-2" });
+    expect(gameStore.getGame).toHaveBeenCalledWith("game-2");
+    expect(browserManager.stopRoleAndRunMutation).toHaveBeenCalledWith(
+      authenticatedRole.id,
+      expect.any(Function)
+    );
   });
 
   it("persists role and workspace orders and reports both collections changed", async () => {
@@ -312,9 +436,24 @@ describe("registerIpcHandlers workspace handlers", () => {
         { role: expect.objectContaining({ id: "role-1" }), rect: { x: 0, y: 0, width: 0.5, height: 1 } },
         { role: expect.objectContaining({ id: "role-2" }), rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
       ],
-      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
+      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } },
+      "embedded"
     );
     expect(browserManager.launch).not.toHaveBeenCalled();
+  });
+
+  it("uses a workspace explicit launch mode independently of role game modes", async () => {
+    const externalWorkspace = { ...workspace, browserLaunchMode: "external" as const };
+    workspaceStore.getWorkspace = vi.fn().mockResolvedValue(externalWorkspace);
+
+    await handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, externalWorkspace.id);
+
+    expect(browserManager.launchWorkspace).toHaveBeenCalledWith(
+      externalWorkspace,
+      expect.any(Array),
+      expect.any(Object),
+      "external"
+    );
   });
 
   it("lists displays and launches on a saved or one-time target without changing the workspace", async () => {
@@ -329,7 +468,8 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(browserManager.launchWorkspace).toHaveBeenLastCalledWith(
       fixedWorkspace,
       expect.any(Array),
-      { displayId: 22, workArea: workspaceDisplays[1].workArea }
+      { displayId: 22, workArea: workspaceDisplays[1].workArea },
+      "embedded"
     );
 
     await expect(
@@ -339,7 +479,8 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(browserManager.launchWorkspace).toHaveBeenLastCalledWith(
       fixedWorkspace,
       expect.any(Array),
-      { displayId: 11, workArea: workspaceDisplays[0].workArea }
+      { displayId: 11, workArea: workspaceDisplays[0].workArea },
+      "embedded"
     );
   });
 
@@ -361,7 +502,8 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(browserManager.launchWorkspace).toHaveBeenLastCalledWith(
       workspace,
       expect.any(Array),
-      { displayId: -22, workArea: windowsDisplay.workArea }
+      { displayId: -22, workArea: windowsDisplay.workArea },
+      "embedded"
     );
   });
 
@@ -434,7 +576,8 @@ describe("registerIpcHandlers workspace handlers", () => {
       expect.arrayContaining([
         { role: expect.objectContaining({ id: "role-3" }), rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }
       ]),
-      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
+      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } },
+      "embedded"
     );
   });
 
@@ -460,7 +603,8 @@ describe("registerIpcHandlers workspace handlers", () => {
       expect.arrayContaining([
         { role: expect.objectContaining({ id: "role-4" }), rect: { x: 0.68, y: 0, width: 0.32, height: 1 } }
       ]),
-      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
+      { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } },
+      "embedded"
     );
   });
 

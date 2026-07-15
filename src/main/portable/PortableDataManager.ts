@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 
 import { normalizeGameBrowserSettings } from "../../shared/browserFonts";
+import { BUILTIN_GAME_DEFINITIONS } from "../../shared/games";
 import {
   areMacroTriggersEqual,
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../shared/macroShortcuts";
 import type { MacroStore } from "../macros/MacroStore";
+import type { GameStore } from "../games/GameStore";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import {
@@ -17,7 +19,10 @@ import {
   type CreateLaunchWorkspaceInput,
   type CreateMacroInput,
   type CreateRoleInput,
+  type CreateGameInput,
   type GameBrowserSettings,
+  type Game,
+  type InheritableBrowserLaunchMode,
   type LaunchPreset,
   type MacroRepeat,
   type MacroStep,
@@ -30,10 +35,11 @@ import {
   type PortableImportResult,
   type PortableImportWarning,
   type PortableLaunchWorkspace,
+  type PortableGame,
   type PortableMacro,
   type PortablePreferences,
   type PortableRole,
-  type RionPortableDataV1,
+  type RionPortableDataV2,
   type RoleDefaults
 } from "../../shared/types";
 import {
@@ -69,6 +75,7 @@ interface PortableOpenDialogResult {
 interface PortableDataManagerOptions {
   createImportId?: () => string;
   getAppVersion: () => string;
+  gameStore: Pick<GameStore, "createGame" | "listGames" | "updateGame">;
   now?: () => Date;
   readTextFile?: (path: string, encoding: BufferEncoding) => Promise<string>;
   roleStore: Pick<RoleStore, "createRole" | "listRoles">;
@@ -80,6 +87,7 @@ interface PortableDataManagerOptions {
 }
 
 interface ImportPlan {
+  games: Array<{ existingId?: string; name: string; source: PortableGame }>;
   roles: Array<{ name: string; source: PortableRole }>;
   workspaces: Array<{ name: string; source: PortableLaunchWorkspace }>;
   macros: Array<{ name: string; roleIds: string[]; source: PortableMacro; trigger?: MacroTrigger }>;
@@ -87,13 +95,15 @@ interface ImportPlan {
 }
 
 interface PendingImport {
-  data: RionPortableDataV1;
+  data: RionPortableDataV2;
   filePath: string;
 }
 
 const PORTABLE_APP_NAME = "Rion Studio";
-const PORTABLE_SCHEMA_VERSION = 1;
+const PORTABLE_SCHEMA_VERSION = 2;
 const MAX_COVER_IMAGE_DATA_URL_LENGTH = 1_500_000;
+const MAX_GAME_ICON_BYTES = 1_500_000;
+const MAX_GAME_ICON_DATA_URL_LENGTH = 2_000_128;
 const MAX_LAUNCH_URL_LENGTH = 2_048;
 const MAX_NAME_LENGTH = 80;
 const MACRO_STEPS_MAX_LENGTH = 100;
@@ -103,6 +113,7 @@ const MACRO_LABEL_MAX_LENGTH = 48;
 const COVER_IMAGE_DATA_URL_PATTERN = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 const COVER_IMAGE_DOMINANT_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 const DEFAULT_PORTABLE_DATA_SELECTION: PortableDataSelection = {
+  games: true,
   roles: true,
   launchWorkspaces: true,
   macros: true,
@@ -152,6 +163,7 @@ export class PortableDataManager {
 
     return {
       filePath: dialogResult.filePath,
+      gameCount: data.games.length,
       roleCount: data.roles.length,
       workspaceCount: data.launchWorkspaces.length,
       macroCount: data.macros.length,
@@ -183,6 +195,7 @@ export class PortableDataManager {
       filePath,
       exportedAt: data.exportedAt,
       appVersion: data.appVersion,
+      gameCount: plan.games.length,
       roleCount: plan.roles.length,
       workspaceCount: plan.workspaces.length,
       macroCount: plan.macros.length,
@@ -206,13 +219,29 @@ export class PortableDataManager {
     ensurePortableContentSelected(selectedData);
     this.pendingImports.delete(input.importId);
     const plan = await this.buildImportPlan(selectedData);
+    const gameIdMap = new Map<string, string>();
     const roleIdMap = new Map<string, string>();
+    let gameCount = 0;
     let roleCount = 0;
     let workspaceCount = 0;
     let macroCount = 0;
 
+    for (const gamePlan of plan.games) {
+      const savedGame = gamePlan.existingId
+        ? await this.options.gameStore.updateGame(gamePlan.existingId, toCreateGameInput(gamePlan.source, gamePlan.name))
+        : await this.options.gameStore.createGame(toCreateGameInput(gamePlan.source, gamePlan.name));
+      gameIdMap.set(gamePlan.source.id, savedGame.id);
+      gameCount += 1;
+    }
+
     for (const rolePlan of plan.roles) {
-      const createdRole = await this.options.roleStore.createRole(toCreateRoleInput(rolePlan.source, rolePlan.name));
+      const gameId = rolePlan.source.gameId ? gameIdMap.get(rolePlan.source.gameId) : undefined;
+      if (!gameId) {
+        throw new PortableDataError("PORTABLE_ROLE_GAME_MISSING", "Imported role game is unavailable.");
+      }
+      const createdRole = await this.options.roleStore.createRole(
+        toCreateRoleInput(rolePlan.source, rolePlan.name, gameId)
+      );
       roleIdMap.set(rolePlan.source.id, createdRole.id);
       roleCount += 1;
     }
@@ -238,6 +267,7 @@ export class PortableDataManager {
     }
 
     return {
+      gameCount,
       roleCount,
       workspaceCount,
       macroCount,
@@ -251,8 +281,9 @@ export class PortableDataManager {
   private async createPortableData(
     preferences: PortablePreferences | undefined,
     selection: PortableDataSelection
-  ): Promise<RionPortableDataV1> {
-    const [roles, launchWorkspaces, macros] = await Promise.all([
+  ): Promise<RionPortableDataV2> {
+    const [games, roles, launchWorkspaces, macros] = await Promise.all([
+      this.options.gameStore.listGames(),
       this.options.roleStore.listRoles(),
       this.options.workspaceStore.listWorkspaces(),
       this.options.macroStore.listMacros()
@@ -264,8 +295,10 @@ export class PortableDataManager {
       schemaVersion: PORTABLE_SCHEMA_VERSION,
       exportedAt: this.now().toISOString(),
       appVersion: this.options.getAppVersion(),
+      games: selection.games ? games.map(toPortableGame) : [],
       roles: selection.roles ? roles.map((role) => ({
         id: role.id,
+        gameId: role.gameId,
         name: role.name,
         launchUrl: role.launchUrl,
         windowWidth: role.windowWidth,
@@ -279,6 +312,7 @@ export class PortableDataManager {
         id: workspace.id,
         name: workspace.name,
         template: workspace.template,
+        browserLaunchMode: workspace.browserLaunchMode,
         browserZoomPercent: workspace.browserZoomPercent,
         slots: workspace.slots.map((slot) => ({
           id: slot.id,
@@ -298,18 +332,40 @@ export class PortableDataManager {
     };
   }
 
-  private async buildImportPlan(data: RionPortableDataV1): Promise<ImportPlan> {
-    const [existingRoles, existingWorkspaces] = await Promise.all([
+  private async buildImportPlan(data: RionPortableDataV2): Promise<ImportPlan> {
+    const [existingGames, existingRoles, existingWorkspaces] = await Promise.all([
+      this.options.gameStore.listGames(),
       this.options.roleStore.listRoles(),
       this.options.workspaceStore.listWorkspaces()
     ]);
     const warnings: PortableImportWarning[] = [];
+    const usedGameNames = new Set(existingGames.map((game) => normalizeNameKey(game.name)));
     const usedRoleNames = new Set(existingRoles.map((role) => normalizeNameKey(role.name)));
     const usedWorkspaceNames = new Set(existingWorkspaces.map((workspace) => normalizeNameKey(workspace.name)));
     const importedRoleIds = new Set(data.roles.map((role) => role.id));
 
+    const games = data.games.map((game) => {
+      if (game.source === "builtin" && game.builtinKey) {
+        const existing = existingGames.find((item) => item.builtinKey === game.builtinKey);
+        if (existing) {
+          warnings.push({ code: "BUILTIN_GAME_DEFAULTS_REPLACED", itemName: existing.name });
+          usedGameNames.add(normalizeNameKey(existing.name));
+          return { existingId: existing.id, name: existing.name, source: game };
+        }
+      }
+
+      const name = reserveUniqueName(game.name, usedGameNames);
+      if (name !== game.name) {
+        warnings.push({ code: "GAME_NAME_RENAMED", itemName: game.name, replacementName: name });
+      }
+      return { name, source: game };
+    });
+
     const roles = data.roles.map((role) => {
       const name = reserveUniqueName(role.name, usedRoleNames);
+      if (role.gameRecovered) {
+        warnings.push({ code: "ROLE_GAME_RECOVERED", itemName: role.name });
+      }
       if (name !== role.name) {
         warnings.push({
           code: "ROLE_NAME_RENAMED",
@@ -387,7 +443,7 @@ export class PortableDataManager {
       macros.push({ name: macro.name, roleIds, source: macro, trigger });
     });
 
-    return { roles, workspaces, macros, warnings };
+    return { games, roles, workspaces, macros, warnings };
   }
 }
 
@@ -401,7 +457,9 @@ function normalizePortableDataSelection(value: unknown, useDefaultWhenMissing = 
   }
 
   const selection = value as Record<string, unknown>;
+  const gamesSelected = selection.games === undefined ? selection.roles : selection.games;
   if (
+    typeof gamesSelected !== "boolean" ||
     typeof selection.roles !== "boolean" ||
     typeof selection.launchWorkspaces !== "boolean" ||
     typeof selection.macros !== "boolean" ||
@@ -411,20 +469,23 @@ function normalizePortableDataSelection(value: unknown, useDefaultWhenMissing = 
   }
 
   const requiresRoles = selection.launchWorkspaces || selection.macros;
+  const roles = selection.roles || requiresRoles;
   return {
-    roles: selection.roles || requiresRoles,
+    games: gamesSelected || roles,
+    roles,
     launchWorkspaces: selection.launchWorkspaces,
     macros: selection.macros,
     preferences: selection.preferences
   };
 }
 
-function selectPortableData(data: RionPortableDataV1, selection: PortableDataSelection): RionPortableDataV1 {
+function selectPortableData(data: RionPortableDataV2, selection: PortableDataSelection): RionPortableDataV2 {
   return {
     app: data.app,
     schemaVersion: data.schemaVersion,
     exportedAt: data.exportedAt,
     appVersion: data.appVersion,
+    games: selection.games ? data.games : [],
     roles: selection.roles ? data.roles : [],
     launchWorkspaces: selection.launchWorkspaces ? data.launchWorkspaces : [],
     macros: selection.macros ? data.macros : [],
@@ -432,8 +493,9 @@ function selectPortableData(data: RionPortableDataV1, selection: PortableDataSel
   };
 }
 
-function getEffectivePortableDataSelection(data: RionPortableDataV1): PortableDataSelection {
+function getEffectivePortableDataSelection(data: RionPortableDataV2): PortableDataSelection {
   return {
+    games: data.games.length > 0,
     roles: data.roles.length > 0,
     launchWorkspaces: data.launchWorkspaces.length > 0,
     macros: data.macros.length > 0,
@@ -441,15 +503,16 @@ function getEffectivePortableDataSelection(data: RionPortableDataV1): PortableDa
   };
 }
 
-function ensurePortableContentSelected(data: RionPortableDataV1): void {
+function ensurePortableContentSelected(data: RionPortableDataV2): void {
   const selection = getEffectivePortableDataSelection(data);
-  if (!selection.roles && !selection.launchWorkspaces && !selection.macros && !selection.preferences) {
+  if (!selection.games && !selection.roles && !selection.launchWorkspaces && !selection.macros && !selection.preferences) {
     throw new PortableDataError("PORTABLE_SELECTION_EMPTY", "Select at least one available data category.");
   }
 }
 
-function toCreateRoleInput(role: PortableRole, name: string): CreateRoleInput {
+function toCreateRoleInput(role: PortableRole, name: string, gameId: string): CreateRoleInput {
   return {
+    gameId,
     name,
     launchUrl: role.launchUrl,
     windowWidth: role.windowWidth,
@@ -469,6 +532,7 @@ function toCreateWorkspaceInput(
   return {
     name,
     template: workspace.template,
+    browserLaunchMode: workspace.browserLaunchMode ?? "inherit",
     browserZoomPercent: workspace.browserZoomPercent,
     slots: workspace.slots.map((slot) => {
       const mappedRoleId = slot.roleId ? roleIdMap.get(slot.roleId) : undefined;
@@ -479,6 +543,31 @@ function toCreateWorkspaceInput(
         rect: { ...slot.rect }
       };
     })
+  };
+}
+
+function toPortableGame(game: Game): PortableGame {
+  return {
+    id: game.id,
+    source: game.source,
+    ...(game.builtinKey ? { builtinKey: game.builtinKey } : {}),
+    name: game.name,
+    ...(game.iconImageDataUrl ? { iconImageDataUrl: game.iconImageDataUrl } : {}),
+    defaultLaunchUrl: game.defaultLaunchUrl,
+    ...(game.loginUrl ? { loginUrl: game.loginUrl } : {}),
+    ...(game.roleDefaults ? { roleDefaults: { ...game.roleDefaults } } : {}),
+    browserLaunchMode: game.browserLaunchMode
+  };
+}
+
+function toCreateGameInput(game: PortableGame, name: string): CreateGameInput {
+  return {
+    name,
+    defaultLaunchUrl: game.defaultLaunchUrl,
+    loginUrl: game.loginUrl ?? null,
+    iconImageDataUrl: game.source === "custom" ? game.iconImageDataUrl ?? null : undefined,
+    roleDefaults: game.roleDefaults ?? null,
+    browserLaunchMode: game.browserLaunchMode
   };
 }
 
@@ -498,14 +587,14 @@ function toCreateMacroInput(
   };
 }
 
-function parsePortableData(raw: string): RionPortableDataV1 {
+function parsePortableData(raw: string): RionPortableDataV2 {
   try {
     const parsed = JSON.parse(raw) as unknown;
     const data = toRecord(parsed);
 
     if (
       data.app !== PORTABLE_APP_NAME ||
-      data.schemaVersion !== PORTABLE_SCHEMA_VERSION ||
+      (data.schemaVersion !== 1 && data.schemaVersion !== PORTABLE_SCHEMA_VERSION) ||
       !Array.isArray(data.roles) ||
       !Array.isArray(data.launchWorkspaces) ||
       !Array.isArray(data.macros)
@@ -513,11 +602,17 @@ function parsePortableData(raw: string): RionPortableDataV1 {
       throw new Error("Invalid portable metadata.");
     }
 
-    const roles = data.roles.map(normalizePortableRole);
+    let roles = data.roles.map(normalizePortableRole);
+    const games = data.schemaVersion === PORTABLE_SCHEMA_VERSION && Array.isArray(data.games)
+      ? data.games.map(normalizePortableGame)
+      : [];
+    const normalizedGames = recoverPortableGames(games, roles);
+    roles = normalizedGames.roles;
     const launchWorkspaces = data.launchWorkspaces.map(normalizePortableLaunchWorkspace);
     const macros = data.macros.map(normalizePortableMacro);
     const preferences = normalizePortablePreferences(data.preferences);
     ensureUniqueIds(roles.map((role) => role.id));
+    ensureUniqueIds(normalizedGames.games.map((game) => game.id));
     ensureUniqueIds(launchWorkspaces.map((workspace) => workspace.id));
     ensureUniqueIds(macros.map((macro) => macro.id));
 
@@ -526,6 +621,7 @@ function parsePortableData(raw: string): RionPortableDataV1 {
       schemaVersion: PORTABLE_SCHEMA_VERSION,
       exportedAt: typeof data.exportedAt === "string" ? data.exportedAt : "",
       appVersion: typeof data.appVersion === "string" ? data.appVersion : "",
+      games: normalizedGames.games,
       roles,
       launchWorkspaces,
       macros,
@@ -546,6 +642,7 @@ function normalizePortableRole(value: unknown): PortableRole {
 
   return {
     id: normalizeRequiredString(role.id),
+    ...(typeof role.gameId === "string" && role.gameId.trim() ? { gameId: role.gameId.trim() } : {}),
     name: normalizeName(role.name),
     launchUrl: normalizeLaunchUrl(role.launchUrl),
     windowWidth: normalizeWindowSize(role.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH),
@@ -555,6 +652,86 @@ function normalizePortableRole(value: unknown): PortableRole {
     ...(coverImageDataUrl ? { coverImageDataUrl } : {}),
     ...(coverImageDataUrl ? normalizeOptionalCoverImageDominantColorProperty(role.coverImageDominantColor) : {})
   };
+}
+
+function normalizePortableGame(value: unknown): PortableGame {
+  const game = toRecord(value);
+  const source = game.source === "builtin" ? "builtin" : game.source === "custom" ? "custom" : undefined;
+  if (!source) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+  const builtinKey = game.builtinKey === "flyff-universe" || game.builtinKey === "feifei-infinite-universe"
+    ? game.builtinKey
+    : undefined;
+  if (source === "builtin" && !builtinKey) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+  const iconImageDataUrl = source === "custom"
+    ? normalizeOptionalGameIconDataUrl(game.iconImageDataUrl)
+    : undefined;
+  const loginUrl = normalizeOptionalPortableUrl(game.loginUrl);
+  const roleDefaults = normalizeOptionalPortableRoleDefaults(game.roleDefaults);
+  return {
+    id: normalizeRequiredString(game.id),
+    source,
+    ...(builtinKey ? { builtinKey } : {}),
+    name: normalizeName(game.name),
+    ...(iconImageDataUrl ? { iconImageDataUrl } : {}),
+    defaultLaunchUrl: normalizeLaunchUrl(game.defaultLaunchUrl),
+    ...(loginUrl ? { loginUrl } : {}),
+    ...(roleDefaults ? { roleDefaults } : {}),
+    browserLaunchMode: normalizeInheritableBrowserLaunchMode(game.browserLaunchMode)
+  };
+}
+
+function recoverPortableGames(
+  inputGames: PortableGame[],
+  inputRoles: PortableRole[]
+): { games: PortableGame[]; roles: PortableRole[] } {
+  const games = inputGames.map((game) => ({ ...game }));
+  const gameIds = new Set(games.map((game) => game.id));
+  const gameByUrl = new Map(games.map((game) => [game.defaultLaunchUrl, game]));
+  const usedNames = new Set(games.map((game) => normalizeNameKey(game.name)));
+
+  const roles = inputRoles.map((role, index) => {
+    if (role.gameId && gameIds.has(role.gameId)) {
+      return role;
+    }
+
+    let game = gameByUrl.get(role.launchUrl);
+    if (!game) {
+      const definition = BUILTIN_GAME_DEFINITIONS.find(
+        (item) => normalizeLaunchUrl(item.defaultLaunchUrl) === role.launchUrl
+      );
+      if (definition) {
+        game = {
+          id: definition.id,
+          source: "builtin",
+          builtinKey: definition.builtinKey,
+          name: definition.name,
+          defaultLaunchUrl: normalizeLaunchUrl(definition.defaultLaunchUrl),
+          browserLaunchMode: definition.browserLaunchMode
+        };
+      } else {
+        const baseName = createRecoveredGameName(role.launchUrl);
+        game = {
+          id: `recovered-game-${index + 1}-${randomUUID()}`,
+          source: "custom",
+          name: reserveUniqueName(baseName, usedNames),
+          defaultLaunchUrl: role.launchUrl,
+          browserLaunchMode: "inherit"
+        };
+      }
+      games.push(game);
+      gameIds.add(game.id);
+      gameByUrl.set(game.defaultLaunchUrl, game);
+      usedNames.add(normalizeNameKey(game.name));
+    }
+
+    return { ...role, gameId: game.id, gameRecovered: true };
+  });
+
+  return { games, roles };
 }
 
 function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspace {
@@ -582,6 +759,7 @@ function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspa
     id: normalizeRequiredString(workspace.id),
     name: normalizeName(workspace.name),
     template,
+    browserLaunchMode: normalizeInheritableBrowserLaunchMode(workspace.browserLaunchMode),
     browserZoomPercent,
     slots: normalizedSlots
   };
@@ -846,6 +1024,18 @@ function normalizeLaunchUrl(value: unknown): string {
   }
 }
 
+function normalizeOptionalPortableUrl(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  return normalizeLaunchUrl(value);
+}
+
+function normalizeInheritableBrowserLaunchMode(value: unknown): InheritableBrowserLaunchMode {
+  return value === "auto" || value === "embedded" || value === "external" ? value : "inherit";
+}
+
 function normalizeWindowSize(value: unknown, fallback: number): number {
   const size = value ?? fallback;
 
@@ -868,6 +1058,28 @@ function normalizeOptionalCoverImageDataUrl(value: unknown): string | undefined 
   }
 
   return trimmed;
+}
+
+function normalizeOptionalGameIconDataUrl(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const trimmed = normalizeRequiredString(value);
+  if (
+    trimmed.length > MAX_GAME_ICON_DATA_URL_LENGTH ||
+    !COVER_IMAGE_DATA_URL_PATTERN.test(trimmed) ||
+    getBase64PayloadByteLength(trimmed) > MAX_GAME_ICON_BYTES
+  ) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+  return trimmed;
+}
+
+function getBase64PayloadByteLength(dataUrl: string): number {
+  const payload = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.floor((payload.length * 3) / 4) - padding;
 }
 
 function normalizeOptionalCoverImageDominantColorProperty(value: unknown): { coverImageDominantColor?: string } {
@@ -959,7 +1171,13 @@ function reserveUniqueName(name: string, usedNames: Set<string>): string {
 }
 
 function normalizeNameKey(name: string): string {
-  return name.trim().toLocaleLowerCase();
+  return name.trim().toLowerCase();
+}
+
+function createRecoveredGameName(launchUrl: string): string {
+  const url = new URL(launchUrl);
+  const path = url.pathname.replace(/^\/+|\/+$/g, "");
+  return path && path !== "play" ? `${url.hostname} · ${path.slice(0, 32)}` : url.hostname;
 }
 
 function ensureUniqueIds(ids: string[]): void {

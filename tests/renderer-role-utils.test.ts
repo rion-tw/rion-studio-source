@@ -133,6 +133,7 @@ describe("renderer role status helpers", () => {
 function role(overrides: Partial<Role>): Role {
   return {
     id: "role",
+    gameId: "game-1",
     name: "Role",
     launchUrl: "https://example.test/play",
     windowWidth: 1280,

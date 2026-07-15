@@ -63,6 +63,7 @@ describe("renderer workspace layout helpers", () => {
     expect(
       createWorkspaceFormState({
         id: "workspace-1",
+        browserLaunchMode: "inherit",
         name: "Party",
         template: "three_columns",
         browserZoomPercent: 125,
@@ -493,6 +494,7 @@ function slot(id: string, roleId?: string): LaunchWorkspaceSlot {
 function role(overrides: Partial<Role> = {}): Role {
   return {
     id: "role-1",
+    gameId: "game-1",
     name: "Knight",
     launchUrl: "https://universe.flyff.com/play",
     windowWidth: 1280,

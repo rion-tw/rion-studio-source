@@ -11,6 +11,7 @@ import { useBusyIds } from "./useBusyIds";
 interface UseRoleWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
   roles: Role[];
+  gameNamesById: Map<string, string>;
   setAuthStatuses: Dispatch<SetStateAction<AuthFlowStatus[]>>;
   setMacros: Dispatch<SetStateAction<Macro[]>>;
   setNotice?: (message: string | null) => void;
@@ -24,6 +25,7 @@ interface UseRoleWorkflowOptions {
 export function useRoleWorkflow({
   beginErrorOperation,
   roles,
+  gameNamesById,
   setAuthStatuses,
   setMacros,
   setNotice,
@@ -65,12 +67,12 @@ export function useRoleWorkflow({
         return true;
       }
 
-      return [role.name, role.launchUrl, role.notes, role.launchPreset]
+      return [role.name, gameNamesById.get(role.gameId), role.launchUrl, role.notes, role.launchPreset]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [activeFilter, roles, query, statusByRole]);
+  }, [activeFilter, gameNamesById, roles, query, statusByRole]);
 
   async function saveRole(form: RoleFormState): Promise<Role | undefined> {
     if (isSavingRef.current) {
@@ -83,6 +85,7 @@ export function useRoleWorkflow({
 
     try {
       const input = {
+        gameId: form.gameId,
         name: form.name,
         launchUrl: form.launchUrl,
         windowWidth: Number(form.windowWidth),
@@ -259,6 +262,7 @@ export function useRoleWorkflow({
 
     try {
       const copy = await window.rionStudio.createRole({
+        gameId: role.gameId,
         name: createCopyName(role.name, roles.map((item) => item.name), t("copyName.suffix")),
         launchUrl: role.launchUrl,
         windowWidth: role.windowWidth,

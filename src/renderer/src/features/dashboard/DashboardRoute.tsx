@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
+  Gamepad2,
   Keyboard,
   LayoutDashboard,
   Loader2,
@@ -43,6 +44,7 @@ import {
 
 interface DashboardRouteProps {
   authStatusByRole: Map<string, AuthFlowStatus>;
+  gameCount: number;
   busyMacroIds: ReadonlySet<string>;
   busyRoleIds: ReadonlySet<string>;
   busyRunKeys: ReadonlySet<string>;
@@ -60,6 +62,7 @@ interface DashboardRouteProps {
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
   onLoginRole: (roleId: string) => void;
   onNavigateMacros: () => void;
+  onNavigateGames: () => void;
   onNavigateRoles: (filter: SidebarFilter) => void;
   onNavigateWorkspaces: () => void;
   onNewMacro: () => void;
@@ -76,6 +79,7 @@ function DashboardRoute({
   busyRoleIds,
   busyRunKeys,
   busyWorkspaceIds,
+  gameCount,
   macroStatusByRun,
   macroStatuses,
   macros,
@@ -89,6 +93,7 @@ function DashboardRoute({
   onLaunchWorkspace,
   onLoginRole,
   onNavigateMacros,
+  onNavigateGames,
   onNavigateRoles,
   onNavigateWorkspaces,
   onNewMacro,
@@ -142,7 +147,14 @@ function DashboardRoute({
         }
       />
 
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2.5 min-[1200px]:grid-cols-5">
+        <StatCard
+          icon={Gamepad2}
+          label={t("dashboard.stat.games")}
+          value={gameCount}
+          tone="muted"
+          onClick={onNavigateGames}
+        />
         <StatCard
           icon={Users}
           label={t("dashboard.stat.runningRoles")}

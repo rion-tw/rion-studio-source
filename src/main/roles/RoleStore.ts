@@ -85,6 +85,7 @@ export class RoleStore {
 
       const role: Role = {
         id: randomUUID(),
+        gameId: this.normalizeGameId(input.gameId),
         name,
         launchUrl,
         windowWidth: this.normalizeWindowSize(input.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH, "windowWidth"),
@@ -116,11 +117,12 @@ export class RoleStore {
       }
 
       const current = file.roles[index];
+      const nextGameId = input.gameId === undefined ? current.gameId : this.normalizeGameId(input.gameId);
       const nextName = input.name === undefined ? current.name : this.normalizeName(input.name);
       const nextLaunchUrl = input.launchUrl === undefined
         ? current.launchUrl
         : this.normalizeLaunchUrl(input.launchUrl, current.launchUrl);
-      const isLaunchUrlChanged = nextLaunchUrl !== current.launchUrl;
+      const isSessionIdentityChanged = nextLaunchUrl !== current.launchUrl || nextGameId !== current.gameId;
       this.ensureUniqueName(file.roles, nextName, id);
       const isCoverImageUpdated = input.coverImageDataUrl !== undefined;
       const coverImageDataUrl = isCoverImageUpdated
@@ -135,6 +137,7 @@ export class RoleStore {
 
       const updated: Role = {
         ...current,
+        gameId: nextGameId,
         name: nextName,
         launchUrl: nextLaunchUrl,
         windowWidth: input.windowWidth === undefined
@@ -147,8 +150,9 @@ export class RoleStore {
         launchPreset: input.launchPreset === undefined
           ? current.launchPreset
           : this.normalizeLaunchPreset(input.launchPreset),
-        authState: isLaunchUrlChanged ? "login_required" : current.authState,
-        lastSuccessfulLoginAt: isLaunchUrlChanged ? undefined : current.lastSuccessfulLoginAt,
+        authState: isSessionIdentityChanged ? "login_required" : current.authState,
+        lastAuthCheckAt: isSessionIdentityChanged ? undefined : current.lastAuthCheckAt,
+        lastSuccessfulLoginAt: isSessionIdentityChanged ? undefined : current.lastSuccessfulLoginAt,
         coverImageDataUrl,
         coverImageDominantColor,
         updatedAt: new Date().toISOString()
@@ -211,6 +215,28 @@ export class RoleStore {
       await this.writeRolesFile(file);
 
       return updated;
+    });
+  }
+
+  async assignGameIds(assignments: ReadonlyMap<string, string>): Promise<Role[]> {
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      let changed = false;
+      const roles = file.roles.map((role) => {
+        const gameId = assignments.get(role.id);
+        if (!gameId || gameId === role.gameId) {
+          return role;
+        }
+
+        changed = true;
+        return { ...role, gameId: this.normalizeGameId(gameId) };
+      });
+
+      if (changed) {
+        await this.writeRolesFile({ roles });
+      }
+
+      return roles;
     });
   }
 
@@ -352,6 +378,7 @@ export class RoleStore {
 
     return {
       ...storedRole,
+      gameId: typeof storedRole.gameId === "string" ? storedRole.gameId.trim() : "",
       launchUrl,
       authState: this.normalizeAuthState(storedRole.authState),
       notes: storedRole.notes ?? "",
@@ -387,6 +414,15 @@ export class RoleStore {
     } catch {
       throw new RoleStoreError("ROLE_LAUNCH_URL_INVALID", INVALID_LAUNCH_GAME_MESSAGE);
     }
+  }
+
+  private normalizeGameId(value: string): string {
+    const normalized = value?.trim();
+    if (!normalized || normalized.length > 120) {
+      throw new RoleStoreError("ROLE_GAME_INVALID", "Role game is invalid.");
+    }
+
+    return normalized;
   }
 
   private normalizeAuthState(value: AuthState | undefined): AuthState {

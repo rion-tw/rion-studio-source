@@ -15,6 +15,7 @@ export function createDefaultPortableDataSelection(
 
 export function clearPortableDataSelection(): PortableDataSelection {
   return {
+    games: false,
     roles: false,
     launchWorkspaces: false,
     macros: false,
@@ -41,9 +42,11 @@ export function normalizePortableDataSelection(
 ): PortableDataSelection {
   const launchWorkspaces = availability.launchWorkspaces && selection.launchWorkspaces;
   const macros = availability.macros && selection.macros;
+  const roles = availability.roles && (selection.roles || launchWorkspaces || macros);
 
   return {
-    roles: availability.roles && (selection.roles || launchWorkspaces || macros),
+    games: availability.games && (selection.games || roles),
+    roles,
     launchWorkspaces,
     macros,
     preferences: availability.preferences && selection.preferences
@@ -54,8 +57,12 @@ export function isPortableRoleSelectionRequired(selection: PortableDataSelection
   return selection.launchWorkspaces || selection.macros;
 }
 
+export function isPortableGameSelectionRequired(selection: PortableDataSelection): boolean {
+  return selection.roles;
+}
+
 export function hasPortableDataSelection(selection: PortableDataSelection): boolean {
-  return selection.roles || selection.launchWorkspaces || selection.macros || selection.preferences;
+  return selection.games || selection.roles || selection.launchWorkspaces || selection.macros || selection.preferences;
 }
 
 export function filterPortableImportWarnings(
@@ -66,6 +73,12 @@ export function filterPortableImportWarnings(
 }
 
 function getPortableWarningSection(code: PortableImportWarningCode): PortableDataSection {
+  if (code.startsWith("GAME_") || code.startsWith("BUILTIN_GAME_")) {
+    return "games";
+  }
+  if (code === "ROLE_GAME_RECOVERED") {
+    return "roles";
+  }
   if (code.startsWith("ROLE_")) {
     return "roles";
   }

@@ -32,6 +32,17 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes game management failures", async () => {
+    await loadTranslations("zh-TW");
+
+    expect(localizeErrorMessage("Move or delete assigned roles before deleting this game.", "zh-TW")).toBe(
+      "請先改派或刪除關聯角色，再刪除此遊戲。"
+    );
+    expect(localizeErrorMessage("A compatibility check is already running for this game.", "zh-TW")).toBe(
+      "此遊戲已有相容性檢查正在執行。"
+    );
+  });
+
   it("preserves role names when localizing duplicate game-window errors", async () => {
     await loadTranslations("zh-TW");
     expect(localizeErrorMessage("Already running in another game window: Main, Alt.", "zh-TW")).toBe(

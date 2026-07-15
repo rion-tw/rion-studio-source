@@ -6,6 +6,7 @@ import type { AuthFlowStatus, Role, RoleStatus } from "../src/shared/types";
 
 const role: Role = {
   id: "role-1",
+  gameId: "game-1",
   name: "Main",
   launchUrl: "https://example.com/play",
   windowWidth: 1280,

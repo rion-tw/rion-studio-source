@@ -35,6 +35,9 @@ import {
   readAppliedBrowserGraphicsMode
 } from "./game-browser/BrowserLaunchConfiguration";
 import { SystemFontService } from "./game-browser/SystemFontService";
+import { GameCompatibilityManager } from "./games/GameCompatibilityManager";
+import { GameCompatibilityStore } from "./games/GameCompatibilityStore";
+import { GameStore } from "./games/GameStore";
 import { broadcastWorkspaceDisplaysChanged, registerIpcHandlers } from "./ipc/registerHandlers";
 import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
 import { MacroManager } from "./macros/MacroManager";
@@ -42,6 +45,7 @@ import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
 import { PortableDataManager } from "./portable/PortableDataManager";
 import { RoleStore } from "./roles/RoleStore";
+import { findSystemChromeExecutable } from "./system-browser/SystemChromeLauncher";
 import {
   createStartupPageUrl,
   loadRendererPage,
@@ -241,9 +245,11 @@ function consumePendingMacroEditorRequest(): MacroEditorRequest | null {
   return request;
 }
 
-function initializeApplication(): void {
+async function initializeApplication(): Promise<void> {
   const userDataDir = app.getPath("userData");
   const roleStore = new RoleStore(userDataDir);
+  const gameStore = new GameStore(userDataDir, roleStore);
+  await gameStore.initialize();
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
   const macroStore = new MacroStore(userDataDir);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir);
@@ -259,7 +265,9 @@ function initializeApplication(): void {
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
   const systemFontService = new SystemFontService();
+  const gameCompatibilityStore = new GameCompatibilityStore(userDataDir);
   const portableDataManager = new PortableDataManager({
+    gameStore,
     getAppVersion: () => app.getVersion(),
     macroStore,
     roleStore,
@@ -325,7 +333,15 @@ function initializeApplication(): void {
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
     externalChromeManager,
-    getBrowserLaunchMode: async () => (await gameBrowserSettingsStore.getSettings()).launchMode,
+    getBrowserLaunchMode: async (role) => {
+      const globalMode = (await gameBrowserSettingsStore.getSettings()).launchMode;
+      if (!role) {
+        return globalMode;
+      }
+      const game = await gameStore.getGame(role.gameId);
+      return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
+    },
+    getLoginUrl: async (role) => (await gameStore.getGame(role.gameId)).loginUrl ?? role.launchUrl,
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
     getWorkspaceAppearanceSettings: async () =>
       (await gameBrowserSettingsStore.getSettings()).workspace,
@@ -345,6 +361,30 @@ function initializeApplication(): void {
     macroOverlayInjector.refreshInstalledOverlays();
   });
   const authManager = new AuthManager(roleStore, browserManager);
+  const gameCompatibilityManager = new GameCompatibilityManager({
+    applyCdnCompatibility: async (session) => {
+      await cdnCompatibilityManager.applyToSession(session);
+    },
+    applyProxy: (session) => browserProxyApplier.applyToSession(session),
+    compatibilityStore: gameCompatibilityStore,
+    createWindow: (options) => new BrowserWindow(options),
+    gameBrowserSettingsStore,
+    gameStore,
+    getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
+    isSystemChromeAvailable: () => {
+      try {
+        findSystemChromeExecutable();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  });
+  authManager.on("result", (role, authState) => {
+    void gameCompatibilityManager.recordObservation(role.gameId, authState === "authenticated"
+      ? { lastAuthSuccessAt: new Date().toISOString() }
+      : { lastAuthFailureAt: new Date().toISOString() });
+  });
   const graphicsDiagnosticsService = new GraphicsDiagnosticsService({
     app,
     appliedMode: appliedBrowserGraphicsMode,
@@ -355,6 +395,8 @@ function initializeApplication(): void {
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
     consumePendingMacroEditorRequest,
+    gameCompatibilityManager,
+    gameStore,
     gameBrowserSettingsStore,
     legalAcceptanceStore,
     getDefaultWorkspaceDisplayId: () => getMainWindowDisplay().id,
@@ -499,7 +541,7 @@ async function startApplication(): Promise<void> {
 
     if (!appInitialized) {
       try {
-        initializeApplication();
+        await initializeApplication();
         appInitialized = true;
       } catch (error) {
         initializationFailed = true;

@@ -32,8 +32,37 @@ export type AuthFlowState =
   | "launching"
   | "failed";
 
+export type GameSource = "builtin" | "custom";
+export type BuiltinGameKey = "flyff-universe" | "feifei-infinite-universe";
+
+export interface Game {
+  id: string;
+  source: GameSource;
+  builtinKey?: BuiltinGameKey;
+  name: string;
+  iconImageDataUrl?: string;
+  defaultLaunchUrl: string;
+  loginUrl?: string;
+  roleDefaults?: RoleDefaults;
+  browserLaunchMode: InheritableBrowserLaunchMode;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateGameInput {
+  name: string;
+  iconImageDataUrl?: string | null;
+  defaultLaunchUrl: string;
+  loginUrl?: string | null;
+  roleDefaults?: RoleDefaults | null;
+  browserLaunchMode?: InheritableBrowserLaunchMode;
+}
+
+export type UpdateGameInput = Partial<CreateGameInput>;
+
 export interface Role {
   id: string;
+  gameId: string;
   name: string;
   launchUrl: string;
   windowWidth: number;
@@ -50,6 +79,7 @@ export interface Role {
 }
 
 export interface CreateRoleInput {
+  gameId: string;
   name: string;
   launchUrl?: string;
   windowWidth?: number;
@@ -181,6 +211,7 @@ export interface LaunchWorkspace {
   id: string;
   name: string;
   template: WorkspaceLayoutTemplate;
+  browserLaunchMode: InheritableBrowserLaunchMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   targetDisplayId?: number;
   slots: LaunchWorkspaceSlot[];
@@ -191,6 +222,7 @@ export interface LaunchWorkspace {
 export interface CreateLaunchWorkspaceInput {
   name: string;
   template?: WorkspaceLayoutTemplate;
+  browserLaunchMode?: InheritableBrowserLaunchMode;
   browserZoomPercent?: WorkspaceBrowserZoomPercent;
   targetDisplayId?: number | null;
   slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "rect">>>;
@@ -223,6 +255,9 @@ export interface WorkspaceDisplayInfo {
 }
 
 export interface AppSnapshot {
+  games: Game[];
+  gameCompatibilityReports: GameCompatibilityReport[];
+  gameCompatibilityStatuses: GameCompatibilityRunStatus[];
   roles: Role[];
   roleStatuses: RoleStatus[];
   authStatuses: AuthFlowStatus[];
@@ -271,6 +306,7 @@ export type BrowserFontSettingsMode = "default" | "custom";
 export type BrowserGraphicsMode = "automatic" | "high_performance" | "experimental";
 export type BrowserLaunchMode = "auto" | "embedded" | "external";
 export type BrowserRuntimeMode = "embedded" | "external";
+export type InheritableBrowserLaunchMode = BrowserLaunchMode | "inherit";
 export type BrowserProxySettingsMode = "system" | "custom";
 export type BrowserCdnCompatibilityMode = "off" | "auto" | "on";
 export type WorkspaceBackgroundStyle = "material" | "black";
@@ -360,6 +396,57 @@ export interface GraphicsDiagnostics {
   };
 }
 
+export type GameCompatibilityRunPhase =
+  | "preparing"
+  | "loading"
+  | "probing"
+  | "cleaning_up";
+
+export interface GameCompatibilityRunStatus {
+  gameId: string;
+  phase: GameCompatibilityRunPhase;
+  startedAt: string;
+  updatedAt: string;
+}
+
+export interface GameCompatibilityLoadResult {
+  state: "available" | "failed" | "cancelled";
+  durationMs: number;
+  finalOrigin?: string;
+  errorCode?: string;
+}
+
+export interface GameCompatibilityChromeResult {
+  state: "available" | "unavailable";
+}
+
+export interface GameCompatibilityRecommendation {
+  mode?: BrowserLaunchMode;
+  reason: "embedded_available" | "external_recommended" | "chrome_required" | "graphics_unavailable";
+}
+
+export interface GameCompatibilityObservations {
+  lastEmbeddedSuccessAt?: string;
+  lastExternalSuccessAt?: string;
+  lastFallbackAt?: string;
+  lastLaunchFailureAt?: string;
+  lastLaunchFailureCode?: string;
+  lastAuthSuccessAt?: string;
+  lastAuthFailureAt?: string;
+}
+
+export interface GameCompatibilityReport {
+  gameId: string;
+  checkedAt?: string;
+  configurationFingerprint?: string;
+  isStale: boolean;
+  load?: GameCompatibilityLoadResult;
+  graphics?: WebGraphicsDiagnostics;
+  systemChrome?: GameCompatibilityChromeResult;
+  recommendation?: GameCompatibilityRecommendation;
+  observations: GameCompatibilityObservations;
+}
+
 export interface SystemFontFamily {
   family: string;
   label: string;
@@ -394,6 +481,7 @@ export interface PortablePreferences {
 }
 
 export interface PortableDataSelection {
+  games: boolean;
   roles: boolean;
   launchWorkspaces: boolean;
   macros: boolean;
@@ -412,6 +500,9 @@ export interface PortableImportInput {
 
 export interface PortableRole {
   id: string;
+  gameId?: string;
+  /** Internal import marker; never emitted by exports. */
+  gameRecovered?: boolean;
   name: string;
   launchUrl: string;
   windowWidth: number;
@@ -426,8 +517,21 @@ export interface PortableLaunchWorkspace {
   id: string;
   name: string;
   template: WorkspaceLayoutTemplate;
+  browserLaunchMode?: InheritableBrowserLaunchMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   slots: LaunchWorkspaceSlot[];
+}
+
+export interface PortableGame {
+  id: string;
+  source: GameSource;
+  builtinKey?: BuiltinGameKey;
+  name: string;
+  iconImageDataUrl?: string;
+  defaultLaunchUrl: string;
+  loginUrl?: string;
+  roleDefaults?: RoleDefaults;
+  browserLaunchMode: InheritableBrowserLaunchMode;
 }
 
 export interface PortableMacro {
@@ -450,8 +554,23 @@ export interface RionPortableDataV1 {
   preferences?: PortablePreferences;
 }
 
+export interface RionPortableDataV2 {
+  app: "Rion Studio";
+  schemaVersion: 2;
+  exportedAt: string;
+  appVersion: string;
+  games: PortableGame[];
+  roles: PortableRole[];
+  launchWorkspaces: PortableLaunchWorkspace[];
+  macros: PortableMacro[];
+  preferences?: PortablePreferences;
+}
+
+export type RionPortableData = RionPortableDataV1 | RionPortableDataV2;
+
 export interface PortableExportResult {
   filePath: string;
+  gameCount: number;
   roleCount: number;
   workspaceCount: number;
   macroCount: number;
@@ -460,6 +579,9 @@ export interface PortableExportResult {
 }
 
 export type PortableImportWarningCode =
+  | "GAME_NAME_RENAMED"
+  | "BUILTIN_GAME_DEFAULTS_REPLACED"
+  | "ROLE_GAME_RECOVERED"
   | "ROLE_NAME_RENAMED"
   | "WORKSPACE_NAME_RENAMED"
   | "WORKSPACE_ROLE_MISSING"
@@ -481,6 +603,7 @@ export interface PortableImportPreview {
   filePath: string;
   exportedAt: string;
   appVersion: string;
+  gameCount: number;
   roleCount: number;
   workspaceCount: number;
   macroCount: number;
@@ -489,6 +612,7 @@ export interface PortableImportPreview {
 }
 
 export interface PortableImportResult {
+  gameCount: number;
   roleCount: number;
   workspaceCount: number;
   macroCount: number;

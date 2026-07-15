@@ -1,25 +1,19 @@
 import { Check, ImagePlus, Loader2, LogIn, Save, Trash2 } from "lucide-react";
 import { type ChangeEvent, type FormEvent, type JSX, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
-import { launchUrlOptions } from "../../app/constants";
-import {
-  CUSTOM_LAUNCH_URL_OPTION,
-  resolveLaunchUrlFromSelection,
-  resolveLaunchUrlSelection
-} from "../../app/launchUrlSelection";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { shouldShowLoginGuidance } from "../../app/statusUtils";
 import type { RoleFormState } from "../../app/types";
 import { areEditorFormsEqual, createNewRoleForm, createRoleFormState } from "../../app/editorFormState";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
-import type { AuthFlowStatus, LaunchPreset, Role, RoleDefaults } from "../../../../shared/types";
+import type { AuthFlowStatus, Game, LaunchPreset, Role, RoleDefaults } from "../../../../shared/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { createCoverImageDataUrl } from "./roleCover";
 import { LoginSessionGuide } from "./LoginSessionGuide";
@@ -27,6 +21,7 @@ import { LoginSessionGuide } from "./LoginSessionGuide";
 interface RoleEditorRouteProps {
   authStatusByRole: Map<string, AuthFlowStatus>;
   busyRoleIds: ReadonlySet<string>;
+  games: Game[];
   isSaving: boolean;
   roleDefaults: RoleDefaults;
   roles: Role[];
@@ -39,6 +34,9 @@ interface RoleEditorRouteProps {
 interface RoleFormProps {
   authStatus?: AuthFlowStatus;
   form: RoleFormState;
+  games: Game[];
+  isGameLocked: boolean;
+  roleDefaults: RoleDefaults;
   isLoginBusy: boolean;
   isSaving: boolean;
   selectedRole?: Role;
@@ -50,6 +48,7 @@ interface RoleFormProps {
 
 function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const selectedRole = id ? props.roles.find((role) => role.id === id) : undefined;
 
@@ -64,21 +63,26 @@ function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
     );
   }
 
-  const initialForm = selectedRole ? createRoleFormState(selectedRole) : createNewRoleForm(props.roleDefaults);
-  return <RoleEditor key={id ?? "new"} {...props} initialForm={initialForm} selectedRole={selectedRole} />;
+  const requestedGameId = new URLSearchParams(location.search).get("gameId") ?? undefined;
+  const requestedGame = props.games.find((game) => game.id === requestedGameId) ?? props.games[0];
+  const initialForm = selectedRole ? createRoleFormState(selectedRole) : createNewRoleForm(props.roleDefaults, requestedGame);
+  return <RoleEditor key={`${id ?? "new"}:${requestedGameId ?? ""}`} {...props} initialForm={initialForm} isGameLocked={!id && Boolean(requestedGameId && requestedGame)} selectedRole={selectedRole} />;
 }
 
 function RoleEditor({
   authStatusByRole,
   busyRoleIds,
+  games,
   initialForm,
+  isGameLocked,
   isSaving,
+  roleDefaults,
   selectedRole,
   t,
   onError,
   onRelogin,
   onSave
-}: RoleEditorRouteProps & { initialForm: RoleFormState; selectedRole?: Role }): JSX.Element {
+}: RoleEditorRouteProps & { initialForm: RoleFormState; isGameLocked: boolean; selectedRole?: Role }): JSX.Element {
   const navigate = useNavigate();
   const initialFormRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
@@ -130,9 +134,12 @@ function RoleEditor({
       <RoleForm
         authStatus={authStatus}
         form={form}
+        games={games}
+        isGameLocked={isGameLocked}
         isLoginBusy={isLoginBusy}
         isSaving={isSaving}
         selectedRole={selectedRole}
+        roleDefaults={roleDefaults}
         t={t}
         onChange={setForm}
         onError={onError}
@@ -145,9 +152,12 @@ function RoleEditor({
 function RoleForm({
   authStatus,
   form,
+  games,
+  isGameLocked,
   isLoginBusy,
   isSaving,
   selectedRole,
+  roleDefaults,
   t,
   onChange,
   onError,
@@ -160,11 +170,7 @@ function RoleForm({
     hasCoverImage: true,
     isActive: false
   });
-  const launchUrlSelection = resolveLaunchUrlSelection(
-    form.launchUrl,
-    launchUrlOptions.map((option) => option.value)
-  );
-  const isCustomLaunchUrl = launchUrlSelection === CUSTOM_LAUNCH_URL_OPTION;
+  const gameChanged = Boolean(selectedRole && selectedRole.gameId !== form.gameId);
 
   async function handleCoverImageChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.currentTarget.files?.[0];
@@ -198,61 +204,39 @@ function RoleForm({
             <Surface className="grid gap-3 p-4" padding="none" variant="inset">
               <FormGrid>
                 <FormField
+                  htmlFor="role-game"
+                  label={t("roleForm.game")}
+                  description={isGameLocked ? t("roleForm.gameLocked") : t("roleForm.gameDescription")}
+                >
+                  <Select
+                    value={form.gameId}
+                    disabled={isGameLocked}
+                    onValueChange={(gameId) => {
+                      const game = games.find((item) => item.id === gameId);
+                      if (!game) return;
+                      const defaults = game.roleDefaults ?? roleDefaults;
+                      onChange((current) => ({
+                        ...current,
+                        gameId,
+                        launchUrl: game.defaultLaunchUrl,
+                        windowWidth: defaults.windowWidth,
+                        windowHeight: defaults.windowHeight,
+                        launchPreset: defaults.launchPreset
+                      }));
+                    }}
+                    required
+                  >
+                    <SelectTrigger id="role-game"><SelectValue /></SelectTrigger>
+                    <SelectContent>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                  {gameChanged ? <p className="text-xs leading-5 text-warning">{t("roleForm.gameChangeWarning")}</p> : null}
+                </FormField>
+                <FormField
                   htmlFor="role-launch-url"
                   label={t("roleForm.launchUrl")}
                   description={t("roleForm.launchUrlDescription")}
                 >
-                  <div>
-                    <Select
-                      value={launchUrlSelection}
-                      onValueChange={(value) =>
-                        onChange((current) => ({
-                          ...current,
-                          launchUrl: resolveLaunchUrlFromSelection(value)
-                        }))
-                      }
-                      required
-                    >
-                      <SelectTrigger id="role-launch-url">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {launchUrlOptions.map((option) => {
-                          const label = "label" in option ? option.label : t(option.labelKey);
-                          return (
-                            <SelectItem key={option.value} value={option.value} textValue={label}>
-                              <img
-                                className="size-4 shrink-0 rounded-[4px] object-cover ring-1 ring-white/45"
-                                src={option.iconSrc}
-                                alt=""
-                                aria-hidden="true"
-                              />
-                              <span className="truncate">{label}</span>
-                            </SelectItem>
-                          );
-                        })}
-                        <SelectItem value={CUSTOM_LAUNCH_URL_OPTION}>
-                          {t("roleForm.launchUrl.custom")}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {isCustomLaunchUrl ? (
-                    <FormField htmlFor="role-custom-launch-url" label={t("roleForm.launchUrl.customUrl")}>
-                      <Input
-                        id="role-custom-launch-url"
-                        type="url"
-                        value={form.launchUrl}
-                        onChange={(event) =>
-                          onChange((current) => ({ ...current, launchUrl: event.target.value }))
-                        }
-                        required
-                        maxLength={2048}
-                        pattern="https?://.+"
-                        placeholder={t("roleForm.launchUrl.customPlaceholder")}
-                      />
-                    </FormField>
-                  ) : null}
+                  <Input id="role-launch-url" type="url" value={form.launchUrl} onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))} required maxLength={2048} pattern="https?://.+" placeholder={t("roleForm.launchUrl.customPlaceholder")} />
                 </FormField>
               </FormGrid>
             </Surface>

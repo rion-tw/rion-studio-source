@@ -65,6 +65,7 @@ import {
   createDefaultPortableDataSelection,
   filterPortableImportWarnings,
   hasPortableDataSelection,
+  isPortableGameSelectionRequired,
   isPortableRoleSelectionRequired,
   updatePortableDataSelection,
   type PortableDataAvailability,
@@ -73,6 +74,7 @@ import {
 import { readSettingsSection, type SettingsSectionId } from "./settingsNavigation";
 
 interface PortableDataCounts {
+  gameCount: number;
   macroCount: number;
   roleCount: number;
   workspaceCount: number;
@@ -1462,6 +1464,7 @@ function getBrowserFontOptions(
 
 function createPortableExportAvailability(counts: PortableDataCounts): PortableDataAvailability {
   return {
+    games: counts.gameCount > 0,
     roles: counts.roleCount > 0,
     launchWorkspaces: counts.workspaceCount > 0,
     macros: counts.macroCount > 0,
@@ -1471,6 +1474,7 @@ function createPortableExportAvailability(counts: PortableDataCounts): PortableD
 
 function createPortableImportAvailability(preview: PortableImportPreview): PortableDataAvailability {
   return {
+    games: preview.gameCount > 0,
     roles: preview.roleCount > 0,
     launchWorkspaces: preview.workspaceCount > 0,
     macros: preview.macroCount > 0,
@@ -1660,12 +1664,19 @@ function PortableDataSelectionControls({
   onChange
 }: PortableDataSelectionControlsProps): JSX.Element {
   const roleSelectionRequired = isPortableRoleSelectionRequired(selection);
+  const gameSelectionRequired = isPortableGameSelectionRequired(selection);
   const items: Array<{
     count?: number;
     descriptionKey: TranslationKey;
     labelKey: TranslationKey;
     section: PortableDataSection;
   }> = [
+    {
+      count: counts.gameCount,
+      descriptionKey: "settings.portableGamesDescription",
+      labelKey: "settings.importGames",
+      section: "games"
+    },
     {
       count: counts.roleCount,
       descriptionKey: "settings.portableRolesDescription",
@@ -1721,8 +1732,13 @@ function PortableDataSelectionControls({
         {items.map(({ count, descriptionKey, labelKey, section }) => {
           const isAvailable = availability[section];
           const isRoleLocked = section === "roles" && roleSelectionRequired;
-          const itemDisabled = disabled || !isAvailable || isRoleLocked;
-          const description = isRoleLocked ? t("settings.portableRolesRequired") : t(descriptionKey);
+          const isGameLocked = section === "games" && gameSelectionRequired;
+          const itemDisabled = disabled || !isAvailable || isRoleLocked || isGameLocked;
+          const description = isRoleLocked
+            ? t("settings.portableRolesRequired")
+            : isGameLocked
+              ? t("settings.portableGamesRequired")
+              : t(descriptionKey);
 
           return (
             <label
@@ -1773,6 +1789,9 @@ function formatPortableResultSummary(
 ): string {
   const parts: string[] = [];
 
+  if (result.selection.games) {
+    parts.push(formatPortableCountSummary(t("settings.importGames"), result.gameCount, t));
+  }
   if (result.selection.roles) {
     parts.push(formatPortableCountSummary(t("settings.importRoles"), result.roleCount, t));
   }
@@ -1810,6 +1829,12 @@ function formatPortableWarning(warning: PortableImportWarning, t: Translator): s
   const count = String(warning.count ?? 0);
 
   switch (warning.code) {
+    case "GAME_NAME_RENAMED":
+      return t("settings.warningGameRenamed").replace("{name}", itemName).replace("{next}", replacementName);
+    case "BUILTIN_GAME_DEFAULTS_REPLACED":
+      return t("settings.warningBuiltinGameReplaced").replace("{name}", itemName);
+    case "ROLE_GAME_RECOVERED":
+      return t("settings.warningRoleGameRecovered").replace("{name}", itemName);
     case "ROLE_NAME_RENAMED":
       return t("settings.warningRoleRenamed").replace("{name}", itemName).replace("{next}", replacementName);
     case "WORKSPACE_NAME_RENAMED":

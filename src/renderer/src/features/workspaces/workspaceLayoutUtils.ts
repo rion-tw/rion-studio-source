@@ -75,6 +75,7 @@ export function createEmptyWorkspaceForm(workspaces: LaunchWorkspace[], t: Trans
   return {
     name: createWorkspaceName(workspaces, t),
     template: DEFAULT_WORKSPACE_TEMPLATE,
+    browserLaunchMode: "inherit",
     browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(DEFAULT_WORKSPACE_TEMPLATE),
     slots: applyWorkspaceTemplate([], DEFAULT_WORKSPACE_TEMPLATE)
   };
@@ -87,6 +88,7 @@ export function createWorkspaceFormState(workspace: LaunchWorkspace): WorkspaceF
     id: workspace.id,
     name: workspace.name,
     template,
+    browserLaunchMode: workspace.browserLaunchMode,
     browserZoomPercent: workspace.browserZoomPercent,
     ...(workspace.targetDisplayId === undefined ? {} : { targetDisplayId: workspace.targetDisplayId }),
     slots: template === workspace.template ? workspace.slots : applyWorkspaceTemplate(workspace.slots, template)

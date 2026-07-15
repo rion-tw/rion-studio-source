@@ -17,6 +17,7 @@ import { scheduleAfterTwoAnimationFrames } from "./app/rendererReady";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { useLegalAcceptance } from "./hooks/useLegalAcceptance";
+import { useGameWorkflow } from "./hooks/useGameWorkflow";
 import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
 import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
@@ -36,6 +37,9 @@ import type {
 } from "../../shared/types";
 
 const RolesRoute = lazy(() => import("./features/roles/RolesRoute"));
+const GamesRoute = lazy(() => import("./features/games/GamesRoute"));
+const GameDetailRoute = lazy(() => import("./features/games/GameDetailRoute"));
+const GameEditorRoute = lazy(() => import("./features/games/GameModal"));
 const RoleEditorRoute = lazy(() => import("./features/roles/RoleModal"));
 const DashboardRoute = lazy(() => import("./features/dashboard/DashboardRoute"));
 const LaunchWorkspacesRoute = lazy(() => import("./features/workspaces/LaunchWorkspacesRoute"));
@@ -60,6 +64,9 @@ export function App(): JSX.Element {
     onError: data.setError
   });
   const navigateToMacros = useCallback(() => navigate("/macros"), [navigate]);
+  const navigateToNewGame = useCallback(() => navigate(createNewEditorPath("games")), [navigate]);
+  const navigateToEditGame = useCallback((gameId: string) => navigate(createEditEditorPath("games", gameId)), [navigate]);
+  const navigateToNewRoleForGame = useCallback((gameId: string) => navigate(createNewEditorPath("roles", new URLSearchParams({ gameId }))), [navigate]);
   const navigateToNewRole = useCallback(() => navigate(createNewEditorPath("roles")), [navigate]);
   const navigateToEditRole = useCallback(
     (roleId: string) => navigate(createEditEditorPath("roles", roleId)),
@@ -179,6 +186,7 @@ export function App(): JSX.Element {
 
   const roleWorkflow = useRoleWorkflow({
     beginErrorOperation: data.beginErrorOperation,
+    gameNamesById: new Map(data.games.map((game) => [game.id, game.name])),
     roles: data.roles,
     setAuthStatuses: data.setAuthStatuses,
     setMacros: data.setMacros,
@@ -187,6 +195,15 @@ export function App(): JSX.Element {
     setStatuses: data.setStatuses,
     setWorkspaces: data.setWorkspaces,
     statusByRole: data.statusByRole,
+    t: preferences.t
+  });
+
+  const gameWorkflow = useGameWorkflow({
+    beginErrorOperation: data.beginErrorOperation,
+    roleDefaults: preferences.roleDefaults,
+    roles: data.roles,
+    setCompatibilityReports: data.setCompatibilityReports,
+    setGames: data.setGames,
     t: preferences.t
   });
 
@@ -346,6 +363,7 @@ export function App(): JSX.Element {
     <RoleEditorRoute
       authStatusByRole={data.authStatusByRole}
       busyRoleIds={roleWorkflow.busyRoleIds}
+      games={data.games}
       isSaving={roleWorkflow.isSaving}
       roleDefaults={preferences.roleDefaults}
       roles={data.roles}
@@ -357,8 +375,20 @@ export function App(): JSX.Element {
   ) : (
     <BridgeUnavailable t={preferences.t} />
   );
+  const gameEditorElement = hasBridge ? (
+    <GameEditorRoute
+      games={data.games}
+      isSaving={gameWorkflow.isSavingGame}
+      roleDefaults={preferences.roleDefaults}
+      t={preferences.t}
+      onError={data.setError}
+      onReset={gameWorkflow.resetBuiltinGame}
+      onSave={gameWorkflow.saveGame}
+    />
+  ) : <BridgeUnavailable t={preferences.t} />;
   const workspaceEditorElement = hasBridge ? (
     <WorkspaceEditorRoute
+      games={data.games}
       isSaving={workspaceWorkflow.isSavingWorkspace}
       roles={data.roles}
       statusByRole={data.statusByRole}
@@ -372,6 +402,7 @@ export function App(): JSX.Element {
   );
   const macroEditorElement = hasBridge ? (
     <MacroEditorRoute
+      games={data.games}
       isSaving={macroWorkflow.isSavingMacro}
       macros={data.macros}
       roles={data.roles}
@@ -388,6 +419,7 @@ export function App(): JSX.Element {
         <SettingsSidebar t={preferences.t} />
       ) : (
         <AppSidebar
+          gameCount={data.games.length}
           hasUpdateBadge={shouldShowUpdateBadge(updates.status)}
           macroCount={data.macros.length}
           roleCount={data.roles.length}
@@ -422,11 +454,64 @@ export function App(): JSX.Element {
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route
+              path="/games"
+              element={hasBridge ? <GamesRoute
+                games={data.games}
+                reports={data.gameCompatibilityReports}
+                roles={data.roles}
+                runStatuses={data.gameCompatibilityStatuses}
+                statusByRole={data.statusByRole}
+                t={preferences.t}
+                onDelete={(game) => void gameWorkflow.deleteGame(game)}
+                onEdit={(game) => navigateToEditGame(game.id)}
+                onNewGame={navigateToNewGame}
+                onNewRole={navigateToNewRoleForGame}
+                onView={(game) => navigate(`/games/${game.id}`)}
+              /> : <BridgeUnavailable t={preferences.t} />}
+            />
+            <Route path="/games/new" element={gameEditorElement} />
+            <Route path="/games/:id/edit" element={gameEditorElement} />
+            <Route
+              path="/games/:id"
+              element={hasBridge ? <GameDetailRoute
+                authStatusByRole={data.authStatusByRole}
+                busyMacroIds={macroWorkflow.busyMacroIds}
+                busyRoleIds={roleWorkflow.busyRoleIds}
+                busyWorkspaceIds={workspaceWorkflow.busyWorkspaceIds}
+                games={data.games}
+                macroStatuses={data.macroStatuses}
+                macros={data.macros}
+                reports={data.gameCompatibilityReports}
+                roles={data.roles}
+                runStatuses={data.gameCompatibilityStatuses}
+                statusByRole={data.statusByRole}
+                t={preferences.t}
+                workspaces={data.workspaces}
+                onApplyRecommendation={(game) => void gameWorkflow.applyRecommendation(game)}
+                onCancelCheck={(gameId) => void gameWorkflow.cancelCompatibilityCheck(gameId)}
+                onEdit={(game) => navigateToEditGame(game.id)}
+                onEditMacro={(macro) => navigateToEditMacro(macro.id)}
+                onEditRole={(role) => navigateToEditRole(role.id)}
+                onEditWorkspace={(workspace) => navigateToEditWorkspace(workspace.id)}
+                onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
+                onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
+                onLoginRole={(roleId) => void roleWorkflow.requestSystemLogin(roleId)}
+                onNewRole={navigateToNewRoleForGame}
+                onOpenGraphicsSettings={(gameId) => navigate("/settings?section=game", { state: { returnTo: `/games/${gameId}` } })}
+                onRunCheck={(gameId) => void gameWorkflow.runCompatibilityCheck(gameId)}
+                onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
+                onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
+                onStopRole={(roleId) => void roleWorkflow.handleStop(roleId)}
+                onStopWorkspace={(workspace) => void workspaceWorkflow.handleStopWorkspace(workspace)}
+              /> : <BridgeUnavailable t={preferences.t} />}
+            />
+            <Route
               path="/dashboard"
               element={
                 hasBridge ? (
                   <DashboardRoute
                     authStatusByRole={data.authStatusByRole}
+                    gameCount={data.games.length}
                     busyMacroIds={macroWorkflow.busyMacroIds}
                     busyRoleIds={roleWorkflow.busyRoleIds}
                     busyRunKeys={macroWorkflow.busyRunKeys}
@@ -444,6 +529,7 @@ export function App(): JSX.Element {
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
                     onLoginRole={roleWorkflow.requestSystemLogin}
                     onNavigateMacros={navigateToMacros}
+                    onNavigateGames={() => navigate("/games")}
                     onNavigateRoles={(filter) => {
                       roleWorkflow.setActiveFilter(filter);
                       roleWorkflow.setQuery("");
@@ -471,6 +557,7 @@ export function App(): JSX.Element {
                     authStatusByRole={data.authStatusByRole}
                     busyRoleIds={roleWorkflow.busyRoleIds}
                     filteredRoles={roleWorkflow.filteredRoles}
+                    games={data.games}
                     language={preferences.language}
                     roleStats={data.roleStats}
                     roles={data.roles}
@@ -504,6 +591,7 @@ export function App(): JSX.Element {
                 hasBridge ? (
                   <LaunchWorkspacesRoute
                     busyWorkspaceIds={workspaceWorkflow.busyWorkspaceIds}
+                    games={data.games}
                     query={workspaceWorkflow.query}
                     roles={data.roles}
                     scrollPositionRef={workspaceWorkflow.listScrollTopRef}
@@ -534,6 +622,7 @@ export function App(): JSX.Element {
                 hasBridge ? (
                   <MacrosRoute
                     busyMacroIds={macroWorkflow.busyMacroIds}
+                    games={data.games}
                     busyRunKeys={macroWorkflow.busyRunKeys}
                     macros={data.macros}
                     macroStatuses={data.macroStatuses}
@@ -572,6 +661,7 @@ export function App(): JSX.Element {
                   )}
                   language={preferences.language}
                   portableDataCounts={{
+                    gameCount: data.games.length,
                     macroCount: data.macros.length,
                     roleCount: data.roles.length,
                     workspaceCount: data.workspaces.length

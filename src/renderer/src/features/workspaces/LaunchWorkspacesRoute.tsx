@@ -20,11 +20,11 @@ import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
 import { SearchField } from "../../components/SearchField";
-import { launchUrlOptions } from "../../app/constants";
 import { moveItemById } from "../../app/reorderItems";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
+  Game,
   LaunchWorkspace,
   LaunchWorkspaceSlot,
   Role,
@@ -38,6 +38,7 @@ import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceC
 
 interface LaunchWorkspacesViewProps {
   busyWorkspaceIds: ReadonlySet<string>;
+  games: Game[];
   isReordering: boolean;
   query: string;
   roles: Role[];
@@ -58,6 +59,7 @@ interface LaunchWorkspacesViewProps {
 
 function LaunchWorkspacesView({
   busyWorkspaceIds,
+  games,
   isReordering,
   query,
   roles,
@@ -76,6 +78,7 @@ function LaunchWorkspacesView({
   onStopWorkspace
 }: LaunchWorkspacesViewProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
+  const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
   const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
   const [dropTargetWorkspaceId, setDropTargetWorkspaceId] = useState<string | null>(null);
   const canReorder = query.trim() === "" && !isReordering && workspaces.length > 1;
@@ -195,6 +198,7 @@ function LaunchWorkspacesView({
               canReorder={canReorder}
               isDragging={draggedWorkspaceId === workspace.id}
               isDropTarget={dropTargetWorkspaceId === workspace.id}
+              gameNameById={gameNameById}
               roleById={roleById}
               statusByRole={statusByRole}
               t={t}
@@ -219,6 +223,7 @@ function LaunchWorkspacesView({
 
 interface WorkspaceCardProps {
   busyWorkspaceIds: ReadonlySet<string>;
+  gameNameById: Map<string, string>;
   canReorder: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
@@ -240,6 +245,7 @@ interface WorkspaceCardProps {
 
 function WorkspaceCard({
   busyWorkspaceIds,
+  gameNameById,
   canReorder,
   isDragging,
   isDropTarget,
@@ -281,6 +287,7 @@ function WorkspaceCard({
       <div className="relative overflow-hidden rounded-t-lg">
         <WorkspaceLayoutPreview
           className="aspect-[4/3] p-2"
+          gameNameById={gameNameById}
           roleById={roleById}
           slots={workspace.slots}
           t={t}
@@ -369,6 +376,7 @@ function WorkspaceCard({
 
 interface WorkspaceLayoutPreviewProps {
   className?: string;
+  gameNameById: Map<string, string>;
   roleById: Map<string, Role>;
   slots: LaunchWorkspaceSlot[];
   t: Translator;
@@ -377,6 +385,7 @@ interface WorkspaceLayoutPreviewProps {
 
 function WorkspaceLayoutPreview({
   className,
+  gameNameById,
   roleById,
   slots,
   t,
@@ -398,6 +407,7 @@ function WorkspaceLayoutPreview({
       <WorkspaceLayoutPreviewSlot
         key={slot.id}
         index={index}
+        launchGameName={role ? gameNameById.get(role.gameId) : undefined}
         role={role}
         t={t}
       />
@@ -563,12 +573,13 @@ function WorkspaceLayoutPreview({
 
 interface WorkspaceLayoutPreviewSlotProps {
   index: number;
+  launchGameName?: string;
   role: Role | undefined;
   t: Translator;
 }
 
-function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
-  const launchGameName = role ? resolveWorkspaceRoleLaunchGameName(role.launchUrl, t) : "";
+function WorkspaceLayoutPreviewSlot({ index, launchGameName, role, t }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
+  const resolvedLaunchGameName = launchGameName ?? role?.launchUrl ?? "";
   const backgroundStyle = createWorkspaceSlotBackground(role);
   const style = {
     "--workspace-slot-caption-bottom-left-radius": "0px",
@@ -595,7 +606,7 @@ function WorkspaceLayoutPreviewSlot({ index, role, t }: WorkspaceLayoutPreviewSl
           {role ? (
             <span className="workspace-role-chip-text">
               <span className="min-w-0 truncate">{role.name}</span>
-              <span className="workspace-role-game-label min-w-0 truncate">{launchGameName}</span>
+              <span className="workspace-role-game-label min-w-0 truncate">{resolvedLaunchGameName}</span>
             </span>
           ) : (
             t("workspaces.emptySlot")
@@ -616,20 +627,6 @@ function createPreviewFlexStyle(weight: number): CSSProperties {
     flexBasis: 0,
     flexGrow: Math.max(weight, 0.001)
   };
-}
-
-function resolveWorkspaceRoleLaunchGameName(launchUrl: string, t: Translator): string {
-  const option = launchUrlOptions.find((launchOption) => launchOption.value === launchUrl);
-
-  if (option) {
-    return "labelKey" in option ? t(option.labelKey) : option.label;
-  }
-
-  try {
-    return new URL(launchUrl).hostname;
-  } catch {
-    return t("roleForm.launchUrl.current");
-  }
 }
 
 interface WorkspaceActionMenuProps {

@@ -6,11 +6,11 @@ import { IconTile } from "./ui/patterns";
 import { cn } from "../lib/utils";
 
 interface EmptyStateProps {
-  actionLabel: string;
+  actionLabel?: string;
   className?: string;
-  description: string;
+  description?: string;
   icon: LucideIcon;
-  onAction: () => void;
+  onAction?: () => void;
   title: string;
 }
 
@@ -29,10 +29,10 @@ export function EmptyState({
           <Icon size={22} />
         </IconTile>
         <h2 className="mt-4 text-[17px] font-semibold leading-6 tracking-normal">{title}</h2>
-        <p className="mt-2 text-[13px] leading-6 text-muted-foreground">{description}</p>
-        <Button className="mt-5" type="button" variant="outline" onClick={onAction}>
+        {description ? <p className="mt-2 text-[13px] leading-6 text-muted-foreground">{description}</p> : null}
+        {actionLabel && onAction ? <Button className="mt-5" type="button" variant="outline" onClick={onAction}>
           {actionLabel}
-        </Button>
+        </Button> : null}
       </div>
     </div>
   );

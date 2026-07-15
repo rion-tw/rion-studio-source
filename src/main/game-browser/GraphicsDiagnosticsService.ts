@@ -111,7 +111,9 @@ export class GraphicsDiagnosticsService {
   }
 }
 
-async function probeWebGraphics(evaluate: (source: string) => Promise<unknown>): Promise<WebGraphicsDiagnostics> {
+export async function probeWebGraphics(
+  evaluate: (source: string) => Promise<unknown>
+): Promise<WebGraphicsDiagnostics> {
   try {
     const value = await withTimeout(evaluate(WEB_GRAPHICS_PROBE_SOURCE), PROBE_TIMEOUT_MS);
     return normalizeWebGraphicsDiagnostics(value);

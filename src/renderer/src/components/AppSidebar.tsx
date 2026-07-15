@@ -1,4 +1,4 @@
-import { Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Gamepad2, Keyboard, LayoutDashboard, Settings, Users } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -9,13 +9,14 @@ import { NavItem } from "./ui/patterns";
 
 interface AppSidebarProps {
   hasUpdateBadge: boolean;
+  gameCount: number;
   macroCount: number;
   roleCount: number;
   t: Translator;
   workspaceCount: number;
 }
 
-export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
+export function AppSidebar({ gameCount, hasUpdateBadge, macroCount, roleCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -38,6 +39,14 @@ export function AppSidebar({ hasUpdateBadge, macroCount, roleCount, t, workspace
           <p className="px-3 pb-1 text-[11px] font-semibold uppercase leading-none text-sidebar-foreground/42">
             {t("app.navigation.play")}
           </p>
+          <NavItem
+            active={location.pathname.startsWith("/games")}
+            count={gameCount}
+            icon={Gamepad2}
+            label={t("app.games")}
+            noDrag
+            onClick={() => navigate("/games")}
+          />
           <NavItem
             active={location.pathname.startsWith("/roles")}
             count={roleCount}

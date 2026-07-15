@@ -10,6 +10,9 @@ import {
 
 import type {
   AuthFlowStatus,
+  Game,
+  GameCompatibilityReport,
+  GameCompatibilityRunStatus,
   LaunchWorkspace,
   Macro,
   MacroRunStatus,
@@ -49,6 +52,9 @@ function useVersionedState<T>(initialValue: T): VersionedState<T> {
 }
 
 export function useAppData() {
+  const gameState = useVersionedState<Game[]>([]);
+  const compatibilityReportState = useVersionedState<GameCompatibilityReport[]>([]);
+  const compatibilityStatusState = useVersionedState<GameCompatibilityRunStatus[]>([]);
   const roleState = useVersionedState<Role[]>([]);
   const workspaceState = useVersionedState<LaunchWorkspace[]>([]);
   const workspaceDisplayState = useVersionedState<WorkspaceDisplayInfo[]>([]);
@@ -61,6 +67,24 @@ export function useAppData() {
   const errorVersionRef = useRef(0);
   const initialLoadRequestRef = useRef(0);
 
+  const {
+    beginRequest: beginGamesRequest,
+    commitRequest: commitGamesRequest,
+    setValue: setGames,
+    value: games
+  } = gameState;
+  const {
+    beginRequest: beginCompatibilityReportsRequest,
+    commitRequest: commitCompatibilityReportsRequest,
+    setValue: setCompatibilityReports,
+    value: gameCompatibilityReports
+  } = compatibilityReportState;
+  const {
+    beginRequest: beginCompatibilityStatusesRequest,
+    commitRequest: commitCompatibilityStatusesRequest,
+    setValue: setCompatibilityStatuses,
+    value: gameCompatibilityStatuses
+  } = compatibilityStatusState;
   const {
     beginRequest: beginRolesRequest,
     commitRequest: commitRolesRequest,
@@ -147,6 +171,9 @@ export function useAppData() {
   }, [authStatuses, roles, statuses]);
 
   const loadData = useCallback(async (options: { markInitialLoad?: boolean; resetError?: boolean } = {}) => {
+    const gamesRequest = beginGamesRequest();
+    const compatibilityReportsRequest = beginCompatibilityReportsRequest();
+    const compatibilityStatusesRequest = beginCompatibilityStatusesRequest();
     const rolesRequest = beginRolesRequest();
     const statusesRequest = beginStatusesRequest();
     const authStatusesRequest = beginAuthStatusesRequest();
@@ -167,6 +194,9 @@ export function useAppData() {
       }
 
       const snapshot = await window.rionStudio.getAppSnapshot();
+      commitGamesRequest(gamesRequest, snapshot.games);
+      commitCompatibilityReportsRequest(compatibilityReportsRequest, snapshot.gameCompatibilityReports);
+      commitCompatibilityStatusesRequest(compatibilityStatusesRequest, snapshot.gameCompatibilityStatuses);
       commitRolesRequest(rolesRequest, snapshot.roles);
       commitStatusesRequest(statusesRequest, snapshot.roleStatuses);
       commitAuthStatusesRequest(authStatusesRequest, snapshot.authStatuses);
@@ -184,6 +214,9 @@ export function useAppData() {
       }
     }
   }, [
+    beginCompatibilityReportsRequest,
+    beginCompatibilityStatusesRequest,
+    beginGamesRequest,
     beginAuthStatusesRequest,
     beginErrorOperation,
     beginMacrosRequest,
@@ -194,6 +227,9 @@ export function useAppData() {
     beginWorkspacesRequest,
     captureErrorReporter,
     commitAuthStatusesRequest,
+    commitCompatibilityReportsRequest,
+    commitCompatibilityStatusesRequest,
+    commitGamesRequest,
     commitMacrosRequest,
     commitMacroStatusesRequest,
     commitRolesRequest,
@@ -251,11 +287,33 @@ export function useAppData() {
     });
   }, [setMacroStatuses]);
 
+  useEffect(() => {
+    if (!window.rionStudio) {
+      return;
+    }
+
+    return window.rionStudio.onGamesChanged(setGames);
+  }, [setGames]);
+
+  useEffect(() => {
+    if (!window.rionStudio) {
+      return;
+    }
+
+    return window.rionStudio.onGameCompatibilityChanged((reports, statuses) => {
+      setCompatibilityReports(reports);
+      setCompatibilityStatuses(statuses);
+    });
+  }, [setCompatibilityReports, setCompatibilityStatuses]);
+
   return {
     authStatusByRole,
     authStatuses,
     beginErrorOperation,
     error,
+    gameCompatibilityReports,
+    gameCompatibilityStatuses,
+    games,
     initialLoadState,
     loadData,
     macros,
@@ -265,6 +323,9 @@ export function useAppData() {
     roleStats,
     setAuthStatuses,
     setError,
+    setGames,
+    setCompatibilityReports,
+    setCompatibilityStatuses,
     setMacros,
     setMacroStatuses,
     setRoles,

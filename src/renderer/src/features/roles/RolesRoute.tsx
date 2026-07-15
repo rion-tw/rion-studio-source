@@ -19,12 +19,13 @@ import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
 import { SearchField } from "../../components/SearchField";
-import { launchUrlOptions } from "../../app/constants";
+import { getGameIconUrl } from "../../app/gamePresentation";
 import { moveItemById } from "../../app/reorderItems";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { localizeErrorMessage, type Language, type TranslationKey, type Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
-import type { AuthFlowStatus, Role, RoleStatus } from "../../../../shared/types";
+import type { AuthFlowStatus, Game, Role, RoleStatus } from "../../../../shared/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import type { AppStats, SidebarFilter } from "../../app/types";
 import { formatAuthFlowState, shouldShowLoginGuidance } from "../../app/statusUtils";
 import { createRoleCardStyle } from "./roleCardStyle";
@@ -44,6 +45,7 @@ interface RolesViewProps {
   authStatusByRole: Map<string, AuthFlowStatus>;
   busyRoleIds: ReadonlySet<string>;
   filteredRoles: Role[];
+  games: Game[];
   isReordering: boolean;
   language: Language;
   roleStats: AppStats;
@@ -70,6 +72,7 @@ function RolesView({
   authStatusByRole,
   busyRoleIds,
   filteredRoles,
+  games,
   isReordering,
   language,
   roleStats,
@@ -92,7 +95,10 @@ function RolesView({
 }: RolesViewProps): JSX.Element {
   const [draggedRoleId, setDraggedRoleId] = useState<string | null>(null);
   const [dropTargetRoleId, setDropTargetRoleId] = useState<string | null>(null);
-  const canReorder = activeFilter === "all" && query.trim() === "" && !isReordering && roles.length > 1;
+  const [gameFilterId, setGameFilterId] = useState("all");
+  const visibleRoles = gameFilterId === "all" ? filteredRoles : filteredRoles.filter((role) => role.gameId === gameFilterId);
+  const gameById = new Map(games.map((game) => [game.id, game]));
+  const canReorder = activeFilter === "all" && gameFilterId === "all" && query.trim() === "" && !isReordering && roles.length > 1;
   const filterCounts: Record<SidebarFilter, number> = {
     all: roleStats.total,
     running: roleStats.running,
@@ -195,14 +201,14 @@ function RolesView({
           t={t}
           onFilterChange={onFilterChange}
         />
-        <p className="text-[11px] font-medium text-muted-foreground">
+        <div className="flex items-center gap-2"><Select value={gameFilterId} onValueChange={setGameFilterId}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("roles.gameFilter.all")}</SelectItem>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent></Select><p className="text-[11px] font-medium text-muted-foreground">
           {t("roles.visibleCount")
-            .replace("{visible}", String(filteredRoles.length))
+            .replace("{visible}", String(visibleRoles.length))
             .replace("{total}", String(roles.length))}
-        </p>
+        </p></div>
       </div>
 
-      {filteredRoles.length === 0 ? (
+      {visibleRoles.length === 0 ? (
         <EmptyState
           icon={Search}
           title={t("roles.noMatches.title")}
@@ -212,7 +218,7 @@ function RolesView({
         />
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
-          {filteredRoles.map((role) => {
+          {visibleRoles.map((role) => {
             const status = statusByRole.get(role.id);
             const authStatus = authStatusByRole.get(role.id);
             const isBusy =
@@ -224,6 +230,7 @@ function RolesView({
             return (
               <RoleCard
                 key={role.id}
+                game={gameById.get(role.gameId)}
                 role={role}
                 status={status}
                 authStatus={authStatus}
@@ -276,6 +283,7 @@ function RoleFilterTabs({ activeFilter, counts, t, onFilterChange }: RoleFilterT
 
 interface RoleCardProps {
   authStatus?: AuthFlowStatus;
+  game?: Game;
   canReorder: boolean;
   isBusy: boolean;
   isDragging: boolean;
@@ -298,6 +306,7 @@ interface RoleCardProps {
 
 function RoleCard({
   authStatus,
+  game,
   canReorder,
   isBusy,
   isDragging,
@@ -329,7 +338,7 @@ function RoleCard({
     hasCoverImage: true,
     isActive
   });
-  const launchGame = resolveLaunchGame(role.launchUrl, t);
+  const gameIconUrl = getGameIconUrl(game);
 
   return (
     <Card
@@ -414,10 +423,10 @@ function RoleCard({
             )}
           >
             <div className="flex min-w-0 items-center gap-3 pl-1">
-              {launchGame.iconSrc ? (
+              {gameIconUrl ? (
                 <img
                   className="size-8 shrink-0 rounded-sm object-cover shadow-sm ring-1 ring-white/45"
-                  src={launchGame.iconSrc}
+                  src={gameIconUrl}
                   alt=""
                   aria-hidden="true"
                 />
@@ -427,7 +436,7 @@ function RoleCard({
                   {role.name}
                 </CardTitle>
               <p className="min-w-0 truncate text-[10px] font-medium leading-3 text-white/78">
-                {launchGame.name}
+                {game?.name ?? role.launchUrl}
               </p>
               </div>
             </div>
@@ -455,28 +464,6 @@ function RoleCard({
       </div>
     </Card>
   );
-}
-
-interface ResolvedLaunchGame {
-  iconSrc?: string;
-  name: string;
-}
-
-function resolveLaunchGame(launchUrl: string, t: Translator): ResolvedLaunchGame {
-  const option = launchUrlOptions.find((launchOption) => launchOption.value === launchUrl);
-
-  if (option) {
-    return {
-      iconSrc: option.iconSrc,
-      name: "label" in option ? option.label : t(option.labelKey)
-    };
-  }
-
-  try {
-    return { name: new URL(launchUrl).hostname };
-  } catch {
-    return { name: t("roleForm.launchUrl.current") };
-  }
 }
 
 interface LoginButtonProps {

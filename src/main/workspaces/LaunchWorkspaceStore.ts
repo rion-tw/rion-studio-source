@@ -6,6 +6,7 @@ import type {
   CreateLaunchWorkspaceInput,
   LaunchWorkspace,
   LaunchWorkspaceSlot,
+  InheritableBrowserLaunchMode,
   NormalizedRect,
   ReorderItemsInput,
   UpdateLaunchWorkspaceInput,
@@ -36,7 +37,8 @@ type StoredLaunchWorkspaceSlot = Partial<LaunchWorkspaceSlot> & {
   [key: string]: unknown;
 };
 
-type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserZoomPercent" | "slots" | "targetDisplayId"> & {
+type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserLaunchMode" | "browserZoomPercent" | "slots" | "targetDisplayId"> & {
+  browserLaunchMode?: unknown;
   browserZoomPercent?: unknown;
   targetDisplayId?: unknown;
   slots: StoredLaunchWorkspaceSlot[];
@@ -108,6 +110,7 @@ export class LaunchWorkspaceStore {
         id: randomUUID(),
         name,
         template,
+        browserLaunchMode: this.normalizeBrowserLaunchMode(input.browserLaunchMode),
         browserZoomPercent,
         ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
         slots: this.normalizeSlots(template, input.slots),
@@ -134,6 +137,9 @@ export class LaunchWorkspaceStore {
       const current = file.workspaces[index];
       const name = input.name === undefined ? current.name : this.normalizeName(input.name);
       const template = input.template === undefined ? current.template : this.normalizeTemplate(input.template);
+      const browserLaunchMode = input.browserLaunchMode === undefined
+        ? current.browserLaunchMode
+        : this.normalizeBrowserLaunchMode(input.browserLaunchMode);
       const browserZoomPercent = this.normalizeBrowserZoomPercent(
         input.browserZoomPercent,
         current.browserZoomPercent
@@ -153,6 +159,7 @@ export class LaunchWorkspaceStore {
         ...current,
         name,
         template,
+        browserLaunchMode,
         browserZoomPercent,
         slots: this.normalizeSlots(template, sourceSlots),
         updatedAt: new Date().toISOString()
@@ -238,6 +245,7 @@ export class LaunchWorkspaceStore {
 
       const didMigrate = parsed.workspaces.some(
         (workspace) =>
+          !("browserLaunchMode" in workspace) ||
           hasLegacyRoleSlotReference(workspace) ||
           hasLegacyCenteredMainDefaultLayout(workspace as StoredLaunchWorkspace)
       );
@@ -287,6 +295,7 @@ export class LaunchWorkspaceStore {
       id: typeof workspace.id === "string" && workspace.id.trim() ? workspace.id : randomUUID(),
       name: this.normalizeName(workspace.name),
       template,
+      browserLaunchMode: this.normalizeBrowserLaunchMode(workspace.browserLaunchMode),
       browserZoomPercent: this.normalizeBrowserZoomPercent(
         workspace.browserZoomPercent,
         DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
@@ -363,6 +372,19 @@ export class LaunchWorkspaceStore {
     }
 
     return value;
+  }
+
+  private normalizeBrowserLaunchMode(value: unknown): InheritableBrowserLaunchMode {
+    if (value === undefined || value === null) {
+      return "inherit";
+    }
+    if (value === "inherit" || value === "auto" || value === "embedded" || value === "external") {
+      return value;
+    }
+    throw new LaunchWorkspaceStoreError(
+      "WORKSPACE_BROWSER_LAUNCH_MODE_INVALID",
+      "Launch workspace browser mode is invalid."
+    );
   }
 
   private normalizeTargetDisplayId(value: unknown): number | undefined {

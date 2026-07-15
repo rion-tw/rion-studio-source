@@ -29,7 +29,7 @@ describe("RoleStore", () => {
   });
 
   it("creates a role with defaults and a browser role directory", async () => {
-    const role = await store.createRole({ name: "Main" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main" });
 
     expect(role).toMatchObject({
       name: "Main",
@@ -45,7 +45,7 @@ describe("RoleStore", () => {
   });
 
   it("returns isolated role copies from the in-memory cache", async () => {
-    const role = await store.createRole({ name: "Main" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main" });
     const listed = await store.listRoles();
     listed[0].name = "Mutated by caller";
 
@@ -53,9 +53,9 @@ describe("RoleStore", () => {
   });
 
   it("serializes concurrent deletions without restoring either role", async () => {
-    const first = await store.createRole({ name: "First" });
-    const second = await store.createRole({ name: "Second" });
-    const remaining = await store.createRole({ name: "Remaining" });
+    const first = await store.createRole({ gameId: "game-1", name: "First" });
+    const second = await store.createRole({ gameId: "game-1", name: "Second" });
+    const remaining = await store.createRole({ gameId: "game-1", name: "Remaining" });
 
     await expect(Promise.all([store.deleteRole(first.id), store.deleteRole(second.id)])).resolves.toEqual([
       undefined,
@@ -65,9 +65,9 @@ describe("RoleStore", () => {
   });
 
   it("reorders roles atomically without changing timestamps and keeps new roles last", async () => {
-    const first = await store.createRole({ name: "First" });
-    const second = await store.createRole({ name: "Second" });
-    const third = await store.createRole({ name: "Third" });
+    const first = await store.createRole({ gameId: "game-1", name: "First" });
+    const second = await store.createRole({ gameId: "game-1", name: "Second" });
+    const third = await store.createRole({ gameId: "game-1", name: "Third" });
 
     const reordered = await store.reorderRoles({ orderedIds: [third.id, first.id, second.id] });
 
@@ -75,13 +75,13 @@ describe("RoleStore", () => {
     expect(reordered.map((role) => role.updatedAt)).toEqual([third.updatedAt, first.updatedAt, second.updatedAt]);
     await expect(new RoleStore(baseDir).listRoles()).resolves.toEqual(reordered);
 
-    const fourth = await store.createRole({ name: "Fourth" });
+    const fourth = await store.createRole({ gameId: "game-1", name: "Fourth" });
     await expect(store.listRoles()).resolves.toEqual([...reordered, fourth]);
   });
 
   it("rejects incomplete, duplicate, and unknown role orders without changing the file", async () => {
-    const first = await store.createRole({ name: "First" });
-    const second = await store.createRole({ name: "Second" });
+    const first = await store.createRole({ gameId: "game-1", name: "First" });
+    const second = await store.createRole({ gameId: "game-1", name: "Second" });
     const path = join(baseDir, "roles.json");
     const unchanged = await readFile(path, "utf8");
 
@@ -94,7 +94,7 @@ describe("RoleStore", () => {
   });
 
   it("stores launch URLs when creating or updating roles", async () => {
-    const createInput = { name: "Main", launchUrl: "https://example.com/play" };
+    const createInput = { gameId: "game-1", name: "Main", launchUrl: "https://example.com/play" };
     const role = await store.createRole(createInput);
 
     expect(role.launchUrl).toBe("https://example.com/play");
@@ -109,7 +109,7 @@ describe("RoleStore", () => {
   });
 
   it("resets login state when the launch URL changes", async () => {
-    const role = await store.createRole({ name: "Main", launchUrl: "https://example.com/play" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main", launchUrl: "https://example.com/play" });
     await store.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
 
     const updated = await store.updateRole(role.id, { launchUrl: "https://example.org/play" });
@@ -122,7 +122,7 @@ describe("RoleStore", () => {
   });
 
   it("updates auth state and records auth timestamps", async () => {
-    const role = await store.createRole({ name: "Main" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main" });
     const updated = await store.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
 
     expect(updated).toMatchObject({
@@ -283,16 +283,16 @@ describe("RoleStore", () => {
   });
 
   it("rejects duplicate names case-insensitively", async () => {
-    await store.createRole({ name: "Main" });
+    await store.createRole({ gameId: "game-1", name: "Main" });
 
-    await expect(store.createRole({ name: "main" })).rejects.toBeInstanceOf(RoleStoreError);
-    await expect(store.createRole({ name: "main" })).rejects.toMatchObject({
+    await expect(store.createRole({ gameId: "game-1", name: "main" })).rejects.toBeInstanceOf(RoleStoreError);
+    await expect(store.createRole({ gameId: "game-1", name: "main" })).rejects.toMatchObject({
       code: "ROLE_NAME_DUPLICATE"
     });
   });
 
   it("updates a role and keeps its original created timestamp", async () => {
-    const role = await store.createRole({ name: "Main" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main" });
     const updated = await store.updateRole(role.id, {
       name: "Main 2",
       windowWidth: 1440,
@@ -313,6 +313,7 @@ describe("RoleStore", () => {
 
   it("creates a role with an optional cover image", async () => {
     const role = await store.createRole({
+      gameId: "game-1",
       name: "Main",
       coverImageDataUrl: sampleCoverImageDataUrl,
       coverImageDominantColor: sampleCoverImageDominantColor.toLowerCase()
@@ -328,6 +329,7 @@ describe("RoleStore", () => {
 
   it("updates and clears a role cover image", async () => {
     const role = await store.createRole({
+      gameId: "game-1",
       name: "Main",
       coverImageDataUrl: sampleCoverImageDataUrl,
       coverImageDominantColor: sampleCoverImageDominantColor
@@ -361,7 +363,7 @@ describe("RoleStore", () => {
   });
 
   it("keeps cover image optional", async () => {
-    const role = await store.createRole({ name: "Main" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main" });
 
     expect(role.coverImageDataUrl).toBeUndefined();
     await expect(store.getRole(role.id)).resolves.toMatchObject({
@@ -372,6 +374,7 @@ describe("RoleStore", () => {
   it("rejects invalid or oversized cover image data URLs", async () => {
     await expect(
       store.createRole({
+        gameId: "game-1",
         name: "Main",
         coverImageDataUrl: "data:text/plain;base64,SGVsbG8="
       })
@@ -381,6 +384,7 @@ describe("RoleStore", () => {
 
     await expect(
       store.createRole({
+        gameId: "game-1",
         name: "Main 2",
         coverImageDataUrl: `data:image/png;base64,${"A".repeat(1_500_001)}`
       })
@@ -390,13 +394,13 @@ describe("RoleStore", () => {
   });
 
   it("rejects invalid launch URLs", async () => {
-    await expect(store.createRole({ name: "Main", launchUrl: "notaurl" })).rejects.toMatchObject({
+    await expect(store.createRole({ gameId: "game-1", name: "Main", launchUrl: "notaurl" })).rejects.toMatchObject({
       code: "ROLE_LAUNCH_URL_INVALID"
     });
-    await expect(store.createRole({ name: "Main 2", launchUrl: "file:///tmp/app" })).rejects.toMatchObject({
+    await expect(store.createRole({ gameId: "game-1", name: "Main 2", launchUrl: "file:///tmp/app" })).rejects.toMatchObject({
       code: "ROLE_LAUNCH_URL_INVALID"
     });
-    const role = await store.createRole({ name: "Main 3" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main 3" });
 
     await expect(store.updateRole(role.id, { launchUrl: "" })).rejects.toMatchObject({
       code: "ROLE_LAUNCH_URL_INVALID"
@@ -406,6 +410,7 @@ describe("RoleStore", () => {
   it("rejects invalid cover image dominant colors", async () => {
     await expect(
       store.createRole({
+        gameId: "game-1",
         name: "Main",
         coverImageDataUrl: sampleCoverImageDataUrl,
         coverImageDominantColor: "1A8CFF"
@@ -414,7 +419,7 @@ describe("RoleStore", () => {
       code: "ROLE_COVER_COLOR_INVALID"
     });
 
-    const role = await store.createRole({ name: "Main 2" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main 2" });
 
     await expect(
       store.updateRole(role.id, {
@@ -455,7 +460,7 @@ describe("RoleStore", () => {
   });
 
   it("deletes metadata and browser session data", async () => {
-    const role = await store.createRole({ name: "Main" });
+    const role = await store.createRole({ gameId: "game-1", name: "Main" });
 
     await store.deleteRole(role.id);
 

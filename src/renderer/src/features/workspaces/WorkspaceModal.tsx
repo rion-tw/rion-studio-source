@@ -14,7 +14,6 @@ import { useNavigate, useParams } from "react-router";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
-import { launchUrlOptions } from "../../app/constants";
 import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
 import type { WorkspaceFormState } from "../../app/types";
@@ -22,6 +21,8 @@ import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
+  Game,
+  InheritableBrowserLaunchMode,
   LaunchWorkspace,
   LaunchWorkspaceSlot,
   NormalizedRect,
@@ -62,6 +63,7 @@ import {
 const FOLLOW_APP_DISPLAY_SELECT_VALUE = "__follow_app_display__";
 
 interface WorkspaceEditorRouteProps {
+  games: Game[];
   isSaving: boolean;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
@@ -95,6 +97,7 @@ function WorkspaceEditorRoute(props: WorkspaceEditorRouteProps): JSX.Element {
 
 function WorkspaceEditor({
   initialForm,
+  games,
   isSaving,
   roles,
   statusByRole,
@@ -147,6 +150,7 @@ function WorkspaceEditor({
     >
       <WorkspaceLayoutFormEditor
         form={form}
+        games={games}
         isSaving={isSaving}
         roles={roles}
         statusByRole={statusByRole}
@@ -160,6 +164,7 @@ function WorkspaceEditor({
 
 interface WorkspaceLayoutFormEditorProps {
   form: WorkspaceFormState;
+  games: Game[];
   isSaving: boolean;
   onChange: (form: WorkspaceFormState) => void;
   roles: Role[];
@@ -176,6 +181,7 @@ interface WorkspaceActiveResize {
 
 function WorkspaceLayoutFormEditor({
   form,
+  games,
   isSaving,
   onChange,
   roles,
@@ -191,6 +197,7 @@ function WorkspaceLayoutFormEditor({
   const previewRef = useRef<HTMLDivElement>(null);
   const resizeAbortRef = useRef<AbortController | null>(null);
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
+  const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
   const slots = dragSlots ?? form.slots;
   const assignedSlotByRoleId = new Map(
     slots.flatMap((slot, index) => (slot.roleId ? [[slot.roleId, index] as const] : []))
@@ -361,7 +368,16 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField htmlFor="workspace-browser-mode" label={t("workspaces.browserMode")} description={t("workspaces.browserModeDescription")}>
+            <Select value={form.browserLaunchMode} disabled={isSaving} onValueChange={(value) => onChange({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}>
+              <SelectTrigger id="workspace-browser-mode"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="inherit">{t("games.mode.inherit")}</SelectItem><SelectItem value="auto">{t("games.mode.auto")}</SelectItem><SelectItem value="embedded">{t("games.mode.embedded")}</SelectItem><SelectItem value="external">{t("games.mode.external")}</SelectItem></SelectContent>
+            </Select>
+          </FormField>
+        </Surface>
+
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
             htmlFor="workspace-layout-template"
@@ -485,6 +501,7 @@ function WorkspaceLayoutFormEditor({
                   isDropTarget={index === dropTargetSlotIndex}
                   isSelected={index === selectedSlotIndex}
                   isSaving={isSaving}
+                  launchGameName={role ? gameNameById.get(role.gameId) : undefined}
                   role={role}
                   rect={slot.rect}
                   resizeIndicator={
@@ -539,12 +556,17 @@ function WorkspaceLayoutFormEditor({
             {roles.length === 0 ? (
               <p className="text-xs leading-5 text-muted-foreground">{t("workspaces.noRoles")}</p>
             ) : (
-              roles.map((role) => {
+              games.flatMap((game) => {
+                const gameRoles = roles.filter((role) => role.gameId === game.id);
+                if (gameRoles.length === 0) return [];
+                return [
+                  <p key={`${game.id}:heading`} className="px-1 pt-1 text-[10px] font-semibold uppercase text-muted-foreground">{game.name}</p>,
+                  ...gameRoles.map((role) => {
                 const assignedSlotIndex = assignedSlotByRoleId.get(role.id);
                 const isAssigned = assignedSlotIndex !== undefined;
                 const isSelectedSlotRole = selectedSlot?.roleId === role.id;
                 const status = statusByRole.get(role.id);
-                const launchGameName = resolveWorkspaceRoleLaunchGameName(role.launchUrl, t);
+                const launchGameName = gameNameById.get(role.gameId) ?? role.launchUrl;
 
                 return (
                   <button
@@ -585,6 +607,8 @@ function WorkspaceLayoutFormEditor({
                     ) : null}
                   </button>
                 );
+                  })
+                ];
               })
             )}
           </div>
@@ -599,6 +623,7 @@ interface WorkspaceSlotDropZoneProps {
   isDropTarget: boolean;
   isSelected: boolean;
   isSaving: boolean;
+  launchGameName?: string;
   onClick: () => void;
   onDragEnd: () => void;
   onDragEnter: () => void;
@@ -616,6 +641,7 @@ function WorkspaceSlotDropZone({
   isDropTarget,
   isSelected,
   isSaving,
+  launchGameName,
   onClick,
   onDragEnd,
   onDragEnter,
@@ -627,7 +653,7 @@ function WorkspaceSlotDropZone({
   resizeIndicator,
   t
 }: WorkspaceSlotDropZoneProps): JSX.Element {
-  const launchGameName = role ? resolveWorkspaceRoleLaunchGameName(role.launchUrl, t) : "";
+  const resolvedLaunchGameName = launchGameName ?? role?.launchUrl ?? "";
   const slotInsetStyle = {
     top: rect.y > 0 ? 10 : 0,
     right: rect.x + rect.width < 0.999 ? 10 : 0,
@@ -698,7 +724,7 @@ function WorkspaceSlotDropZone({
             <p className="workspace-slot-name-chip flex min-w-0 text-sm font-semibold">
               <span className="workspace-role-chip-text">
                 <span className="min-w-0 truncate">{role.name}</span>
-                <span className="workspace-role-game-label min-w-0 truncate">{launchGameName}</span>
+                <span className="workspace-role-game-label min-w-0 truncate">{resolvedLaunchGameName}</span>
               </span>
             </p>
           </div>
@@ -798,20 +824,6 @@ function WorkspaceResizeHandles({
       })}
     </>
   );
-}
-
-function resolveWorkspaceRoleLaunchGameName(launchUrl: string, t: Translator): string {
-  const option = launchUrlOptions.find((launchOption) => launchOption.value === launchUrl);
-
-  if (option) {
-    return "labelKey" in option ? t(option.labelKey) : option.label;
-  }
-
-  try {
-    return new URL(launchUrl).hostname;
-  } catch {
-    return t("roleForm.launchUrl.current");
-  }
 }
 
 export default WorkspaceEditorRoute;

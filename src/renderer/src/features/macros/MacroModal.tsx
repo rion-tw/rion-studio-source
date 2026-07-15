@@ -33,7 +33,7 @@ import {
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../../../shared/macroShortcuts";
-import type { Macro, MacroRepeat, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import type { Game, Macro, MacroRepeat, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
@@ -48,6 +48,7 @@ import {
 } from "./macroUtils";
 
 interface MacroEditorRouteProps {
+  games: Game[];
   isSaving: boolean;
   macros: Macro[];
   roles: Role[];
@@ -81,6 +82,7 @@ function MacroEditorRoute(props: MacroEditorRouteProps): JSX.Element {
 
 function MacroEditor({
   initialForm,
+  games,
   isSaving,
   macros,
   roles,
@@ -166,6 +168,7 @@ function MacroEditor({
     >
       <MacroForm
         form={form}
+        games={games}
         isSaving={isSaving}
         roles={roles}
         shortcutConflict={shortcutConflict}
@@ -178,6 +181,7 @@ function MacroEditor({
 
 interface MacroFormProps {
   form: MacroFormState;
+  games: Game[];
   isSaving: boolean;
   onChange: (form: MacroFormState | ((current: MacroFormState) => MacroFormState)) => void;
   roles: Role[];
@@ -185,8 +189,9 @@ interface MacroFormProps {
   t: Translator;
 }
 
-function MacroForm({ form, isSaving, onChange, roles, shortcutConflict, t }: MacroFormProps): JSX.Element {
+function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t }: MacroFormProps): JSX.Element {
   const [newStepType, setNewStepType] = useState<MacroStep["type"]>("key");
+  const roleGroups = useMemo(() => games.map((game) => ({ game, roles: roles.filter((role) => role.gameId === game.id) })).filter((group) => group.roles.length > 0), [games, roles]);
   const roleIds = useMemo(() => new Set(form.roleIds), [form.roleIds]);
   const missingRoleIds = useMemo(
     () => form.roleIds.filter((roleId) => !roles.some((role) => role.id === roleId)),
@@ -335,7 +340,9 @@ function MacroForm({ form, isSaving, onChange, roles, shortcutConflict, t }: Mac
                         <span className="min-w-0 truncate">{t("macros.unknownRole")}</span>
                       </div>
                     ))}
-                    {roles.map((role) => {
+                    {roleGroups.flatMap(({ game, roles: gameRoles }) => [
+                      <p key={`${game.id}:heading`} className="w-full px-1 pt-1 text-[10px] font-semibold uppercase text-muted-foreground">{game.name}</p>,
+                      ...gameRoles.map((role) => {
                       const isSelected = roleIds.has(role.id);
 
                       return (
@@ -357,7 +364,8 @@ function MacroForm({ form, isSaving, onChange, roles, shortcutConflict, t }: Mac
                           <span className="min-w-0 max-w-36 truncate">{role.name}</span>
                         </label>
                       );
-                    })}
+                      })
+                    ])}
                   </div>
                 ) : (
                   <div className="glass-control flex h-[30px] items-center rounded-md px-2.5 text-xs text-muted-foreground">

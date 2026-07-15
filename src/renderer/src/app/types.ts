@@ -1,4 +1,6 @@
 import type {
+  GameSource,
+  InheritableBrowserLaunchMode,
   LaunchPreset,
   LaunchWorkspaceSlot,
   MacroRepeat,
@@ -10,6 +12,7 @@ import type {
 
 export interface RoleFormState {
   id?: string;
+  gameId: string;
   name: string;
   launchUrl: string;
   windowWidth: number;
@@ -24,9 +27,24 @@ export interface WorkspaceFormState {
   id?: string;
   name: string;
   template: WorkspaceLayoutTemplate;
+  browserLaunchMode: InheritableBrowserLaunchMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   targetDisplayId?: number;
   slots: LaunchWorkspaceSlot[];
+}
+
+export interface GameFormState {
+  id?: string;
+  source: GameSource;
+  name: string;
+  iconImageDataUrl?: string;
+  defaultLaunchUrl: string;
+  loginUrl: string;
+  usesGlobalRoleDefaults: boolean;
+  windowWidth: number;
+  windowHeight: number;
+  launchPreset: LaunchPreset;
+  browserLaunchMode: InheritableBrowserLaunchMode;
 }
 
 export interface MacroFormState {

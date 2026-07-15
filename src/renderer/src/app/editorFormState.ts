@@ -1,5 +1,5 @@
-import type { LaunchWorkspace, Macro, Role, RoleDefaults } from "../../../shared/types";
-import type { MacroFormState, RoleFormState, WorkspaceFormState } from "./types";
+import type { Game, LaunchWorkspace, Macro, Role, RoleDefaults } from "../../../shared/types";
+import type { GameFormState, MacroFormState, RoleFormState, WorkspaceFormState } from "./types";
 import { createEmptyRoleForm } from "./roleDefaults";
 import { createEmptyMacroForm, createMacroFormState } from "../features/macros/macroUtils";
 import {
@@ -8,15 +8,16 @@ import {
 } from "../features/workspaces/workspaceLayoutUtils";
 import type { Translator } from "../i18n";
 
-export type EditorFormState = RoleFormState | WorkspaceFormState | MacroFormState;
+export type EditorFormState = GameFormState | RoleFormState | WorkspaceFormState | MacroFormState;
 
-export function createNewRoleForm(roleDefaults: RoleDefaults): RoleFormState {
-  return createEmptyRoleForm(roleDefaults);
+export function createNewRoleForm(roleDefaults: RoleDefaults, game?: Game): RoleFormState {
+  return createEmptyRoleForm(game?.roleDefaults ?? roleDefaults, game?.id, game?.defaultLaunchUrl);
 }
 
 export function createRoleFormState(role: Role): RoleFormState {
   return {
     id: role.id,
+    gameId: role.gameId,
     name: role.name,
     launchUrl: role.launchUrl,
     windowWidth: role.windowWidth,
@@ -25,6 +26,32 @@ export function createRoleFormState(role: Role): RoleFormState {
     launchPreset: role.launchPreset,
     coverImageDataUrl: role.coverImageDataUrl,
     coverImageDominantColor: role.coverImageDominantColor
+  };
+}
+
+export function createNewGameForm(roleDefaults: RoleDefaults): GameFormState {
+  return {
+    source: "custom",
+    name: "",
+    defaultLaunchUrl: "https://",
+    loginUrl: "",
+    usesGlobalRoleDefaults: true,
+    ...roleDefaults,
+    browserLaunchMode: "inherit"
+  };
+}
+
+export function createGameFormState(game: Game, roleDefaults: RoleDefaults): GameFormState {
+  return {
+    id: game.id,
+    source: game.source,
+    name: game.name,
+    iconImageDataUrl: game.iconImageDataUrl,
+    defaultLaunchUrl: game.defaultLaunchUrl,
+    loginUrl: game.loginUrl ?? "",
+    usesGlobalRoleDefaults: !game.roleDefaults,
+    ...(game.roleDefaults ?? roleDefaults),
+    browserLaunchMode: game.browserLaunchMode
   };
 }
 

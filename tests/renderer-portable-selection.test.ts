@@ -5,12 +5,14 @@ import {
   createDefaultPortableDataSelection,
   filterPortableImportWarnings,
   hasPortableDataSelection,
+  isPortableGameSelectionRequired,
   isPortableRoleSelectionRequired,
   updatePortableDataSelection
 } from "../src/renderer/src/features/settings/portableSelection";
 import type { PortableDataSelection, PortableImportWarning } from "../src/shared/types";
 
 const ALL_AVAILABLE: PortableDataSelection = {
+  games: true,
   roles: true,
   launchWorkspaces: true,
   macros: true,
@@ -21,12 +23,14 @@ describe("portable data selection", () => {
   it("selects every available category and leaves empty categories disabled", () => {
     expect(
       createDefaultPortableDataSelection({
+        games: true,
         roles: true,
         launchWorkspaces: false,
         macros: true,
         preferences: false
       })
     ).toEqual({
+      games: true,
       roles: true,
       launchWorkspaces: false,
       macros: true,
@@ -43,6 +47,7 @@ describe("portable data selection", () => {
     );
 
     expect(selection).toEqual({
+      games: true,
       roles: true,
       launchWorkspaces: true,
       macros: false,
@@ -50,6 +55,8 @@ describe("portable data selection", () => {
     });
     expect(isPortableRoleSelectionRequired(selection)).toBe(true);
     expect(updatePortableDataSelection(selection, "roles", false, ALL_AVAILABLE).roles).toBe(true);
+    expect(isPortableGameSelectionRequired(selection)).toBe(true);
+    expect(updatePortableDataSelection(selection, "games", false, ALL_AVAILABLE).games).toBe(true);
   });
 
   it("allows roles to be cleared after dependent categories are cleared", () => {
@@ -79,11 +86,14 @@ describe("portable data selection", () => {
 
   it("detects an empty selection", () => {
     expect(hasPortableDataSelection(clearPortableDataSelection())).toBe(false);
+    expect(hasPortableDataSelection({ ...clearPortableDataSelection(), games: true })).toBe(true);
     expect(hasPortableDataSelection({ ...clearPortableDataSelection(), preferences: true })).toBe(true);
   });
 
   it("shows warnings only for selected categories", () => {
     const warnings: PortableImportWarning[] = [
+      { code: "GAME_NAME_RENAMED", itemName: "Flyff" },
+      { code: "ROLE_GAME_RECOVERED", itemName: "Recovered" },
       { code: "ROLE_NAME_RENAMED", itemName: "Main" },
       { code: "WORKSPACE_ROLE_MISSING", itemName: "Party" },
       { code: "MACRO_SHORTCUT_CLEARED_RESERVED", itemName: "Heal" }
@@ -91,11 +101,12 @@ describe("portable data selection", () => {
 
     expect(
       filterPortableImportWarnings(warnings, {
+        games: true,
         roles: true,
         launchWorkspaces: false,
         macros: false,
         preferences: true
       })
-    ).toEqual([warnings[0]]);
+    ).toEqual([warnings[0], warnings[1], warnings[2]]);
   });
 });

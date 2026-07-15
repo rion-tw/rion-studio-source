@@ -79,6 +79,7 @@ describe("editor form state", () => {
 function role(overrides: Partial<Role> = {}): Role {
   return {
     id: "role-1",
+    gameId: "game-1",
     name: "Main",
     launchUrl: "https://example.com/game",
     windowWidth: 1280,
@@ -95,6 +96,7 @@ function role(overrides: Partial<Role> = {}): Role {
 function workspace(): LaunchWorkspace {
   return {
     id: "workspace-1",
+    browserLaunchMode: "inherit",
     name: "Party",
     template: "two_columns",
     browserZoomPercent: 100,

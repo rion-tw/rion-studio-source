@@ -374,7 +374,7 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-4 gap-4">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField htmlFor="workspace-browser-mode" label={t("workspaces.browserMode")} description={t("workspaces.browserModeDescription")}>
             <Select value={form.browserLaunchMode} disabled={isSaving} onValueChange={(value) => onChange({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}>
@@ -487,7 +487,7 @@ function WorkspaceLayoutFormEditor({
         </Surface>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-4 gap-4">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
             htmlFor="workspace-resource-mode"
@@ -567,7 +567,12 @@ function WorkspaceLayoutFormEditor({
               <SelectContent>
                 {form.slots.flatMap((slot) => {
                   const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
-                  return role ? [<SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>] : [];
+                  const gameName = role ? gameNameById.get(role.gameId) ?? role.launchUrl : undefined;
+                  return role ? [
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name} - {gameName}
+                    </SelectItem>
+                  ] : [];
                 })}
               </SelectContent>
             </Select>

@@ -171,7 +171,7 @@ export interface FieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"
 
 export function Field({ children, className, description, title, ...props }: FieldProps) {
   return (
-    <div className={cn("grid gap-2", className)} {...props}>
+    <div className={cn("flex h-full min-w-0 flex-col justify-between gap-2", className)} {...props}>
       <FieldHeader description={description} title={title} />
       {children}
     </div>
@@ -196,7 +196,7 @@ export function FormField({
   const labelClassName = "block text-[13px] font-semibold leading-5 text-foreground";
 
   return (
-    <div className={cn("grid min-w-0 content-start gap-2", className)} {...props}>
+    <div className={cn("flex h-full min-w-0 flex-col justify-between gap-2", className)} {...props}>
       <div className="min-w-0">
         {htmlFor ? (
           <label className={labelClassName} htmlFor={htmlFor}>

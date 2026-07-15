@@ -382,3 +382,16 @@ jobs:
             echo "Verified assets:"
             find candidate-assets -maxdepth 1 -type f -exec basename {} \; | sort | sed 's/^/- /'
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  publish-public-release:
+    needs:
+      - resolve-release
+      - verify-private-release
+    if: needs.resolve-release.outputs.has_release == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish-public-release.yml
+    with:
+      tag: ${{ needs.resolve-release.outputs.release_tag }}
+    secrets:
+      RION_RELEASE_APP_PRIVATE_KEY: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}

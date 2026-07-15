@@ -568,7 +568,7 @@ function WorkspaceLayoutFormEditor({
                     key={role.id}
                     data-workspace-role-id={role.id}
                     className={cn(
-                      "glass-control flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors",
+                      "glass-control flex min-w-0 items-center gap-2 rounded-lg p-2 text-left transition-colors",
                       isSelectedSlotRole && "border-primary/45 bg-primary/12 text-foreground",
                       isAssigned && !isSelectedSlotRole && "border-primary/25 bg-primary/6"
                     )}
@@ -580,7 +580,7 @@ function WorkspaceLayoutFormEditor({
                     onDragStart={(event) => handleRoleDragStart(event, role.id)}
                   >
                     <div
-                      className="size-8 shrink-0 rounded-md border border-border/60 bg-cover bg-center"
+                      className="size-8 shrink-0 rounded-md bg-cover bg-center ring-1 ring-inset ring-border/60"
                       style={createWorkspaceSlotBackground(role)}
                     />
                     <div className="min-w-0 flex-1">

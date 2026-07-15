@@ -338,7 +338,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                     {missingRoleIds.map((roleId) => (
                       <div
                         key={roleId}
-                        className="glass-control inline-flex min-h-12 w-auto max-w-full flex-none items-center gap-2 rounded-md px-2.5 text-xs font-medium text-muted-foreground"
+                        className="glass-control inline-flex min-h-12 w-auto max-w-full flex-none items-center gap-2 rounded-lg p-2 text-xs font-medium text-muted-foreground"
                       >
                         <Check size={13} />
                         <span className="min-w-0 truncate">{t("macros.unknownRole")}</span>
@@ -352,7 +352,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                         <label
                           key={role.id}
                           className={cn(
-                            "glass-control inline-flex min-h-12 w-auto max-w-full flex-none cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                            "glass-control inline-flex min-h-12 w-auto max-w-full flex-none cursor-pointer items-center gap-2 rounded-lg p-2 text-left transition-colors",
                             isSaving && "pointer-events-none opacity-60",
                             isSelected
                               ? "border-primary/45 bg-primary/12 text-foreground"
@@ -360,7 +360,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                           )}
                         >
                           <span
-                            className="size-8 shrink-0 rounded-md border border-border/60 bg-cover bg-center"
+                            className="size-8 shrink-0 rounded-md bg-cover bg-center ring-1 ring-inset ring-border/60"
                             style={{
                               backgroundColor: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
                               backgroundImage: `url("${role.coverImageDataUrl ?? roleCoverPlaceholderUrl}")`

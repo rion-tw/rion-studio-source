@@ -1,17 +1,26 @@
-name: Release
+name: Private Release Candidate
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing private release tag to rebuild (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
 
+env:
+  RION_STUDIO_RELEASE_REPOSITORY: rion-tw/rion-studio
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: private-release-${{ github.ref }}-${{ inputs.tag || 'automatic' }}
   cancel-in-progress: false
 
 jobs:
@@ -23,14 +32,10 @@ jobs:
         include:
           - os: macos-latest
             build_target: --mac dmg zip --arm64
-            primary_asset: Rion.Studio-mac.dmg
             required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
-            optional_assets: Rion.Studio-mac.dmg.blockmap
           - os: windows-latest
             build_target: --win nsis --x64
-            primary_asset: Rion.Studio-win.exe
             required_assets: Rion.Studio-win.exe Rion.Studio-win.exe.blockmap latest.yml
-            optional_assets: ""
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -81,14 +86,12 @@ jobs:
           read -r -a required_assets <<< "${{ matrix.required_assets }}"
 
           for asset_name in "${required_assets[@]}"; do
-            if [[ ! -f "${release_dir}/${asset_name}" ]]; then
-              find release -maxdepth 2 -type f -print || true
-              exit 1
-            fi
+            test -f "${release_dir}/${asset_name}"
           done
 
           if [[ "${RUNNER_OS}" == "macOS" ]]; then
             app_path="${release_dir}/mac-arm64/Rion Studio.app"
+            update_config="${app_path}/Contents/Resources/app-update.yml"
             codesign --verify --deep --strict --verbose=2 "${app_path}"
 
             signature_info="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
@@ -117,13 +120,18 @@ jobs:
               verify_entitlement "${helper_path}" "com.apple.security.cs.allow-jit"
               verify_entitlement "${helper_path}" "com.apple.security.cs.disable-library-validation"
             done
+          else
+            update_config="${release_dir}/win-unpacked/resources/app-update.yml"
           fi
+
+          node scripts/verifyPackagedUpdateConfig.mjs "${update_config}" "${RION_STUDIO_RELEASE_REPOSITORY}"
 
       - name: Verify packaged Windows native helper
         if: runner.os == 'Windows'
         run: node scripts/verifyWindowsWindowFrameHelper.mjs release/0.0.0-development/win-unpacked/resources/native/rion-window-frame-helper.exe
 
   semantic-release:
+    if: github.event_name == 'push'
     needs: validate-release
     runs-on: ubuntu-latest
     outputs:
@@ -146,15 +154,67 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Create semantic release
+      - name: Create private semantic release
         id: semantic
         run: pnpm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  resolve-release:
+    needs:
+      - validate-release
+      - semantic-release
+    if: >-
+      always() &&
+      needs.validate-release.result == 'success' &&
+      (needs.semantic-release.result == 'success' || needs.semantic-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    outputs:
+      has_release: ${{ steps.resolve.outputs.has_release }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_version: ${{ steps.resolve.outputs.release_version }}
+    steps:
+      - name: Checkout release history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve private release
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          SEMANTIC_VERSION: ${{ needs.semantic-release.outputs.release_version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${REQUESTED_TAG}"
+            if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid release tag: ${tag}" >&2
+              exit 1
+            fi
+            git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
+            gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+            version="${tag#v}"
+          else
+            version="${SEMANTIC_VERSION}"
+            if [[ -z "${version}" ]]; then
+              echo "has_release=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            tag="v${version}"
+          fi
+
+          echo "has_release=true" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "release_version=${version}" >> "${GITHUB_OUTPUT}"
+
   build-release-assets:
-    needs: semantic-release
-    if: needs.semantic-release.outputs.release_version != ''
+    needs: resolve-release
+    if: needs.resolve-release.outputs.has_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -162,19 +222,18 @@ jobs:
         include:
           - os: macos-latest
             build_target: --mac dmg zip --arm64
-            primary_asset: Rion.Studio-mac.dmg
             required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
             optional_assets: Rion.Studio-mac.dmg.blockmap
           - os: windows-latest
             build_target: --win nsis --x64
-            primary_asset: Rion.Studio-win.exe
             required_assets: Rion.Studio-win.exe Rion.Studio-win.exe.blockmap latest.yml
             optional_assets: ""
     steps:
-      - name: Checkout
+      - name: Checkout private release tag
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ needs.resolve-release.outputs.release_tag }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -189,7 +248,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Apply release version
-        run: pnpm version ${{ needs.semantic-release.outputs.release_version }} --no-git-tag-version
+        run: pnpm version ${{ needs.resolve-release.outputs.release_version }} --no-git-tag-version
 
       - name: Build app
         run: pnpm exec electron-vite build
@@ -209,7 +268,7 @@ jobs:
 
       - name: Verify packaged Windows native helper
         if: runner.os == 'Windows'
-        run: node scripts/verifyWindowsWindowFrameHelper.mjs release/${{ needs.semantic-release.outputs.release_version }}/win-unpacked/resources/native/rion-window-frame-helper.exe
+        run: node scripts/verifyWindowsWindowFrameHelper.mjs release/${{ needs.resolve-release.outputs.release_version }}/win-unpacked/resources/native/rion-window-frame-helper.exe
 
       - name: Verify macOS app signature
         if: runner.os == 'macOS'
@@ -217,7 +276,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          app_path="release/${{ needs.semantic-release.outputs.release_version }}/mac-arm64/Rion Studio.app"
+          app_path="release/${{ needs.resolve-release.outputs.release_version }}/mac-arm64/Rion Studio.app"
           codesign --verify --deep --strict --verbose=2 "${app_path}"
 
           signature_info="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
@@ -247,24 +306,34 @@ jobs:
             verify_entitlement "${helper_path}" "com.apple.security.cs.disable-library-validation"
           done
 
-      - name: Upload release assets
+      - name: Verify packaged updater repository
         shell: bash
         run: |
           set -euo pipefail
+          version="${{ needs.resolve-release.outputs.release_version }}"
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            update_config="release/${version}/mac-arm64/Rion Studio.app/Contents/Resources/app-update.yml"
+          else
+            update_config="release/${version}/win-unpacked/resources/app-update.yml"
+          fi
+          node scripts/verifyPackagedUpdateConfig.mjs "${update_config}" "${RION_STUDIO_RELEASE_REPOSITORY}"
 
-          version="${{ needs.semantic-release.outputs.release_version }}"
-          tag="v${version}"
-          release_dir="release/${version}"
+      - name: Upload private candidate assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          tag="${{ needs.resolve-release.outputs.release_tag }}"
+          release_dir="release/${{ needs.resolve-release.outputs.release_version }}"
           read -r -a required_asset_names <<< "${{ matrix.required_assets }}"
           read -r -a optional_asset_names <<< "${{ matrix.optional_assets }}"
           assets=()
 
           for asset_name in "${required_asset_names[@]}"; do
             asset_path="${release_dir}/${asset_name}"
-            if [[ ! -f "${asset_path}" ]]; then
-              find "${release_dir}" -maxdepth 1 -type f -print || true
-              exit 1
-            fi
+            test -f "${asset_path}"
             assets+=("${asset_path}")
           done
 
@@ -276,6 +345,40 @@ jobs:
           done
 
           gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
-          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fx "${{ matrix.primary_asset }}"
+
+  verify-private-release:
+    needs:
+      - resolve-release
+      - build-release-assets
+    if: needs.resolve-release.outputs.has_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout private release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.release_tag }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download complete private candidate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${{ needs.resolve-release.outputs.release_tag }}" --repo "${GITHUB_REPOSITORY}" --dir candidate-assets
+
+      - name: Verify complete private candidate
+        run: node scripts/releaseArtifacts.mjs candidate-assets "${{ needs.resolve-release.outputs.release_version }}"
+
+      - name: Record candidate summary
+        shell: bash
+        run: |
+          {
+            echo "## Private release candidate"
+            echo
+            echo "Tag: ${{ needs.resolve-release.outputs.release_tag }}"
+            echo
+            echo "Verified assets:"
+            find candidate-assets -maxdepth 1 -type f -exec basename {} \; | sort | sed 's/^/- /'
+          } >> "${GITHUB_STEP_SUMMARY}"

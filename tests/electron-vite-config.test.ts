@@ -7,4 +7,10 @@ describe("electron-vite configuration", () => {
     expect(config.main?.build?.externalizeDeps).toEqual({ include: ["electron"] });
     expect(config.preload?.build?.externalizeDeps).toEqual({ include: ["electron"] });
   });
+
+  it("does not emit source maps into packaged application bundles", () => {
+    expect(config.main?.build?.sourcemap).toBe(false);
+    expect(config.preload?.build?.sourcemap).toBe(false);
+    expect(config.renderer?.build?.sourcemap).toBe(false);
+  });
 });

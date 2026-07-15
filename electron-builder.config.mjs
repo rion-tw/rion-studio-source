@@ -1,6 +1,9 @@
 import process from "node:process";
 
-const [githubOwner, githubRepo] = (process.env.GITHUB_REPOSITORY ?? "rion-tw/rion-studio").split("/");
+const DEFAULT_RELEASE_REPOSITORY = "rion-tw/rion-studio";
+const [githubOwner, githubRepo] = (
+  process.env.RION_STUDIO_RELEASE_REPOSITORY ?? DEFAULT_RELEASE_REPOSITORY
+).split("/");
 
 /**
  * @type {import("electron-builder").Configuration}

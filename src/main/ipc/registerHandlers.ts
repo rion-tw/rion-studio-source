@@ -214,6 +214,10 @@ export function registerIpcHandlers(
     options.quitApplication();
   });
 
+  ipcMain.on(IPC_CHANNELS.appWindowClose, (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
   ipcMain.handle(IPC_CHANNELS.appRestart, () => {
     if (!options.restartApplication) {
       throw new Error("Application restart is not available.");

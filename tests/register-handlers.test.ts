@@ -30,17 +30,23 @@ import type {
 
 type AnyMock = Mock;
 
-const { handlers } = vi.hoisted(() => ({
-  handlers: new Map<string, (...args: unknown[]) => unknown>()
+const { fromWebContents, handlers, listeners } = vi.hoisted(() => ({
+  fromWebContents: vi.fn(),
+  handlers: new Map<string, (...args: unknown[]) => unknown>(),
+  listeners: new Map<string, (...args: unknown[]) => unknown>()
 }));
 
 vi.mock("electron", () => ({
   BrowserWindow: {
+    fromWebContents,
     getAllWindows: vi.fn(() => [])
   },
   ipcMain: {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       handlers.set(channel, handler);
+    }),
+    on: vi.fn((channel: string, listener: (...args: unknown[]) => unknown) => {
+      listeners.set(channel, listener);
     })
   },
   screen: {
@@ -488,6 +494,21 @@ describe("registerIpcHandlers workspace handlers", () => {
 
     await handlers.get(IPC_CHANNELS.appQuit)?.({});
     expect(quitApplication).toHaveBeenCalledOnce();
+  });
+
+  it("closes only the window that requested it and ignores a missing owner window", () => {
+    const sender = { id: 42 };
+    const close = vi.fn();
+    fromWebContents.mockReturnValueOnce({ close });
+
+    listeners.get(IPC_CHANNELS.appWindowClose)?.({ sender });
+
+    expect(fromWebContents).toHaveBeenCalledWith(sender);
+    expect(close).toHaveBeenCalledOnce();
+
+    fromWebContents.mockReturnValueOnce(null);
+    expect(() => listeners.get(IPC_CHANNELS.appWindowClose)?.({ sender })).not.toThrow();
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("rejects malformed legal acceptance input", async () => {

@@ -47,6 +47,7 @@ export interface RionStudioApi {
   getLegalAcceptanceStatus: () => Promise<LegalAcceptanceStatus>;
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;
+  requestCurrentWindowClose: () => void;
   restartApplication: () => Promise<void>;
   listGames: () => Promise<Game[]>;
   createGame: (input: CreateGameInput) => Promise<Game>;

@@ -20,6 +20,7 @@ const api: RionStudioApi = {
   getLegalAcceptanceStatus: () => ipcRenderer.invoke(IPC_CHANNELS.legalStatus),
   acceptLegalDocuments: (input) => ipcRenderer.invoke(IPC_CHANNELS.legalAccept, input),
   quitApplication: () => ipcRenderer.invoke(IPC_CHANNELS.appQuit),
+  requestCurrentWindowClose: () => ipcRenderer.send(IPC_CHANNELS.appWindowClose),
   restartApplication: () => ipcRenderer.invoke(IPC_CHANNELS.appRestart),
   listGames: () => ipcRenderer.invoke(IPC_CHANNELS.gamesList),
   createGame: (input) => ipcRenderer.invoke(IPC_CHANNELS.gamesCreate, input),

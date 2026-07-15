@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useBeforeUnload, useBlocker } from "react-router";
 
 import { useConfirmation, type ConfirmationOptions } from "../components/confirmation";
+import type { RionStudioApi } from "../../../shared/api";
 
 export function useUnsavedChangesGuard(
   enabled: boolean,
@@ -45,11 +46,38 @@ export function useUnsavedChangesGuard(
 
   useBeforeUnload(
     useCallback((event) => {
-      if ((enabled || isNavigationLocked) && !allowNavigationRef.current) {
-        event.preventDefault();
-        event.returnValue = "";
+      if (!(enabled || isNavigationLocked) || allowNavigationRef.current) {
+        return;
       }
-    }, [enabled, isNavigationLocked])
+
+      event.preventDefault();
+      event.returnValue = "";
+
+      if (isNavigationLocked || isPromptingRef.current) {
+        return;
+      }
+
+      isPromptingRef.current = true;
+      void confirm(options)
+        .then((confirmed) => {
+          if (!confirmed) {
+            return;
+          }
+
+          allowNavigationRef.current = true;
+          const api = (window as Window & {
+            rionStudio?: Pick<RionStudioApi, "requestCurrentWindowClose">;
+          }).rionStudio;
+          if (api) {
+            api.requestCurrentWindowClose();
+          } else {
+            window.close();
+          }
+        })
+        .finally(() => {
+          isPromptingRef.current = false;
+        });
+    }, [confirm, enabled, isNavigationLocked, options])
   );
 
   return useCallback(() => {

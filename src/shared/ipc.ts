@@ -2,6 +2,7 @@ export const IPC_CHANNELS = {
   appRendererReady: "app:renderer-ready",
   appSnapshot: "app:snapshot",
   appQuit: "app:quit",
+  appWindowClose: "app:window-close",
   appRestart: "app:restart",
   legalStatus: "legal:status",
   legalAccept: "legal:accept",

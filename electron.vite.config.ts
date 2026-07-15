@@ -7,6 +7,7 @@ import { defineConfig } from "electron-vite";
 export default defineConfig({
   main: {
     build: {
+      sourcemap: false,
       externalizeDeps: {
         include: ["electron"]
       },
@@ -17,6 +18,7 @@ export default defineConfig({
   },
   preload: {
     build: {
+      sourcemap: false,
       externalizeDeps: {
         include: ["electron"]
       },
@@ -36,6 +38,9 @@ export default defineConfig({
   renderer: {
     root: "src/renderer",
     plugins: [tailwindcss(), react()],
+    build: {
+      sourcemap: false
+    },
     resolve: {
       alias: {
         "@renderer": resolve(__dirname, "src/renderer/src"),

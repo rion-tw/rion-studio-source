@@ -7,7 +7,11 @@ import { DEFAULT_UPDATE_REPOSITORY } from "../src/main/updates/AppUpdateManager"
 
 describe("electron-builder release configuration", () => {
   it("keeps the app updater, release publisher, and public download links on the same repository", async () => {
-    const readme = await readFile("README.md", "utf8");
+    const [readme, builderConfigSource, mainSource] = await Promise.all([
+      readFile("README.md", "utf8"),
+      readFile("electron-builder.config.mjs", "utf8"),
+      readFile("src/main/index.ts", "utf8")
+    ]);
     const [owner, repo] = DEFAULT_UPDATE_REPOSITORY.split("/");
 
     expect(config.publish).toContainEqual(
@@ -17,6 +21,9 @@ describe("electron-builder release configuration", () => {
       })
     );
     expect(readme).toContain(`https://github.com/${DEFAULT_UPDATE_REPOSITORY}/releases/latest`);
+    expect(builderConfigSource).toContain("process.env.RION_STUDIO_RELEASE_REPOSITORY");
+    expect(builderConfigSource).not.toContain("process.env.GITHUB_REPOSITORY");
+    expect(mainSource).not.toContain("process.env.GITHUB_REPOSITORY");
   });
 
   it("keeps release artifacts and Windows installer target aligned with CI expectations", () => {

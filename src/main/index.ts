@@ -38,7 +38,11 @@ import { SystemFontService } from "./game-browser/SystemFontService";
 import { GameCompatibilityManager } from "./games/GameCompatibilityManager";
 import { GameCompatibilityStore } from "./games/GameCompatibilityStore";
 import { GameStore } from "./games/GameStore";
-import { broadcastWorkspaceDisplaysChanged, registerIpcHandlers } from "./ipc/registerHandlers";
+import {
+  broadcastMacrosChanged,
+  broadcastWorkspaceDisplaysChanged,
+  registerIpcHandlers
+} from "./ipc/registerHandlers";
 import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
 import { MacroManager } from "./macros/MacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
@@ -376,7 +380,11 @@ async function initializeApplication(): Promise<void> {
     macroStore,
     macroManager,
     requestMacroEditorFromOverlay,
-    (roleId) => browserManager?.listStatuses().find((status) => status.roleId === roleId)
+    (roleId) => browserManager?.listStatuses().find((status) => status.roleId === roleId),
+    roleStore,
+    () => {
+      void macroStore.listMacros().then(broadcastMacrosChanged);
+    }
   );
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
   browserManager.setExternalMacroOverlayInstaller((role, target) => macroOverlayInjector.installExternal(role, target));
@@ -436,6 +444,7 @@ async function initializeApplication(): Promise<void> {
     withDataMutation,
     onMacrosChanged: () => {
       macroOverlayInjector.refreshInstalledOverlays();
+      void macroStore.listMacros().then(broadcastMacrosChanged);
     },
     onLegalAccepted: () => {
       startUpdateCheck();

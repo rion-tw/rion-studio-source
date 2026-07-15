@@ -97,6 +97,7 @@ export class MacroStore {
 
       const macro: Macro = {
         id: randomUUID(),
+        enabled: input.enabled === undefined ? true : this.normalizeEnabled(input.enabled),
         name,
         roleIds: this.normalizeRoleIds(input.roleIds),
         trigger: this.normalizeTrigger(input.trigger),
@@ -129,6 +130,7 @@ export class MacroStore {
 
       const updated: Macro = {
         ...current,
+        enabled: input.enabled === undefined ? current.enabled : this.normalizeEnabled(input.enabled),
         name,
         roleIds: input.roleIds === undefined ? current.roleIds : this.normalizeRoleIds(input.roleIds),
         trigger: input.trigger === undefined ? current.trigger : this.normalizeTrigger(input.trigger),
@@ -195,6 +197,7 @@ export class MacroStore {
         return (
           "roleId" in storedMacro ||
           LEGACY_ROLE_ID_FIELD in storedMacro ||
+          storedMacro.enabled === undefined ||
           (storedMacro.repeat?.type === "loop" && storedMacro.repeat.intervalMs === 0)
         );
       });
@@ -230,6 +233,7 @@ export class MacroStore {
 
     return {
       id: typeof macro.id === "string" && macro.id.trim() ? macro.id : randomUUID(),
+      enabled: macro.enabled === undefined ? true : this.normalizeEnabled(macro.enabled),
       name: this.normalizeName(macro.name),
       roleIds: this.normalizeRoleIds(this.readMacroRoleIds(macro)),
       trigger: this.normalizeTrigger(macro.trigger),
@@ -252,6 +256,14 @@ export class MacroStore {
     }
 
     return normalized;
+  }
+
+  private normalizeEnabled(enabled: unknown): boolean {
+    if (typeof enabled !== "boolean") {
+      throw new MacroStoreError("MACRO_ENABLED_INVALID", "Macro enabled state is invalid.");
+    }
+
+    return enabled;
   }
 
   private normalizeRoleIds(roleIds: unknown): string[] {

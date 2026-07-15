@@ -20,6 +20,7 @@ import type {
   CreateMacroInput,
   CreateRoleInput,
   GameBrowserSettings,
+  Macro,
   MacroEditorRequest,
   MacroRunStatus,
   PortableExportInput,
@@ -648,7 +649,9 @@ export function registerIpcHandlers(
           getMacroInputRoleIds(input),
           roleStore,
           browserManager,
-          () => macroManager.runStoppedMutation(id, () => macroStore.updateMacro(id, input))
+          () => (input.enabled === false
+            ? macroManager.stopAndRunMutation(id, () => macroStore.updateMacro(id, input))
+            : macroManager.runStoppedMutation(id, () => macroStore.updateMacro(id, input)))
         );
         options.onMacrosChanged?.();
         return macro;
@@ -927,6 +930,12 @@ function broadcastStatusChange(statuses: RoleStatus[]): void {
 export function broadcastWorkspaceDisplaysChanged(displays: WorkspaceDisplayInfo[]): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.workspacesDisplaysChanged, displays);
+  });
+}
+
+export function broadcastMacrosChanged(macros: Macro[]): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.macrosChanged, macros);
   });
 }
 

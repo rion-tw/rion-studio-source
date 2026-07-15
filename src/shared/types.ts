@@ -169,6 +169,7 @@ export type MacroStep =
 
 export interface Macro {
   id: string;
+  enabled: boolean;
   name: string;
   roleIds: string[];
   trigger?: MacroTrigger;
@@ -179,6 +180,7 @@ export interface Macro {
 }
 
 export interface CreateMacroInput {
+  enabled?: boolean;
   name: string;
   roleIds: string[];
   trigger?: MacroTrigger | null;
@@ -616,6 +618,7 @@ export interface PortableGame {
 
 export interface PortableMacro {
   id: string;
+  enabled?: boolean;
   name: string;
   roleIds: string[];
   trigger?: MacroTrigger;

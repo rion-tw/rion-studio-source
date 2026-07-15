@@ -200,6 +200,7 @@ function workspace(): LaunchWorkspace {
 function macro(): Macro {
   return {
     id: "macro-1",
+    enabled: true,
     name: "Macro one",
     roleIds: [],
     repeat: { type: "once" },

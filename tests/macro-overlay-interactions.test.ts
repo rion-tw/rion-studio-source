@@ -19,6 +19,7 @@ interface OverlayTestWindow extends Window {
 
 const assignedMacro: Macro = {
   id: "macro-1",
+  enabled: true,
   name: "Auto heal",
   roleIds: ["role-1"],
   trigger: { code: "F2", ctrl: false, alt: false, shift: false, meta: false },
@@ -186,6 +187,59 @@ describe("macro overlay pointer interactions", () => {
     expect(pageKeyDown).not.toHaveBeenCalled();
     await vi.waitFor(() => {
       expect(binding).toHaveBeenCalledWith({ macroId: assignedMacro.id, type: "start" });
+    });
+  });
+
+  it("lets disabled shortcuts reach the game and toggles them from the macro menu", async () => {
+    createGameSurface(document);
+    let currentMacro = {
+      ...assignedMacro,
+      enabled: false,
+      roleIds: ["role-1", "role-2"],
+      roleNames: ["Main", "Support"]
+    };
+    const binding = vi.fn(async (request: unknown) => {
+      if (isRecord(request) && request.type === "set-enabled") {
+        currentMacro = { ...currentMacro, enabled: request.enabled === true };
+      }
+      return { macros: [currentMacro], statuses: [] };
+    });
+    const controller = installOverlay(window, binding);
+    await controller.refresh({ renderAfter: true });
+
+    const pageKeyDown = vi.fn();
+    document.addEventListener("keydown", pageKeyDown);
+    const shortcutEvent = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+    expect(document.dispatchEvent(shortcutEvent)).toBe(true);
+    document.removeEventListener("keydown", pageKeyDown);
+    expect(shortcutEvent.defaultPrevented).toBe(false);
+    expect(pageKeyDown).toHaveBeenCalledOnce();
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "start" }));
+
+    controller.togglePanel(true);
+    await controller.refresh({ renderAfter: true });
+    const root = getOverlayRoot(document);
+    const roleCount = root.querySelector<HTMLElement>(".macro-role-count");
+    expect(roleCount?.textContent).toBe("2");
+    expect(roleCount?.getAttribute("data-tooltip")).toBe("Main, Support");
+
+    const toggle = root.querySelector<HTMLButtonElement>(".macro-enabled-switch");
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
+    toggle?.click();
+    await vi.waitFor(() => {
+      expect(binding).toHaveBeenCalledWith({
+        type: "set-enabled",
+        macroId: assignedMacro.id,
+        enabled: true
+      });
+    });
+    await vi.waitFor(() => {
+      expect(getOverlayRoot(document).querySelector(".macro-enabled-switch")?.getAttribute("aria-checked")).toBe("true");
     });
   });
 });

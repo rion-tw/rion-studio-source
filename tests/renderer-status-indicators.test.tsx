@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Settings } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -63,6 +63,45 @@ describe("renderer status indicators", () => {
     expect(updateDot.className).toContain("bg-blue-500");
     expect(updateDot.className).toContain("ring-blue-500/15");
   });
+
+  it("exposes a switch for enabling a disabled macro", () => {
+    const onSetMacroEnabled = vi.fn();
+    const disabledMacro = { ...macro(), enabled: false };
+
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[disabledMacro]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={[role()]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map([["role-1", { roleId: "role-1", state: "running" }]])}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSetMacroEnabled={onSetMacroEnabled}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    const toggle = screen.getByRole("switch", { name: "Enable Auto heal" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    expect(onSetMacroEnabled).toHaveBeenCalledWith(disabledMacro, true);
+    expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 const t: Translator = (key) => en[key];
@@ -86,6 +125,7 @@ function role(): Role {
 function macro(): Macro {
   return {
     id: "macro-1",
+    enabled: true,
     name: "Auto heal",
     roleIds: ["role-1"],
     repeat: { type: "once" },

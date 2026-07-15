@@ -76,6 +76,7 @@ describe("macroUtils", () => {
   it("reports partial starts only when assigned roles were skipped", () => {
     const macro = {
       id: "macro-1",
+      enabled: true,
       name: "Partial",
       roleIds: ["role-1", "role-2"],
       repeat: { type: "once" as const },

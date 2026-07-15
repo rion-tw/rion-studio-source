@@ -111,6 +111,7 @@ export interface RionStudioApi {
   onWorkspaceDisplaysChanged: (callback: (displays: WorkspaceDisplayInfo[]) => void) => () => void;
   onAuthStatusChanged: (callback: (statuses: AuthFlowStatus[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
+  onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroEditorRequested: (callback: (request: MacroEditorRequest) => void) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
 }

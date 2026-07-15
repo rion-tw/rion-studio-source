@@ -71,7 +71,7 @@ export type DashboardMacroActionKind = "start" | "stop";
 
 export interface DashboardMacroActionState {
   disabled: boolean;
-  disabledReason?: "automationUnavailable" | "noRoles" | "rolesNotRunning";
+  disabledReason?: "automationUnavailable" | "macroDisabled" | "noRoles" | "rolesNotRunning";
   isBusy: boolean;
   isRunning: boolean;
   kind: DashboardMacroActionKind;
@@ -233,7 +233,9 @@ export function createMacroActionState({
       statusByRole.get(roleId)?.automationState !== "unavailable"
   );
   const isBusy = busyRunKeys.has(macro.id) || busyMacroIds.has(macro.id) || isStopping;
-  const disabledReason = !hasRoles
+  const disabledReason = !macro.enabled && !isRunning
+    ? "macroDisabled"
+    : !hasRoles
     ? "noRoles"
     : !hasRunningBrowser && !isRunning
       ? "rolesNotRunning"

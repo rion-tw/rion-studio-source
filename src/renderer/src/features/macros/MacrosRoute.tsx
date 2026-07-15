@@ -23,6 +23,7 @@ import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Switch } from "../../components/ui/switch";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -59,6 +60,7 @@ interface MacrosRouteProps {
   onNewMacro: () => void;
   onQueryChange: (query: string) => void;
   onRoleFilterChange: (roleId: string) => void;
+  onSetMacroEnabled?: (macro: Macro, enabled: boolean) => void;
   onSortChange: (sort: MacroListSortState) => void;
   onStartMacro: (macroId: string) => void;
   onStopMacro: (macroId: string) => void;
@@ -84,6 +86,7 @@ function MacrosRoute({
   onNewMacro,
   onQueryChange,
   onRoleFilterChange,
+  onSetMacroEnabled,
   onSortChange,
   onStartMacro,
   onStopMacro,
@@ -268,6 +271,7 @@ function MacrosRoute({
                     t={t}
                     onSort={handleSortChange}
                   />
+                  <th className="w-20 px-4 py-1.5 text-center">{t("macros.column.enabled")}</th>
                   <th className="w-20 px-4 py-1.5" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
@@ -316,6 +320,16 @@ function MacrosRoute({
                     </td>
                     <td className="max-w-[320px] px-4 py-2.5 align-baseline font-medium text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t)}
+                    </td>
+                    <td className="px-4 py-2.5 align-top text-center">
+                      <Switch
+                        checked={macro.enabled}
+                        disabled={busyMacroIds.has(macro.id)}
+                        title={t(macro.enabled ? "macros.disable" : "macros.enable")}
+                        aria-label={t(macro.enabled ? "macros.disableNamed" : "macros.enableNamed")
+                          .replace("{name}", macro.name)}
+                        onCheckedChange={(enabled) => onSetMacroEnabled?.(macro, enabled)}
+                      />
                     </td>
                     <td className="px-4 py-2.5 align-baseline">
                       <div className="-my-1 flex justify-end">
@@ -470,7 +484,7 @@ function MacroActionMenu({
   const isRunBusy = busyRunKeys.has(macro.id) || isStopping;
   const isDeleteBusy = busyMacroIds.has(macro.id);
   const runLabel = t(isRunning || isStopping ? "macros.stopShort" : "macros.startShort");
-  const isRunDisabled = isRunBusy || (!isRunning && !hasRunnableRole);
+  const isRunDisabled = isRunBusy || (!isRunning && (!macro.enabled || !hasRunnableRole));
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -633,7 +647,9 @@ function MacroActionMenu({
         variant="ghost"
         size="icon"
         title={
-          !isRunning && !hasRunningBrowser
+          !isRunning && !macro.enabled
+            ? t("macros.disabledHint")
+            : !isRunning && !hasRunningBrowser
             ? t("macros.launchRoleFirst")
             : !isRunning && !hasRunnableRole
               ? t("macros.automationUnavailable")

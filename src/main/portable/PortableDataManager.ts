@@ -378,6 +378,7 @@ export class PortableDataManager {
       })) : [],
       macros: selection.macros ? macros.map((macro) => ({
         id: macro.id,
+        enabled: macro.enabled,
         name: macro.name,
         roleIds: [...macro.roleIds],
         ...(macro.trigger ? { trigger: { ...macro.trigger } } : {}),
@@ -1128,6 +1129,7 @@ function createImportedMacro(
 ): Macro {
   return {
     id: existing?.id ?? randomUUID(),
+    enabled: source.enabled ?? true,
     name,
     roleIds: [...roleIds],
     ...(trigger ? { trigger: { ...trigger } } : {}),
@@ -1145,6 +1147,7 @@ function areMacrosImportEqual(left: Macro, right: Macro): boolean {
 function toPortableMacro(macro: Macro): PortableMacro {
   return {
     id: macro.id,
+    enabled: macro.enabled,
     name: macro.name,
     roleIds: [...macro.roleIds].sort(),
     ...(macro.trigger ? { trigger: { ...macro.trigger } } : {}),
@@ -1531,12 +1534,13 @@ function normalizePortableWorkspaceSlot(value: unknown, index: number): Portable
 function normalizePortableMacro(value: unknown): PortableMacro {
   const macro = toRecord(value);
 
-  if (!Array.isArray(macro.roleIds)) {
+  if (!Array.isArray(macro.roleIds) || (macro.enabled !== undefined && typeof macro.enabled !== "boolean")) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 
   return {
     id: normalizeRequiredString(macro.id),
+    enabled: macro.enabled ?? true,
     name: normalizeName(macro.name),
     roleIds: macro.roleIds.map(normalizeRequiredString),
     ...(macro.trigger === undefined ? {} : normalizeOptionalTriggerProperty(macro.trigger)),

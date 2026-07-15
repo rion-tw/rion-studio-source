@@ -623,6 +623,7 @@ export function App(): JSX.Element {
                     onNewMacro={() => navigateToNewMacro()}
                     onQueryChange={macroWorkflow.setQuery}
                     onRoleFilterChange={macroWorkflow.setRoleFilterId}
+                    onSetMacroEnabled={(macro, enabled) => void macroWorkflow.handleSetMacroEnabled(macro, enabled)}
                     onSortChange={macroWorkflow.setSort}
                     onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
                     onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}

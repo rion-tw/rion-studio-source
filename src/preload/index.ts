@@ -8,6 +8,7 @@ import type {
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
+  Macro,
   MacroEditorRequest,
   MacroRunStatus,
   RoleStatus,
@@ -134,6 +135,11 @@ const api: RionStudioApi = {
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.macrosStatusChanged, listener);
     };
+  },
+  onMacrosChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, macros: Macro[]) => callback(macros);
+    ipcRenderer.on(IPC_CHANNELS.macrosChanged, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.macrosChanged, listener);
   },
   onMacroEditorRequested: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, request: MacroEditorRequest) => {

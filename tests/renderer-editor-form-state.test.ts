@@ -127,6 +127,7 @@ function workspace(): LaunchWorkspace {
 function macro(): Macro {
   return {
     id: "macro-1",
+    enabled: true,
     name: "Heal",
     roleIds: ["role-1"],
     repeat: { type: "once" },

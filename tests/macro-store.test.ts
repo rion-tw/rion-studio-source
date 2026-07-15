@@ -47,6 +47,7 @@ describe("MacroStore", () => {
     });
 
     expect(first.roleIds).toEqual(["role-1", "role-2"]);
+    expect(first.enabled).toBe(true);
     expect(await store.listMacros()).toMatchObject([{ id: first.id }, { id: second.id }]);
 
     const updated = await store.updateMacro(first.id, {
@@ -65,6 +66,35 @@ describe("MacroStore", () => {
 
     await store.deleteMacro(second.id);
     await expect(store.getMacro(second.id)).rejects.toMatchObject({ code: "MACRO_NOT_FOUND" });
+  });
+
+  it("persists enabled state and defaults legacy records to enabled", async () => {
+    const macro = await store.createMacro({
+      enabled: false,
+      name: "Paused",
+      roleIds: ["role-1"],
+      steps: [{ id: "step-1", type: "key", code: "F2" }]
+    });
+    expect(macro.enabled).toBe(false);
+    await expect(store.updateMacro(macro.id, { enabled: true })).resolves.toMatchObject({ enabled: true });
+
+    const legacyDir = await mkdtemp(join(tmpdir(), "rion-macro-legacy-enabled-"));
+    await writeFile(join(legacyDir, "macros.json"), JSON.stringify({
+      macros: [{
+        id: "legacy",
+        name: "Legacy",
+        roleIds: ["role-1"],
+        repeat: { type: "once" },
+        steps: [{ id: "step-1", type: "key", code: "F2" }],
+        createdAt: "2026-07-10T00:00:00.000Z",
+        updatedAt: "2026-07-10T00:00:00.000Z"
+      }]
+    }), "utf8");
+
+    await expect(new MacroStore(legacyDir).getMacro("legacy")).resolves.toMatchObject({ enabled: true });
+    expect(JSON.parse(await readFile(join(legacyDir, "macros.json"), "utf8"))).toMatchObject({
+      macros: [{ enabled: true }]
+    });
   });
 
   it("allows duplicate names and rejects invalid step timing", async () => {

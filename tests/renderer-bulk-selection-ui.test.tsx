@@ -273,6 +273,7 @@ function workspace(id: string, name: string): LaunchWorkspace {
 function macro(id: string, name: string): Macro {
   return {
     id,
+    enabled: true,
     name,
     roleIds: [],
     repeat: { type: "once" },

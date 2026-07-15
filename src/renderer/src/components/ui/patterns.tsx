@@ -339,7 +339,7 @@ export function NavItem({
       {showStatusDot ? (
         <span
           aria-label={statusDotLabel}
-          className="size-2 shrink-0 rounded-full bg-primary ring-2 ring-primary/15"
+          className="size-2 shrink-0 rounded-full bg-blue-500 ring-2 ring-blue-500/15"
           role={statusDotLabel ? "status" : undefined}
         />
       ) : null}

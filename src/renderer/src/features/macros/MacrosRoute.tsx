@@ -302,7 +302,6 @@ function MacrosRoute({
                     <td className="max-w-[240px] px-4 py-2.5 align-baseline">
                       <MacroRoleBadge
                         macro={macro}
-                        macroStatusByRun={macroStatusByRun}
                         roleById={roleById}
                         statusByRole={statusByRole}
                         t={t}
@@ -384,13 +383,12 @@ function MacroSortHeader({ label, onSort, sort, sortKey, t }: MacroSortHeaderPro
 
 interface MacroRoleBadgeProps {
   macro: Macro;
-  macroStatusByRun: Map<string, MacroRunStatus>;
   roleById: Map<string, Role>;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
 }
 
-function MacroRoleBadge({ macro, macroStatusByRun, roleById, statusByRole, t }: MacroRoleBadgeProps): JSX.Element {
+function MacroRoleBadge({ macro, roleById, statusByRole, t }: MacroRoleBadgeProps): JSX.Element {
   if (macro.roleIds.length === 0) {
     return <span className="font-medium leading-5 text-muted-foreground">{t("macros.noRoles")}</span>;
   }
@@ -399,28 +397,15 @@ function MacroRoleBadge({ macro, macroStatusByRun, roleById, statusByRole, t }: 
     <div className="flex max-w-[260px] flex-wrap gap-1.5">
       {macro.roleIds.map((roleId) => {
         const role = roleById.get(roleId);
-        const runKey = createMacroRunKey(roleId, macro.id);
-        const macroStatus = macroStatusByRun.get(runKey);
         const browserStatus = statusByRole.get(roleId);
         const isBrowserRunning = browserStatus?.state === "running";
-        const isRunning = macroStatus?.state === "running" || macroStatus?.state === "stopping";
-        const isFailed = macroStatus?.state === "failed";
-        const isCancelled = macroStatus?.state === "cancelled";
 
         return (
           <Badge key={roleId} variant="outline" className="max-w-[126px] justify-start gap-1.5">
             <RoleRunDot
               className={cn(!isBrowserRunning && "opacity-45")}
-              isActive={Boolean(isRunning)}
-              label={t(
-                isRunning
-                  ? "macros.status.running"
-                  : isFailed
-                    ? "macros.status.failed"
-                    : isCancelled
-                      ? "macros.status.cancelled"
-                      : "macros.status.ready"
-              )}
+              isActive={isBrowserRunning}
+              label={t(isBrowserRunning ? "role.statusDot.active" : "role.statusDot.inactive")}
             />
             <span className="min-w-0 truncate">{role?.name ?? t("macros.unknownRole")}</span>
           </Badge>

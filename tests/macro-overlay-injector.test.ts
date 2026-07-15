@@ -263,7 +263,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-14.14"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-15.1"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
@@ -443,13 +443,23 @@ describe("MacroOverlayInjector", () => {
     expect(runningBadgeFunction).not.toContain("isStopping");
   });
 
-  it("keeps overlay controls from stealing focus and restores automation target focus", () => {
+  it("isolates overlay controls without redirecting outside pointer events", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('tabindex="-1"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('addEventListener("pointerdown"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("event.preventDefault()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("focusAutomationTarget");
     expect(MACRO_OVERLAY_SCRIPT).toContain("closePanel({ focus: true })");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("closePanel({ focus: false })");
     expect(MACRO_OVERLAY_SCRIPT).toContain("postTopMessage(\"closePanel\")");
+
+    const pointerHandler = MACRO_OVERLAY_SCRIPT.slice(
+      MACRO_OVERLAY_SCRIPT.indexOf("function handleDocumentPointerDown(event)"),
+      MACRO_OVERLAY_SCRIPT.indexOf("function handleMessage(event)")
+    );
+
+    expect(pointerHandler).not.toContain("focusAutomationTarget");
+    expect(pointerHandler).not.toContain("preventDefault");
+    expect(pointerHandler).not.toContain("stopPropagation");
   });
 
   it("initializes overlay host state before cleaning stale injected hosts", () => {

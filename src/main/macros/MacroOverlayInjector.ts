@@ -369,7 +369,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v25"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-14.14";
+  const scriptVersion = "2026-07-15.1";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
@@ -1166,10 +1166,14 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     const shouldFocus = options.focus !== false;
     const wasOpen = state.isOpen;
 
+    if (!wasOpen) {
+      return;
+    }
+
     state.isOpen = false;
     render();
 
-    if (shouldFocus || wasOpen) {
+    if (shouldFocus) {
       focusAutomationTarget();
     }
   }
@@ -1242,11 +1246,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     }
 
     if (isTopWindow()) {
-      closePanel({ focus: true });
+      closePanel({ focus: false });
       return;
     }
 
-    focusAutomationTarget();
     postTopMessage("closePanel");
   }
 

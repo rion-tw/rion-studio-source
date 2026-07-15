@@ -12,6 +12,9 @@ describe("ElectronAutomationTarget", () => {
     expect(harness.webContents.focus).not.toHaveBeenCalled();
     expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('largest("canvas")'));
     expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining("if (document.activeElement === element) return true")
+    );
+    expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('suppressNextShortcut?.("F2")')
     );
     expect(harness.webContents.sendInputEvent).toHaveBeenNthCalledWith(1, {

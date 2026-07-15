@@ -62,6 +62,10 @@ describe("ExternalChromeAutomationTarget", () => {
       "Runtime.evaluate",
       expect.objectContaining({ expression: expect.stringContaining('querySelectorAll("canvas, iframe")') })
     );
+    expect(harness.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: expect.stringContaining("document.activeElement === target") })
+    );
     expect(harness.send).toHaveBeenCalledWith("Input.dispatchKeyEvent", {
       type: "rawKeyDown",
       code: "KeyQ",

@@ -15,6 +15,7 @@ import { type FormEvent, type JSX, type ReactNode, useEffect, useMemo, useRef, u
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
+import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import {
@@ -191,7 +192,7 @@ interface MacroFormProps {
 
 function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t }: MacroFormProps): JSX.Element {
   const [newStepType, setNewStepType] = useState<MacroStep["type"]>("key");
-  const roleGroups = useMemo(() => games.map((game) => ({ game, roles: roles.filter((role) => role.gameId === game.id) })).filter((group) => group.roles.length > 0), [games, roles]);
+  const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
   const roleIds = useMemo(() => new Set(form.roleIds), [form.roleIds]);
   const missingRoleIds = useMemo(
     () => form.roleIds.filter((roleId) => !roles.some((role) => role.id === roleId)),
@@ -330,42 +331,57 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                 description={t("macroForm.rolesDescription")}
               >
                 {roles.length > 0 ? (
-                  <div id="macro-role" className="app-scroll-region flex max-h-44 flex-wrap gap-1.5 overflow-auto">
+                  <div
+                    id="macro-role"
+                    className="flex max-h-52 flex-wrap gap-2 overflow-auto"
+                  >
                     {missingRoleIds.map((roleId) => (
                       <div
                         key={roleId}
-                        className="glass-control inline-flex min-h-[30px] max-w-full items-center gap-2 rounded-md px-2.5 text-xs font-medium text-muted-foreground"
+                        className="glass-control inline-flex min-h-12 w-auto max-w-full flex-none items-center gap-2 rounded-md px-2.5 text-xs font-medium text-muted-foreground"
                       >
                         <Check size={13} />
                         <span className="min-w-0 truncate">{t("macros.unknownRole")}</span>
                       </div>
                     ))}
-                    {roleGroups.flatMap(({ game, roles: gameRoles }) => [
-                      <p key={`${game.id}:heading`} className="w-full px-1 pt-1 text-[10px] font-semibold uppercase text-muted-foreground">{game.name}</p>,
-                      ...gameRoles.map((role) => {
+                    {roles.map((role) => {
                       const isSelected = roleIds.has(role.id);
+                      const gameName = gameNameById.get(role.gameId) ?? role.launchUrl;
 
                       return (
                         <label
                           key={role.id}
                           className={cn(
-                            "glass-control inline-flex min-h-[30px] max-w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-xs font-medium transition-colors",
+                            "glass-control inline-flex min-h-12 w-auto max-w-full flex-none cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
                             isSaving && "pointer-events-none opacity-60",
-                            isSelected ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                            isSelected
+                              ? "border-primary/45 bg-primary/12 text-foreground"
+                              : "text-muted-foreground hover:text-foreground"
                           )}
                         >
+                          <span
+                            className="size-8 shrink-0 rounded-md border border-border/60 bg-cover bg-center"
+                            style={{
+                              backgroundColor: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
+                              backgroundImage: `url("${role.coverImageDataUrl ?? roleCoverPlaceholderUrl}")`
+                            }}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-semibold">{role.name}</span>
+                            <span className="mt-0.5 block truncate text-[11px] font-medium text-muted-foreground">
+                              {gameName}
+                            </span>
+                          </span>
                           <input
-                            className="size-3.5 accent-primary"
+                            className="size-3.5 shrink-0 accent-primary"
                             type="checkbox"
                             checked={isSelected}
                             disabled={isSaving}
                             onChange={() => toggleRoleId(role.id)}
                           />
-                          <span className="min-w-0 max-w-36 truncate">{role.name}</span>
                         </label>
                       );
-                      })
-                    ])}
+                    })}
                   </div>
                 ) : (
                   <div className="glass-control flex h-[30px] items-center rounded-md px-2.5 text-xs text-muted-foreground">

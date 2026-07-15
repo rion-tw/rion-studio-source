@@ -594,7 +594,6 @@ export function App(): JSX.Element {
                 hasBridge ? (
                   <MacrosRoute
                     busyMacroIds={macroWorkflow.busyMacroIds}
-                    games={data.games}
                     busyRunKeys={macroWorkflow.busyRunKeys}
                     macros={data.macros}
                     macroStatuses={data.macroStatuses}

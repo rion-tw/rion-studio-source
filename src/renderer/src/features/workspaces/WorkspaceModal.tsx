@@ -552,16 +552,11 @@ function WorkspaceLayoutFormEditor({
               <Eraser size={15} />
             </Button>
           </div>
-          <div className="app-scroll-region grid max-h-[360px] gap-2 overflow-auto">
+          <div className="grid max-h-[360px] gap-2 overflow-auto">
             {roles.length === 0 ? (
               <p className="text-xs leading-5 text-muted-foreground">{t("workspaces.noRoles")}</p>
             ) : (
-              games.flatMap((game) => {
-                const gameRoles = roles.filter((role) => role.gameId === game.id);
-                if (gameRoles.length === 0) return [];
-                return [
-                  <p key={`${game.id}:heading`} className="px-1 pt-1 text-[10px] font-semibold uppercase text-muted-foreground">{game.name}</p>,
-                  ...gameRoles.map((role) => {
+              roles.map((role) => {
                 const assignedSlotIndex = assignedSlotByRoleId.get(role.id);
                 const isAssigned = assignedSlotIndex !== undefined;
                 const isSelectedSlotRole = selectedSlot?.roleId === role.id;
@@ -594,8 +589,6 @@ function WorkspaceLayoutFormEditor({
                       </p>
                       <p className="mt-0.5 truncate text-[11px] font-medium text-muted-foreground">
                         {launchGameName}
-                        {" · "}
-                        {role.authState === "authenticated" ? t("role.auth.authenticated") : t("role.auth.needsLogin")}
                         {status ? ` · ${t("status.running")}` : ""}
                       </p>
                     </div>
@@ -607,8 +600,6 @@ function WorkspaceLayoutFormEditor({
                     ) : null}
                   </button>
                 );
-                  })
-                ];
               })
             )}
           </div>

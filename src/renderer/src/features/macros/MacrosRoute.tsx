@@ -20,11 +20,11 @@ import { RoleRunDot } from "../../components/RoleRunDot";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
-import type { Game, Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared/types";
+import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared/types";
 import {
   getMacroListItems,
   type MacroListSortKey,
@@ -41,7 +41,6 @@ const ALL_ROLES_SELECT_VALUE = "__all_roles__";
 
 interface MacrosRouteProps {
   busyMacroIds: ReadonlySet<string>;
-  games: Game[];
   busyRunKeys: ReadonlySet<string>;
   macroStatusByRun: Map<string, MacroRunStatus>;
   macroStatuses: MacroRunStatus[];
@@ -66,7 +65,6 @@ interface MacrosRouteProps {
 
 function MacrosRoute({
   busyMacroIds,
-  games,
   busyRunKeys,
   macroStatusByRun,
   macroStatuses,
@@ -162,17 +160,9 @@ function MacrosRoute({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL_ROLES_SELECT_VALUE}>{t("macros.filterAllRoles")}</SelectItem>
-                {games.map((game) => {
-                  const gameRoles = roles.filter((role) => role.gameId === game.id);
-                  return gameRoles.length ? (
-                    <SelectGroup key={game.id}>
-                      <SelectLabel>{game.name}</SelectLabel>
-                      {gameRoles.map((role) => (
-                        <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ) : null;
-                })}
+                {roles.map((role) => (
+                  <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type JSX } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -11,7 +11,7 @@ import MacrosRoute from "../src/renderer/src/features/macros/MacrosRoute";
 import { DEFAULT_MACRO_LIST_SORT } from "../src/renderer/src/features/macros/macroListUtils";
 import { LANGUAGE_STORAGE_KEY } from "../src/renderer/src/app/constants";
 import type { Translator } from "../src/renderer/src/i18n";
-import type { Game, Macro, Role } from "../src/shared/types";
+import type { Macro, Role } from "../src/shared/types";
 
 beforeAll(() => {
   if (!("PointerEvent" in window)) {
@@ -48,14 +48,9 @@ afterEach(() => {
 });
 
 describe("macro role filter", () => {
-  it("renders game labels inside SelectGroup and selects a grouped role", async () => {
+  it("renders roles without game groups and selects a role", async () => {
     const user = userEvent.setup();
     const onRoleFilterChange = vi.fn();
-    const games = [
-      game({ id: "game-1", name: "Flyff Universe" }),
-      game({ id: "game-2", name: "Second Game" }),
-      game({ id: "game-empty", name: "Empty Game" })
-    ];
     const roles = [
       role({ id: "role-main", gameId: "game-1", name: "Main" }),
       role({ id: "role-alt", gameId: "game-1", name: "Alt" }),
@@ -66,7 +61,6 @@ describe("macro role filter", () => {
       <MacrosRoute
         busyMacroIds={new Set()}
         busyRunKeys={new Set()}
-        games={games}
         macros={[macro({ roleIds: ["role-main"] })]}
         macroStatuses={[]}
         macroStatusByRun={new Map()}
@@ -91,13 +85,12 @@ describe("macro role filter", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Filter role" }));
 
-    const firstGameGroup = screen.getByRole("group", { name: "Flyff Universe" });
-    expect(within(firstGameGroup).getByRole("option", { name: "Main" })).toBeTruthy();
-    expect(within(firstGameGroup).getByRole("option", { name: "Alt" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "Second Game" })).toBeTruthy();
-    expect(screen.queryByText("Empty Game")).toBeNull();
+    expect(screen.getByRole("option", { name: "Main" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Alt" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Second" })).toBeTruthy();
+    expect(screen.queryByRole("group")).toBeNull();
 
-    await user.click(within(firstGameGroup).getByRole("option", { name: "Alt" }));
+    await user.click(screen.getByRole("option", { name: "Alt" }));
 
     expect(onRoleFilterChange).toHaveBeenCalledWith("role-alt");
   });
@@ -141,19 +134,6 @@ const translations: Partial<Record<Parameters<Translator>[0], string>> = {
 };
 
 const t: Translator = (key) => translations[key] ?? key;
-
-function game(overrides: Partial<Game>): Game {
-  return {
-    id: "game",
-    source: "custom",
-    name: "Game",
-    defaultLaunchUrl: "https://example.test/play",
-    browserLaunchMode: "inherit",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    ...overrides
-  };
-}
 
 function role(overrides: Partial<Role>): Role {
   return {

@@ -80,6 +80,10 @@ function GamesRoute({
             const checking = runStatuses.some((item) => item.gameId === game.id);
             const iconUrl = getGameIconUrl(game);
             const coverUrl = getGameCoverUrl(game);
+            const isEmbeddedAvailable = !checking
+              && !report?.isStale
+              && report?.recommendation?.reason !== "graphics_unavailable"
+              && report?.load?.state === "available";
             return (
               <Card key={game.id} className="group relative overflow-hidden">
                 <button className="block w-full min-w-0 text-left" type="button" onClick={() => onEdit(game)}>
@@ -105,7 +109,20 @@ function GamesRoute({
                       {iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" /> : <Gamepad2 size={20} />}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2"><h2 className="truncate text-sm font-semibold">{game.name}</h2><Badge variant={game.source === "builtin" ? "secondary" : "muted"}>{t(game.source === "builtin" ? "games.builtin" : "games.custom")}</Badge></div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="truncate text-sm font-semibold">{game.name}</h2>
+                        {game.source === "custom" ? <Badge variant="muted">{t("games.custom")}</Badge> : null}
+                        {isEmbeddedAvailable ? (
+                          <span
+                            aria-label={t("games.compatibility.recommendation.embedded_available")}
+                            className="inline-flex shrink-0 text-emerald-500"
+                            role="img"
+                            title={t("games.compatibility.recommendation.embedded_available")}
+                          >
+                            <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.5} />
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="mt-1 truncate text-xs text-muted-foreground">{game.defaultLaunchUrl}</p>
                     </div>
                   </div>
@@ -127,11 +144,13 @@ function GamesRoute({
                     <Metric label={t("games.running")} value={running} />
                     <Metric label={t("games.needsLogin")} value={needsLogin} />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={checking ? "warning" : report?.recommendation?.reason === "graphics_unavailable" ? "warning" : report?.load?.state === "available" ? "success" : report?.load?.state === "failed" ? "destructive" : "muted"}>
-                      {checking ? t("games.compatibility.running") : report?.isStale ? t("games.compatibility.stale") : report?.recommendation?.reason === "graphics_unavailable" ? t("games.compatibility.graphicsLimited") : report?.load?.state === "available" ? t("games.compatibility.available") : report?.load?.state === "failed" ? t("games.compatibility.failed") : report?.load?.state === "cancelled" ? t("games.compatibility.cancelled") : t("games.compatibility.notChecked")}
-                    </Badge>
-                  </div>
+                  {!isEmbeddedAvailable ? (
+                    <div className="flex items-center gap-2">
+                      <Badge variant={checking ? "warning" : report?.recommendation?.reason === "graphics_unavailable" ? "warning" : report?.load?.state === "failed" ? "destructive" : "muted"}>
+                        {checking ? t("games.compatibility.running") : report?.isStale ? t("games.compatibility.stale") : report?.recommendation?.reason === "graphics_unavailable" ? t("games.compatibility.graphicsLimited") : report?.load?.state === "failed" ? t("games.compatibility.failed") : report?.load?.state === "cancelled" ? t("games.compatibility.cancelled") : t("games.compatibility.notChecked")}
+                      </Badge>
+                    </div>
+                  ) : null}
                 </div>
               </Card>
             );

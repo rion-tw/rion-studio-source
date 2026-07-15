@@ -513,6 +513,7 @@ function createExternalFocusSource(): string {
       .filter(visible)
       .sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0] || document.body;
     if (!(target instanceof HTMLElement)) return false;
+    if (document.activeElement === target) return true;
     if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     try { target.focus({ preventScroll: true }); } catch { target.focus(); }
     return document.activeElement === target;

@@ -155,6 +155,7 @@ export function createFocusSource(allowFallback: boolean): string {
     };
     const focusElement = (element) => {
       if (!(element instanceof HTMLElement)) return false;
+      if (document.activeElement === element) return true;
       const hadTabIndex = element.hasAttribute("tabindex");
       if (!hadTabIndex) element.setAttribute("tabindex", "-1");
       try { element.focus({ preventScroll: true }); } catch { element.focus(); }

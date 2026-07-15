@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { normalizeGameBrowserSettings } from "../../shared/browserFonts";
 import { BUILTIN_GAME_DEFINITIONS } from "../../shared/games";
@@ -8,22 +9,24 @@ import {
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../shared/macroShortcuts";
+import { MacroMutationBusyError } from "../macros/MacroManager";
 import type { MacroStore } from "../macros/MacroStore";
 import type { GameStore } from "../games/GameStore";
+import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
+import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
+import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import {
   DEFAULT_LAUNCH_URL,
   DEFAULT_ROLE_WINDOW_HEIGHT,
   DEFAULT_ROLE_WINDOW_WIDTH,
-  type CreateLaunchWorkspaceInput,
-  type CreateMacroInput,
-  type CreateRoleInput,
-  type CreateGameInput,
   type GameBrowserSettings,
   type Game,
   type InheritableBrowserLaunchMode,
   type LaunchPreset,
+  type LaunchWorkspace,
+  type Macro,
   type MacroRepeat,
   type MacroStep,
   type MacroTrigger,
@@ -31,6 +34,8 @@ import {
   type PortableExportInput,
   type PortableExportResult,
   type PortableImportInput,
+  type PortableImportOperations,
+  type PortableImportOperationSummary,
   type PortableImportPreview,
   type PortableImportResult,
   type PortableImportWarning,
@@ -38,11 +43,16 @@ import {
   type PortableGame,
   type PortableMacro,
   type PortablePreferences,
+  type PortableMacroConflict,
+  type PortableMacroConflictResolution,
   type PortableRole,
   type RionPortableDataV2,
+  type Role,
   type RoleDefaults
 } from "../../shared/types";
 import {
+  getDefaultWorkspaceRects,
+  getWorkspaceTemplateSlotCount,
   isWorkspaceBrowserZoomPercent,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
@@ -75,22 +85,39 @@ interface PortableOpenDialogResult {
 interface PortableDataManagerOptions {
   createImportId?: () => string;
   getAppVersion: () => string;
-  gameStore: Pick<GameStore, "createGame" | "listGames" | "updateGame">;
+  gameBrowserSettingsStore?: Pick<
+    GameBrowserSettingsStore,
+    "getSettings" | "publishSettingsForImport" | "updateSettings"
+  >;
+  gameStore: Pick<GameStore, "listGames" | "publishGamesForImport" | "replaceGamesForImport">;
   now?: () => Date;
   readTextFile?: (path: string, encoding: BufferEncoding) => Promise<string>;
-  roleStore: Pick<RoleStore, "createRole" | "listRoles">;
+  roleStore: Pick<
+    RoleStore,
+    "getUserDataDir" | "listRoles" | "publishRolesForImport" | "replaceRolesForImport"
+  >;
   showOpenDialog: (options: PortableOpenDialogOptions) => Promise<PortableOpenDialogResult>;
   showSaveDialog: (options: PortableSaveDialogOptions) => Promise<PortableSaveDialogResult>;
-  workspaceStore: Pick<LaunchWorkspaceStore, "createWorkspace" | "listWorkspaces">;
-  macroStore: Pick<MacroStore, "createMacro" | "listMacros">;
+  userDataDir?: string;
+  workspaceStore: Pick<
+    LaunchWorkspaceStore,
+    "listWorkspaces" | "publishWorkspacesForImport" | "replaceWorkspacesForImport"
+  >;
+  macroStore: Pick<MacroStore, "listMacros" | "publishMacrosForImport" | "replaceMacrosForImport">;
+  withDataMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
+  withStoppedMacros?: <T>(macroIds: string[], operation: () => Promise<T>) => Promise<T>;
   writeTextFile?: (path: string, data: string, encoding: BufferEncoding) => Promise<void>;
 }
 
 interface ImportPlan {
-  games: Array<{ existingId?: string; name: string; source: PortableGame }>;
-  roles: Array<{ name: string; source: PortableRole }>;
-  workspaces: Array<{ name: string; source: PortableLaunchWorkspace }>;
-  macros: Array<{ name: string; roleIds: string[]; source: PortableMacro; trigger?: MacroTrigger }>;
+  affectedMacroIds: string[];
+  conflicts: PortableMacroConflict[];
+  createdRoleIds: string[];
+  finalGames: Game[];
+  finalMacros: Macro[];
+  finalRoles: Role[];
+  finalWorkspaces: LaunchWorkspace[];
+  operations: PortableImportOperations;
   warnings: PortableImportWarning[];
 }
 
@@ -99,8 +126,25 @@ interface PendingImport {
   filePath: string;
 }
 
+interface PortableImportJournal {
+  createdRoleIds: string[];
+  games: Game[];
+  gameBrowserSettings?: GameBrowserSettings;
+  macros: Macro[];
+  phase?: "committed" | "prepared";
+  roles: Role[];
+  targetGames?: Game[];
+  targetGameBrowserSettings?: GameBrowserSettings;
+  targetMacros?: Macro[];
+  targetRoles?: Role[];
+  targetWorkspaces?: LaunchWorkspace[];
+  workspaces: LaunchWorkspace[];
+}
+
 const PORTABLE_APP_NAME = "Rion Studio";
 const PORTABLE_SCHEMA_VERSION = 2;
+const PORTABLE_IMPORT_JOURNAL_FILE = "portable-import-transaction.json";
+const PORTABLE_IMPORT_STAGE_DIRECTORY = "portable-import-transaction.stage";
 const MAX_COVER_IMAGE_DATA_URL_LENGTH = 1_500_000;
 const MAX_GAME_IMAGE_BYTES = 1_500_000;
 const MAX_GAME_IMAGE_DATA_URL_LENGTH = 2_000_128;
@@ -112,6 +156,7 @@ const MACRO_CODE_MAX_LENGTH = 48;
 const MACRO_LABEL_MAX_LENGTH = 48;
 const COVER_IMAGE_DATA_URL_PATTERN = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 const COVER_IMAGE_DOMINANT_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
+const GENERATED_ROLE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_PORTABLE_DATA_SELECTION: PortableDataSelection = {
   games: true,
   roles: true,
@@ -131,16 +176,19 @@ export class PortableDataError extends Error {
 }
 
 export class PortableDataManager {
+  private readonly applyQueue = new SerialTaskQueue();
   private readonly createImportId: () => string;
   private readonly now: () => Date;
-  private readonly pendingImports = new Map<string, PendingImport>();
+  private pendingImport: (PendingImport & { importId: string }) | undefined;
   private readonly readTextFile: (path: string, encoding: BufferEncoding) => Promise<string>;
+  private readonly userDataDir: string;
   private readonly writeTextFile: (path: string, data: string, encoding: BufferEncoding) => Promise<void>;
 
   constructor(private readonly options: PortableDataManagerOptions) {
     this.createImportId = options.createImportId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
     this.readTextFile = options.readTextFile ?? readFile;
+    this.userDataDir = options.userDataDir ?? options.roleStore.getUserDataDir();
     this.writeTextFile = options.writeTextFile ?? writeFile;
   }
 
@@ -183,99 +231,98 @@ export class PortableDataManager {
       return null;
     }
 
+    this.pendingImport = undefined;
     const filePath = dialogResult.filePaths[0];
     const data = parsePortableData(await this.readTextFile(filePath, "utf8"));
-    const plan = await this.buildImportPlan(data);
+    const plan = await this.buildImportPlan(data, []);
     const importId = this.createImportId();
 
-    this.pendingImports.set(importId, { data, filePath });
+    this.pendingImport = { data, filePath, importId };
 
     return {
       importId,
       filePath,
       exportedAt: data.exportedAt,
       appVersion: data.appVersion,
-      gameCount: plan.games.length,
-      roleCount: plan.roles.length,
-      workspaceCount: plan.workspaces.length,
-      macroCount: plan.macros.length,
+      gameCount: getProcessedImportCount(plan.operations.games),
+      roleCount: getProcessedImportCount(plan.operations.roles),
+      workspaceCount: getProcessedImportCount(plan.operations.launchWorkspaces),
+      macroCount: getProcessedImportCount(plan.operations.macros),
       preferences: data.preferences,
+      operations: plan.operations,
+      conflicts: plan.conflicts,
       warnings: plan.warnings
     };
   }
 
   async applyImport(input: PortableImportInput): Promise<PortableImportResult> {
-    const selection = normalizePortableDataSelection(input?.selection, false);
-    const pendingImport = this.pendingImports.get(input?.importId);
+    return this.applyQueue.run(() => this.runDataMutation(async () => {
+      const selection = normalizePortableDataSelection(input?.selection, false);
+      const pendingImport = this.pendingImport;
 
-    if (!pendingImport) {
-      throw new PortableDataError(
-        "PORTABLE_IMPORT_EXPIRED",
-        "Portable import session expired. Choose the JSON file again."
-      );
-    }
-
-    const selectedData = selectPortableData(pendingImport.data, selection);
-    ensurePortableContentSelected(selectedData);
-    this.pendingImports.delete(input.importId);
-    const plan = await this.buildImportPlan(selectedData);
-    const gameIdMap = new Map<string, string>();
-    const roleIdMap = new Map<string, string>();
-    let gameCount = 0;
-    let roleCount = 0;
-    let workspaceCount = 0;
-    let macroCount = 0;
-
-    for (const gamePlan of plan.games) {
-      const savedGame = gamePlan.existingId
-        ? await this.options.gameStore.updateGame(gamePlan.existingId, toCreateGameInput(gamePlan.source, gamePlan.name))
-        : await this.options.gameStore.createGame(toCreateGameInput(gamePlan.source, gamePlan.name));
-      gameIdMap.set(gamePlan.source.id, savedGame.id);
-      gameCount += 1;
-    }
-
-    for (const rolePlan of plan.roles) {
-      const gameId = rolePlan.source.gameId ? gameIdMap.get(rolePlan.source.gameId) : undefined;
-      if (!gameId) {
-        throw new PortableDataError("PORTABLE_ROLE_GAME_MISSING", "Imported role game is unavailable.");
+      if (!pendingImport || pendingImport.importId !== input?.importId) {
+        throw new PortableDataError(
+          "PORTABLE_IMPORT_EXPIRED",
+          "Portable import session expired. Choose the JSON file again."
+        );
       }
-      const createdRole = await this.options.roleStore.createRole(
-        toCreateRoleInput(rolePlan.source, rolePlan.name, gameId)
-      );
-      roleIdMap.set(rolePlan.source.id, createdRole.id);
-      roleCount += 1;
-    }
 
-    for (const workspacePlan of plan.workspaces) {
-      await this.options.workspaceStore.createWorkspace(
-        toCreateWorkspaceInput(workspacePlan.source, workspacePlan.name, roleIdMap)
+      const selectedData = selectPortableData(pendingImport.data, selection);
+      ensurePortableContentSelected(selectedData);
+      const plan = await this.buildImportPlan(
+        selectedData,
+        normalizePortableMacroConflictResolutions(input.resolutions)
       );
-      workspaceCount += 1;
-    }
+      if (plan.conflicts.length > 0) {
+        throw new PortableDataError(
+          "PORTABLE_IMPORT_CONFLICT_UNRESOLVED",
+          "Resolve every ambiguous macro before importing."
+        );
+      }
 
-    for (const macroPlan of plan.macros) {
-      await this.options.macroStore.createMacro(
-        toCreateMacroInput(
-          macroPlan.source,
-          macroPlan.name,
-          macroPlan.roleIds,
-          macroPlan.trigger,
-          roleIdMap
-        )
-      );
-      macroCount += 1;
-    }
+      const commit = () => this.commitImport(plan, selectedData.preferences?.gameBrowserSettings);
+      if (this.options.withStoppedMacros && plan.affectedMacroIds.length > 0) {
+        try {
+          await this.options.withStoppedMacros(plan.affectedMacroIds, commit);
+        } catch (error) {
+          if (error instanceof PortableDataError) {
+            throw error;
+          }
+          if (error instanceof MacroMutationBusyError) {
+            throw new PortableDataError(
+              "PORTABLE_IMPORT_BUSY",
+              "Stop affected macros before importing."
+            );
+          }
+          throw error;
+        }
+      } else {
+        await commit();
+      }
 
-    return {
-      gameCount,
-      roleCount,
-      workspaceCount,
-      macroCount,
-      preferencesIncluded: Boolean(selectedData.preferences),
-      ...(selectedData.preferences ? { preferences: selectedData.preferences } : {}),
-      selection: getEffectivePortableDataSelection(selectedData),
-      warnings: plan.warnings
-    };
+      this.pendingImport = undefined;
+      return {
+        gameCount: getProcessedImportCount(plan.operations.games),
+        roleCount: getProcessedImportCount(plan.operations.roles),
+        workspaceCount: getProcessedImportCount(plan.operations.launchWorkspaces),
+        macroCount: getProcessedImportCount(plan.operations.macros),
+        preferencesIncluded: Boolean(selectedData.preferences),
+        ...(selectedData.preferences ? { preferences: selectedData.preferences } : {}),
+        selection: getEffectivePortableDataSelection(selectedData),
+        operations: plan.operations,
+        warnings: plan.warnings
+      };
+    }));
+  }
+
+  discardImport(importId: string): void {
+    if (this.pendingImport?.importId === importId) {
+      this.pendingImport = undefined;
+    }
+  }
+
+  private runDataMutation<T>(operation: () => Promise<T>): Promise<T> {
+    return this.options.withDataMutation?.(operation) ?? operation();
   }
 
   private async createPortableData(
@@ -332,65 +379,263 @@ export class PortableDataManager {
     };
   }
 
-  private async buildImportPlan(data: RionPortableDataV2): Promise<ImportPlan> {
-    const [existingGames, existingRoles, existingWorkspaces] = await Promise.all([
+  private async commitImport(plan: ImportPlan, gameBrowserSettings?: GameBrowserSettings): Promise<void> {
+    const shouldWriteGames = hasImportChanges(plan.operations.games);
+    const shouldWriteRoles = hasImportChanges(plan.operations.roles);
+    const shouldWriteWorkspaces = hasImportChanges(plan.operations.launchWorkspaces);
+    const shouldWriteMacros = hasImportChanges(plan.operations.macros);
+    const shouldWriteSettings = Boolean(gameBrowserSettings && this.options.gameBrowserSettingsStore);
+    if (!shouldWriteGames && !shouldWriteRoles && !shouldWriteWorkspaces && !shouldWriteMacros && !shouldWriteSettings) {
+      return;
+    }
+
+    const [games, roles, workspaces, macros, currentSettings] = await Promise.all([
       this.options.gameStore.listGames(),
       this.options.roleStore.listRoles(),
-      this.options.workspaceStore.listWorkspaces()
+      this.options.workspaceStore.listWorkspaces(),
+      this.options.macroStore.listMacros(),
+      shouldWriteSettings ? this.options.gameBrowserSettingsStore?.getSettings() : undefined
     ]);
-    const warnings: PortableImportWarning[] = [];
-    const usedGameNames = new Set(existingGames.map((game) => normalizeNameKey(game.name)));
-    const usedRoleNames = new Set(existingRoles.map((role) => normalizeNameKey(role.name)));
-    const usedWorkspaceNames = new Set(existingWorkspaces.map((workspace) => normalizeNameKey(workspace.name)));
-    const importedRoleIds = new Set(data.roles.map((role) => role.id));
+    const targetSettings = gameBrowserSettings
+      ? normalizeGameBrowserSettings(gameBrowserSettings)
+      : undefined;
 
-    const games = data.games.map((game) => {
-      if (game.source === "builtin" && game.builtinKey) {
-        const existing = existingGames.find((item) => item.builtinKey === game.builtinKey);
-        if (existing) {
-          warnings.push({ code: "BUILTIN_GAME_DEFAULTS_REPLACED", itemName: existing.name });
-          usedGameNames.add(normalizeNameKey(existing.name));
-          return { existingId: existing.id, name: existing.name, source: game };
-        }
+    // Pin one coherent pre-transaction snapshot in every cache. Stores with no
+    // persisted file otherwise intentionally leave their empty cache uninitialized,
+    // which could expose a later on-disk replacement before the transaction commits.
+    this.options.gameStore.publishGamesForImport(games);
+    this.options.roleStore.publishRolesForImport(roles);
+    this.options.workspaceStore.publishWorkspacesForImport(workspaces);
+    this.options.macroStore.publishMacrosForImport(macros);
+    if (currentSettings) {
+      this.options.gameBrowserSettingsStore?.publishSettingsForImport(currentSettings);
+    }
+
+    const journal: PortableImportJournal = {
+      createdRoleIds: plan.createdRoleIds,
+      games,
+      roles,
+      workspaces,
+      macros,
+      phase: "prepared",
+      targetGames: plan.finalGames,
+      targetRoles: plan.finalRoles,
+      targetWorkspaces: plan.finalWorkspaces,
+      targetMacros: plan.finalMacros,
+      ...(targetSettings ? { targetGameBrowserSettings: targetSettings } : {}),
+      ...(currentSettings ? { gameBrowserSettings: currentSettings } : {})
+    };
+    const journalPath = join(this.userDataDir, PORTABLE_IMPORT_JOURNAL_FILE);
+    const stageDirectory = join(this.userDataDir, PORTABLE_IMPORT_STAGE_DIRECTORY);
+    await writeJsonFileAtomically(journalPath, journal);
+
+    try {
+      await writePortableImportStage(stageDirectory, journal);
+      let committedGames = games;
+      let committedRoles = roles;
+      let committedWorkspaces = workspaces;
+      let committedMacros = macros;
+      let committedSettings = currentSettings;
+
+      if (shouldWriteGames) {
+        committedGames = await this.options.gameStore.replaceGamesForImport(plan.finalGames, false);
+      }
+      if (shouldWriteRoles) {
+        committedRoles = await this.options.roleStore.replaceRolesForImport(plan.finalRoles, false);
+      }
+      if (shouldWriteWorkspaces) {
+        committedWorkspaces = await this.options.workspaceStore.replaceWorkspacesForImport(
+          plan.finalWorkspaces,
+          false
+        );
+      }
+      if (shouldWriteMacros) {
+        committedMacros = await this.options.macroStore.replaceMacrosForImport(plan.finalMacros, false);
+      }
+      if (shouldWriteSettings && targetSettings) {
+        committedSettings = await this.options.gameBrowserSettingsStore?.updateSettings(targetSettings, false);
       }
 
-      const name = reserveUniqueName(game.name, usedGameNames);
+      const committedJournal: PortableImportJournal = {
+        ...journal,
+        phase: "committed",
+        targetGames: committedGames,
+        targetRoles: committedRoles,
+        targetWorkspaces: committedWorkspaces,
+        targetMacros: committedMacros,
+        ...(committedSettings ? { targetGameBrowserSettings: committedSettings } : {})
+      };
+      await writeJsonFileAtomically(journalPath, committedJournal);
+
+      this.options.gameStore.publishGamesForImport(committedGames);
+      this.options.roleStore.publishRolesForImport(committedRoles);
+      this.options.workspaceStore.publishWorkspacesForImport(committedWorkspaces);
+      this.options.macroStore.publishMacrosForImport(committedMacros);
+      if (committedSettings) {
+        this.options.gameBrowserSettingsStore?.publishSettingsForImport(committedSettings);
+      }
+
+      await rm(stageDirectory, { force: true, recursive: true });
+      await rm(journalPath, { force: true });
+    } catch (error) {
+      let didRestore = false;
+      try {
+        const restoredGames = await this.options.gameStore.replaceGamesForImport(journal.games, false);
+        const restoredRoles = await this.options.roleStore.replaceRolesForImport(journal.roles, false);
+        const restoredWorkspaces = await this.options.workspaceStore.replaceWorkspacesForImport(
+          journal.workspaces,
+          false
+        );
+        const restoredMacros = await this.options.macroStore.replaceMacrosForImport(journal.macros, false);
+        let restoredSettings = journal.gameBrowserSettings;
+        if (journal.gameBrowserSettings) {
+          restoredSettings = await this.options.gameBrowserSettingsStore?.updateSettings(
+            journal.gameBrowserSettings,
+            false
+          );
+        }
+
+        this.options.gameStore.publishGamesForImport(restoredGames);
+        this.options.roleStore.publishRolesForImport(restoredRoles);
+        this.options.workspaceStore.publishWorkspacesForImport(restoredWorkspaces);
+        this.options.macroStore.publishMacrosForImport(restoredMacros);
+        if (restoredSettings) {
+          this.options.gameBrowserSettingsStore?.publishSettingsForImport(restoredSettings);
+        }
+        await cleanupImportedRoleDirectories(this.userDataDir, journal.createdRoleIds);
+        didRestore = true;
+      } finally {
+        if (didRestore) {
+          await rm(stageDirectory, { force: true, recursive: true });
+          await rm(journalPath, { force: true });
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async buildImportPlan(
+    data: RionPortableDataV2,
+    resolutions: PortableMacroConflictResolution[]
+  ): Promise<ImportPlan> {
+    const [existingGames, existingRoles, existingWorkspaces, existingMacros] = await Promise.all([
+      this.options.gameStore.listGames(),
+      this.options.roleStore.listRoles(),
+      this.options.workspaceStore.listWorkspaces(),
+      this.options.macroStore.listMacros()
+    ]);
+    const timestamp = this.now().toISOString();
+    const warnings: PortableImportWarning[] = [];
+    const operations = createEmptyImportOperations();
+    const gameIdMap = new Map<string, string>();
+    const roleIdMap = new Map<string, string>();
+
+    const finalGames = structuredClone(existingGames);
+    const usedGameNames = new Set(finalGames.map((game) => normalizeNameKey(game.name)));
+    const seenGameKeys = new Set<string>();
+    for (const game of data.games) {
+      const identityKey = game.source === "builtin" && game.builtinKey
+        ? `builtin:${game.builtinKey}`
+        : `custom:${normalizeNameKey(game.name)}`;
+      const isDuplicateSourceIdentity = seenGameKeys.has(identityKey);
+      seenGameKeys.add(identityKey);
+      let existing = game.source === "builtin" && game.builtinKey
+        ? finalGames.find((candidate) => candidate.builtinKey === game.builtinKey)
+        : game.inferred
+          ? finalGames.find(
+              (candidate) => candidate.source === "custom" && candidate.defaultLaunchUrl === game.defaultLaunchUrl
+            )
+          : finalGames.find(
+              (candidate) =>
+                candidate.source === "custom" && normalizeNameKey(candidate.name) === normalizeNameKey(game.name)
+            );
+
+      if (isDuplicateSourceIdentity) {
+        existing = undefined;
+      }
+      if (existing) {
+        gameIdMap.set(game.id, existing.id);
+        if (game.inferred) {
+          incrementOperation(operations.games, "unchanged");
+          continue;
+        }
+        const updated = createMergedGame(existing, game, timestamp);
+        if (areGamesImportEqual(existing, updated)) {
+          incrementOperation(operations.games, "unchanged");
+        } else {
+          finalGames[finalGames.findIndex((candidate) => candidate.id === existing.id)] = updated;
+          incrementOperation(operations.games, "update");
+          if (existing.source === "builtin") {
+            warnings.push({ code: "BUILTIN_GAME_DEFAULTS_REPLACED", itemName: existing.name });
+          }
+        }
+        continue;
+      }
+
+      const sourceForCreation: PortableGame = isDuplicateSourceIdentity && game.source === "builtin"
+        ? { ...game, source: "custom", builtinKey: undefined }
+        : game;
+      const name = reserveUniqueName(sourceForCreation.name, usedGameNames);
       if (name !== game.name) {
         warnings.push({ code: "GAME_NAME_RENAMED", itemName: game.name, replacementName: name });
       }
-      return { name, source: game };
-    });
+      const created = createImportedGame(sourceForCreation, name, timestamp);
+      finalGames.push(created);
+      gameIdMap.set(game.id, created.id);
+      incrementOperation(operations.games, "create");
+    }
 
-    const roles = data.roles.map((role) => {
-      const name = reserveUniqueName(role.name, usedRoleNames);
+    const finalRoles = structuredClone(existingRoles);
+    const usedRoleNames = createRoleNameRegistry(finalRoles);
+    const seenRoleKeys = new Set<string>();
+    const createdRoleIds: string[] = [];
+    for (const role of data.roles) {
+      const gameId = role.gameId ? gameIdMap.get(role.gameId) : undefined;
+      if (!gameId) {
+        throw new PortableDataError("PORTABLE_ROLE_GAME_MISSING", "Imported role game is unavailable.");
+      }
       if (role.gameRecovered) {
         warnings.push({ code: "ROLE_GAME_RECOVERED", itemName: role.name });
       }
+      const identityKey = createRoleIdentityKey(gameId, role.name);
+      const isDuplicateSourceIdentity = seenRoleKeys.has(identityKey);
+      seenRoleKeys.add(identityKey);
+      const existing = isDuplicateSourceIdentity
+        ? undefined
+        : finalRoles.find(
+            (candidate) => candidate.gameId === gameId && normalizeNameKey(candidate.name) === normalizeNameKey(role.name)
+          );
+
+      if (existing) {
+        roleIdMap.set(role.id, existing.id);
+        const updated = createMergedRole(existing, role, gameId, role.name, timestamp);
+        if (areRolesImportEqual(existing, updated)) {
+          incrementOperation(operations.roles, "unchanged");
+        } else {
+          finalRoles[finalRoles.findIndex((candidate) => candidate.id === existing.id)] = updated;
+          incrementOperation(operations.roles, "update");
+        }
+        continue;
+      }
+
+      const name = reserveUniqueRoleName(role.name, gameId, usedRoleNames);
       if (name !== role.name) {
-        warnings.push({
-          code: "ROLE_NAME_RENAMED",
-          itemName: role.name,
-          replacementName: name
-        });
+        warnings.push({ code: "ROLE_NAME_RENAMED", itemName: role.name, replacementName: name });
       }
+      const created = createImportedRole(role, gameId, name, timestamp);
+      finalRoles.push(created);
+      createdRoleIds.push(created.id);
+      roleIdMap.set(role.id, created.id);
+      incrementOperation(operations.roles, "create");
+    }
 
-      return { name, source: role };
-    });
-
-    const workspaces = data.launchWorkspaces.map((workspace) => {
+    const finalWorkspaces = structuredClone(existingWorkspaces);
+    const usedWorkspaceNames = new Set(finalWorkspaces.map((workspace) => normalizeNameKey(workspace.name)));
+    const seenWorkspaceKeys = new Set<string>();
+    for (const workspace of data.launchWorkspaces) {
       const missingRoleCount = workspace.slots.filter(
-        (slot) => slot.roleId && !importedRoleIds.has(slot.roleId)
+        (slot) => slot.roleId && !roleIdMap.has(slot.roleId)
       ).length;
-      const name = reserveUniqueName(workspace.name, usedWorkspaceNames);
-
-      if (name !== workspace.name) {
-        warnings.push({
-          code: "WORKSPACE_NAME_RENAMED",
-          itemName: workspace.name,
-          replacementName: name
-        });
-      }
-
       if (missingRoleCount > 0) {
         warnings.push({
           code: "WORKSPACE_ROLE_MISSING",
@@ -398,53 +643,502 @@ export class PortableDataManager {
           itemName: workspace.name
         });
       }
-
-      return { name, source: workspace };
-    });
-
-    const macros: ImportPlan["macros"] = [];
-    data.macros.forEach((macro) => {
-      const importedRoleIdList = macro.roleIds.filter((roleId) => importedRoleIds.has(roleId));
-      const roleIds = [...new Set(importedRoleIdList)];
-      const missingRoleCount = [...new Set(macro.roleIds)].filter((roleId) => !importedRoleIds.has(roleId)).length;
-
-      if (roleIds.length === 0) {
-        warnings.push({
-          code: "MACRO_SKIPPED_NO_ROLES",
-          itemName: macro.name
-        });
-        return;
+      validatePortableWorkspaceLayout(workspace);
+      const identityKey = normalizeNameKey(workspace.name);
+      const isDuplicateSourceIdentity = seenWorkspaceKeys.has(identityKey);
+      seenWorkspaceKeys.add(identityKey);
+      const existing = isDuplicateSourceIdentity
+        ? undefined
+        : finalWorkspaces.find((candidate) => normalizeNameKey(candidate.name) === identityKey);
+      const name = existing ? workspace.name : reserveUniqueName(workspace.name, usedWorkspaceNames);
+      if (name !== workspace.name) {
+        warnings.push({ code: "WORKSPACE_NAME_RENAMED", itemName: workspace.name, replacementName: name });
       }
+      const merged = createImportedWorkspace(workspace, name, roleIdMap, timestamp, existing);
+      if (!existing) {
+        finalWorkspaces.push(merged);
+        incrementOperation(operations.launchWorkspaces, "create");
+      } else if (areWorkspacesImportEqual(existing, merged)) {
+        incrementOperation(operations.launchWorkspaces, "unchanged");
+      } else {
+        finalWorkspaces[finalWorkspaces.findIndex((candidate) => candidate.id === existing.id)] = merged;
+        incrementOperation(operations.launchWorkspaces, "update");
+      }
+    }
 
+    const resolutionByConflictId = new Map(resolutions.map((resolution) => [resolution.conflictId, resolution]));
+    const conflicts: PortableMacroConflict[] = [];
+    const seenMacroKeys = new Set<string>();
+    const usedMacroCopyNames = new Set(existingMacros.map((macro) => normalizeNameKey(macro.name)));
+    const plannedMacros: Array<{ existing?: Macro; macro: PortableMacro; name: string; roleIds: string[] }> = [];
+    for (const macro of data.macros) {
+      const roleIds = [...new Set(macro.roleIds.map((roleId) => roleIdMap.get(roleId)).filter(isString))];
+      const missingRoleCount = [...new Set(macro.roleIds)].filter((roleId) => !roleIdMap.has(roleId)).length;
       if (missingRoleCount > 0) {
-        warnings.push({
-          code: "MACRO_ROLE_MISSING",
-          count: missingRoleCount,
-          itemName: macro.name
-        });
+        warnings.push({ code: "MACRO_ROLE_MISSING", count: missingRoleCount, itemName: macro.name });
+      }
+      if (roleIds.length === 0) {
+        warnings.push({ code: "MACRO_SKIPPED_NO_ROLES", itemName: macro.name });
+        incrementOperation(operations.macros, "skip");
+        continue;
       }
 
-      let trigger = macro.trigger ? { ...macro.trigger } : undefined;
+      const identityKey = createMacroIdentityKey(macro.name, roleIds);
+      const isDuplicateSourceIdentity = seenMacroKeys.has(identityKey);
+      seenMacroKeys.add(identityKey);
+      if (isDuplicateSourceIdentity) {
+        const name = reserveUniqueName(macro.name, usedMacroCopyNames);
+        warnings.push({ code: "MACRO_NAME_RENAMED", itemName: macro.name, replacementName: name });
+        plannedMacros.push({ macro, name, roleIds });
+        continue;
+      }
+
+      const candidates = existingMacros.filter(
+        (candidate) => createMacroIdentityKey(candidate.name, candidate.roleIds) === identityKey
+      );
+      if (candidates.length <= 1) {
+        plannedMacros.push({ existing: candidates[0], macro, name: macro.name, roleIds });
+        continue;
+      }
+
+      const conflictId = `macro:${macro.id}`;
+      const resolution = resolutionByConflictId.get(conflictId);
+      if (resolution?.action === "skip") {
+        incrementOperation(operations.macros, "skip");
+        continue;
+      }
+      if (resolution?.action === "copy") {
+        const name = reserveUniqueName(macro.name, usedMacroCopyNames);
+        warnings.push({ code: "MACRO_NAME_RENAMED", itemName: macro.name, replacementName: name });
+        plannedMacros.push({ macro, name, roleIds });
+        continue;
+      }
+      const selected = resolution?.action === "update"
+        ? candidates.find((candidate) => candidate.id === resolution.targetMacroId)
+        : undefined;
+      if (selected) {
+        plannedMacros.push({ existing: selected, macro, name: macro.name, roleIds });
+        continue;
+      }
+
+      conflicts.push(createPortableMacroConflict(conflictId, macro, roleIds, candidates, finalRoles));
+    }
+
+    const replacedMacroIds = new Set(plannedMacros.flatMap((item) => item.existing ? [item.existing.id] : []));
+    const acceptedMacros = existingMacros.filter((macro) => !replacedMacroIds.has(macro.id));
+    const macroReplacementById = new Map<string, Macro>();
+    const createdMacros: Macro[] = [];
+    const affectedMacroIds: string[] = [];
+    for (const item of plannedMacros) {
+      let trigger = item.macro.trigger ? { ...item.macro.trigger } : undefined;
       if (trigger && areMacroTriggersEqual(trigger, MACRO_OVERLAY_TRIGGER)) {
-        warnings.push({ code: "MACRO_SHORTCUT_CLEARED_RESERVED", itemName: macro.name });
+        warnings.push({ code: "MACRO_SHORTCUT_CLEARED_RESERVED", itemName: item.name });
         trigger = undefined;
       } else if (
-        trigger &&
-        macros.some(
-          (plannedMacro) =>
-            areMacroTriggersEqual(plannedMacro.trigger, trigger) &&
-            macroRoleAssignmentsOverlap(plannedMacro.roleIds, roleIds)
+        trigger && acceptedMacros.some(
+          (candidate) =>
+            areMacroTriggersEqual(candidate.trigger, trigger) &&
+            macroRoleAssignmentsOverlap(candidate.roleIds, item.roleIds)
         )
       ) {
-        warnings.push({ code: "MACRO_SHORTCUT_CLEARED_CONFLICT", itemName: macro.name });
+        warnings.push({ code: "MACRO_SHORTCUT_CLEARED_CONFLICT", itemName: item.name });
         trigger = undefined;
       }
 
-      macros.push({ name: macro.name, roleIds, source: macro, trigger });
-    });
+      const merged = createImportedMacro(item.macro, item.name, item.roleIds, trigger, timestamp, item.existing);
+      if (!item.existing) {
+        createdMacros.push(merged);
+        acceptedMacros.push(merged);
+        incrementOperation(operations.macros, "create");
+      } else if (areMacrosImportEqual(item.existing, merged)) {
+        macroReplacementById.set(item.existing.id, item.existing);
+        acceptedMacros.push(item.existing);
+        incrementOperation(operations.macros, "unchanged");
+      } else {
+        macroReplacementById.set(item.existing.id, merged);
+        acceptedMacros.push(merged);
+        affectedMacroIds.push(item.existing.id);
+        incrementOperation(operations.macros, "update");
+      }
+    }
+    const finalMacros = existingMacros
+      .map((macro) => macroReplacementById.get(macro.id) ?? macro)
+      .concat(createdMacros);
 
-    return { games, roles, workspaces, macros, warnings };
+    return {
+      affectedMacroIds,
+      conflicts,
+      createdRoleIds,
+      finalGames,
+      finalMacros,
+      finalRoles,
+      finalWorkspaces,
+      operations,
+      warnings
+    };
   }
+}
+
+async function writePortableImportStage(
+  stageDirectory: string,
+  journal: PortableImportJournal
+): Promise<void> {
+  await rm(stageDirectory, { force: true, recursive: true });
+  await Promise.all([
+    writeJsonFileAtomically(join(stageDirectory, "games.json"), { games: journal.targetGames }),
+    writeJsonFileAtomically(join(stageDirectory, "roles.json"), { roles: journal.targetRoles }),
+    writeJsonFileAtomically(join(stageDirectory, "launch-workspaces.json"), {
+      workspaces: journal.targetWorkspaces
+    }),
+    writeJsonFileAtomically(join(stageDirectory, "macros.json"), { macros: journal.targetMacros }),
+    ...(journal.targetGameBrowserSettings
+      ? [
+          writeJsonFileAtomically(
+            join(stageDirectory, "game-browser-settings.json"),
+            journal.targetGameBrowserSettings
+          )
+        ]
+      : [])
+  ]);
+}
+
+export async function recoverPortableImportTransaction(userDataDir: string): Promise<void> {
+  const journalPath = join(userDataDir, PORTABLE_IMPORT_JOURNAL_FILE);
+  const stageDirectory = join(userDataDir, PORTABLE_IMPORT_STAGE_DIRECTORY);
+  let journal: PortableImportJournal;
+  try {
+    journal = JSON.parse(await readFile(journalPath, "utf8")) as PortableImportJournal;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      await rm(stageDirectory, { force: true, recursive: true });
+      return;
+    }
+    throw error;
+  }
+
+  const isCommitted = journal.phase === "committed";
+  if (
+    (journal.phase !== undefined && journal.phase !== "prepared" && journal.phase !== "committed") ||
+    !Array.isArray(journal.games) ||
+    !Array.isArray(journal.roles) ||
+    !Array.isArray(journal.workspaces) ||
+    !Array.isArray(journal.macros) ||
+    (isCommitted && !Array.isArray(journal.targetGames)) ||
+    (isCommitted && !Array.isArray(journal.targetRoles)) ||
+    (isCommitted && !Array.isArray(journal.targetWorkspaces)) ||
+    (isCommitted && !Array.isArray(journal.targetMacros)) ||
+    !Array.isArray(journal.createdRoleIds) ||
+    journal.createdRoleIds.some(
+      (roleId) => typeof roleId !== "string" || !GENERATED_ROLE_ID_PATTERN.test(roleId)
+    )
+  ) {
+    throw new PortableDataError("PORTABLE_IMPORT_RECOVERY_INVALID", "Portable import recovery data is invalid.");
+  }
+
+  const recoveryGames = isCommitted ? journal.targetGames as Game[] : journal.games;
+  const recoveryRoles = isCommitted ? journal.targetRoles as Role[] : journal.roles;
+  const recoveryWorkspaces = isCommitted
+    ? journal.targetWorkspaces as LaunchWorkspace[]
+    : journal.workspaces;
+  const recoveryMacros = isCommitted ? journal.targetMacros as Macro[] : journal.macros;
+  const recoverySettings = isCommitted
+    ? journal.targetGameBrowserSettings
+    : journal.gameBrowserSettings;
+
+  await writeJsonFileAtomically(join(userDataDir, "games.json"), { games: recoveryGames });
+  await writeJsonFileAtomically(join(userDataDir, "roles.json"), { roles: recoveryRoles });
+  await writeJsonFileAtomically(join(userDataDir, "launch-workspaces.json"), {
+    workspaces: recoveryWorkspaces
+  });
+  await writeJsonFileAtomically(join(userDataDir, "macros.json"), { macros: recoveryMacros });
+  if (recoverySettings) {
+    await writeJsonFileAtomically(join(userDataDir, "game-browser-settings.json"), recoverySettings);
+  }
+  if (!isCommitted) {
+    await cleanupImportedRoleDirectories(userDataDir, journal.createdRoleIds);
+  }
+  await rm(stageDirectory, { force: true, recursive: true });
+  await rm(journalPath, { force: true });
+}
+
+function createEmptyImportOperationSummary(): PortableImportOperationSummary {
+  return { create: 0, update: 0, unchanged: 0, skip: 0 };
+}
+
+function createEmptyImportOperations(): PortableImportOperations {
+  return {
+    games: createEmptyImportOperationSummary(),
+    roles: createEmptyImportOperationSummary(),
+    launchWorkspaces: createEmptyImportOperationSummary(),
+    macros: createEmptyImportOperationSummary()
+  };
+}
+
+function incrementOperation(
+  summary: PortableImportOperationSummary,
+  action: keyof PortableImportOperationSummary
+): void {
+  summary[action] += 1;
+}
+
+function hasImportChanges(summary: PortableImportOperationSummary): boolean {
+  return summary.create > 0 || summary.update > 0;
+}
+
+function getProcessedImportCount(summary: PortableImportOperationSummary): number {
+  return summary.create + summary.update + summary.unchanged;
+}
+
+function createMergedGame(existing: Game, source: PortableGame, timestamp: string): Game {
+  return {
+    ...existing,
+    name: existing.source === "builtin" ? existing.name : source.name,
+    defaultLaunchUrl: source.defaultLaunchUrl,
+    loginUrl: source.loginUrl,
+    iconImageDataUrl: existing.source === "builtin" ? existing.iconImageDataUrl : source.iconImageDataUrl,
+    coverImageDataUrl: existing.source === "builtin" ? existing.coverImageDataUrl : source.coverImageDataUrl,
+    roleDefaults: source.roleDefaults ? { ...source.roleDefaults } : undefined,
+    browserLaunchMode: source.browserLaunchMode,
+    updatedAt: timestamp
+  };
+}
+
+function createImportedGame(source: PortableGame, name: string, timestamp: string): Game {
+  const definition = source.builtinKey
+    ? BUILTIN_GAME_DEFINITIONS.find((candidate) => candidate.builtinKey === source.builtinKey)
+    : undefined;
+  return {
+    id: definition?.id ?? randomUUID(),
+    source: definition ? "builtin" : "custom",
+    ...(definition ? { builtinKey: definition.builtinKey } : {}),
+    name: definition?.name ?? name,
+    ...(source.iconImageDataUrl && !definition ? { iconImageDataUrl: source.iconImageDataUrl } : {}),
+    ...(source.coverImageDataUrl && !definition ? { coverImageDataUrl: source.coverImageDataUrl } : {}),
+    defaultLaunchUrl: source.defaultLaunchUrl,
+    ...(source.loginUrl ? { loginUrl: source.loginUrl } : {}),
+    ...(source.roleDefaults ? { roleDefaults: { ...source.roleDefaults } } : {}),
+    browserLaunchMode: source.browserLaunchMode,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+}
+
+function areGamesImportEqual(left: Game, right: Game): boolean {
+  return JSON.stringify(toPortableGame(left)) === JSON.stringify(toPortableGame(right));
+}
+
+function createRoleIdentityKey(gameId: string, name: string): string {
+  return `${gameId}\u0000${normalizeNameKey(name)}`;
+}
+
+function createRoleNameRegistry(roles: Role[]): Map<string, Set<string>> {
+  const registry = new Map<string, Set<string>>();
+  roles.forEach((role) => {
+    const names = registry.get(role.gameId) ?? new Set<string>();
+    names.add(normalizeNameKey(role.name));
+    registry.set(role.gameId, names);
+  });
+  return registry;
+}
+
+function reserveUniqueRoleName(name: string, gameId: string, registry: Map<string, Set<string>>): string {
+  const names = registry.get(gameId) ?? new Set<string>();
+  registry.set(gameId, names);
+  return reserveUniqueName(name, names);
+}
+
+function createMergedRole(
+  existing: Role,
+  source: PortableRole,
+  gameId: string,
+  name: string,
+  timestamp: string
+): Role {
+  return {
+    ...existing,
+    gameId,
+    name,
+    launchUrl: source.launchUrl,
+    windowWidth: source.windowWidth,
+    windowHeight: source.windowHeight,
+    notes: source.notes,
+    launchPreset: source.launchPreset,
+    coverImageDataUrl: source.coverImageDataUrl,
+    coverImageDominantColor: source.coverImageDataUrl ? source.coverImageDominantColor : undefined,
+    updatedAt: timestamp
+  };
+}
+
+function createImportedRole(
+  source: PortableRole,
+  gameId: string,
+  name: string,
+  timestamp: string
+): Role {
+  return {
+    id: randomUUID(),
+    gameId,
+    name,
+    launchUrl: source.launchUrl,
+    windowWidth: source.windowWidth,
+    windowHeight: source.windowHeight,
+    notes: source.notes,
+    launchPreset: source.launchPreset,
+    authState: "login_required",
+    ...(source.coverImageDataUrl ? { coverImageDataUrl: source.coverImageDataUrl } : {}),
+    ...(source.coverImageDataUrl && source.coverImageDominantColor
+      ? { coverImageDominantColor: source.coverImageDominantColor }
+      : {}),
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+}
+
+function areRolesImportEqual(left: Role, right: Role): boolean {
+  return JSON.stringify(toPortableRole(left)) === JSON.stringify(toPortableRole(right));
+}
+
+function toPortableRole(role: Role): PortableRole {
+  return {
+    id: role.id,
+    gameId: role.gameId,
+    name: role.name,
+    launchUrl: role.launchUrl,
+    windowWidth: role.windowWidth,
+    windowHeight: role.windowHeight,
+    notes: role.notes,
+    launchPreset: role.launchPreset,
+    ...(role.coverImageDataUrl ? { coverImageDataUrl: role.coverImageDataUrl } : {}),
+    ...(role.coverImageDominantColor ? { coverImageDominantColor: role.coverImageDominantColor } : {})
+  };
+}
+
+function validatePortableWorkspaceLayout(workspace: PortableLaunchWorkspace): void {
+  const slotCount = getWorkspaceTemplateSlotCount(workspace.template);
+  if (workspace.slots.slice(slotCount).some((slot) => Boolean(slot.roleId))) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+}
+
+function createImportedWorkspace(
+  source: PortableLaunchWorkspace,
+  name: string,
+  roleIdMap: Map<string, string>,
+  timestamp: string,
+  existing?: LaunchWorkspace
+): LaunchWorkspace {
+  const defaultRects = getDefaultWorkspaceRects(source.template);
+  const slots = defaultRects.map((defaultRect, index) => {
+    const sourceSlot = source.slots[index];
+    const roleId = sourceSlot?.roleId ? roleIdMap.get(sourceSlot.roleId) : undefined;
+    return {
+      id: sourceSlot?.id || `slot-${index + 1}`,
+      ...(roleId ? { roleId } : {}),
+      rect: { ...(sourceSlot?.rect ?? defaultRect) }
+    };
+  });
+  return {
+    id: existing?.id ?? randomUUID(),
+    name,
+    template: source.template,
+    browserLaunchMode: source.browserLaunchMode ?? "inherit",
+    browserZoomPercent: source.browserZoomPercent,
+    ...(existing?.targetDisplayId === undefined ? {} : { targetDisplayId: existing.targetDisplayId }),
+    slots,
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp
+  };
+}
+
+function areWorkspacesImportEqual(left: LaunchWorkspace, right: LaunchWorkspace): boolean {
+  return JSON.stringify(toPortableWorkspace(left)) === JSON.stringify(toPortableWorkspace(right));
+}
+
+function toPortableWorkspace(workspace: LaunchWorkspace): PortableLaunchWorkspace {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    template: workspace.template,
+    browserLaunchMode: workspace.browserLaunchMode,
+    browserZoomPercent: workspace.browserZoomPercent,
+    slots: workspace.slots.map((slot) => ({
+      id: slot.id,
+      ...(slot.roleId ? { roleId: slot.roleId } : {}),
+      rect: { ...slot.rect }
+    }))
+  };
+}
+
+function createMacroIdentityKey(name: string, roleIds: string[]): string {
+  return `${normalizeNameKey(name)}\u0000${[...roleIds].sort().join("\u0000")}`;
+}
+
+function createPortableMacroConflict(
+  id: string,
+  source: PortableMacro,
+  roleIds: string[],
+  candidates: Macro[],
+  roles: Role[]
+): PortableMacroConflict {
+  const roleNameById = new Map(roles.map((role) => [role.id, role.name]));
+  return {
+    id,
+    macroId: source.id,
+    name: source.name,
+    roleNames: roleIds.map((roleId) => roleNameById.get(roleId) ?? roleId),
+    candidates: candidates.map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      roleNames: candidate.roleIds.map((roleId) => roleNameById.get(roleId) ?? roleId),
+      stepCount: candidate.steps.length,
+      ...(candidate.trigger ? { trigger: { ...candidate.trigger } } : {}),
+      updatedAt: candidate.updatedAt
+    }))
+  };
+}
+
+function createImportedMacro(
+  source: PortableMacro,
+  name: string,
+  roleIds: string[],
+  trigger: MacroTrigger | undefined,
+  timestamp: string,
+  existing?: Macro
+): Macro {
+  return {
+    id: existing?.id ?? randomUUID(),
+    name,
+    roleIds: [...roleIds],
+    ...(trigger ? { trigger: { ...trigger } } : {}),
+    repeat: source.repeat.type === "loop" ? { ...source.repeat } : { type: "once" },
+    steps: source.steps.map((step) => ({ ...step })),
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp
+  };
+}
+
+function areMacrosImportEqual(left: Macro, right: Macro): boolean {
+  return JSON.stringify(toPortableMacro(left)) === JSON.stringify(toPortableMacro(right));
+}
+
+function toPortableMacro(macro: Macro): PortableMacro {
+  return {
+    id: macro.id,
+    name: macro.name,
+    roleIds: [...macro.roleIds].sort(),
+    ...(macro.trigger ? { trigger: { ...macro.trigger } } : {}),
+    repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
+    steps: macro.steps.map((step) => ({ ...step }))
+  };
+}
+
+async function cleanupImportedRoleDirectories(userDataDir: string, roleIds: string[]): Promise<void> {
+  if (roleIds.some((roleId) => !GENERATED_ROLE_ID_PATTERN.test(roleId))) {
+    throw new PortableDataError("PORTABLE_IMPORT_RECOVERY_INVALID", "Portable import recovery data is invalid.");
+  }
+  await Promise.all(
+    roleIds.map((roleId) => rm(join(userDataDir, "roles", roleId), { force: true, recursive: true }))
+  );
 }
 
 function normalizePortableDataSelection(value: unknown, useDefaultWhenMissing = true): PortableDataSelection {
@@ -479,6 +1173,47 @@ function normalizePortableDataSelection(value: unknown, useDefaultWhenMissing = 
   };
 }
 
+function normalizePortableMacroConflictResolutions(value: unknown): PortableMacroConflictResolution[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new PortableDataError(
+      "PORTABLE_IMPORT_RESOLUTION_INVALID",
+      "Portable import conflict resolution is invalid."
+    );
+  }
+  const seenConflictIds = new Set<string>();
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new PortableDataError(
+        "PORTABLE_IMPORT_RESOLUTION_INVALID",
+        "Portable import conflict resolution is invalid."
+      );
+    }
+    const resolution = item as Record<string, unknown>;
+    const conflictId = typeof resolution.conflictId === "string" ? resolution.conflictId.trim() : "";
+    if (!conflictId || seenConflictIds.has(conflictId)) {
+      throw new PortableDataError(
+        "PORTABLE_IMPORT_RESOLUTION_INVALID",
+        "Portable import conflict resolution is invalid."
+      );
+    }
+    seenConflictIds.add(conflictId);
+    if (resolution.action === "copy" || resolution.action === "skip") {
+      return { conflictId, action: resolution.action };
+    }
+    const targetMacroId = typeof resolution.targetMacroId === "string" ? resolution.targetMacroId.trim() : "";
+    if (resolution.action !== "update" || !targetMacroId) {
+      throw new PortableDataError(
+        "PORTABLE_IMPORT_RESOLUTION_INVALID",
+        "Portable import conflict resolution is invalid."
+      );
+    }
+    return { conflictId, action: "update", targetMacroId };
+  });
+}
+
 function selectPortableData(data: RionPortableDataV2, selection: PortableDataSelection): RionPortableDataV2 {
   return {
     app: data.app,
@@ -510,42 +1245,6 @@ function ensurePortableContentSelected(data: RionPortableDataV2): void {
   }
 }
 
-function toCreateRoleInput(role: PortableRole, name: string, gameId: string): CreateRoleInput {
-  return {
-    gameId,
-    name,
-    launchUrl: role.launchUrl,
-    windowWidth: role.windowWidth,
-    windowHeight: role.windowHeight,
-    notes: role.notes,
-    launchPreset: role.launchPreset,
-    coverImageDataUrl: role.coverImageDataUrl ?? null,
-    coverImageDominantColor: role.coverImageDominantColor ?? null
-  };
-}
-
-function toCreateWorkspaceInput(
-  workspace: PortableLaunchWorkspace,
-  name: string,
-  roleIdMap: Map<string, string>
-): CreateLaunchWorkspaceInput {
-  return {
-    name,
-    template: workspace.template,
-    browserLaunchMode: workspace.browserLaunchMode ?? "inherit",
-    browserZoomPercent: workspace.browserZoomPercent,
-    slots: workspace.slots.map((slot) => {
-      const mappedRoleId = slot.roleId ? roleIdMap.get(slot.roleId) : undefined;
-
-      return {
-        id: slot.id,
-        ...(mappedRoleId ? { roleId: mappedRoleId } : {}),
-        rect: { ...slot.rect }
-      };
-    })
-  };
-}
-
 function toPortableGame(game: Game): PortableGame {
   return {
     id: game.id,
@@ -558,34 +1257,6 @@ function toPortableGame(game: Game): PortableGame {
     ...(game.loginUrl ? { loginUrl: game.loginUrl } : {}),
     ...(game.roleDefaults ? { roleDefaults: { ...game.roleDefaults } } : {}),
     browserLaunchMode: game.browserLaunchMode
-  };
-}
-
-function toCreateGameInput(game: PortableGame, name: string): CreateGameInput {
-  return {
-    name,
-    defaultLaunchUrl: game.defaultLaunchUrl,
-    loginUrl: game.loginUrl ?? null,
-    iconImageDataUrl: game.source === "custom" ? game.iconImageDataUrl ?? null : undefined,
-    coverImageDataUrl: game.source === "custom" ? game.coverImageDataUrl ?? null : undefined,
-    roleDefaults: game.roleDefaults ?? null,
-    browserLaunchMode: game.browserLaunchMode
-  };
-}
-
-function toCreateMacroInput(
-  macro: PortableMacro,
-  name: string,
-  roleIds: string[],
-  trigger: MacroTrigger | undefined,
-  roleIdMap: Map<string, string>
-): CreateMacroInput {
-  return {
-    name,
-    roleIds: roleIds.map((roleId) => roleIdMap.get(roleId)).filter(isString),
-    trigger: trigger ? { ...trigger } : null,
-    repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
-    steps: macro.steps.map((step) => ({ ...step }))
   };
 }
 
@@ -712,6 +1383,7 @@ function recoverPortableGames(
       if (definition) {
         game = {
           id: definition.id,
+          inferred: true,
           source: "builtin",
           builtinKey: definition.builtinKey,
           name: definition.name,
@@ -722,6 +1394,7 @@ function recoverPortableGames(
         const baseName = createRecoveredGameName(role.launchUrl);
         game = {
           id: `recovered-game-${index + 1}-${randomUUID()}`,
+          inferred: true,
           source: "custom",
           name: reserveUniqueName(baseName, usedNames),
           defaultLaunchUrl: role.launchUrl,
@@ -1228,4 +1901,8 @@ function roundRectValue(value: number): number {
 
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }

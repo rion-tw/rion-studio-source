@@ -515,7 +515,44 @@ export interface PortableExportInput {
 export interface PortableImportInput {
   importId: string;
   selection: PortableDataSelection;
+  resolutions?: PortableMacroConflictResolution[];
 }
+
+export interface PortableImportOperationSummary {
+  create: number;
+  update: number;
+  unchanged: number;
+  skip: number;
+}
+
+export interface PortableImportOperations {
+  games: PortableImportOperationSummary;
+  roles: PortableImportOperationSummary;
+  launchWorkspaces: PortableImportOperationSummary;
+  macros: PortableImportOperationSummary;
+}
+
+export interface PortableMacroConflictCandidate {
+  id: string;
+  name: string;
+  roleNames: string[];
+  stepCount: number;
+  trigger?: MacroTrigger;
+  updatedAt: string;
+}
+
+export interface PortableMacroConflict {
+  id: string;
+  macroId: string;
+  name: string;
+  roleNames: string[];
+  candidates: PortableMacroConflictCandidate[];
+}
+
+export type PortableMacroConflictResolution =
+  | { conflictId: string; action: "update"; targetMacroId: string }
+  | { conflictId: string; action: "copy" }
+  | { conflictId: string; action: "skip" };
 
 export interface PortableRole {
   id: string;
@@ -543,6 +580,8 @@ export interface PortableLaunchWorkspace {
 
 export interface PortableGame {
   id: string;
+  /** Internal import marker; never emitted by exports. */
+  inferred?: boolean;
   source: GameSource;
   builtinKey?: BuiltinGameKey;
   name: string;
@@ -628,6 +667,8 @@ export interface PortableImportPreview {
   workspaceCount: number;
   macroCount: number;
   preferences?: PortablePreferences;
+  operations: PortableImportOperations;
+  conflicts: PortableMacroConflict[];
   warnings: PortableImportWarning[];
 }
 
@@ -639,6 +680,7 @@ export interface PortableImportResult {
   preferencesIncluded: boolean;
   preferences?: PortablePreferences;
   selection: PortableDataSelection;
+  operations: PortableImportOperations;
   warnings: PortableImportWarning[];
 }
 

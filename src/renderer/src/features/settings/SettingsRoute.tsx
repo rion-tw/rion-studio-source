@@ -47,9 +47,11 @@ import type {
   PortableExportInput,
   PortableExportResult,
   PortableImportInput,
+  PortableImportOperations,
   PortableImportPreview,
   PortableImportResult,
   PortableImportWarning,
+  PortableMacroConflictResolution,
   RoleDefaults,
   SystemFontFamily,
   WorkspaceAppearanceSettings,
@@ -100,6 +102,7 @@ interface SettingsViewProps {
   onLoadSystemFonts: () => Promise<SystemFontFamily[]>;
   onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
   onApplyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
+  onDiscardPortableImport: (importId: string) => Promise<void>;
   onOpenUpdateDownload: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
   onRestartApplication: () => Promise<void>;
@@ -164,6 +167,7 @@ function SettingsViewBase({
   onLoadSystemFonts,
   onPreviewPortableImport,
   onApplyPortableImport,
+  onDiscardPortableImport,
   onOpenUpdateDownload,
   onInstallDownloadedUpdate,
   onRestartApplication,
@@ -181,6 +185,7 @@ function SettingsViewBase({
   const [portableImportSelection, setPortableImportSelection] = useState<PortableDataSelection>(
     clearPortableDataSelection
   );
+  const [portableImportResolutions, setPortableImportResolutions] = useState<PortableMacroConflictResolution[]>([]);
   const [portableMessage, setPortableMessage] = useState<string | null>(null);
   const [isPortableBusy, setIsPortableBusy] = useState(false);
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
@@ -350,6 +355,7 @@ function SettingsViewBase({
         setPortableImportSelection(
           createDefaultPortableDataSelection(createPortableImportAvailability(preview))
         );
+        setPortableImportResolutions([]);
         setPortableImportPreview(preview);
       }
     } catch (error) {
@@ -370,7 +376,8 @@ function SettingsViewBase({
     try {
       const result = await onApplyPortableImport({
         importId: portableImportPreview.importId,
-        selection: portableImportSelection
+        selection: portableImportSelection,
+        resolutions: portableImportResolutions
       });
       setPortableImportPreview(null);
       setPortableMessage(formatPortableImportResult(result, t));
@@ -378,6 +385,20 @@ function SettingsViewBase({
       onError(error);
     } finally {
       setIsPortableBusy(false);
+    }
+  }
+
+  async function handleCancelPortableImport(): Promise<void> {
+    const preview = portableImportPreview;
+    setPortableImportPreview(null);
+    setPortableImportResolutions([]);
+    if (!preview) {
+      return;
+    }
+    try {
+      await onDiscardPortableImport(preview.importId);
+    } catch (error) {
+      onError(error);
     }
   }
 
@@ -806,10 +827,12 @@ function SettingsViewBase({
         <PortableImportDialog
           isBusy={isPortableBusy}
           preview={portableImportPreview}
+          resolutions={portableImportResolutions}
           selection={portableImportSelection}
           t={t}
-          onCancel={() => setPortableImportPreview(null)}
+          onCancel={() => void handleCancelPortableImport()}
           onChange={setPortableImportSelection}
+          onResolutionsChange={setPortableImportResolutions}
           onConfirm={() => void handleApplyPortableImport()}
         />
       ) : null}
@@ -1557,24 +1580,49 @@ function PortableExportDialog({
 interface PortableImportDialogProps {
   isBusy: boolean;
   preview: PortableImportPreview;
+  resolutions: PortableMacroConflictResolution[];
   selection: PortableDataSelection;
   t: Translator;
   onCancel: () => void;
   onChange: (selection: PortableDataSelection) => void;
   onConfirm: () => void;
+  onResolutionsChange: (resolutions: PortableMacroConflictResolution[]) => void;
 }
 
 function PortableImportDialog({
   isBusy,
   preview,
+  resolutions,
   selection,
   t,
   onCancel,
   onChange,
-  onConfirm
+  onConfirm,
+  onResolutionsChange
 }: PortableImportDialogProps): JSX.Element {
   const availability = createPortableImportAvailability(preview);
   const selectedWarnings = filterPortableImportWarnings(preview.warnings, selection);
+  const unresolvedConflictCount = selection.macros
+    ? preview.conflicts.filter(
+        (conflict) => !resolutions.some((resolution) => resolution.conflictId === conflict.id)
+      ).length
+    : 0;
+
+  function updateConflictResolution(conflictId: string, value: string): void {
+    const remaining = resolutions.filter((resolution) => resolution.conflictId !== conflictId);
+    if (!value) {
+      onResolutionsChange(remaining);
+      return;
+    }
+    if (value === "copy" || value === "skip") {
+      onResolutionsChange([...remaining, { conflictId, action: value }]);
+      return;
+    }
+    onResolutionsChange([
+      ...remaining,
+      { conflictId, action: "update", targetMacroId: value.replace(/^update:/, "") }
+    ]);
+  }
 
   return (
     <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
@@ -1603,6 +1651,54 @@ function PortableImportDialog({
             onChange={onChange}
           />
 
+          <PortableImportOperationsSummary
+            operations={preview.operations}
+            selection={selection}
+            t={t}
+          />
+
+          {selection.macros && preview.conflicts.length > 0 ? (
+            <div className="grid gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3">
+              <div>
+                <p className="text-xs font-semibold leading-5 text-foreground">{t("settings.importConflictsTitle")}</p>
+                <p className="text-[11px] leading-4 text-muted-foreground">
+                  {t("settings.importConflictsDescription")}
+                </p>
+              </div>
+              {preview.conflicts.map((conflict) => {
+                const resolution = resolutions.find((item) => item.conflictId === conflict.id);
+                const value = resolution?.action === "update"
+                  ? `update:${resolution.targetMacroId}`
+                  : resolution?.action ?? "";
+                return (
+                  <label key={conflict.id} className="grid gap-1.5">
+                    <span className="text-xs font-semibold text-foreground">
+                      {conflict.name} · {conflict.roleNames.join(", ")}
+                    </span>
+                    <select
+                      className="h-9 rounded-md border border-border/50 bg-background px-2 text-xs text-foreground"
+                      disabled={isBusy}
+                      value={value}
+                      onChange={(event) => updateConflictResolution(conflict.id, event.target.value)}
+                    >
+                      <option value="">{t("settings.importConflictChoose")}</option>
+                      {conflict.candidates.map((candidate) => (
+                        <option key={candidate.id} value={`update:${candidate.id}`}>
+                          {t("settings.importConflictOverwrite")
+                            .replace("{name}", candidate.name)
+                            .replace("{steps}", String(candidate.stepCount))
+                            .replace("{date}", new Date(candidate.updatedAt).toLocaleString())}
+                        </option>
+                      ))}
+                      <option value="copy">{t("settings.importConflictCopy")}</option>
+                      <option value="skip">{t("settings.importConflictSkip")}</option>
+                    </select>
+                  </label>
+                );
+              })}
+            </div>
+          ) : null}
+
           <div className="min-w-0 rounded-md border border-border/40 bg-background/25 px-3 py-2">
             <p className="truncate text-[11px] font-medium leading-4 text-muted-foreground">{preview.filePath}</p>
             <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
@@ -1626,6 +1722,9 @@ function PortableImportDialog({
           ) : (
             <p className="text-xs leading-5 text-muted-foreground">{t("settings.importNoWarnings")}</p>
           )}
+          <p className="rounded-md border border-border/40 bg-background/25 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+            {t("settings.importMergeSafetyNotice")}
+          </p>
         </div>
 
         <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">
@@ -1634,7 +1733,7 @@ function PortableImportDialog({
           </Button>
           <Button
             type="button"
-            disabled={isBusy || !hasPortableDataSelection(selection)}
+            disabled={isBusy || !hasPortableDataSelection(selection) || unresolvedConflictCount > 0}
             onClick={onConfirm}
           >
             <Upload size={14} />
@@ -1642,6 +1741,46 @@ function PortableImportDialog({
           </Button>
         </div>
       </Surface>
+    </div>
+  );
+}
+
+function PortableImportOperationsSummary({
+  operations,
+  selection,
+  t
+}: {
+  operations: PortableImportOperations;
+  selection: PortableDataSelection;
+  t: Translator;
+}): JSX.Element {
+  const items: Array<{
+    key: keyof PortableImportOperations;
+    labelKey: TranslationKey;
+    selected: boolean;
+  }> = [
+    { key: "games", labelKey: "settings.importGames", selected: selection.games },
+    { key: "roles", labelKey: "settings.importRoles", selected: selection.roles },
+    { key: "launchWorkspaces", labelKey: "settings.importWorkspaces", selected: selection.launchWorkspaces },
+    { key: "macros", labelKey: "settings.importMacros", selected: selection.macros }
+  ];
+  return (
+    <div className="grid gap-1.5 rounded-md border border-border/40 bg-background/25 px-3 py-2">
+      {items.filter((item) => item.selected).map((item) => {
+        const summary = operations[item.key];
+        return (
+          <div key={item.key} className="flex items-center justify-between gap-3 text-[11px] leading-4">
+            <span className="font-semibold text-foreground">{t(item.labelKey)}</span>
+            <span className="text-right tabular-nums text-muted-foreground">
+              {t("settings.importOperationSummary")
+                .replace("{create}", String(summary.create))
+                .replace("{update}", String(summary.update))
+                .replace("{unchanged}", String(summary.unchanged))
+                .replace("{skip}", String(summary.skip))}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1780,7 +1919,30 @@ function formatPortableExportResult(result: PortableExportResult, t: Translator)
 }
 
 function formatPortableImportResult(result: PortableImportResult, t: Translator): string {
-  return t("settings.importComplete").replace("{summary}", formatPortableResultSummary(result, t));
+  const selectedOperations = [
+    result.selection.games ? result.operations.games : undefined,
+    result.selection.roles ? result.operations.roles : undefined,
+    result.selection.launchWorkspaces ? result.operations.launchWorkspaces : undefined,
+    result.selection.macros ? result.operations.macros : undefined
+  ].filter((summary): summary is PortableImportOperations[keyof PortableImportOperations] => Boolean(summary));
+  const totals = selectedOperations.reduce(
+    (summary, item) => ({
+      create: summary.create + item.create,
+      update: summary.update + item.update,
+      unchanged: summary.unchanged + item.unchanged,
+      skip: summary.skip + item.skip
+    }),
+    { create: 0, update: 0, unchanged: 0, skip: 0 }
+  );
+  const summary = t("settings.importOperationSummary")
+    .replace("{create}", String(totals.create))
+    .replace("{update}", String(totals.update))
+    .replace("{unchanged}", String(totals.unchanged))
+    .replace("{skip}", String(totals.skip));
+  return t("settings.importComplete").replace(
+    "{summary}",
+    result.preferencesIncluded ? `${summary} · ${t("settings.portablePreferences")}` : summary
+  );
 }
 
 function formatPortableResultSummary(

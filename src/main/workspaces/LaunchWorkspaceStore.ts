@@ -80,6 +80,24 @@ export class LaunchWorkspaceStore {
     });
   }
 
+  async replaceWorkspacesForImport(
+    workspaces: LaunchWorkspace[],
+    publishCache = true
+  ): Promise<LaunchWorkspace[]> {
+    return this.taskQueue.run(async () => {
+      const normalized = workspaces.map((workspace) =>
+        this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
+      );
+      normalized.forEach((workspace) => this.ensureUniqueName(normalized, workspace.name, workspace.id));
+      await this.writeWorkspacesFile({ workspaces: normalized }, publishCache);
+      return cloneWorkspacesFile({ workspaces: normalized }).workspaces;
+    });
+  }
+
+  publishWorkspacesForImport(workspaces: LaunchWorkspace[]): void {
+    this.cachedFile = cloneWorkspacesFile({ workspaces });
+  }
+
   async getWorkspace(id: string): Promise<LaunchWorkspace> {
     return this.taskQueue.run(async () => {
       const workspace = (await this.readWorkspacesFile()).workspaces.find((item) => item.id === id);
@@ -271,13 +289,15 @@ export class LaunchWorkspaceStore {
     }
   }
 
-  private async writeWorkspacesFile(file: LaunchWorkspacesFile): Promise<void> {
+  private async writeWorkspacesFile(file: LaunchWorkspacesFile, publishCache = true): Promise<void> {
     await writeJsonFileAtomically(this.workspacesPath, file);
-    this.cachedFile = cloneWorkspacesFile({
-      workspaces: file.workspaces.map((workspace) =>
-        this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
-      )
-    });
+    if (publishCache) {
+      this.cachedFile = cloneWorkspacesFile({
+        workspaces: file.workspaces.map((workspace) =>
+          this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
+        )
+      });
+    }
   }
 
   private normalizeStoredWorkspace(workspace: StoredLaunchWorkspace): LaunchWorkspace {

@@ -100,6 +100,20 @@ export class GameStore {
     return this.taskQueue.run(async () => structuredClone((await this.readGamesFile()).games));
   }
 
+  async replaceGamesForImport(games: Game[], publishCache = true): Promise<Game[]> {
+    return this.taskQueue.run(async () => {
+      const normalized = games.map((game) => normalizeStoredGame(game));
+      ensureNamesAreUnique(normalized);
+      const file = { games: structuredClone(games) };
+      await this.writeGamesFile(file, publishCache);
+      return structuredClone(file.games);
+    });
+  }
+
+  publishGamesForImport(games: Game[]): void {
+    this.cachedFile = { games: structuredClone(games) };
+  }
+
   async getGame(id: string): Promise<Game> {
     return this.taskQueue.run(async () => {
       const game = (await this.readGamesFile()).games.find((item) => item.id === id);
@@ -315,10 +329,12 @@ export class GameStore {
     return structuredClone(file);
   }
 
-  private async writeGamesFile(file: GamesFile): Promise<void> {
+  private async writeGamesFile(file: GamesFile, publishCache = true): Promise<void> {
     await mkdir(this.userDataDir, { recursive: true });
     await writeJsonFileAtomically(this.gamesPath, file);
-    this.cachedFile = structuredClone(file);
+    if (publishCache) {
+      this.cachedFile = structuredClone(file);
+    }
   }
 }
 

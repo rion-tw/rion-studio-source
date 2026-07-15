@@ -70,9 +70,13 @@ interface RegisterIpcHandlersOptions {
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
+  withDataMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
   getDefaultWorkspaceDisplayId?: () => number;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
-  portableDataManager?: Pick<PortableDataManager, "applyImport" | "exportData" | "previewImport">;
+  portableDataManager?: Pick<
+    PortableDataManager,
+    "applyImport" | "discardImport" | "exportData" | "previewImport"
+  >;
   getGraphicsDiagnostics?: (sender: Electron.WebContents) => Promise<unknown>;
   quitApplication?: () => void;
   restartApplication?: () => void;
@@ -133,34 +137,44 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.gamesList, () => requireGameStore(options).listGames());
-  ipcMain.handle(IPC_CHANNELS.gamesCreate, async (_event, input: CreateGameInput) => {
-    const game = await requireGameStore(options).createGame(input);
-    await broadcastGamesChange(options);
-    return game;
-  });
-  ipcMain.handle(IPC_CHANNELS.gamesUpdate, async (_event, id: string, input: UpdateGameInput) => {
-    const game = await requireGameStore(options).updateGame(id, input);
-    await broadcastGamesChange(options);
-    await broadcastGameCompatibilityChange(options);
-    return game;
-  });
-  ipcMain.handle(IPC_CHANNELS.gamesResetBuiltin, async (_event, id: string) => {
-    const game = await requireGameStore(options).resetBuiltinGame(id);
-    await broadcastGamesChange(options);
-    await broadcastGameCompatibilityChange(options);
-    return game;
-  });
-  ipcMain.handle(IPC_CHANNELS.gamesDelete, async (_event, id: string) => {
-    await deleteGameRecord(options, id);
-    await broadcastGamesChange(options);
-  });
-  ipcMain.handle(IPC_CHANNELS.gamesDeleteMany, async (_event, input: BulkDeleteInput) => {
-    const result = await runBulkDelete(input, (id) => deleteGameRecord(options, id));
-    if (result.deletedIds.length > 0) {
+  ipcMain.handle(IPC_CHANNELS.gamesCreate, (_event, input: CreateGameInput) =>
+    runDataMutation(options, async () => {
+      const game = await requireGameStore(options).createGame(input);
       await broadcastGamesChange(options);
-    }
-    return result;
-  });
+      return game;
+    })
+  );
+  ipcMain.handle(IPC_CHANNELS.gamesUpdate, (_event, id: string, input: UpdateGameInput) =>
+    runDataMutation(options, async () => {
+      const game = await requireGameStore(options).updateGame(id, input);
+      await broadcastGamesChange(options);
+      await broadcastGameCompatibilityChange(options);
+      return game;
+    })
+  );
+  ipcMain.handle(IPC_CHANNELS.gamesResetBuiltin, (_event, id: string) =>
+    runDataMutation(options, async () => {
+      const game = await requireGameStore(options).resetBuiltinGame(id);
+      await broadcastGamesChange(options);
+      await broadcastGameCompatibilityChange(options);
+      return game;
+    })
+  );
+  ipcMain.handle(IPC_CHANNELS.gamesDelete, (_event, id: string) =>
+    runDataMutation(options, async () => {
+      await deleteGameRecord(options, id);
+      await broadcastGamesChange(options);
+    })
+  );
+  ipcMain.handle(IPC_CHANNELS.gamesDeleteMany, (_event, input: BulkDeleteInput) =>
+    runDataMutation(options, async () => {
+      const result = await runBulkDelete(input, (id) => deleteGameRecord(options, id));
+      if (result.deletedIds.length > 0) {
+        await broadcastGamesChange(options);
+      }
+      return result;
+    })
+  );
   ipcMain.handle(IPC_CHANNELS.gamesCompatibilityList, () =>
     options.gameCompatibilityManager?.listReports() ?? Promise.resolve([])
   );
@@ -251,28 +265,34 @@ export function registerIpcHandlers(
     }
 
     const result = await options.portableDataManager.applyImport(input);
-    if (result.gameCount > 0 && options.gameStore) {
+    if ((result.operations ? hasPortableImportChanges(result.operations.games) : result.gameCount > 0) && options.gameStore) {
       await broadcastGamesChange(options);
     }
     if (result.preferences?.gameBrowserSettings) {
-      const savedSettings = await options.gameBrowserSettingsStore?.updateSettings(
-        result.preferences.gameBrowserSettings
-      );
-      if (savedSettings) {
-        browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
-        await broadcastGameCompatibilityChange(options);
-      }
+      browserManager.setWorkspaceAppearanceSettings(result.preferences.gameBrowserSettings.workspace);
+      await broadcastGameCompatibilityChange(options);
     }
-    if (result.roleCount > 0) {
+    if (result.operations ? hasPortableImportChanges(result.operations.roles) : result.roleCount > 0) {
       options.onRolesChanged?.();
     }
-    if (result.workspaceCount > 0) {
+    if (
+      result.operations
+        ? hasPortableImportChanges(result.operations.launchWorkspaces)
+        : result.workspaceCount > 0
+    ) {
       options.onWorkspacesChanged?.();
     }
-    if (result.macroCount > 0) {
+    if (result.operations ? hasPortableImportChanges(result.operations.macros) : result.macroCount > 0) {
       options.onMacrosChanged?.();
     }
     return result;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.portableImportDiscard, (_event, importId: string) => {
+    if (!options.portableDataManager || typeof importId !== "string" || !importId.trim()) {
+      throw new Error("Portable data import is not available.");
+    }
+    options.portableDataManager.discardImport(importId);
   });
 
   ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsGet, () => {
@@ -283,16 +303,18 @@ export function registerIpcHandlers(
     return options.gameBrowserSettingsStore.getSettings();
   });
 
-  ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsUpdate, async (_event, settings: GameBrowserSettings) => {
-    if (!options.gameBrowserSettingsStore) {
-      throw new Error("Game browser settings are not available.");
-    }
+  ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsUpdate, (_event, settings: GameBrowserSettings) =>
+    runDataMutation(options, async () => {
+      if (!options.gameBrowserSettingsStore) {
+        throw new Error("Game browser settings are not available.");
+      }
 
-    const savedSettings = await options.gameBrowserSettingsStore.updateSettings(settings);
-    browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
-    await broadcastGameCompatibilityChange(options);
-    return savedSettings;
-  });
+      const savedSettings = await options.gameBrowserSettingsStore.updateSettings(settings);
+      browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
+      await broadcastGameCompatibilityChange(options);
+      return savedSettings;
+    })
+  );
 
   ipcMain.handle(IPC_CHANNELS.graphicsDiagnosticsGet, (event) => {
     if (!options.getGraphicsDiagnostics) {
@@ -340,57 +362,67 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.rolesList, () => roleStore.listRoles());
 
-  ipcMain.handle(IPC_CHANNELS.rolesCreate, async (_event, input: CreateRoleInput) => {
-    const game = options.gameStore ? await options.gameStore.getGame(input.gameId) : undefined;
-    const role = await roleStore.createRole(game ? {
-      ...input,
-      launchUrl: input.launchUrl ?? game.defaultLaunchUrl,
-      windowWidth: input.windowWidth ?? game.roleDefaults?.windowWidth,
-      windowHeight: input.windowHeight ?? game.roleDefaults?.windowHeight,
-      launchPreset: input.launchPreset ?? game.roleDefaults?.launchPreset
-    } : input);
-    options.onRolesChanged?.();
-    return role;
-  });
+  ipcMain.handle(IPC_CHANNELS.rolesCreate, (_event, input: CreateRoleInput) =>
+    runDataMutation(options, async () => {
+      const game = options.gameStore ? await options.gameStore.getGame(input.gameId) : undefined;
+      const role = await roleStore.createRole(game ? {
+        ...input,
+        launchUrl: input.launchUrl ?? game.defaultLaunchUrl,
+        windowWidth: input.windowWidth ?? game.roleDefaults?.windowWidth,
+        windowHeight: input.windowHeight ?? game.roleDefaults?.windowHeight,
+        launchPreset: input.launchPreset ?? game.roleDefaults?.launchPreset
+      } : input);
+      options.onRolesChanged?.();
+      return role;
+    })
+  );
 
-  ipcMain.handle(IPC_CHANNELS.rolesUpdate, async (_event, id: string, input: UpdateRoleInput) => {
-    const current = await roleStore.getRole(id);
-    if (input.gameId !== undefined && options.gameStore) {
-      await options.gameStore.getGame(input.gameId);
-    }
-    const sessionIdentityChanged =
-      (input.gameId !== undefined && input.gameId !== current.gameId) ||
-      (input.launchUrl !== undefined && new URL(input.launchUrl).toString() !== current.launchUrl);
-    const role = sessionIdentityChanged
-      ? await browserManager.stopRoleAndRunMutation(id, () => roleStore.updateRole(id, input))
-      : await roleStore.updateRole(id, input);
-    options.onRolesChanged?.();
-    return role;
-  });
+  ipcMain.handle(IPC_CHANNELS.rolesUpdate, (_event, id: string, input: UpdateRoleInput) =>
+    runDataMutation(options, async () => {
+      const current = await roleStore.getRole(id);
+      if (input.gameId !== undefined && options.gameStore) {
+        await options.gameStore.getGame(input.gameId);
+      }
+      const sessionIdentityChanged =
+        (input.gameId !== undefined && input.gameId !== current.gameId) ||
+        (input.launchUrl !== undefined && new URL(input.launchUrl).toString() !== current.launchUrl);
+      const role = sessionIdentityChanged
+        ? await browserManager.stopRoleAndRunMutation(id, () => roleStore.updateRole(id, input))
+        : await roleStore.updateRole(id, input);
+      options.onRolesChanged?.();
+      return role;
+    })
+  );
 
-  ipcMain.handle(IPC_CHANNELS.rolesReorder, async (_event, input: ReorderItemsInput) => {
-    const roles = await roleStore.reorderRoles(input);
-    options.onRolesChanged?.();
-    return roles;
-  });
+  ipcMain.handle(IPC_CHANNELS.rolesReorder, (_event, input: ReorderItemsInput) =>
+    runDataMutation(options, async () => {
+      const roles = await roleStore.reorderRoles(input);
+      options.onRolesChanged?.();
+      return roles;
+    })
+  );
 
-  ipcMain.handle(IPC_CHANNELS.rolesDelete, async (_event, id: string) => {
-    await deleteRoleRecord(roleStore, workspaceStore, browserManager, options.macroStore, id);
-    options.onRolesChanged?.();
-    options.onWorkspacesChanged?.();
-    options.onMacrosChanged?.();
-  });
-  ipcMain.handle(IPC_CHANNELS.rolesDeleteMany, async (_event, input: BulkDeleteInput) => {
-    const result = await runBulkDelete(input, (id) =>
-      deleteRoleRecord(roleStore, workspaceStore, browserManager, options.macroStore, id)
-    );
-    if (result.deletedIds.length > 0) {
+  ipcMain.handle(IPC_CHANNELS.rolesDelete, (_event, id: string) =>
+    runDataMutation(options, async () => {
+      await deleteRoleRecord(roleStore, workspaceStore, browserManager, options.macroStore, id);
       options.onRolesChanged?.();
       options.onWorkspacesChanged?.();
       options.onMacrosChanged?.();
-    }
-    return result;
-  });
+    })
+  );
+  ipcMain.handle(IPC_CHANNELS.rolesDeleteMany, (_event, input: BulkDeleteInput) =>
+    runDataMutation(options, async () => {
+      const result = await runBulkDelete(input, (id) =>
+        deleteRoleRecord(roleStore, workspaceStore, browserManager, options.macroStore, id)
+      );
+      if (result.deletedIds.length > 0) {
+        options.onRolesChanged?.();
+        options.onWorkspacesChanged?.();
+        options.onMacrosChanged?.();
+      }
+      return result;
+    })
+  );
 
   ipcMain.handle(IPC_CHANNELS.rolesPaths, async (_event, id: string) => {
     await roleStore.getRole(id);
@@ -435,20 +467,22 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.workspacesList, () => workspaceStore.listWorkspaces());
 
-  ipcMain.handle(IPC_CHANNELS.workspacesCreate, async (_event, input: CreateLaunchWorkspaceInput) => {
-    const workspace = await runWithExistingRoles(
-      getWorkspaceInputRoleIds(input),
-      roleStore,
-      browserManager,
-      () => workspaceStore.createWorkspace(input)
-    );
-    options.onWorkspacesChanged?.();
-    return workspace;
-  });
+  ipcMain.handle(IPC_CHANNELS.workspacesCreate, (_event, input: CreateLaunchWorkspaceInput) =>
+    runDataMutation(options, async () => {
+      const workspace = await runWithExistingRoles(
+        getWorkspaceInputRoleIds(input),
+        roleStore,
+        browserManager,
+        () => workspaceStore.createWorkspace(input)
+      );
+      options.onWorkspacesChanged?.();
+      return workspace;
+    })
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.workspacesUpdate,
-    async (_event, id: string, input: UpdateLaunchWorkspaceInput) => {
+    (_event, id: string, input: UpdateLaunchWorkspaceInput) => runDataMutation(options, async () => {
       const workspace = await runWithExistingRoles(
         getWorkspaceInputRoleIds(input),
         roleStore,
@@ -457,26 +491,34 @@ export function registerIpcHandlers(
       );
       options.onWorkspacesChanged?.();
       return workspace;
-    }
+    })
   );
 
-  ipcMain.handle(IPC_CHANNELS.workspacesReorder, async (_event, input: ReorderItemsInput) => {
-    const workspaces = await workspaceStore.reorderWorkspaces(input);
-    options.onWorkspacesChanged?.();
-    return workspaces;
-  });
-
-  ipcMain.handle(IPC_CHANNELS.workspacesDelete, async (_event, id: string) => {
-    await deleteWorkspaceRecord(workspaceStore, browserManager, id);
-    options.onWorkspacesChanged?.();
-  });
-  ipcMain.handle(IPC_CHANNELS.workspacesDeleteMany, async (_event, input: BulkDeleteInput) => {
-    const result = await runBulkDelete(input, (id) => deleteWorkspaceRecord(workspaceStore, browserManager, id));
-    if (result.deletedIds.length > 0) {
+  ipcMain.handle(IPC_CHANNELS.workspacesReorder, (_event, input: ReorderItemsInput) =>
+    runDataMutation(options, async () => {
+      const workspaces = await workspaceStore.reorderWorkspaces(input);
       options.onWorkspacesChanged?.();
-    }
-    return result;
-  });
+      return workspaces;
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.workspacesDelete, (_event, id: string) =>
+    runDataMutation(options, async () => {
+      await deleteWorkspaceRecord(workspaceStore, browserManager, id);
+      options.onWorkspacesChanged?.();
+    })
+  );
+  ipcMain.handle(IPC_CHANNELS.workspacesDeleteMany, (_event, input: BulkDeleteInput) =>
+    runDataMutation(options, async () => {
+      const result = await runBulkDelete(input, (id) =>
+        deleteWorkspaceRecord(workspaceStore, browserManager, id)
+      );
+      if (result.deletedIds.length > 0) {
+        options.onWorkspacesChanged?.();
+      }
+      return result;
+    })
+  );
 
   ipcMain.handle(IPC_CHANNELS.workspacesDisplays, () => getWorkspaceDisplays(options));
 
@@ -578,39 +620,47 @@ export function registerIpcHandlers(
 
     ipcMain.handle(IPC_CHANNELS.macrosList, () => macroStore.listMacros());
 
-    ipcMain.handle(IPC_CHANNELS.macrosCreate, async (_event, input: CreateMacroInput) => {
-      const macro = await runWithExistingRoles(
-        getMacroInputRoleIds(input),
-        roleStore,
-        browserManager,
-        () => macroStore.createMacro(input)
-      );
-      options.onMacrosChanged?.();
-      return macro;
-    });
-
-    ipcMain.handle(IPC_CHANNELS.macrosUpdate, async (_event, id: string, input: UpdateMacroInput) => {
-      const macro = await runWithExistingRoles(
-        getMacroInputRoleIds(input),
-        roleStore,
-        browserManager,
-        () => macroManager.runStoppedMutation(id, () => macroStore.updateMacro(id, input))
-      );
-      options.onMacrosChanged?.();
-      return macro;
-    });
-
-    ipcMain.handle(IPC_CHANNELS.macrosDelete, async (_event, id: string) => {
-      await deleteMacroRecord(macroStore, macroManager, id);
-      options.onMacrosChanged?.();
-    });
-    ipcMain.handle(IPC_CHANNELS.macrosDeleteMany, async (_event, input: BulkDeleteInput) => {
-      const result = await runBulkDelete(input, (id) => deleteMacroRecord(macroStore, macroManager, id));
-      if (result.deletedIds.length > 0) {
+    ipcMain.handle(IPC_CHANNELS.macrosCreate, (_event, input: CreateMacroInput) =>
+      runDataMutation(options, async () => {
+        const macro = await runWithExistingRoles(
+          getMacroInputRoleIds(input),
+          roleStore,
+          browserManager,
+          () => macroStore.createMacro(input)
+        );
         options.onMacrosChanged?.();
-      }
-      return result;
-    });
+        return macro;
+      })
+    );
+
+    ipcMain.handle(IPC_CHANNELS.macrosUpdate, (_event, id: string, input: UpdateMacroInput) =>
+      runDataMutation(options, async () => {
+        const macro = await runWithExistingRoles(
+          getMacroInputRoleIds(input),
+          roleStore,
+          browserManager,
+          () => macroManager.runStoppedMutation(id, () => macroStore.updateMacro(id, input))
+        );
+        options.onMacrosChanged?.();
+        return macro;
+      })
+    );
+
+    ipcMain.handle(IPC_CHANNELS.macrosDelete, (_event, id: string) =>
+      runDataMutation(options, async () => {
+        await deleteMacroRecord(macroStore, macroManager, id);
+        options.onMacrosChanged?.();
+      })
+    );
+    ipcMain.handle(IPC_CHANNELS.macrosDeleteMany, (_event, input: BulkDeleteInput) =>
+      runDataMutation(options, async () => {
+        const result = await runBulkDelete(input, (id) => deleteMacroRecord(macroStore, macroManager, id));
+        if (result.deletedIds.length > 0) {
+          options.onMacrosChanged?.();
+        }
+        return result;
+      })
+    );
 
     ipcMain.handle(IPC_CHANNELS.macrosStart, async (_event, macroId: string) => {
       return macroManager.start(macroId);
@@ -622,6 +672,13 @@ export function registerIpcHandlers(
 
     ipcMain.handle(IPC_CHANNELS.macrosStatuses, () => macroManager.listStatuses());
   }
+}
+
+function runDataMutation<T>(
+  options: RegisterIpcHandlersOptions,
+  operation: () => Promise<T>
+): Promise<T> {
+  return options.withDataMutation?.(operation) ?? operation();
 }
 
 async function deleteGameRecord(options: RegisterIpcHandlersOptions, id: string): Promise<void> {
@@ -797,6 +854,10 @@ function getWorkspaceDisplays(options: RegisterIpcHandlersOptions): WorkspaceDis
       isInternal: false
     }
   ];
+}
+
+function hasPortableImportChanges(summary: { create: number; update: number }): boolean {
+  return summary.create > 0 || summary.update > 0;
 }
 
 function createWorkspaceDisplayLaunchOptions(

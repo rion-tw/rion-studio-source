@@ -134,6 +134,12 @@ export function App(): JSX.Element {
 
     return window.rionStudio.previewPortableImport();
   }, []);
+  const discardPortableImport = useCallback(async (importId: string): Promise<void> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+    await window.rionStudio.discardPortableImport(importId);
+  }, []);
   const applyPortableImport = useCallback(
     async (input: PortableImportInput): Promise<PortableImportResult> => {
       if (!window.rionStudio) {
@@ -658,6 +664,7 @@ export function App(): JSX.Element {
                   onLoadSystemFonts={loadSystemFonts}
                   onPreviewPortableImport={previewPortableImport}
                   onApplyPortableImport={applyPortableImport}
+                  onDiscardPortableImport={discardPortableImport}
                   onOpenUpdateDownload={updates.openUpdateDownload}
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
                   onRestartApplication={restartApplication}

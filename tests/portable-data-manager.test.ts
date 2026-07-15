@@ -1,12 +1,16 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MacroStore } from "../src/main/macros/MacroStore";
+import { MacroMutationBusyError } from "../src/main/macros/MacroManager";
 import { GameStore } from "../src/main/games/GameStore";
-import { PortableDataManager } from "../src/main/portable/PortableDataManager";
+import {
+  PortableDataManager,
+  recoverPortableImportTransaction
+} from "../src/main/portable/PortableDataManager";
 import { RoleStore } from "../src/main/roles/RoleStore";
 import { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
@@ -229,9 +233,24 @@ describe("PortableDataManager", () => {
         preferences: false
       }
     })).resolves.toMatchObject({ gameCount: 3, roleCount: 0, selection: { games: true, roles: false } });
-    expect((await gameStore.listGames()).filter((game) => game.source === "custom")).toHaveLength(2);
-    expect((await gameStore.listGames()).find((game) => game.name === "Custom web game (Imported)"))
+    expect((await gameStore.listGames()).filter((game) => game.source === "custom")).toHaveLength(1);
+    expect((await gameStore.listGames()).find((game) => game.name === "Custom web game"))
       .toMatchObject({ coverImageDataUrl });
+    expect(preview?.operations.games).toEqual({ create: 0, update: 1, unchanged: 2, skip: 0 });
+
+    const secondPreview = await manager.previewImport();
+    expect(secondPreview?.operations.games).toEqual({ create: 0, update: 0, unchanged: 3, skip: 0 });
+    await manager.applyImport({
+      importId: secondPreview!.importId,
+      selection: {
+        games: true,
+        roles: false,
+        launchWorkspaces: false,
+        macros: false,
+        preferences: false
+      }
+    });
+    expect((await gameStore.listGames()).filter((game) => game.source === "custom")).toHaveLength(1);
   });
 
   it("rejects an invalid custom game cover in portable v2 data", async () => {
@@ -283,13 +302,33 @@ describe("PortableDataManager", () => {
   it("previews and applies an import with remapped role references", async () => {
     const importPath = join(baseDir, "incoming.json");
     const existingRole = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
-    await workspaceStore.createWorkspace({ name: "Party" });
+    await roleStore.updateAuthState(existingRole.id, "authenticated", "2026-07-13T08:00:00.000Z");
+    await writeFile(
+      join(baseDir, "roles", existingRole.id, "browser", "session-marker"),
+      "keep-login",
+      "utf8"
+    );
+    const existingWorkspace = await workspaceStore.createWorkspace({ name: "Party", targetDisplayId: 42 });
     await macroStore.createMacro({
       name: "Auto heal",
       roleIds: [existingRole.id],
       steps: [{ id: "step-existing", type: "key", code: "F1" }]
     });
-    await writeFile(importPath, `${JSON.stringify(createPortableFixture(), null, 2)}\n`, "utf8");
+    const legacyFixture = createPortableFixture();
+    const fixture: RionPortableDataV2 = {
+      ...legacyFixture,
+      schemaVersion: 2,
+      games: [{
+        id: "remote-builtin",
+        source: "builtin",
+        builtinKey: "flyff-universe",
+        name: "Flyff Universe",
+        defaultLaunchUrl: "https://universe.flyff.com/play",
+        browserLaunchMode: "inherit"
+      }],
+      roles: legacyFixture.roles.map((role) => ({ ...role, gameId: "remote-builtin" }))
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
 
     const manager = createManager({
       importPath,
@@ -327,8 +366,6 @@ describe("PortableDataManager", () => {
     });
     expect(preview?.warnings).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: "ROLE_NAME_RENAMED", replacementName: "Main (Imported)" }),
-        expect.objectContaining({ code: "WORKSPACE_NAME_RENAMED", replacementName: "Party (Imported)" }),
         expect.objectContaining({ code: "WORKSPACE_ROLE_MISSING", count: 1 }),
         expect.objectContaining({ code: "MACRO_ROLE_MISSING", count: 1 }),
         expect.objectContaining({ code: "MACRO_SKIPPED_NO_ROLES", itemName: "Orphan" })
@@ -359,22 +396,27 @@ describe("PortableDataManager", () => {
         }
       }
     });
-    const importedRole = (await roleStore.listRoles()).find((role) => role.name === "Main (Imported)");
+    const importedRole = (await roleStore.listRoles()).find((role) => role.name === "Main");
     expect(importedRole).toMatchObject({
-      authState: "login_required",
+      id: existingRole.id,
+      authState: "authenticated",
+      lastSuccessfulLoginAt: "2026-07-13T08:00:00.000Z",
       launchUrl: "https://example.org/play"
     });
+    await expect(readFile(join(baseDir, "roles", existingRole.id, "browser", "session-marker"), "utf8"))
+      .resolves.toBe("keep-login");
 
     const importedWorkspace = (await workspaceStore.listWorkspaces()).find(
-      (workspace) => workspace.name === "Party (Imported)"
+      (workspace) => workspace.name === "Party"
     );
+    expect(importedWorkspace).toMatchObject({ id: existingWorkspace.id, targetDisplayId: 42 });
     expect(importedWorkspace?.slots[0]).toMatchObject({ roleId: importedRole?.id });
     expect(importedWorkspace?.slots[1]).not.toHaveProperty("roleId");
 
     const macros = await macroStore.listMacros();
     const importedMacro = macros.find((macro) => macro.name === "Auto heal" && macro.roleIds[0] === importedRole?.id);
     expect(importedMacro?.roleIds).toEqual([importedRole?.id]);
-    expect(macros.filter((macro) => macro.name === "Auto heal")).toHaveLength(2);
+    expect(macros.filter((macro) => macro.name === "Auto heal")).toHaveLength(1);
     expect(macros.some((macro) => macro.name === "Orphan")).toBe(false);
   });
 
@@ -453,7 +495,6 @@ describe("PortableDataManager", () => {
     const preview = await manager.previewImport();
     expect(preview?.warnings).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: "BUILTIN_GAME_DEFAULTS_REPLACED" }),
-      expect.objectContaining({ code: "GAME_NAME_RENAMED", replacementName: "Shared (Imported)" }),
       expect.objectContaining({ code: "ROLE_GAME_RECOVERED", itemName: "Recovered" })
     ]));
     await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
@@ -468,7 +509,11 @@ describe("PortableDataManager", () => {
     expect(games.find((game) => game.builtinKey === "flyff-universe")?.coverImageDataUrl)
       .toBeUndefined();
     expect(games).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: "custom", name: "Shared (Imported)" }),
+      expect.objectContaining({
+        source: "custom",
+        name: "Shared",
+        defaultLaunchUrl: "https://remote-shared.test/play"
+      }),
       expect.objectContaining({ source: "custom", name: "recovery.test · custom/path" })
     ]));
 
@@ -478,6 +523,45 @@ describe("PortableDataManager", () => {
     const importedRoleIds = new Set(roles.map((role) => role.id));
     expect((await workspaceStore.listWorkspaces())[0].slots.every((slot) => !slot.roleId || importedRoleIds.has(slot.roleId))).toBe(true);
     expect((await macroStore.listMacros())[0].roleIds.every((roleId) => importedRoleIds.has(roleId))).toBe(true);
+  });
+
+  it("imports a duplicate built-in identity as a safely named custom game", async () => {
+    const importPath = join(baseDir, "duplicate-builtin.json");
+    const fixture = createPortableV2Fixture();
+    fixture.games.push({
+      ...fixture.games[0],
+      id: "remote-builtin-duplicate",
+      defaultLaunchUrl: "https://duplicate.example/play"
+    });
+    fixture.roles.push({
+      ...fixture.roles[0],
+      id: "duplicate-role",
+      gameId: "remote-builtin-duplicate",
+      name: "Duplicate role"
+    });
+    fixture.launchWorkspaces = [];
+    fixture.macros = [];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    expect(preview?.operations.games.create).toBe(1);
+    expect(preview?.warnings).toContainEqual(expect.objectContaining({
+      code: "GAME_NAME_RENAMED",
+      replacementName: "Flyff Universe (Imported)"
+    }));
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+
+    const importedGame = (await gameStore.listGames()).find(
+      (game) => game.name === "Flyff Universe (Imported)"
+    );
+    expect(importedGame).toMatchObject({
+      source: "custom",
+      defaultLaunchUrl: "https://duplicate.example/play"
+    });
+    await expect(roleStore.listRoles()).resolves.toContainEqual(
+      expect.objectContaining({ name: "Duplicate role", gameId: importedGame?.id })
+    );
   });
 
   it("imports only preferences when all stored data categories are unselected", async () => {
@@ -792,6 +876,252 @@ describe("PortableDataManager", () => {
       }
     });
   });
+
+  it("requires a resolution when multiple existing macros have the same identity", async () => {
+    const importPath = join(baseDir, "ambiguous-macro.json");
+    const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
+    const first = await macroStore.createMacro({
+      name: "Duplicate",
+      roleIds: [role.id],
+      steps: [{ id: "first", type: "key", code: "F1" }]
+    });
+    await macroStore.createMacro({
+      name: "Duplicate",
+      roleIds: [role.id],
+      steps: [{ id: "second", type: "key", code: "F2" }]
+    });
+    const fixture = createPortableV2Fixture();
+    fixture.macros = [{
+      id: "incoming-duplicate",
+      name: "Duplicate",
+      roleIds: ["old-role"],
+      repeat: { type: "once" },
+      steps: [{ id: "imported", type: "key", code: "F3" }]
+    }];
+    fixture.launchWorkspaces = [];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    expect(preview?.conflicts).toHaveLength(1);
+    expect(preview?.conflicts[0].candidates).toHaveLength(2);
+    await expect(manager.applyImport({
+      importId: preview!.importId,
+      selection: ALL_PORTABLE_DATA
+    })).rejects.toMatchObject({ code: "PORTABLE_IMPORT_CONFLICT_UNRESOLVED" });
+
+    await manager.applyImport({
+      importId: preview!.importId,
+      selection: ALL_PORTABLE_DATA,
+      resolutions: [{ conflictId: preview!.conflicts[0].id, action: "update", targetMacroId: first.id }]
+    });
+    expect((await macroStore.getMacro(first.id)).steps).toEqual([
+      { id: "imported", type: "key", code: "F3" }
+    ]);
+    expect(await macroStore.listMacros()).toHaveLength(2);
+  });
+
+  it("blocks an active matched macro without consuming the preview", async () => {
+    const importPath = join(baseDir, "busy-macro.json");
+    const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
+    await macroStore.createMacro({
+      name: "Auto heal",
+      roleIds: [role.id],
+      steps: [{ id: "before", type: "key", code: "F1" }]
+    });
+    const fixture = createPortableV2Fixture();
+    fixture.launchWorkspaces = [];
+    fixture.macros = [{
+      id: "incoming",
+      name: "Auto heal",
+      roleIds: ["old-role"],
+      repeat: { type: "once" },
+      steps: [{ id: "after", type: "key", code: "F2" }]
+    }];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    let isBusy = true;
+    const manager = new PortableDataManager({
+      createImportId: () => "busy-import",
+      gameStore,
+      getAppVersion: () => "1.2.3",
+      macroStore,
+      roleStore,
+      showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: [importPath] })),
+      showSaveDialog: vi.fn(async () => ({ canceled: true })),
+      withStoppedMacros: async (_macroIds, operation) => {
+        if (isBusy) {
+          throw new MacroMutationBusyError();
+        }
+        return operation();
+      },
+      workspaceStore
+    });
+    const preview = await manager.previewImport();
+
+    await expect(manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA }))
+      .rejects.toMatchObject({ code: "PORTABLE_IMPORT_BUSY" });
+    isBusy = false;
+    await expect(manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA }))
+      .resolves.toMatchObject({ macroCount: 1 });
+  });
+
+  it("rolls back a failed multi-store commit and keeps the preview retryable", async () => {
+    const importPath = join(baseDir, "transaction.json");
+    await writeFile(importPath, `${JSON.stringify(createPortableFixture(), null, 2)}\n`, "utf8");
+    const gamesBefore = await gameStore.listGames();
+    let workspaceReplaceCalls = 0;
+    const transactionalWorkspaceStore = {
+      listWorkspaces: () => workspaceStore.listWorkspaces(),
+      publishWorkspacesForImport: (
+        workspaces: Parameters<LaunchWorkspaceStore["publishWorkspacesForImport"]>[0]
+      ) =>
+        workspaceStore.publishWorkspacesForImport(workspaces),
+      replaceWorkspacesForImport: async (
+        workspaces: Parameters<LaunchWorkspaceStore["replaceWorkspacesForImport"]>[0],
+        publishCache?: boolean
+      ) => {
+        workspaceReplaceCalls += 1;
+        if (workspaceReplaceCalls === 1) {
+          expect(await gameStore.listGames()).toEqual(gamesBefore);
+          expect(await roleStore.listRoles()).toEqual([]);
+          throw new Error("simulated workspace write failure");
+        }
+        return workspaceStore.replaceWorkspacesForImport(workspaces, publishCache);
+      }
+    };
+    const manager = new PortableDataManager({
+      createImportId: () => "transaction-import",
+      gameStore,
+      getAppVersion: () => "1.2.3",
+      macroStore,
+      roleStore,
+      showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: [importPath] })),
+      showSaveDialog: vi.fn(async () => ({ canceled: true })),
+      workspaceStore: transactionalWorkspaceStore
+    });
+
+    const preview = await manager.previewImport();
+    await expect(manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA }))
+      .rejects.toThrow("simulated workspace write failure");
+    expect(await gameStore.listGames()).toEqual(gamesBefore);
+    expect(await roleStore.listRoles()).toEqual([]);
+    expect(await workspaceStore.listWorkspaces()).toEqual([]);
+    expect(await macroStore.listMacros()).toEqual([]);
+    expect(await readdir(join(baseDir, "roles"))).toEqual([]);
+    await expect(access(join(baseDir, "portable-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(join(baseDir, "portable-import-transaction.stage"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    await expect(manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA }))
+      .resolves.toMatchObject({ roleCount: 1, workspaceCount: 1, macroCount: 1 });
+  });
+
+  it("restores an interrupted import journal before stores initialize", async () => {
+    const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Before" });
+    const createdRoleId = "12345678-1234-4123-8123-123456789abc";
+    const journal = {
+      createdRoleIds: [createdRoleId],
+      games: await gameStore.listGames(),
+      roles: await roleStore.listRoles(),
+      workspaces: await workspaceStore.listWorkspaces(),
+      macros: await macroStore.listMacros()
+    };
+    await writeFile(join(baseDir, "portable-import-transaction.json"), JSON.stringify(journal), "utf8");
+    await writeFile(join(baseDir, "roles.json"), JSON.stringify({ roles: [] }), "utf8");
+    await mkdir(join(baseDir, "roles", createdRoleId, "browser"), { recursive: true });
+
+    await recoverPortableImportTransaction(baseDir);
+
+    const recoveredStore = new RoleStore(baseDir);
+    await expect(recoveredStore.getRole(role.id)).resolves.toMatchObject({ name: "Before" });
+    await expect(access(join(baseDir, "roles", createdRoleId))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(join(baseDir, "portable-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("finishes a committed import journal during startup recovery", async () => {
+    const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Before" });
+    const createdRoleId = "87654321-4321-4321-8321-cba987654321";
+    const targetRoles = [
+      { ...role, name: "After" },
+      {
+        ...role,
+        id: createdRoleId,
+        name: "Imported",
+        authState: "login_required" as const,
+        lastAuthCheckAt: undefined,
+        lastSuccessfulLoginAt: undefined
+      }
+    ];
+    const games = await gameStore.listGames();
+    const workspaces = await workspaceStore.listWorkspaces();
+    const macros = await macroStore.listMacros();
+    const journal = {
+      createdRoleIds: [createdRoleId],
+      games,
+      roles: [role],
+      workspaces,
+      macros,
+      phase: "committed",
+      targetGames: games,
+      targetRoles,
+      targetWorkspaces: workspaces,
+      targetMacros: macros
+    };
+    await writeFile(join(baseDir, "portable-import-transaction.json"), JSON.stringify(journal), "utf8");
+    await writeFile(join(baseDir, "roles.json"), JSON.stringify({ roles: [] }), "utf8");
+    await mkdir(join(baseDir, "roles", createdRoleId, "browser"), { recursive: true });
+    await mkdir(join(baseDir, "portable-import-transaction.stage"), { recursive: true });
+
+    await recoverPortableImportTransaction(baseDir);
+
+    const recoveredStore = new RoleStore(baseDir);
+    await expect(recoveredStore.listRoles()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: role.id, name: "After" }),
+        expect.objectContaining({ id: createdRoleId, name: "Imported" })
+      ])
+    );
+    await expect(access(join(baseDir, "roles", createdRoleId, "browser"))).resolves.toBeUndefined();
+    await expect(access(join(baseDir, "portable-import-transaction.stage"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(join(baseDir, "portable-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects roles outside a workspace layout during preview", async () => {
+    const importPath = join(baseDir, "workspace-outside-layout.json");
+    const fixture = createPortableFixture();
+    fixture.launchWorkspaces[0] = {
+      ...fixture.launchWorkspaces[0],
+      template: "single",
+      slots: [
+        { id: "slot-1", rect: { x: 0, y: 0, width: 1, height: 1 } },
+        { id: "slot-2", roleId: "old-role", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+      ]
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+  });
+
+  it("does not overwrite local built-in settings inferred from a v1 role", async () => {
+    const importPath = join(baseDir, "legacy-builtin.json");
+    await gameStore.updateGame("builtin-flyff-universe", {
+      defaultLaunchUrl: "https://local-override.test/play",
+      browserLaunchMode: "external"
+    });
+    const fixture = createPortableFixture();
+    fixture.roles[0].launchUrl = "https://universe.flyff.com/play";
+    fixture.launchWorkspaces = [];
+    fixture.macros = [];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    const preview = await manager.previewImport();
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+
+    await expect(gameStore.getGame("builtin-flyff-universe")).resolves.toMatchObject({
+      defaultLaunchUrl: "https://local-override.test/play",
+      browserLaunchMode: "external"
+    });
+  });
 });
 
 function createManager({
@@ -902,5 +1232,22 @@ function createPortableFixture(): RionPortableDataV1 {
         steps: [{ id: "step-2", type: "delay", ms: 100 }]
       }
     ]
+  };
+}
+
+function createPortableV2Fixture(): RionPortableDataV2 {
+  const legacy = createPortableFixture();
+  return {
+    ...legacy,
+    schemaVersion: 2,
+    games: [{
+      id: "remote-builtin",
+      source: "builtin",
+      builtinKey: "flyff-universe",
+      name: "Flyff Universe",
+      defaultLaunchUrl: "https://universe.flyff.com/play",
+      browserLaunchMode: "inherit"
+    }],
+    roles: legacy.roles.map((role) => ({ ...role, gameId: "remote-builtin" }))
   };
 }

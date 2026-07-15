@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MacroManager } from "../src/main/macros/MacroManager";
+import { MacroManager, MacroMutationBusyError } from "../src/main/macros/MacroManager";
 import type { Macro } from "../src/shared/types";
 
 const macro: Macro = {
@@ -279,6 +279,25 @@ describe("MacroManager", () => {
     );
     expect(operation).not.toHaveBeenCalled();
     await manager.stop("macro-1");
+  });
+
+  it("holds all requested macro locks and rejects an import-style mutation while one is running", async () => {
+    vi.useFakeTimers();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        steps: [{ id: "step-1", type: "delay", ms: 1000 }]
+      }
+    });
+    const operation = vi.fn().mockResolvedValue(undefined);
+
+    await manager.start("macro-1");
+    await expect(manager.runStoppedMutations(["macro-2", "macro-1"], operation))
+      .rejects.toBeInstanceOf(MacroMutationBusyError);
+    expect(operation).not.toHaveBeenCalled();
+    await manager.stop("macro-1");
+    await expect(manager.runStoppedMutations(["macro-2", "macro-1"], operation)).resolves.toBeUndefined();
   });
 
   it("aborts a hung dispatch before a destructive mutation runs", async () => {

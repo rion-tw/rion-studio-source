@@ -34,11 +34,17 @@ export class GameBrowserSettingsStore {
     return cloneSettings(this.cachedSettings);
   }
 
-  async updateSettings(settings: GameBrowserSettings): Promise<GameBrowserSettings> {
+  async updateSettings(settings: GameBrowserSettings, publishCache = true): Promise<GameBrowserSettings> {
     const normalizedSettings = normalizeGameBrowserSettings(settings);
     await this.writeSettings(normalizedSettings);
-    this.cachedSettings = cloneSettings(normalizedSettings);
+    if (publishCache) {
+      this.cachedSettings = cloneSettings(normalizedSettings);
+    }
     return cloneSettings(normalizedSettings);
+  }
+
+  publishSettingsForImport(settings: GameBrowserSettings): void {
+    this.cachedSettings = cloneSettings(normalizeGameBrowserSettings(settings));
   }
 
   private async writeSettings(settings: GameBrowserSettings): Promise<void> {

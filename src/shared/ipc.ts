@@ -56,6 +56,7 @@ export const IPC_CHANNELS = {
   portableExport: "portable:export",
   portableImportPreview: "portable:import-preview",
   portableImportApply: "portable:import-apply",
+  portableImportDiscard: "portable:import-discard",
   gameBrowserSettingsGet: "game-browser-settings:get",
   gameBrowserSettingsUpdate: "game-browser-settings:update",
   graphicsDiagnosticsGet: "graphics-diagnostics:get",

@@ -43,7 +43,11 @@ import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
 import { MacroManager } from "./macros/MacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
-import { PortableDataManager } from "./portable/PortableDataManager";
+import {
+  PortableDataManager,
+  recoverPortableImportTransaction
+} from "./portable/PortableDataManager";
+import { SerialTaskQueue } from "./persistence/SerialTaskQueue";
 import { RoleStore } from "./roles/RoleStore";
 import { findSystemChromeExecutable } from "./system-browser/SystemChromeLauncher";
 import {
@@ -247,7 +251,15 @@ function consumePendingMacroEditorRequest(): MacroEditorRequest | null {
 
 async function initializeApplication(): Promise<void> {
   const userDataDir = app.getPath("userData");
+  await recoverPortableImportTransaction(userDataDir);
+  const dataMutationQueue = new SerialTaskQueue();
+  const withDataMutation = <T>(operation: () => Promise<T>): Promise<T> =>
+    dataMutationQueue.run(operation);
   const roleStore = new RoleStore(userDataDir);
+  const transactionalRoleAuthStore: Pick<RoleStore, "updateAuthState"> = {
+    updateAuthState: (id, authState, messageTimestamp) =>
+      withDataMutation(() => roleStore.updateAuthState(id, authState, messageTimestamp))
+  };
   const gameStore = new GameStore(userDataDir, roleStore);
   await gameStore.initialize();
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
@@ -266,21 +278,6 @@ async function initializeApplication(): Promise<void> {
   });
   const systemFontService = new SystemFontService();
   const gameCompatibilityStore = new GameCompatibilityStore(userDataDir);
-  const portableDataManager = new PortableDataManager({
-    gameStore,
-    getAppVersion: () => app.getVersion(),
-    macroStore,
-    roleStore,
-    showOpenDialog: (options) =>
-      mainWindow && !mainWindow.isDestroyed()
-        ? dialog.showOpenDialog(mainWindow, options)
-        : dialog.showOpenDialog(options),
-    showSaveDialog: (options) =>
-      mainWindow && !mainWindow.isDestroyed()
-        ? dialog.showSaveDialog(mainWindow, options)
-        : dialog.showSaveDialog(options),
-    workspaceStore
-  });
   const updateManager = new AppUpdateManager({
     currentVersion: app.getVersion(),
     isPackaged: app.isPackaged,
@@ -319,7 +316,7 @@ async function initializeApplication(): Promise<void> {
       ? { windowBoundsAdapter: externalChromeWindowBoundsAdapter }
       : {})
   });
-  browserManager = new BrowserManager(roleStore, {
+  browserManager = new BrowserManager(transactionalRoleAuthStore, {
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
       await browserFontApplier.applyToRoleLaunch(browserUserDataDir, partition);
@@ -351,6 +348,25 @@ async function initializeApplication(): Promise<void> {
     browserManager?.handleDividerPointer(event.sender.id, payload);
   });
   const macroManager = new MacroManager(browserManager, macroStore);
+  const portableDataManager = new PortableDataManager({
+    gameBrowserSettingsStore,
+    gameStore,
+    getAppVersion: () => app.getVersion(),
+    macroStore,
+    roleStore,
+    showOpenDialog: (options) =>
+      mainWindow && !mainWindow.isDestroyed()
+        ? dialog.showOpenDialog(mainWindow, options)
+        : dialog.showOpenDialog(options),
+    showSaveDialog: (options) =>
+      mainWindow && !mainWindow.isDestroyed()
+        ? dialog.showSaveDialog(mainWindow, options)
+        : dialog.showSaveDialog(options),
+    userDataDir,
+    withDataMutation,
+    withStoppedMacros: (macroIds, operation) => macroManager.runStoppedMutations(macroIds, operation),
+    workspaceStore
+  });
   browserManager.setBeforeRolesStop(async (roleIds) => {
     await Promise.all(roleIds.map((roleId) => macroManager.stopRole(roleId)));
   });
@@ -360,7 +376,7 @@ async function initializeApplication(): Promise<void> {
   macroManager.on("change", () => {
     macroOverlayInjector.refreshInstalledOverlays();
   });
-  const authManager = new AuthManager(roleStore, browserManager);
+  const authManager = new AuthManager(transactionalRoleAuthStore, browserManager);
   const gameCompatibilityManager = new GameCompatibilityManager({
     applyCdnCompatibility: async (session) => {
       await cdnCompatibilityManager.applyToSession(session);
@@ -407,6 +423,7 @@ async function initializeApplication(): Promise<void> {
     portableDataManager,
     systemFontService,
     updateManager,
+    withDataMutation,
     onMacrosChanged: () => {
       macroOverlayInjector.refreshInstalledOverlays();
     },

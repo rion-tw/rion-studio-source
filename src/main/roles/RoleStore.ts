@@ -53,11 +53,42 @@ export class RoleStore {
     this.legacyRolesRoot = join(userDataDir, "profiles");
   }
 
+  getUserDataDir(): string {
+    return this.userDataDir;
+  }
+
   async listRoles(): Promise<Role[]> {
     return this.taskQueue.run(async () => {
       const file = await this.readRolesFile();
       return [...file.roles];
     });
+  }
+
+  async replaceRolesForImport(roles: Role[], publishCache = true): Promise<Role[]> {
+    return this.taskQueue.run(async () => {
+      const currentById = new Map((await this.readRolesFile()).roles.map((role) => [role.id, role]));
+      const normalized = roles.map((role) => {
+        const next = this.normalizeStoredRole(role);
+        const current = currentById.get(next.id);
+        return current
+          ? {
+              ...next,
+              authState: current.authState,
+              lastAuthCheckAt: current.lastAuthCheckAt,
+              lastSuccessfulLoginAt: current.lastSuccessfulLoginAt
+            }
+          : next;
+      });
+
+      normalized.forEach((role) => this.ensureUniqueName(normalized, role.gameId, role.name, role.id));
+      await Promise.all(normalized.map((role) => mkdir(this.getBrowserUserDataDir(role.id), { recursive: true })));
+      await this.writeRolesFile({ roles: normalized }, publishCache);
+      return cloneRolesFile({ roles: normalized }).roles;
+    });
+  }
+
+  publishRolesForImport(roles: Role[]): void {
+    this.cachedFile = cloneRolesFile({ roles });
   }
 
   async getRole(id: string): Promise<Role> {
@@ -77,15 +108,16 @@ export class RoleStore {
       const file = await this.readRolesFile();
       const now = new Date().toISOString();
       const name = this.normalizeName(input.name);
+      const gameId = this.normalizeGameId(input.gameId);
 
-      this.ensureUniqueName(file.roles, name);
+      this.ensureUniqueName(file.roles, gameId, name);
       const launchUrl = this.normalizeLaunchUrl(input.launchUrl);
       const coverImageDataUrl = this.normalizeCoverImageDataUrl(input.coverImageDataUrl);
       const coverImageDominantColor = this.normalizeCoverImageDominantColor(input.coverImageDominantColor);
 
       const role: Role = {
         id: randomUUID(),
-        gameId: this.normalizeGameId(input.gameId),
+        gameId,
         name,
         launchUrl,
         windowWidth: this.normalizeWindowSize(input.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH, "windowWidth"),
@@ -123,7 +155,7 @@ export class RoleStore {
         ? current.launchUrl
         : this.normalizeLaunchUrl(input.launchUrl, current.launchUrl);
       const isSessionIdentityChanged = nextLaunchUrl !== current.launchUrl || nextGameId !== current.gameId;
-      this.ensureUniqueName(file.roles, nextName, id);
+      this.ensureUniqueName(file.roles, nextGameId, nextName, id);
       const isCoverImageUpdated = input.coverImageDataUrl !== undefined;
       const coverImageDataUrl = isCoverImageUpdated
         ? this.normalizeCoverImageDataUrl(input.coverImageDataUrl)
@@ -319,10 +351,12 @@ export class RoleStore {
     }
   }
 
-  private async writeRolesFile(file: RolesFile): Promise<void> {
+  private async writeRolesFile(file: RolesFile, publishCache = true): Promise<void> {
     await mkdir(this.rolesRoot, { recursive: true });
     await writeJsonFileAtomically(this.rolesPath, file);
-    this.cachedFile = cloneRolesFile(file);
+    if (publishCache) {
+      this.cachedFile = cloneRolesFile(file);
+    }
   }
 
   private normalizeName(name: string): string {
@@ -493,9 +527,12 @@ export class RoleStore {
     return isCoverImageUpdated ? undefined : current.coverImageDominantColor;
   }
 
-  private ensureUniqueName(roles: Role[], name: string, currentId?: string): void {
+  private ensureUniqueName(roles: Role[], gameId: string, name: string, currentId?: string): void {
     const duplicate = roles.some(
-      (role) => role.id !== currentId && role.name.toLocaleLowerCase() === name.toLocaleLowerCase()
+      (role) =>
+        role.id !== currentId &&
+        role.gameId === gameId &&
+        role.name.toLocaleLowerCase() === name.toLocaleLowerCase()
     );
 
     if (duplicate) {

@@ -64,6 +64,7 @@ const api: RionStudioApi = {
   exportPortableData: (input) => ipcRenderer.invoke(IPC_CHANNELS.portableExport, input),
   previewPortableImport: () => ipcRenderer.invoke(IPC_CHANNELS.portableImportPreview),
   applyPortableImport: (input) => ipcRenderer.invoke(IPC_CHANNELS.portableImportApply, input),
+  discardPortableImport: (importId) => ipcRenderer.invoke(IPC_CHANNELS.portableImportDiscard, importId),
   getGameBrowserSettings: () => ipcRenderer.invoke(IPC_CHANNELS.gameBrowserSettingsGet),
   updateGameBrowserSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.gameBrowserSettingsUpdate, settings),
   getGraphicsDiagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.graphicsDiagnosticsGet),

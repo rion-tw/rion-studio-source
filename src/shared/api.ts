@@ -90,6 +90,7 @@ export interface RionStudioApi {
   exportPortableData: (input?: PortableExportInput) => Promise<PortableExportResult | null>;
   previewPortableImport: () => Promise<PortableImportPreview | null>;
   applyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
+  discardPortableImport: (importId: string) => Promise<void>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;

@@ -30,6 +30,13 @@ class MacroRunCancelledError extends Error {
   }
 }
 
+export class MacroMutationBusyError extends Error {
+  constructor() {
+    super("Stop affected macros before importing.");
+    this.name = "MacroMutationBusyError";
+  }
+}
+
 export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private readonly terminalStatuses = new Map<string, MacroRunStatus>();
   private readonly macroMutationTails = new Map<string, Promise<void>>();
@@ -82,6 +89,23 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       this.clearTerminalStatuses((status) => status.macroId === macroId);
       return result;
     });
+  }
+
+  runStoppedMutations<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
+    const ids = [...new Set(macroIds)].sort();
+    const acquire = (index: number): Promise<T> => {
+      const macroId = ids[index];
+      if (!macroId) {
+        return operation();
+      }
+      return this.withMacroMutationLock(macroId, async () => {
+        if (this.hasActiveMacroRun(macroId)) {
+          throw new MacroMutationBusyError();
+        }
+        return acquire(index + 1);
+      });
+    };
+    return acquire(0);
   }
 
   stopAndRunMutation<T>(macroId: string, operation: () => Promise<T>): Promise<T> {

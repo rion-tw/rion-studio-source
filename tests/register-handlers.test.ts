@@ -299,6 +299,29 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(roleStore.createRole).not.toHaveBeenCalled();
   });
 
+  it("runs ordinary data edits through the shared mutation coordinator", async () => {
+    const withDataMutation = vi.fn((operation: () => Promise<unknown>) => operation());
+    registerIpcHandlers(
+      roleStore as RoleStore,
+      workspaceStore as LaunchWorkspaceStore,
+      browserManager as BrowserManager,
+      authManager as AuthManager,
+      {
+        gameCompatibilityManager,
+        gameStore,
+        withDataMutation: withDataMutation as never
+      }
+    );
+
+    await handlers.get(IPC_CHANNELS.gamesCreate)?.({}, {
+      name: "Coordinated",
+      defaultLaunchUrl: "https://coordinated.example/play"
+    });
+
+    expect(withDataMutation).toHaveBeenCalledTimes(1);
+    expect(gameStore.createGame).toHaveBeenCalledTimes(1);
+  });
+
   it("bulk deletes games in order, de-duplicates ids, and reports protected or in-use games", async () => {
     vi.mocked(gameStore.deleteGame).mockImplementation(async (id) => {
       if (id === "builtin") {
@@ -1084,6 +1107,7 @@ describe("registerIpcHandlers portable data handlers", () => {
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let portableDataManager: {
     applyImport: AnyMock;
+    discardImport: AnyMock;
     exportData: AnyMock;
     previewImport: AnyMock;
   };
@@ -1124,6 +1148,7 @@ describe("registerIpcHandlers portable data handlers", () => {
         selection: allPortableData,
         warnings: []
       }),
+      discardImport: vi.fn(),
       exportData: vi.fn().mockResolvedValue({
         filePath: "/tmp/rion.json",
         roleCount: 1,
@@ -1171,12 +1196,14 @@ describe("registerIpcHandlers portable data handlers", () => {
       workspaceCount: 1,
       macroCount: 1
     });
+    expect(handlers.get(IPC_CHANNELS.portableImportDiscard)?.({}, "import-1")).toBeUndefined();
 
     expect(portableDataManager.exportData).toHaveBeenCalledWith({
       preferences: { language: "zh-TW", themeMode: "dark" }
     });
     expect(portableDataManager.previewImport).toHaveBeenCalledTimes(1);
     expect(portableDataManager.applyImport).toHaveBeenCalledWith(importInput);
+    expect(portableDataManager.discardImport).toHaveBeenCalledWith("import-1");
     expect(onRolesChanged).toHaveBeenCalledTimes(1);
     expect(onWorkspacesChanged).toHaveBeenCalledTimes(1);
     expect(onMacrosChanged).toHaveBeenCalledTimes(1);
@@ -1219,7 +1246,7 @@ describe("registerIpcHandlers portable data handlers", () => {
       selection: { roles: false, launchWorkspaces: false, macros: false, preferences: true }
     });
 
-    expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(importedSettings);
+    expect(gameBrowserSettingsStore.updateSettings).not.toHaveBeenCalled();
     expect(browserManager.setWorkspaceAppearanceSettings).toHaveBeenCalledWith(importedSettings.workspace);
     expect(onRolesChanged).not.toHaveBeenCalled();
     expect(onWorkspacesChanged).not.toHaveBeenCalled();

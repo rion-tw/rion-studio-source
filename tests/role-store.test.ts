@@ -291,6 +291,17 @@ describe("RoleStore", () => {
     });
   });
 
+  it("allows the same role name in different games", async () => {
+    const first = await store.createRole({ gameId: "game-1", name: "Main" });
+    const second = await store.createRole({ gameId: "game-2", name: "main" });
+
+    expect(first.gameId).toBe("game-1");
+    expect(second).toMatchObject({ gameId: "game-2", name: "main" });
+    await expect(store.updateRole(second.id, { gameId: "game-1" })).rejects.toMatchObject({
+      code: "ROLE_NAME_DUPLICATE"
+    });
+  });
+
   it("updates a role and keeps its original created timestamp", async () => {
     const role = await store.createRole({ gameId: "game-1", name: "Main" });
     const updated = await store.updateRole(role.id, {

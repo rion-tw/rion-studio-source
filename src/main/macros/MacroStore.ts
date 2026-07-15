@@ -62,6 +62,21 @@ export class MacroStore {
     });
   }
 
+  async replaceMacrosForImport(macros: Macro[], publishCache = true): Promise<Macro[]> {
+    return this.taskQueue.run(async () => {
+      const normalized = macros.map((macro) => this.normalizeStoredMacro(macro as StoredMacro));
+      normalized.forEach((macro) => {
+        this.assertTriggerAvailable(macro.trigger, macro.roleIds, normalized, macro.id);
+      });
+      await this.writeMacrosFile({ macros: normalized }, publishCache);
+      return cloneMacrosFile({ macros: normalized }).macros;
+    });
+  }
+
+  publishMacrosForImport(macros: Macro[]): void {
+    this.cachedFile = cloneMacrosFile({ macros });
+  }
+
   async getMacro(id: string): Promise<Macro> {
     return this.taskQueue.run(async () => {
       const macro = (await this.readMacrosFile()).macros.find((item) => item.id === id);
@@ -203,9 +218,11 @@ export class MacroStore {
     }
   }
 
-  private async writeMacrosFile(file: MacrosFile): Promise<void> {
+  private async writeMacrosFile(file: MacrosFile, publishCache = true): Promise<void> {
     await writeJsonFileAtomically(this.macrosPath, file);
-    this.cachedFile = cloneMacrosFile(file);
+    if (publishCache) {
+      this.cachedFile = cloneMacrosFile(file);
+    }
   }
 
   private normalizeStoredMacro(macro: StoredMacro): Macro {

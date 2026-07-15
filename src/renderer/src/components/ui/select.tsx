@@ -18,7 +18,7 @@ SelectGroup.displayName = SelectPrimitive.Group.displayName;
 export const SelectValue = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Value>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Value>
->((props, ref) => <SelectPrimitive.Value ref={ref} {...props} />);
+>((props, ref) => <SelectPrimitive.Value ref={ref} data-slot="select-value" {...props} />);
 
 SelectValue.displayName = SelectPrimitive.Value.displayName;
 
@@ -29,7 +29,7 @@ export const SelectTrigger = forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "glass-control glass-select flex h-[30px] w-full items-center justify-between gap-2 rounded-md px-2.5 text-[12px] leading-none text-foreground transition-colors hover:text-foreground focus-visible:border-ring/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-45 [&>span]:flex [&>span]:min-w-0 [&>span]:items-center [&>span]:gap-2 [&>span]:truncate",
+      "glass-control glass-select flex h-[30px] w-full min-w-0 max-w-full items-center justify-between gap-2 overflow-hidden rounded-md px-2.5 text-[12px] leading-none text-foreground transition-colors hover:text-foreground focus-visible:border-ring/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-45 [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:flex-1 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:text-left",
       className
     )}
     {...props}
@@ -82,7 +82,7 @@ export const SelectContent = forwardRef<
       ref={ref}
       data-selection-ignore
       className={cn(
-        "glass-popover relative z-[100] max-h-[min(18rem,var(--radix-select-content-available-height))] min-w-[8rem] overflow-hidden rounded-md border border-border/60 text-[12px] text-popover-foreground shadow-md data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
+        "glass-popover relative z-[100] max-h-[min(18rem,var(--radix-select-content-available-height))] max-w-[calc(100vw-1rem)] min-w-[8rem] overflow-hidden rounded-md border border-border/60 text-[12px] text-popover-foreground shadow-md data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
         position === "popper" &&
           "w-[var(--radix-select-trigger-width)] data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
@@ -127,7 +127,7 @@ export const SelectItem = forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-7 w-full cursor-default select-none items-center rounded-[5px] py-1.5 pl-7 pr-2 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2",
+      "relative flex min-h-7 w-full max-w-full cursor-default select-none items-center overflow-hidden rounded-[5px] py-1.5 pl-7 pr-2 outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-45 data-[highlighted]:bg-accent/60 data-[highlighted]:text-accent-foreground [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2 [&>span:last-child]:truncate",
       className
     )}
     {...props}

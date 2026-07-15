@@ -27,6 +27,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
+import { CreateItemCard } from "../../components/CreateListItem";
 import {
   SelectionActionBar,
   SelectionCardOverlay,
@@ -259,7 +260,7 @@ function RolesView({
           onAction={onClearQuery}
         />
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
+        <div className="grid auto-rows-fr grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
           {visibleRoles.map((role) => {
             const status = statusByRole.get(role.id);
             const authStatus = authStatusByRole.get(role.id);
@@ -298,6 +299,7 @@ function RolesView({
               />
             );
           })}
+          <CreateItemCard className="aspect-[4/5]" label={t("roles.newRole")} onClick={onNewRole} />
         </div>
       )}
       <SelectionMarquee rect={selection.selectionRect} />

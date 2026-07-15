@@ -17,6 +17,7 @@ import { type JSX, useMemo } from "react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { IconTile, PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
+import { CreateItemRow } from "../../components/CreateListItem";
 import { roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { formatAuthFlowState } from "../../app/statusUtils";
 import type { SidebarFilter } from "../../app/types";
@@ -221,6 +222,7 @@ function DashboardRoute({
                     onStop={() => onStopRole(item.role.id)}
                   />
                 ))}
+                <CreateItemRow label={t("roles.newRole")} onClick={onNewRole} />
               </div>
             )}
           </Panel>
@@ -252,6 +254,7 @@ function DashboardRoute({
                     onStop={() => onStopWorkspace(item.workspace)}
                   />
                 ))}
+                <CreateItemRow label={t("workspaces.newWorkspace")} onClick={onCreateWorkspace} />
               </div>
             )}
           </Panel>
@@ -281,6 +284,7 @@ function DashboardRoute({
                     onStop={() => onStopMacro(item.macro.id)}
                   />
                 ))}
+                <CreateItemRow label={t("macros.newMacro")} onClick={onNewMacro} />
               </div>
             )}
           </Panel>

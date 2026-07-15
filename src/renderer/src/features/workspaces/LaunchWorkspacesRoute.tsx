@@ -30,6 +30,7 @@ import { Badge } from "../../components/ui/badge";
 import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
+import { CreateItemCard } from "../../components/CreateListItem";
 import {
   SelectionActionBar,
   SelectionCardOverlay,
@@ -234,7 +235,7 @@ function LaunchWorkspacesView({
           onAction={() => onQueryChange("")}
         />
       ) : (
-        <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid auto-rows-fr grid-cols-2 gap-3.5 xl:grid-cols-3 2xl:grid-cols-4">
           {filteredWorkspaces.map((workspace) => (
             <WorkspaceCard
               key={workspace.id}
@@ -262,6 +263,7 @@ function LaunchWorkspacesView({
               onSelectionClick={(event) => selection.handleItemClick(event, workspace.id)}
             />
           ))}
+          <CreateItemCard label={t("workspaces.newWorkspace")} onClick={onCreateWorkspace} />
         </div>
       )}
       <SelectionMarquee rect={selection.selectionRect} />

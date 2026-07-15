@@ -16,6 +16,7 @@ import { type CSSProperties, type JSX, type MutableRefObject, useEffect, useLayo
 import { createPortal } from "react-dom";
 
 import { EmptyState } from "../../components/EmptyState";
+import { CreateItemTableRow } from "../../components/CreateListItem";
 import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
 import { RoleRunDot } from "../../components/RoleRunDot";
 import { SearchField } from "../../components/SearchField";
@@ -335,6 +336,7 @@ function MacrosRoute({
                     </td>
                   </tr>
                 ))}
+                <CreateItemTableRow label={t("macros.newMacro")} onClick={onNewMacro} />
               </tbody>
             </table>
           </div>

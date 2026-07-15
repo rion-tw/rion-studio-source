@@ -13,6 +13,7 @@ import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 
 import { getGameCoverUrl, getGameIconUrl, sortGames } from "../../app/gamePresentation";
 import { EmptyState } from "../../components/EmptyState";
+import { CreateItemCard } from "../../components/CreateListItem";
 import {
   SelectionActionBar,
   SelectionCardOverlay,
@@ -105,7 +106,7 @@ function GamesRoute({
       ) : filteredGames.length === 0 ? (
         <EmptyState icon={Search} title={t("games.noMatches.title")} description={t("games.noMatches.description")} />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filteredGames.map((game) => {
             const gameRoles = roles.filter((role) => role.gameId === game.id);
             const report = reports.find((item) => item.gameId === game.id);
@@ -201,6 +202,7 @@ function GamesRoute({
               </Card>
             );
           })}
+          <CreateItemCard label={t("games.new")} onClick={onNewGame} />
         </div>
       )}
       <SelectionMarquee rect={selection.selectionRect} />

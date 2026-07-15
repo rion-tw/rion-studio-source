@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AppUpdateManager, DEFAULT_UPDATE_REPOSITORY } from "../src/main/updates/AppUpdateManager";
 
@@ -12,10 +12,6 @@ class FakeUpdater extends EventEmitter {
 }
 
 describe("AppUpdateManager", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("keeps update checks disabled outside packaged releases", async () => {
     const updater = new FakeUpdater();
     const manager = new AppUpdateManager({
@@ -94,11 +90,6 @@ describe("AppUpdateManager", () => {
   it("exposes a manual macOS installer download instead of auto-downloading", async () => {
     const updater = new FakeUpdater();
     const openExternal = vi.fn().mockResolvedValue(undefined);
-    const fetchManualUpdateAsset = vi.fn().mockResolvedValue({
-      browserDownloadUrl: "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
-      name: "Rion.Studio-mac.dmg",
-      releasePageUrl: "https://github.com/rion-tw/rion-studio/releases/tag/v0.2.0"
-    });
 
     updater.checkForUpdates.mockImplementation(async () => {
       const updateInfo = {
@@ -120,7 +111,6 @@ describe("AppUpdateManager", () => {
     const manager = new AppUpdateManager({
       arch: "arm64",
       currentVersion: "0.1.0",
-      fetchManualUpdateAsset,
       isPackaged: true,
       manualUpdateRepository: DEFAULT_UPDATE_REPOSITORY,
       openExternal,
@@ -130,7 +120,7 @@ describe("AppUpdateManager", () => {
 
     await expect(manager.checkForUpdates()).resolves.toMatchObject({
       availableVersion: "0.2.0",
-      downloadUrl: "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
+      downloadUrl: "https://github.com/rion-tw/rion-studio/releases/latest/download/Rion.Studio-mac.dmg",
       installMode: "manual",
       installerName: "Rion.Studio-mac.dmg",
       releasePageUrl: "https://github.com/rion-tw/rion-studio/releases/tag/v0.2.0",
@@ -138,67 +128,63 @@ describe("AppUpdateManager", () => {
     });
     expect(updater.autoDownload).toBe(false);
     expect(updater.autoInstallOnAppQuit).toBe(false);
-    expect(fetchManualUpdateAsset).toHaveBeenCalledWith({
-      arch: "arm64",
-      productName: "Rion Studio",
-      repository: DEFAULT_UPDATE_REPOSITORY,
-      tag: "v0.2.0",
-      version: "0.2.0"
-    });
 
     await manager.openUpdateDownload();
     expect(openExternal).toHaveBeenCalledWith(
-      "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg"
+      "https://github.com/rion-tw/rion-studio/releases/latest/download/Rion.Studio-mac.dmg"
     );
   });
 
-  it("prefers a DMG over a ZIP from GitHub release assets", async () => {
+  it("builds the latest macOS installer URL for a custom release repository", async () => {
     const updater = createManualUpdateUpdater();
-    const fetchMock = vi.fn().mockResolvedValue(
-      createGitHubReleaseResponse(["Rion.Studio-mac.zip", "Rion.Studio-mac.dmg"])
-    );
-    vi.stubGlobal("fetch", fetchMock);
 
     const manager = new AppUpdateManager({
       arch: "arm64",
       currentVersion: "0.1.0",
       isPackaged: true,
-      manualUpdateRepository: DEFAULT_UPDATE_REPOSITORY,
+      manualUpdateRepository: "example/releases",
       platform: "darwin",
       updater: updater as never
     });
 
     await expect(manager.checkForUpdates()).resolves.toMatchObject({
-      downloadUrl: "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.dmg",
-      installerName: "Rion.Studio-mac.dmg"
+      downloadUrl: "https://github.com/example/releases/releases/latest/download/Rion.Studio-mac.dmg",
+      installerName: "Rion.Studio-mac.dmg",
+      releasePageUrl: "https://github.com/example/releases/releases/tag/v0.2.0"
     });
   });
 
-  it("falls back to a ZIP when a GitHub release has no DMG", async () => {
-    const updater = createManualUpdateUpdater();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createGitHubReleaseResponse(["Rion.Studio-mac.zip"])));
+  it("falls back to the updater metadata when the release repository is invalid", async () => {
+    const updater = createManualUpdateUpdater([
+      {
+        sha512: "",
+        url: "https://downloads.example.com/Rion.Studio-mac.dmg"
+      }
+    ]);
 
     const manager = new AppUpdateManager({
       arch: "arm64",
       currentVersion: "0.1.0",
       isPackaged: true,
-      manualUpdateRepository: DEFAULT_UPDATE_REPOSITORY,
+      manualUpdateRepository: "invalid repository",
       platform: "darwin",
       updater: updater as never
     });
 
     await expect(manager.checkForUpdates()).resolves.toMatchObject({
-      downloadUrl: "https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/Rion.Studio-mac.zip",
-      installerName: "Rion.Studio-mac.zip"
+      availableVersion: "0.2.0",
+      downloadUrl: "https://downloads.example.com/Rion.Studio-mac.dmg",
+      installerName: "Rion.Studio-mac.dmg",
+      state: "available"
     });
   });
 });
 
-function createManualUpdateUpdater(): FakeUpdater {
+function createManualUpdateUpdater(files: Array<{ sha512: string; url: string }> = []): FakeUpdater {
   const updater = new FakeUpdater();
   updater.checkForUpdates.mockImplementation(async () => {
     const updateInfo = {
-      files: [],
+      files,
       path: "",
       releaseDate: "2026-07-12T00:00:00.000Z",
       sha512: "",
@@ -213,17 +199,4 @@ function createManualUpdateUpdater(): FakeUpdater {
     };
   });
   return updater;
-}
-
-function createGitHubReleaseResponse(assetNames: string[]) {
-  return {
-    ok: true,
-    json: async () => ({
-      assets: assetNames.map((name) => ({
-        browser_download_url: `https://github.com/rion-tw/rion-studio/releases/download/v0.2.0/${name}`,
-        name
-      })),
-      html_url: "https://github.com/rion-tw/rion-studio/releases/tag/v0.2.0"
-    })
-  };
 }

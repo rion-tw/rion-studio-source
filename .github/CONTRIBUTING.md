@@ -82,11 +82,14 @@ A paid Developer ID Application certificate and Apple notarization would still
 be required for warning-free Gatekeeper launches.
 
 Ad-hoc-signed macOS builds use a manual update flow. The app checks GitHub
-Releases, opens the matching DMG when an update is available, and guides users to
-drag the app to Applications. The DMG includes `Install Help.txt` with the
-Privacy & Security approval flow and a scoped quarantine-removal fallback for
-trusted downloads. Set `RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at runtime if
-release assets are hosted outside the default repository.
+Releases, opens `releases/latest/download/Rion.Studio-mac.dmg` when an update is
+available, and guides users to drag the app to Applications. The DMG includes
+`Install Help.txt` with the Privacy & Security approval flow and a scoped
+quarantine-removal fallback for trusted downloads. Keep the release asset names
+`Rion.Studio-mac.dmg` and `Rion.Studio-win.exe` stable because the in-app update
+flow and README download links depend on them. Set
+`RION_STUDIO_RELEASE_REPOSITORY=owner/repo` at runtime if release assets are
+hosted outside the default repository with the same asset names.
 
 ### Windows Multi-Display Release Check
 

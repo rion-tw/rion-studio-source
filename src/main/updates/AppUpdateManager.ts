@@ -5,25 +5,11 @@ import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } 
 import type { AppUpdateStatus } from "../../shared/types";
 
 export const DEFAULT_UPDATE_REPOSITORY = "rion-tw/rion-studio";
-
-interface ManualUpdateAsset {
-  browserDownloadUrl: string;
-  name: string;
-  releasePageUrl?: string;
-}
-
-interface ManualUpdateAssetRequest {
-  arch: string;
-  productName: string;
-  repository: string;
-  tag: string;
-  version: string;
-}
+const MAC_UPDATE_INSTALLER_NAME = "Rion.Studio-mac.dmg";
 
 interface AppUpdateManagerOptions {
   currentVersion: string;
   arch?: string;
-  fetchManualUpdateAsset?: (request: ManualUpdateAssetRequest) => Promise<ManualUpdateAsset | null>;
   isPackaged: boolean;
   manualUpdateRepository?: string;
   openExternal?: (url: string) => Promise<void> | void;
@@ -34,7 +20,6 @@ interface AppUpdateManagerOptions {
 
 export class AppUpdateManager extends EventEmitter {
   private readonly arch: string;
-  private readonly fetchManualUpdateAsset?: (request: ManualUpdateAssetRequest) => Promise<ManualUpdateAsset | null>;
   private readonly installMode: AppUpdateStatus["installMode"];
   private readonly manualUpdateRepository?: string;
   private readonly openExternal: (url: string) => Promise<void> | void;
@@ -45,7 +30,6 @@ export class AppUpdateManager extends EventEmitter {
   constructor({
     arch = process.arch,
     currentVersion,
-    fetchManualUpdateAsset,
     isPackaged,
     manualUpdateRepository,
     openExternal = unavailableOpenExternal,
@@ -57,8 +41,6 @@ export class AppUpdateManager extends EventEmitter {
     this.arch = arch;
     this.installMode = platform === "darwin" ? "manual" : "automatic";
     this.manualUpdateRepository = normalizeRepository(manualUpdateRepository);
-    this.fetchManualUpdateAsset =
-      fetchManualUpdateAsset ?? (this.manualUpdateRepository ? fetchGitHubManualUpdateAsset : undefined);
     this.openExternal = openExternal;
     this.productName = productName;
     this.updater = updater;
@@ -108,11 +90,7 @@ export class AppUpdateManager extends EventEmitter {
     });
 
     try {
-      const result = await this.updater.checkForUpdates();
-
-      if (this.installMode === "manual" && result?.updateInfo && this.status.state === "available") {
-        await this.loadManualUpdateAsset(result.updateInfo);
-      }
+      await this.updater.checkForUpdates();
     } catch (error) {
       this.setStatus({
         state: "error",
@@ -222,37 +200,6 @@ export class AppUpdateManager extends EventEmitter {
     });
   }
 
-  private async loadManualUpdateAsset(info: UpdateInfo): Promise<void> {
-    const repository = this.manualUpdateRepository;
-    const tag = readReleaseTag(info);
-
-    if (!repository || !tag || !this.fetchManualUpdateAsset) {
-      return;
-    }
-
-    try {
-      const asset = await this.fetchManualUpdateAsset({
-        arch: this.arch,
-        productName: this.productName,
-        repository,
-        tag,
-        version: info.version
-      });
-
-      if (!asset || this.status.state !== "available" || this.status.availableVersion !== info.version) {
-        return;
-      }
-
-      this.setStatus({
-        downloadUrl: asset.browserDownloadUrl,
-        installerName: asset.name,
-        releasePageUrl: asset.releasePageUrl ?? this.status.releasePageUrl
-      });
-    } catch {
-      // Keep the release page fallback from update-available when the asset lookup fails.
-    }
-  }
-
   private setStatus(nextStatus: Partial<AppUpdateStatus>): void {
     this.status = {
       ...this.status,
@@ -299,13 +246,19 @@ function resolveManualUpdateDownload(
   const releasePageUrl = options.repository
     ? `https://github.com/${options.repository}/releases/tag/${encodeURIComponent(tag)}`
     : undefined;
-  const downloadUrl = findMacDownloadUrl(info, options.arch);
+  const downloadUrl = options.repository
+    ? createLatestReleaseAssetUrl(options.repository, MAC_UPDATE_INSTALLER_NAME)
+    : findMacDownloadUrl(info, options.arch);
 
   return {
     downloadUrl,
     installerName: readInstallerName(downloadUrl) ?? `${options.productName}-${info.version}-mac-${options.arch}.dmg`,
     releasePageUrl
   };
+}
+
+function createLatestReleaseAssetUrl(repository: string, assetName: string): string {
+  return `https://github.com/${repository}/releases/latest/download/${encodeURIComponent(assetName)}`;
 }
 
 function readReleaseTag(info: UpdateInfo): string | undefined {
@@ -382,89 +335,7 @@ function readInstallerName(url: string | undefined): string | undefined {
   }
 }
 
-async function fetchGitHubManualUpdateAsset(request: ManualUpdateAssetRequest): Promise<ManualUpdateAsset | null> {
-  const [owner, repo] = request.repository.split("/");
-  const response = await fetch(
-    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/tags/${encodeURIComponent(request.tag)}`,
-    {
-      headers: {
-        Accept: "application/vnd.github+json"
-      }
-    }
-  );
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const payload = (await response.json()) as {
-    assets?: unknown;
-    html_url?: unknown;
-  };
-  const asset = selectGitHubMacAsset(payload.assets, request);
-
-  if (!asset) {
-    return null;
-  }
-
-  return {
-    browserDownloadUrl: asset.browserDownloadUrl,
-    name: asset.name,
-    releasePageUrl: typeof payload.html_url === "string" ? payload.html_url : undefined
-  };
-}
-
-function selectGitHubMacAsset(
-  assets: unknown,
-  request: Pick<ManualUpdateAssetRequest, "arch" | "productName">
-): ManualUpdateAsset | null {
-  if (!Array.isArray(assets)) {
-    return null;
-  }
-
-  const macAssets = assets
-    .map((asset) => readGitHubAsset(asset))
-    .filter((asset): asset is ManualUpdateAsset => asset !== null && isMacDownloadAssetName(asset.name));
-
-  if (macAssets.length === 0) {
-    return null;
-  }
-
-  const productAssets = macAssets.filter((asset) => fileNameMatchesProductName(asset.name, request.productName));
-  const candidates = productAssets.length > 0 ? productAssets : macAssets;
-
-  return preferMacInstaller(candidates, request.arch, (asset) => asset.name) ?? null;
-}
-
 function isMacDownloadAssetName(name: string): boolean {
   const lowerName = name.toLowerCase();
   return lowerName.endsWith(".zip") || lowerName.endsWith(".dmg");
-}
-
-function fileNameMatchesProductName(fileName: string, productName: string): boolean {
-  return normalizeAssetName(fileName).includes(normalizeAssetName(productName));
-}
-
-function normalizeAssetName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function readGitHubAsset(asset: unknown): ManualUpdateAsset | null {
-  if (!asset || typeof asset !== "object") {
-    return null;
-  }
-
-  const { browser_download_url: browserDownloadUrl, name } = asset as {
-    browser_download_url?: unknown;
-    name?: unknown;
-  };
-
-  if (typeof browserDownloadUrl !== "string" || typeof name !== "string") {
-    return null;
-  }
-
-  return {
-    browserDownloadUrl,
-    name
-  };
 }

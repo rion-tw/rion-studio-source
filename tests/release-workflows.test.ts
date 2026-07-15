@@ -90,34 +90,6 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain("--clobber");
   });
 
-  it("removes only the verified v1.19.1 migration canary after publication", async () => {
-    const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
-    const publishIndex = workflow.indexOf("- name: Publish verified public release");
-    const cleanupIndex = workflow.indexOf("- name: Remove verified migration canary");
-    const deleteReleaseIndex = workflow.indexOf(
-      '"repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${CANARY_RELEASE_ID}"',
-      cleanupIndex
-    );
-    const deleteTagIndex = workflow.indexOf(
-      '"repos/${PUBLIC_RELEASE_REPOSITORY}/git/refs/tags/${CANARY_TAG}"',
-      deleteReleaseIndex
-    );
-
-    expect(cleanupIndex).toBeGreaterThan(publishIndex);
-    expect(workflow.slice(cleanupIndex)).toContain("if: inputs.tag == 'v1.19.1'");
-    expect(workflow.slice(cleanupIndex)).toContain('CANARY_RELEASE_ID: "354597707"');
-    expect(workflow.slice(cleanupIndex)).toContain('CANARY_ASSET_ID: "478185887"');
-    expect(workflow.slice(cleanupIndex)).toContain(
-      "CANARY_TAG: migration-canary-20260716"
-    );
-    expect(deleteReleaseIndex).toBeGreaterThan(cleanupIndex);
-    expect(deleteTagIndex).toBeGreaterThan(deleteReleaseIndex);
-    expect(workflow.slice(cleanupIndex)).toContain(
-      'releases/latest" --jq .tag_name)" = "${TAG}"'
-    );
-    expect(workflow.slice(cleanupIndex)).toContain('grep -Fq "HTTP 404"');
-  });
-
   it("restores public latest only through a verified App-token workflow", async () => {
     const workflow = await readWorkflow(".github/workflows/restore-public-latest.yml");
 

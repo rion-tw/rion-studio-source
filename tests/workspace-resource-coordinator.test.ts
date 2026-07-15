@@ -24,6 +24,23 @@ describe("WorkspaceResourceCoordinator", () => {
     expect(coordinator.getStatus("role-2")).toEqual({ resourceState: "throttled", cpuThrottleRate: 2 });
   });
 
+  it("uses the first target when no initial primary is configured", async () => {
+    const coordinator = new WorkspaceResourceCoordinator();
+    const first = createTarget("role-1");
+    const second = createTarget("role-2");
+
+    await coordinator.activateWorkspace(
+      "workspace-1",
+      { mode: "primary_priority", backgroundCpuThrottleRate: 2 },
+      [first.target, second.target]
+    );
+
+    expect(first.setRate).toHaveBeenCalledWith(1);
+    expect(second.setRate).toHaveBeenCalledWith(2);
+    expect(first.focus).toHaveBeenCalledOnce();
+    expect(coordinator.getStatus("role-1")?.resourceState).toBe("primary");
+  });
+
   it("restores the new primary before slowing the old primary", async () => {
     const operations: string[] = [];
     const coordinator = new WorkspaceResourceCoordinator();

@@ -125,6 +125,7 @@
   "workspaces.throttleRateAggressive": "4x (aggressive / may be unstable)",
   "workspaces.primaryRole": "Initial primary",
   "workspaces.primaryRoleDescription": "This role starts at full speed. The primary role then follows your actual clicks.",
+  "workspaces.primaryRoleUnassigned": "Assign a role first",
   "workspaces.primaryBadge": "Primary",
   "workspaces.resourceState.primary": "Primary",
   "workspaces.resourceState.macroOverride": "Temporarily full speed",

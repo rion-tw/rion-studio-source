@@ -18,6 +18,7 @@ import {
   getWorkspaceVerticalResizeHandles,
   readRoleDragId,
   readWorkspaceSlotDragIndex,
+  reconcileWorkspaceResourcePolicy,
   swapWorkspaceSlotRoles
 } from "../src/renderer/src/features/workspaces/workspaceLayoutUtils";
 import {
@@ -133,6 +134,23 @@ describe("renderer workspace layout helpers", () => {
       { ...slot("slot-1"), roleId: undefined },
       slot("slot-2", "p1")
     ]);
+  });
+
+  it("preserves primary priority while roles are assigned and removed", () => {
+    const policy = { mode: "primary_priority" as const, backgroundCpuThrottleRate: 2 as const };
+
+    expect(reconcileWorkspaceResourcePolicy(policy, [slot("slot-1"), slot("slot-2")]))
+      .toEqual(policy);
+    expect(reconcileWorkspaceResourcePolicy(policy, [slot("slot-1", "p1"), slot("slot-2")]))
+      .toEqual({ ...policy, primaryRoleId: "p1" });
+    expect(reconcileWorkspaceResourcePolicy(
+      { ...policy, primaryRoleId: "p1" },
+      [slot("slot-1"), slot("slot-2", "p2")]
+    )).toEqual({ ...policy, primaryRoleId: "p2" });
+    expect(reconcileWorkspaceResourcePolicy(
+      { ...policy, primaryRoleId: "p1" },
+      [slot("slot-1"), slot("slot-2")]
+    )).toEqual(policy);
   });
 
   it("swaps roles between slots", () => {

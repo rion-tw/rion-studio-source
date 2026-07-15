@@ -16,7 +16,11 @@ import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettin
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import type { RoleStore } from "../roles/RoleStore";
-import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
+import {
+  LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+  migrateLegacyWorkspaceResourcePolicyDefault,
+  type LaunchWorkspaceStore
+} from "../workspaces/LaunchWorkspaceStore";
 import {
   DEFAULT_LAUNCH_PRESET,
   DEFAULT_LAUNCH_URL,
@@ -141,6 +145,7 @@ interface PortableImportJournal {
   targetMacros?: Macro[];
   targetRoles?: Role[];
   targetWorkspaces?: LaunchWorkspace[];
+  workspaceFileSchemaVersion?: number;
   workspaces: LaunchWorkspace[];
 }
 
@@ -426,6 +431,7 @@ export class PortableDataManager {
       targetRoles: plan.finalRoles,
       targetWorkspaces: plan.finalWorkspaces,
       targetMacros: plan.finalMacros,
+      workspaceFileSchemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
       ...(targetSettings ? { targetGameBrowserSettings: targetSettings } : {}),
       ...(currentSettings ? { gameBrowserSettings: currentSettings } : {})
     };
@@ -792,6 +798,7 @@ async function writePortableImportStage(
     writeJsonFileAtomically(join(stageDirectory, "games.json"), { games: journal.targetGames }),
     writeJsonFileAtomically(join(stageDirectory, "roles.json"), { roles: journal.targetRoles }),
     writeJsonFileAtomically(join(stageDirectory, "launch-workspaces.json"), {
+      schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
       workspaces: journal.targetWorkspaces
     }),
     writeJsonFileAtomically(join(stageDirectory, "macros.json"), { macros: journal.targetMacros }),
@@ -834,6 +841,10 @@ export async function recoverPortableImportTransaction(userDataDir: string): Pro
     !Array.isArray(journal.createdRoleIds) ||
     journal.createdRoleIds.some(
       (roleId) => typeof roleId !== "string" || !GENERATED_ROLE_ID_PATTERN.test(roleId)
+    ) ||
+    (
+      journal.workspaceFileSchemaVersion !== undefined &&
+      journal.workspaceFileSchemaVersion !== LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
     )
   ) {
     throw new PortableDataError("PORTABLE_IMPORT_RECOVERY_INVALID", "Portable import recovery data is invalid.");
@@ -841,9 +852,12 @@ export async function recoverPortableImportTransaction(userDataDir: string): Pro
 
   const recoveryGames = isCommitted ? journal.targetGames as Game[] : journal.games;
   const recoveryRoles = isCommitted ? journal.targetRoles as Role[] : journal.roles;
-  const recoveryWorkspaces = isCommitted
+  const journalWorkspaces = isCommitted
     ? journal.targetWorkspaces as LaunchWorkspace[]
     : journal.workspaces;
+  const recoveryWorkspaces = journal.workspaceFileSchemaVersion === undefined
+    ? journalWorkspaces.map(migrateLegacyWorkspaceResourcePolicyDefault)
+    : journalWorkspaces;
   const recoveryMacros = isCommitted ? journal.targetMacros as Macro[] : journal.macros;
   const recoverySettings = isCommitted
     ? journal.targetGameBrowserSettings
@@ -852,6 +866,7 @@ export async function recoverPortableImportTransaction(userDataDir: string): Pro
   await writeJsonFileAtomically(join(userDataDir, "games.json"), { games: recoveryGames });
   await writeJsonFileAtomically(join(userDataDir, "roles.json"), { roles: recoveryRoles });
   await writeJsonFileAtomically(join(userDataDir, "launch-workspaces.json"), {
+    schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
     workspaces: recoveryWorkspaces
   });
   await writeJsonFileAtomically(join(userDataDir, "macros.json"), { macros: recoveryMacros });
@@ -1455,11 +1470,9 @@ function normalizePortableWorkspaceResourcePolicy(
   value: unknown,
   slots: PortableLaunchWorkspace["slots"]
 ): WorkspaceResourcePolicy {
-  if (value === undefined || value === null) {
-    return { ...DEFAULT_WORKSPACE_RESOURCE_POLICY };
-  }
-
-  const input = toRecord(value);
+  const input = toRecord(
+    value === undefined || value === null ? DEFAULT_WORKSPACE_RESOURCE_POLICY : value
+  );
   if (
     (input.mode !== "unrestricted" && input.mode !== "primary_priority") ||
     (input.backgroundCpuThrottleRate !== 2 && input.backgroundCpuThrottleRate !== 4)
@@ -1475,9 +1488,11 @@ function normalizePortableWorkspaceResourcePolicy(
   const primaryRoleId = typeof input.primaryRoleId === "string" && roleIds.includes(input.primaryRoleId)
     ? input.primaryRoleId
     : roleIds[0];
-  return primaryRoleId
-    ? { mode: input.mode, backgroundCpuThrottleRate: input.backgroundCpuThrottleRate, primaryRoleId }
-    : { mode: "unrestricted", backgroundCpuThrottleRate: input.backgroundCpuThrottleRate };
+  return {
+    mode: input.mode,
+    backgroundCpuThrottleRate: input.backgroundCpuThrottleRate,
+    ...(primaryRoleId ? { primaryRoleId } : {})
+  };
 }
 
 function remapWorkspaceResourcePolicy(
@@ -1495,9 +1510,11 @@ function remapWorkspaceResourcePolicy(
   const primaryRoleId = mappedPrimaryRoleId && assignedRoleIds.includes(mappedPrimaryRoleId)
     ? mappedPrimaryRoleId
     : assignedRoleIds[0];
-  return primaryRoleId
-    ? { ...source, primaryRoleId }
-    : { mode: "unrestricted", backgroundCpuThrottleRate: source.backgroundCpuThrottleRate };
+  return {
+    mode: source.mode,
+    backgroundCpuThrottleRate: source.backgroundCpuThrottleRate,
+    ...(primaryRoleId ? { primaryRoleId } : {})
+  };
 }
 
 function normalizePortableWorkspaceSlot(value: unknown, index: number): PortableLaunchWorkspace["slots"][number] {

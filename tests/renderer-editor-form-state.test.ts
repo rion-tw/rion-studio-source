@@ -33,7 +33,7 @@ describe("editor form state", () => {
     expect(newForm).toMatchObject({
       template: "two_columns",
       browserZoomPercent: 100,
-      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
+      resourcePolicy: { mode: "primary_priority", backgroundCpuThrottleRate: 2 }
     });
     expect(newForm).not.toHaveProperty("targetDisplayId");
     expect(newForm.slots).toHaveLength(2);

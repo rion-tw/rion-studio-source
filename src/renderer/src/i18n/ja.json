@@ -125,6 +125,7 @@
   "workspaces.throttleRateAggressive": "4x（強力／不安定になる可能性）",
   "workspaces.primaryRole": "初期メイン",
   "workspaces.primaryRoleDescription": "起動時はこのロールをフル速度にし、その後は実際のクリックに追従します。",
+  "workspaces.primaryRoleUnassigned": "先にロールを割り当ててください",
   "workspaces.primaryBadge": "メイン",
   "workspaces.resourceState.primary": "メイン",
   "workspaces.resourceState.macroOverride": "一時的にフル速度",

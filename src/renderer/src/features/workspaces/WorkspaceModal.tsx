@@ -56,6 +56,7 @@ import {
   getWorkspaceVerticalResizeHandles,
   readRoleDragId,
   readWorkspaceSlotDragIndex,
+  reconcileWorkspaceResourcePolicy,
   rectToPreviewStyle,
   swapWorkspaceSlotRoles,
   type WorkspaceSplitAxis
@@ -499,23 +500,22 @@ function WorkspaceLayoutFormEditor({
               disabled={isSaving}
               onValueChange={(value) => {
                 const mode = value as WorkspaceResourceMode;
-                const assignedRoleIds = form.slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
                 onChange({
                   ...form,
-                  resourcePolicy: mode === "primary_priority" && assignedRoleIds[0]
-                    ? {
-                        ...form.resourcePolicy,
-                        mode,
-                        primaryRoleId: form.resourcePolicy.primaryRoleId ?? assignedRoleIds[0]
-                      }
-                    : { mode: "unrestricted", backgroundCpuThrottleRate: form.resourcePolicy.backgroundCpuThrottleRate }
+                  resourcePolicy: reconcileWorkspaceResourcePolicy(
+                    {
+                      mode,
+                      backgroundCpuThrottleRate: form.resourcePolicy.backgroundCpuThrottleRate
+                    },
+                    form.slots
+                  )
                 });
               }}
             >
               <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
-                <SelectItem value="primary_priority" disabled={!form.slots.some((slot) => slot.roleId)}>
+                <SelectItem value="primary_priority">
                   {t("workspaces.resourceModePrimary")}
                 </SelectItem>
               </SelectContent>
@@ -557,13 +557,19 @@ function WorkspaceLayoutFormEditor({
           >
             <Select
               value={form.resourcePolicy.primaryRoleId ?? ""}
-              disabled={isSaving || form.resourcePolicy.mode === "unrestricted"}
+              disabled={
+                isSaving ||
+                form.resourcePolicy.mode === "unrestricted" ||
+                !form.slots.some((slot) => slot.roleId)
+              }
               onValueChange={(primaryRoleId) => onChange({
                 ...form,
                 resourcePolicy: { ...form.resourcePolicy, primaryRoleId }
               })}
             >
-              <SelectTrigger id="workspace-primary-role"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="workspace-primary-role">
+                <SelectValue placeholder={t("workspaces.primaryRoleUnassigned")} />
+              </SelectTrigger>
               <SelectContent>
                 {form.slots.flatMap((slot) => {
                   const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
@@ -840,23 +846,6 @@ function WorkspaceSlotDropZone({
       </button>
     </div>
   );
-}
-
-function reconcileWorkspaceResourcePolicy(
-  policy: WorkspaceFormState["resourcePolicy"],
-  slots: LaunchWorkspaceSlot[]
-): WorkspaceFormState["resourcePolicy"] {
-  if (policy.mode === "unrestricted") {
-    return { mode: policy.mode, backgroundCpuThrottleRate: policy.backgroundCpuThrottleRate };
-  }
-
-  const roleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
-  const primaryRoleId = policy.primaryRoleId && roleIds.includes(policy.primaryRoleId)
-    ? policy.primaryRoleId
-    : roleIds[0];
-  return primaryRoleId
-    ? { ...policy, primaryRoleId }
-    : { mode: "unrestricted", backgroundCpuThrottleRate: policy.backgroundCpuThrottleRate };
 }
 
 interface WorkspaceResizeHandlesProps {

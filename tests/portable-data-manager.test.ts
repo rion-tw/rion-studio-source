@@ -12,7 +12,10 @@ import {
   recoverPortableImportTransaction
 } from "../src/main/portable/PortableDataManager";
 import { RoleStore } from "../src/main/roles/RoleStore";
-import { LaunchWorkspaceStore } from "../src/main/workspaces/LaunchWorkspaceStore";
+import {
+  LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+  LaunchWorkspaceStore
+} from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
 import type { PortableDataSelection, RionPortableDataV1, RionPortableDataV2 } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
@@ -743,6 +746,7 @@ describe("PortableDataManager", () => {
       ...fixture.launchWorkspaces[0],
       template: "three_columns",
       browserZoomPercent: 90,
+      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
       slots: [
         { id: "slot-1", roleId: "old-role", rect: { x: 0, y: 0, width: 0.3333, height: 1 } },
         { id: "slot-2", rect: { x: 0.3333, y: 0, width: 0.3333, height: 1 } },
@@ -765,6 +769,32 @@ describe("PortableDataManager", () => {
     ]);
     expect(importedWorkspace?.resourcePolicy).toEqual({
       mode: "unrestricted",
+      backgroundCpuThrottleRate: 2
+    });
+    expect(JSON.parse(await readFile(join(baseDir, "launch-workspaces.json"), "utf8")))
+      .toMatchObject({ schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION });
+  });
+
+  it("preserves primary priority when an imported workspace has no assigned roles", async () => {
+    const importPath = join(baseDir, "empty-priority-workspace.json");
+    const fixture = createPortableFixture();
+    fixture.launchWorkspaces[0] = {
+      ...fixture.launchWorkspaces[0],
+      resourcePolicy: { mode: "primary_priority", backgroundCpuThrottleRate: 2 },
+      slots: fixture.launchWorkspaces[0].slots.map(({ roleId: _roleId, ...slot }) => slot)
+    };
+    fixture.macros = [];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    const preview = await manager.previewImport();
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+
+    const importedWorkspace = (await workspaceStore.listWorkspaces()).find(
+      (workspace) => workspace.name === "Party"
+    );
+    expect(importedWorkspace?.resourcePolicy).toEqual({
+      mode: "primary_priority",
       backgroundCpuThrottleRate: 2
     });
   });
@@ -1080,6 +1110,11 @@ describe("PortableDataManager", () => {
 
   it("restores an interrupted import journal before stores initialize", async () => {
     const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Before" });
+    const workspace = await workspaceStore.createWorkspace({
+      name: "Legacy recovery",
+      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 4 },
+      slots: [{ roleId: role.id }, {}]
+    });
     const createdRoleId = "12345678-1234-4123-8123-123456789abc";
     const journal = {
       createdRoleIds: [createdRoleId],
@@ -1096,12 +1131,26 @@ describe("PortableDataManager", () => {
 
     const recoveredStore = new RoleStore(baseDir);
     await expect(recoveredStore.getRole(role.id)).resolves.toMatchObject({ name: "Before" });
+    await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
+      resourcePolicy: {
+        mode: "primary_priority",
+        backgroundCpuThrottleRate: 2,
+        primaryRoleId: role.id
+      }
+    });
+    expect(JSON.parse(await readFile(join(baseDir, "launch-workspaces.json"), "utf8")))
+      .toMatchObject({ schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION });
     await expect(access(join(baseDir, "roles", createdRoleId))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(join(baseDir, "portable-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("finishes a committed import journal during startup recovery", async () => {
     const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Before" });
+    const workspace = await workspaceStore.createWorkspace({
+      name: "Current recovery",
+      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
+      slots: [{ roleId: role.id }, {}]
+    });
     const createdRoleId = "87654321-4321-4321-8321-cba987654321";
     const targetRoles = [
       { ...role, name: "After" },
@@ -1127,7 +1176,8 @@ describe("PortableDataManager", () => {
       targetGames: games,
       targetRoles,
       targetWorkspaces: workspaces,
-      targetMacros: macros
+      targetMacros: macros,
+      workspaceFileSchemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
     };
     await writeFile(join(baseDir, "portable-import-transaction.json"), JSON.stringify(journal), "utf8");
     await writeFile(join(baseDir, "roles.json"), JSON.stringify({ roles: [] }), "utf8");
@@ -1143,6 +1193,11 @@ describe("PortableDataManager", () => {
         expect.objectContaining({ id: createdRoleId, name: "Imported" })
       ])
     );
+    expect(JSON.parse(await readFile(join(baseDir, "launch-workspaces.json"), "utf8")))
+      .toMatchObject({ schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION });
+    await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
+      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
+    });
     await expect(access(join(baseDir, "roles", createdRoleId, "browser"))).resolves.toBeUndefined();
     await expect(access(join(baseDir, "portable-import-transaction.stage"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(join(baseDir, "portable-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });

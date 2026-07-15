@@ -32,6 +32,7 @@ import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
 
 interface LaunchWorkspacesFile {
+  schemaVersion: number;
   workspaces: LaunchWorkspace[];
 }
 
@@ -57,6 +58,8 @@ const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
 ];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
+export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 1;
+
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
     readonly code: string,
@@ -92,13 +95,20 @@ export class LaunchWorkspaceStore {
         this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
       );
       normalized.forEach((workspace) => this.ensureUniqueName(normalized, workspace.name, workspace.id));
-      await this.writeWorkspacesFile({ workspaces: normalized }, publishCache);
-      return cloneWorkspacesFile({ workspaces: normalized }).workspaces;
+      const file = {
+        schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+        workspaces: normalized
+      };
+      await this.writeWorkspacesFile(file, publishCache);
+      return cloneWorkspacesFile(file).workspaces;
     });
   }
 
   publishWorkspacesForImport(workspaces: LaunchWorkspace[]): void {
-    this.cachedFile = cloneWorkspacesFile({ workspaces });
+    this.cachedFile = cloneWorkspacesFile({
+      schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+      workspaces
+    });
   }
 
   async getWorkspace(id: string): Promise<LaunchWorkspace> {
@@ -211,7 +221,10 @@ export class LaunchWorkspaceStore {
       const file = await this.readWorkspacesFile();
       const workspaces = this.reorderItems(file.workspaces, input);
 
-      await this.writeWorkspacesFile({ workspaces });
+      await this.writeWorkspacesFile({
+        schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+        workspaces
+      });
       return [...workspaces];
     });
   }
@@ -225,7 +238,10 @@ export class LaunchWorkspaceStore {
         throw new LaunchWorkspaceStoreError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
       }
 
-      await this.writeWorkspacesFile({ workspaces: nextWorkspaces });
+      await this.writeWorkspacesFile({
+        schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+        workspaces: nextWorkspaces
+      });
     });
   }
 
@@ -262,7 +278,10 @@ export class LaunchWorkspaceStore {
         return;
       }
 
-      await this.writeWorkspacesFile({ workspaces });
+      await this.writeWorkspacesFile({
+        schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+        workspaces
+      });
     });
   }
 
@@ -273,10 +292,21 @@ export class LaunchWorkspaceStore {
 
     try {
       const raw = await readFile(this.workspacesPath, "utf8");
-      const parsed = JSON.parse(raw) as LaunchWorkspacesFile;
+      const parsed = JSON.parse(raw) as Partial<LaunchWorkspacesFile>;
 
       if (!Array.isArray(parsed.workspaces)) {
         throw new LaunchWorkspaceStoreError("WORKSPACE_FILE_INVALID", "Launch workspace data file is invalid.");
+      }
+
+      const shouldMigrateResourcePolicyDefault = parsed.schemaVersion === undefined;
+      if (
+        parsed.schemaVersion !== undefined &&
+        parsed.schemaVersion !== LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
+      ) {
+        throw new LaunchWorkspaceStoreError(
+          "WORKSPACE_FILE_INVALID",
+          "Launch workspace data file is invalid."
+        );
       }
 
       const didMigrate = parsed.workspaces.some(
@@ -285,11 +315,15 @@ export class LaunchWorkspaceStore {
           !("resourcePolicy" in workspace) ||
           hasLegacyRoleSlotReference(workspace) ||
           hasLegacyCenteredMainDefaultLayout(workspace as StoredLaunchWorkspace)
+      ) || shouldMigrateResourcePolicyDefault;
+      const normalizedWorkspaces = parsed.workspaces.map((workspace) =>
+        this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
       );
       const file = {
-        workspaces: parsed.workspaces.map((workspace) =>
-          this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
-        )
+        schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+        workspaces: shouldMigrateResourcePolicyDefault
+          ? normalizedWorkspaces.map(migrateLegacyWorkspaceResourcePolicyDefault)
+          : normalizedWorkspaces
       };
 
       if (didMigrate) {
@@ -301,7 +335,10 @@ export class LaunchWorkspaceStore {
       return cloneWorkspacesFile(file);
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
-        return { workspaces: [] };
+        return {
+          schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+          workspaces: []
+        };
       }
 
       throw error;
@@ -312,6 +349,7 @@ export class LaunchWorkspaceStore {
     await writeJsonFileAtomically(this.workspacesPath, file);
     if (publishCache) {
       this.cachedFile = cloneWorkspacesFile({
+        schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
         workspaces: file.workspaces.map((workspace) =>
           this.normalizeStoredWorkspace(workspace as StoredLaunchWorkspace)
         )
@@ -431,17 +469,17 @@ export class LaunchWorkspaceStore {
     value: unknown,
     slots: LaunchWorkspaceSlot[]
   ): WorkspaceResourcePolicy {
-    if (value === undefined || value === null) {
-      return { ...DEFAULT_WORKSPACE_RESOURCE_POLICY };
-    }
-    if (typeof value !== "object" || Array.isArray(value)) {
+    const normalizedValue = value === undefined || value === null
+      ? DEFAULT_WORKSPACE_RESOURCE_POLICY
+      : value;
+    if (typeof normalizedValue !== "object" || Array.isArray(normalizedValue)) {
       throw new LaunchWorkspaceStoreError(
         "WORKSPACE_RESOURCE_POLICY_INVALID",
         "Launch workspace resource policy is invalid."
       );
     }
 
-    const input = value as Record<string, unknown>;
+    const input = normalizedValue as Record<string, unknown>;
     const mode = input.mode;
     const backgroundCpuThrottleRate = input.backgroundCpuThrottleRate;
     if (
@@ -466,11 +504,9 @@ export class LaunchWorkspaceStore {
       ? requestedPrimaryRoleId
       : assignedRoleIds[0];
 
-    if (!primaryRoleId) {
-      return { mode: "unrestricted", backgroundCpuThrottleRate };
-    }
-
-    return { mode, backgroundCpuThrottleRate, primaryRoleId };
+    return primaryRoleId
+      ? { mode, backgroundCpuThrottleRate, primaryRoleId }
+      : { mode, backgroundCpuThrottleRate };
   }
 
   private normalizeTargetDisplayId(value: unknown): number | undefined {
@@ -618,6 +654,7 @@ export class LaunchWorkspaceStore {
 
 function cloneWorkspacesFile(file: LaunchWorkspacesFile): LaunchWorkspacesFile {
   return {
+    schemaVersion: file.schemaVersion,
     workspaces: file.workspaces.map((workspace) => ({
       ...workspace,
       resourcePolicy: { ...workspace.resourcePolicy },
@@ -626,6 +663,24 @@ function cloneWorkspacesFile(file: LaunchWorkspacesFile): LaunchWorkspacesFile {
         rect: { ...slot.rect }
       }))
     }))
+  };
+}
+
+export function migrateLegacyWorkspaceResourcePolicyDefault(
+  workspace: LaunchWorkspace
+): LaunchWorkspace {
+  if (workspace.resourcePolicy.mode !== "unrestricted") {
+    return workspace;
+  }
+
+  const primaryRoleId = workspace.slots.find((slot) => slot.roleId)?.roleId;
+  return {
+    ...workspace,
+    resourcePolicy: {
+      mode: "primary_priority",
+      backgroundCpuThrottleRate: 2,
+      ...(primaryRoleId ? { primaryRoleId } : {})
+    }
   };
 }
 

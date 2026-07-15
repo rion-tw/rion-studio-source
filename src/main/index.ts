@@ -10,6 +10,7 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  powerMonitor,
   screen,
   session as electronSession,
   shell,
@@ -17,6 +18,7 @@ import {
 } from "electron";
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
+import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
 import { AuthManager } from "./auth/AuthManager";
 import {
@@ -301,6 +303,12 @@ async function initializeApplication(): Promise<void> {
     void updateManager.checkForUpdates();
   };
   const externalChromeWindowBoundsAdapter = createExternalChromeWindowBoundsAdapter();
+  const resourcePressureMonitor = new SystemPressureMonitor();
+  powerMonitor.on("speed-limit-change", ({ limit }) => resourcePressureMonitor.setSpeedLimit(limit));
+  if (process.platform === "darwin") {
+    powerMonitor.on("thermal-state-change", ({ state }) => resourcePressureMonitor.setThermalState(state));
+  }
+  resourcePressureMonitor.start();
   const externalChromeManager = new ExternalChromeManager(roleStore, {
     applyBrowserFonts: async (_role, browserUserDataDir) => {
       await browserFontApplier.applyToChromeUserDataDir(browserUserDataDir);
@@ -336,6 +344,7 @@ async function initializeApplication(): Promise<void> {
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
     externalChromeManager,
+    resourcePressureMonitor,
     getBrowserLaunchMode: async (role) => {
       const globalMode = (await gameBrowserSettingsStore.getSettings()).launchMode;
       if (!role) {

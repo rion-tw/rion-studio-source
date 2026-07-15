@@ -1,4 +1,8 @@
+import { EventEmitter } from "node:events";
+
 import { describe, expect, it, vi } from "vitest";
+
+import type { SystemPressureSnapshot } from "../src/main/browser/SystemPressureMonitor";
 
 import {
   WorkspaceResourceCoordinator,
@@ -6,6 +10,35 @@ import {
 } from "../src/main/browser/WorkspaceResourceCoordinator";
 
 describe("WorkspaceResourceCoordinator", () => {
+  it("adapts background roles from 2x to 4x when system pressure rises", async () => {
+    let snapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
+    const pressure = Object.assign(new EventEmitter(), { getSnapshot: () => snapshot });
+    const coordinator = new WorkspaceResourceCoordinator(pressure);
+    const first = createTarget("role-1");
+    const second = createTarget("role-2");
+
+    await coordinator.activateWorkspace(
+      "workspace-1",
+      { mode: "adaptive", backgroundCpuThrottleRate: 4, primaryRoleId: "role-1" },
+      [first.target, second.target]
+    );
+    expect(second.setRate).toHaveBeenLastCalledWith(2);
+    expect(coordinator.getStatus("role-2")).toMatchObject({
+      cpuThrottleRate: 2,
+      resourcePressureLevel: "normal",
+      resourceReason: "baseline"
+    });
+
+    snapshot = { level: "constrained", reason: "cpu" };
+    pressure.emit("change", snapshot);
+    await vi.waitFor(() => expect(second.setRate).toHaveBeenLastCalledWith(4));
+    expect(coordinator.getStatus("role-2")).toMatchObject({
+      cpuThrottleRate: 4,
+      resourcePressureLevel: "constrained",
+      resourceReason: "cpu"
+    });
+  });
+
   it("keeps the configured primary at 1x and throttles the other roles", async () => {
     const coordinator = new WorkspaceResourceCoordinator();
     const first = createTarget("role-1");
@@ -78,7 +111,8 @@ describe("WorkspaceResourceCoordinator", () => {
     expect(second.setRate).toHaveBeenLastCalledWith(1);
     expect(coordinator.getStatus("role-2")).toEqual({
       resourceState: "macro_override",
-      cpuThrottleRate: 1
+      cpuThrottleRate: 1,
+      resourceReason: "macro"
     });
 
     await coordinator.setMacroActiveRoleIds([]);
@@ -100,7 +134,8 @@ describe("WorkspaceResourceCoordinator", () => {
     expect(second.setRate).toHaveBeenLastCalledWith(1);
     expect(coordinator.getStatus("role-2")).toEqual({
       resourceState: "shared_process",
-      cpuThrottleRate: 1
+      cpuThrottleRate: 1,
+      resourceReason: "shared_process"
     });
   });
 
@@ -139,7 +174,8 @@ describe("WorkspaceResourceCoordinator", () => {
     expect(second.release).toHaveBeenCalledOnce();
     expect(coordinator.getStatus("role-2")).toEqual({
       resourceState: "unavailable",
-      cpuThrottleRate: 1
+      cpuThrottleRate: 1,
+      resourceReason: "unavailable"
     });
   });
 

@@ -14,7 +14,14 @@ import {
   BROWSER_BASE_SWITCHES,
   getGraphicsModeSwitches
 } from "../../shared/browserGraphics";
-import type { BrowserGraphicsMode, NormalizedRect, PixelBounds, Role, RoleStatus } from "../../shared/types";
+import type {
+  BrowserGraphicsMode,
+  NormalizedRect,
+  PixelBounds,
+  Role,
+  RoleStatus,
+  WorkspaceResourcePolicy
+} from "../../shared/types";
 import { normalizeWorkspaceRectEdges } from "../../shared/workspaceLayout";
 import {
   connectExternalChromeAutomation,
@@ -46,6 +53,7 @@ export interface ExternalChromeManagerOptions {
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
   graphicsMode?: BrowserGraphicsMode;
+  platform?: NodeJS.Platform;
   windowBoundsAdapter?: ExternalChromeWindowBoundsAdapter;
   spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
   connectAutomation?: (
@@ -143,7 +151,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   }
 
   async launchWorkspace(
-    workspace: { id: string },
+    workspace: { id: string; resourcePolicy?: WorkspaceResourcePolicy },
     items: ExternalChromeLaunchItem[],
     options: ExternalChromeLaunchOptions = {}
   ): Promise<RoleStatus[]> {
@@ -156,26 +164,39 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     const physicalWorkArea = this.toPhysicalBounds(workArea);
     // External Chrome always tiles the complete work area; appearance gaps apply only to embedded hosts.
     const normalizedRects = normalizeWorkspaceRectEdges(items.map((item) => item.rect));
+    const dipBounds = createSeamlessWorkspaceBounds(
+      normalizedRects.map((rect) => normalizedRectToPixelBounds(rect, workArea)),
+      externalChromeSeamOverlap(this.options.platform ?? process.platform)
+    );
+    const physicalBounds = physicalWorkArea
+      ? createSeamlessWorkspaceBounds(
+          normalizedRects.map((rect) => normalizedRectToPixelBounds(rect, physicalWorkArea)),
+          WINDOWS_PHYSICAL_SEAM_OVERLAP
+        )
+      : undefined;
     const sessions: Array<{ roleId: string; session: ExternalChromeSession }> = [];
 
     try {
-      for (const [index, item] of items.entries()) {
-        const rect = normalizedRects[index];
-        const bounds = normalizedRectToPixelBounds(rect, workArea);
-        const physicalBounds = physicalWorkArea
-          ? normalizedRectToPixelBounds(rect, physicalWorkArea)
-          : undefined;
+      const primaryRoleId = workspace.resourcePolicy?.primaryRoleId ?? items[0]?.role.id;
+      const launchIndexes = items.map((_item, index) => index).sort((left, right) => {
+        if (items[left].role.id === primaryRoleId) return -1;
+        if (items[right].role.id === primaryRoleId) return 1;
+        return left - right;
+      });
+      for (const index of launchIndexes) {
+        const item = items[index];
         const session = await this.launchSession(
           item.role,
-          bounds,
-          physicalBounds,
+          dipBounds[index],
+          physicalBounds?.[index],
           workspace.id,
           options.notice
         );
         sessions.push({ roleId: item.role.id, session });
       }
 
-      return sessions.map(({ roleId, session }) => this.toStatus(roleId, session));
+      const sessionByRoleId = new Map(sessions.map(({ roleId, session }) => [roleId, session]));
+      return items.map(({ role }) => this.toStatus(role.id, sessionByRoleId.get(role.id)!));
     } catch (error) {
       await Promise.all(sessions.map(({ roleId }) => this.stop(roleId)));
       throw error;
@@ -418,6 +439,15 @@ export function buildExternalChromeArgs(
 const EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE =
   "Macro control could not connect to compatibility mode. Restart this role to try again.";
 
+// Native Chrome windows retain OS-drawn corners and frame pixels even when their
+// rectangles touch. A small internal overlap keeps the desktop from showing
+// through those decorations. macOS needs enough overlap to cover its rounded
+// window corners; Windows additionally squares and removes the DWM border in the
+// native frame helper, so one physical pixel is sufficient as a fallback.
+const MACOS_SEAM_OVERLAP = 12;
+const WINDOWS_DIP_SEAM_OVERLAP = 1;
+const WINDOWS_PHYSICAL_SEAM_OVERLAP = 1;
+
 async function removeStaleDevToolsPort(browserUserDataDir: string): Promise<void> {
   await unlink(join(browserUserDataDir, "DevToolsActivePort")).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") {
@@ -468,4 +498,59 @@ function normalizedRectToPixelBounds(rect: NormalizedRect, contentBounds: PixelB
     width: Math.max(1, right - left),
     height: Math.max(1, bottom - top)
   };
+}
+
+function externalChromeSeamOverlap(platform: NodeJS.Platform): number {
+  if (platform === "darwin") {
+    return MACOS_SEAM_OVERLAP;
+  }
+  return platform === "win32" ? WINDOWS_DIP_SEAM_OVERLAP : 0;
+}
+
+export function createSeamlessWorkspaceBounds(
+  bounds: PixelBounds[],
+  seamOverlap: number
+): PixelBounds[] {
+  if (seamOverlap <= 0 || bounds.length < 2) {
+    return bounds.map((item) => ({ ...item }));
+  }
+
+  const result = bounds.map((item) => ({ ...item }));
+
+  for (let leftIndex = 0; leftIndex < bounds.length; leftIndex += 1) {
+    const left = bounds[leftIndex];
+    const leftRight = left.x + left.width;
+    const leftBottom = left.y + left.height;
+
+    for (let rightIndex = leftIndex + 1; rightIndex < bounds.length; rightIndex += 1) {
+      const right = bounds[rightIndex];
+      const rightRight = right.x + right.width;
+      const rightBottom = right.y + right.height;
+      const verticalOverlap = Math.min(leftBottom, rightBottom) - Math.max(left.y, right.y);
+      const horizontalOverlap = Math.min(leftRight, rightRight) - Math.max(left.x, right.x);
+
+      // Expand only the earlier window across each seam. The resulting overlap
+      // fills either window's transparent corner regardless of which one is in
+      // front, while avoiding a double-width overlap.
+      if (verticalOverlap > 0) {
+        if (leftRight === right.x) {
+          result[leftIndex].width += seamOverlap;
+        } else if (rightRight === left.x) {
+          result[leftIndex].x -= seamOverlap;
+          result[leftIndex].width += seamOverlap;
+        }
+      }
+
+      if (horizontalOverlap > 0) {
+        if (leftBottom === right.y) {
+          result[leftIndex].height += seamOverlap;
+        } else if (rightBottom === left.y) {
+          result[leftIndex].y -= seamOverlap;
+          result[leftIndex].height += seamOverlap;
+        }
+      }
+    }
+  }
+
+  return result;
 }

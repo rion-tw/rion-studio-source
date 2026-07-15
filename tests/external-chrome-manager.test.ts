@@ -4,6 +4,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   buildExternalChromeArgs,
+  createSeamlessWorkspaceBounds,
   ExternalChromeManager
 } from "../src/main/browser/ExternalChromeManager";
 import type { Role } from "../src/shared/types";
@@ -223,7 +224,14 @@ describe("ExternalChromeManager", () => {
     const secondRole = { ...role, id: "role-2", name: "Alt" };
 
     const launchPromise = harness.manager.launchWorkspace(
-      { id: "workspace-1" },
+      {
+        id: "workspace-1",
+        resourcePolicy: {
+          mode: "adaptive",
+          backgroundCpuThrottleRate: 4,
+          primaryRoleId: secondRole.id
+        }
+      },
       [
         { role, rect: { x: 0, y: 0, width: 0.5, height: 1 } },
         { role: secondRole, rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
@@ -241,19 +249,19 @@ describe("ExternalChromeManager", () => {
 
     const spawnCalls = harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
     expect(spawnCalls[0][1]).toEqual(
-      expect.arrayContaining(["--window-position=2000,40", "--window-size=800,900"])
-    );
-    expect(spawnCalls[1][1]).toEqual(
       expect.arrayContaining(["--window-position=2800,40", "--window-size=800,900"])
     );
+    expect(spawnCalls[1][1]).toEqual(
+      expect.arrayContaining(["--window-position=2000,40", "--window-size=800,900"])
+    );
     expect(harness.automationTargets[0].setWindowBounds).toHaveBeenCalledWith({
-      x: 2000,
+      x: 2800,
       y: 40,
       width: 800,
       height: 900
     });
     expect(harness.automationTargets[1].setWindowBounds).toHaveBeenCalledWith({
-      x: 2800,
+      x: 2000,
       y: 40,
       width: 800,
       height: 900
@@ -340,6 +348,57 @@ describe("ExternalChromeManager", () => {
     ]);
   });
 
+  it("overlaps only shared macOS seams enough to cover native rounded corners", () => {
+    expect(
+      createSeamlessWorkspaceBounds(
+        [
+          { x: 0, y: 24, width: 800, height: 450 },
+          { x: 800, y: 24, width: 800, height: 450 },
+          { x: 0, y: 474, width: 800, height: 450 },
+          { x: 800, y: 474, width: 800, height: 450 }
+        ],
+        12
+      )
+    ).toEqual([
+      { x: 0, y: 24, width: 812, height: 462 },
+      { x: 800, y: 24, width: 800, height: 462 },
+      { x: 0, y: 474, width: 812, height: 450 },
+      { x: 800, y: 474, width: 800, height: 450 }
+    ]);
+  });
+
+  it("applies the macOS corner overlap to Chrome launch and CDP bounds", async () => {
+    const harness = createHarness({ platform: "darwin" });
+    const secondRole = { ...role, id: "mac-role-2", name: "Mac Alt" };
+
+    const launchPromise = harness.manager.launchWorkspace(
+      { id: "mac-seamless-workspace" },
+      [
+        { role, rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+        { role: secondRole, rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+      ],
+      { workArea: { x: 2000, y: 40, width: 1600, height: 900 } }
+    );
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await waitForChild(harness.children, 1);
+    harness.children[1].emit("spawn");
+    await launchPromise;
+
+    expect(harness.automationTargets.map((target) => target.setWindowBounds.mock.calls[0][0]))
+      .toEqual([
+        { x: 2000, y: 40, width: 812, height: 900 },
+        { x: 2800, y: 40, width: 800, height: 900 }
+      ]);
+    const spawnCalls = harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
+    expect(spawnCalls[0][1]).toEqual(
+      expect.arrayContaining(["--window-position=2000,40", "--window-size=812,900"])
+    );
+    expect(spawnCalls[1][1]).toEqual(
+      expect.arrayContaining(["--window-position=2800,40", "--window-size=800,900"])
+    );
+  });
+
   it("derives Windows workspace slots from one converted physical work area", async () => {
     const windowBoundsAdapter = createWindowBoundsAdapter(() => ({
       x: -1920,
@@ -347,7 +406,7 @@ describe("ExternalChromeManager", () => {
       width: 2001,
       height: 1127
     }));
-    const harness = createHarness({ childPid: 5000, windowBoundsAdapter });
+    const harness = createHarness({ childPid: 5000, platform: "win32", windowBoundsAdapter });
     const roles = Array.from({ length: 4 }, (_value, index) => ({
       ...role,
       id: `physical-role-${index + 1}`,
@@ -381,15 +440,15 @@ describe("ExternalChromeManager", () => {
     expect(windowBoundsAdapter.alignVisibleBounds.mock.calls.map(([input]) => input)).toEqual([
       {
         browserProcessId: 5000,
-        physicalBounds: { x: -1920, y: -80, width: 1001, height: 564 }
+        physicalBounds: { x: -1920, y: -80, width: 1002, height: 565 }
       },
       {
         browserProcessId: 5001,
-        physicalBounds: { x: -919, y: -80, width: 1000, height: 564 }
+        physicalBounds: { x: -919, y: -80, width: 1000, height: 565 }
       },
       {
         browserProcessId: 5002,
-        physicalBounds: { x: -1920, y: 484, width: 1001, height: 563 }
+        physicalBounds: { x: -1920, y: 484, width: 1002, height: 563 }
       },
       {
         browserProcessId: 5003,
@@ -523,6 +582,7 @@ describe("ExternalChromeManager", () => {
 function createHarness(options: {
   childPid?: number;
   connectAutomation?: AnyMock;
+  platform?: NodeJS.Platform;
   prepareCdnCompatibility?: AnyMock;
   windowBoundsAdapter?: ReturnType<typeof createWindowBoundsAdapter>;
 } = {}) {
@@ -547,6 +607,7 @@ function createHarness(options: {
     connectAutomation,
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
+    platform: options.platform ?? "linux",
     ...(options.prepareCdnCompatibility
       ? { prepareCdnCompatibility: options.prepareCdnCompatibility }
       : {}),

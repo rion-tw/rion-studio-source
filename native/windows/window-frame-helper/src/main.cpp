@@ -34,6 +34,10 @@ using rion::window_frame::WindowRestoreState;
 
 constexpr wchar_t kAlignCommand[] = L"align-visible-frame";
 constexpr wchar_t kChromeClassPrefix[] = L"Chrome_WidgetWin_";
+constexpr DWORD kWindowCornerPreferenceAttribute = 33;
+constexpr DWORD kBorderColorAttribute = 34;
+constexpr DWORD kDoNotRoundWindowCorners = 1;
+constexpr COLORREF kSuppressWindowBorderColor = 0xFFFFFFFE;
 constexpr std::chrono::milliseconds kWindowWaitTimeout(1500);
 constexpr std::chrono::milliseconds kWindowPollInterval(50);
 constexpr std::chrono::milliseconds kRestorePollInterval(50);
@@ -430,6 +434,21 @@ WindowRestoreState QueryWindowRestoreState(HWND hwnd) {
   return WindowRestoreState::kNormal;
 }
 
+void ConfigureSeamlessWindowFrame(HWND hwnd) {
+  // These attributes are supported on Windows 11. Older Windows versions
+  // return E_INVALIDARG, where exact visible-frame alignment remains the
+  // fallback behavior.
+  const DWORD corner_preference = kDoNotRoundWindowCorners;
+  DwmSetWindowAttribute(
+      hwnd, static_cast<DWMWINDOWATTRIBUTE>(kWindowCornerPreferenceAttribute),
+      &corner_preference, static_cast<DWORD>(sizeof(corner_preference)));
+
+  const COLORREF border_color = kSuppressWindowBorderColor;
+  DwmSetWindowAttribute(
+      hwnd, static_cast<DWMWINDOWATTRIBUTE>(kBorderColorAttribute),
+      &border_color, static_cast<DWORD>(sizeof(border_color)));
+}
+
 const char* CodeForRestoreFailure(WindowRestoreFailure failure) {
   switch (failure) {
     case WindowRestoreFailure::kRequestFailed:
@@ -511,6 +530,8 @@ int wmain(int argc, wchar_t* argv[]) {
                &target);
     return kExitRestoreFailed;
   }
+
+  ConfigureSeamlessWindowFrame(hwnd);
 
   AlignmentCallbacks callbacks;
   callbacks.measure = [hwnd](FrameMeasurement* measurement) {

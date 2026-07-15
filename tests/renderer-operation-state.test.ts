@@ -41,4 +41,15 @@ describe("renderer operation state", () => {
 
     expect(onChange).toHaveBeenCalledTimes(2);
   });
+
+  it("marks and releases a batch atomically", () => {
+    const snapshots: string[][] = [];
+    const tracker = new BusyIdTracker((ids) => snapshots.push([...ids]));
+    const finish = tracker.beginMany(["one", "two", "one"]);
+
+    expect(tracker.beginMany(["two", "three"])).toBeUndefined();
+    finish?.();
+
+    expect(snapshots).toEqual([["one", "two"], []]);
+  });
 });

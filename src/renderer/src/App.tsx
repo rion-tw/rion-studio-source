@@ -203,6 +203,7 @@ export function App(): JSX.Element {
     roles: data.roles,
     setCompatibilityReports: data.setCompatibilityReports,
     setGames: data.setGames,
+    setNotice,
     t: preferences.t
   });
 
@@ -462,12 +463,14 @@ export function App(): JSX.Element {
               path="/games"
               element={hasBridge ? <GamesRoute
                 games={data.games}
+                isDeleting={gameWorkflow.isDeletingGames}
                 reports={data.gameCompatibilityReports}
                 roles={data.roles}
                 runStatuses={data.gameCompatibilityStatuses}
                 statusByRole={data.statusByRole}
                 t={preferences.t}
                 onDelete={(game) => void gameWorkflow.deleteGame(game)}
+                onDeleteMany={gameWorkflow.deleteGames}
                 onEdit={(game) => navigateToEditGame(game.id)}
                 onNewGame={navigateToNewGame}
                 onNewRole={navigateToNewRoleForGame}
@@ -540,6 +543,7 @@ export function App(): JSX.Element {
                     onClearQuery={() => roleWorkflow.setQuery("")}
                     onCopy={(role) => void roleWorkflow.handleCopy(role)}
                     onDelete={(role) => void roleWorkflow.handleDelete(role)}
+                    onDeleteMany={roleWorkflow.handleDeleteMany}
                     onEdit={(role) => navigateToEditRole(role.id)}
                     onFilterChange={roleWorkflow.setActiveFilter}
                     onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
@@ -574,6 +578,7 @@ export function App(): JSX.Element {
                     onCopyWorkspace={(workspace) => void workspaceWorkflow.handleCopyWorkspace(workspace)}
                     onCreateWorkspace={navigateToNewWorkspace}
                     onDeleteWorkspace={(workspace) => void workspaceWorkflow.handleDeleteWorkspace(workspace)}
+                    onDeleteWorkspaces={workspaceWorkflow.handleDeleteWorkspaces}
                     onEditWorkspace={(workspace) => navigateToEditWorkspace(workspace.id)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
                     onQueryChange={workspaceWorkflow.setQuery}
@@ -607,6 +612,7 @@ export function App(): JSX.Element {
                     t={preferences.t}
                     onCopyMacro={(macro) => void macroWorkflow.handleCopyMacro(macro)}
                     onDeleteMacro={(macro) => void macroWorkflow.handleDeleteMacro(macro)}
+                    onDeleteMacros={macroWorkflow.handleDeleteMacros}
                     onEditMacro={(macro) => navigateToEditMacro(macro.id)}
                     onNewMacro={() => navigateToNewMacro()}
                     onQueryChange={macroWorkflow.setQuery}

@@ -100,6 +100,23 @@ export interface ReorderItemsInput {
   orderedIds: string[];
 }
 
+export interface BulkDeleteInput {
+  ids: string[];
+}
+
+export type BulkDeleteSkipReason = "protected" | "in_use" | "not_found" | "busy" | "failed";
+
+export interface BulkDeleteSkippedItem {
+  id: string;
+  reason: BulkDeleteSkipReason;
+  relatedNames?: string[];
+}
+
+export interface BulkDeleteResult {
+  deletedIds: string[];
+  skipped: BulkDeleteSkippedItem[];
+}
+
 export type RoleRunState = "launching" | "running" | "stopping";
 
 export interface RoleStatus {

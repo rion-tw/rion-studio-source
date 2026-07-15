@@ -73,6 +73,7 @@ describe("macro role filter", () => {
         t={t}
         onCopyMacro={vi.fn()}
         onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
         onEditMacro={vi.fn()}
         onNewMacro={vi.fn()}
         onQueryChange={vi.fn()}

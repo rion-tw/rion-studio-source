@@ -37,6 +37,10 @@
 }
 
 @layer base {
+  body.list-marquee-active {
+    cursor: crosshair;
+    user-select: none;
+  }
   :root,
   :root[data-theme="light"] {
     --background: 216 24% 94%;

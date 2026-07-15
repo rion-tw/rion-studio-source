@@ -1,6 +1,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { createCopyName } from "../app/copyName";
+import { formatBulkDeleteResult } from "../app/bulkDelete";
 import { mergeStatuses } from "../app/statusUtils";
 import type { WorkspaceFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
@@ -31,7 +32,7 @@ export function useWorkspaceWorkflow({
 }: UseWorkspaceWorkflowOptions) {
   const confirm = useConfirmation();
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
-  const { beginBusy, busyIds: busyWorkspaceIds } = useBusyIds();
+  const { beginBusy, beginBusyMany, busyIds: busyWorkspaceIds } = useBusyIds();
   const [isReorderingWorkspaces, setIsReorderingWorkspaces] = useState(false);
   const [displaySelectionRequest, setDisplaySelectionRequest] = useState<WorkspaceDisplaySelectionRequest | null>(null);
   const [query, setQuery] = useState("");
@@ -86,34 +87,62 @@ export function useWorkspaceWorkflow({
     }
   }
 
-  async function handleDeleteWorkspace(workspace: LaunchWorkspace): Promise<void> {
+  async function handleDeleteWorkspaces(selectedWorkspaces: LaunchWorkspace[]): Promise<boolean> {
+    if (selectedWorkspaces.length === 0) {
+      return false;
+    }
+    const isSingle = selectedWorkspaces.length === 1;
     const confirmed = await confirm({
-      title: t("confirm.deleteWorkspace.title").replace("{name}", workspace.name),
-      description: t("confirm.deleteWorkspace.description"),
+      title: isSingle
+        ? t("confirm.deleteWorkspace.title").replace("{name}", selectedWorkspaces[0].name)
+        : t("bulkDelete.workspaces.title").replace("{count}", String(selectedWorkspaces.length)),
+      description: isSingle
+        ? t("confirm.deleteWorkspace.description")
+        : t("bulkDelete.workspaces.description"),
       cancelLabel: t("confirm.cancel"),
       confirmLabel: t("confirm.delete"),
       tone: "destructive"
     });
 
     if (!confirmed) {
-      return;
+      return false;
     }
 
-    const finishBusy = beginBusy(workspace.id);
+    const ids = selectedWorkspaces.map((workspace) => workspace.id);
+    const finishBusy = beginBusyMany(ids);
     if (!finishBusy) {
-      return;
+      return false;
     }
 
     const reportError = beginErrorOperation();
+    setNotice?.(null);
 
     try {
-      await window.rionStudio.deleteLaunchWorkspace(workspace.id);
-      setWorkspaces((current) => current.filter((item) => item.id !== workspace.id));
+      const result = await window.rionStudio.deleteLaunchWorkspaces({ ids });
+      const deletedIds = new Set(result.deletedIds);
+      setWorkspaces((current) => current.filter((item) => !deletedIds.has(item.id)));
+      try {
+        const [nextWorkspaces, nextStatuses] = await Promise.all([
+          window.rionStudio.listLaunchWorkspaces(),
+          window.rionStudio.listRoleStatuses()
+        ]);
+        setWorkspaces(nextWorkspaces);
+        setStatuses(nextStatuses);
+      } catch (recoveryError) {
+        reportError(recoveryError);
+      }
+      setNotice?.(formatBulkDeleteResult(result, t));
+      return true;
     } catch (deleteError) {
       reportError(deleteError);
+      return false;
     } finally {
       finishBusy();
     }
+  }
+
+  async function handleDeleteWorkspace(workspace: LaunchWorkspace): Promise<void> {
+    await handleDeleteWorkspaces([workspace]);
   }
 
   async function handleCopyWorkspace(workspace: LaunchWorkspace): Promise<void> {
@@ -276,6 +305,7 @@ export function useWorkspaceWorkflow({
     handleDisplaySelectionSelect: (displayId: number) => settleWorkspaceDisplaySelection(displayId),
     handleCopyWorkspace,
     handleDeleteWorkspace,
+    handleDeleteWorkspaces,
     handleLaunchWorkspace,
     handleReorderWorkspaces,
     handleStopWorkspace,

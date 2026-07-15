@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import { type HTMLAttributes, type MutableRefObject, type ReactNode, forwardRef, useLayoutEffect, useRef } from "react";
+import { type HTMLAttributes, type MutableRefObject, type ReactNode, forwardRef, useCallback, useLayoutEffect, useRef } from "react";
 import { type LucideIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
@@ -48,6 +48,7 @@ Surface.displayName = "Surface";
 
 export interface PageFrameProps extends HTMLAttributes<HTMLElement> {
   children: ReactNode;
+  containerRef?: MutableRefObject<HTMLElement | null>;
   contentClassName?: string;
   maxWidth?: "wide" | "settings";
   scrollPositionRef?: MutableRefObject<number>;
@@ -56,6 +57,7 @@ export interface PageFrameProps extends HTMLAttributes<HTMLElement> {
 export function PageFrame({
   children,
   className,
+  containerRef,
   contentClassName,
   maxWidth = "wide",
   onScroll,
@@ -64,6 +66,12 @@ export function PageFrame({
 }: PageFrameProps) {
   const maxWidthClassName = maxWidth === "settings" ? "max-w-5xl" : "max-w-[1500px]";
   const frameRef = useRef<HTMLElement>(null);
+  const setFrameRef = useCallback((element: HTMLElement | null): void => {
+    frameRef.current = element;
+    if (containerRef) {
+      containerRef.current = element;
+    }
+  }, [containerRef]);
 
   useLayoutEffect(() => {
     if (frameRef.current && scrollPositionRef) {
@@ -73,7 +81,7 @@ export function PageFrame({
 
   return (
     <section
-      ref={frameRef}
+      ref={setFrameRef}
       className={cn("app-page h-full overflow-auto px-6 py-7 md:px-10 md:py-10", className)}
       onScroll={(event) => {
         if (scrollPositionRef) {

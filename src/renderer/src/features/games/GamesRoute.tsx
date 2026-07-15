@@ -13,12 +13,15 @@ import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 
 import { getGameCoverUrl, getGameIconUrl, sortGames } from "../../app/gamePresentation";
 import { EmptyState } from "../../components/EmptyState";
+import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
+import { useListSelection } from "../../hooks/useListSelection";
+import { cn } from "../../lib/utils";
 import type { Game, GameCompatibilityReport, GameCompatibilityRunStatus, Role, RoleStatus } from "../../../../shared/types";
 
 interface GamesRouteProps {
@@ -28,7 +31,9 @@ interface GamesRouteProps {
   runStatuses: GameCompatibilityRunStatus[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
+  isDeleting?: boolean;
   onDelete: (game: Game) => void;
+  onDeleteMany: (games: Game[]) => Promise<boolean>;
   onEdit: (game: Game) => void;
   onNewGame: () => void;
   onNewRole: (gameId: string) => void;
@@ -42,21 +47,36 @@ function GamesRoute({
   runStatuses,
   statusByRole,
   t,
+  isDeleting = false,
   onDelete,
+  onDeleteMany,
   onEdit,
   onNewGame,
   onNewRole,
   onRunCheck
 }: GamesRouteProps): JSX.Element {
   const [query, setQuery] = useState("");
+  const pageRef = useRef<HTMLElement | null>(null);
   const filteredGames = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return sortGames(games).filter((game) => !normalized || [game.name, game.defaultLaunchUrl]
       .join(" ").toLocaleLowerCase().includes(normalized));
   }, [games, query]);
+  const selection = useListSelection({
+    orderedIds: filteredGames.map((game) => game.id),
+    scrollContainerRef: pageRef
+  });
+
+  async function handleDeleteSelected(): Promise<void> {
+    const selectedGames = filteredGames.filter((game) => selection.selectedIds.has(game.id));
+    const completed = await onDeleteMany(selectedGames);
+    if (completed) {
+      selection.clearSelection();
+    }
+  }
 
   return (
-    <PageFrame>
+    <PageFrame containerRef={pageRef} {...selection.collectionProps}>
       <PageHeader
         kicker={t("app.navigation.play")}
         title={t("games.title")}
@@ -66,6 +86,17 @@ function GamesRoute({
           <Button type="button" variant="outline" onClick={onNewGame}><Plus size={15} />{t("games.new")}</Button>
         </>}
       />
+      {selection.hasSelection ? (
+        <SelectionActionBar
+          isBusy={isDeleting}
+          selectedCount={selection.selectedIds.size}
+          t={t}
+          totalCount={filteredGames.length}
+          onClear={selection.clearSelection}
+          onDelete={() => void handleDeleteSelected()}
+          onSelectAll={selection.selectAll}
+        />
+      ) : null}
       {games.length === 0 ? (
         <EmptyState icon={Gamepad2} title={t("games.empty.title")} description={t("games.empty.description")} actionLabel={t("games.new")} onAction={onNewGame} />
       ) : filteredGames.length === 0 ? (
@@ -80,12 +111,29 @@ function GamesRoute({
             const checking = runStatuses.some((item) => item.gameId === game.id);
             const iconUrl = getGameIconUrl(game);
             const coverUrl = getGameCoverUrl(game);
+            const isReportStale = !checking && report?.isStale === true;
             const isEmbeddedAvailable = !checking
               && !report?.isStale
               && report?.recommendation?.reason !== "graphics_unavailable"
               && report?.load?.state === "available";
             return (
-              <Card key={game.id} className="group relative overflow-hidden">
+              <Card
+                key={game.id}
+                ref={selection.registerItem(game.id)}
+                className={cn(
+                  "group relative overflow-hidden transition-[box-shadow,background-color]",
+                  selection.isSelected(game.id) && "ring-2 ring-blue-500/70 ring-offset-2 ring-offset-background"
+                )}
+                data-selection-id={game.id}
+                onClickCapture={(event) => selection.handleItemClick(event, game.id)}
+              >
+                <SelectionToggle
+                  className="absolute left-3 top-3 z-30"
+                  isSelected={selection.isSelected(game.id)}
+                  label={t(selection.isSelected(game.id) ? "selection.deselectItem" : "selection.selectItem")
+                    .replace("{name}", game.name)}
+                  onToggle={() => selection.toggleSelection(game.id)}
+                />
                 <button className="block w-full min-w-0 text-left" type="button" onClick={() => onEdit(game)}>
                   <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15">
                     {coverUrl ? (
@@ -112,7 +160,11 @@ function GamesRoute({
                       <div className="flex items-center gap-2">
                         <h2 className="truncate text-sm font-semibold">{game.name}</h2>
                         {game.source === "custom" ? <Badge variant="muted">{t("games.custom")}</Badge> : null}
-                        {isEmbeddedAvailable ? (
+                        {isReportStale ? (
+                          <Badge className="shrink-0" variant="warning">
+                            {t("games.compatibility.stale")}
+                          </Badge>
+                        ) : isEmbeddedAvailable ? (
                           <span
                             aria-label={t("games.compatibility.recommendation.embedded_available")}
                             className="inline-flex shrink-0 text-emerald-500"
@@ -144,10 +196,10 @@ function GamesRoute({
                     <Metric label={t("games.running")} value={running} />
                     <Metric label={t("games.needsLogin")} value={needsLogin} />
                   </div>
-                  {!isEmbeddedAvailable ? (
+                  {!isEmbeddedAvailable && !isReportStale ? (
                     <div className="flex items-center gap-2">
                       <Badge variant={checking ? "warning" : report?.recommendation?.reason === "graphics_unavailable" ? "warning" : report?.load?.state === "failed" ? "destructive" : "muted"}>
-                        {checking ? t("games.compatibility.running") : report?.isStale ? t("games.compatibility.stale") : report?.recommendation?.reason === "graphics_unavailable" ? t("games.compatibility.graphicsLimited") : report?.load?.state === "failed" ? t("games.compatibility.failed") : report?.load?.state === "cancelled" ? t("games.compatibility.cancelled") : t("games.compatibility.notChecked")}
+                        {checking ? t("games.compatibility.running") : report?.recommendation?.reason === "graphics_unavailable" ? t("games.compatibility.graphicsLimited") : report?.load?.state === "failed" ? t("games.compatibility.failed") : report?.load?.state === "cancelled" ? t("games.compatibility.cancelled") : t("games.compatibility.notChecked")}
                       </Badge>
                     </div>
                   ) : null}
@@ -157,6 +209,7 @@ function GamesRoute({
           })}
         </div>
       )}
+      <SelectionMarquee rect={selection.selectionRect} />
     </PageFrame>
   );
 }

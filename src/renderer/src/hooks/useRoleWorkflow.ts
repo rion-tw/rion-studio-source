@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { createCopyName } from "../app/copyName";
+import { formatBulkDeleteResult } from "../app/bulkDelete";
 import { mergeAuthStatus, mergeStatus } from "../app/statusUtils";
 import type { RoleFormState, SidebarFilter } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
@@ -40,7 +41,7 @@ export function useRoleWorkflow({
   const [query, setQuery] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isReorderingRoles, setIsReorderingRoles] = useState(false);
-  const { beginBusy, busyIds: busyRoleIds } = useBusyIds();
+  const { beginBusy, beginBusyMany, busyIds: busyRoleIds } = useBusyIds();
   const isReorderingRolesRef = useRef(false);
   const isSavingRef = useRef(false);
   const listScrollTopRef = useRef(0);
@@ -192,35 +193,44 @@ export function useRoleWorkflow({
     }
   }
 
-  async function handleDelete(role: Role): Promise<void> {
+  async function handleDeleteMany(selectedRoles: Role[]): Promise<boolean> {
+    if (selectedRoles.length === 0) {
+      return false;
+    }
+    const isSingle = selectedRoles.length === 1;
     const confirmed = await confirm({
-      title: t("confirm.deleteRole.title").replace("{name}", role.name),
-      description: t("confirm.deleteRole.description"),
+      title: isSingle
+        ? t("confirm.deleteRole.title").replace("{name}", selectedRoles[0].name)
+        : t("bulkDelete.roles.title").replace("{count}", String(selectedRoles.length)),
+      description: isSingle ? t("confirm.deleteRole.description") : t("bulkDelete.roles.description"),
       cancelLabel: t("confirm.cancel"),
       confirmLabel: t("confirm.delete"),
       tone: "destructive"
     });
 
     if (!confirmed) {
-      return;
+      return false;
     }
 
-    const finishBusy = beginBusy(role.id);
+    const ids = selectedRoles.map((role) => role.id);
+    const finishBusy = beginBusyMany(ids);
     if (!finishBusy) {
-      return;
+      return false;
     }
 
     const reportError = beginErrorOperation();
+    setNotice?.(null);
 
     try {
-      await window.rionStudio.deleteRole(role.id);
-      setRoles((current) => current.filter((item) => item.id !== role.id));
-      setStatuses((current) => current.filter((status) => status.roleId !== role.id));
-      setAuthStatuses((current) => current.filter((status) => status.roleId !== role.id));
+      const result = await window.rionStudio.deleteRoles({ ids });
+      const confirmedDeletedIds = new Set(result.deletedIds);
+      setRoles((current) => current.filter((item) => !confirmedDeletedIds.has(item.id)));
+      setStatuses((current) => current.filter((status) => !confirmedDeletedIds.has(status.roleId)));
+      setAuthStatuses((current) => current.filter((status) => !confirmedDeletedIds.has(status.roleId)));
       setWorkspaces((current) => current.map((workspace) => ({
         ...workspace,
         slots: workspace.slots.map((slot) => {
-          if (slot.roleId !== role.id) {
+          if (!slot.roleId || !confirmedDeletedIds.has(slot.roleId)) {
             return slot;
           }
 
@@ -231,25 +241,38 @@ export function useRoleWorkflow({
       setMacros((current) => current
         .map((macro) => ({
           ...macro,
-          roleIds: macro.roleIds.filter((roleId) => roleId !== role.id)
+          roleIds: macro.roleIds.filter((roleId) => !confirmedDeletedIds.has(roleId))
         }))
         .filter((macro) => macro.roleIds.length > 0));
 
       try {
-        const [nextWorkspaces, nextMacros] = await Promise.all([
+        const [nextRoles, nextStatuses, nextAuthStatuses, nextWorkspaces, nextMacros] = await Promise.all([
+          window.rionStudio.listRoles(),
+          window.rionStudio.listRoleStatuses(),
+          window.rionStudio.listAuthStatuses(),
           window.rionStudio.listLaunchWorkspaces(),
           window.rionStudio.listMacros()
         ]);
+        setRoles(nextRoles);
+        setStatuses(nextStatuses);
+        setAuthStatuses(nextAuthStatuses);
         setWorkspaces(nextWorkspaces);
         setMacros(nextMacros);
       } catch (recoveryError) {
         reportError(recoveryError);
       }
+      setNotice?.(formatBulkDeleteResult(result, t));
+      return true;
     } catch (deleteError) {
       reportError(deleteError);
+      return false;
     } finally {
       finishBusy();
     }
+  }
+
+  async function handleDelete(role: Role): Promise<void> {
+    await handleDeleteMany([role]);
   }
 
   async function handleCopy(role: Role): Promise<void> {
@@ -322,6 +345,7 @@ export function useRoleWorkflow({
     filteredRoles,
     handleCopy,
     handleDelete,
+    handleDeleteMany,
     handleLaunch,
     handleReorder,
     handleStop,

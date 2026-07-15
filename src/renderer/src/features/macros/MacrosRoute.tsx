@@ -16,6 +16,7 @@ import { type CSSProperties, type JSX, type MutableRefObject, useEffect, useLayo
 import { createPortal } from "react-dom";
 
 import { EmptyState } from "../../components/EmptyState";
+import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
 import { RoleRunDot } from "../../components/RoleRunDot";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
@@ -24,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { useListSelection } from "../../hooks/useListSelection";
 import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared/types";
 import {
   getMacroListItems,
@@ -51,6 +53,7 @@ interface MacrosRouteProps {
   sort: MacroListSortState;
   onCopyMacro: (macro: Macro) => void;
   onDeleteMacro: (macro: Macro) => void;
+  onDeleteMacros: (macros: Macro[]) => Promise<boolean>;
   onEditMacro: (macro: Macro) => void;
   onNewMacro: () => void;
   onQueryChange: (query: string) => void;
@@ -75,6 +78,7 @@ function MacrosRoute({
   sort,
   onCopyMacro,
   onDeleteMacro,
+  onDeleteMacros,
   onEditMacro,
   onNewMacro,
   onQueryChange,
@@ -86,6 +90,7 @@ function MacrosRoute({
   statusByRole,
   t
 }: MacrosRouteProps): JSX.Element {
+  const pageRef = useRef<HTMLElement | null>(null);
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const runningCount = new Set(
     macroStatuses.filter((status) => status.state === "running").map((status) => status.macroId)
@@ -99,6 +104,10 @@ function MacrosRoute({
     () => getMacroListItems({ macros, query, roleFilterId, roles, sort, t }),
     [macros, query, roleFilterId, roles, sort, t]
   );
+  const selection = useListSelection({
+    orderedIds: filteredMacros.map((macro) => macro.id),
+    scrollContainerRef: pageRef
+  });
 
   useEffect(() => {
     if (roleFilterId && !roles.some((role) => role.id === roleFilterId)) {
@@ -120,9 +129,17 @@ function MacrosRoute({
     );
   }
 
+  async function handleDeleteSelected(): Promise<void> {
+    const selectedMacros = filteredMacros.filter((macro) => selection.selectedIds.has(macro.id));
+    const completed = await onDeleteMacros(selectedMacros);
+    if (completed) {
+      selection.clearSelection();
+    }
+  }
+
   if (macros.length === 0) {
     return (
-      <PageFrame contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
+      <PageFrame containerRef={pageRef} contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
         <EmptyState
           className="min-h-0"
           icon={Keyboard}
@@ -136,7 +153,7 @@ function MacrosRoute({
   }
 
   return (
-    <PageFrame scrollPositionRef={scrollPositionRef}>
+    <PageFrame containerRef={pageRef} scrollPositionRef={scrollPositionRef} {...selection.collectionProps}>
       <PageHeader
         kicker={t("app.navigation.play")}
         title={t("macros.title")}
@@ -178,6 +195,18 @@ function MacrosRoute({
         }
       />
 
+      {selection.hasSelection ? (
+        <SelectionActionBar
+          isBusy={[...selection.selectedIds].some((id) => busyMacroIds.has(id))}
+          selectedCount={selection.selectedIds.size}
+          t={t}
+          totalCount={filteredMacros.length}
+          onClear={selection.clearSelection}
+          onDelete={() => void handleDeleteSelected()}
+          onSelectAll={selection.selectAll}
+        />
+      ) : null}
+
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap gap-2 text-xs font-semibold text-muted-foreground">
           <Badge variant="secondary">{t("macros.count").replace("{count}", String(macros.length))}</Badge>
@@ -202,6 +231,7 @@ function MacrosRoute({
             <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
               <thead className="glass-divider border-b text-[11px] font-semibold uppercase tracking-normal text-muted-foreground">
                 <tr>
+                  <th className="w-9 px-2 py-1.5" aria-hidden="true" />
                   <MacroSortHeader
                     label={t("macros.column.name")}
                     sort={sort}
@@ -242,7 +272,22 @@ function MacrosRoute({
               </thead>
               <tbody className="divide-y divide-border/45 text-[13px] leading-5">
                 {filteredMacros.map((macro) => (
-                  <tr key={macro.id} className="align-baseline">
+                  <tr
+                    key={macro.id}
+                    ref={selection.registerItem(macro.id)}
+                    className={cn("group align-baseline transition-colors", selection.isSelected(macro.id) && "bg-blue-500/10")}
+                    data-selection-id={macro.id}
+                    onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
+                  >
+                    <td className="w-9 px-2 py-2.5 align-top">
+                      <SelectionToggle
+                        alwaysVisible
+                        isSelected={selection.isSelected(macro.id)}
+                        label={t(selection.isSelected(macro.id) ? "selection.deselectItem" : "selection.selectItem")
+                          .replace("{name}", macro.name)}
+                        onToggle={() => selection.toggleSelection(macro.id)}
+                      />
+                    </td>
                     <td className="max-w-[240px] px-4 py-2.5 align-baseline">
                       <button
                         className="-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
@@ -296,6 +341,7 @@ function MacrosRoute({
           </div>
         </Surface>
       )}
+      <SelectionMarquee rect={selection.selectionRect} />
     </PageFrame>
   );
 }

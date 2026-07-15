@@ -1,5 +1,6 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 
+import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { GameFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
@@ -11,6 +12,7 @@ interface UseGameWorkflowOptions {
   setCompatibilityReports: Dispatch<SetStateAction<GameCompatibilityReport[]>>;
   roleDefaults: RoleDefaults;
   roles: Role[];
+  setNotice?: (message: string | null) => void;
   t: Translator;
 }
 
@@ -20,10 +22,13 @@ export function useGameWorkflow({
   setCompatibilityReports,
   roleDefaults,
   roles,
+  setNotice,
   t
 }: UseGameWorkflowOptions) {
   const confirm = useConfirmation();
   const [isSavingGame, setIsSavingGame] = useState(false);
+  const [isDeletingGames, setIsDeletingGames] = useState(false);
+  const isDeletingGamesRef = useRef(false);
 
   async function saveGame(form: GameFormState): Promise<Game | undefined> {
     const reportError = beginErrorOperation();
@@ -78,37 +83,71 @@ export function useGameWorkflow({
     }
   }
 
-  async function deleteGame(game: Game): Promise<boolean> {
-    const assignedRoles = roles.filter((role) => role.gameId === game.id);
-    if (assignedRoles.length > 0) {
-      await confirm({
-        title: t("games.delete.title").replace("{name}", game.name),
-        description: t("games.delete.inUse").replace("{names}", assignedRoles.map((role) => role.name).join(", ")),
-        cancelLabel: t("confirm.cancel"),
-        confirmLabel: t("confirm.delete"),
-        confirmDisabled: true,
-        tone: "destructive"
-      });
+  async function deleteGames(games: Game[]): Promise<boolean> {
+    if (isDeletingGamesRef.current || games.length === 0) {
       return false;
     }
+
+    const assignedRoleNamesByGameId = new Map<string, string[]>();
+    roles.forEach((role) => {
+      const names = assignedRoleNamesByGameId.get(role.gameId) ?? [];
+      names.push(role.name);
+      assignedRoleNamesByGameId.set(role.gameId, names);
+    });
+    const protectedCount = games.filter((game) => game.source === "builtin").length;
+    const inUseGames = games.filter(
+      (game) => game.source === "custom" && (assignedRoleNamesByGameId.get(game.id)?.length ?? 0) > 0
+    );
+    const skippedCount = protectedCount + inUseGames.length;
+    const deletableCount = games.length - skippedCount;
+    const isSingle = games.length === 1;
+    const singleAssignedNames = assignedRoleNamesByGameId.get(games[0]?.id ?? "") ?? [];
+    const description = isSingle && protectedCount === 0 && inUseGames.length === 0
+      ? t("games.delete.description")
+      : isSingle && singleAssignedNames.length > 0
+        ? t("games.delete.inUse").replace("{names}", singleAssignedNames.join(", "))
+        : t("bulkDelete.games.description")
+            .replace("{deletable}", String(deletableCount))
+            .replace("{skipped}", String(skippedCount))
+            .replace("{protected}", String(protectedCount))
+            .replace("{inUse}", String(inUseGames.length));
     const confirmed = await confirm({
-      title: t("games.delete.title").replace("{name}", game.name),
-      description: t("games.delete.description"),
+      title: isSingle
+        ? t("games.delete.title").replace("{name}", games[0].name)
+        : t("bulkDelete.games.title").replace("{count}", String(games.length)),
+      description,
       cancelLabel: t("confirm.cancel"),
       confirmLabel: t("confirm.delete"),
+      confirmDisabled: deletableCount === 0,
       tone: "destructive"
     });
     if (!confirmed) return false;
+
+    isDeletingGamesRef.current = true;
+    setIsDeletingGames(true);
     const reportError = beginErrorOperation();
+    setNotice?.(null);
     try {
-      await window.rionStudio.deleteGame(game.id);
-      setGames((current) => current.filter((item) => item.id !== game.id));
-      setCompatibilityReports((current) => current.filter((report) => report.gameId !== game.id));
+      const result = await window.rionStudio.deleteGames({ ids: games.map((game) => game.id) });
+      const [nextGames, nextReports] = await Promise.all([
+        window.rionStudio.listGames(),
+        window.rionStudio.listGameCompatibilityReports()
+      ]);
+      setGames(nextGames);
+      setCompatibilityReports(nextReports);
+      setNotice?.(formatBulkDeleteResult(result, t));
       return true;
     } catch (error) {
       reportError(error);
       return false;
+    } finally {
+      isDeletingGamesRef.current = false;
+      setIsDeletingGames(false);
     }
+  }
+
+  async function deleteGame(game: Game): Promise<boolean> {
+    return deleteGames([game]);
   }
 
   async function runCompatibilityCheck(gameId: string): Promise<void> {
@@ -145,6 +184,8 @@ export function useGameWorkflow({
     applyRecommendation,
     cancelCompatibilityCheck,
     deleteGame,
+    deleteGames,
+    isDeletingGames,
     isSavingGame,
     resetBuiltinGame,
     runCompatibilityCheck,

@@ -13,5 +13,9 @@ export function useBusyIds() {
     return trackerRef.current?.begin(id);
   }, []);
 
-  return { beginBusy, busyIds };
+  const beginBusyMany = useCallback((ids: Iterable<string>): (() => void) | undefined => {
+    return trackerRef.current?.beginMany(ids);
+  }, []);
+
+  return { beginBusy, beginBusyMany, busyIds };
 }

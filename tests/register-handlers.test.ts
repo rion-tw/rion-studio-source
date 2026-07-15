@@ -102,7 +102,7 @@ describe("registerIpcHandlers workspace handlers", () => {
   let gameCompatibilityManager: Pick<GameCompatibilityManager, "cancelCheck" | "deleteGame" | "listReports" | "listStatuses" | "on" | "recordObservation" | "runCheck">;
   let workspaceStore: Pick<
     LaunchWorkspaceStore,
-    "clearRole" | "createWorkspace" | "getWorkspace" | "listWorkspaces" | "reorderWorkspaces" | "updateWorkspace"
+    "clearRole" | "createWorkspace" | "deleteWorkspace" | "getWorkspace" | "listWorkspaces" | "reorderWorkspaces" | "updateWorkspace"
   >;
   let browserManager: Pick<
     BrowserManager,
@@ -163,6 +163,7 @@ describe("registerIpcHandlers workspace handlers", () => {
     workspaceStore = {
       clearRole: vi.fn().mockResolvedValue(undefined),
       createWorkspace: vi.fn().mockResolvedValue(workspace),
+      deleteWorkspace: vi.fn().mockResolvedValue(undefined),
       getWorkspace: vi.fn().mockResolvedValue(workspace),
       listWorkspaces: vi.fn().mockResolvedValue([workspace]),
       reorderWorkspaces: vi.fn().mockResolvedValue([workspace]),
@@ -296,6 +297,71 @@ describe("registerIpcHandlers workspace handlers", () => {
       name: "Invalid"
     })).rejects.toThrow("Game not found");
     expect(roleStore.createRole).not.toHaveBeenCalled();
+  });
+
+  it("bulk deletes games in order, de-duplicates ids, and reports protected or in-use games", async () => {
+    vi.mocked(gameStore.deleteGame).mockImplementation(async (id) => {
+      if (id === "builtin") {
+        throw Object.assign(new Error("Built-in games cannot be deleted."), {
+          code: "GAME_BUILTIN_DELETE_FORBIDDEN"
+        });
+      }
+      if (id === "in-use") {
+        throw Object.assign(new Error("Move or delete assigned roles before deleting this game."), {
+          code: "GAME_IN_USE",
+          details: { roleNames: ["Main"] }
+        });
+      }
+    });
+
+    await expect(handlers.get(IPC_CHANNELS.gamesDeleteMany)?.({}, {
+      ids: ["ok", "builtin", "in-use", "ok"]
+    })).resolves.toEqual({
+      deletedIds: ["ok"],
+      skipped: [
+        { id: "builtin", reason: "protected" },
+        { id: "in-use", reason: "in_use", relatedNames: ["Main"] }
+      ]
+    });
+    expect(gameStore.deleteGame).toHaveBeenCalledTimes(3);
+    expect(gameCompatibilityManager.deleteGame).toHaveBeenCalledOnce();
+    expect(gameCompatibilityManager.deleteGame).toHaveBeenCalledWith("ok");
+  });
+
+  it("bulk deletes roles and workspaces while continuing after missing records", async () => {
+    vi.mocked(roleStore.deleteRole).mockImplementation(async (id) => {
+      if (id === "role-missing") {
+        throw Object.assign(new Error("Role not found."), { code: "ROLE_NOT_FOUND" });
+      }
+    });
+    vi.mocked(workspaceStore.deleteWorkspace).mockImplementation(async (id) => {
+      if (id === "workspace-missing") {
+        throw Object.assign(new Error("Launch workspace not found."), { code: "WORKSPACE_NOT_FOUND" });
+      }
+    });
+
+    await expect(handlers.get(IPC_CHANNELS.rolesDeleteMany)?.({}, {
+      ids: ["role-1", "role-missing", "role-2"]
+    })).resolves.toEqual({
+      deletedIds: ["role-1", "role-2"],
+      skipped: [{ id: "role-missing", reason: "not_found" }]
+    });
+    expect(workspaceStore.clearRole).toHaveBeenCalledTimes(2);
+
+    await expect(handlers.get(IPC_CHANNELS.workspacesDeleteMany)?.({}, {
+      ids: ["workspace-1", "workspace-missing"]
+    })).resolves.toEqual({
+      deletedIds: ["workspace-1"],
+      skipped: [{ id: "workspace-missing", reason: "not_found" }]
+    });
+    expect(browserManager.stopWorkspace).toHaveBeenCalledWith("workspace-1");
+    expect(browserManager.stopWorkspace).toHaveBeenCalledWith("workspace-missing");
+  });
+
+  it("rejects malformed bulk delete inputs", async () => {
+    await expect(handlers.get(IPC_CHANNELS.rolesDeleteMany)?.({}, { ids: ["role-1", ""] }))
+      .rejects.toThrow("Bulk delete input is invalid.");
+    expect(roleStore.deleteRole).not.toHaveBeenCalled();
   });
 
   it("passes resolved role defaults to compatibility checks", async () => {
@@ -794,6 +860,23 @@ describe("registerIpcHandlers macro handlers", () => {
 
     expect(macroManager.stopAndRunMutation).toHaveBeenCalledWith("macro-1", expect.any(Function));
     expect(macroStore.deleteMacro).toHaveBeenCalledWith("macro-1");
+  });
+
+  it("bulk stops macros and continues after an item disappears", async () => {
+    vi.mocked(macroStore.deleteMacro).mockImplementation(async (id) => {
+      if (id === "macro-missing") {
+        throw Object.assign(new Error("Macro not found."), { code: "MACRO_NOT_FOUND" });
+      }
+    });
+
+    await expect(handlers.get(IPC_CHANNELS.macrosDeleteMany)?.({}, {
+      ids: ["macro-1", "macro-missing", "macro-2", "macro-1"]
+    })).resolves.toEqual({
+      deletedIds: ["macro-1", "macro-2"],
+      skipped: [{ id: "macro-missing", reason: "not_found" }]
+    });
+    expect(macroManager.stopAndRunMutation).toHaveBeenCalledTimes(3);
+    expect(macroStore.deleteMacro).toHaveBeenCalledTimes(3);
   });
 
   it("deletes stored macros after the browser manager stops a deleted role", async () => {

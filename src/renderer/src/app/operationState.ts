@@ -4,11 +4,16 @@ export class BusyIdTracker {
   constructor(private readonly onChange: (ids: ReadonlySet<string>) => void) {}
 
   begin(id: string): (() => void) | undefined {
-    if (this.activeIds.has(id)) {
+    return this.beginMany([id]);
+  }
+
+  beginMany(ids: Iterable<string>): (() => void) | undefined {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.some((id) => this.activeIds.has(id))) {
       return undefined;
     }
 
-    this.activeIds.add(id);
+    uniqueIds.forEach((id) => this.activeIds.add(id));
     this.emitChange();
     let isFinished = false;
 
@@ -18,7 +23,7 @@ export class BusyIdTracker {
       }
 
       isFinished = true;
-      this.activeIds.delete(id);
+      uniqueIds.forEach((id) => this.activeIds.delete(id));
       this.emitChange();
     };
   }

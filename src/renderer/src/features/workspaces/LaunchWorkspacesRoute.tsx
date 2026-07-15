@@ -12,13 +12,25 @@ import {
   Trash2,
   ZoomIn
 } from "lucide-react";
-import { type CSSProperties, type DragEvent, type JSX, type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type DragEvent,
+  type JSX,
+  type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
+  type RefCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
+import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { moveItemById } from "../../app/reorderItems";
 import type { Translator } from "../../i18n";
@@ -35,6 +47,7 @@ import type {
 import { getWorkspaceTargetDisplayPresentation } from "./workspaceDisplayUtils";
 import { createWorkspaceSlotBackground, getWorkspaceSplits } from "./workspaceLayoutUtils";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
+import { useListSelection } from "../../hooks/useListSelection";
 
 interface LaunchWorkspacesViewProps {
   busyWorkspaceIds: ReadonlySet<string>;
@@ -50,6 +63,7 @@ interface LaunchWorkspacesViewProps {
   onCopyWorkspace: (workspace: LaunchWorkspace) => void;
   onCreateWorkspace: () => void;
   onDeleteWorkspace: (workspace: LaunchWorkspace) => void;
+  onDeleteWorkspaces: (workspaces: LaunchWorkspace[]) => Promise<boolean>;
   onEditWorkspace: (workspace: LaunchWorkspace) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
   onQueryChange: (query: string) => void;
@@ -71,6 +85,7 @@ function LaunchWorkspacesView({
   onCopyWorkspace,
   onCreateWorkspace,
   onDeleteWorkspace,
+  onDeleteWorkspaces,
   onEditWorkspace,
   onLaunchWorkspace,
   onQueryChange,
@@ -81,7 +96,7 @@ function LaunchWorkspacesView({
   const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
   const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
   const [dropTargetWorkspaceId, setDropTargetWorkspaceId] = useState<string | null>(null);
-  const canReorder = query.trim() === "" && !isReordering && workspaces.length > 1;
+  const pageRef = useRef<HTMLElement | null>(null);
   const filteredWorkspaces = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -100,6 +115,11 @@ function LaunchWorkspacesView({
         .includes(normalizedQuery);
     });
   }, [query, roleById, t, workspaces]);
+  const selection = useListSelection({
+    orderedIds: filteredWorkspaces.map((workspace) => workspace.id),
+    scrollContainerRef: pageRef
+  });
+  const canReorder = query.trim() === "" && !isReordering && !selection.hasSelection && workspaces.length > 1;
 
   function clearDragState(): void {
     setDraggedWorkspaceId(null);
@@ -139,9 +159,17 @@ function LaunchWorkspacesView({
     clearDragState();
   }
 
+  async function handleDeleteSelected(): Promise<void> {
+    const selectedWorkspaces = filteredWorkspaces.filter((workspace) => selection.selectedIds.has(workspace.id));
+    const completed = await onDeleteWorkspaces(selectedWorkspaces);
+    if (completed) {
+      selection.clearSelection();
+    }
+  }
+
   if (workspaces.length === 0) {
     return (
-      <PageFrame contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
+      <PageFrame containerRef={pageRef} contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
         <EmptyState
           className="min-h-0"
           icon={LayoutDashboard}
@@ -155,7 +183,7 @@ function LaunchWorkspacesView({
   }
 
   return (
-    <PageFrame scrollPositionRef={scrollPositionRef}>
+    <PageFrame containerRef={pageRef} scrollPositionRef={scrollPositionRef} {...selection.collectionProps}>
       <PageHeader
         kicker={t("app.navigation.play")}
         title={t("workspaces.title")}
@@ -181,6 +209,18 @@ function LaunchWorkspacesView({
         }
       />
 
+      {selection.hasSelection ? (
+        <SelectionActionBar
+          isBusy={[...selection.selectedIds].some((id) => busyWorkspaceIds.has(id))}
+          selectedCount={selection.selectedIds.size}
+          t={t}
+          totalCount={filteredWorkspaces.length}
+          onClear={selection.clearSelection}
+          onDelete={() => void handleDeleteSelected()}
+          onSelectAll={selection.selectAll}
+        />
+      ) : null}
+
       {filteredWorkspaces.length === 0 ? (
         <EmptyState
           icon={Search}
@@ -198,12 +238,14 @@ function LaunchWorkspacesView({
               canReorder={canReorder}
               isDragging={draggedWorkspaceId === workspace.id}
               isDropTarget={dropTargetWorkspaceId === workspace.id}
+              isSelected={selection.isSelected(workspace.id)}
               gameNameById={gameNameById}
               roleById={roleById}
               statusByRole={statusByRole}
               t={t}
               workspace={workspace}
               workspaceDisplays={workspaceDisplays}
+              selectionRef={selection.registerItem(workspace.id)}
               onCopy={() => onCopyWorkspace(workspace)}
               onDelete={() => onDeleteWorkspace(workspace)}
               onEdit={() => onEditWorkspace(workspace)}
@@ -213,10 +255,13 @@ function LaunchWorkspacesView({
               onDragStart={(event) => handleDragStart(event, workspace.id)}
               onDrop={(event) => handleDrop(event, workspace.id)}
               onStop={() => onStopWorkspace(workspace)}
+              onSelectionClick={(event) => selection.handleItemClick(event, workspace.id)}
+              onToggleSelection={() => selection.toggleSelection(workspace.id)}
             />
           ))}
         </div>
       )}
+      <SelectionMarquee rect={selection.selectionRect} />
     </PageFrame>
   );
 }
@@ -227,6 +272,7 @@ interface WorkspaceCardProps {
   canReorder: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
+  isSelected: boolean;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -236,9 +282,12 @@ interface WorkspaceCardProps {
   onDrop: (event: DragEvent<HTMLElement>) => void;
   onLaunch: () => void;
   onStop: () => void;
+  onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
+  onToggleSelection: () => void;
   roleById: Map<string, Role>;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
+  selectionRef: RefCallback<HTMLElement>;
   workspace: LaunchWorkspace;
   workspaceDisplays: WorkspaceDisplayInfo[];
 }
@@ -249,6 +298,7 @@ function WorkspaceCard({
   canReorder,
   isDragging,
   isDropTarget,
+  isSelected,
   onCopy,
   onDelete,
   onEdit,
@@ -258,9 +308,12 @@ function WorkspaceCard({
   onDrop,
   onLaunch,
   onStop,
+  onSelectionClick,
+  onToggleSelection,
   roleById,
   statusByRole,
   t,
+  selectionRef,
   workspace,
   workspaceDisplays
 }: WorkspaceCardProps): JSX.Element {
@@ -276,14 +329,23 @@ function WorkspaceCard({
 
   return (
     <Card
+      ref={selectionRef}
       className={cn(
         "group relative overflow-visible glass-panel-strong transition-[box-shadow,opacity] duration-150",
         isDragging && "opacity-45",
-        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
+        (isDropTarget || isSelected) && "ring-2 ring-blue-500/70 ring-offset-2 ring-offset-background"
       )}
+      data-selection-id={workspace.id}
+      onClickCapture={onSelectionClick}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
+      <SelectionToggle
+        className="absolute left-3 top-3 z-30"
+        isSelected={isSelected}
+        label={t(isSelected ? "selection.deselectItem" : "selection.selectItem").replace("{name}", workspace.name)}
+        onToggle={onToggleSelection}
+      />
       <div className="relative overflow-hidden rounded-t-lg">
         <WorkspaceLayoutPreview
           className="aspect-[4/3] p-2"

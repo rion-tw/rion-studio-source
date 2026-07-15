@@ -7,6 +7,9 @@ import type {
   AppRendererReadyState,
   AppUpdateStatus,
   AuthFlowStatus,
+  BulkDeleteInput,
+  BulkDeleteResult,
+  BulkDeleteSkippedItem,
   CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
@@ -148,9 +151,15 @@ export function registerIpcHandlers(
     return game;
   });
   ipcMain.handle(IPC_CHANNELS.gamesDelete, async (_event, id: string) => {
-    await requireGameStore(options).deleteGame(id);
-    await options.gameCompatibilityManager?.deleteGame(id);
+    await deleteGameRecord(options, id);
     await broadcastGamesChange(options);
+  });
+  ipcMain.handle(IPC_CHANNELS.gamesDeleteMany, async (_event, input: BulkDeleteInput) => {
+    const result = await runBulkDelete(input, (id) => deleteGameRecord(options, id));
+    if (result.deletedIds.length > 0) {
+      await broadcastGamesChange(options);
+    }
+    return result;
   });
   ipcMain.handle(IPC_CHANNELS.gamesCompatibilityList, () =>
     options.gameCompatibilityManager?.listReports() ?? Promise.resolve([])
@@ -366,14 +375,21 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesDelete, async (_event, id: string) => {
-    await browserManager.stopRoleAndRunMutation(id, async () => {
-      await roleStore.deleteRole(id);
-      await workspaceStore.clearRole(id);
-      await options.macroStore?.deleteRoleMacros(id);
-    });
+    await deleteRoleRecord(roleStore, workspaceStore, browserManager, options.macroStore, id);
     options.onRolesChanged?.();
     options.onWorkspacesChanged?.();
     options.onMacrosChanged?.();
+  });
+  ipcMain.handle(IPC_CHANNELS.rolesDeleteMany, async (_event, input: BulkDeleteInput) => {
+    const result = await runBulkDelete(input, (id) =>
+      deleteRoleRecord(roleStore, workspaceStore, browserManager, options.macroStore, id)
+    );
+    if (result.deletedIds.length > 0) {
+      options.onRolesChanged?.();
+      options.onWorkspacesChanged?.();
+      options.onMacrosChanged?.();
+    }
+    return result;
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesPaths, async (_event, id: string) => {
@@ -451,9 +467,15 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.workspacesDelete, async (_event, id: string) => {
-    await browserManager.stopWorkspace(id);
-    await workspaceStore.deleteWorkspace(id);
+    await deleteWorkspaceRecord(workspaceStore, browserManager, id);
     options.onWorkspacesChanged?.();
+  });
+  ipcMain.handle(IPC_CHANNELS.workspacesDeleteMany, async (_event, input: BulkDeleteInput) => {
+    const result = await runBulkDelete(input, (id) => deleteWorkspaceRecord(workspaceStore, browserManager, id));
+    if (result.deletedIds.length > 0) {
+      options.onWorkspacesChanged?.();
+    }
+    return result;
   });
 
   ipcMain.handle(IPC_CHANNELS.workspacesDisplays, () => getWorkspaceDisplays(options));
@@ -579,8 +601,15 @@ export function registerIpcHandlers(
     });
 
     ipcMain.handle(IPC_CHANNELS.macrosDelete, async (_event, id: string) => {
-      await macroManager.stopAndRunMutation(id, () => macroStore.deleteMacro(id));
+      await deleteMacroRecord(macroStore, macroManager, id);
       options.onMacrosChanged?.();
+    });
+    ipcMain.handle(IPC_CHANNELS.macrosDeleteMany, async (_event, input: BulkDeleteInput) => {
+      const result = await runBulkDelete(input, (id) => deleteMacroRecord(macroStore, macroManager, id));
+      if (result.deletedIds.length > 0) {
+        options.onMacrosChanged?.();
+      }
+      return result;
     });
 
     ipcMain.handle(IPC_CHANNELS.macrosStart, async (_event, macroId: string) => {
@@ -593,6 +622,102 @@ export function registerIpcHandlers(
 
     ipcMain.handle(IPC_CHANNELS.macrosStatuses, () => macroManager.listStatuses());
   }
+}
+
+async function deleteGameRecord(options: RegisterIpcHandlersOptions, id: string): Promise<void> {
+  await requireGameStore(options).deleteGame(id);
+  await options.gameCompatibilityManager?.deleteGame(id);
+}
+
+async function deleteRoleRecord(
+  roleStore: RoleStore,
+  workspaceStore: LaunchWorkspaceStore,
+  browserManager: BrowserManager,
+  macroStore: MacroStore | undefined,
+  id: string
+): Promise<void> {
+  await browserManager.stopRoleAndRunMutation(id, async () => {
+    await roleStore.deleteRole(id);
+    await workspaceStore.clearRole(id);
+    await macroStore?.deleteRoleMacros(id);
+  });
+}
+
+async function deleteWorkspaceRecord(
+  workspaceStore: LaunchWorkspaceStore,
+  browserManager: BrowserManager,
+  id: string
+): Promise<void> {
+  await browserManager.stopWorkspace(id);
+  await workspaceStore.deleteWorkspace(id);
+}
+
+async function deleteMacroRecord(macroStore: MacroStore, macroManager: MacroManager, id: string): Promise<void> {
+  await macroManager.stopAndRunMutation(id, () => macroStore.deleteMacro(id));
+}
+
+async function runBulkDelete(
+  input: BulkDeleteInput,
+  operation: (id: string) => Promise<void>
+): Promise<BulkDeleteResult> {
+  const ids = normalizeBulkDeleteIds(input);
+  const result: BulkDeleteResult = { deletedIds: [], skipped: [] };
+
+  for (const id of ids) {
+    try {
+      await operation(id);
+      result.deletedIds.push(id);
+    } catch (error) {
+      result.skipped.push(classifyBulkDeleteError(id, error));
+    }
+  }
+
+  return result;
+}
+
+function normalizeBulkDeleteIds(input: BulkDeleteInput): string[] {
+  if (!input || !Array.isArray(input.ids)) {
+    throw new Error("Bulk delete input is invalid.");
+  }
+
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const value of input.ids) {
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error("Bulk delete input is invalid.");
+    }
+    const id = value.trim();
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function classifyBulkDeleteError(id: string, error: unknown): BulkDeleteSkippedItem {
+  const code = readErrorCode(error);
+  const message = error instanceof Error ? error.message : String(error);
+  const details = error && typeof error === "object" && "details" in error
+    ? error.details as { roleNames?: unknown }
+    : undefined;
+  const relatedNames = Array.isArray(details?.roleNames)
+    ? details.roleNames.filter((name): name is string => typeof name === "string")
+    : undefined;
+
+  if (code === "GAME_BUILTIN_DELETE_FORBIDDEN") {
+    return { id, reason: "protected" };
+  }
+  if (code === "GAME_IN_USE") {
+    return { id, reason: "in_use", ...(relatedNames?.length ? { relatedNames } : {}) };
+  }
+  if (code.endsWith("_NOT_FOUND") || /not found/i.test(message)) {
+    return { id, reason: "not_found" };
+  }
+  if (/busy|in progress|launching|stopping/i.test(message)) {
+    return { id, reason: "busy" };
+  }
+  return { id, reason: "failed" };
 }
 
 async function runWithExistingRoles<T>(

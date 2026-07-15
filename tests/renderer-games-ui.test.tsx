@@ -42,6 +42,7 @@ describe("games cover UI", () => {
         statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
         onEdit={onEdit}
         onNewGame={vi.fn()}
         onNewRole={onNewRole}
@@ -99,6 +100,7 @@ describe("games cover UI", () => {
         statusByRole={new Map()}
         t={t}
         onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
         onEdit={vi.fn()}
         onNewGame={vi.fn()}
         onNewRole={vi.fn()}
@@ -116,6 +118,41 @@ describe("games cover UI", () => {
     expect(cardQueries.queryByText("Embedded available")).toBeNull();
     expect(shield.getAttribute("title")).toBe("Embedded mode is available; no settings were changed.");
     expect(shield.classList.contains("text-emerald-500")).toBe(true);
+  });
+
+  it("shows an outdated compatibility result beside the game name instead of below the metrics", () => {
+    const staleGame = game({ id: "stale-game", name: "Stale game" });
+    render(
+      <GamesRoute
+        games={[staleGame]}
+        reports={[{
+          gameId: staleGame.id,
+          checkedAt: "2026-07-15T01:00:00.000Z",
+          isStale: true,
+          load: { state: "available", durationMs: 321, finalOrigin: "https://example.test" },
+          recommendation: { mode: "embedded", reason: "embedded_available" },
+          observations: {}
+        }]}
+        roles={[]}
+        runStatuses={[]}
+        statusByRole={new Map()}
+        t={t}
+        onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
+        onEdit={vi.fn()}
+        onNewGame={vi.fn()}
+        onNewRole={vi.fn()}
+        onRunCheck={vi.fn()}
+      />
+    );
+
+    const card = screen.getByText("Stale game").closest(".glass-panel");
+    const cardQueries = within(card as HTMLElement);
+    const staleBadge = cardQueries.getByText("Result may be outdated");
+
+    expect(staleBadge.parentElement).toBe(cardQueries.getByText("Stale game").parentElement);
+    expect(staleBadge.closest("button")).toBeTruthy();
+    expect(cardQueries.getAllByText("Result may be outdated")).toHaveLength(1);
   });
 
   it("uploads and removes a custom game cover in the editor", async () => {

@@ -12,12 +12,22 @@ import {
   Square,
   Trash2
 } from "lucide-react";
-import { type DragEvent, type JSX, type MutableRefObject, useEffect, useRef, useState } from "react";
+import {
+  type DragEvent,
+  type JSX,
+  type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
+  type RefCallback,
+  useEffect,
+  useRef,
+  useState
+} from "react";
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
 import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
+import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { getGameIconUrl } from "../../app/gamePresentation";
 import { moveItemById } from "../../app/reorderItems";
@@ -30,6 +40,7 @@ import type { AppStats, SidebarFilter } from "../../app/types";
 import { formatAuthFlowState, shouldShowLoginGuidance } from "../../app/statusUtils";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { LoginSessionGuide } from "./LoginSessionGuide";
+import { useListSelection } from "../../hooks/useListSelection";
 
 const filterLabelKeys: Record<SidebarFilter, TranslationKey> = {
   all: "roles.filter.all",
@@ -57,6 +68,7 @@ interface RolesViewProps {
   onClearQuery: () => void;
   onCopy: (role: Role) => void;
   onDelete: (role: Role) => void;
+  onDeleteMany: (roles: Role[]) => Promise<boolean>;
   onEdit: (role: Role) => void;
   onFilterChange: (filter: SidebarFilter) => void;
   onLaunch: (roleId: string) => void;
@@ -84,6 +96,7 @@ function RolesView({
   onClearQuery,
   onCopy,
   onDelete,
+  onDeleteMany,
   onEdit,
   onFilterChange,
   onLaunch,
@@ -96,9 +109,14 @@ function RolesView({
   const [draggedRoleId, setDraggedRoleId] = useState<string | null>(null);
   const [dropTargetRoleId, setDropTargetRoleId] = useState<string | null>(null);
   const [gameFilterId, setGameFilterId] = useState("all");
+  const pageRef = useRef<HTMLElement | null>(null);
   const visibleRoles = gameFilterId === "all" ? filteredRoles : filteredRoles.filter((role) => role.gameId === gameFilterId);
+  const selection = useListSelection({
+    orderedIds: visibleRoles.map((role) => role.id),
+    scrollContainerRef: pageRef
+  });
   const gameById = new Map(games.map((game) => [game.id, game]));
-  const canReorder = activeFilter === "all" && gameFilterId === "all" && query.trim() === "" && !isReordering && roles.length > 1;
+  const canReorder = activeFilter === "all" && gameFilterId === "all" && query.trim() === "" && !isReordering && !selection.hasSelection && roles.length > 1;
   const filterCounts: Record<SidebarFilter, number> = {
     all: roleStats.total,
     running: roleStats.running,
@@ -148,9 +166,17 @@ function RolesView({
     clearDragState();
   }
 
+  async function handleDeleteSelected(): Promise<void> {
+    const selectedRoles = visibleRoles.filter((role) => selection.selectedIds.has(role.id));
+    const completed = await onDeleteMany(selectedRoles);
+    if (completed) {
+      selection.clearSelection();
+    }
+  }
+
   if (roles.length === 0) {
     return (
-      <PageFrame contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
+      <PageFrame containerRef={pageRef} contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
         <EmptyState
           className="min-h-0"
           icon={Globe2}
@@ -164,7 +190,7 @@ function RolesView({
   }
 
   return (
-    <PageFrame scrollPositionRef={scrollPositionRef}>
+    <PageFrame containerRef={pageRef} scrollPositionRef={scrollPositionRef} {...selection.collectionProps}>
       <PageHeader
         kicker={t("app.navigation.play")}
         title={t("roles.title")}
@@ -189,6 +215,18 @@ function RolesView({
           </>
         }
       />
+
+      {selection.hasSelection ? (
+        <SelectionActionBar
+          isBusy={[...selection.selectedIds].some((id) => busyRoleIds.has(id))}
+          selectedCount={selection.selectedIds.size}
+          t={t}
+          totalCount={visibleRoles.length}
+          onClear={selection.clearSelection}
+          onDelete={() => void handleDeleteSelected()}
+          onSelectAll={selection.selectAll}
+        />
+      ) : null}
 
       {activeLoginGuides.map(({ role, authStatus }) => (
         <LoginSessionGuide key={role.id} authStatus={authStatus} roleName={role.name} t={t} />
@@ -238,7 +276,9 @@ function RolesView({
                 isDragging={draggedRoleId === role.id}
                 isDropTarget={dropTargetRoleId === role.id}
                 isBusy={isBusy}
+                isSelected={selection.isSelected(role.id)}
                 language={language}
+                selectionRef={selection.registerItem(role.id)}
                 t={t}
                 onCopy={() => onCopy(role)}
                 onDelete={() => onDelete(role)}
@@ -250,11 +290,14 @@ function RolesView({
                 onDragStart={(event) => handleDragStart(event, role.id)}
                 onDrop={(event) => handleDrop(event, role.id)}
                 onStop={() => onStop(role.id)}
+                onSelectionClick={(event) => selection.handleItemClick(event, role.id)}
+                onToggleSelection={() => selection.toggleSelection(role.id)}
               />
             );
           })}
         </div>
       )}
+      <SelectionMarquee rect={selection.selectionRect} />
     </PageFrame>
   );
 }
@@ -288,6 +331,7 @@ interface RoleCardProps {
   isBusy: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
+  isSelected: boolean;
   language: Language;
   onCopy: () => void;
   onDelete: () => void;
@@ -299,8 +343,11 @@ interface RoleCardProps {
   onLaunch: () => void;
   onLogin: () => void;
   onStop: () => void;
+  onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
+  onToggleSelection: () => void;
   role: Role;
   status?: RoleStatus;
+  selectionRef: RefCallback<HTMLElement>;
   t: Translator;
 }
 
@@ -311,6 +358,7 @@ function RoleCard({
   isBusy,
   isDragging,
   isDropTarget,
+  isSelected,
   language,
   onCopy,
   onDelete,
@@ -322,8 +370,11 @@ function RoleCard({
   onLaunch,
   onLogin,
   onStop,
+  onSelectionClick,
+  onToggleSelection,
   role,
   status,
+  selectionRef,
   t
 }: RoleCardProps): JSX.Element {
   const isActive = Boolean(status);
@@ -342,18 +393,28 @@ function RoleCard({
 
   return (
     <Card
+      ref={selectionRef}
       className={cn(
         "role-cover-card group relative aspect-[4/5] overflow-hidden transition-[box-shadow,opacity] duration-150",
         isDragging && "opacity-45",
-        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
+        (isDropTarget || isSelected) && "ring-2 ring-blue-500/70 ring-offset-2 ring-offset-background"
       )}
+      data-selection-id={role.id}
       style={cardStyle}
+      onClickCapture={onSelectionClick}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
       <div
         className="absolute inset-0 bg-cover bg-center transition-transform duration-300 ease-out group-hover:scale-[1.03]"
         style={{ backgroundImage: `url("${coverImageUrl}")` }}
+      />
+
+      <SelectionToggle
+        className="absolute left-3 top-3 z-30"
+        isSelected={isSelected}
+        label={t(isSelected ? "selection.deselectItem" : "selection.selectItem").replace("{name}", role.name)}
+        onToggle={onToggleSelection}
       />
 
       <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">

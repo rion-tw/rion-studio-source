@@ -1,6 +1,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { createCopyName } from "../app/copyName";
+import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { MacroFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
@@ -28,7 +29,7 @@ export function useMacroWorkflow({
 }: UseMacroWorkflowOptions) {
   const confirm = useConfirmation();
   const [isSavingMacro, setIsSavingMacro] = useState(false);
-  const { beginBusy, busyIds: busyMacroIds } = useBusyIds();
+  const { beginBusy, beginBusyMany, busyIds: busyMacroIds } = useBusyIds();
   const busyRunKeys = busyMacroIds;
   const [query, setQuery] = useState("");
   const [roleFilterId, setRoleFilterId] = useState("");
@@ -79,35 +80,61 @@ export function useMacroWorkflow({
     }
   }
 
-  async function handleDeleteMacro(macro: Macro): Promise<void> {
+  async function handleDeleteMacros(selectedMacros: Macro[]): Promise<boolean> {
+    if (selectedMacros.length === 0) {
+      return false;
+    }
+    const isSingle = selectedMacros.length === 1;
     const confirmed = await confirm({
-      title: t("confirm.deleteMacro.title").replace("{name}", macro.name),
-      description: t("confirm.deleteMacro.description"),
+      title: isSingle
+        ? t("confirm.deleteMacro.title").replace("{name}", selectedMacros[0].name)
+        : t("bulkDelete.macros.title").replace("{count}", String(selectedMacros.length)),
+      description: isSingle ? t("confirm.deleteMacro.description") : t("bulkDelete.macros.description"),
       cancelLabel: t("confirm.cancel"),
       confirmLabel: t("confirm.delete"),
       tone: "destructive"
     });
 
     if (!confirmed) {
-      return;
+      return false;
     }
 
-    const finishBusy = beginBusy(macro.id);
+    const ids = selectedMacros.map((macro) => macro.id);
+    const finishBusy = beginBusyMany(ids);
     if (!finishBusy) {
-      return;
+      return false;
     }
 
     const reportError = beginErrorOperation();
+    setNotice?.(null);
 
     try {
-      await window.rionStudio.deleteMacro(macro.id);
-      setMacros((current) => current.filter((item) => item.id !== macro.id));
-      setMacroStatuses((current) => current.filter((status) => status.macroId !== macro.id));
+      const result = await window.rionStudio.deleteMacros({ ids });
+      const deletedIds = new Set(result.deletedIds);
+      setMacros((current) => current.filter((item) => !deletedIds.has(item.id)));
+      setMacroStatuses((current) => current.filter((status) => !deletedIds.has(status.macroId)));
+      try {
+        const [nextMacros, nextStatuses] = await Promise.all([
+          window.rionStudio.listMacros(),
+          window.rionStudio.listMacroStatuses()
+        ]);
+        setMacros(nextMacros);
+        setMacroStatuses(nextStatuses);
+      } catch (recoveryError) {
+        reportError(recoveryError);
+      }
+      setNotice?.(formatBulkDeleteResult(result, t));
+      return true;
     } catch (deleteError) {
       reportError(deleteError);
+      return false;
     } finally {
       finishBusy();
     }
+  }
+
+  async function handleDeleteMacro(macro: Macro): Promise<void> {
+    await handleDeleteMacros([macro]);
   }
 
   async function handleCopyMacro(macro: Macro): Promise<void> {
@@ -200,6 +227,7 @@ export function useMacroWorkflow({
     busyRunKeys,
     handleCopyMacro,
     handleDeleteMacro,
+    handleDeleteMacros,
     handleStartMacro,
     handleStopMacro,
     isSavingMacro,

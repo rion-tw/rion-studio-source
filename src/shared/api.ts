@@ -5,6 +5,8 @@ import type {
   AppRendererReadyState,
   AppSnapshot,
   AppUpdateStatus,
+  BulkDeleteInput,
+  BulkDeleteResult,
   CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
@@ -51,6 +53,7 @@ export interface RionStudioApi {
   updateGame: (id: string, input: UpdateGameInput) => Promise<Game>;
   resetBuiltinGame: (id: string) => Promise<Game>;
   deleteGame: (id: string) => Promise<void>;
+  deleteGames: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   listGameCompatibilityReports: () => Promise<GameCompatibilityReport[]>;
   runGameCompatibilityCheck: (id: string, fallbackRoleDefaults: RoleDefaults) => Promise<GameCompatibilityReport>;
   cancelGameCompatibilityCheck: (id: string) => Promise<void>;
@@ -59,6 +62,7 @@ export interface RionStudioApi {
   updateRole: (id: string, input: UpdateRoleInput) => Promise<Role>;
   reorderRoles: (input: ReorderItemsInput) => Promise<Role[]>;
   deleteRole: (id: string) => Promise<void>;
+  deleteRoles: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   getRolePaths: (id: string) => Promise<RolePaths>;
   startLogin: (id: string) => Promise<AuthFlowStatus>;
   listAuthStatuses: () => Promise<AuthFlowStatus[]>;
@@ -71,6 +75,7 @@ export interface RionStudioApi {
   updateLaunchWorkspace: (id: string, input: UpdateLaunchWorkspaceInput) => Promise<LaunchWorkspace>;
   reorderLaunchWorkspaces: (input: ReorderItemsInput) => Promise<LaunchWorkspace[]>;
   deleteLaunchWorkspace: (id: string) => Promise<void>;
+  deleteLaunchWorkspaces: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   listWorkspaceDisplays: () => Promise<WorkspaceDisplayInfo[]>;
   launchWorkspace: (id: string, input?: WorkspaceLaunchInput) => Promise<WorkspaceLaunchResult>;
   stopLaunchWorkspace: (id: string) => Promise<void>;
@@ -78,6 +83,7 @@ export interface RionStudioApi {
   createMacro: (input: CreateMacroInput) => Promise<Macro>;
   updateMacro: (id: string, input: UpdateMacroInput) => Promise<Macro>;
   deleteMacro: (id: string) => Promise<void>;
+  deleteMacros: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   startMacro: (macroId: string) => Promise<MacroRunStatus[]>;
   stopMacro: (macroId: string) => Promise<void>;
   listMacroStatuses: () => Promise<MacroRunStatus[]>;

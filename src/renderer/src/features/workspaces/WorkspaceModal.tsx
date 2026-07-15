@@ -587,7 +587,7 @@ function WorkspaceLayoutFormEditor({
                       <p className="min-w-0 truncate text-xs font-semibold">
                         <span className="min-w-0 truncate">{role.name}</span>
                       </p>
-                      <p className="mt-0.5 truncate text-[11px] font-medium text-muted-foreground">
+                      <p className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
                         {launchGameName}
                         {status ? ` · ${t("status.running")}` : ""}
                       </p>

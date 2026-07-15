@@ -368,7 +368,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-xs font-semibold">{role.name}</span>
-                            <span className="mt-0.5 block truncate text-[11px] font-medium text-muted-foreground">
+                            <span className="mt-0.5 block truncate text-[10px] font-medium text-muted-foreground">
                               {gameName}
                             </span>
                           </span>

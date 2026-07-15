@@ -63,7 +63,9 @@ describe("bulk selection UI", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Select One" }));
+    const card = getSelectionItem("game-1");
+    expect(screen.queryByRole("button", { name: "Select One" })).toBeNull();
+    await user.click(card);
     expect(screen.getByText("1 selected")).toBeTruthy();
     expect(screen.getByRole("toolbar").className).toContain("fixed");
     expect(screen.getByRole("toolbar").className).toContain("bottom-5");
@@ -94,10 +96,9 @@ describe("bulk selection UI", () => {
     );
 
     const page = document.querySelector<HTMLElement>(".app-page");
-    const item = screen.getByRole("button", { name: "Select One" }).closest<HTMLElement>("[data-selection-id]");
+    const item = getSelectionItem("game-1");
     expect(page).not.toBeNull();
-    expect(item).not.toBeNull();
-    setBounds(item!, 20, 80, 100, 100);
+    setBounds(item, 20, 80, 100, 100);
 
     fireEvent.pointerDown(screen.getByRole("heading", { name: "Games" }), {
       button: 0,
@@ -109,7 +110,7 @@ describe("bulk selection UI", () => {
     fireEvent.pointerMove(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
 
     expect(screen.getByText("1 selected")).toBeTruthy();
-    expectSelectedCardOverlay(item!);
+    expectSelectedCardOverlay(item);
     fireEvent.pointerUp(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
   });
 
@@ -146,11 +147,11 @@ describe("bulk selection UI", () => {
       />
     );
 
-    const card = screen.getByRole("button", { name: "Select Main role" }).closest<HTMLElement>("[data-selection-id]");
-    expect(card).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "Select Main role" }));
+    const card = getSelectionItem("role-1");
+    expect(screen.queryByRole("button", { name: "Select Main role" })).toBeNull();
+    await user.click(card);
     expect(screen.getByText("1 selected")).toBeTruthy();
-    expectSelectedCardOverlay(card!);
+    expectSelectedCardOverlay(card);
   });
 
   it("adds a selectable state to workspace cards", async () => {
@@ -180,11 +181,11 @@ describe("bulk selection UI", () => {
       />
     );
 
-    const card = screen.getByRole("button", { name: "Select Party" }).closest<HTMLElement>("[data-selection-id]");
-    expect(card).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "Select Party" }));
+    const card = getSelectionItem("workspace-1");
+    expect(screen.queryByRole("button", { name: "Select Party" })).toBeNull();
+    await user.click(card);
     expect(screen.getByText("1 selected")).toBeTruthy();
-    expectSelectedCardOverlay(card!);
+    expectSelectedCardOverlay(card);
   });
 
   it("adds a selectable state and selection column to macro rows", async () => {
@@ -303,4 +304,10 @@ function expectSelectedCardOverlay(card: HTMLElement): void {
   expect(overlay!.className).toContain("bg-blue-500/10");
   expect(overlay!.className).toContain("outline-blue-500/90");
   expect(overlay!.className).toContain("outline-1");
+}
+
+function getSelectionItem(id: string): HTMLElement {
+  const item = document.querySelector<HTMLElement>(`[data-selection-id="${id}"]`);
+  expect(item).not.toBeNull();
+  return item!;
 }

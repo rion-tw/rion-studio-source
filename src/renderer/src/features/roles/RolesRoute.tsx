@@ -30,8 +30,7 @@ import { EmptyState } from "../../components/EmptyState";
 import {
   SelectionActionBar,
   SelectionCardOverlay,
-  SelectionMarquee,
-  SelectionToggle
+  SelectionMarquee
 } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { getGameIconUrl } from "../../app/gamePresentation";
@@ -296,7 +295,6 @@ function RolesView({
                 onDrop={(event) => handleDrop(event, role.id)}
                 onStop={() => onStop(role.id)}
                 onSelectionClick={(event) => selection.handleItemClick(event, role.id)}
-                onToggleSelection={() => selection.toggleSelection(role.id)}
               />
             );
           })}
@@ -349,7 +347,6 @@ interface RoleCardProps {
   onLogin: () => void;
   onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
-  onToggleSelection: () => void;
   role: Role;
   status?: RoleStatus;
   selectionRef: RefCallback<HTMLElement>;
@@ -376,7 +373,6 @@ function RoleCard({
   onLogin,
   onStop,
   onSelectionClick,
-  onToggleSelection,
   role,
   status,
   selectionRef,
@@ -416,13 +412,6 @@ function RoleCard({
       />
 
       <SelectionCardOverlay isSelected={isSelected} />
-
-      <SelectionToggle
-        className="absolute left-3 top-3 z-30"
-        isSelected={isSelected}
-        label={t(isSelected ? "selection.deselectItem" : "selection.selectItem").replace("{name}", role.name)}
-        onToggle={onToggleSelection}
-      />
 
       <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <RoleActionMenu

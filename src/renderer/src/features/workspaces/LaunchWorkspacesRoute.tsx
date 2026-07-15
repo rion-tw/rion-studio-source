@@ -33,8 +33,7 @@ import { EmptyState } from "../../components/EmptyState";
 import {
   SelectionActionBar,
   SelectionCardOverlay,
-  SelectionMarquee,
-  SelectionToggle
+  SelectionMarquee
 } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { moveItemById } from "../../app/reorderItems";
@@ -261,7 +260,6 @@ function LaunchWorkspacesView({
               onDrop={(event) => handleDrop(event, workspace.id)}
               onStop={() => onStopWorkspace(workspace)}
               onSelectionClick={(event) => selection.handleItemClick(event, workspace.id)}
-              onToggleSelection={() => selection.toggleSelection(workspace.id)}
             />
           ))}
         </div>
@@ -288,7 +286,6 @@ interface WorkspaceCardProps {
   onLaunch: () => void;
   onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
-  onToggleSelection: () => void;
   roleById: Map<string, Role>;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -314,7 +311,6 @@ function WorkspaceCard({
   onLaunch,
   onStop,
   onSelectionClick,
-  onToggleSelection,
   roleById,
   statusByRole,
   t,
@@ -346,12 +342,6 @@ function WorkspaceCard({
       onDrop={onDrop}
     >
       <SelectionCardOverlay isSelected={isSelected} />
-      <SelectionToggle
-        className="absolute left-3 top-3 z-30"
-        isSelected={isSelected}
-        label={t(isSelected ? "selection.deselectItem" : "selection.selectItem").replace("{name}", workspace.name)}
-        onToggle={onToggleSelection}
-      />
       <div className="relative overflow-hidden rounded-t-lg">
         <WorkspaceLayoutPreview
           className="aspect-[4/3] p-2"

@@ -16,8 +16,7 @@ import { EmptyState } from "../../components/EmptyState";
 import {
   SelectionActionBar,
   SelectionCardOverlay,
-  SelectionMarquee,
-  SelectionToggle
+  SelectionMarquee
 } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
@@ -129,13 +128,6 @@ function GamesRoute({
                 onClickCapture={(event) => selection.handleItemClick(event, game.id)}
               >
                 <SelectionCardOverlay isSelected={selection.isSelected(game.id)} />
-                <SelectionToggle
-                  className="absolute left-3 top-3 z-30"
-                  isSelected={selection.isSelected(game.id)}
-                  label={t(selection.isSelected(game.id) ? "selection.deselectItem" : "selection.selectItem")
-                    .replace("{name}", game.name)}
-                  onToggle={() => selection.toggleSelection(game.id)}
-                />
                 <button className="block w-full min-w-0 text-left" type="button" onClick={() => onEdit(game)}>
                   <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15">
                     {coverUrl ? (

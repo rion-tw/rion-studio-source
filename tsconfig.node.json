@@ -2,12 +2,13 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
-    "types": ["node", "electron", "vitest"]
+    "types": ["node", "electron", "vite/client", "vitest"]
   },
   "include": [
     "electron.vite.config.ts",
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
+    "src/renderer/src/app/constants.ts",
     "src/renderer/src/app/copyName.ts",
     "src/renderer/src/app/editorFormState.ts",
     "src/renderer/src/app/editorNavigation.ts",
@@ -20,7 +21,17 @@
     "src/renderer/src/app/reorderItems.ts",
     "src/renderer/src/app/roleCoverPlaceholder.ts",
     "src/renderer/src/app/types.ts",
+    "src/renderer/src/components/AppRouteError.tsx",
+    "src/renderer/src/components/EmptyState.tsx",
+    "src/renderer/src/components/RoleRunDot.tsx",
+    "src/renderer/src/components/SearchField.tsx",
+    "src/renderer/src/components/ui/badge.tsx",
+    "src/renderer/src/components/ui/button.tsx",
+    "src/renderer/src/components/ui/input.tsx",
+    "src/renderer/src/components/ui/patterns.tsx",
+    "src/renderer/src/components/ui/select.tsx",
     "src/renderer/src/features/dashboard/dashboardUtils.ts",
+    "src/renderer/src/features/macros/MacrosRoute.tsx",
     "src/renderer/src/features/macros/macroListUtils.ts",
     "src/renderer/src/features/macros/macroUtils.ts",
     "src/renderer/src/features/legal/legalMarkdownParser.ts",
@@ -31,7 +42,9 @@
     "src/renderer/src/features/workspaces/workspaceDisplayUtils.ts",
     "src/renderer/src/features/workspaces/workspaceLaunchUtils.ts",
     "src/renderer/src/i18n.ts",
+    "src/renderer/src/lib/utils.ts",
     "src/shared/**/*.ts",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
   ]
 }

@@ -20,7 +20,7 @@ import { RoleRunDot } from "../../components/RoleRunDot";
 import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Select, SelectContent, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -162,12 +162,16 @@ function MacrosRoute({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL_ROLES_SELECT_VALUE}>{t("macros.filterAllRoles")}</SelectItem>
-                {games.flatMap((game) => {
+                {games.map((game) => {
                   const gameRoles = roles.filter((role) => role.gameId === game.id);
-                  return gameRoles.length ? [
-                    <SelectLabel key={`${game.id}:label`}>{game.name}</SelectLabel>,
-                    ...gameRoles.map((role) => <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>)
-                  ] : [];
+                  return gameRoles.length ? (
+                    <SelectGroup key={game.id}>
+                      <SelectLabel>{game.name}</SelectLabel>
+                      {gameRoles.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ) : null;
                 })}
               </SelectContent>
             </Select>

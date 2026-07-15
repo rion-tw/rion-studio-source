@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { createHashRouter, RouterProvider } from "react-router";
 
 import { App } from "./App";
+import { AppRouteError } from "./components/AppRouteError";
 import { ConfirmationProvider } from "./components/ConfirmationDialog";
 import "./styles.css";
 
@@ -30,7 +31,8 @@ const router = createHashRouter([
       <ConfirmationProvider>
         <App />
       </ConfirmationProvider>
-    )
+    ),
+    errorElement: <AppRouteError />
   }
 ]);
 

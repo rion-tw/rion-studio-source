@@ -228,7 +228,7 @@ function RoleForm({
                     <SelectTrigger id="role-game"><SelectValue /></SelectTrigger>
                     <SelectContent>{games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}</SelectContent>
                   </Select>
-                  {gameChanged ? <p className="text-xs leading-5 text-warning">{t("roleForm.gameChangeWarning")}</p> : null}
+                  {gameChanged ? <p className="text-xs leading-5 text-warning-foreground">{t("roleForm.gameChangeWarning")}</p> : null}
                 </FormField>
                 <FormField
                   htmlFor="role-launch-url"

@@ -611,8 +611,11 @@ function WorkspaceLayoutFormEditor({
           </div>
         </div>
 
-        <div className="min-h-0 border-t border-border min-[1180px]:border-l min-[1180px]:border-t-0">
-          <div className="flex items-start justify-between gap-3 p-4 pb-3">
+        <div
+          data-workspace-role-panel
+          className="flex min-h-0 flex-col border-t border-border min-[1180px]:overflow-hidden min-[1180px]:border-l min-[1180px]:border-t-0 min-[1180px]:[contain:size]"
+        >
+          <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-3">
             <FieldHeader
               title={t("workspaces.rolePicker")}
               description={t("workspaces.rolePickerDescription").replace("{slot}", selectedSlotLabel)}
@@ -631,7 +634,7 @@ function WorkspaceLayoutFormEditor({
           </div>
           <div
             data-workspace-role-scroll
-            className="max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto"
+            className="max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto min-[1180px]:min-h-0 min-[1180px]:max-h-none min-[1180px]:flex-1"
           >
             <div
               data-workspace-role-list

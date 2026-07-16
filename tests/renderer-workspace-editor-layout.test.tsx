@@ -22,7 +22,7 @@ afterEach(cleanup);
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
-  it("caps the edge-aligned scroll region and keeps every role card at a fixed height", () => {
+  it("fills the wide role panel, caps the stacked layout, and keeps every role card at a fixed height", () => {
     const roles = Array.from({ length: 7 }, (_value, index) => role(index + 1));
     const selectedWorkspace = workspace();
     const router = createMemoryRouter(
@@ -52,14 +52,20 @@ describe("workspace editor role picker layout", () => {
       </ConfirmationProvider>
     );
 
+    const rolePanel = container.querySelector<HTMLElement>("[data-workspace-role-panel]");
     const scrollRegion = container.querySelector<HTMLElement>("[data-workspace-role-scroll]");
     const roleList = container.querySelector<HTMLElement>("[data-workspace-role-list]");
     const roleButtons = container.querySelectorAll<HTMLElement>("[data-workspace-role-id]");
 
+    expect(rolePanel?.className).toContain("flex-col");
+    expect(rolePanel?.className).toContain("min-[1180px]:overflow-hidden");
+    expect(rolePanel?.className).toContain("min-[1180px]:[contain:size]");
     expect(scrollRegion?.className).toContain("max-h-[clamp(320px,45vh,440px)]");
     expect(scrollRegion?.className).toContain("overflow-y-auto");
     expect(scrollRegion?.className).toContain("overflow-x-hidden");
-    expect(scrollRegion?.className).not.toContain("max-h-none");
+    expect(scrollRegion?.className).toContain("min-[1180px]:min-h-0");
+    expect(scrollRegion?.className).toContain("min-[1180px]:max-h-none");
+    expect(scrollRegion?.className).toContain("min-[1180px]:flex-1");
     expect(roleList?.className).toContain("auto-rows-max");
     expect(roleList?.className).toContain("content-start");
     expect(roleButtons).toHaveLength(7);

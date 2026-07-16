@@ -269,6 +269,7 @@
   "macroForm.intervalSeconds": "{value} sec",
   "macroForm.intervalCustom": "Custom",
   "macroForm.intervalCustomValue": "Custom interval",
+  "macroForm.intervalLowWarning": "Polling below 250 ms may increase system load or cause unstable execution. We recommend using 250 ms or more.",
   "macroForm.steps": "Steps",
   "macroForm.stepsDescription": "Add keys, click positions, delays, and synchronous macro calls in execution order.",
   "macroForm.addStep": "Add step",

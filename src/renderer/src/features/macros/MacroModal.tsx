@@ -645,6 +645,15 @@ function MacroIntervalControl({
           onChange={onChange}
         />
       ) : null}
+      {isValidMacroInterval(value) && value < 250 ? (
+        <p
+          className="flex items-start gap-1.5 text-[11px] font-medium leading-4 text-amber-600 dark:text-amber-300"
+          role="status"
+        >
+          <AlertTriangle className="mt-px shrink-0" size={14} aria-hidden="true" />
+          <span>{t("macroForm.intervalLowWarning")}</span>
+        </p>
+      ) : null}
     </div>
   );
 }

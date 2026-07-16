@@ -112,6 +112,110 @@ describe("macro editor controls", () => {
     expect(roleButton.getAttribute("aria-pressed")).toBe("false");
     expect(roleButton.className).not.toContain("macro-role-card-selected");
   });
+
+  it("warns about valid loop intervals below 250 ms without blocking save", async () => {
+    const lowIntervalMacro = macro({ repeat: { type: "loop", intervalMs: 100 } });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...lowIntervalMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/macros/:id/edit",
+          element: (
+            <MacroEditorRoute
+              games={[game()]}
+              isSaving={false}
+              macros={[lowIntervalMacro]}
+              roles={[role()]}
+              t={t}
+              onSave={onSave}
+            />
+          )
+        },
+        { path: "/macros", element: <div>Macro list</div> }
+      ],
+      { initialEntries: ["/macros/macro-1/edit"] }
+    );
+
+    render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    expect(screen.getByRole("status").textContent).toBe(en["macroForm.intervalLowWarning"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        repeat: { type: "loop", intervalMs: 100 }
+      }));
+    });
+  });
+
+  it("does not show the low-interval warning at 250 ms or for invalid values", () => {
+    const thresholdMacro = macro({ repeat: { type: "loop", intervalMs: 250 } });
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/macros/:id/edit",
+          element: (
+            <MacroEditorRoute
+              games={[game()]}
+              isSaving={false}
+              macros={[thresholdMacro]}
+              roles={[role()]}
+              t={t}
+              onSave={vi.fn()}
+            />
+          )
+        }
+      ],
+      { initialEntries: ["/macros/macro-1/edit"] }
+    );
+
+    const renderedThreshold = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+
+    renderedThreshold.unmount();
+
+    const invalidMacro = macro({ repeat: { type: "loop", intervalMs: 0 } });
+    const invalidRouter = createMemoryRouter(
+      [
+        {
+          path: "/macros/:id/edit",
+          element: (
+            <MacroEditorRoute
+              games={[game()]}
+              isSaving={false}
+              macros={[invalidMacro]}
+              roles={[role()]}
+              t={t}
+              onSave={vi.fn()}
+            />
+          )
+        }
+      ],
+      { initialEntries: ["/macros/macro-1/edit"] }
+    );
+
+    render(
+      <ConfirmationProvider>
+        <RouterProvider router={invalidRouter} />
+      </ConfirmationProvider>
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+  });
 });
 
 const t: Translator = (key) => en[key];

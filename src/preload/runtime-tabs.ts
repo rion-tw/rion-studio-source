@@ -8,7 +8,7 @@ import {
 } from "../shared/runtimeTabs";
 import type { AppLanguage } from "../shared/types";
 
-type LabelKey = "add" | "close" | "enterFullScreen" | "exitFullScreen" | "hide" |
+type LabelKey = "add" | "close" | "enterFullScreen" | "exitFullScreen" |
   "minimize" | "more" | "zoom";
 
 const translations: Record<AppLanguage, Record<LabelKey, string>> = {
@@ -17,7 +17,6 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     close: "Close game window",
     enterFullScreen: "Enter full screen",
     exitFullScreen: "Exit full screen",
-    hide: "Hide tab (keeps running)",
     minimize: "Minimize game window",
     more: "More actions",
     zoom: "Zoom game window"
@@ -27,7 +26,6 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     close: "關閉遊戲視窗",
     enterFullScreen: "進入全螢幕",
     exitFullScreen: "離開全螢幕",
-    hide: "隱藏分頁（保持運行）",
     minimize: "最小化遊戲視窗",
     more: "更多操作",
     zoom: "縮放遊戲視窗"
@@ -37,7 +35,6 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     close: "关闭游戏窗口",
     enterFullScreen: "进入全屏",
     exitFullScreen: "退出全屏",
-    hide: "隐藏标签页（保持运行）",
     minimize: "最小化游戏窗口",
     more: "更多操作",
     zoom: "缩放游戏窗口"
@@ -47,7 +44,6 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     close: "ゲームウインドウを閉じる",
     enterFullScreen: "フルスクリーンにする",
     exitFullScreen: "フルスクリーンを解除",
-    hide: "タブを非表示（実行を継続）",
     minimize: "ゲームウインドウを最小化",
     more: "その他の操作",
     zoom: "ゲームウインドウを拡大／復元"
@@ -143,11 +139,9 @@ function render(): void {
     name.textContent = tab.name;
     const count = element("span", "runtime-tab-count");
     count.textContent = tab.type === "workspace" ? String(tab.roleIds.length) : "";
-    const hide = eyeOffButton(label("hide"), () => send({ type: "hide", tabId: tab.id }));
     const more = iconButton("⋯", label("more"), () => send({ type: "openTabMenu", tabId: tab.id }));
-    hide.classList.add("runtime-tab-action");
     more.classList.add("runtime-tab-action");
-    tabButton.append(marker, name, count, hide, more);
+    tabButton.append(marker, name, count, more);
     tabs.append(tabButton);
   }
 
@@ -210,12 +204,6 @@ function iconButton(text: string, labelText: string, onClick: () => void): HTMLB
   return button;
 }
 
-function eyeOffButton(labelText: string, onClick: () => void): HTMLButtonElement {
-  const button = iconButton("", labelText, onClick);
-  button.innerHTML = `<svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 4.2A10.7 10.7 0 0 1 12 4c7 0 10 8 10 8a16 16 0 0 1-2.1 3.4"/><path d="M6.6 6.6C3.5 8.5 2 12 2 12s3 8 10 8a10.7 10.7 0 0 0 5.4-1.4"/></svg>`;
-  return button;
-}
-
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className: string
@@ -274,6 +262,10 @@ function installStyles(): void {
     }
     .runtime-bar.is-collapsed { background: transparent; border-bottom: 0; height: 2px; padding: 0; }
     .runtime-bar.is-collapsed > * { visibility: hidden; }
+    :root[data-platform="darwin"] .runtime-bar { height: 100%; }
+    :root[data-platform="darwin"] .runtime-bar:not(.is-collapsed) {
+      padding-top: max(4px, calc(100vh - 36px));
+    }
     :root[data-platform="darwin"] .runtime-bar.is-collapsed { padding-left: 0; }
     :root[data-platform="win32"] .runtime-bar { padding-left: max(10px, env(titlebar-area-x, 0px)); padding-right: max(10px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); }
     :root[data-platform="win32"] .runtime-bar.is-collapsed { padding-left: 0; padding-right: 0; }

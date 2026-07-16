@@ -1493,9 +1493,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const safeAreaInset = this.getRuntimeToolbarSafeAreaInset(displayHost);
     chromeView.setBounds({
       x: 0,
-      y: 0,
+      y: safeAreaInset,
       width: Math.max(1, bounds.width),
-      height: this.getRuntimeToolbarHeight(displayHost) + safeAreaInset
+      height: this.getRuntimeToolbarHeight(displayHost)
     });
     this.bringRuntimeChromeToFront(displayHost);
   }

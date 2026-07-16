@@ -5,6 +5,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import {
   buildExternalChromeArgs,
   createSeamlessWorkspaceBounds,
+  EXTERNAL_ZOOM_UNAVAILABLE_NOTICE,
   ExternalChromeManager
 } from "../src/main/browser/ExternalChromeManager";
 import type { Role } from "../src/shared/types";
@@ -218,6 +219,39 @@ describe("ExternalChromeManager", () => {
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
+  it("keeps external Chrome running and reports when custom zoom cannot connect", async () => {
+    const harness = createHarness({
+      connectAutomation: vi.fn().mockRejectedValue(new Error("CDP unavailable"))
+    });
+
+    const launchPromise = harness.manager.launch(role, { zoomFactor: 0.75 });
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    expect(status).toMatchObject({ state: "running", automationState: "unavailable" });
+    expect(status.notice).toContain(EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+    expect(harness.children[0].kill).not.toHaveBeenCalled();
+  });
+
+  it("keeps automation ready when only external workspace zoom fails", async () => {
+    const automationTarget = createAutomationTarget();
+    automationTarget.setZoomFactor.mockRejectedValue(new Error("zoom rejected"));
+    const harness = createHarness({
+      connectAutomation: vi.fn().mockResolvedValue(automationTarget)
+    });
+
+    const launchPromise = harness.manager.launch(role, { zoomFactor: 0.75 });
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    const status = await launchPromise;
+
+    expect(status).toMatchObject({ state: "running", automationState: "ready" });
+    expect(status.notice).toBe(EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+    expect(harness.manager.getAutomationSession(role.id)?.target).toBe(automationTarget);
+    expect(harness.children[0].kill).not.toHaveBeenCalled();
+  });
+
   it("launches workspace roles using normalized slot rectangles", async () => {
     const harness = createHarness();
     const secondRole = { ...role, id: "role-2", name: "Alt" };
@@ -236,7 +270,8 @@ describe("ExternalChromeManager", () => {
       ],
       {
         notice: "fallback",
-        workArea: { x: 2000, y: 40, width: 1600, height: 900 }
+        workArea: { x: 2000, y: 40, width: 1600, height: 900 },
+        zoomFactor: 0.75
       }
     );
     await waitForChild(harness.children, 0);
@@ -264,6 +299,8 @@ describe("ExternalChromeManager", () => {
       width: 800,
       height: 900
     });
+    expect(harness.automationTargets[0].setZoomFactor).toHaveBeenCalledWith(0.75);
+    expect(harness.automationTargets[1].setZoomFactor).toHaveBeenCalledWith(0.75);
     expect(statuses).toEqual([
       expect.objectContaining({ roleId: "role-1", notice: "fallback", runtimeMode: "external" }),
       expect.objectContaining({ roleId: "role-2", notice: "fallback", runtimeMode: "external" })
@@ -630,7 +667,8 @@ function createAutomationTarget() {
       disconnectListeners.add(listener);
       return () => disconnectListeners.delete(listener);
     }),
-    setWindowBounds: vi.fn().mockResolvedValue(undefined)
+    setWindowBounds: vi.fn().mockResolvedValue(undefined),
+    setZoomFactor: vi.fn().mockResolvedValue(undefined)
   };
 }
 

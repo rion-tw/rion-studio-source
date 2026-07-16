@@ -61,4 +61,26 @@ describe("renderer error localization", () => {
       "以下角色已在其他遊戲視窗執行：Main, Alt。請先停止後再啟動。"
     );
   });
+
+  it("localizes external Chrome zoom failures alone and inside fallback notices", async () => {
+    const fallback =
+      "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
+    const zoomFailure =
+      "Workspace zoom could not be applied in external Chrome. Restart this role to try again.";
+    await loadTranslations("zh-TW");
+    await loadTranslations("zh-CN");
+    await loadTranslations("ja");
+
+    expect(localizeErrorMessage(zoomFailure, "en")).toBe(zoomFailure);
+    expect(localizeErrorMessage(zoomFailure, "zh-TW")).toBe(
+      "無法在外部 Chrome 套用工作區縮放。請重新啟動此角色後再試一次。"
+    );
+    expect(localizeErrorMessage(`${fallback} ${zoomFailure}`, "zh-CN")).toBe(
+      "内嵌游戏画面无法加载。Rion Studio 已切换到外部 Chrome 兼容模式，以提高加速器支持。 " +
+      "无法在外部 Chrome 应用工作区缩放。请重新启动此角色后再试一次。"
+    );
+    expect(localizeErrorMessage(zoomFailure, "ja")).toBe(
+      "外部 Chrome でワークスペースのズームを適用できませんでした。このロールを再起動してもう一度お試しください。"
+    );
+  });
 });

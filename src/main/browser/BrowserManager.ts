@@ -126,7 +126,6 @@ export interface BrowserManagerOptions {
   prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
   resourcePressureMonitor?: SystemPressureSource;
-  runtimeToolbarCollapseDelayMs?: number;
 }
 
 export class BrowserLaunchAuthError extends Error {
@@ -209,7 +208,6 @@ interface EmbeddedDisplayHost {
   macSystemMenuBarHeight: number;
   systemMenuBarTemporarilyRevealed: boolean;
   tabIds: string[];
-  toolbarCollapseTimer?: ReturnType<typeof setTimeout>;
   toolbarCursorMonitorTimer?: ReturnType<typeof setTimeout>;
   toolbarRevealLockCount: number;
   toolbarTemporarilyVisible: boolean;
@@ -266,7 +264,6 @@ const RUNTIME_TAB_FULLSCREEN_REVEAL_DETECTION_HEIGHT = 4;
 const RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT = 48;
 const RUNTIME_TAB_MAC_MENU_BAR_FALLBACK_HEIGHT = 30;
 const RUNTIME_TAB_MAC_MENU_BAR_MAX_HEIGHT = 64;
-const RUNTIME_TAB_TOOLBAR_COLLAPSE_DELAY_MS = 700;
 const RUNTIME_TAB_TOOLBAR_CURSOR_MONITOR_INTERVAL_MS = 50;
 export const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
@@ -404,7 +401,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (this.alwaysShowToolbarInFullScreen === value) return;
     this.alwaysShowToolbarInFullScreen = value;
     this.displayHosts.forEach((host) => {
-      this.clearRuntimeToolbarCollapseTimer(host);
       if (value) this.clearRuntimeToolbarCursorMonitor(host);
       host.toolbarTemporarilyVisible = false;
       host.systemMenuBarTemporarilyRevealed = false;
@@ -422,19 +418,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     ) return;
 
     if (entered) {
-      this.clearRuntimeToolbarCollapseTimer(displayHost);
       this.revealRuntimeToolbar(displayHost);
       return;
     }
 
-    this.scheduleRuntimeToolbarCollapse(displayHost);
+    this.collapseRuntimeToolbarIfCursorLeft(displayHost);
   }
 
   acquireRuntimeToolbarRevealLock(displayId: number): () => void {
     const displayHost = this.displayHosts.get(displayId);
     if (!displayHost || displayHost.closing) return () => undefined;
     displayHost.toolbarRevealLockCount += 1;
-    this.clearRuntimeToolbarCollapseTimer(displayHost);
     if (
       this.isDisplayHostFullscreen(displayHost) &&
       !this.alwaysShowToolbarInFullScreen
@@ -451,7 +445,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         this.isDisplayHostFullscreen(displayHost) &&
         !this.alwaysShowToolbarInFullScreen
       ) {
-        this.scheduleRuntimeToolbarCollapse(displayHost);
+        this.collapseRuntimeToolbarIfCursorLeft(displayHost);
       }
     };
   }
@@ -1196,7 +1190,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
     window.on("hide", () => {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
-      this.clearRuntimeToolbarCollapseTimer(displayHost);
       displayHost.toolbarTemporarilyVisible = false;
       displayHost.systemMenuBarTemporarilyRevealed = false;
       this.applyRuntimeToolbarState(displayHost);
@@ -1209,7 +1202,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
     window.once("closed", () => {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
-      this.clearRuntimeToolbarCollapseTimer(displayHost);
       if (displayHost.chromeWebContents) {
         this.displayHostByChromeWebContentsId.delete(displayHost.chromeWebContents.id);
       }
@@ -1303,7 +1295,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (displayHost.tabIds.length > 0 || displayHost.closing) return;
     displayHost.closing = true;
     this.clearRuntimeToolbarCursorMonitor(displayHost);
-    this.clearRuntimeToolbarCollapseTimer(displayHost);
     displayHost.systemMenuBarTemporarilyRevealed = false;
     this.exitRuntimeSimpleFullscreen(displayHost);
     this.displayHosts.delete(displayHost.displayId);
@@ -1399,7 +1390,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       displayHost.systemMenuBarTemporarilyRevealed = false;
     } else if (wasFullscreen && !fullscreen) {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
-      this.clearRuntimeToolbarCollapseTimer(displayHost);
       displayHost.toolbarTemporarilyVisible = false;
       displayHost.systemMenuBarTemporarilyRevealed = false;
     }
@@ -1458,16 +1448,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     displayHost.window.contentView.addChildView(displayHost.chromeView);
   }
 
-  private scheduleRuntimeToolbarCollapse(displayHost: EmbeddedDisplayHost): void {
-    if (displayHost.toolbarCollapseTimer) return;
-    displayHost.toolbarCollapseTimer = setTimeout(
-      () => this.collapseRuntimeToolbarIfCursorLeft(displayHost),
-      this.options.runtimeToolbarCollapseDelayMs ?? RUNTIME_TAB_TOOLBAR_COLLAPSE_DELAY_MS
-    );
-  }
-
   private collapseRuntimeToolbarIfCursorLeft(displayHost: EmbeddedDisplayHost): void {
-    displayHost.toolbarCollapseTimer = undefined;
     if (
       displayHost.closing ||
       !this.isDisplayHostFullscreen(displayHost) ||
@@ -1525,16 +1506,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       );
       const cursorInToolbarZone = this.isCursorInRuntimeToolbarZone(displayHost, cursor);
       if (cursorInRevealBand) {
-        this.clearRuntimeToolbarCollapseTimer(displayHost);
         this.revealRuntimeToolbar(displayHost);
       } else if (
         displayHost.toolbarTemporarilyVisible ||
         displayHost.systemMenuBarTemporarilyRevealed
       ) {
-        if (displayHost.toolbarRevealLockCount > 0 || cursorInToolbarZone) {
-          this.clearRuntimeToolbarCollapseTimer(displayHost);
-        } else {
-          this.scheduleRuntimeToolbarCollapse(displayHost);
+        if (displayHost.toolbarRevealLockCount === 0 && !cursorInToolbarZone) {
+          this.collapseRuntimeToolbarIfCursorLeft(displayHost);
         }
       }
     }
@@ -1639,13 +1617,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (displayHost.toolbarCursorMonitorTimer) {
       clearTimeout(displayHost.toolbarCursorMonitorTimer);
       displayHost.toolbarCursorMonitorTimer = undefined;
-    }
-  }
-
-  private clearRuntimeToolbarCollapseTimer(displayHost: EmbeddedDisplayHost): void {
-    if (displayHost.toolbarCollapseTimer) {
-      clearTimeout(displayHost.toolbarCollapseTimer);
-      displayHost.toolbarCollapseTimer = undefined;
     }
   }
 

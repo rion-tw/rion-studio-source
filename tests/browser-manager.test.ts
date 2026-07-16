@@ -443,7 +443,6 @@ describe("BrowserManager game host windows", () => {
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       getCursorScreenPoint: () => cursor,
       platform: "darwin",
-      runtimeToolbarCollapseDelayMs: 700,
       useTabbedHostWindow: true,
       workspaceDisplays: runtimeDisplays
     });
@@ -477,12 +476,6 @@ describe("BrowserManager game host windows", () => {
     );
 
     harness.manager.handleRuntimeToolbarPointer(11, false);
-    await vi.advanceTimersByTimeAsync(699);
-    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 40,
-      y: 0
-    }));
-    await vi.advanceTimersByTimeAsync(1);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 2,
       y: 0
@@ -494,6 +487,24 @@ describe("BrowserManager game host windows", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
+      y: 0
+    }));
+
+    cursor = { x: 100, y: 68 };
+    harness.manager.handleRuntimeToolbarPointer(11, false);
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
+      height: 40,
+      y: 0
+    }));
+    cursor = { x: 100, y: 120 };
+    await vi.advanceTimersByTimeAsync(49);
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
+      height: 40,
+      y: 0
+    }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
+      height: 2,
       y: 0
     }));
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
@@ -606,7 +617,6 @@ describe("BrowserManager game host windows", () => {
       defaultLaunchTarget: { displayId: display.id, workArea: display.workArea },
       getCursorScreenPoint: () => cursor,
       platform: "darwin",
-      runtimeToolbarCollapseDelayMs: 700,
       useTabbedHostWindow: true,
       workspaceDisplays: [display]
     });
@@ -620,12 +630,6 @@ describe("BrowserManager game host windows", () => {
       y: 0
     }));
     harness.manager.handleRuntimeToolbarPointer(display.id, false);
-    await vi.advanceTimersByTimeAsync(699);
-    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 70,
-      y: 0
-    }));
-    await vi.advanceTimersByTimeAsync(1);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 2,
       y: 0
@@ -655,7 +659,6 @@ describe("BrowserManager game host windows", () => {
       defaultLaunchTarget: { displayId: display.id, workArea: display.workArea },
       getCursorScreenPoint,
       platform: "darwin",
-      runtimeToolbarCollapseDelayMs: 700,
       useTabbedHostWindow: true,
       workspaceDisplays: [display]
     });
@@ -688,7 +691,6 @@ describe("BrowserManager game host windows", () => {
 
     const release = harness.manager.acquireRuntimeToolbarRevealLock(display.id);
     release();
-    await vi.advanceTimersByTimeAsync(700);
     expect(harness.chromeViews[0].setBounds).toHaveBeenCalledTimes(chromeBoundsCalls);
     expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
 
@@ -817,7 +819,6 @@ describe("BrowserManager game host windows", () => {
       defaultLaunchTarget: { displayId: display.id, workArea: display.workArea },
       getCursorScreenPoint: () => ({ x: 100, y: 120 }),
       platform: "darwin",
-      runtimeToolbarCollapseDelayMs: 700,
       useTabbedHostWindow: true,
       workspaceDisplays: [display]
     });
@@ -835,7 +836,6 @@ describe("BrowserManager game host windows", () => {
       y: 0
     }));
     release();
-    await vi.advanceTimersByTimeAsync(700);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 2,
       y: 0
@@ -2711,7 +2711,6 @@ function createHarness(options: {
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
   useTabbedHostWindow?: boolean;
-  runtimeToolbarCollapseDelayMs?: number;
 } = {}) {
   const hosts: ReturnType<typeof createMockHost>[] = [];
   const chromeViews: ReturnType<typeof createMockView>[] = [];
@@ -2798,9 +2797,6 @@ function createHarness(options: {
     ...(options.defaultLaunchTarget ? { getDefaultLaunchTarget: () => options.defaultLaunchTarget! } : {}),
     ...(options.workspaceDisplays ? { getWorkspaceDisplays: () => options.workspaceDisplays! } : {}),
     loginPollIntervalMs: 0,
-    ...(options.runtimeToolbarCollapseDelayMs === undefined
-      ? {}
-      : { runtimeToolbarCollapseDelayMs: options.runtimeToolbarCollapseDelayMs }),
     platform: options.platform ?? (options.useTabbedHostWindow ? "win32" : process.platform),
     ...(options.prefersReducedTransparency
       ? { prefersReducedTransparency: options.prefersReducedTransparency }

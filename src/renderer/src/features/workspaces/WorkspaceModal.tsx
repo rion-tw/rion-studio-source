@@ -611,8 +611,8 @@ function WorkspaceLayoutFormEditor({
           </div>
         </div>
 
-        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 border-t border-border p-4 min-[1180px]:border-l min-[1180px]:border-t-0">
-          <div className="flex items-start justify-between gap-3">
+        <div className="min-h-0 border-t border-border min-[1180px]:border-l min-[1180px]:border-t-0">
+          <div className="flex items-start justify-between gap-3 p-4 pb-3">
             <FieldHeader
               title={t("workspaces.rolePicker")}
               description={t("workspaces.rolePickerDescription").replace("{slot}", selectedSlotLabel)}
@@ -629,56 +629,64 @@ function WorkspaceLayoutFormEditor({
               <Eraser size={15} />
             </Button>
           </div>
-          <div className="-mx-4 -mb-4 grid min-h-0 max-h-[360px] gap-2 overflow-auto px-4 pt-0.5 pb-4 min-[1180px]:max-h-none">
-            {roles.length === 0 ? (
-              <p className="text-xs leading-5 text-muted-foreground">{t("workspaces.noRoles")}</p>
-            ) : (
-              roles.map((role) => {
-                const assignedSlotIndex = assignedSlotByRoleId.get(role.id);
-                const isAssigned = assignedSlotIndex !== undefined;
-                const isSelectedSlotRole = selectedSlot?.roleId === role.id;
-                const status = statusByRole.get(role.id);
-                const launchGameName = gameNameById.get(role.gameId) ?? role.launchUrl;
+          <div
+            data-workspace-role-scroll
+            className="max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto"
+          >
+            <div
+              data-workspace-role-list
+              className="grid auto-rows-max content-start gap-2 px-4 pb-4 pt-0.5"
+            >
+              {roles.length === 0 ? (
+                <p className="text-xs leading-5 text-muted-foreground">{t("workspaces.noRoles")}</p>
+              ) : (
+                roles.map((role) => {
+                  const assignedSlotIndex = assignedSlotByRoleId.get(role.id);
+                  const isAssigned = assignedSlotIndex !== undefined;
+                  const isSelectedSlotRole = selectedSlot?.roleId === role.id;
+                  const status = statusByRole.get(role.id);
+                  const launchGameName = gameNameById.get(role.gameId) ?? role.launchUrl;
 
-                return (
-                  <button
-                    key={role.id}
-                    data-workspace-role-id={role.id}
-                    className={cn(
-                      "glass-control flex min-w-0 items-center gap-2 rounded-lg p-2 text-left transition-colors",
-                      isSelectedSlotRole && "border-primary/45 bg-primary/12 text-foreground",
-                      isAssigned && !isSelectedSlotRole && "border-primary/25 bg-primary/6"
-                    )}
-                    type="button"
-                    draggable={!isSaving}
-                    disabled={isSaving}
-                    onClick={() => handleRoleSelect(role.id)}
-                    onDragEnd={handleDragEnd}
-                    onDragStart={(event) => handleRoleDragStart(event, role.id)}
-                  >
-                    <div
-                      className="size-8 shrink-0 rounded-md bg-cover bg-center ring-1 ring-inset ring-border/60"
-                      style={createWorkspaceSlotBackground(role)}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="min-w-0 truncate text-xs font-semibold">
-                        <span className="min-w-0 truncate">{role.name}</span>
-                      </p>
-                      <p className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
-                        {launchGameName}
-                        {status ? ` · ${t("status.running")}` : ""}
-                      </p>
-                    </div>
-                    {isAssigned ? (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-background/40 px-1.5 py-1 text-[11px] font-semibold text-muted-foreground">
-                        {isSelectedSlotRole ? <Check size={13} /> : null}
-                        {t("workspaces.slotShort").replace("{index}", String(assignedSlotIndex + 1))}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })
-            )}
+                  return (
+                    <button
+                      key={role.id}
+                      data-workspace-role-id={role.id}
+                      className={cn(
+                        "glass-control flex h-[52px] min-w-0 items-center gap-2 rounded-lg p-2 text-left transition-colors",
+                        isSelectedSlotRole && "border-primary/45 bg-primary/12 text-foreground",
+                        isAssigned && !isSelectedSlotRole && "border-primary/25 bg-primary/6"
+                      )}
+                      type="button"
+                      draggable={!isSaving}
+                      disabled={isSaving}
+                      onClick={() => handleRoleSelect(role.id)}
+                      onDragEnd={handleDragEnd}
+                      onDragStart={(event) => handleRoleDragStart(event, role.id)}
+                    >
+                      <div
+                        className="size-8 shrink-0 rounded-md bg-cover bg-center ring-1 ring-inset ring-border/60"
+                        style={createWorkspaceSlotBackground(role)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="min-w-0 truncate text-xs font-semibold">
+                          <span className="min-w-0 truncate">{role.name}</span>
+                        </p>
+                        <p className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
+                          {launchGameName}
+                          {status ? ` · ${t("status.running")}` : ""}
+                        </p>
+                      </div>
+                      {isAssigned ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-background/40 px-1.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                          {isSelectedSlotRole ? <Check size={13} /> : null}
+                          {t("workspaces.slotShort").replace("{index}", String(assignedSlotIndex + 1))}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       </Surface>

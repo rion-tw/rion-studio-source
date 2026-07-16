@@ -1,8 +1,12 @@
 import type { MenuItemConstructorOptions } from "electron";
 import { describe, expect, it, vi } from "vitest";
 
-import { buildDockRoleMenuTemplate, type DockRoleMenuActions } from "../src/main/dock/DockRoleMenuTemplate";
-import type { AuthFlowStatus, Role, RoleStatus } from "../src/shared/types";
+import {
+  buildAppQuickMenuTemplate,
+  type AppQuickMenuActions,
+  type AppQuickMenuState
+} from "../src/main/menu/AppQuickMenuTemplate";
+import type { AuthFlowStatus, LaunchWorkspace, Role } from "../src/shared/types";
 
 const role: Role = {
   id: "role-1",
@@ -17,98 +21,54 @@ const role: Role = {
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
 
-describe("DockRoleMenuTemplate", () => {
-  it("shows an empty Roles submenu when no roles exist", () => {
-    const template = buildDockRoleMenuTemplate(
-      {
-        roles: [],
-        statuses: [],
-        authStatuses: [],
-        legalAccepted: true
-      },
-      createActions()
-    );
+const workspace: LaunchWorkspace = {
+  id: "workspace-1",
+  name: "Party",
+  template: "two_columns",
+  browserLaunchMode: "inherit",
+  browserZoomPercent: 90,
+  resourcePolicy: { mode: "unrestricted" },
+  slots: [
+    { id: "slot-1", roleId: role.id, rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+    { id: "slot-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+  ],
+  createdAt: "2026-07-10T00:00:00.000Z",
+  updatedAt: "2026-07-10T00:00:00.000Z"
+};
 
-    expect(getRolesSubmenu(template)).toEqual([
-      {
-        label: "No Roles",
-        enabled: false
-      }
-    ]);
+describe("AppQuickMenuTemplate", () => {
+  it("shows empty Roles and Workspaces submenus", () => {
+    const template = buildAppQuickMenuTemplate(createState({ roles: [], workspaces: [] }), createActions());
+
+    expect(getSubmenu(template, "Roles")).toEqual([{ label: "No Roles", enabled: false }]);
+    expect(getSubmenu(template, "Workspaces")).toEqual([{ label: "No Workspaces", enabled: false }]);
   });
 
-  it("launches authenticated stopped roles", () => {
+  it("preserves role launch, focus, and login behavior", () => {
     const actions = createActions();
-    const template = buildDockRoleMenuTemplate(
-      {
-        roles: [role],
-        statuses: [],
-        authStatuses: [],
-        legalAccepted: true
-      },
-      actions
-    );
-
-    clickFirstRole(template);
-
+    const stopped = buildAppQuickMenuTemplate(createState(), actions);
+    click(getSubmenu(stopped, "Roles")[0]);
     expect(actions.launchRole).toHaveBeenCalledWith(role.id);
-    expect(actions.startLogin).not.toHaveBeenCalled();
-  });
 
-  it("shows running roles as checked and focuses through launch", () => {
-    const actions = createActions();
-    const status: RoleStatus = {
-      roleId: role.id,
-      state: "running",
-      launchedAt: "2026-07-10T00:01:00.000Z"
-    };
-    const template = buildDockRoleMenuTemplate(
-      {
-        roles: [role],
-        statuses: [status],
-        authStatuses: [],
-        legalAccepted: true
-      },
-      actions
-    );
-    const [item] = getRolesSubmenu(template);
-
-    expect(item).toMatchObject({
-      label: "Main",
+    const running = buildAppQuickMenuTemplate(createState({
+      statuses: [{ roleId: role.id, state: "running" }]
+    }), actions);
+    expect(getSubmenu(running, "Roles")[0]).toMatchObject({
       type: "checkbox",
       checked: true,
       enabled: true,
       sublabel: "Running"
     });
 
-    clickFirstRole(template);
-    expect(actions.launchRole).toHaveBeenCalledWith(role.id);
+    const loginActions = createActions();
+    const loginRequired = buildAppQuickMenuTemplate(createState({
+      roles: [{ ...role, authState: "login_required" }]
+    }), loginActions);
+    click(getSubmenu(loginRequired, "Roles")[0]);
+    expect(loginActions.startLogin).toHaveBeenCalledWith(role.id);
   });
 
-  it("starts login for login-required roles", () => {
-    const actions = createActions();
-    const loginRequiredRole: Role = {
-      ...role,
-      authState: "login_required"
-    };
-    const template = buildDockRoleMenuTemplate(
-      {
-        roles: [loginRequiredRole],
-        statuses: [],
-        authStatuses: [],
-        legalAccepted: true
-      },
-      actions
-    );
-
-    clickFirstRole(template);
-
-    expect(actions.startLogin).toHaveBeenCalledWith(role.id);
-    expect(actions.launchRole).not.toHaveBeenCalled();
-  });
-
-  it("keeps failed auth flows retryable", () => {
-    const actions = createActions();
+  it("keeps failed role auth flows retryable", () => {
     const authStatus: AuthFlowStatus = {
       roleId: role.id,
       state: "failed",
@@ -116,90 +76,120 @@ describe("DockRoleMenuTemplate", () => {
       startedAt: "2026-07-10T00:00:00.000Z",
       updatedAt: "2026-07-10T00:01:00.000Z"
     };
-    const template = buildDockRoleMenuTemplate(
-      {
-        roles: [{ ...role, authState: "auth_failed" }],
-        statuses: [],
-        authStatuses: [authStatus],
-        legalAccepted: true
-      },
-      actions
-    );
-    const [item] = getRolesSubmenu(template);
+    const actions = createActions();
+    const template = buildAppQuickMenuTemplate(createState({
+      authStatuses: [authStatus],
+      roles: [{ ...role, authState: "auth_failed" }]
+    }), actions);
 
-    expect(item.enabled).toBe(true);
-
-    clickFirstRole(template);
+    expect(getSubmenu(template, "Roles")[0]).toMatchObject({ enabled: true, sublabel: "Login failed" });
+    click(getSubmenu(template, "Roles")[0]);
     expect(actions.startLogin).toHaveBeenCalledWith(role.id);
   });
 
-  it("adds Stop All Running Roles only when statuses exist", () => {
+  it("launches a stopped workspace and stops a checked running workspace", () => {
     const actions = createActions();
-    const stoppedTemplate = buildDockRoleMenuTemplate(
-      {
-        roles: [role],
-        statuses: [],
-        authStatuses: [],
-        legalAccepted: true
-      },
-      actions
-    );
-    const runningTemplate = buildDockRoleMenuTemplate(
-      {
-        roles: [role],
-        statuses: [{ roleId: role.id, state: "running" }],
-        authStatuses: [],
-        legalAccepted: true
-      },
-      actions
-    );
+    const stopped = buildAppQuickMenuTemplate(createState(), actions);
+    click(getSubmenu(stopped, "Workspaces")[0]);
+    expect(actions.launchWorkspace).toHaveBeenCalledWith(workspace.id);
 
-    expect(stoppedTemplate.some((item) => item.label === "Stop All Running Roles")).toBe(false);
-
-    const stopItem = runningTemplate.find((item) => item.label === "Stop All Running Roles");
-    expect(stopItem).toBeDefined();
-    stopItem?.click?.({} as never, undefined, {} as never);
-    expect(actions.stopAll).toHaveBeenCalledTimes(1);
+    const running = buildAppQuickMenuTemplate(createState({
+      workspaceStatuses: [{ workspaceId: workspace.id, state: "running" }]
+    }), actions);
+    expect(getSubmenu(running, "Workspaces")[0]).toMatchObject({
+      type: "checkbox",
+      checked: true,
+      enabled: true,
+      sublabel: "Running"
+    });
+    click(getSubmenu(running, "Workspaces")[0]);
+    expect(actions.stopWorkspace).toHaveBeenCalledWith(workspace.id);
   });
 
-  it("blocks role actions until legal documents are accepted", () => {
-    const actions = createActions();
-    const template = buildDockRoleMenuTemplate(
-      {
-        roles: [role],
-        statuses: [],
-        authStatuses: [],
-        legalAccepted: false
-      },
-      actions
-    );
+  it.each(["launching", "stopping"] as const)("disables a %s workspace", (state) => {
+    const template = buildAppQuickMenuTemplate(createState({
+      workspaceStatuses: [{ workspaceId: workspace.id, state }]
+    }), createActions());
 
-    expect(getRolesSubmenu(template)[0]).toMatchObject({
+    expect(getSubmenu(template, "Workspaces")[0]).toMatchObject({
+      checked: false,
       enabled: false,
-      sublabel: "Review terms in app"
+      sublabel: state === "launching" ? "Launching" : "Stopping"
+    });
+  });
+
+  it("disables unlaunchable workspaces and all actions before legal acceptance", () => {
+    const noRoles = buildAppQuickMenuTemplate(createState({
+      workspaces: [{ ...workspace, slots: workspace.slots.map((slot) => ({ ...slot, roleId: undefined })) }]
+    }), createActions());
+    expect(getSubmenu(noRoles, "Workspaces")[0]).toMatchObject({
+      enabled: false,
+      sublabel: "No assigned roles"
     });
 
-    const reviewItem = template.find((item) => item.label === "Review terms in Rion Studio");
-    reviewItem?.click?.({} as never, undefined, {} as never);
-    expect(actions.openApp).toHaveBeenCalledOnce();
+    const unauthenticated = buildAppQuickMenuTemplate(createState({
+      roles: [{ ...role, authState: "login_required" }]
+    }), createActions());
+    expect(getSubmenu(unauthenticated, "Workspaces")[0]).toMatchObject({
+      enabled: false,
+      sublabel: "Login required"
+    });
+
+    const blocked = buildAppQuickMenuTemplate(createState({ legalAccepted: false }), createActions());
+    expect(getSubmenu(blocked, "Roles")[0]).toMatchObject({ enabled: false });
+    expect(getSubmenu(blocked, "Workspaces")[0]).toMatchObject({ enabled: false });
+  });
+
+  it("adds Stop All conditionally and appends Quit only for Windows", () => {
+    const actions = createActions();
+    const template = buildAppQuickMenuTemplate(createState({
+      includeQuit: true,
+      statuses: [{ roleId: role.id, state: "running" }]
+    }), actions);
+
+    expect(template.map((item) => item.label).filter(Boolean)).toEqual([
+      "Open Rion Studio",
+      "Roles",
+      "Workspaces",
+      "Stop All Running Roles",
+      "Quit Rion Studio"
+    ]);
+    click(template.find((item) => item.label === "Stop All Running Roles")!);
+    click(template.find((item) => item.label === "Quit Rion Studio")!);
+    expect(actions.stopAll).toHaveBeenCalledOnce();
+    expect(actions.quitApp).toHaveBeenCalledOnce();
   });
 });
 
-function createActions(): DockRoleMenuActions {
+function createState(overrides: Partial<AppQuickMenuState> = {}): AppQuickMenuState {
   return {
-    openApp: vi.fn(),
-    launchRole: vi.fn(),
-    startLogin: vi.fn(),
-    stopAll: vi.fn()
+    authStatuses: [],
+    includeQuit: false,
+    legalAccepted: true,
+    roles: [role],
+    statuses: [],
+    workspaces: [workspace],
+    workspaceStatuses: [],
+    ...overrides
   };
 }
 
-function getRolesSubmenu(template: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
-  const item = template.find((menuItem) => menuItem.label === "Roles");
-  return item?.submenu as MenuItemConstructorOptions[];
+function createActions(): AppQuickMenuActions {
+  return {
+    launchRole: vi.fn(),
+    launchWorkspace: vi.fn(),
+    openApp: vi.fn(),
+    quitApp: vi.fn(),
+    startLogin: vi.fn(),
+    stopAll: vi.fn(),
+    stopWorkspace: vi.fn()
+  };
 }
 
-function clickFirstRole(template: MenuItemConstructorOptions[]): void {
-  const [item] = getRolesSubmenu(template);
+function getSubmenu(template: MenuItemConstructorOptions[], label: string): MenuItemConstructorOptions[] {
+  return template.find((item) => item.label === label)?.submenu as MenuItemConstructorOptions[];
+}
+
+function click(item: MenuItemConstructorOptions): void {
   item.click?.({} as never, undefined, {} as never);
 }

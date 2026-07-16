@@ -128,6 +128,7 @@ describe("registerIpcHandlers workspace handlers", () => {
   let onLegalAccepted: AnyMock;
   let onRolesChanged: AnyMock;
   let onWorkspacesChanged: AnyMock;
+  let consumePendingWorkspaceLaunchRequest: AnyMock;
   let quitApplication: AnyMock;
   let legalAcceptanceStore: {
     accept: AnyMock;
@@ -200,6 +201,15 @@ describe("registerIpcHandlers workspace handlers", () => {
     onLegalAccepted = vi.fn();
     onRolesChanged = vi.fn();
     onWorkspacesChanged = vi.fn();
+    consumePendingWorkspaceLaunchRequest = vi.fn(() => ({
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      result: {
+        kind: "display_selection_required",
+        reason: "target_occupied",
+        displays: []
+      }
+    }));
     quitApplication = vi.fn();
     const pendingLegalStatus = {
       currentVersions: { terms: "2026-07-14", fairUse: "2026-07-14", privacy: "2026-07-14" },
@@ -238,6 +248,7 @@ describe("registerIpcHandlers workspace handlers", () => {
       browserManager as BrowserManager,
       authManager as AuthManager,
       {
+        consumePendingWorkspaceLaunchRequest,
         gameCompatibilityManager,
         gameStore,
         legalAcceptanceStore,
@@ -268,6 +279,14 @@ describe("registerIpcHandlers workspace handlers", () => {
     });
     expect(roleStore.listRoles).toHaveBeenCalledOnce();
     expect(workspaceStore.listWorkspaces).toHaveBeenCalledOnce();
+  });
+
+  it("consumes pending native-menu workspace launch requests", () => {
+    expect(handlers.get(IPC_CHANNELS.workspacesConsumeLaunchRequest)?.({})).toMatchObject({
+      workspaceId: workspace.id,
+      result: { kind: "display_selection_required", reason: "target_occupied" }
+    });
+    expect(consumePendingWorkspaceLaunchRequest).toHaveBeenCalledOnce();
   });
 
   it("exposes game CRUD and validates role game references", async () => {

@@ -275,6 +275,9 @@ describe("ExternalChromeManager", () => {
       }
     );
     await waitForChild(harness.children, 0);
+    expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([
+      { workspaceId: "workspace-1", state: "launching" }
+    ]);
     harness.children[0].emit("spawn");
     await waitForChild(harness.children, 1);
     harness.children[1].emit("spawn");
@@ -306,6 +309,9 @@ describe("ExternalChromeManager", () => {
       expect.objectContaining({ roleId: "role-2", notice: "fallback", runtimeMode: "external" })
     ]);
     expect(harness.manager.hasWorkspace("workspace-1")).toBe(true);
+    expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([
+      { workspaceId: "workspace-1", state: "running" }
+    ]);
   });
 
   it("aligns every external Chrome window to shared rounded grid edges", async () => {

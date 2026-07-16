@@ -1329,6 +1329,9 @@ describe("BrowserManager game host windows", () => {
     expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
       { workspaceId: workspace.id, workspaceName: workspace.name, displayId: 22 }
     ]);
+    expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([
+      { workspaceId: workspace.id, state: "launching" }
+    ]);
     const secondWorkspace = { ...workspace, id: "workspace-2", name: "Second" };
     await expect(
       harness.manager.launchWorkspace(
@@ -1342,9 +1345,13 @@ describe("BrowserManager game host windows", () => {
     resolveLaunchMode?.("embedded");
     await firstLaunch;
     expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining(target.workArea));
+    expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([
+      { workspaceId: workspace.id, state: "running" }
+    ]);
 
     await harness.manager.stopWorkspace(workspace.id);
     expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
+    expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([]);
   });
 
   it("releases a target display when workspace launch fails", async () => {

@@ -21,6 +21,7 @@ import type {
   Macro,
   MacroPageRequest,
   MacroRunStatus,
+  PendingWorkspaceLaunchRequest,
   PortableExportInput,
   PortableExportResult,
   PortableImportInput,
@@ -80,6 +81,7 @@ export interface RionStudioApi {
   listWorkspaceDisplays: () => Promise<WorkspaceDisplayInfo[]>;
   launchWorkspace: (id: string, input?: WorkspaceLaunchInput) => Promise<WorkspaceLaunchResult>;
   stopLaunchWorkspace: (id: string) => Promise<void>;
+  consumePendingWorkspaceLaunchRequest: () => Promise<PendingWorkspaceLaunchRequest | null>;
   listMacros: () => Promise<Macro[]>;
   createMacro: (input: CreateMacroInput) => Promise<Macro>;
   updateMacro: (id: string, input: UpdateMacroInput) => Promise<Macro>;
@@ -109,6 +111,7 @@ export interface RionStudioApi {
     callback: (reports: GameCompatibilityReport[], statuses: GameCompatibilityRunStatus[]) => void
   ) => () => void;
   onWorkspaceDisplaysChanged: (callback: (displays: WorkspaceDisplayInfo[]) => void) => () => void;
+  onWorkspaceLaunchRequested: (callback: (request: PendingWorkspaceLaunchRequest) => void) => () => void;
   onAuthStatusChanged: (callback: (statuses: AuthFlowStatus[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;

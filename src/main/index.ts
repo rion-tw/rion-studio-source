@@ -27,7 +27,7 @@ import {
   createRoleSessionPartition,
   GAME_DIVIDER_POINTER_CHANNEL
 } from "./browser/BrowserManager";
-import { MacDockRoleMenu } from "./dock/MacDockRoleMenu";
+import { AppQuickMenu } from "./menu/AppQuickMenu";
 import { buildWindowsTrayMenuTemplate } from "./tray/WindowsTrayMenu";
 import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
 import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
@@ -70,11 +70,12 @@ import {
 } from "./startup/startupWindow";
 import { AppUpdateManager, DEFAULT_UPDATE_REPOSITORY } from "./updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
+import { WorkspaceLaunchCoordinator } from "./workspaces/WorkspaceLaunchCoordinator";
 import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { handleMainWindowClose } from "./window/mainWindowLifecycle";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
-import type { MacroPageRequest } from "../shared/types";
+import type { MacroPageRequest, PendingWorkspaceLaunchRequest } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
 
@@ -88,9 +89,10 @@ app.on("gpu-info-update", () => {
 let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
-let dockRoleMenu: MacDockRoleMenu | null = null;
+let appQuickMenu: AppQuickMenu | null = null;
 let windowsTray: Tray | null = null;
 let pendingMacroPageRequest: MacroPageRequest | null = null;
+let pendingWorkspaceLaunchRequest: PendingWorkspaceLaunchRequest | null = null;
 let appInitialized = false;
 let initializationFailed = false;
 let mainWindowReady = false;
@@ -304,6 +306,23 @@ function consumePendingMacroPageRequest(): MacroPageRequest | null {
   return request;
 }
 
+function requestWorkspaceDisplaySelection(request: PendingWorkspaceLaunchRequest): void {
+  pendingWorkspaceLaunchRequest = request;
+  showMainWindow();
+
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindowReady) {
+    return;
+  }
+
+  mainWindow.webContents.send(IPC_CHANNELS.workspacesLaunchRequested, request);
+}
+
+function consumePendingWorkspaceLaunchRequest(): PendingWorkspaceLaunchRequest | null {
+  const request = pendingWorkspaceLaunchRequest;
+  pendingWorkspaceLaunchRequest = null;
+  return request;
+}
+
 async function initializeApplication(): Promise<void> {
   const userDataDir = app.getPath("userData");
   await recoverPortableImportTransaction(userDataDir);
@@ -479,9 +498,19 @@ async function initializeApplication(): Promise<void> {
     gameBrowserSettingsStore,
     isGpuInfoReady: () => gpuInfoReady
   });
+  const workspaceLauncher = new WorkspaceLaunchCoordinator({
+    browserManager,
+    gameBrowserSettingsStore,
+    gameCompatibilityManager,
+    getDefaultWorkspaceDisplayId: () => getMainWindowDisplay().id,
+    getWorkspaceDisplays: () => getWorkspaceDisplayInfos(),
+    roleStore,
+    workspaceStore
+  });
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
     consumePendingMacroPageRequest,
+    consumePendingWorkspaceLaunchRequest,
     gameCompatibilityManager,
     gameStore,
     gameBrowserSettingsStore,
@@ -501,7 +530,7 @@ async function initializeApplication(): Promise<void> {
     },
     onLegalAccepted: () => {
       startUpdateCheck();
-      dockRoleMenu?.scheduleRefresh();
+      appQuickMenu?.scheduleRefresh();
     },
     onMacroOverlayRequest: async (webContents, request) => {
       const activeRoleId = browserManager?.getRoleIdForWebContents(webContents.id);
@@ -514,16 +543,21 @@ async function initializeApplication(): Promise<void> {
       rendererReadyGate.notify(senderId, state);
     },
     onRolesChanged: () => {
-      dockRoleMenu?.scheduleRefresh();
+      appQuickMenu?.scheduleRefresh();
+    },
+    onWorkspacesChanged: () => {
+      appQuickMenu?.scheduleRefresh();
     },
     quitApplication: () => app.quit(),
     restartApplication: () => {
       app.relaunch();
       app.exit(0);
-    }
+    },
+    workspaceLauncher
   });
   const notifyWorkspaceDisplaysChanged = (): void => {
     broadcastWorkspaceDisplaysChanged(getWorkspaceDisplayInfos());
+    appQuickMenu?.scheduleRefresh();
   };
   screen.on("display-added", notifyWorkspaceDisplaysChanged);
   screen.on("display-removed", notifyWorkspaceDisplaysChanged);
@@ -534,22 +568,35 @@ async function initializeApplication(): Promise<void> {
     if (appIcon) {
       app.dock.setIcon(appIcon);
     }
+  }
 
-    dockRoleMenu = new MacDockRoleMenu({
+  const setQuickMenu = process.platform === "darwin" && app.dock
+    ? (menu: Menu) => app.dock?.setMenu(menu)
+    : process.platform === "win32" && windowsTray
+      ? (menu: Menu) => windowsTray?.setContextMenu(menu)
+      : undefined;
+
+  if (setQuickMenu) {
+    appQuickMenu = new AppQuickMenu({
       roleStore,
+      workspaceStore,
+      workspaceLauncher,
       browserManager,
       authManager,
       canUseApp: () => legalAcceptanceStore.isAccepted(),
-      dock: app.dock,
-      openApp: showMainWindow
+      includeQuit: process.platform === "win32",
+      onWorkspaceDisplaySelectionRequired: requestWorkspaceDisplaySelection,
+      openApp: showMainWindow,
+      ...(process.platform === "win32" ? { quitApp: () => app.quit() } : {}),
+      setMenu: setQuickMenu
     });
     browserManager.on("change", () => {
-      dockRoleMenu?.scheduleRefresh();
+      appQuickMenu?.scheduleRefresh();
     });
     authManager.on("change", () => {
-      dockRoleMenu?.scheduleRefresh();
+      appQuickMenu?.scheduleRefresh();
     });
-    dockRoleMenu.scheduleRefresh();
+    appQuickMenu.scheduleRefresh();
   }
 
   void legalAcceptanceStore.isAccepted().then((isAccepted) => {

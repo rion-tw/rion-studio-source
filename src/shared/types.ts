@@ -336,6 +336,12 @@ export type WorkspaceLaunchResult =
       displays: WorkspaceDisplayLaunchOption[];
     };
 
+export interface PendingWorkspaceLaunchRequest {
+  workspaceId: string;
+  workspaceName: string;
+  result: Extract<WorkspaceLaunchResult, { kind: "display_selection_required" }>;
+}
+
 export interface AppErrorPayload {
   code: string;
   message: string;

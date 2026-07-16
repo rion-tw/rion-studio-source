@@ -29,6 +29,10 @@ import {
   type ExternalBrowserAutomationTarget
 } from "./ExternalChromeAutomationTarget";
 import type { ExternalChromeWindowBoundsAdapter } from "./WindowsExternalChromeWindowBoundsAdapter";
+import type {
+  BrowserWorkspaceRuntimeState,
+  BrowserWorkspaceRuntimeStatus
+} from "./BrowserManager";
 
 export interface ExternalChromeManagerEvents {
   change: [RoleStatus[]];
@@ -127,6 +131,24 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
   hasWorkspace(workspaceId: string): boolean {
     return [...this.sessions.values()].some((session) => session.workspaceId === workspaceId);
+  }
+
+  listWorkspaceRuntimeStatuses(): BrowserWorkspaceRuntimeStatus[] {
+    const stateByWorkspaceId = new Map<string, BrowserWorkspaceRuntimeState>();
+    this.sessions.forEach((session) => {
+      if (!session.workspaceId) {
+        return;
+      }
+
+      const current = stateByWorkspaceId.get(session.workspaceId);
+      if (session.state === "stopping" || current === undefined) {
+        stateByWorkspaceId.set(session.workspaceId, session.state);
+      } else if (session.state === "launching" && current === "running") {
+        stateByWorkspaceId.set(session.workspaceId, "launching");
+      }
+    });
+
+    return [...stateByWorkspaceId].map(([workspaceId, state]) => ({ workspaceId, state }));
   }
 
   async launch(role: Role, options: ExternalChromeLaunchOptions = {}): Promise<RoleStatus> {

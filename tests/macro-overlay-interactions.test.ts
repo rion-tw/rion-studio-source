@@ -190,6 +190,26 @@ describe("macro overlay pointer interactions", () => {
     });
   });
 
+  it("disposes a detached overlay and stops its polling intervals", async () => {
+    vi.useFakeTimers();
+    try {
+      createGameSurface(document);
+      const binding = vi.fn(async () => ({ detached: true, macros: [], statuses: [] }));
+
+      installOverlay(window, binding);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(document.getElementById("rion-studio-macro-overlay-v26")).toBeNull();
+      expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
+      const requestCountAfterDispose = binding.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(binding).toHaveBeenCalledTimes(requestCountAfterDispose);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts and stops from macro rows without nested controls triggering the row", async () => {
     createGameSurface(document);
     let statuses: Array<Record<string, unknown>> = [];

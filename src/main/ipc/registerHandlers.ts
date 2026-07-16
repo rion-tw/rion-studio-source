@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, type WebContents } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc";
 import { DEFAULT_ROLE_WINDOW_HEIGHT, DEFAULT_ROLE_WINDOW_WIDTH } from "../../shared/types";
@@ -66,7 +66,7 @@ interface RegisterIpcHandlersOptions {
   updateManager?: AppUpdateManager;
   consumePendingMacroEditorRequest?: () => MacroEditorRequest | null;
   onMacrosChanged?: () => void;
-  onMacroOverlayRequest?: (webContentsId: number, request: MacroOverlayRequest) => Promise<unknown>;
+  onMacroOverlayRequest?: (webContents: WebContents, request: MacroOverlayRequest) => Promise<unknown>;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
   onLegalAccepted?: () => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
@@ -246,7 +246,7 @@ export function registerIpcHandlers(
       throw new Error("Macro overlay request is invalid.");
     }
 
-    return options.onMacroOverlayRequest(event.sender.id, request);
+    return options.onMacroOverlayRequest(event.sender, request);
   });
 
   ipcMain.handle(IPC_CHANNELS.portableExport, (_event, input?: PortableExportInput) => {

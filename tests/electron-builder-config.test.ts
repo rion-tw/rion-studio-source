@@ -116,6 +116,8 @@ describe("electron-builder release configuration", () => {
     expect(
       releaseWorkflow.match(/run: node scripts\/verifyWindowsWindowFrameHelper\.mjs/gu)
     ).toHaveLength(2);
+    expect(releaseWorkflow.match(/- os: macos-latest/gu)).toHaveLength(2);
+    expect(releaseWorkflow.match(/- os: windows-latest/gu)).toHaveLength(2);
   });
 
   it("includes the entitlements required for ad-hoc hardened runtime Electron bundles", async () => {

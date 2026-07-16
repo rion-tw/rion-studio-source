@@ -34,6 +34,13 @@ before changing code.
 - Add focused coverage for shared behavior and each platform branch. Where local
   end-to-end verification is unavailable, use platform-aware unit tests or mocks
   and document any remaining native verification required before release.
+- Never let a test inherit the developer machine's operating system implicitly.
+  Pass `platform` explicitly to test harnesses, cover shared macOS and Windows
+  behavior with a platform table, and use `node:path` for filesystem assertions
+  instead of hard-coding `/` or `\\` separators.
+- Keep both `macos-latest` and `windows-latest` validation jobs in the release
+  workflow. A local pass on one platform is not evidence that the other platform
+  passes; use CI for the unavailable native platform before considering work done.
 
 ## IPC Contract Changes
 

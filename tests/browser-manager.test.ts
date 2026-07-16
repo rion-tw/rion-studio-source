@@ -173,43 +173,61 @@ describe("BrowserManager game host windows", () => {
     expect(events).toEqual(["active:start", "active:end", "delete"]);
   });
 
-  it("opens a single role in the shared display host without a legacy inner control offset", async () => {
-    const harness = createHarness();
-    const overlayInstaller = vi.fn().mockResolvedValue(undefined);
-    harness.manager.setMacroOverlayInstaller(overlayInstaller);
+  it.each([
+    ["darwin", {
+      backgroundColor: "#000000",
+      vibrancy: "under-window",
+      visualEffectState: "followWindow"
+    }],
+    ["win32", {
+      backgroundColor: "#202024",
+      backgroundMaterial: "acrylic"
+    }]
+  ] as const)(
+    "opens a single role in the shared display host without a legacy inner control offset on %s",
+    async (platform, materialOptions) => {
+      const harness = createHarness({ platform });
+      const overlayInstaller = vi.fn().mockResolvedValue(undefined);
+      harness.manager.setMacroOverlayInstaller(overlayInstaller);
 
-    await harness.manager.launch(role);
+      await harness.manager.launch(role);
 
-    expect(harness.createHostWindow).toHaveBeenCalledWith(
-      expect.objectContaining({
-        x: 100,
-        y: 50,
-        width: 1200,
-        height: 800,
-        backgroundColor: "#000000",
-        frame: true,
-        show: false,
-        title: "Rion Studio"
-      })
-    );
-    expect(harness.createHostWindow).toHaveBeenCalledWith(
-      expect.not.objectContaining({ webPreferences: expect.anything() })
-    );
-    expect(harness.createView).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        webPreferences: expect.objectContaining({
-          backgroundThrottling: true,
-          spellcheck: false,
-          webgl: true
+      expect(harness.createHostWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          x: 100,
+          y: 50,
+          width: 1200,
+          height: 800,
+          frame: true,
+          show: false,
+          title: "Rion Studio",
+          ...materialOptions
         })
-      })
-    );
-    expect(harness.views[0].setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1200, height: 800 });
-    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
-    expect(harness.hosts[0].show).toHaveBeenCalledTimes(1);
-    expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
-  });
+      );
+      expect(harness.createHostWindow).toHaveBeenCalledWith(
+        expect.not.objectContaining({ webPreferences: expect.anything() })
+      );
+      expect(harness.createView).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          webPreferences: expect.objectContaining({
+            backgroundThrottling: true,
+            spellcheck: false,
+            webgl: true
+          })
+        })
+      );
+      expect(harness.views[0].setBounds).toHaveBeenCalledWith({
+        x: 0,
+        y: 0,
+        width: 1200,
+        height: 800
+      });
+      expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+      expect(harness.hosts[0].show).toHaveBeenCalledTimes(1);
+      expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
+    }
+  );
 
   it("uses a frameless macOS BaseWindow with a secure overlay chrome view", async () => {
     const harness = createHarness({

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -77,10 +79,12 @@ describe("ChromeZoomPreferenceApplier", () => {
       writeTextFile
     });
 
-    await applier.applyToChromeUserDataDir("/profiles/role-1/browser", 0.75);
+    const chromeUserDataDir = "/profiles/role-1/browser";
+    await applier.applyToChromeUserDataDir(chromeUserDataDir, 0.75);
 
-    const preferencesPath = "/profiles/role-1/browser/Default/Preferences";
-    expect(makeDirectory).toHaveBeenCalledWith("/profiles/role-1/browser/Default", { recursive: true });
+    const defaultProfileDirectory = join(chromeUserDataDir, "Default");
+    const preferencesPath = join(defaultProfileDirectory, "Preferences");
+    expect(makeDirectory).toHaveBeenCalledWith(defaultProfileDirectory, { recursive: true });
     expect(writeTextFile).toHaveBeenCalledWith(
       `${preferencesPath}.tmp`,
       expect.stringContaining(`"x": ${chromeZoomFactorToLevel(0.75)}`),

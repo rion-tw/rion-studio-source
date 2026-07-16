@@ -611,7 +611,7 @@ function WorkspaceLayoutFormEditor({
           </div>
         </div>
 
-        <div className="grid content-start gap-3 border-t border-border p-4 min-[1180px]:border-l min-[1180px]:border-t-0">
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 border-t border-border p-4 min-[1180px]:border-l min-[1180px]:border-t-0">
           <div className="flex items-start justify-between gap-3">
             <FieldHeader
               title={t("workspaces.rolePicker")}
@@ -629,7 +629,7 @@ function WorkspaceLayoutFormEditor({
               <Eraser size={15} />
             </Button>
           </div>
-          <div className="grid max-h-[360px] gap-2 overflow-auto">
+          <div className="-mx-4 -mb-4 grid min-h-0 max-h-[360px] gap-2 overflow-auto px-4 pt-0.5 pb-4 min-[1180px]:max-h-none">
             {roles.length === 0 ? (
               <p className="text-xs leading-5 text-muted-foreground">{t("workspaces.noRoles")}</p>
             ) : (

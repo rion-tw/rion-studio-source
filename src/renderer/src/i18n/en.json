@@ -672,6 +672,7 @@
   "error.macroNoRunnableRoles": "Launch at least one assigned role before running a macro.",
   "error.macroExternalRuntimeUnsupported": "Macro control is unavailable for this compatibility-mode session. Restart the role and try again.",
   "notice.externalMacroUnavailable": "Macro control could not connect to compatibility mode. Restart this role to try again.",
+  "notice.externalZoomUnavailable": "Workspace zoom could not be applied in external Chrome. Restart this role to try again.",
   "error.workspaceEmpty": "Workspace has no roles.",
   "error.workspaceLoginRequired": "Login required. Use Login before launching every role in this workspace.",
   "error.rolesAlreadyRunning": "Already running in another game window: {names}.",

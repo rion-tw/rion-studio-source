@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   connectExternalChromeAutomation,
+  createPageZoomSource,
   ExternalChromeAutomationTarget,
   getCdpKeyDescriptor
 } from "../src/main/browser/ExternalChromeAutomationTarget";
@@ -419,6 +420,46 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("applies, replaces, and resets workspace zoom for current and future top-level documents", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    await target.setZoomFactor(0.75);
+
+    const firstSource = createPageZoomSource(0.75);
+    expect(firstSource).toContain("if (window.top !== window) return");
+    expect(firstSource).toContain('root.style.setProperty("zoom", String(0.75), "important")');
+    expect(harness.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
+      source: firstSource
+    });
+    expect(harness.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: firstSource })
+    );
+
+    await target.setZoomFactor(0.9);
+
+    expect(harness.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
+      identifier: "zoom-script-1"
+    });
+    expect(harness.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
+      source: createPageZoomSource(0.9)
+    });
+
+    await target.setZoomFactor(1);
+
+    const resetSource = createPageZoomSource(1);
+    expect(harness.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
+      identifier: "zoom-script-2"
+    });
+    expect(resetSource).toContain("delete root[stateKey]");
+    expect(harness.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({ expression: resetSource })
+    );
+  });
+
   it("maps function and unknown physical codes safely", () => {
     expect(getCdpKeyDescriptor("F2")).toMatchObject({ code: "F2", key: "F2", windowsVirtualKeyCode: 113 });
     expect(getCdpKeyDescriptor("Minus")).toMatchObject({ code: "Minus", key: "-", windowsVirtualKeyCode: 189 });
@@ -428,9 +469,14 @@ describe("ExternalChromeAutomationTarget", () => {
 
 function createHarness() {
   const notificationListeners = new Set<(notification: CdpNotification) => void>();
+  let zoomScriptCount = 0;
   const send = vi.fn(async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
     if (method === "Page.getFrameTree") {
       return { frameTree: { frame: { id: "main-frame" } } };
+    }
+    if (method === "Page.addScriptToEvaluateOnNewDocument") {
+      zoomScriptCount += 1;
+      return { identifier: `zoom-script-${zoomScriptCount}` };
     }
     return method === "Runtime.evaluate" ? { result: { value: true } } : {};
   });

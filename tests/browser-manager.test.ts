@@ -223,7 +223,8 @@ describe("BrowserManager game host windows", () => {
 
     expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
       notice:
-        "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support."
+        "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
+      zoomFactor: 1
     });
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
     expect(harness.manager.listStatuses()).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
@@ -301,7 +302,10 @@ describe("BrowserManager game host windows", () => {
     expect(getBrowserLaunchMode).toHaveBeenCalledWith(role);
     expect(harness.createHostWindow).not.toHaveBeenCalled();
     expect(harness.createView).not.toHaveBeenCalled();
-    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, { notice: undefined });
+    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
+      notice: undefined,
+      zoomFactor: 1
+    });
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external" });
   });
 
@@ -495,11 +499,60 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 800 });
     expect(harness.views[0].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
     expect(harness.views[1].webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.9);
+    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.9);
     expect(applyBrowserFonts).toHaveBeenCalledWith(role, createRoleSessionPartition(role.id));
     expect(applyBrowserFonts).toHaveBeenCalledWith(secondRole, createRoleSessionPartition(secondRole.id));
     expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
       harness.createView.mock.invocationCallOrder[0]
     );
+  });
+
+  it.each([25, 90, 125] as const)(
+    "keeps %s percent browser zoom after initial and cross-origin navigation",
+    async (browserZoomPercent) => {
+      const harness = createHarness();
+      const zoomWorkspace = { ...workspace, browserZoomPercent };
+
+      await harness.manager.launchWorkspace(zoomWorkspace, [
+        { role, rect: zoomWorkspace.slots[0].rect }
+      ]);
+
+      expect(harness.createView).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          webPreferences: expect.objectContaining({ zoomFactor: browserZoomPercent / 100 })
+        })
+      );
+      expect(harness.views[0].webContents.getZoomFactor()).toBe(browserZoomPercent / 100);
+
+      await harness.views[0].webContents.loadURL("https://accounts.example.net/redirect");
+
+      expect(harness.views[0].webContents.getZoomFactor()).toBe(browserZoomPercent / 100);
+    }
+  );
+
+  it("inherits workspace zoom in popups and resets an existing session to 100 percent", async () => {
+    const harness = createHarness();
+    const zoomWorkspace = { ...workspace, browserZoomPercent: 75 as const };
+
+    await harness.manager.launchWorkspace(zoomWorkspace, [
+      { role, rect: zoomWorkspace.slots[0].rect }
+    ]);
+    const popup = createOAuthPopup(harness.views[0], harness.views);
+    await popup.webContents.loadURL("https://accounts.example.net/oauth");
+
+    expect(harness.createView).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({ zoomFactor: 0.75 })
+      })
+    );
+    expect(popup.webContents.getZoomFactor()).toBe(0.75);
+
+    await harness.manager.launch(role);
+
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(1);
+    expect(popup.webContents.getZoomFactor()).toBe(1);
   });
 
   it("uses an acrylic workspace material on Windows", async () => {
@@ -626,7 +679,8 @@ describe("BrowserManager game host windows", () => {
       {
         notice:
           "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
-        workArea: target.workArea
+        workArea: target.workArea,
+        zoomFactor: 0.9
       }
     );
     expect(statuses).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
@@ -1599,10 +1653,14 @@ function createHarness(options: {
     hosts.push(host);
     return host as never;
   });
-  const createView = vi.fn(() => {
+  const createView = vi.fn((viewOptions: { webPreferences?: { zoomFactor?: number } }) => {
     const snapshot = options.snapshotsByView?.[views.length] ?? defaultSnapshot;
     const loadUrlHandler = options.loadUrlHandlers?.[views.length];
-    const view = createMockView(() => snapshot, loadUrlHandler);
+    const view = createMockView(
+      () => snapshot,
+      loadUrlHandler,
+      viewOptions.webPreferences?.zoomFactor ?? 1
+    );
     views.push(view);
     return view.view as never;
   });
@@ -1712,11 +1770,13 @@ function createMockHost() {
 
 function createMockView(
   readSnapshot: () => { bodyText: string; localStorage: Record<string, string> },
-  loadUrlHandler?: (url: string) => Promise<void>
+  loadUrlHandler?: (url: string) => Promise<void>,
+  initialZoomFactor = 1
 ) {
   const emitter = new EventEmitter();
   let bounds = { x: 0, y: 0, width: 1, height: 1 };
   let currentUrl = "about:blank";
+  let currentZoomFactor = initialZoomFactor;
   let destroyed = false;
   let debuggerAttached = false;
   const debuggerApi = Object.assign(new EventEmitter(), {
@@ -1751,6 +1811,7 @@ function createMockView(
     focus: vi.fn(),
     getOSProcessId: vi.fn(() => processId),
     getURL: vi.fn(() => currentUrl),
+    getZoomFactor: vi.fn(() => currentZoomFactor),
     isDestroyed: vi.fn(() => destroyed),
     isDevToolsOpened: vi.fn(() => false),
     loadURL: vi.fn(async (url: string) => {
@@ -1758,13 +1819,17 @@ function createMockView(
         await loadUrlHandler(url);
       }
       currentUrl = url;
+      currentZoomFactor = 1;
+      emitter.emit("did-finish-load");
     }),
     mainFrame: { framesInSubtree: [] },
     send: vi.fn(),
     sendInputEvent: vi.fn(),
     session: { cookies: { get: vi.fn().mockResolvedValue([]) }, setProxy: vi.fn().mockResolvedValue(undefined) },
     setWindowOpenHandler: vi.fn(),
-    setZoomFactor: vi.fn()
+    setZoomFactor: vi.fn((zoomFactor: number) => {
+      currentZoomFactor = zoomFactor;
+    })
   });
   const setBounds = vi.fn((nextBounds) => {
     bounds = nextBounds;

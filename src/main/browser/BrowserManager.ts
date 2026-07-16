@@ -200,6 +200,7 @@ interface BrowserSession {
   state: RoleStatus["state"];
   target: BrowserAutomationTarget;
   view: WebContentsView;
+  zoomFactor: number;
 }
 
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
@@ -329,15 +330,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async launchUnlocked(role: Role, options: BrowserLaunchOptions): Promise<RoleStatus> {
+    const zoomFactor = options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR;
     const launchMode = await this.getBrowserLaunchMode(role);
     if (launchMode === "external") {
-      return this.launchExternal(role);
+      return this.launchExternal(role, undefined, zoomFactor);
     }
 
     const existing = this.sessions.get(role.id);
     if (existing) {
       existing.role = role;
-      await this.applyZoom(existing, options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR);
+      await this.applyZoom(existing, zoomFactor);
       await this.ensureSessionAuthenticated(role, existing);
       await this.installMacroOverlay(role, existing.view.webContents);
       await this.focusSession(existing);
@@ -345,23 +347,23 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     if (this.options.externalChromeManager?.hasSession(role.id)) {
-      return this.launchExternal(role);
+      return this.launchExternal(role, undefined, zoomFactor);
     }
 
     const host = this.createHost(role.name);
     await this.applyBrowserFonts(role);
-    const session = this.createSession(role, host, FULL_WINDOW_RECT);
+    const session = this.createSession(role, host, FULL_WINDOW_RECT, zoomFactor);
 
     try {
       host.window.show();
-      await this.finishLaunch(session, options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR);
+      await this.finishLaunch(session, zoomFactor);
       host.window.focus();
       await session.target.focus();
       return this.toStatus(role.id, session);
     } catch (error) {
       await this.stopHost(host.id);
       if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
-        return this.launchExternal(role, EXTERNAL_COMPAT_NOTICE);
+        return this.launchExternal(role, EXTERNAL_COMPAT_NOTICE, zoomFactor);
       }
       throw error;
     }
@@ -414,10 +416,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       try {
         await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
         const normalizedRects = normalizeWorkspaceRectEdges(items.map((item) => item.rect));
-        const sessions = items.map((item, index) =>
-          this.createSession(item.role, host, normalizedRects[index])
-        );
         const zoomFactor = workspace.browserZoomPercent / 100;
+        const sessions = items.map((item, index) =>
+          this.createSession(item.role, host, normalizedRects[index], zoomFactor)
+        );
         await this.createHostDividers(host);
         host.window.show();
         const primaryRoleId = workspace.resourcePolicy.primaryRoleId ?? sessions[0]?.role.id;
@@ -478,7 +480,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (!session) {
       const host = this.createHost(role.name);
       await this.applyBrowserFonts(role);
-      session = this.createSession(role, host, FULL_WINDOW_RECT);
+      session = this.createSession(role, host, FULL_WINDOW_RECT, DEFAULT_BROWSER_ZOOM_FACTOR);
     } else {
       session.role = role;
       session.state = "launching";
@@ -694,7 +696,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return host;
   }
 
-  private createSession(role: Role, host: GameHostWindow, rect: NormalizedRect): BrowserSession {
+  private createSession(
+    role: Role,
+    host: GameHostWindow,
+    rect: NormalizedRect,
+    zoomFactor: number
+  ): BrowserSession {
     const partition = createRoleSessionPartition(role.id);
     const view = this.options.createView({
       webPreferences: {
@@ -705,7 +712,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         preload: this.options.embeddedPreloadPath,
         sandbox: true,
         spellcheck: false,
-        webgl: true
+        webgl: true,
+        zoomFactor
       }
     });
     const session: BrowserSession = {
@@ -715,13 +723,15 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       role,
       state: "launching",
       target: new ElectronAutomationTarget(view, view.webContents),
-      view
+      view,
+      zoomFactor
     };
 
     this.sessions.set(role.id, session);
     host.roleIds.add(role.id);
     host.window.contentView.addChildView(view);
     this.layoutSession(host, session);
+    this.configureZoomPersistence(session, view.webContents);
     this.configureWindowOpenHandler(session, view.webContents);
     this.configureCloseShortcut(host, view.webContents);
     view.webContents.once("destroyed", () => {
@@ -791,6 +801,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     } catch {
       throw new BrowserGameLoadError();
     }
+    await this.applyZoom(session, zoomFactor);
     await this.ensureSessionAuthenticated(session.role, session);
     session.state = "running";
     session.launchedAt = new Date().toISOString();
@@ -816,16 +827,20 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     divider.view.setBackgroundColor(settings.background === "black" ? "#FF000000" : "#00000000");
   }
 
-  private async launchExternal(role: Role, notice?: string): Promise<RoleStatus> {
+  private async launchExternal(
+    role: Role,
+    notice?: string,
+    zoomFactor = DEFAULT_BROWSER_ZOOM_FACTOR
+  ): Promise<RoleStatus> {
     if (!this.options.externalChromeManager) {
       throw new Error("External Chrome compatibility mode is not available.");
     }
 
-    return this.options.externalChromeManager.launch(role, { notice });
+    return this.options.externalChromeManager.launch(role, { notice, zoomFactor });
   }
 
   private async launchExternalWorkspace(
-    workspace: Pick<LaunchWorkspace, "id" | "resourcePolicy">,
+    workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "resourcePolicy">,
     items: ExternalChromeLaunchItem[],
     notice?: string,
     target?: BrowserWorkspaceLaunchTarget
@@ -836,7 +851,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     const statuses = await this.options.externalChromeManager.launchWorkspace(workspace, items, {
       notice,
-      workArea: target?.workArea
+      workArea: target?.workArea,
+      zoomFactor: workspace.browserZoomPercent / 100
     });
     await this.resourceCoordinator.activateWorkspace(
       workspace.id,
@@ -965,13 +981,15 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         partition: createRoleSessionPartition(session.role.id),
         sandbox: true,
         spellcheck: false,
-        webgl: true
+        webgl: true,
+        zoomFactor: session.zoomFactor
       }
     });
 
     popupView.setBounds(this.getSessionBounds(host, session));
     host.window.contentView.addChildView(popupView);
     session.popupViews.add(popupView);
+    this.configureZoomPersistence(session, popupView.webContents);
     this.configureWindowOpenHandler(session, popupView.webContents);
     this.configureCloseShortcut(host, popupView.webContents);
     popupView.webContents.once("destroyed", () => {
@@ -1138,7 +1156,27 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async applyZoom(session: BrowserSession, zoomFactor: number): Promise<void> {
+    session.zoomFactor = zoomFactor;
     session.view.webContents.setZoomFactor(zoomFactor);
+    session.popupViews.forEach((popupView) => {
+      if (!popupView.webContents.isDestroyed()) {
+        popupView.webContents.setZoomFactor(zoomFactor);
+      }
+    });
+  }
+
+  private configureZoomPersistence(session: BrowserSession, webContents: WebContents): void {
+    webContents.on("did-finish-load", () => {
+      if (webContents.isDestroyed()) {
+        return;
+      }
+
+      try {
+        webContents.setZoomFactor(session.zoomFactor);
+      } catch (error) {
+        console.warn("Failed to reapply browser zoom after navigation.", error);
+      }
+    });
   }
 
   private async focusSession(session: BrowserSession): Promise<void> {

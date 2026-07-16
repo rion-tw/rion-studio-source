@@ -24,6 +24,7 @@ const OVERLAY_BINDING_NAME = "rionStudioMacroOverlay";
 const OVERLAY_BRIDGE_KEY = "__rionStudioExternalMacroBridge";
 const FOCUS_BINDING_NAME = "rionStudioWindowFocus";
 const FOCUS_TRACKER_KEY = "__rionStudioWindowFocusTracker";
+const PAGE_ZOOM_STATE_KEY = "__rionStudioWorkspaceZoomState";
 
 export type ExternalMacroOverlayHandler = (request: unknown) => Promise<unknown>;
 
@@ -35,6 +36,7 @@ export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget
   releaseThrottle: () => Promise<void>;
   setCpuThrottleRate: (rate: 1 | WorkspaceCpuThrottleRate) => Promise<void>;
   setWindowBounds: (bounds: PixelBounds) => Promise<void>;
+  setZoomFactor: (factor: number) => Promise<void>;
 }
 
 export interface ConnectExternalChromeAutomationOptions {
@@ -103,6 +105,8 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   private currentCpuThrottleRate: 1 | WorkspaceCpuThrottleRate = 1;
   private desiredCpuThrottleRate: 1 | WorkspaceCpuThrottleRate = 1;
   private resourceControlPromise?: Promise<void>;
+  private zoomFactor?: number;
+  private zoomScriptIdentifier?: string;
 
   constructor(private readonly client: CdpEventClientLike) {}
 
@@ -217,6 +221,51 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         height: bounds.height
       }
     });
+  }
+
+  async setZoomFactor(zoomFactor: number): Promise<void> {
+    if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
+      throw new Error("External Chrome zoom factor must be greater than zero.");
+    }
+    if (this.zoomFactor === zoomFactor) {
+      return;
+    }
+
+    if (this.zoomScriptIdentifier) {
+      await this.client.send("Page.removeScriptToEvaluateOnNewDocument", {
+        identifier: this.zoomScriptIdentifier
+      });
+      this.zoomScriptIdentifier = undefined;
+    }
+
+    const source = createPageZoomSource(zoomFactor);
+    let nextScriptIdentifier: string | undefined;
+
+    try {
+      if (zoomFactor !== 1) {
+        const result = await this.client.send<{ identifier?: string }>(
+          "Page.addScriptToEvaluateOnNewDocument",
+          { source }
+        );
+        if (!result.identifier) {
+          throw new Error("External Chrome did not register the workspace zoom script.");
+        }
+        nextScriptIdentifier = result.identifier;
+        this.zoomScriptIdentifier = result.identifier;
+      }
+
+      await this.evaluate(source);
+      this.zoomFactor = zoomFactor;
+    } catch (error) {
+      if (nextScriptIdentifier) {
+        await this.client.send("Page.removeScriptToEvaluateOnNewDocument", {
+          identifier: nextScriptIdentifier
+        }).catch(() => undefined);
+      }
+      this.zoomFactor = undefined;
+      this.zoomScriptIdentifier = undefined;
+      throw error;
+    }
   }
 
   async focus(): Promise<void> {
@@ -517,6 +566,49 @@ function createExternalFocusSource(): string {
     if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     try { target.focus({ preventScroll: true }); } catch { target.focus(); }
     return document.activeElement === target;
+  })()`;
+}
+
+export function createPageZoomSource(zoomFactor: number): string {
+  const serializedZoomFactor = JSON.stringify(zoomFactor);
+  const serializedStateKey = JSON.stringify(PAGE_ZOOM_STATE_KEY);
+
+  return `(() => {
+    if (window.top !== window) return;
+    const apply = () => {
+      const root = document.documentElement;
+      if (!root) return false;
+      const stateKey = ${serializedStateKey};
+      const existingState = root[stateKey];
+      if (${serializedZoomFactor} === 1) {
+        if (existingState) {
+          if (existingState.value) {
+            root.style.setProperty("zoom", existingState.value, existingState.priority);
+          } else {
+            root.style.removeProperty("zoom");
+          }
+          delete root[stateKey];
+        }
+        return true;
+      }
+      if (!existingState) {
+        Object.defineProperty(root, stateKey, {
+          configurable: true,
+          value: {
+            value: root.style.getPropertyValue("zoom"),
+            priority: root.style.getPropertyPriority("zoom")
+          }
+        });
+      }
+      root.style.setProperty("zoom", String(${serializedZoomFactor}), "important");
+      return true;
+    };
+    if (!apply()) {
+      const observer = new MutationObserver(() => {
+        if (apply()) observer.disconnect();
+      });
+      observer.observe(document, { childList: true });
+    }
   })()`;
 }
 

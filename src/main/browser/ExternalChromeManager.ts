@@ -42,6 +42,7 @@ export interface ExternalChromeLaunchItem {
 export interface ExternalChromeLaunchOptions {
   notice?: string;
   workArea?: PixelBounds;
+  zoomFactor?: number;
 }
 
 export interface ExternalChromeManagerOptions {
@@ -133,6 +134,9 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     if (existing) {
       existing.role = role;
       existing.notice = options.notice ?? existing.notice;
+      if (existing.automationTarget) {
+        await this.applyZoom(existing, existing.automationTarget, options.zoomFactor ?? 1);
+      }
       return this.toStatus(role.id, existing);
     }
 
@@ -146,7 +150,14 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       height
     };
     const physicalBounds = this.toPhysicalBounds(bounds);
-    const session = await this.launchSession(role, bounds, physicalBounds, undefined, options.notice);
+    const session = await this.launchSession(
+      role,
+      bounds,
+      physicalBounds,
+      undefined,
+      options.notice,
+      options.zoomFactor ?? 1
+    );
     return this.toStatus(role.id, session);
   }
 
@@ -190,7 +201,8 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
           dipBounds[index],
           physicalBounds?.[index],
           workspace.id,
-          options.notice
+          options.notice,
+          options.zoomFactor ?? 1
         );
         sessions.push({ roleId: item.role.id, session });
       }
@@ -232,7 +244,8 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     bounds: PixelBounds,
     physicalBounds: PixelBounds | undefined,
     workspaceId: string | undefined,
-    notice: string | undefined
+    notice: string | undefined,
+    zoomFactor: number
   ): Promise<ExternalChromeSession> {
     const executablePath = (this.options.findExecutable ?? findSystemChromeExecutable)();
     const browserUserDataDir = await this.roleStore.ensureBrowserUserDataDir(role.id);
@@ -293,6 +306,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_EXTERNAL_NOTICE);
       }
       target.onDisconnect(() => this.handleAutomationDisconnect(role.id, session, target));
+      await this.applyZoom(session, target, zoomFactor);
       try {
         await target.setWindowBounds(bounds);
       } catch (error) {
@@ -310,6 +324,9 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_UNAVAILABLE_NOTICE);
       }
       session.notice = appendNotice(session.notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
+      if (zoomFactor !== 1) {
+        session.notice = appendNotice(session.notice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+      }
     }
 
     await this.alignVisibleWindow(child, physicalBounds);
@@ -321,6 +338,19 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     session.launchedAt = new Date().toISOString();
     this.emitChange();
     return session;
+  }
+
+  private async applyZoom(
+    session: ExternalChromeSession,
+    target: ExternalBrowserAutomationTarget,
+    zoomFactor: number
+  ): Promise<void> {
+    try {
+      await target.setZoomFactor(zoomFactor);
+    } catch (error) {
+      console.warn("Failed to apply workspace zoom in external Chrome.", error);
+      session.notice = appendNotice(session.notice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+    }
   }
 
   private toPhysicalBounds(bounds: PixelBounds): PixelBounds | undefined {
@@ -438,6 +468,8 @@ export function buildExternalChromeArgs(
 
 const EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE =
   "Macro control could not connect to compatibility mode. Restart this role to try again.";
+export const EXTERNAL_ZOOM_UNAVAILABLE_NOTICE =
+  "Workspace zoom could not be applied in external Chrome. Restart this role to try again.";
 
 // Native Chrome windows retain OS-drawn corners and frame pixels even when their
 // rectangles touch. A small internal overlap keeps the desktop from showing

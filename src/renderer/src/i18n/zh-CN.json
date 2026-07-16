@@ -669,6 +669,7 @@
   "error.macroNoRunnableRoles": "请先启动至少一个分配角色再执行宏。",
   "error.macroExternalRuntimeUnsupported": "此兼容模式会话无法使用宏控制。请重新启动角色后再试一次。",
   "notice.externalMacroUnavailable": "宏控制无法连接到兼容模式。请重新启动此角色后再试一次。",
+  "notice.externalZoomUnavailable": "无法在外部 Chrome 应用工作区缩放。请重新启动此角色后再试一次。",
   "error.workspaceEmpty": "工作区沒有角色。",
   "error.workspaceLoginRequired": "需要登录。启动此工作区前，请先登录所有角色。",
   "error.rolesAlreadyRunning": "以下角色已在其他游戏窗口运行：{names}。请先停止后再启动。",

@@ -114,6 +114,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
     "error.macroExternalRuntimeUnsupported",
   "Macro control could not connect to compatibility mode. Restart this role to try again.":
     "notice.externalMacroUnavailable",
+  "Workspace zoom could not be applied in external Chrome. Restart this role to try again.":
+    "notice.externalZoomUnavailable",
   "Launch workspace has no roles.": "error.workspaceEmpty",
   "Login required. Use Login before launching every role in this workspace.": "error.workspaceLoginRequired",
   "Login required. Use Login before launching this role.": "error.loginRequired",
@@ -197,13 +199,23 @@ export function localizeErrorMessage(message: string, language: Language): strin
     return template.replace("{names}", alreadyRunningMatch[1]);
   }
 
+  const translations = getLoadedTranslations(language) ?? fallbackTranslations;
   const key = knownErrorMessages[message];
-  if (!key) {
-    return message;
+  if (key) {
+    return translations[key] ?? fallbackTranslations[key] ?? message;
   }
 
-  const translations = getLoadedTranslations(language) ?? fallbackTranslations;
-  return translations[key] ?? fallbackTranslations[key] ?? message;
+  let localizedMessage = message;
+  let localizedNotice = false;
+  Object.entries(knownErrorMessages).forEach(([knownMessage, translationKey]) => {
+    if (!translationKey?.startsWith("notice.") || !localizedMessage.includes(knownMessage)) {
+      return;
+    }
+    const translatedNotice = translations[translationKey] ?? fallbackTranslations[translationKey];
+    localizedMessage = localizedMessage.split(knownMessage).join(translatedNotice);
+    localizedNotice = true;
+  });
+  return localizedNotice ? localizedMessage : message;
 }
 
 function isTraditionalChineseLocale(locale: string): boolean {

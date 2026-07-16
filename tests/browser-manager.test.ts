@@ -763,6 +763,7 @@ describe("BrowserManager game host windows", () => {
     const getBrowserLaunchMode = vi.fn().mockResolvedValue("embedded");
     const getWorkspaceAppearanceSettings = vi.fn(() => ({ background: "black" as const, gap: 16 as const }));
     const secondRole = createRole("role-2", "Alt");
+    const adaptiveWorkspace = { ...workspace, browserZoomMode: "adaptive" as const };
     const harness = createHarness({
       externalChromeManager,
       getBrowserLaunchMode,
@@ -774,7 +775,7 @@ describe("BrowserManager game host windows", () => {
     ];
 
     await harness.manager.launchWorkspace(
-      workspace,
+      adaptiveWorkspace,
       launchItems,
       undefined,
       "external"
@@ -783,9 +784,13 @@ describe("BrowserManager game host windows", () => {
     expect(getBrowserLaunchMode).not.toHaveBeenCalled();
     expect(getWorkspaceAppearanceSettings).not.toHaveBeenCalled();
     expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
-      workspace,
+      adaptiveWorkspace,
       launchItems,
-      expect.objectContaining({ notice: undefined })
+      expect.objectContaining({
+        notice: undefined,
+        zoomFactor: 0.9,
+        zoomMode: "adaptive"
+      })
     );
   });
 

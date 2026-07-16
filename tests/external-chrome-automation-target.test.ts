@@ -6,8 +6,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   connectExternalChromeAutomation,
-  createAdaptivePageZoomSource,
-  createPageZoomSource,
   ExternalChromeAutomationTarget,
   getCdpKeyDescriptor
 } from "../src/main/browser/ExternalChromeAutomationTarget";
@@ -489,71 +487,18 @@ describe("ExternalChromeAutomationTarget", () => {
     expect(harness.send.mock.calls.filter(([method]) => method === "Input.dispatchMouseEvent")).toHaveLength(2);
   });
 
-  it("applies, replaces, and resets workspace zoom for current and future top-level documents", async () => {
+  it("does not inject CSS workspace zoom into external Chrome documents", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);
     await target.initialize();
 
-    await target.setZoomFactor(0.75);
-
-    const firstSource = createPageZoomSource(0.75);
-    expect(firstSource).toContain("if (window.top !== window) return");
-    expect(firstSource).toContain('root.style.setProperty("zoom", String(0.75), "important")');
-    expect(harness.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
-      source: firstSource
-    });
-    expect(harness.send).toHaveBeenCalledWith(
-      "Runtime.evaluate",
-      expect.objectContaining({ expression: firstSource })
-    );
-
-    await target.setZoomFactor(0.9);
-
-    expect(harness.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
-      identifier: "zoom-script-1"
-    });
-    expect(harness.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
-      source: createPageZoomSource(0.9)
-    });
-
-    await target.setZoomFactor(1);
-
-    const resetSource = createPageZoomSource(1);
-    expect(harness.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
-      identifier: "zoom-script-2"
-    });
-    expect(resetSource).toContain("delete root[stateKey]");
-    expect(harness.send).toHaveBeenCalledWith(
-      "Runtime.evaluate",
-      expect.objectContaining({ expression: resetSource })
-    );
-  });
-
-  it("installs adaptive page zoom with viewport resize coalescing and shared thresholds", async () => {
-    const harness = createHarness();
-    const target = new ExternalChromeAutomationTarget(harness.client);
-    await target.initialize();
-
-    await target.setAdaptiveZoom();
-
-    const adaptiveSource = createAdaptivePageZoomSource();
-    expect(() => new Function(adaptiveSource)).not.toThrow();
-    expect(adaptiveSource).toContain("window.visualViewport?.width ?? window.innerWidth");
-    expect(adaptiveSource).toContain('window.addEventListener("resize", schedule)');
-    expect(adaptiveSource).toContain("requestAnimationFrame");
-    expect(adaptiveSource).toContain(
-      "[[0,25],[372,33],[532,50],[749,67],[909,75],[992,80],[1088,90],[1216,100],[1344,110],[1504,125]]"
-    );
-    expect(harness.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
-      source: adaptiveSource
-    });
-
-    await target.setZoomFactor(1);
-
-    expect(harness.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
-      identifier: "zoom-script-1"
-    });
-    expect(createPageZoomSource(1)).toContain("dispose?.()");
+    const installedSources = harness.send.mock.calls
+      .filter(([method]) => method === "Page.addScriptToEvaluateOnNewDocument")
+      .map(([, params]) => String(params?.source))
+      .join("\n");
+    expect(installedSources).not.toContain("WorkspaceZoom");
+    expect(installedSources).not.toContain('style.setProperty("zoom"');
+    expect(installedSources).not.toContain("visualViewport?.width");
   });
 
   it("maps function and unknown physical codes safely", () => {

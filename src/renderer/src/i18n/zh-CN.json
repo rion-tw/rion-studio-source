@@ -122,7 +122,7 @@
   "workspaces.layout": "布局",
   "workspaces.layoutDescription": "选择排列方式，然后拖动分隔线调整应用内的游戏区域。",
   "workspaces.browserZoom": "浏览器缩放",
-  "workspaces.browserZoomDescription": "依各游戏视口宽度自动调整，或选择固定缩放比例。",
+  "workspaces.browserZoomDescription": "依各游戏视口宽度自动调整；内嵌窗口会随缩放实时更新，外部 Chrome 则在重新启动时计算。也可选择固定比例。",
   "workspaces.browserZoomAdaptive": "自适应（建议）",
   "workspaces.resourceMode": "资源策略",
   "workspaces.resourceModeDescription": "让当前操作的主控角色保持全速，降低其他角色的 CPU 执行速度。",

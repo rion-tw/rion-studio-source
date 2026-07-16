@@ -45,8 +45,7 @@ describe("GameCompatibilityManager", () => {
 
     const report = await manager.runCheck(game.id, {
       windowWidth: 1440,
-      windowHeight: 900,
-      launchPreset: "performance"
+      windowHeight: 900
     });
 
     expect(report).toMatchObject({
@@ -60,7 +59,7 @@ describe("GameCompatibilityManager", () => {
     expect(created.options.show).toBe(false);
     expect(created.options).toMatchObject({ x: 100, y: 50, width: 1000, height: 700 });
     expect(created.options.webPreferences).toMatchObject({
-      backgroundThrottling: false,
+      backgroundThrottling: true,
       sandbox: true,
       nodeIntegration: false,
       contextIsolation: true
@@ -88,8 +87,7 @@ describe("GameCompatibilityManager", () => {
 
     await expect(manager.runCheck(game.id, {
       windowWidth: 1280,
-      windowHeight: 720,
-      launchPreset: "balanced"
+      windowHeight: 720
     })).resolves.toMatchObject({
       load: { state: "failed", errorCode: "ERR_CONNECTION_REFUSED" },
       recommendation: { mode: "external", reason: "external_recommended" }
@@ -106,8 +104,7 @@ describe("GameCompatibilityManager", () => {
 
     await expect(manager.runCheck(game.id, {
       windowWidth: 1280,
-      windowHeight: 720,
-      launchPreset: "balanced"
+      windowHeight: 720
     })).resolves.toMatchObject({
       systemChrome: { state: "unavailable" },
       recommendation: { reason: "chrome_required" }
@@ -127,8 +124,7 @@ describe("GameCompatibilityManager", () => {
 
     await expect(manager.runCheck(game.id, {
       windowWidth: 1280,
-      windowHeight: 720,
-      launchPreset: "performance"
+      windowHeight: 720
     })).resolves.toMatchObject({ load: { state: "available" } });
   });
 
@@ -143,7 +139,7 @@ describe("GameCompatibilityManager", () => {
         return activeWindow.asBrowserWindow();
       }
     });
-    const defaults = { windowWidth: 1280, windowHeight: 720, launchPreset: "performance" as const };
+    const defaults = { windowWidth: 1280, windowHeight: 720 };
     const timedRun = manager.runCheck(game.id, defaults);
     await expect(manager.runCheck(game.id, defaults)).rejects.toThrow("already running");
     await expect(timedRun).resolves.toMatchObject({
@@ -173,7 +169,7 @@ describe("GameCompatibilityManager", () => {
       settings: () => settings,
       createWindow: (options) => new FakeCompatibilityWindow(options).asBrowserWindow()
     });
-    await manager.runCheck(game.id, { windowWidth: 1280, windowHeight: 720, launchPreset: "performance" });
+    await manager.runCheck(game.id, { windowWidth: 1280, windowHeight: 720 });
     expect((await manager.listReports())[0].isStale).toBe(false);
 
     settings = {

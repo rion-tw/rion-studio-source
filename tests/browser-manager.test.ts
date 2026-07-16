@@ -32,7 +32,6 @@ const role: Role = {
   windowWidth: 1280,
   windowHeight: 720,
   notes: "",
-  launchPreset: "performance",
   authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
@@ -44,7 +43,7 @@ const workspace: LaunchWorkspace = {
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 90,
-  resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
+  resourcePolicy: { mode: "unrestricted" },
   slots: [
     { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
     { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
@@ -175,7 +174,7 @@ describe("BrowserManager game host windows", () => {
       1,
       expect.objectContaining({
         webPreferences: expect.objectContaining({
-          backgroundThrottling: false,
+          backgroundThrottling: true,
           spellcheck: false,
           webgl: true
         })
@@ -337,7 +336,7 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
-  it("applies the same primary-priority policy to external Chrome targets", async () => {
+  it("applies the adaptive policy to external Chrome targets", async () => {
     const externalChromeManager = createExternalChromeManager();
     const secondRole = createRole("role-2", "Alt");
     const firstTarget = createExternalResourceTarget();
@@ -356,8 +355,7 @@ describe("BrowserManager game host windows", () => {
     const priorityWorkspace: LaunchWorkspace = {
       ...workspace,
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 4,
+        mode: "adaptive",
         primaryRoleId: role.id
       }
     };
@@ -373,12 +371,12 @@ describe("BrowserManager game host windows", () => {
     );
 
     expect(firstTarget.setRate).toHaveBeenCalledWith(1);
-    expect(secondTarget.setRate).toHaveBeenCalledWith(4);
+    expect(secondTarget.setRate).toHaveBeenCalledWith(2);
     secondTarget.emitFocus();
     await vi.waitFor(() => {
       expect(harness.manager.listStatuses()).toEqual(expect.arrayContaining([
         expect.objectContaining({ roleId: secondRole.id, resourceState: "primary" }),
-        expect.objectContaining({ roleId: role.id, resourceState: "throttled", cpuThrottleRate: 4 })
+        expect.objectContaining({ roleId: role.id, resourceState: "throttled", cpuThrottleRate: 2 })
       ]));
     });
   });
@@ -525,14 +523,13 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 800 });
   });
 
-  it("applies and follows the primary-priority policy in embedded workspaces", async () => {
+  it("applies and follows the adaptive policy in embedded workspaces", async () => {
     const harness = createHarness({ platform: "win32" });
     const secondRole = createRole("role-2", "Alt");
     const priorityWorkspace: LaunchWorkspace = {
       ...workspace,
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 2,
+        mode: "adaptive",
         primaryRoleId: role.id
       }
     };
@@ -1440,7 +1437,7 @@ describe("BrowserManager game host windows", () => {
     expect(harness.createView).toHaveBeenLastCalledWith(
       expect.objectContaining({
         webPreferences: expect.objectContaining({
-          backgroundThrottling: false,
+          backgroundThrottling: true,
           spellcheck: false,
           webgl: true
         })

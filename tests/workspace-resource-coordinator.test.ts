@@ -19,7 +19,7 @@ describe("WorkspaceResourceCoordinator", () => {
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "adaptive", backgroundCpuThrottleRate: 4, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
     expect(second.setRate).toHaveBeenLastCalledWith(2);
@@ -46,7 +46,7 @@ describe("WorkspaceResourceCoordinator", () => {
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 2, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
 
@@ -54,7 +54,12 @@ describe("WorkspaceResourceCoordinator", () => {
     expect(second.setRate).toHaveBeenCalledWith(2);
     expect(first.focus).toHaveBeenCalledOnce();
     expect(coordinator.getStatus("role-1")).toEqual({ resourceState: "primary", cpuThrottleRate: 1 });
-    expect(coordinator.getStatus("role-2")).toEqual({ resourceState: "throttled", cpuThrottleRate: 2 });
+    expect(coordinator.getStatus("role-2")).toEqual({
+      resourceState: "throttled",
+      cpuThrottleRate: 2,
+      resourcePressureLevel: "normal",
+      resourceReason: "baseline"
+    });
   });
 
   it("uses the first target when no initial primary is configured", async () => {
@@ -64,7 +69,7 @@ describe("WorkspaceResourceCoordinator", () => {
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 2 },
+      { mode: "adaptive" },
       [first.target, second.target]
     );
 
@@ -81,7 +86,7 @@ describe("WorkspaceResourceCoordinator", () => {
     const second = createTarget("role-2", { operations });
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 4, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
     operations.length = 0;
@@ -92,7 +97,7 @@ describe("WorkspaceResourceCoordinator", () => {
       expect(coordinator.getStatus("role-2")?.resourceState).toBe("primary");
     });
     const restoreIndex = operations.indexOf("role-2:1");
-    const throttleIndex = operations.indexOf("role-1:4");
+    const throttleIndex = operations.indexOf("role-1:2");
     expect(restoreIndex).toBeGreaterThanOrEqual(0);
     expect(throttleIndex).toBeGreaterThan(restoreIndex);
   });
@@ -103,7 +108,7 @@ describe("WorkspaceResourceCoordinator", () => {
     const second = createTarget("role-2");
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 2, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
 
@@ -127,7 +132,7 @@ describe("WorkspaceResourceCoordinator", () => {
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 4, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
 
@@ -145,7 +150,7 @@ describe("WorkspaceResourceCoordinator", () => {
     const second = createTarget("role-2", { processId: 101 });
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 2, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
 
@@ -155,7 +160,9 @@ describe("WorkspaceResourceCoordinator", () => {
     await vi.waitFor(() => {
       expect(coordinator.getStatus("role-2")).toEqual({
         resourceState: "throttled",
-        cpuThrottleRate: 2
+        cpuThrottleRate: 2,
+        resourcePressureLevel: "normal",
+        resourceReason: "baseline"
       });
     });
   });
@@ -167,7 +174,7 @@ describe("WorkspaceResourceCoordinator", () => {
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 2, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
 
@@ -186,12 +193,12 @@ describe("WorkspaceResourceCoordinator", () => {
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
+      { mode: "unrestricted" },
       [first.target, second.target]
     );
     await coordinator.activateWorkspace(
       "workspace-2",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 2, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target]
     );
 
@@ -205,7 +212,7 @@ describe("WorkspaceResourceCoordinator", () => {
     const second = createTarget("role-2");
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "primary_priority", backgroundCpuThrottleRate: 4, primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
 

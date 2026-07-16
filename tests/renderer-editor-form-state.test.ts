@@ -16,10 +16,9 @@ const t: Translator = (key) => key;
 
 describe("editor form state", () => {
   it("creates role forms from defaults and saved roles", () => {
-    expect(createNewRoleForm({ windowWidth: 1600, windowHeight: 900, launchPreset: "balanced" })).toMatchObject({
+    expect(createNewRoleForm({ windowWidth: 1600, windowHeight: 900 })).toMatchObject({
       windowWidth: 1600,
-      windowHeight: 900,
-      launchPreset: "balanced"
+      windowHeight: 900
     });
     expect(createRoleFormState(role())).toMatchObject({
       id: "role-1",
@@ -33,7 +32,7 @@ describe("editor form state", () => {
     expect(newForm).toMatchObject({
       template: "two_columns",
       browserZoomPercent: 100,
-      resourcePolicy: { mode: "adaptive", backgroundCpuThrottleRate: 4 }
+      resourcePolicy: { mode: "adaptive" }
     });
     expect(newForm).not.toHaveProperty("targetDisplayId");
     expect(newForm.slots).toHaveLength(2);
@@ -42,8 +41,7 @@ describe("editor form state", () => {
     expect(savedForm.id).toBe("workspace-1");
     expect(savedForm.targetDisplayId).toBe(22);
     expect(savedForm.resourcePolicy).toEqual({
-      mode: "primary_priority",
-      backgroundCpuThrottleRate: 4,
+      mode: "adaptive",
       primaryRoleId: "role-1"
     });
     expect(savedForm.slots[0].roleId).toBe("role-1");
@@ -94,7 +92,6 @@ function role(overrides: Partial<Role> = {}): Role {
     windowWidth: 1280,
     windowHeight: 720,
     notes: "Ready",
-    launchPreset: "performance",
     authState: "authenticated",
     createdAt: "2026-07-14T00:00:00.000Z",
     updatedAt: "2026-07-14T00:00:00.000Z",
@@ -110,8 +107,7 @@ function workspace(): LaunchWorkspace {
     template: "two_columns",
     browserZoomPercent: 100,
     resourcePolicy: {
-      mode: "primary_priority",
-      backgroundCpuThrottleRate: 4,
+      mode: "adaptive",
       primaryRoleId: "role-1"
     },
     targetDisplayId: 22,

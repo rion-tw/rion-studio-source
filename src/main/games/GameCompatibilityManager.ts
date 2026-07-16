@@ -243,7 +243,7 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
         sandbox: true,
         nodeIntegration: false,
         contextIsolation: true,
-        backgroundThrottling: defaults.launchPreset !== "performance",
+        backgroundThrottling: true,
         spellcheck: false,
         webgl: true
       }

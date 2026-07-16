@@ -13,7 +13,7 @@ import type { RoleFormState } from "../../app/types";
 import { areEditorFormsEqual, createNewRoleForm, createRoleFormState } from "../../app/editorFormState";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
-import type { AuthFlowStatus, Game, LaunchPreset, Role, RoleDefaults } from "../../../../shared/types";
+import type { AuthFlowStatus, Game, Role, RoleDefaults } from "../../../../shared/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { createCoverImageDataUrl } from "./roleCover";
 import { LoginSessionGuide } from "./LoginSessionGuide";
@@ -220,8 +220,7 @@ function RoleForm({
                         gameId,
                         launchUrl: game.defaultLaunchUrl,
                         windowWidth: defaults.windowWidth,
-                        windowHeight: defaults.windowHeight,
-                        launchPreset: defaults.launchPreset
+                        windowHeight: defaults.windowHeight
                       }));
                     }}
                     required
@@ -270,26 +269,6 @@ function RoleForm({
                       onChange((current) => ({ ...current, windowHeight: Number(event.target.value) }))
                     }
                   />
-                </FormField>
-                <FormField
-                  htmlFor="role-launch-preset"
-                  label={t("roleForm.launchPreset")}
-                  description={t("roleForm.backgroundActivityDescription")}
-                >
-                  <Select
-                    value={form.launchPreset}
-                    onValueChange={(value) =>
-                      onChange((current) => ({ ...current, launchPreset: value as LaunchPreset }))
-                    }
-                  >
-                    <SelectTrigger id="role-launch-preset">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="balanced">{t("preset.balanced")}</SelectItem>
-                      <SelectItem value="performance">{t("preset.performance")}</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </FormField>
               </FormGrid>
             </Surface>

@@ -18,22 +18,22 @@ describe("background activity migration", () => {
   });
 
   it("runs both stores once and records completion atomically", async () => {
-    const roleStore = { migrateLaunchPresetsToBalanced: vi.fn().mockResolvedValue(true) };
-    const gameStore = { migrateLaunchPresetsToBalanced: vi.fn().mockResolvedValue(true) };
+    const roleStore = { removeLegacyLaunchPresets: vi.fn().mockResolvedValue(true) };
+    const gameStore = { removeLegacyLaunchPresets: vi.fn().mockResolvedValue(true) };
 
     await expect(runBackgroundActivityMigration(baseDir, { gameStore, roleStore })).resolves.toBe(true);
     await expect(runBackgroundActivityMigration(baseDir, { gameStore, roleStore })).resolves.toBe(false);
 
-    expect(roleStore.migrateLaunchPresetsToBalanced).toHaveBeenCalledTimes(1);
-    expect(gameStore.migrateLaunchPresetsToBalanced).toHaveBeenCalledTimes(1);
+    expect(roleStore.removeLegacyLaunchPresets).toHaveBeenCalledTimes(1);
+    expect(gameStore.removeLegacyLaunchPresets).toHaveBeenCalledTimes(1);
     await expect(readFile(join(baseDir, BACKGROUND_ACTIVITY_MIGRATION_FILE), "utf8"))
       .resolves.toContain(`"version": ${BACKGROUND_ACTIVITY_MIGRATION_VERSION}`);
   });
 
   it("does not mark an interrupted migration and retries it safely", async () => {
-    const roleStore = { migrateLaunchPresetsToBalanced: vi.fn().mockResolvedValue(true) };
+    const roleStore = { removeLegacyLaunchPresets: vi.fn().mockResolvedValue(true) };
     const gameStore = {
-      migrateLaunchPresetsToBalanced: vi.fn()
+      removeLegacyLaunchPresets: vi.fn()
         .mockRejectedValueOnce(new Error("simulated interruption"))
         .mockResolvedValueOnce(true)
     };
@@ -44,7 +44,7 @@ describe("background activity migration", () => {
     await expect(access(markerPath)).rejects.toMatchObject({ code: "ENOENT" });
 
     await expect(runBackgroundActivityMigration(baseDir, { gameStore, roleStore })).resolves.toBe(true);
-    expect(roleStore.migrateLaunchPresetsToBalanced).toHaveBeenCalledTimes(2);
-    expect(gameStore.migrateLaunchPresetsToBalanced).toHaveBeenCalledTimes(2);
+    expect(roleStore.removeLegacyLaunchPresets).toHaveBeenCalledTimes(2);
+    expect(gameStore.removeLegacyLaunchPresets).toHaveBeenCalledTimes(2);
   });
 });

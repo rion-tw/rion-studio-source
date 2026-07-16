@@ -58,8 +58,7 @@ describe("PortableDataManager", () => {
       name: "Party",
       browserZoomPercent: 75,
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 4,
+        mode: "adaptive",
         primaryRoleId: role.id
       },
       targetDisplayId: 42,
@@ -103,8 +102,7 @@ describe("PortableDataManager", () => {
         language: "zh-TW",
         roleDefaults: {
           windowWidth: 1920,
-          windowHeight: 1080,
-          launchPreset: "balanced"
+          windowHeight: 1080
         },
         themeMode: "dark"
       }
@@ -138,8 +136,7 @@ describe("PortableDataManager", () => {
         language: "zh-TW",
         roleDefaults: {
           windowWidth: 1920,
-          windowHeight: 1080,
-          launchPreset: "balanced"
+          windowHeight: 1080
         },
         themeMode: "dark"
       }
@@ -153,12 +150,13 @@ describe("PortableDataManager", () => {
     expect(parsed.roles[0]).not.toHaveProperty("lastAuthCheckAt");
     expect(parsed.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
     expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
+    expect(parsed.roles[0]).not.toHaveProperty("launchPreset");
+    expect(parsed.preferences?.roleDefaults).not.toHaveProperty("launchPreset");
     expect(parsed).not.toHaveProperty("gameCompatibilityReports");
     expect(parsed.launchWorkspaces[0]).toMatchObject({
       browserZoomPercent: 75,
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 4,
+        mode: "adaptive",
         primaryRoleId: role.id
       }
     });
@@ -330,7 +328,7 @@ describe("PortableDataManager", () => {
       steps: [{ id: "step-existing", type: "key", code: "F1" }]
     });
     const legacyFixture = createPortableFixture();
-    legacyFixture.launchWorkspaces[0].resourcePolicy = {
+    (legacyFixture.launchWorkspaces[0] as unknown as { resourcePolicy: Record<string, unknown> }).resourcePolicy = {
       mode: "primary_priority",
       backgroundCpuThrottleRate: 2,
       primaryRoleId: "old-role"
@@ -378,8 +376,7 @@ describe("PortableDataManager", () => {
         language: "ja",
         roleDefaults: {
           windowWidth: 1280,
-          windowHeight: 720,
-          launchPreset: "balanced"
+          windowHeight: 720
         },
         themeMode: "light"
       }
@@ -411,8 +408,7 @@ describe("PortableDataManager", () => {
         },
         roleDefaults: {
           windowWidth: 1280,
-          windowHeight: 720,
-          launchPreset: "balanced"
+          windowHeight: 720
         }
       }
     });
@@ -433,8 +429,7 @@ describe("PortableDataManager", () => {
       id: existingWorkspace.id,
       targetDisplayId: 42,
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 2,
+        mode: "adaptive",
         primaryRoleId: importedRole?.id
       }
     });
@@ -465,7 +460,7 @@ describe("PortableDataManager", () => {
           coverImageDataUrl: "data:image/webp;base64,QQ==",
           defaultLaunchUrl: "https://override.test/play",
           loginUrl: "https://override.test/login",
-          roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" },
+          roleDefaults: { windowWidth: 1280, windowHeight: 720 },
           browserLaunchMode: "external"
         },
         {
@@ -484,8 +479,7 @@ describe("PortableDataManager", () => {
           launchUrl: "https://remote-shared.test/play",
           windowWidth: 1280,
           windowHeight: 720,
-          notes: "",
-          launchPreset: "performance"
+          notes: ""
         },
         {
           id: "recovered-role",
@@ -494,8 +488,7 @@ describe("PortableDataManager", () => {
           launchUrl: "https://recovery.test/custom/path",
           windowWidth: 1280,
           windowHeight: 720,
-          notes: "",
-          launchPreset: "balanced"
+          notes: ""
         }
       ],
       launchWorkspaces: [{
@@ -746,7 +739,7 @@ describe("PortableDataManager", () => {
       ...fixture.launchWorkspaces[0],
       template: "three_columns",
       browserZoomPercent: 90,
-      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
+      resourcePolicy: { mode: "unrestricted" },
       slots: [
         { id: "slot-1", roleId: "old-role", rect: { x: 0, y: 0, width: 0.3333, height: 1 } },
         { id: "slot-2", rect: { x: 0.3333, y: 0, width: 0.3333, height: 1 } },
@@ -768,20 +761,22 @@ describe("PortableDataManager", () => {
       { x: 0.6667, y: 0, width: 0.3333, height: 1 }
     ]);
     expect(importedWorkspace?.resourcePolicy).toEqual({
-      mode: "unrestricted",
-      backgroundCpuThrottleRate: 2
+      mode: "unrestricted"
     });
     expect(JSON.parse(await readFile(join(baseDir, "launch-workspaces.json"), "utf8")))
       .toMatchObject({ schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION });
   });
 
-  it("preserves primary priority when an imported workspace has no assigned roles", async () => {
+  it("migrates primary priority to adaptive when an imported workspace has no assigned roles", async () => {
     const importPath = join(baseDir, "empty-priority-workspace.json");
     const fixture = createPortableFixture();
     fixture.launchWorkspaces[0] = {
       ...fixture.launchWorkspaces[0],
-      resourcePolicy: { mode: "primary_priority", backgroundCpuThrottleRate: 2 },
       slots: fixture.launchWorkspaces[0].slots.map(({ roleId: _roleId, ...slot }) => slot)
+    };
+    (fixture.launchWorkspaces[0] as unknown as { resourcePolicy: Record<string, unknown> }).resourcePolicy = {
+      mode: "primary_priority",
+      backgroundCpuThrottleRate: 2
     };
     fixture.macros = [];
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
@@ -794,8 +789,7 @@ describe("PortableDataManager", () => {
       (workspace) => workspace.name === "Party"
     );
     expect(importedWorkspace?.resourcePolicy).toEqual({
-      mode: "primary_priority",
-      backgroundCpuThrottleRate: 2
+      mode: "adaptive"
     });
   });
 
@@ -868,8 +862,7 @@ describe("PortableDataManager", () => {
       language: "zh-TW",
       roleDefaults: {
         windowWidth: 100,
-        windowHeight: 1080,
-        launchPreset: "balanced"
+        windowHeight: 1080
       }
     };
     await writeFile(invalidImportPath, `${JSON.stringify(invalidFixture, null, 2)}\n`, "utf8");
@@ -893,7 +886,7 @@ describe("PortableDataManager", () => {
     });
   });
 
-  it("defaults missing and invalid portable launch presets to balanced", async () => {
+  it("accepts and strips missing or invalid portable launch presets", async () => {
     const importPath = join(baseDir, "missing-launch-preset.json");
     const fixture = createPortableFixture();
     const rawFixture = fixture as unknown as {
@@ -906,25 +899,25 @@ describe("PortableDataManager", () => {
     const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
 
     const preview = await manager.previewImport();
-    expect(preview?.preferences?.roleDefaults?.launchPreset).toBe("balanced");
+    expect(preview?.preferences?.roleDefaults).not.toHaveProperty("launchPreset");
     await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
-    expect((await roleStore.listRoles()).find((role) => role.name === "Main")?.launchPreset)
-      .toBe("balanced");
+    expect((await roleStore.listRoles()).find((role) => role.name === "Main"))
+      .not.toHaveProperty("launchPreset");
   });
 
-  it("preserves an explicitly imported performance launch preset", async () => {
+  it("accepts but strips an explicitly imported performance launch preset", async () => {
     const importPath = join(baseDir, "performance-launch-preset.json");
     const fixture = createPortableFixture();
-    fixture.roles[0].launchPreset = "performance";
-    fixture.preferences!.roleDefaults!.launchPreset = "performance";
+    (fixture.roles[0] as unknown as Record<string, unknown>).launchPreset = "performance";
+    (fixture.preferences!.roleDefaults! as unknown as Record<string, unknown>).launchPreset = "performance";
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
     const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
 
     const preview = await manager.previewImport();
-    expect(preview?.preferences?.roleDefaults?.launchPreset).toBe("performance");
+    expect(preview?.preferences?.roleDefaults).not.toHaveProperty("launchPreset");
     await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
-    expect((await roleStore.listRoles()).find((role) => role.name === "Main")?.launchPreset)
-      .toBe("performance");
+    expect((await roleStore.listRoles()).find((role) => role.name === "Main"))
+      .not.toHaveProperty("launchPreset");
   });
 
   it("normalizes invalid portable browser font settings without blocking import", async () => {
@@ -1112,7 +1105,7 @@ describe("PortableDataManager", () => {
     const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Before" });
     const workspace = await workspaceStore.createWorkspace({
       name: "Legacy recovery",
-      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 4 },
+      resourcePolicy: { mode: "unrestricted" },
       slots: [{ roleId: role.id }, {}]
     });
     const createdRoleId = "12345678-1234-4123-8123-123456789abc";
@@ -1132,11 +1125,7 @@ describe("PortableDataManager", () => {
     const recoveredStore = new RoleStore(baseDir);
     await expect(recoveredStore.getRole(role.id)).resolves.toMatchObject({ name: "Before" });
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
-      resourcePolicy: {
-        mode: "adaptive",
-        backgroundCpuThrottleRate: 4,
-        primaryRoleId: role.id
-      }
+      resourcePolicy: { mode: "unrestricted" }
     });
     expect(JSON.parse(await readFile(join(baseDir, "launch-workspaces.json"), "utf8")))
       .toMatchObject({ schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION });
@@ -1148,7 +1137,7 @@ describe("PortableDataManager", () => {
     const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Before" });
     const workspace = await workspaceStore.createWorkspace({
       name: "Current recovery",
-      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
+      resourcePolicy: { mode: "unrestricted" },
       slots: [{ roleId: role.id }, {}]
     });
     const createdRoleId = "87654321-4321-4321-8321-cba987654321";
@@ -1196,7 +1185,7 @@ describe("PortableDataManager", () => {
     expect(JSON.parse(await readFile(join(baseDir, "launch-workspaces.json"), "utf8")))
       .toMatchObject({ schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION });
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
-      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
+      resourcePolicy: { mode: "unrestricted" }
     });
     await expect(access(join(baseDir, "roles", createdRoleId, "browser"))).resolves.toBeUndefined();
     await expect(access(join(baseDir, "portable-import-transaction.stage"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -1298,8 +1287,7 @@ function createPortableFixture(): RionPortableDataV1 {
       language: "ja",
       roleDefaults: {
         windowWidth: 1280,
-        windowHeight: 720,
-        launchPreset: "balanced"
+        windowHeight: 720
       },
       themeMode: "light"
     },
@@ -1310,8 +1298,7 @@ function createPortableFixture(): RionPortableDataV1 {
         launchUrl: "https://example.org/play",
         windowWidth: 1280,
         windowHeight: 720,
-        notes: "Imported",
-        launchPreset: "balanced"
+        notes: "Imported"
       }
     ],
     launchWorkspaces: [

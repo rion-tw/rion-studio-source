@@ -19,7 +19,6 @@ const role: Role = {
   windowWidth: 1280,
   windowHeight: 720,
   notes: "",
-  launchPreset: "performance",
   authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
@@ -228,7 +227,6 @@ describe("ExternalChromeManager", () => {
         id: "workspace-1",
         resourcePolicy: {
           mode: "adaptive",
-          backgroundCpuThrottleRate: 4,
           primaryRoleId: secondRole.id
         }
       },

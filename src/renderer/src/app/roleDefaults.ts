@@ -1,9 +1,7 @@
 import {
-  DEFAULT_LAUNCH_PRESET,
   DEFAULT_LAUNCH_URL,
   DEFAULT_ROLE_WINDOW_HEIGHT,
   DEFAULT_ROLE_WINDOW_WIDTH,
-  type LaunchPreset,
   type RoleDefaults
 } from "../../../shared/types";
 import type { RoleFormState } from "./types";
@@ -14,14 +12,11 @@ interface RoleDefaultsStorage {
 }
 
 export const ROLE_DEFAULTS_STORAGE_KEY = "rion-studio-role-defaults";
-export const BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY =
-  "rion-studio-background-activity-migration-v1";
 export const ROLE_WINDOW_CUSTOM_OPTION = "custom";
 
 export const DEFAULT_ROLE_DEFAULTS: RoleDefaults = {
   windowWidth: DEFAULT_ROLE_WINDOW_WIDTH,
-  windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT,
-  launchPreset: DEFAULT_LAUNCH_PRESET
+  windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT
 };
 
 export const roleWindowSizeOptions = [
@@ -72,8 +67,7 @@ export function createEmptyRoleForm(
     launchUrl,
     windowWidth: normalizedDefaults.windowWidth,
     windowHeight: normalizedDefaults.windowHeight,
-    notes: "",
-    launchPreset: normalizedDefaults.launchPreset
+    notes: ""
   };
 }
 
@@ -92,14 +86,8 @@ export function readStoredRoleDefaults(storage = getLocalStorage()): RoleDefault
     roleDefaults = DEFAULT_ROLE_DEFAULTS;
   }
 
-  if (storage.getItem(BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY) === "1") {
-    return roleDefaults;
-  }
-
-  const migrated = { ...roleDefaults, launchPreset: DEFAULT_LAUNCH_PRESET };
-  storage.setItem(ROLE_DEFAULTS_STORAGE_KEY, JSON.stringify(migrated));
-  storage.setItem(BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY, "1");
-  return migrated;
+  if (storedValue) storage.setItem(ROLE_DEFAULTS_STORAGE_KEY, JSON.stringify(roleDefaults));
+  return roleDefaults;
 }
 
 export function writeStoredRoleDefaults(
@@ -108,7 +96,6 @@ export function writeStoredRoleDefaults(
 ): RoleDefaults {
   const normalizedDefaults = normalizeRoleDefaults(roleDefaults);
   storage?.setItem(ROLE_DEFAULTS_STORAGE_KEY, JSON.stringify(normalizedDefaults));
-  storage?.setItem(BACKGROUND_ACTIVITY_MIGRATION_STORAGE_KEY, "1");
   return normalizedDefaults;
 }
 
@@ -120,8 +107,7 @@ export function normalizeRoleDefaults(
 
   return {
     windowWidth: normalizeWindowSize(input.windowWidth, fallback.windowWidth),
-    windowHeight: normalizeWindowSize(input.windowHeight, fallback.windowHeight),
-    launchPreset: normalizeLaunchPreset(input.launchPreset, fallback.launchPreset)
+    windowHeight: normalizeWindowSize(input.windowHeight, fallback.windowHeight)
   };
 }
 
@@ -131,10 +117,6 @@ function normalizeWindowSize(value: unknown, fallback: number): number {
 
 export function isValidRoleWindowSize(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 640 && value <= 7680;
-}
-
-function normalizeLaunchPreset(value: unknown, fallback: LaunchPreset): LaunchPreset {
-  return value === "balanced" || value === "performance" ? value : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -488,7 +488,7 @@ function WorkspaceLayoutFormEditor({
         </Surface>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
             htmlFor="workspace-resource-mode"
@@ -504,8 +504,7 @@ function WorkspaceLayoutFormEditor({
                   ...form,
                   resourcePolicy: reconcileWorkspaceResourcePolicy(
                     {
-                      mode,
-                      backgroundCpuThrottleRate: form.resourcePolicy.backgroundCpuThrottleRate
+                      mode
                     },
                     form.slots
                   )
@@ -516,35 +515,6 @@ function WorkspaceLayoutFormEditor({
               <SelectContent>
                 <SelectItem value="adaptive">{t("workspaces.resourceModeAdaptive")}</SelectItem>
                 <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
-                <SelectItem value="primary_priority">
-                  {t("workspaces.resourceModePrimary")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
-
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField
-            htmlFor="workspace-throttle-rate"
-            label={t("workspaces.throttleRate")}
-            description={t("workspaces.throttleRateDescription")}
-          >
-            <Select
-              value={String(form.resourcePolicy.backgroundCpuThrottleRate)}
-              disabled={isSaving || form.resourcePolicy.mode !== "primary_priority"}
-              onValueChange={(value) => onChange({
-                ...form,
-                resourcePolicy: {
-                  ...form.resourcePolicy,
-                  backgroundCpuThrottleRate: Number(value) as 2 | 4
-                }
-              })}
-            >
-              <SelectTrigger id="workspace-throttle-rate"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="2">{t("workspaces.throttleRateBalanced")}</SelectItem>
-                <SelectItem value="4">{t("workspaces.throttleRateAggressive")}</SelectItem>
               </SelectContent>
             </Select>
           </FormField>

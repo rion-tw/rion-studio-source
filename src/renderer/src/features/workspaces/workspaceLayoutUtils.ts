@@ -103,7 +103,7 @@ export function reconcileWorkspaceResourcePolicy(
   slots: LaunchWorkspaceSlot[]
 ): WorkspaceFormState["resourcePolicy"] {
   if (policy.mode === "unrestricted") {
-    return { mode: policy.mode, backgroundCpuThrottleRate: policy.backgroundCpuThrottleRate };
+    return { mode: policy.mode };
   }
 
   const roleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
@@ -113,7 +113,6 @@ export function reconcileWorkspaceResourcePolicy(
 
   return {
     mode: policy.mode,
-    backgroundCpuThrottleRate: policy.backgroundCpuThrottleRate,
     ...(primaryRoleId ? { primaryRoleId } : {})
   };
 }

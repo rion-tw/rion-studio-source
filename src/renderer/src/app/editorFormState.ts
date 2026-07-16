@@ -23,7 +23,6 @@ export function createRoleFormState(role: Role): RoleFormState {
     windowWidth: role.windowWidth,
     windowHeight: role.windowHeight,
     notes: role.notes,
-    launchPreset: role.launchPreset,
     coverImageDataUrl: role.coverImageDataUrl,
     coverImageDominantColor: role.coverImageDominantColor
   };

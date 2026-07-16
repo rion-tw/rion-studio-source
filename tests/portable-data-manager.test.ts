@@ -66,7 +66,7 @@ describe("PortableDataManager", () => {
         mode: "adaptive",
         primaryRoleId: role.id
       },
-      targetDisplayId: 42,
+      targetDisplay: { id: 42 },
       slots: [
         {
           id: "slot-1",
@@ -167,6 +167,7 @@ describe("PortableDataManager", () => {
       }
     });
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
+    expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplay");
   });
 
   it("round-trips portable v3 macro dependency ids", async () => {
@@ -475,7 +476,7 @@ describe("PortableDataManager", () => {
       "keep-login",
       "utf8"
     );
-    const existingWorkspace = await workspaceStore.createWorkspace({ name: "Party", targetDisplayId: 42 });
+    const existingWorkspace = await workspaceStore.createWorkspace({ name: "Party", targetDisplay: { id: 42 } });
     await macroStore.createMacro({
       name: "Auto heal",
       roleIds: [existingRole.id],
@@ -582,7 +583,7 @@ describe("PortableDataManager", () => {
     expect(importedWorkspace).toMatchObject({
       id: existingWorkspace.id,
       browserZoomMode: "adaptive",
-      targetDisplayId: 42,
+      targetDisplay: { id: 42 },
       resourcePolicy: {
         mode: "adaptive",
         primaryRoleId: importedRole?.id

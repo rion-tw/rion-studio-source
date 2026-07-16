@@ -41,7 +41,7 @@ const workspace: LaunchWorkspace = {
   browserZoomPercent: 100,
   resourcePolicy: { mode: "unrestricted" },
   slots: [],
-  targetDisplayId: 22,
+  targetDisplay: { id: 22 },
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
@@ -131,7 +131,7 @@ describe("RuntimeTabMenuController", () => {
     await controller.openLauncher(window, 11);
     const launcherTemplate = buildFromTemplate.mock.calls.at(-1)![0];
     getSubmenu(launcherTemplate, "Workspaces")[0].click?.({} as never, undefined, {} as never);
-    await vi.waitFor(() => expect(workspaceLaunch).toHaveBeenCalledWith(workspace.id, { displayId: 22 }));
+    await vi.waitFor(() => expect(workspaceLaunch).toHaveBeenCalledWith(workspace.id));
 
     controller.openTabMenu(window, 22, "tab-1");
     expect(buildFromTemplate).toHaveBeenCalledTimes(1);

@@ -35,12 +35,12 @@ describe("editor form state", () => {
       browserZoomPercent: 100,
       resourcePolicy: { mode: "adaptive" }
     });
-    expect(newForm).not.toHaveProperty("targetDisplayId");
+    expect(newForm).not.toHaveProperty("targetDisplay");
     expect(newForm.slots).toHaveLength(2);
 
     const savedForm = createWorkspaceFormState(workspace());
     expect(savedForm.id).toBe("workspace-1");
-    expect(savedForm.targetDisplayId).toBe(22);
+    expect(savedForm.targetDisplay).toEqual({ id: 22 });
     expect(savedForm.resourcePolicy).toEqual({
       mode: "adaptive",
       primaryRoleId: "role-1"
@@ -119,7 +119,7 @@ function workspace(): LaunchWorkspace {
       mode: "adaptive",
       primaryRoleId: "role-1"
     },
-    targetDisplayId: 22,
+    targetDisplay: { id: 22 },
     slots: [
       { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
       { id: "slot-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }

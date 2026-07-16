@@ -288,6 +288,32 @@ export interface WorkspaceResourcePolicy {
   primaryRoleId?: string;
 }
 
+export interface PixelBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface WorkspaceDisplayFingerprint {
+  label: string;
+  bounds: PixelBounds;
+  resolution: {
+    width: number;
+    height: number;
+  };
+  scaleFactor: number;
+  isPrimary: boolean;
+  isInternal: boolean;
+}
+
+export interface WorkspaceDisplayTarget {
+  /** Most recently observed runtime display id. */
+  id: number;
+  /** Absent only for launch workspaces migrated from the legacy id-only format. */
+  fingerprint?: WorkspaceDisplayFingerprint;
+}
+
 export interface LaunchWorkspace {
   id: string;
   name: string;
@@ -296,7 +322,7 @@ export interface LaunchWorkspace {
   browserZoomMode: WorkspaceBrowserZoomMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   resourcePolicy: WorkspaceResourcePolicy;
-  targetDisplayId?: number;
+  targetDisplay?: WorkspaceDisplayTarget;
   slots: LaunchWorkspaceSlot[];
   createdAt: string;
   updatedAt: string;
@@ -309,18 +335,11 @@ export interface CreateLaunchWorkspaceInput {
   browserZoomMode?: WorkspaceBrowserZoomMode;
   browserZoomPercent?: WorkspaceBrowserZoomPercent;
   resourcePolicy?: WorkspaceResourcePolicy;
-  targetDisplayId?: number | null;
+  targetDisplay?: WorkspaceDisplayTarget | null;
   slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "rect">>>;
 }
 
 export type UpdateLaunchWorkspaceInput = Partial<CreateLaunchWorkspaceInput>;
-
-export interface PixelBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
 
 export interface WorkspaceDisplayInfo {
   id: number;

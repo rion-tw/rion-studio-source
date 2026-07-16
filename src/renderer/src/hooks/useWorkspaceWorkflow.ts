@@ -9,6 +9,7 @@ import type { WorkspaceDisplaySelectionRequest } from "../features/workspaces/Wo
 import { runWorkspaceLaunch } from "../features/workspaces/workspaceLaunchUtils";
 import type { Translator } from "../i18n";
 import type { LaunchWorkspace, Role, RoleStatus, WorkspaceLaunchResult } from "../../../shared/types";
+import { cloneWorkspaceDisplayTarget } from "../../../shared/workspaceDisplays";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseWorkspaceWorkflowOptions {
@@ -59,7 +60,7 @@ export function useWorkspaceWorkflow({
         browserZoomMode: form.browserZoomMode,
         browserZoomPercent: form.browserZoomPercent,
         resourcePolicy: form.resourcePolicy,
-        targetDisplayId: form.targetDisplayId ?? null,
+        targetDisplay: form.targetDisplay ?? null,
         slots: form.slots
       };
       const savedWorkspace = form.id
@@ -163,7 +164,9 @@ export function useWorkspaceWorkflow({
         browserZoomMode: workspace.browserZoomMode,
         browserZoomPercent: workspace.browserZoomPercent,
         resourcePolicy: workspace.resourcePolicy,
-        targetDisplayId: workspace.targetDisplayId ?? null,
+        targetDisplay: workspace.targetDisplay
+          ? cloneWorkspaceDisplayTarget(workspace.targetDisplay)
+          : null,
         slots: workspace.slots.map((slot) => ({
           ...slot,
           rect: { ...slot.rect }

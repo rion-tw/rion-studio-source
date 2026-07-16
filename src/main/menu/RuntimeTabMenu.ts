@@ -217,9 +217,9 @@ export class RuntimeTabMenuController {
   private async launchWorkspace(workspaceId: string, displayId: number): Promise<void> {
     try {
       const workspace = await this.options.workspaceStore.getWorkspace(workspaceId);
-      const result = await this.options.workspaceLauncher.launch(workspaceId, {
-        displayId: workspace.targetDisplayId ?? displayId
-      });
+      const result = workspace.targetDisplay
+        ? await this.options.workspaceLauncher.launch(workspaceId)
+        : await this.options.workspaceLauncher.launch(workspaceId, { displayId });
       if (result.kind === "display_selection_required") {
         this.options.onWorkspaceDisplaySelectionRequired({
           workspaceId,

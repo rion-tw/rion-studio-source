@@ -331,7 +331,7 @@ function WorkspaceCard({
     ? t("workspaces.browserZoomAdaptive")
     : `${workspace.browserZoomPercent}%`;
   const zoomTitle = `${t("workspaces.browserZoom")}: ${zoomLabel}`;
-  const targetDisplay = getWorkspaceTargetDisplayPresentation(workspace.targetDisplayId, workspaceDisplays, t);
+  const targetDisplay = getWorkspaceTargetDisplayPresentation(workspace.targetDisplay, workspaceDisplays, t);
 
   return (
     <Card
@@ -429,7 +429,7 @@ function WorkspaceCard({
             <ZoomIn size={12} aria-hidden="true" />
             <span>{zoomLabel}</span>
           </Badge>
-          {workspace.targetDisplayId !== undefined ? (
+          {workspace.targetDisplay !== undefined ? (
             <Badge
               aria-label={targetDisplay.title}
               className="min-w-0 max-w-full gap-1.5"

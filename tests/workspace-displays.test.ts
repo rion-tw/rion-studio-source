@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { createWorkspaceDisplayInfos } from "../src/main/workspaces/workspaceDisplays";
+import type { WorkspaceDisplayInfo } from "../src/shared/types";
+import {
+  createWorkspaceDisplayTarget,
+  resolveWorkspaceDisplayTarget
+} from "../src/shared/workspaceDisplays";
 
 describe("workspace display inventory", () => {
   it("normalizes, filters, and spatially sorts displays using DIP topology", () => {
@@ -64,6 +69,50 @@ describe("workspace display inventory", () => {
   });
 });
 
+describe("workspace display targets", () => {
+  it("rebinds a changed Windows runtime id by exact desktop fingerprint instead of a recycled id", () => {
+    const selected = workspaceDisplay(1493485485, 2560);
+    const target = createWorkspaceDisplayTarget(selected);
+    const recycledIdOnWrongDisplay = workspaceDisplay(1493485485, 0, true);
+    const sameDesktopPosition = workspaceDisplay(4_294_967_294, 2560);
+
+    expect(resolveWorkspaceDisplayTarget(target, [recycledIdOnWrongDisplay, sameDesktopPosition]))
+      .toEqual(sameDesktopPosition);
+  });
+
+  it("distinguishes identical monitor models by desktop position", () => {
+    const target = createWorkspaceDisplayTarget(workspaceDisplay(22, -2560));
+    const displays = [
+      workspaceDisplay(31, 0, true),
+      workspaceDisplay(32, 2560),
+      workspaceDisplay(-22, -2560)
+    ];
+
+    expect(resolveWorkspaceDisplayTarget(target, displays)?.id).toBe(-22);
+  });
+
+  it("refuses ambiguous mirrored displays and changed display metrics", () => {
+    const selected = workspaceDisplay(22, 2560);
+    const target = createWorkspaceDisplayTarget(selected);
+    const duplicate = { ...selected, id: 33 };
+    const changedResolution = {
+      ...selected,
+      id: 44,
+      resolution: { width: 1920, height: 1080 }
+    };
+
+    expect(resolveWorkspaceDisplayTarget(target, [selected, duplicate])).toBeUndefined();
+    expect(resolveWorkspaceDisplayTarget(target, [changedResolution])).toBeUndefined();
+  });
+
+  it("keeps legacy id-only targets compatible without guessing", () => {
+    const current = workspaceDisplay(22, 0, true);
+
+    expect(resolveWorkspaceDisplayTarget({ id: 22 }, [current])).toEqual(current);
+    expect(resolveWorkspaceDisplayTarget({ id: 99 }, [current])).toBeUndefined();
+  });
+});
+
 function display(
   id: number,
   label: string,
@@ -80,4 +129,17 @@ function display(
     scaleFactor,
     internal
   } as Electron.Display;
+}
+
+function workspaceDisplay(id: number, x: number, isPrimary = false): WorkspaceDisplayInfo {
+  return {
+    id,
+    label: "Q27G4Z",
+    bounds: { x, y: 0, width: 2560, height: 1440 },
+    workArea: { x, y: 0, width: 2560, height: 1400 },
+    resolution: { width: 2560, height: 1440 },
+    scaleFactor: 1,
+    isPrimary,
+    isInternal: false
+  };
 }

@@ -1,4 +1,9 @@
-import type { WorkspaceDisplayInfo, WorkspaceDisplayLaunchOption } from "../../../../shared/types";
+import type {
+  WorkspaceDisplayInfo,
+  WorkspaceDisplayLaunchOption,
+  WorkspaceDisplayTarget
+} from "../../../../shared/types";
+import { resolveWorkspaceDisplayTarget } from "../../../../shared/workspaceDisplays";
 import type { Translator } from "../../i18n";
 
 export interface WorkspaceTargetDisplayPresentation {
@@ -24,11 +29,11 @@ export function formatWorkspaceDisplayLabel(
 }
 
 export function getWorkspaceTargetDisplayPresentation(
-  targetDisplayId: number | undefined,
+  targetDisplay: WorkspaceDisplayTarget | undefined,
   displays: WorkspaceDisplayInfo[],
   t: Translator
 ): WorkspaceTargetDisplayPresentation {
-  if (targetDisplayId === undefined) {
+  if (!targetDisplay) {
     const label = t("workspaces.targetDisplayFollowApp");
     return {
       isUnavailable: false,
@@ -37,9 +42,12 @@ export function getWorkspaceTargetDisplayPresentation(
     };
   }
 
-  const displayIndex = displays.findIndex((display) => display.id === targetDisplayId);
+  const resolvedDisplay = resolveWorkspaceDisplayTarget(targetDisplay, displays);
+  const displayIndex = resolvedDisplay
+    ? displays.findIndex((display) => display.id === resolvedDisplay.id)
+    : -1;
   if (displayIndex === -1) {
-    const label = t("workspaces.targetDisplayUnavailable").replace("{id}", String(targetDisplayId));
+    const label = t("workspaces.targetDisplayUnavailable").replace("{id}", String(targetDisplay.id));
     return {
       isUnavailable: true,
       label,

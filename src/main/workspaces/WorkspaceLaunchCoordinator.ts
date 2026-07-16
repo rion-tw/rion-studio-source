@@ -6,6 +6,7 @@ import type {
   WorkspaceLaunchInput,
   WorkspaceLaunchResult
 } from "../../shared/types";
+import { resolveWorkspaceDisplayTarget } from "../../shared/workspaceDisplays";
 import {
   BrowserWorkspaceDisplayOccupiedError,
   EXTERNAL_COMPAT_NOTICE,
@@ -50,12 +51,13 @@ export class WorkspaceLaunchCoordinator {
     }
 
     const displays = this.getWorkspaceDisplays();
-    const targetDisplayId =
-      input?.displayId ??
-      workspace.targetDisplayId ??
-      this.options.getDefaultWorkspaceDisplayId?.() ??
-      displays[0]?.id;
-    const targetDisplay = displays.find((display) => display.id === targetDisplayId);
+    const targetDisplay = input?.displayId !== undefined
+      ? displays.find((display) => display.id === input.displayId)
+      : workspace.targetDisplay
+        ? resolveWorkspaceDisplayTarget(workspace.targetDisplay, displays)
+        : displays.find((display) =>
+            display.id === (this.options.getDefaultWorkspaceDisplayId?.() ?? displays[0]?.id)
+          );
     const launchOptions = this.createDisplayLaunchOptions(displays, workspace.id);
     const globalLaunchMode = await this.getGlobalLaunchMode();
     const workspaceLaunchMode = workspace.browserLaunchMode === "inherit"

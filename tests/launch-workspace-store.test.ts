@@ -9,6 +9,8 @@ import {
   LaunchWorkspaceStore,
   LaunchWorkspaceStoreError
 } from "../src/main/workspaces/LaunchWorkspaceStore";
+import type { WorkspaceDisplayInfo } from "../src/shared/types";
+import { createWorkspaceDisplayTarget } from "../src/shared/workspaceDisplays";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
 const legacyRoleIdField = "profile" + "Id";
@@ -355,29 +357,61 @@ describe("LaunchWorkspaceStore", () => {
 
   it("persists, clears, and validates a target display", async () => {
     const windowsDisplayId = 4_294_967_294;
-    const workspace = await store.createWorkspace({ name: "Second screen", targetDisplayId: windowsDisplayId });
-    expect(workspace.targetDisplayId).toBe(windowsDisplayId);
+    const targetDisplay = createWorkspaceDisplayTarget(display(windowsDisplayId));
+    const workspace = await store.createWorkspace({ name: "Second screen", targetDisplay });
+    expect(workspace.targetDisplay).toEqual(targetDisplay);
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
-      targetDisplayId: windowsDisplayId
+      targetDisplay
     });
 
-    const negativeId = await store.updateWorkspace(workspace.id, { targetDisplayId: -22 });
-    expect(negativeId.targetDisplayId).toBe(-22);
+    const negativeId = await store.updateWorkspace(workspace.id, { targetDisplay: { id: -22 } });
+    expect(negativeId.targetDisplay).toEqual({ id: -22 });
 
-    const cleared = await store.updateWorkspace(workspace.id, { targetDisplayId: null });
-    expect(cleared).not.toHaveProperty("targetDisplayId");
+    const cleared = await store.updateWorkspace(workspace.id, { targetDisplay: null });
+    expect(cleared).not.toHaveProperty("targetDisplay");
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.not.toHaveProperty(
-      "targetDisplayId"
+      "targetDisplay"
     );
 
     const unchanged = await readFile(join(baseDir, "launch-workspaces.json"), "utf8");
     await expect(
-      store.updateWorkspace(workspace.id, { targetDisplayId: -1 })
+      store.updateWorkspace(workspace.id, { targetDisplay: { id: -1 } })
     ).rejects.toMatchObject({ code: "WORKSPACE_TARGET_DISPLAY_INVALID" });
     await expect(
-      store.updateWorkspace(workspace.id, { targetDisplayId: 1.5 })
+      store.updateWorkspace(workspace.id, { targetDisplay: { id: 1.5 } })
+    ).rejects.toMatchObject({ code: "WORKSPACE_TARGET_DISPLAY_INVALID" });
+    await expect(
+      store.updateWorkspace(workspace.id, {
+        targetDisplay: {
+          ...targetDisplay,
+          fingerprint: { ...targetDisplay.fingerprint!, scaleFactor: 0 }
+        }
+      })
     ).rejects.toMatchObject({ code: "WORKSPACE_TARGET_DISPLAY_INVALID" });
     await expect(readFile(join(baseDir, "launch-workspaces.json"), "utf8")).resolves.toBe(unchanged);
+  });
+
+  it("backfills legacy targets and rebinds changed runtime ids without changing updatedAt", async () => {
+    const legacy = await store.createWorkspace({ name: "Legacy target", targetDisplay: { id: 22 } });
+    const reboundDisplay = display(4_294_967_294);
+
+    const unchanged = await store.reconcileTargetDisplays([reboundDisplay]);
+    expect(unchanged[0].targetDisplay).toEqual({ id: 22 });
+
+    const currentIdWorkspace = await store.updateWorkspace(legacy.id, { targetDisplay: { id: reboundDisplay.id } });
+    const originalUpdatedAt = currentIdWorkspace.updatedAt;
+    await store.reconcileTargetDisplays([reboundDisplay]);
+    await expect(store.getWorkspace(legacy.id)).resolves.toMatchObject({
+      updatedAt: originalUpdatedAt,
+      targetDisplay: createWorkspaceDisplayTarget(reboundDisplay)
+    });
+
+    const nextBootDisplay = { ...reboundDisplay, id: -22 };
+    await store.reconcileTargetDisplays([nextBootDisplay]);
+    await expect(store.getWorkspace(legacy.id)).resolves.toMatchObject({
+      updatedAt: originalUpdatedAt,
+      targetDisplay: createWorkspaceDisplayTarget(nextBootDisplay)
+    });
   });
 
   it("uses four equal columns when no custom slots are provided", async () => {
@@ -678,7 +712,7 @@ describe("LaunchWorkspaceStore", () => {
       id: legacyWorkspace.id,
       name: legacyWorkspace.name,
       browserZoomPercent: 80,
-      targetDisplayId: 22,
+      targetDisplay: { id: 22 },
       createdAt: legacyWorkspace.createdAt,
       updatedAt: legacyWorkspace.updatedAt
     });
@@ -761,3 +795,16 @@ describe("LaunchWorkspaceStore", () => {
     expect((await store.getWorkspace(workspace.id)).resourcePolicy).not.toHaveProperty("primaryRoleId");
   });
 });
+
+function display(id: number): WorkspaceDisplayInfo {
+  return {
+    id,
+    label: "Q27G4Z",
+    bounds: { x: 2560, y: 0, width: 2560, height: 1440 },
+    workArea: { x: 2560, y: 0, width: 2560, height: 1400 },
+    resolution: { width: 2560, height: 1440 },
+    scaleFactor: 1,
+    isPrimary: false,
+    isInternal: false
+  };
+}

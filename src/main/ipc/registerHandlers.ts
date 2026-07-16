@@ -33,6 +33,10 @@ import type {
   WorkspaceDisplayInfo,
   WorkspaceLaunchInput
 } from "../../shared/types";
+import {
+  createWorkspaceDisplayTarget,
+  resolveWorkspaceDisplayTarget
+} from "../../shared/workspaceDisplays";
 import type { AuthManager } from "../auth/AuthManager";
 import {
   EXTERNAL_COMPAT_NOTICE,
@@ -517,11 +521,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.workspacesCreate, (_event, input: CreateLaunchWorkspaceInput) =>
     runDataMutation(options, async () => {
+      const normalizedInput = reconcileWorkspaceInputTargetDisplay(input, getWorkspaceDisplays(options));
       const workspace = await runWithExistingRoles(
-        getWorkspaceInputRoleIds(input),
+        getWorkspaceInputRoleIds(normalizedInput),
         roleStore,
         browserManager,
-        () => workspaceStore.createWorkspace(input)
+        () => workspaceStore.createWorkspace(normalizedInput)
       );
       options.onWorkspacesChanged?.();
       return workspace;
@@ -531,11 +536,12 @@ export function registerIpcHandlers(
   ipcMain.handle(
     IPC_CHANNELS.workspacesUpdate,
     (_event, id: string, input: UpdateLaunchWorkspaceInput) => runDataMutation(options, async () => {
+      const normalizedInput = reconcileWorkspaceInputTargetDisplay(input, getWorkspaceDisplays(options));
       const workspace = await runWithExistingRoles(
-        getWorkspaceInputRoleIds(input),
+        getWorkspaceInputRoleIds(normalizedInput),
         roleStore,
         browserManager,
-        () => workspaceStore.updateWorkspace(id, input)
+        () => workspaceStore.updateWorkspace(id, normalizedInput)
       );
       options.onWorkspacesChanged?.();
       return workspace;
@@ -831,6 +837,19 @@ function getWorkspaceDisplays(options: RegisterIpcHandlersOptions): WorkspaceDis
       isInternal: false
     }
   ];
+}
+
+function reconcileWorkspaceInputTargetDisplay<T extends UpdateLaunchWorkspaceInput>(
+  input: T,
+  displays: WorkspaceDisplayInfo[]
+): T {
+  if (!input.targetDisplay) {
+    return input;
+  }
+  const resolvedDisplay = resolveWorkspaceDisplayTarget(input.targetDisplay, displays);
+  return resolvedDisplay
+    ? { ...input, targetDisplay: createWorkspaceDisplayTarget(resolvedDisplay) }
+    : input;
 }
 
 function hasPortableImportChanges(summary: { create: number; update: number }): boolean {

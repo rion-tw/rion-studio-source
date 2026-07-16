@@ -1,6 +1,10 @@
 import { EventEmitter } from "node:events";
 
-import { BrowserLoginCancelledError, type BrowserManager } from "../browser/BrowserManager";
+import {
+  BrowserLoginCancelledError,
+  type BrowserLaunchOptions,
+  type BrowserManager
+} from "../browser/BrowserManager";
 import type { RoleStore } from "../roles/RoleStore";
 import type { AuthFlowStatus, AuthState, Role } from "../../shared/types";
 
@@ -26,7 +30,7 @@ export class AuthManager extends EventEmitter<AuthManagerEvents> {
     return [...this.flows.values()];
   }
 
-  startLogin(role: Role): AuthFlowStatus {
+  startLogin(role: Role, options: BrowserLaunchOptions = {}): AuthFlowStatus {
     const existing = this.flows.get(role.id);
 
     if (existing && existing.state !== "failed") {
@@ -43,13 +47,15 @@ export class AuthManager extends EventEmitter<AuthManagerEvents> {
 
     this.flows.set(role.id, status);
     this.emitChange();
-    void this.runLoginFlow(role);
+    void this.runLoginFlow(role, options);
     return status;
   }
 
-  private async runLoginFlow(role: Role): Promise<void> {
+  private async runLoginFlow(role: Role, options: BrowserLaunchOptions): Promise<void> {
     try {
-      await this.browserManager.startLogin(role);
+      await (options.target
+        ? this.browserManager.startLogin(role, options)
+        : this.browserManager.startLogin(role));
       this.setStatus(
         role.id,
         "waiting_for_login",

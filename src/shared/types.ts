@@ -130,6 +130,32 @@ export interface RoleStatus {
   resourceReason?: WorkspaceResourceReason;
 }
 
+export type EmbeddedRuntimeTabType = "role" | "workspace";
+
+export interface EmbeddedRuntimeTabSummary {
+  id: string;
+  type: EmbeddedRuntimeTabType;
+  sourceId: string;
+  name: string;
+  displayId: number;
+  roleIds: string[];
+  hidden: boolean;
+  active: boolean;
+}
+
+export interface EmbeddedRuntimeWindowSummary {
+  displayId: number;
+  bounds: PixelBounds;
+  visible: boolean;
+  activeTabId?: string;
+  tabCount: number;
+}
+
+export interface EmbeddedRuntimeState {
+  windows: EmbeddedRuntimeWindowSummary[];
+  tabs: EmbeddedRuntimeTabSummary[];
+}
+
 export interface MacroTrigger {
   code: string;
   ctrl: boolean;
@@ -244,6 +270,7 @@ export type WorkspaceResourceReason =
   | "thermal"
   | "macro"
   | "shared_process"
+  | "runtime_tab_background"
   | "unavailable";
 export type WorkspaceResourceState =
   | "primary"
@@ -309,6 +336,7 @@ export interface WorkspaceDisplayInfo {
 }
 
 export interface AppSnapshot {
+  embeddedRuntimeState: EmbeddedRuntimeState;
   games: Game[];
   gameCompatibilityReports: GameCompatibilityReport[];
   gameCompatibilityStatuses: GameCompatibilityRunStatus[];

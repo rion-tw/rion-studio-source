@@ -206,6 +206,35 @@ describe("WorkspaceResourceCoordinator", () => {
     expect(second.setRate).not.toHaveBeenCalled();
   });
 
+  it("throttles hidden runtime tabs at 2x or 4x while preserving macro overrides", async () => {
+    let snapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
+    const pressure = Object.assign(new EventEmitter(), { getSnapshot: () => snapshot });
+    const coordinator = new WorkspaceResourceCoordinator(pressure);
+    const target = createTarget("role-1");
+    await coordinator.activateWorkspace("tab-1", { mode: "unrestricted" }, [target.target]);
+
+    await coordinator.setBackgroundWorkspaceIds(["tab-1"]);
+    expect(target.setRate).toHaveBeenLastCalledWith(2);
+    expect(coordinator.getStatus("role-1")).toMatchObject({
+      cpuThrottleRate: 2,
+      resourceReason: "runtime_tab_background",
+      resourceState: "throttled"
+    });
+
+    snapshot = { level: "constrained", reason: "memory" };
+    pressure.emit("change", snapshot);
+    await vi.waitFor(() => expect(target.setRate).toHaveBeenLastCalledWith(4));
+
+    await coordinator.setMacroActiveRoleIds(["role-1"]);
+    expect(target.setRate).toHaveBeenLastCalledWith(1);
+    expect(coordinator.getStatus("role-1")?.resourceState).toBe("macro_override");
+
+    await coordinator.setMacroActiveRoleIds([]);
+    expect(target.setRate).toHaveBeenLastCalledWith(4);
+    await coordinator.setBackgroundWorkspaceIds([]);
+    expect(target.release).toHaveBeenCalled();
+  });
+
   it("releases the remaining role when the primary runtime disappears", async () => {
     const coordinator = new WorkspaceResourceCoordinator();
     const first = createTarget("role-1");

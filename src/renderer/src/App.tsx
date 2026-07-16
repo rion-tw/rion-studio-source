@@ -514,6 +514,7 @@ export function App(): JSX.Element {
                 hasBridge ? (
                   <DashboardRoute
                     authStatusByRole={data.authStatusByRole}
+                    embeddedRuntime={data.embeddedRuntime}
                     gameCount={data.games.length}
                     busyMacroIds={macroWorkflow.busyMacroIds}
                     busyRoleIds={roleWorkflow.busyRoleIds}
@@ -527,7 +528,9 @@ export function App(): JSX.Element {
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
+                    workspaceDisplays={data.workspaceDisplays}
                     onCreateWorkspace={navigateToNewWorkspace}
+                    onShowGameWindows={(displayId) => void window.rionStudio.showEmbeddedRuntimeWindows(displayId)}
                     onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
                     onLoginRole={roleWorkflow.requestSystemLogin}

@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Loader2,
   LogIn,
+  MonitorUp,
   Play,
   Plus,
   Square,
@@ -25,11 +26,13 @@ import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
   AuthFlowStatus,
+  EmbeddedRuntimeState,
   LaunchWorkspace,
   Macro,
   MacroRunStatus,
   Role,
-  RoleStatus
+  RoleStatus,
+  WorkspaceDisplayInfo
 } from "../../../../shared/types";
 import {
   createDashboardSummary,
@@ -45,6 +48,7 @@ import {
 
 interface DashboardRouteProps {
   authStatusByRole: Map<string, AuthFlowStatus>;
+  embeddedRuntime: EmbeddedRuntimeState;
   gameCount: number;
   busyMacroIds: ReadonlySet<string>;
   busyRoleIds: ReadonlySet<string>;
@@ -58,7 +62,9 @@ interface DashboardRouteProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspaces: LaunchWorkspace[];
+  workspaceDisplays: WorkspaceDisplayInfo[];
   onCreateWorkspace: () => void;
+  onShowGameWindows: (displayId?: number) => void;
   onLaunchRole: (roleId: string) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
   onLoginRole: (roleId: string) => void;
@@ -76,6 +82,7 @@ interface DashboardRouteProps {
 
 function DashboardRoute({
   authStatusByRole,
+  embeddedRuntime,
   busyMacroIds,
   busyRoleIds,
   busyRunKeys,
@@ -89,7 +96,9 @@ function DashboardRoute({
   statusByRole,
   t,
   workspaces,
+  workspaceDisplays,
   onCreateWorkspace,
+  onShowGameWindows,
   onLaunchRole,
   onLaunchWorkspace,
   onLoginRole,
@@ -141,12 +150,30 @@ function DashboardRoute({
         title={t("dashboard.title")}
         description={t("dashboard.description")}
         actions={
-          <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNewRole}>
-            <Plus aria-hidden="true" size={14} />
-            {t("roles.newRole")}
-          </Button>
+          <>
+            {embeddedRuntime.windows.length > 0 ? (
+              <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={() => onShowGameWindows()}>
+                <MonitorUp aria-hidden="true" size={14} />
+                {t("dashboard.showGameWindows")}
+                <Badge variant="outline">{embeddedRuntime.tabs.length}</Badge>
+              </Button>
+            ) : null}
+            <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNewRole}>
+              <Plus aria-hidden="true" size={14} />
+              {t("roles.newRole")}
+            </Button>
+          </>
         }
       />
+
+      {embeddedRuntime.windows.length > 0 ? (
+        <RuntimeWindowsPanel
+          runtime={embeddedRuntime}
+          displays={workspaceDisplays}
+          t={t}
+          onShow={onShowGameWindows}
+        />
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2.5 min-[1200px]:grid-cols-5">
         <StatCard
@@ -291,6 +318,67 @@ function DashboardRoute({
         </div>
       </div>
     </PageFrame>
+  );
+}
+
+function RuntimeWindowsPanel({
+  displays,
+  onShow,
+  runtime,
+  t
+}: {
+  displays: WorkspaceDisplayInfo[];
+  onShow: (displayId?: number) => void;
+  runtime: EmbeddedRuntimeState;
+  t: Translator;
+}): JSX.Element {
+  const displayById = new Map(displays.map((display) => [display.id, display]));
+
+  return (
+    <Surface className="grid gap-2.5 p-3" variant="strong">
+      <div className="flex items-center justify-between gap-3 px-1">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <MonitorUp aria-hidden="true" size={15} />
+          {t("dashboard.gameWindows.title")}
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={() => onShow()}>
+          {t("dashboard.gameWindows.showAll")}
+        </Button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {runtime.windows.map((windowSummary) => {
+          const tabs = runtime.tabs.filter((tab) => tab.displayId === windowSummary.displayId);
+          const roleCount = new Set(tabs.flatMap((tab) => tab.roleIds)).size;
+          const display = displayById.get(windowSummary.displayId);
+          return (
+            <button
+              key={windowSummary.displayId}
+              className="flex min-w-0 items-center gap-3 rounded-lg border border-border/55 bg-background/35 px-3 py-2 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+              type="button"
+              onClick={() => onShow(windowSummary.displayId)}
+            >
+              <IconTile
+                className={windowSummary.visible ? "border-success-foreground/15 bg-success/75 text-success-foreground" : undefined}
+                size="sm"
+              >
+                <MonitorUp aria-hidden="true" size={14} />
+              </IconTile>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {display?.label || `${t("dashboard.gameWindows.display")} ${windowSummary.displayId}`}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {windowSummary.tabCount} {t("dashboard.gameWindows.tabs")} · {roleCount} {t("dashboard.gameWindows.roles")}
+                </span>
+              </span>
+              <Badge variant="outline">
+                {t(windowSummary.visible ? "dashboard.gameWindows.visible" : "dashboard.gameWindows.hidden")}
+              </Badge>
+            </button>
+          );
+        })}
+      </div>
+    </Surface>
   );
 }
 

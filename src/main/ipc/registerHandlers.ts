@@ -7,6 +7,7 @@ import type {
   AppLanguage,
   AppRendererReadyState,
   AppUpdateStatus,
+  EmbeddedRuntimeState,
   AuthFlowStatus,
   BulkDeleteInput,
   BulkDeleteResult,
@@ -107,6 +108,9 @@ export function registerIpcHandlers(
   browserManager.on("change", (statuses) => {
     broadcastStatusChange(statuses);
   });
+  browserManager.on("runtimeChange", (state) => {
+    broadcastRuntimeStateChange(state);
+  });
   authManager.on("change", (statuses) => {
     broadcastAuthStatusChange(statuses);
   });
@@ -138,6 +142,7 @@ export function registerIpcHandlers(
     ]);
 
     return {
+      embeddedRuntimeState: browserManager.listEmbeddedRuntimeState(),
       games,
       gameCompatibilityReports,
       gameCompatibilityStatuses: options.gameCompatibilityManager?.listStatuses() ?? [],
@@ -149,6 +154,22 @@ export function registerIpcHandlers(
       macros,
       macroStatuses: options.macroManager?.listStatuses() ?? []
     };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.runtimeState, () => browserManager.listEmbeddedRuntimeState());
+  ipcMain.handle(IPC_CHANNELS.runtimeShowWindows, (_event, displayId?: number) => {
+    if (displayId !== undefined && !Number.isInteger(displayId)) throw new Error("Display id is invalid.");
+    browserManager.showEmbeddedRuntimeWindows(displayId);
+  });
+  ipcMain.handle(IPC_CHANNELS.runtimeShowTab, (_event, tabId: string) => {
+    if (typeof tabId !== "string" || !tabId) throw new Error("Runtime tab id is invalid.");
+    browserManager.showRuntimeTab(tabId);
+  });
+  ipcMain.handle(IPC_CHANNELS.runtimeMoveTab, (_event, tabId: string, displayId: number) => {
+    if (typeof tabId !== "string" || !tabId || !Number.isInteger(displayId)) {
+      throw new Error("Runtime tab move is invalid.");
+    }
+    browserManager.moveRuntimeTab(tabId, displayId);
   });
 
   ipcMain.handle(IPC_CHANNELS.gamesList, () => requireGameStore(options).listGames());
@@ -827,6 +848,12 @@ function isAcceptLegalDocumentsInput(value: unknown): value is AcceptLegalDocume
 function broadcastStatusChange(statuses: RoleStatus[]): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.rolesStatusChanged, statuses);
+  });
+}
+
+function broadcastRuntimeStateChange(state: EmbeddedRuntimeState): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.runtimeStateChanged, state);
   });
 }
 

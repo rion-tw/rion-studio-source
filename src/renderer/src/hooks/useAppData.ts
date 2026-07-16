@@ -10,6 +10,7 @@ import {
 
 import type {
   AuthFlowStatus,
+  EmbeddedRuntimeState,
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
@@ -56,6 +57,7 @@ export function useAppData() {
   const compatibilityReportState = useVersionedState<GameCompatibilityReport[]>([]);
   const compatibilityStatusState = useVersionedState<GameCompatibilityRunStatus[]>([]);
   const roleState = useVersionedState<Role[]>([]);
+  const embeddedRuntimeState = useVersionedState<EmbeddedRuntimeState>({ windows: [], tabs: [] });
   const workspaceState = useVersionedState<LaunchWorkspace[]>([]);
   const workspaceDisplayState = useVersionedState<WorkspaceDisplayInfo[]>([]);
   const macroState = useVersionedState<Macro[]>([]);
@@ -85,6 +87,12 @@ export function useAppData() {
     setValue: setCompatibilityStatuses,
     value: gameCompatibilityStatuses
   } = compatibilityStatusState;
+  const {
+    beginRequest: beginEmbeddedRuntimeRequest,
+    commitRequest: commitEmbeddedRuntimeRequest,
+    setValue: setEmbeddedRuntimeState,
+    value: embeddedRuntime
+  } = embeddedRuntimeState;
   const {
     beginRequest: beginRolesRequest,
     commitRequest: commitRolesRequest,
@@ -175,6 +183,7 @@ export function useAppData() {
     const compatibilityReportsRequest = beginCompatibilityReportsRequest();
     const compatibilityStatusesRequest = beginCompatibilityStatusesRequest();
     const rolesRequest = beginRolesRequest();
+    const embeddedRuntimeRequest = beginEmbeddedRuntimeRequest();
     const statusesRequest = beginStatusesRequest();
     const authStatusesRequest = beginAuthStatusesRequest();
     const workspacesRequest = beginWorkspacesRequest();
@@ -194,6 +203,7 @@ export function useAppData() {
       }
 
       const snapshot = await window.rionStudio.getAppSnapshot();
+      commitEmbeddedRuntimeRequest(embeddedRuntimeRequest, snapshot.embeddedRuntimeState);
       commitGamesRequest(gamesRequest, snapshot.games);
       commitCompatibilityReportsRequest(compatibilityReportsRequest, snapshot.gameCompatibilityReports);
       commitCompatibilityStatusesRequest(compatibilityStatusesRequest, snapshot.gameCompatibilityStatuses);
@@ -216,6 +226,7 @@ export function useAppData() {
   }, [
     beginCompatibilityReportsRequest,
     beginCompatibilityStatusesRequest,
+    beginEmbeddedRuntimeRequest,
     beginGamesRequest,
     beginAuthStatusesRequest,
     beginErrorOperation,
@@ -229,6 +240,7 @@ export function useAppData() {
     commitAuthStatusesRequest,
     commitCompatibilityReportsRequest,
     commitCompatibilityStatusesRequest,
+    commitEmbeddedRuntimeRequest,
     commitGamesRequest,
     commitMacrosRequest,
     commitMacroStatusesRequest,
@@ -249,6 +261,11 @@ export function useAppData() {
       setStatuses(nextStatuses);
     });
   }, [loadData, setStatuses]);
+
+  useEffect(() => {
+    if (!window.rionStudio) return;
+    return window.rionStudio.onEmbeddedRuntimeStateChanged(setEmbeddedRuntimeState);
+  }, [setEmbeddedRuntimeState]);
 
   useEffect(() => {
     if (!window.rionStudio) {
@@ -318,6 +335,7 @@ export function useAppData() {
     authStatusByRole,
     authStatuses,
     beginErrorOperation,
+    embeddedRuntime,
     error,
     gameCompatibilityReports,
     gameCompatibilityStatuses,

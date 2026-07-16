@@ -24,6 +24,7 @@ const OVERLAY_BINDING_NAME = "rionStudioMacroOverlay";
 const OVERLAY_BRIDGE_KEY = "__rionStudioExternalMacroBridge";
 const FOCUS_BINDING_NAME = "rionStudioWindowFocus";
 const FOCUS_TRACKER_KEY = "__rionStudioWindowFocusTracker";
+const POINTER_FOCUS_STATE_KEY = "__rionStudioPointerFocusState";
 const PAGE_ZOOM_STATE_KEY = "__rionStudioWorkspaceZoomState";
 
 export type ExternalMacroOverlayHandler = (request: unknown) => Promise<unknown>;
@@ -100,6 +101,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   private inputDispatchTail: Promise<void> = Promise.resolve();
   private mainFrameId?: string;
   private overlayHandler?: ExternalMacroOverlayHandler;
+  private pointerFocusTrackingInstalled = false;
   private removeNotificationListener?: () => void;
   private readonly focusListeners = new Set<() => void>();
   private currentCpuThrottleRate: 1 | WorkspaceCpuThrottleRate = 1;
@@ -273,9 +275,15 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     await this.focusPageTarget();
   }
 
+  async ensureInputFocus(): Promise<boolean> {
+    return Boolean(
+      await this.evaluate(createExternalFocusSource(false)).catch(() => false)
+    );
+  }
+
   private async focusPageTarget(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
-    await this.evaluate(createExternalFocusSource()).catch(() => undefined);
+    await this.evaluate(createExternalFocusSource(true)).catch(() => undefined);
     signal?.throwIfAborted();
   }
 
@@ -344,6 +352,9 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     const release = { type: "mouseReleased", button: "left", clickCount: 1, x, y };
     let didPress = false;
     let didRelease = false;
+    if (this.pointerFocusTrackingInstalled) {
+      await this.evaluateInExecutionContexts(createPointerFocusSuppressionSource(true));
+    }
     try {
       await this.client.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, x, y });
       didPress = true;
@@ -353,6 +364,9 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     } finally {
       if (didPress && !didRelease) {
         await this.client.send("Input.dispatchMouseEvent", release).catch(() => undefined);
+      }
+      if (this.pointerFocusTrackingInstalled) {
+        await this.evaluateInExecutionContexts(createPointerFocusSuppressionSource(false));
       }
     }
   }
@@ -378,9 +392,13 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     this.overlayHandler = handler;
     await this.client.send("Runtime.addBinding", { name: OVERLAY_BINDING_NAME });
     const bootstrap = createOverlayBridgeBootstrap();
+    const pointerFocusTracking = createExternalPointerFocusTrackingSource();
     await this.client.send("Page.addScriptToEvaluateOnNewDocument", { source: bootstrap });
+    await this.client.send("Page.addScriptToEvaluateOnNewDocument", { source: pointerFocusTracking });
     await this.client.send("Page.addScriptToEvaluateOnNewDocument", { source });
     await this.evaluate(bootstrap);
+    await this.evaluate(pointerFocusTracking);
+    this.pointerFocusTrackingInstalled = true;
     await this.evaluate(source);
   }
 
@@ -551,7 +569,7 @@ function createOverlayBridgeBootstrap(): string {
   })()`;
 }
 
-function createExternalFocusSource(): string {
+function createExternalFocusSource(allowBodyFallback: boolean): string {
   return `(() => {
     const visible = (element) => {
       const rect = element.getBoundingClientRect();
@@ -560,13 +578,41 @@ function createExternalFocusSource(): string {
     };
     const target = [...document.querySelectorAll("canvas, iframe")]
       .filter(visible)
-      .sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0] || document.body;
+      .sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0] || (${JSON.stringify(allowBodyFallback)} ? document.body : null);
     if (!(target instanceof HTMLElement)) return false;
     if (document.activeElement === target) return true;
     if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     try { target.focus({ preventScroll: true }); } catch { target.focus(); }
     return document.activeElement === target;
   })()`;
+}
+
+function createExternalPointerFocusTrackingSource(): string {
+  return `(() => {
+    const key = ${JSON.stringify(POINTER_FOCUS_STATE_KEY)};
+    if (window[key]?.version === 1) return;
+    const state = {
+      suppressionDepth: 0,
+      version: 1,
+      setSuppressed(suppressed) {
+        state.suppressionDepth = Math.max(0, state.suppressionDepth + (suppressed ? 1 : -1));
+      }
+    };
+    window[key] = state;
+    window.addEventListener("pointerdown", (event) => {
+      if (state.suppressionDepth > 0 || event.button !== 0) return;
+      const canvas = event.composedPath().find((item) => item instanceof HTMLCanvasElement);
+      if (!(canvas instanceof HTMLCanvasElement) || document.activeElement === canvas) return;
+      const hadTabIndex = canvas.hasAttribute("tabindex");
+      if (!hadTabIndex) canvas.setAttribute("tabindex", "-1");
+      try { canvas.focus({ preventScroll: true }); } catch { canvas.focus(); }
+      if (!hadTabIndex) setTimeout(() => canvas.removeAttribute("tabindex"), 0);
+    }, true);
+  })()`;
+}
+
+function createPointerFocusSuppressionSource(suppressed: boolean): string {
+  return `window[${JSON.stringify(POINTER_FOCUS_STATE_KEY)}]?.setSuppressed?.(${JSON.stringify(suppressed)})`;
 }
 
 export function createPageZoomSource(zoomFactor: number): string {

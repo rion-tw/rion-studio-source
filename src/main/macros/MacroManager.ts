@@ -40,6 +40,7 @@ export class MacroMutationBusyError extends Error {
 export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private readonly terminalStatuses = new Map<string, MacroRunStatus>();
   private readonly macroMutationTails = new Map<string, Promise<void>>();
+  private readonly roleInputPreparationTails = new Map<string, Promise<void>>();
   private readonly runs = new Map<string, MacroRun>();
 
   constructor(
@@ -162,6 +163,10 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       throw new Error("Launch at least one assigned role before running a macro.");
     }
 
+    await Promise.all(
+      sessions.map(({ roleId, target }) => this.prepareRoleInput(roleId, target))
+    );
+
     this.clearTerminalStatuses((status) => status.macroId === macroId, false);
     const now = new Date().toISOString();
     const runItems = sessions.map(({ key, roleId, target }) => {
@@ -210,6 +215,24 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     });
 
     return runItems.map(({ run }) => run.status);
+  }
+
+  private async prepareRoleInput(roleId: string, target: BrowserAutomationTarget): Promise<void> {
+    const previous = this.roleInputPreparationTails.get(roleId) ?? Promise.resolve();
+    const preparation = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await target.ensureInputFocus();
+      });
+    this.roleInputPreparationTails.set(roleId, preparation);
+
+    try {
+      await preparation;
+    } finally {
+      if (this.roleInputPreparationTails.get(roleId) === preparation) {
+        this.roleInputPreparationTails.delete(roleId);
+      }
+    }
   }
 
   private async stopMacroRunsUnlocked(macroId: string, clearFailures: boolean): Promise<void> {

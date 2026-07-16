@@ -389,6 +389,24 @@ describe("ExternalChromeAutomationTarget", () => {
     );
   });
 
+  it("ensures the page input target without bringing external Chrome to front", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    await expect(target.ensureInputFocus()).resolves.toBe(true);
+
+    expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
+    expect(harness.send).toHaveBeenCalledWith(
+      "Runtime.evaluate",
+      expect.objectContaining({
+        expression: expect.stringMatching(
+          /querySelectorAll\("canvas, iframe"\)[\s\S]*\(false \? document\.body : null\)/
+        )
+      })
+    );
+  });
+
   it("restores and applies exact browser window bounds through CDP", async () => {
     const harness = createHarness();
     harness.send.mockImplementation(async (method: string) => {
@@ -438,6 +456,36 @@ describe("ExternalChromeAutomationTarget", () => {
         expect.objectContaining({ contextId: 7, expression: expect.stringContaining("resolve(3, true") })
       );
     });
+  });
+
+  it("focuses physically clicked canvases while suppressing macro click focus repair", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+    await target.installMacroOverlay("window.overlayInstalled = true", vi.fn());
+
+    expect(harness.send).toHaveBeenCalledWith(
+      "Page.addScriptToEvaluateOnNewDocument",
+      expect.objectContaining({
+        source: expect.stringMatching(
+          /addEventListener\("pointerdown"[\s\S]*event\.composedPath\(\)[\s\S]*HTMLCanvasElement/
+        )
+      })
+    );
+
+    harness.send.mockClear();
+    await target.dispatchClick(50, 50);
+
+    const evaluatedSources = harness.send.mock.calls
+      .filter(([method]) => method === "Runtime.evaluate")
+      .map(([, params]) => String(params?.expression));
+    expect(evaluatedSources).toEqual([
+      expect.stringContaining("setSuppressed?.(true)"),
+      expect.stringContaining("setSuppressed?.(false)")
+    ]);
+    expect(evaluatedSources.join("\n")).not.toContain(".focus(");
+    expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
+    expect(harness.send.mock.calls.filter(([method]) => method === "Input.dispatchMouseEvent")).toHaveLength(2);
   });
 
   it("applies, replaces, and resets workspace zoom for current and future top-level documents", async () => {

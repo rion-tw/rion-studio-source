@@ -1,6 +1,8 @@
 export const IPC_CHANNELS = {
   appRendererReady: "app:renderer-ready",
   appSnapshot: "app:snapshot",
+  appWindowState: "app:window-state",
+  appWindowStateChanged: "app:window-state-changed",
   appQuit: "app:quit",
   appWindowClose: "app:window-close",
   appRestart: "app:restart",

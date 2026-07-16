@@ -294,6 +294,10 @@
     padding-top: 54px;
   }
 
+  :root[data-platform="mac"][data-window-fullscreen="true"] .app-sidebar {
+    padding-top: 1.25rem;
+  }
+
   .sidebar-settings {
     margin-right: -0.75rem;
     margin-left: -0.75rem;

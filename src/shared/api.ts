@@ -5,6 +5,7 @@ import type {
   AppRendererReadyState,
   AppSnapshot,
   AppUpdateStatus,
+  AppWindowState,
   BulkDeleteInput,
   BulkDeleteResult,
   CreateGameInput,
@@ -46,6 +47,7 @@ import type {
 export interface RionStudioApi {
   notifyAppReady: (state: AppRendererReadyState) => Promise<void>;
   getAppSnapshot: () => Promise<AppSnapshot>;
+  getCurrentWindowState: () => Promise<AppWindowState>;
   getLegalAcceptanceStatus: () => Promise<LegalAcceptanceStatus>;
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;
@@ -111,6 +113,7 @@ export interface RionStudioApi {
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<void>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
+  onCurrentWindowStateChanged: (callback: (state: AppWindowState) => void) => () => void;
   onEmbeddedRuntimeStateChanged: (callback: (state: EmbeddedRuntimeState) => void) => () => void;
   onGamesChanged: (callback: (games: Game[]) => void) => () => void;
   onGameCompatibilityChanged: (

@@ -4,6 +4,7 @@ import { createHashRouter, RouterProvider } from "react-router";
 
 import { App } from "./App";
 import { AppRouteError } from "./components/AppRouteError";
+import { AppWindowStateSync } from "./components/AppWindowStateSync";
 import { ConfirmationProvider } from "./components/ConfirmationDialog";
 import "./styles.css";
 
@@ -23,6 +24,7 @@ function detectPlatform(): "linux" | "mac" | "windows" {
 }
 
 document.documentElement.dataset.platform = detectPlatform();
+document.documentElement.dataset.windowFullscreen = "false";
 
 const router = createHashRouter([
   {
@@ -38,6 +40,7 @@ const router = createHashRouter([
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
+    <AppWindowStateSync />
     <RouterProvider router={router} />
   </React.StrictMode>
 );

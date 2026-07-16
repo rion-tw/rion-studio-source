@@ -579,6 +579,21 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  it("returns fullscreen state only for the requesting window", async () => {
+    const sender = { id: 42 };
+    const isFullScreen = vi.fn(() => true);
+    fromWebContents.mockReturnValueOnce({ isFullScreen });
+
+    expect(handlers.get(IPC_CHANNELS.appWindowState)?.({ sender })).toEqual({ fullscreen: true });
+    expect(fromWebContents).toHaveBeenCalledWith(sender);
+    expect(isFullScreen).toHaveBeenCalledOnce();
+
+    fromWebContents.mockReturnValueOnce(null);
+    expect(() => handlers.get(IPC_CHANNELS.appWindowState)?.({ sender })).toThrow(
+      "Current window is not available."
+    );
+  });
+
   it("rejects malformed legal acceptance input", async () => {
     await expect(handlers.get(IPC_CHANNELS.legalAccept)?.({}, { termsVersion: "2026-07-14" })).rejects.toThrow(
       "Legal acceptance input is invalid"

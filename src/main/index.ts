@@ -78,6 +78,7 @@ import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
 import { WorkspaceLaunchCoordinator } from "./workspaces/WorkspaceLaunchCoordinator";
 import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { handleMainWindowClose } from "./window/mainWindowLifecycle";
+import { bindAppWindowStateBroadcast } from "./window/appWindowState";
 import { RuntimeWindowPreferencesStore } from "./window/RuntimeWindowPreferencesStore";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
@@ -179,6 +180,8 @@ function createWindow({
       sandbox: true
     }
   });
+
+  bindAppWindowStateBroadcast(window);
 
   window.webContents.on("preload-error", (_event, preloadPath, error) => {
     console.error(`Failed to load preload script: ${preloadPath}`, error);

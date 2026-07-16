@@ -8,6 +8,7 @@ import type {
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
+  EmbeddedRuntimeState,
   Macro,
   MacroPageRequest,
   MacroRunStatus,
@@ -24,6 +25,10 @@ const api: RionStudioApi = {
   quitApplication: () => ipcRenderer.invoke(IPC_CHANNELS.appQuit),
   requestCurrentWindowClose: () => ipcRenderer.send(IPC_CHANNELS.appWindowClose),
   restartApplication: () => ipcRenderer.invoke(IPC_CHANNELS.appRestart),
+  getEmbeddedRuntimeState: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeState),
+  showEmbeddedRuntimeWindows: (displayId) => ipcRenderer.invoke(IPC_CHANNELS.runtimeShowWindows, displayId),
+  showEmbeddedRuntimeTab: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.runtimeShowTab, tabId),
+  moveEmbeddedRuntimeTab: (tabId, displayId) => ipcRenderer.invoke(IPC_CHANNELS.runtimeMoveTab, tabId, displayId),
   listGames: () => ipcRenderer.invoke(IPC_CHANNELS.gamesList),
   createGame: (input) => ipcRenderer.invoke(IPC_CHANNELS.gamesCreate, input),
   updateGame: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.gamesUpdate, id, input),
@@ -91,6 +96,11 @@ const api: RionStudioApi = {
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.rolesStatusChanged, listener);
     };
+  },
+  onEmbeddedRuntimeStateChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: EmbeddedRuntimeState) => callback(state);
+    ipcRenderer.on(IPC_CHANNELS.runtimeStateChanged, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.runtimeStateChanged, listener);
   },
   onGamesChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, games: Game[]) => callback(games);

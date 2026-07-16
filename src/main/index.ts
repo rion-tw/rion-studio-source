@@ -21,6 +21,7 @@ import {
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
+import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
 import { AuthManager } from "./auth/AuthManager";
 import {
   BrowserManager,
@@ -75,6 +76,12 @@ import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { handleMainWindowClose } from "./window/mainWindowLifecycle";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
+import {
+  RUNTIME_TABS_ACTION_CHANNEL,
+  RUNTIME_TABS_LAUNCH_ITEMS_CHANNEL,
+  createRuntimeTabLaunchItems,
+  isRuntimeTabAction
+} from "../shared/runtimeTabs";
 import type { MacroPageRequest, PendingWorkspaceLaunchRequest } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
@@ -407,9 +414,15 @@ async function initializeApplication(): Promise<void> {
       await cdnCompatibilityManager.applyToSession(session);
     },
     createHostWindow: (options) => new BaseWindow(options),
+    createTabbedHostWindow: (options) => new BrowserWindow({
+      ...options,
+      ...(loadAppIcon() ? { icon: loadAppIcon() } : {})
+    }),
     createView: (options) => new WebContentsView(options),
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
+    runtimeTabsPageUrl: createRuntimeTabsPageUrl(),
+    runtimeTabsPreloadPath: join(__dirname, "../preload/runtime-tabs.cjs"),
     externalChromeManager,
     resourcePressureMonitor,
     getBrowserLaunchMode: async (role) => {
@@ -422,6 +435,11 @@ async function initializeApplication(): Promise<void> {
     },
     getLoginUrl: async (role) => (await gameStore.getGame(role.gameId)).loginUrl ?? role.launchUrl,
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
+    getDefaultLaunchTarget: () => {
+      const display = getMainWindowDisplay();
+      return { displayId: display.id, workArea: display.workArea };
+    },
+    getWorkspaceDisplays: () => getWorkspaceDisplayInfos(),
     getWorkspaceAppearanceSettings: async () =>
       (await gameBrowserSettingsStore.getSettings()).workspace,
     prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
@@ -508,6 +526,85 @@ async function initializeApplication(): Promise<void> {
     workspaceStore
   });
 
+  ipcMain.handle(RUNTIME_TABS_LAUNCH_ITEMS_CHANNEL, () =>
+    Promise.all([roleStore.listRoles(), workspaceStore.listWorkspaces()]).then(([roles, workspaces]) =>
+      createRuntimeTabLaunchItems(roles, workspaces, browserManager?.listEmbeddedRuntimeState() ?? { windows: [], tabs: [] })
+    )
+  );
+  ipcMain.on(RUNTIME_TABS_ACTION_CHANNEL, (event, action: unknown) => {
+    if (!browserManager || !isRuntimeTabAction(action)) return;
+    const displayId = browserManager.getRuntimeDisplayIdForWebContents(event.sender.id);
+    if (displayId === undefined) return;
+    if ("tabId" in action) {
+      const actionTab = browserManager.listEmbeddedRuntimeState().tabs.find(
+        (tab) => tab.id === action.tabId
+      );
+      if (!actionTab) return;
+      const isAuthorizedMove = action.type === "move" &&
+        (actionTab.displayId === displayId || action.displayId === displayId);
+      if (actionTab.displayId !== displayId && !isAuthorizedMove) return;
+    }
+
+    switch (action.type) {
+      case "activate":
+        browserManager.showRuntimeTab(action.tabId);
+        break;
+      case "hide":
+        browserManager.hideRuntimeTab(action.tabId);
+        break;
+      case "stop":
+        void browserManager.stopRuntimeTab(action.tabId).catch((error) => {
+          console.error("Failed to stop runtime tab.", error);
+        });
+        break;
+      case "move":
+        browserManager.moveRuntimeTab(action.tabId, action.displayId);
+        break;
+      case "reorder":
+        browserManager.reorderRuntimeTab(action.tabId, action.beforeTabId);
+        break;
+      case "setOverlay":
+        browserManager.setRuntimeChromeOverlay(displayId, action.open);
+        break;
+      case "launch":
+        void (async () => {
+          const state = browserManager?.listEmbeddedRuntimeState();
+          const existing = action.itemType === "role"
+            ? state?.tabs.find((tab) => tab.roleIds.includes(action.itemId))
+            : state?.tabs.find((tab) => tab.type === "workspace" && tab.sourceId === action.itemId);
+          if (existing) {
+            browserManager?.showRuntimeTab(existing.id);
+            return;
+          }
+          if (action.itemType === "role") {
+            const role = await roleStore.getRole(action.itemId);
+            const targetDisplay = getWorkspaceDisplayInfos().find((display) => display.id === displayId);
+            const launchOptions = targetDisplay
+              ? { target: { displayId, workArea: targetDisplay.workArea } }
+              : undefined;
+            if (role.authState !== "authenticated") {
+              authManager.startLogin(role, launchOptions);
+              return;
+            }
+            await browserManager?.launch(role, launchOptions);
+            return;
+          }
+          const workspace = await workspaceStore.getWorkspace(action.itemId);
+          const result = await workspaceLauncher.launch(action.itemId, {
+            displayId: workspace.targetDisplayId ?? displayId
+          });
+          if (result.kind === "display_selection_required") {
+            requestWorkspaceDisplaySelection({
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
+              result
+            });
+          }
+        })().catch((error) => console.error("Runtime tab action failed.", error));
+        break;
+    }
+  });
+
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
     consumePendingMacroPageRequest,
     consumePendingWorkspaceLaunchRequest,
@@ -538,6 +635,7 @@ async function initializeApplication(): Promise<void> {
     },
     onOverlayLanguageChanged: (language) => {
       macroOverlayInjector.setLanguage(language);
+      browserManager?.setRuntimeTabsLanguage(language);
     },
     onRendererReady: (senderId, state) => {
       rendererReadyGate.notify(senderId, state);
@@ -560,8 +658,18 @@ async function initializeApplication(): Promise<void> {
     appQuickMenu?.scheduleRefresh();
   };
   screen.on("display-added", notifyWorkspaceDisplaysChanged);
-  screen.on("display-removed", notifyWorkspaceDisplaysChanged);
-  screen.on("display-metrics-changed", notifyWorkspaceDisplaysChanged);
+  screen.on("display-removed", (_event, removedDisplay) => {
+    const studioDisplay = getMainWindowDisplay();
+    const fallbackDisplay = studioDisplay.id === removedDisplay.id
+      ? screen.getPrimaryDisplay()
+      : studioDisplay;
+    browserManager?.handleDisplayRemoved(removedDisplay.id, fallbackDisplay.id);
+    notifyWorkspaceDisplaysChanged();
+  });
+  screen.on("display-metrics-changed", (_event, display) => {
+    browserManager?.handleDisplayMetricsChanged(display.id, display.workArea);
+    notifyWorkspaceDisplaysChanged();
+  });
 
   const appIcon = loadAppIcon();
   if (process.platform === "darwin" && app.dock) {
@@ -591,6 +699,9 @@ async function initializeApplication(): Promise<void> {
       setMenu: setQuickMenu
     });
     browserManager.on("change", () => {
+      appQuickMenu?.scheduleRefresh();
+    });
+    browserManager.on("runtimeChange", () => {
       appQuickMenu?.scheduleRefresh();
     });
     authManager.on("change", () => {

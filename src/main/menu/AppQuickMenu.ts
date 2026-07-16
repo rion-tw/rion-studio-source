@@ -12,7 +12,8 @@ interface AppQuickMenuOptions {
   authManager: Pick<AuthManager, "listStatuses" | "startLogin">;
   browserManager: Pick<
     BrowserManager,
-    "launch" | "listStatuses" | "listWorkspaceRuntimeStatuses" | "stopAll" | "stopWorkspace"
+    "launch" | "listEmbeddedRuntimeState" | "listStatuses" | "listWorkspaceRuntimeStatuses" |
+      "showEmbeddedRuntimeWindows" | "stopAll" | "stopWorkspace"
   >;
   canUseApp: () => Promise<boolean>;
   includeQuit: boolean;
@@ -67,12 +68,15 @@ export class AppQuickMenu {
           includeQuit: this.options.includeQuit,
           legalAccepted,
           roles,
+          runtimeWindows: this.options.browserManager.listEmbeddedRuntimeState().windows,
           statuses,
           workspaces,
           workspaceStatuses
         },
         {
           openApp: this.options.openApp,
+          showAllGameWindows: () => this.options.browserManager.showEmbeddedRuntimeWindows(),
+          showGameWindow: (displayId) => this.options.browserManager.showEmbeddedRuntimeWindows(displayId),
           launchRole: (roleId) => void this.launchRole(roleId),
           startLogin: (roleId) => void this.startLogin(roleId),
           launchWorkspace: (workspaceId) => void this.launchWorkspace(workspaceId),

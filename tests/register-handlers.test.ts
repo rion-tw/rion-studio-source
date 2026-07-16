@@ -115,10 +115,14 @@ describe("registerIpcHandlers workspace handlers", () => {
     BrowserManager,
     | "launch"
     | "launchWorkspace"
+    | "listEmbeddedRuntimeState"
     | "listStatuses"
     | "listWorkspaceDisplayReservations"
+    | "moveRuntimeTab"
     | "on"
     | "runRoleOperation"
+    | "showEmbeddedRuntimeWindows"
+    | "showRuntimeTab"
     | "stop"
     | "stopRoleAndRunMutation"
     | "stopWorkspace"
@@ -182,10 +186,14 @@ describe("registerIpcHandlers workspace handlers", () => {
       launchWorkspace: vi.fn(async (_workspace: LaunchWorkspace, items: Array<{ role: Role }>) =>
         items.map(({ role }) => ({ roleId: role.id, state: "running" as const }))
       ),
+      listEmbeddedRuntimeState: vi.fn(() => ({ windows: [], tabs: [] })),
       listStatuses: vi.fn(() => []),
       listWorkspaceDisplayReservations: vi.fn(() => []),
+      moveRuntimeTab: vi.fn(),
       on: vi.fn(),
       runRoleOperation: vi.fn(async (_roleIds: string[], operation: () => Promise<unknown>) => operation()) as never,
+      showEmbeddedRuntimeWindows: vi.fn(),
+      showRuntimeTab: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
       stopRoleAndRunMutation: vi.fn(async (roleId: string, operation: () => Promise<unknown>) => {
         await browserManager.stop(roleId);
@@ -274,12 +282,48 @@ describe("registerIpcHandlers workspace handlers", () => {
       roleStatuses: [],
       authStatuses: [],
       launchWorkspaces: [workspace],
+      embeddedRuntimeState: { windows: [], tabs: [] },
       workspaceDisplays,
       macros: [],
       macroStatuses: []
     });
     expect(roleStore.listRoles).toHaveBeenCalledOnce();
     expect(workspaceStore.listWorkspaces).toHaveBeenCalledOnce();
+  });
+
+  it("exposes validated runtime window and tab controls", async () => {
+    const runtimeState = {
+      windows: [{
+        displayId: 11,
+        bounds: workspaceDisplays[0].workArea,
+        visible: false,
+        activeTabId: "tab-1",
+        tabCount: 1
+      }],
+      tabs: [{
+        id: "tab-1",
+        type: "role" as const,
+        sourceId: authenticatedRole.id,
+        name: authenticatedRole.name,
+        displayId: 11,
+        roleIds: [authenticatedRole.id],
+        hidden: false,
+        active: false
+      }]
+    };
+    vi.mocked(browserManager.listEmbeddedRuntimeState).mockReturnValue(runtimeState);
+
+    expect(await handlers.get(IPC_CHANNELS.runtimeState)?.({})).toEqual(runtimeState);
+    await handlers.get(IPC_CHANNELS.runtimeShowWindows)?.({}, 11);
+    await handlers.get(IPC_CHANNELS.runtimeShowTab)?.({}, "tab-1");
+    await handlers.get(IPC_CHANNELS.runtimeMoveTab)?.({}, "tab-1", 22);
+
+    expect(browserManager.showEmbeddedRuntimeWindows).toHaveBeenCalledWith(11);
+    expect(browserManager.showRuntimeTab).toHaveBeenCalledWith("tab-1");
+    expect(browserManager.moveRuntimeTab).toHaveBeenCalledWith("tab-1", 22);
+    expect(() => handlers.get(IPC_CHANNELS.runtimeMoveTab)?.({}, "", 1.5)).toThrow(
+      "Runtime tab move is invalid."
+    );
   });
 
   it("consumes pending native-menu workspace launch requests", () => {
@@ -641,7 +685,11 @@ describe("registerIpcHandlers workspace handlers", () => {
     );
   });
 
-  it("requests a new display when the target is occupied or unavailable", async () => {
+  it("requests a new display when an external target is occupied or unavailable", async () => {
+    workspaceStore.getWorkspace = vi.fn().mockResolvedValue({
+      ...workspace,
+      browserLaunchMode: "external"
+    });
     vi.mocked(browserManager.listWorkspaceDisplayReservations).mockReturnValue([
       { workspaceId: "workspace-2", workspaceName: "Raid", displayId: 11 }
     ]);
@@ -656,7 +704,11 @@ describe("registerIpcHandlers workspace handlers", () => {
     });
     expect(browserManager.launchWorkspace).not.toHaveBeenCalled();
 
-    workspaceStore.getWorkspace = vi.fn().mockResolvedValue({ ...workspace, targetDisplayId: 99 });
+    workspaceStore.getWorkspace = vi.fn().mockResolvedValue({
+      ...workspace,
+      browserLaunchMode: "external",
+      targetDisplayId: 99
+    });
     vi.mocked(browserManager.listWorkspaceDisplayReservations).mockReturnValue([]);
     await expect(handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id)).resolves.toMatchObject({
       kind: "display_selection_required",

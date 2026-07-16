@@ -3,6 +3,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import type {
   AuthFlowStatus,
   AuthState,
+  EmbeddedRuntimeWindowSummary,
   LaunchWorkspace,
   Role,
   RoleStatus
@@ -14,6 +15,7 @@ export interface AppQuickMenuState {
   includeQuit: boolean;
   legalAccepted: boolean;
   roles: Role[];
+  runtimeWindows: EmbeddedRuntimeWindowSummary[];
   statuses: RoleStatus[];
   workspaces: LaunchWorkspace[];
   workspaceStatuses: BrowserWorkspaceRuntimeStatus[];
@@ -23,6 +25,8 @@ export interface AppQuickMenuActions {
   launchRole: (roleId: string) => void;
   launchWorkspace: (workspaceId: string) => void;
   openApp: () => void;
+  showAllGameWindows: () => void;
+  showGameWindow: (displayId: number) => void;
   quitApp?: () => void;
   startLogin: (roleId: string) => void;
   stopAll: () => void;
@@ -44,6 +48,25 @@ export function buildAppQuickMenuTemplate(
       label: "Open Rion Studio",
       click: actions.openApp
     },
+    ...(state.runtimeWindows.length > 0
+      ? [
+          {
+            label: "Game Windows",
+            submenu: [
+              {
+                label: "Show All Game Windows",
+                click: actions.showAllGameWindows
+              },
+              { type: "separator" as const },
+              ...state.runtimeWindows.map((window) => ({
+                label: `Display ${window.displayId} · ${window.tabCount} tab${window.tabCount === 1 ? "" : "s"}`,
+                sublabel: window.visible ? "Visible" : "Hidden",
+                click: () => actions.showGameWindow(window.displayId)
+              }))
+            ]
+          } satisfies MenuItemConstructorOptions
+        ]
+      : []),
     { type: "separator" },
     ...(!state.legalAccepted
       ? [

@@ -51,10 +51,12 @@ describe("AppQuickMenu", () => {
       authManager: { listStatuses: vi.fn(() => []), startLogin: vi.fn() },
       browserManager: {
         launch: vi.fn(),
+        listEmbeddedRuntimeState: vi.fn(() => ({ windows: [], tabs: [] })),
         listStatuses: vi.fn(() => []),
         listWorkspaceRuntimeStatuses: vi.fn(() => []),
         stopAll: vi.fn(),
-        stopWorkspace: vi.fn()
+        stopWorkspace: vi.fn(),
+        showEmbeddedRuntimeWindows: vi.fn()
       },
       canUseApp: vi.fn().mockResolvedValue(true),
       includeQuit: true,
@@ -89,10 +91,12 @@ describe("AppQuickMenu", () => {
       authManager: { listStatuses: vi.fn(() => []), startLogin: vi.fn() },
       browserManager: {
         launch: vi.fn(),
+        listEmbeddedRuntimeState: vi.fn(() => ({ windows: [], tabs: [] })),
         listStatuses: vi.fn(() => [{ roleId: role.id, state: "running" as const }]),
         listWorkspaceRuntimeStatuses: vi.fn(() => [{ workspaceId: workspace.id, state: "running" as const }]),
         stopAll: vi.fn(),
-        stopWorkspace
+        stopWorkspace,
+        showEmbeddedRuntimeWindows: vi.fn()
       },
       canUseApp: vi.fn().mockResolvedValue(true),
       includeQuit: false,

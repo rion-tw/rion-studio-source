@@ -57,28 +57,32 @@ export class WorkspaceLaunchCoordinator {
       displays[0]?.id;
     const targetDisplay = displays.find((display) => display.id === targetDisplayId);
     const launchOptions = this.createDisplayLaunchOptions(displays, workspace.id);
+    const globalLaunchMode = await this.getGlobalLaunchMode();
+    const workspaceLaunchMode = workspace.browserLaunchMode === "inherit"
+      ? globalLaunchMode
+      : workspace.browserLaunchMode;
+    const selectableDisplays = workspaceLaunchMode === "external" ? launchOptions : displays;
 
     if (!targetDisplay) {
       return {
         kind: "display_selection_required",
         reason: "target_unavailable",
-        displays: launchOptions
+        displays: selectableDisplays
       };
     }
 
-    if (launchOptions.find((display) => display.id === targetDisplay.id)?.occupiedByWorkspace) {
+    if (
+      workspaceLaunchMode === "external" &&
+      launchOptions.find((display) => display.id === targetDisplay.id)?.occupiedByWorkspace
+    ) {
       return {
         kind: "display_selection_required",
         reason: "target_occupied",
-        displays: launchOptions
+        displays: selectableDisplays
       };
     }
 
     try {
-      const globalLaunchMode = await this.getGlobalLaunchMode();
-      const workspaceLaunchMode = workspace.browserLaunchMode === "inherit"
-        ? globalLaunchMode
-        : workspace.browserLaunchMode;
       const statuses = await this.options.browserManager.launchWorkspace(
         workspace,
         launchItems.map(({ role, slot }) => ({ role, rect: slot.rect })),

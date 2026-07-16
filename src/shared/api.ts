@@ -16,6 +16,7 @@ import type {
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
   GraphicsDiagnostics,
+  EmbeddedRuntimeState,
   LaunchWorkspace,
   LegalAcceptanceStatus,
   Macro,
@@ -50,6 +51,10 @@ export interface RionStudioApi {
   quitApplication: () => Promise<void>;
   requestCurrentWindowClose: () => void;
   restartApplication: () => Promise<void>;
+  getEmbeddedRuntimeState: () => Promise<EmbeddedRuntimeState>;
+  showEmbeddedRuntimeWindows: (displayId?: number) => Promise<void>;
+  showEmbeddedRuntimeTab: (tabId: string) => Promise<void>;
+  moveEmbeddedRuntimeTab: (tabId: string, displayId: number) => Promise<void>;
   listGames: () => Promise<Game[]>;
   createGame: (input: CreateGameInput) => Promise<Game>;
   updateGame: (id: string, input: UpdateGameInput) => Promise<Game>;
@@ -106,6 +111,7 @@ export interface RionStudioApi {
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<void>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
+  onEmbeddedRuntimeStateChanged: (callback: (state: EmbeddedRuntimeState) => void) => () => void;
   onGamesChanged: (callback: (games: Game[]) => void) => () => void;
   onGameCompatibilityChanged: (
     callback: (reports: GameCompatibilityReport[], statuses: GameCompatibilityRunStatus[]) => void

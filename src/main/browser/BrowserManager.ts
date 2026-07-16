@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import type {
   BaseWindow,
   BaseWindowConstructorOptions,
+  BrowserWindow,
   BrowserWindowConstructorOptions,
   Session,
   WebContents,
@@ -24,7 +25,11 @@ import {
 import type { RoleStore } from "../roles/RoleStore";
 import { DEFAULT_WORKSPACE_APPEARANCE_SETTINGS } from "../../shared/browserFonts";
 import type {
+  AppLanguage,
   BrowserLaunchMode,
+  EmbeddedRuntimeState,
+  EmbeddedRuntimeTabSummary,
+  EmbeddedRuntimeWindowSummary,
   LaunchWorkspace,
   NormalizedRect,
   PixelBounds,
@@ -32,8 +37,13 @@ import type {
   RoleStatus,
   WorkspaceBrowserZoomMode,
   WorkspaceBrowserZoomPercent,
-  WorkspaceAppearanceSettings
+  WorkspaceAppearanceSettings,
+  WorkspaceDisplayInfo
 } from "../../shared/types";
+import {
+  RUNTIME_TABS_STATE_CHANNEL,
+  type RuntimeTabChromeState
+} from "../../shared/runtimeTabs";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
 import {
   getAdaptiveWorkspaceBrowserZoomPercent,
@@ -56,10 +66,12 @@ import {
 
 export interface BrowserManagerEvents {
   change: [RoleStatus[]];
+  runtimeChange: [EmbeddedRuntimeState];
 }
 
 export interface BrowserLaunchOptions {
   zoomFactor?: number;
+  target?: BrowserWorkspaceLaunchTarget;
 }
 
 export interface BrowserWorkspaceLaunchItem {
@@ -94,13 +106,18 @@ export interface BrowserManagerOptions {
   applyBrowserProxy?: BrowserProxyApplier;
   applyCdnCompatibility?: BrowserCdnCompatibilityApplier;
   createHostWindow: (options: BaseWindowConstructorOptions) => BaseWindow;
+  createTabbedHostWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
   dividerPreloadPath: string;
   embeddedPreloadPath: string;
+  runtimeTabsPageUrl?: string;
+  runtimeTabsPreloadPath?: string;
   externalChromeManager?: ExternalChromeManager;
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getLoginUrl?: (role: Role) => string | Promise<string>;
   getLaunchWorkArea: () => PixelBounds;
+  getDefaultLaunchTarget?: () => BrowserWorkspaceLaunchTarget;
+  getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
     | Promise<WorkspaceAppearanceSettings>;
@@ -166,10 +183,26 @@ interface GameHostWindow {
   closing: boolean;
   dividers: GameDivider[];
   id: string;
+  displayHostId: string;
+  hidden: boolean;
+  name: string;
   roleIds: Set<string>;
+  sourceId: string;
+  type: "role" | "workspace";
   workspaceAppearance: WorkspaceAppearanceSettings;
   window: BaseWindow;
   workspaceId?: string;
+}
+
+interface EmbeddedDisplayHost {
+  activeTabId?: string;
+  chromeHeight: number;
+  chromeOverlayOpen: boolean;
+  closing: boolean;
+  displayId: number;
+  id: string;
+  tabIds: string[];
+  window: BaseWindow;
 }
 
 type DividerAxis = "horizontal" | "vertical";
@@ -215,6 +248,7 @@ interface BrowserSession {
 }
 
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
+const RUNTIME_TAB_CHROME_HEIGHT = 40;
 export const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
@@ -249,12 +283,15 @@ function getWorkspaceWindowMaterialOptions(
 export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly blockedRoleIds = new Set<string>();
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
+  private readonly displayHosts = new Map<number, EmbeddedDisplayHost>();
+  private readonly displayHostByChromeWebContentsId = new Map<number, EmbeddedDisplayHost>();
   private readonly hosts = new Map<string, GameHostWindow>();
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly pendingWorkspaceLaunchIds = new Set<string>();
   private readonly roleOperationTails = new Map<string, Promise<void>>();
   private readonly workspaceDisplayReservations = new Map<string, { displayId: number; name: string }>();
   private readonly workspaceHostIds = new Map<string, string>();
+  private runtimeTabsLanguage: AppLanguage = "en";
   private readonly resourceCoordinator: WorkspaceResourceCoordinator;
   private beforeRolesStop?: BeforeRolesStop;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
@@ -312,6 +349,167 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       ...[...this.sessions.entries()].map(([roleId, session]) => this.toStatus(roleId, session)),
       ...(this.options.externalChromeManager?.listStatuses() ?? [])
     ].map((status) => this.withResourceStatus(status));
+  }
+
+  listEmbeddedRuntimeState(): EmbeddedRuntimeState {
+    const windows: EmbeddedRuntimeWindowSummary[] = [...this.displayHosts.values()].map((host) => ({
+      displayId: host.displayId,
+      bounds: getWindowBounds(host.window),
+      visible: !host.window.isDestroyed() && isWindowVisible(host.window),
+      ...(host.activeTabId ? { activeTabId: host.activeTabId } : {}),
+      tabCount: host.tabIds.length
+    }));
+    const tabs: EmbeddedRuntimeTabSummary[] = [...this.displayHosts.values()].flatMap((displayHost) =>
+      displayHost.tabIds.flatMap((tabId) => {
+        const tab = this.hosts.get(tabId);
+        return tab
+          ? [{
+              id: tab.id,
+              type: tab.type,
+              sourceId: tab.sourceId,
+              name: tab.name,
+              displayId: displayHost.displayId,
+              roleIds: [...tab.roleIds],
+              hidden: tab.hidden,
+              active: displayHost.activeTabId === tab.id && !tab.hidden && isWindowVisible(displayHost.window)
+            }]
+          : [];
+      })
+    );
+    return { windows, tabs };
+  }
+
+  setRuntimeTabsLanguage(language: AppLanguage): void {
+    this.runtimeTabsLanguage = language;
+    this.displayHosts.forEach((host) => this.sendRuntimeChromeState(host));
+  }
+
+  setRuntimeChromeOverlay(displayId: number, open: boolean): void {
+    const displayHost = this.displayHosts.get(displayId);
+    if (!displayHost || displayHost.chromeOverlayOpen === open) return;
+    displayHost.chromeOverlayOpen = open;
+    this.layoutDisplayHost(displayHost);
+  }
+
+  getRuntimeDisplayIdForWebContents(webContentsId: number): number | undefined {
+    return this.displayHostByChromeWebContentsId.get(webContentsId)?.displayId;
+  }
+
+  showEmbeddedRuntimeWindows(displayId?: number): void {
+    const targets = displayId === undefined
+      ? [...this.displayHosts.values()]
+      : [this.displayHosts.get(displayId)].filter((host): host is EmbeddedDisplayHost => Boolean(host));
+    targets.forEach((host) => {
+      const active = host.activeTabId ? this.hosts.get(host.activeTabId) : undefined;
+      if (!active || active.hidden) {
+        const next = host.tabIds.map((id) => this.hosts.get(id)).find(Boolean);
+        if (next) {
+          next.hidden = false;
+          host.activeTabId = next.id;
+        }
+      }
+      this.showDisplayHost(host);
+    });
+    this.reconcileRuntimeTabs();
+  }
+
+  showRuntimeTab(tabId: string): void {
+    const tab = this.hosts.get(tabId);
+    if (!tab) return;
+    const displayHost = this.getDisplayHost(tab);
+    if (!displayHost) return;
+    tab.hidden = false;
+    displayHost.activeTabId = tab.id;
+    this.showDisplayHost(displayHost);
+    this.layoutDisplayHost(displayHost);
+    this.reconcileRuntimeTabs();
+  }
+
+  hideRuntimeTab(tabId: string): void {
+    const tab = this.hosts.get(tabId);
+    if (!tab) return;
+    const displayHost = this.getDisplayHost(tab);
+    if (!displayHost) return;
+    tab.hidden = true;
+    if (displayHost.activeTabId === tab.id) {
+      displayHost.activeTabId = displayHost.tabIds.find((id) => !this.hosts.get(id)?.hidden && id !== tab.id);
+    }
+    if (!displayHost.activeTabId) displayHost.window.hide();
+    this.layoutDisplayHost(displayHost);
+    this.reconcileRuntimeTabs();
+  }
+
+  stopRuntimeTab(tabId: string): Promise<void> {
+    return this.stopHost(tabId);
+  }
+
+  reorderRuntimeTab(tabId: string, beforeTabId?: string): void {
+    const tab = this.hosts.get(tabId);
+    const displayHost = tab ? this.getDisplayHost(tab) : undefined;
+    if (!tab || !displayHost) return;
+    const without = displayHost.tabIds.filter((id) => id !== tabId);
+    const beforeIndex = beforeTabId ? without.indexOf(beforeTabId) : -1;
+    without.splice(beforeIndex < 0 ? without.length : beforeIndex, 0, tabId);
+    displayHost.tabIds = without;
+    this.sendRuntimeChromeState(displayHost);
+    this.emitChange();
+  }
+
+  moveRuntimeTab(tabId: string, displayId: number): void {
+    const tab = this.hosts.get(tabId);
+    const source = tab ? this.getDisplayHost(tab) : undefined;
+    const targetInfo = this.getLaunchTargetForDisplay(displayId);
+    if (!tab || !source || !targetInfo || source.displayId === displayId) return;
+    const target = this.getOrCreateDisplayHost(targetInfo);
+
+    this.detachTabViews(tab, source);
+    source.tabIds = source.tabIds.filter((id) => id !== tab.id);
+    if (source.activeTabId === tab.id) {
+      source.activeTabId = source.tabIds.find((id) => !this.hosts.get(id)?.hidden);
+    }
+    tab.window = target.window;
+    tab.displayHostId = target.id;
+    tab.hidden = false;
+    target.tabIds.push(tab.id);
+    target.activeTabId = tab.id;
+    this.attachTabViews(tab, target);
+    this.showDisplayHost(target);
+    this.layoutDisplayHost(source);
+    this.layoutDisplayHost(target);
+    this.destroyDisplayHostIfEmpty(source);
+    this.reconcileRuntimeTabs();
+  }
+
+  handleDisplayRemoved(displayId: number, fallbackDisplayId: number): void {
+    const source = this.displayHosts.get(displayId);
+    const targetInfo = this.getLaunchTargetForDisplay(fallbackDisplayId);
+    if (!source || !targetInfo || displayId === fallbackDisplayId) return;
+    const sourceWasVisible = isWindowVisible(source.window);
+    const target = this.getOrCreateDisplayHost(targetInfo);
+    const targetHadActive = Boolean(target.activeTabId);
+    const sourceActive = source.activeTabId;
+    for (const tabId of [...source.tabIds]) {
+      const tab = this.hosts.get(tabId);
+      if (!tab) continue;
+      this.detachTabViews(tab, source);
+      tab.window = target.window;
+      tab.displayHostId = target.id;
+      target.tabIds.push(tab.id);
+      this.attachTabViews(tab, target);
+    }
+    source.tabIds = [];
+    if (!targetHadActive && sourceActive) target.activeTabId = sourceActive;
+    if (sourceWasVisible && !isWindowVisible(target.window)) showWindowWithoutFocus(target.window);
+    this.layoutDisplayHost(target);
+    this.destroyDisplayHostIfEmpty(source);
+    this.reconcileRuntimeTabs();
+  }
+
+  handleDisplayMetricsChanged(displayId: number, workArea: PixelBounds): void {
+    const host = this.displayHosts.get(displayId);
+    if (!host || host.window.isDestroyed()) return;
+    host.window.setBounds(clampBoundsToWorkArea(getWindowBounds(host.window), workArea));
+    this.layoutDisplayHost(host);
   }
 
   listWorkspaceDisplayReservations(): Array<{ workspaceId: string; workspaceName: string; displayId: number }> {
@@ -399,14 +597,20 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return this.launchExternal(role, undefined, zoomFactor);
     }
 
-    const host = this.createHost(role.name);
+    const target = options.target ?? this.getDefaultLaunchTarget();
+    const host = this.createHost(role.name, undefined, target.workArea, undefined, target.displayId, role.id);
     await this.applyBrowserFonts(role);
     const session = this.createSession(role, host, FULL_WINDOW_RECT, zoomFactor);
 
     try {
-      host.window.show();
+      const displayHost = this.getDisplayHost(host);
+      if (displayHost) this.showDisplayHost(displayHost);
       await this.finishLaunch(session, zoomFactor);
-      host.window.focus();
+      await this.resourceCoordinator.activateWorkspace(
+        host.id,
+        { mode: "unrestricted" },
+        [new ElectronWorkspaceResourceTarget(role.id, session.view.webContents)]
+      );
       await session.target.focus();
       return this.toStatus(role.id, session);
     } catch (error) {
@@ -443,11 +647,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       throw new BrowserRoleAlreadyRunningError(runningRoles);
     }
 
-    if (target) {
-      this.reserveWorkspaceDisplay(workspace.id, workspace.name, target.displayId);
-      this.pendingWorkspaceLaunchIds.add(workspace.id);
-      this.emitChange();
-    }
+    this.pendingWorkspaceLaunchIds.add(workspace.id);
+    this.emitChange();
 
     try {
       const launchMode = requestedLaunchMode ?? await this.getBrowserLaunchMode();
@@ -455,13 +656,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         return this.launchExternalWorkspace(workspace, items, undefined, target);
       }
 
-      const roleNames = items.map((item) => item.role.name).join(", ");
       const workspaceAppearance = await this.getWorkspaceAppearanceSettings();
       const host = this.createHost(
-        `${workspace.name} - ${roleNames}`,
+        workspace.name,
         workspace.id,
         target?.workArea,
-        workspaceAppearance
+        workspaceAppearance,
+        target?.displayId,
+        workspace.id
       );
       try {
         await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
@@ -471,7 +673,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
           this.createSession(item.role, host, normalizedRects[index], zoomFactor, workspace.browserZoomMode)
         );
         await this.createHostDividers(host);
-        host.window.show();
+        const displayHost = this.getDisplayHost(host);
+        if (displayHost) this.showDisplayHost(displayHost);
         const primaryRoleId = workspace.resourcePolicy.primaryRoleId ?? sessions[0]?.role.id;
         const primarySession = sessions.find((session) => session.role.id === primaryRoleId) ?? sessions[0];
         if (primarySession) {
@@ -490,9 +693,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         if (host.closing || host.window.isDestroyed()) {
           return [];
         }
-        host.window.focus();
         await this.resourceCoordinator.activateWorkspace(
-          workspace.id,
+          host.id,
           workspace.resourcePolicy,
           sessions.map((session) =>
             new ElectronWorkspaceResourceTarget(session.role.id, session.view.webContents)
@@ -513,23 +715,22 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         throw error;
       }
     } finally {
-      if (target) {
-        this.pendingWorkspaceLaunchIds.delete(workspace.id);
-        this.cleanupWorkspaceDisplayReservation(workspace.id);
-        this.emitChange();
-      }
+      this.pendingWorkspaceLaunchIds.delete(workspace.id);
+      this.cleanupWorkspaceDisplayReservation(workspace.id);
+      this.emitChange();
     }
   }
 
-  startLogin(role: Role): Promise<void> {
-    return this.runRoleOperation([role.id], () => this.startLoginUnlocked(role));
+  startLogin(role: Role, options: BrowserLaunchOptions = {}): Promise<void> {
+    return this.runRoleOperation([role.id], () => this.startLoginUnlocked(role, options));
   }
 
-  private async startLoginUnlocked(role: Role): Promise<void> {
+  private async startLoginUnlocked(role: Role, options: BrowserLaunchOptions): Promise<void> {
     let session = this.sessions.get(role.id);
 
     if (!session) {
-      const host = this.createHost(role.name);
+      const target = options.target ?? this.getDefaultLaunchTarget();
+      const host = this.createHost(role.name, undefined, target.workArea, undefined, target.displayId, role.id);
       await this.applyBrowserFonts(role);
       session = this.createSession(role, host, FULL_WINDOW_RECT, DEFAULT_BROWSER_ZOOM_FACTOR);
     } else {
@@ -561,6 +762,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         session.state = "running";
         session.launchedAt = new Date().toISOString();
         await this.installMacroOverlay(session.role, session.view.webContents);
+        const host = this.hosts.get(session.hostId);
+        if (host && host.type === "role") {
+          await this.resourceCoordinator.activateWorkspace(
+            host.id,
+            { mode: "unrestricted" },
+            [new ElectronWorkspaceResourceTarget(session.role.id, session.view.webContents)]
+          );
+        }
         this.emitChange();
         return result;
       }
@@ -612,8 +821,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   async stopWorkspace(workspaceId: string): Promise<void> {
-    await this.resourceCoordinator.deactivateWorkspace(workspaceId);
     const hostId = this.workspaceHostIds.get(workspaceId);
+    await this.resourceCoordinator.deactivateWorkspace(hostId ?? workspaceId);
     if (hostId) {
       await this.stopHost(hostId);
     }
@@ -648,9 +857,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return;
     }
 
-    const contentBounds = host.window.getContentBounds();
+    const windowBounds = host.window.getContentBounds();
+    const contentBounds = this.getTabContentBounds(host);
     const size = target.divider.axis === "vertical" ? contentBounds.width : contentBounds.height;
-    const origin = target.divider.axis === "vertical" ? contentBounds.x : contentBounds.y;
+    const origin = target.divider.axis === "vertical"
+      ? windowBounds.x
+      : windowBounds.y + contentBounds.y;
     if (size <= 0) {
       return;
     }
@@ -694,57 +906,232 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     title: string,
     workspaceId?: string,
     launchBounds?: PixelBounds,
-    workspaceAppearance: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
+    workspaceAppearance: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
+    displayId?: number,
+    sourceId = workspaceId ?? title
   ): GameHostWindow {
-    const bounds = launchBounds ?? this.options.getLaunchWorkArea();
-    const isWorkspace = Boolean(workspaceId);
-    const prefersReducedTransparency = this.options.prefersReducedTransparency?.() ?? false;
-    const window = this.options.createHostWindow({
-      ...bounds,
-      closable: true,
-      frame: true,
-      maximizable: true,
-      minimizable: true,
-      resizable: true,
-      show: false,
-      title,
-      titleBarStyle: "default",
-      ...(isWorkspace
-        ? getWorkspaceWindowMaterialOptions(
-            this.options.platform ?? process.platform,
-            prefersReducedTransparency
-          )
-        : { backgroundColor: "#000000" })
-    });
-    if (isWorkspace) {
-      window.contentView.setBackgroundColor("#00000000");
-    }
+    const target = displayId === undefined
+      ? this.getDefaultLaunchTarget()
+      : { displayId, workArea: launchBounds ?? this.options.getLaunchWorkArea() };
+    const displayHost = this.getOrCreateDisplayHost(target);
     const host: GameHostWindow = {
       closing: false,
+      displayHostId: displayHost.id,
       dividers: [],
+      hidden: false,
       id: randomUUID(),
+      name: title,
       roleIds: new Set(),
-      window,
+      sourceId,
+      type: workspaceId ? "workspace" : "role",
+      window: displayHost.window,
       workspaceAppearance: { ...workspaceAppearance },
       workspaceId
     };
 
     this.hosts.set(host.id, host);
+    displayHost.tabIds.push(host.id);
+    displayHost.activeTabId = host.id;
     if (workspaceId) {
       this.workspaceHostIds.set(workspaceId, host.id);
     }
-
-    window.on("resize", () => this.layoutHost(host));
-    window.on("restore", () => this.layoutHost(host));
-    window.on("close", (event) => {
-      if (host.closing) {
-        return;
-      }
-      event.preventDefault();
-      void this.stopHost(host.id);
-    });
-    window.once("closed", () => this.deleteHost(host));
+    this.layoutDisplayHost(displayHost);
+    this.sendRuntimeChromeState(displayHost);
     return host;
+  }
+
+  private getOrCreateDisplayHost(target: BrowserWorkspaceLaunchTarget): EmbeddedDisplayHost {
+    const existing = this.displayHosts.get(target.displayId);
+    if (existing && !existing.window.isDestroyed()) return existing;
+
+    const platform = this.options.platform ?? process.platform;
+    const prefersReducedTransparency = this.options.prefersReducedTransparency?.() ?? false;
+    const commonOptions: BrowserWindowConstructorOptions = {
+      ...target.workArea,
+      closable: true,
+      frame: true,
+      maximizable: true,
+      minimizable: true,
+      minHeight: 480,
+      minWidth: 720,
+      resizable: true,
+      show: false,
+      title: "Rion Studio",
+      ...getWorkspaceWindowMaterialOptions(platform, prefersReducedTransparency)
+    };
+    const window = this.options.createTabbedHostWindow
+      ? this.options.createTabbedHostWindow({
+          ...commonOptions,
+          ...(platform === "darwin"
+            ? {
+                titleBarStyle: "hiddenInset",
+                trafficLightPosition: { x: 14, y: 12 }
+              }
+            : platform === "win32"
+              ? {
+                  titleBarStyle: "hidden",
+                  titleBarOverlay: {
+                    color: "#1a1b1f",
+                    symbolColor: "#f4f4f5",
+                    height: RUNTIME_TAB_CHROME_HEIGHT
+                  }
+                }
+              : { titleBarStyle: "hidden" }),
+          webPreferences: {
+            backgroundThrottling: false,
+            contextIsolation: true,
+            nodeIntegration: false,
+            preload: this.options.runtimeTabsPreloadPath,
+            sandbox: true
+          }
+        })
+      : this.options.createHostWindow({ ...commonOptions, titleBarStyle: "default" });
+    window.contentView.setBackgroundColor("#00000000");
+    const displayHost: EmbeddedDisplayHost = {
+      chromeHeight: this.options.createTabbedHostWindow ? RUNTIME_TAB_CHROME_HEIGHT : 0,
+      chromeOverlayOpen: false,
+      closing: false,
+      displayId: target.displayId,
+      id: randomUUID(),
+      tabIds: [],
+      window
+    };
+    this.displayHosts.set(target.displayId, displayHost);
+
+    if (isBrowserWindow(window)) {
+      this.displayHostByChromeWebContentsId.set(window.webContents.id, displayHost);
+      window.webContents.once("did-finish-load", () => this.sendRuntimeChromeState(displayHost));
+      void window.loadURL(this.options.runtimeTabsPageUrl ?? "about:blank").catch((error) => {
+        console.error("Failed to load the runtime tab chrome.", error);
+      });
+    }
+    window.on("resize", () => this.layoutDisplayHost(displayHost));
+    window.on("restore", () => this.layoutDisplayHost(displayHost));
+    window.on("show", () => this.reconcileRuntimeTabs());
+    window.on("hide", () => this.reconcileRuntimeTabs());
+    window.on("close", (event) => {
+      if (displayHost.closing) return;
+      event.preventDefault();
+      displayHost.chromeOverlayOpen = false;
+      window.hide();
+      this.reconcileRuntimeTabs();
+    });
+    window.once("closed", () => {
+      if (isBrowserWindow(window)) this.displayHostByChromeWebContentsId.delete(window.webContents.id);
+      if (this.displayHosts.get(displayHost.displayId) === displayHost) {
+        this.displayHosts.delete(displayHost.displayId);
+      }
+    });
+    return displayHost;
+  }
+
+  private getDefaultLaunchTarget(): BrowserWorkspaceLaunchTarget {
+    return this.options.getDefaultLaunchTarget?.() ?? {
+      displayId: 0,
+      workArea: this.options.getLaunchWorkArea()
+    };
+  }
+
+  private getLaunchTargetForDisplay(displayId: number): BrowserWorkspaceLaunchTarget | undefined {
+    const display = this.options.getWorkspaceDisplays?.().find((item) => item.id === displayId);
+    if (display) return { displayId: display.id, workArea: display.workArea };
+    const fallback = this.getDefaultLaunchTarget();
+    return fallback.displayId === displayId ? fallback : undefined;
+  }
+
+  private getDisplayHost(tab: GameHostWindow): EmbeddedDisplayHost | undefined {
+    return [...this.displayHosts.values()].find((host) => host.id === tab.displayHostId);
+  }
+
+  private getTabContentBounds(tab: GameHostWindow): PixelBounds {
+    const displayHost = this.getDisplayHost(tab);
+    const bounds = tab.window.getContentBounds();
+    const chromeHeight = displayHost?.chromeHeight ?? 0;
+    return {
+      x: 0,
+      y: chromeHeight,
+      width: Math.max(1, bounds.width),
+      height: Math.max(1, bounds.height - chromeHeight)
+    };
+  }
+
+  private layoutDisplayHost(displayHost: EmbeddedDisplayHost | undefined): void {
+    if (!displayHost || displayHost.window.isDestroyed()) return;
+    displayHost.tabIds.forEach((tabId) => {
+      const tab = this.hosts.get(tabId);
+      if (tab) this.layoutHost(tab);
+    });
+    this.sendRuntimeChromeState(displayHost);
+  }
+
+  private showDisplayHost(host: EmbeddedDisplayHost): void {
+    if (host.window.isDestroyed()) return;
+    host.chromeOverlayOpen = false;
+    if (host.window.isMinimized()) host.window.restore();
+    host.window.show();
+    host.window.focus();
+    this.layoutDisplayHost(host);
+  }
+
+  private detachTabViews(tab: GameHostWindow, displayHost: EmbeddedDisplayHost): void {
+    if (displayHost.window.isDestroyed()) return;
+    tab.roleIds.forEach((roleId) => {
+      const session = this.sessions.get(roleId);
+      if (!session) return;
+      displayHost.window.contentView.removeChildView(session.view);
+      session.popupViews.forEach((view) => displayHost.window.contentView.removeChildView(view));
+    });
+    tab.dividers.forEach((divider) => displayHost.window.contentView.removeChildView(divider.view));
+  }
+
+  private attachTabViews(tab: GameHostWindow, displayHost: EmbeddedDisplayHost): void {
+    if (displayHost.window.isDestroyed()) return;
+    tab.roleIds.forEach((roleId) => {
+      const session = this.sessions.get(roleId);
+      if (!session) return;
+      displayHost.window.contentView.addChildView(session.view);
+      session.popupViews.forEach((view) => displayHost.window.contentView.addChildView(view));
+    });
+    tab.dividers.forEach((divider) => displayHost.window.contentView.addChildView(divider.view));
+  }
+
+  private destroyDisplayHostIfEmpty(displayHost: EmbeddedDisplayHost): void {
+    if (displayHost.tabIds.length > 0 || displayHost.closing) return;
+    displayHost.closing = true;
+    this.displayHosts.delete(displayHost.displayId);
+    if (isBrowserWindow(displayHost.window)) {
+      this.displayHostByChromeWebContentsId.delete(displayHost.window.webContents.id);
+    }
+    if (!displayHost.window.isDestroyed()) displayHost.window.close();
+  }
+
+  private sendRuntimeChromeState(displayHost: EmbeddedDisplayHost): void {
+    if (!isBrowserWindow(displayHost.window) || displayHost.window.webContents.isDestroyed()) return;
+    const state: RuntimeTabChromeState = {
+      ...this.listEmbeddedRuntimeState(),
+      displayId: displayHost.displayId,
+      displays: this.options.getWorkspaceDisplays?.() ?? [],
+      language: this.runtimeTabsLanguage
+    };
+    displayHost.window.webContents.send(RUNTIME_TABS_STATE_CHANNEL, state);
+  }
+
+  private reconcileRuntimeTabs(): void {
+    const backgroundTabIds = [...this.hosts.values()].flatMap((tab) => {
+      const displayHost = this.getDisplayHost(tab);
+      const active = displayHost?.activeTabId === tab.id &&
+        !tab.hidden &&
+        isWindowVisible(displayHost.window);
+      return active ? [] : [tab.id];
+    });
+    void this.resourceCoordinator.setBackgroundWorkspaceIds(backgroundTabIds).catch((error) => {
+      console.warn("Failed to reconcile runtime tab resource state.", error);
+    });
+    this.displayHosts.forEach((host) => {
+      this.layoutDisplayHost(host);
+      this.sendRuntimeChromeState(host);
+    });
+    this.emit("runtimeChange", this.listEmbeddedRuntimeState());
   }
 
   private createSession(
@@ -756,7 +1143,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   ): BrowserSession {
     const initialZoomFactor = zoomMode === "adaptive"
       ? getAdaptiveWorkspaceBrowserZoomPercent(
-          normalizedRectToPixelBounds(rect, host.window.getContentBounds()).width
+          normalizedRectToPixelBounds(rect, this.getTabContentBounds(host)).width
         ) / 100
       : zoomFactor;
     const partition = createRoleSessionPartition(role.id);
@@ -788,7 +1175,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.sessions.set(role.id, session);
     host.roleIds.add(role.id);
     host.window.contentView.addChildView(view);
-    this.layoutSession(host, session);
+    this.layoutDisplayHost(this.getDisplayHost(host));
     this.configureZoomPersistence(session, view.webContents);
     this.configureWindowOpenHandler(session, view.webContents);
     this.configureCloseShortcut(host, view.webContents);
@@ -797,6 +1184,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         this.sessions.delete(role.id);
         host.roleIds.delete(role.id);
         void this.resourceCoordinator.reconcileRuntimeRoleIds("embedded", this.sessions.keys());
+        if (host.roleIds.size === 0 && !host.closing) {
+          this.closeHostWindow(host);
+        }
         this.emitChange();
       }
     });
@@ -905,6 +1295,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   ): Promise<RoleStatus[]> {
     if (!this.options.externalChromeManager) {
       throw new Error("External Chrome compatibility mode is not available.");
+    }
+
+    if (target) {
+      const workspaceName = "name" in workspace && typeof workspace.name === "string"
+        ? workspace.name
+        : workspace.id;
+      this.reserveWorkspaceDisplay(workspace.id, workspaceName, target.displayId);
     }
 
     const statuses = await this.options.externalChromeManager.launchWorkspace(workspace, items, {
@@ -1018,7 +1415,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         return;
       }
       event.preventDefault();
-      void this.stopHost(host.id);
+      this.hideRuntimeTab(host.id);
     });
   }
 
@@ -1061,9 +1458,23 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private layoutHost(host: GameHostWindow): void {
-    if (!this.shouldLayoutHost(host)) {
+    const displayHost = this.getDisplayHost(host);
+    if (!displayHost || !this.shouldLayoutHost(host)) {
       return;
     }
+
+    const visible = displayHost.activeTabId === host.id &&
+      !displayHost.chromeOverlayOpen &&
+      !host.hidden &&
+      isWindowVisible(displayHost.window);
+    host.roleIds.forEach((roleId) => {
+      const session = this.sessions.get(roleId);
+      if (!session) return;
+      session.view.setVisible(visible);
+      session.popupViews.forEach((popupView) => popupView.setVisible(visible));
+    });
+    host.dividers.forEach((divider) => divider.view.setVisible(visible));
+    if (!visible) return;
 
     host.roleIds.forEach((roleId) => {
       const session = this.sessions.get(roleId);
@@ -1091,7 +1502,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private getSessionBounds(host: GameHostWindow, session: BrowserSession): PixelBounds {
-    const bounds = normalizedRectToPixelBounds(session.rect, host.window.getContentBounds());
+    const bounds = normalizedRectToPixelBounds(session.rect, this.getTabContentBounds(host));
     const beforeInset = Math.floor(host.workspaceAppearance.gap / 2);
     const afterInset = host.workspaceAppearance.gap - beforeInset;
 
@@ -1124,7 +1535,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private layoutDividers(host: GameHostWindow): void {
-    const contentBounds = host.window.getContentBounds();
+    const contentBounds = this.getTabContentBounds(host);
     host.dividers.forEach((divider) => {
       const geometry = getDividerGeometry(divider, this.sessions);
       if (!geometry) {
@@ -1262,11 +1673,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (!host || host.window.isDestroyed()) {
       return;
     }
-    if (host.window.isMinimized()) {
-      host.window.restore();
-    }
-    host.window.show();
-    host.window.focus();
+    this.showRuntimeTab(host.id);
     await session.target.focus();
   }
 
@@ -1288,9 +1695,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     host.closing = true;
-    if (host.workspaceId) {
-      await this.resourceCoordinator.deactivateWorkspace(host.workspaceId);
-    }
+    await this.resourceCoordinator.deactivateWorkspace(host.id);
     const roleIds = [...host.roleIds];
     roleIds.forEach((roleId) => {
       const session = this.sessions.get(roleId);
@@ -1397,10 +1802,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       }
     });
     host.dividers = [];
+    const displayHost = this.getDisplayHost(host);
     this.deleteHost(host);
-    if (!host.window.isDestroyed()) {
-      host.window.close();
+    if (displayHost) {
+      displayHost.tabIds = displayHost.tabIds.filter((tabId) => tabId !== host.id);
+      if (displayHost.activeTabId === host.id) {
+        displayHost.activeTabId = displayHost.tabIds.find((tabId) => !this.hosts.get(tabId)?.hidden);
+      }
+      if (!displayHost.activeTabId) displayHost.window.hide();
+      this.layoutDisplayHost(displayHost);
+      this.destroyDisplayHostIfEmpty(displayHost);
     }
+    this.reconcileRuntimeTabs();
   }
 
   private deleteHost(host: GameHostWindow): void {
@@ -1444,6 +1857,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private emitChange(): void {
     this.emit("change", this.listStatuses());
+    const runtimeState = this.listEmbeddedRuntimeState();
+    this.emit("runtimeChange", runtimeState);
+    this.displayHosts.forEach((host) => this.sendRuntimeChromeState(host));
   }
 
   private toStatus(roleId: string, session: BrowserSession): RoleStatus {
@@ -1467,6 +1883,46 @@ function getWorkspaceRuntimeStatePriority(state: BrowserWorkspaceRuntimeState): 
   }
 }
 
+function isBrowserWindow(window: BaseWindow): window is BrowserWindow {
+  return "webContents" in window && "loadURL" in window;
+}
+
+function toPixelBounds(bounds: { x: number; y: number; width: number; height: number }): PixelBounds {
+  return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+}
+
+function getWindowBounds(window: BaseWindow): PixelBounds {
+  const getBounds = (window as BaseWindow & {
+    getBounds?: () => { x: number; y: number; width: number; height: number };
+  }).getBounds;
+  return toPixelBounds(getBounds ? getBounds.call(window) : window.getContentBounds());
+}
+
+function isWindowVisible(window: BaseWindow): boolean {
+  const isVisible = (window as BaseWindow & { isVisible?: () => boolean }).isVisible;
+  return isVisible ? isVisible.call(window) : true;
+}
+
+function showWindowWithoutFocus(window: BaseWindow): void {
+  const showInactive = (window as BaseWindow & { showInactive?: () => void }).showInactive;
+  if (showInactive) {
+    showInactive.call(window);
+    return;
+  }
+  window.show();
+}
+
+function clampBoundsToWorkArea(bounds: PixelBounds, workArea: PixelBounds): PixelBounds {
+  const width = Math.min(Math.max(720, bounds.width), workArea.width);
+  const height = Math.min(Math.max(480, bounds.height), workArea.height);
+  return {
+    x: Math.min(Math.max(bounds.x, workArea.x), workArea.x + workArea.width - width),
+    y: Math.min(Math.max(bounds.y, workArea.y), workArea.y + workArea.height - height),
+    width,
+    height
+  };
+}
+
 export function createRoleSessionPartition(roleId: string): string {
   return `persist:rion-role-${roleId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
@@ -1478,8 +1934,8 @@ export function normalizedRectToPixelBounds(rect: NormalizedRect, contentBounds:
   const bottom = Math.round((rect.y + rect.height) * contentBounds.height);
 
   return {
-    x: left,
-    y: top,
+    x: contentBounds.x + left,
+    y: contentBounds.y + top,
     width: Math.max(1, right - left),
     height: Math.max(1, bottom - top)
   };
@@ -1635,8 +2091,8 @@ function dividerGeometryToPixelBounds(
     const top = Math.round(geometry.start * contentBounds.height);
     const bottom = Math.round(geometry.end * contentBounds.height);
     return {
-      x: lineX - beforeInset,
-      y: top,
+      x: contentBounds.x + lineX - beforeInset,
+      y: contentBounds.y + top,
       width: dividerSize,
       height: Math.max(1, bottom - top)
     };
@@ -1646,8 +2102,8 @@ function dividerGeometryToPixelBounds(
   const left = Math.round(geometry.start * contentBounds.width);
   const right = Math.round(geometry.end * contentBounds.width);
   return {
-    x: left,
-    y: lineY - beforeInset,
+    x: contentBounds.x + left,
+    y: contentBounds.y + lineY - beforeInset,
     width: Math.max(1, right - left),
     height: dividerSize
   };

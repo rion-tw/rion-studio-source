@@ -1,1 +1,6 @@
 export const WORKSPACE_RESIZE_INDICATOR_CHANNEL = "workspace:resize-indicator";
+export {
+  RUNTIME_TABS_ACTION_CHANNEL,
+  RUNTIME_TABS_LAUNCH_ITEMS_CHANNEL,
+  RUNTIME_TABS_STATE_CHANNEL
+} from "./runtimeTabs";

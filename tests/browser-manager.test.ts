@@ -325,7 +325,8 @@ describe("BrowserManager game host windows", () => {
     expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
       "runtime-tabs:state",
       expect.objectContaining({
-        tabIconDataUrls: { [tab.id]: iconDataUrl }
+        tabIconDataUrls: { [tab.id]: iconDataUrl },
+        tabWorkspaceTemplates: {}
       })
     );
 
@@ -349,12 +350,17 @@ describe("BrowserManager game host windows", () => {
     );
 
     expect(getRuntimeTabGameIcon).not.toHaveBeenCalled();
+    const [tab] = harness.manager.listEmbeddedRuntimeState().tabs;
     expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
       { type: "workspace" }
     ]);
+    expect(tab).not.toHaveProperty("workspaceTemplate");
     expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
       "runtime-tabs:state",
-      expect.objectContaining({ tabIconDataUrls: {} })
+      expect.objectContaining({
+        tabIconDataUrls: {},
+        tabWorkspaceTemplates: { [tab.id]: workspace.template }
+      })
     );
   });
 
@@ -373,7 +379,7 @@ describe("BrowserManager game host windows", () => {
     });
     expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
       "runtime-tabs:state",
-      expect.objectContaining({ tabIconDataUrls: {} })
+      expect.objectContaining({ tabIconDataUrls: {}, tabWorkspaceTemplates: {} })
     );
   });
 

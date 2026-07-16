@@ -6,7 +6,12 @@ import {
   type RuntimeTabAction,
   type RuntimeTabChromeState
 } from "../shared/runtimeTabs";
-import type { AppLanguage, EmbeddedRuntimeTabSummary } from "../shared/types";
+import type {
+  AppLanguage,
+  EmbeddedRuntimeTabSummary,
+  WorkspaceLayoutTemplate
+} from "../shared/types";
+import { workspaceLayoutIconNodes } from "../shared/workspaceLayoutIcons";
 
 type LabelKey = "add" | "close" | "enterFullScreen" | "exitFullScreen" |
   "minimize" | "more" | "zoom";
@@ -176,7 +181,9 @@ function createTabMarker(tab: EmbeddedRuntimeTabSummary): HTMLSpanElement {
   const marker = element("span", `runtime-tab-marker ${tab.type}`);
   marker.setAttribute("aria-hidden", "true");
   if (tab.type === "workspace") {
-    marker.textContent = "▦";
+    marker.append(createWorkspaceLayoutIcon(
+      currentState?.tabWorkspaceTemplates[tab.id] ?? "two_columns"
+    ));
     return marker;
   }
 
@@ -214,6 +221,26 @@ function createGamepadIcon(): SVGSVGElement {
     const path = document.createElementNS(namespace, "path");
     path.setAttribute("d", value);
     svg.append(path);
+  });
+  return svg;
+}
+
+function createWorkspaceLayoutIcon(template: WorkspaceLayoutTemplate): SVGSVGElement {
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("stroke-width", "2");
+
+  workspaceLayoutIconNodes[template].forEach(([elementName, attributes]) => {
+    const element = document.createElementNS(namespace, elementName);
+    Object.entries(attributes).forEach(([name, value]) => {
+      if (name !== "key") element.setAttribute(name, value);
+    });
+    svg.append(element);
   });
   return svg;
 }
@@ -347,13 +374,14 @@ function installStyles(): void {
       background: var(--runtime-tab-divider);
       content: "";
       height: 14px;
-      left: -2px;
       pointer-events: none;
       position: absolute;
       top: 50%;
       transform: translate(-50%, -50%);
       width: 1px;
     }
+    .runtime-tab + .runtime-tab::before { left: -3px; }
+    .runtime-tab + .runtime-add::before { left: -2px; }
     .runtime-tab:hover { background: var(--runtime-tab-hover); }
     .runtime-tab.is-active {
       background:

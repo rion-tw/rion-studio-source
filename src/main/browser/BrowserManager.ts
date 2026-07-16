@@ -38,7 +38,8 @@ import type {
   WorkspaceBrowserZoomMode,
   WorkspaceBrowserZoomPercent,
   WorkspaceAppearanceSettings,
-  WorkspaceDisplayInfo
+  WorkspaceDisplayInfo,
+  WorkspaceLayoutTemplate
 } from "../../shared/types";
 import {
   RUNTIME_TABS_STATE_CHANNEL,
@@ -193,6 +194,7 @@ interface GameHostWindow {
   sourceId: string;
   type: "role" | "workspace";
   workspaceAppearance: WorkspaceAppearanceSettings;
+  workspaceTemplate?: WorkspaceLayoutTemplate;
   window: BaseWindow;
   workspaceId?: string;
 }
@@ -758,7 +760,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   launchWorkspace(
-    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy">,
+    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget,
     launchMode?: BrowserLaunchMode
@@ -770,7 +772,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async launchWorkspaceUnlocked(
-    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy">,
+    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget,
     requestedLaunchMode?: BrowserLaunchMode
@@ -798,7 +800,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         target?.workArea,
         workspaceAppearance,
         target?.displayId,
-        workspace.id
+        workspace.id,
+        undefined,
+        workspace.template
       );
       try {
         await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
@@ -1054,7 +1058,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     workspaceAppearance: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
     displayId?: number,
     sourceId = workspaceId ?? title,
-    gameIconDataUrl?: string
+    gameIconDataUrl?: string,
+    workspaceTemplate?: WorkspaceLayoutTemplate
   ): GameHostWindow {
     const target = displayId === undefined
       ? this.getDefaultLaunchTarget()
@@ -1074,6 +1079,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       type: workspaceId ? "workspace" : "role",
       window: displayHost.window,
       workspaceAppearance: { ...workspaceAppearance },
+      ...(workspaceTemplate ? { workspaceTemplate } : {}),
       workspaceId
     };
 
@@ -1320,6 +1326,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       tabIconDataUrls: Object.fromEntries(
         [...this.hosts.values()].flatMap((host) =>
           host.gameIconDataUrl ? [[host.id, host.gameIconDataUrl] as const] : []
+        )
+      ),
+      tabWorkspaceTemplates: Object.fromEntries(
+        [...this.hosts.values()].flatMap((host) =>
+          host.workspaceTemplate ? [[host.id, host.workspaceTemplate] as const] : []
         )
       ),
       toolbarVisible: this.isRuntimeToolbarVisible(displayHost),

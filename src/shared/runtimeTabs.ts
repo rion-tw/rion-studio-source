@@ -1,7 +1,8 @@
 import type {
   AppLanguage,
   EmbeddedRuntimeState,
-  WorkspaceDisplayInfo
+  WorkspaceDisplayInfo,
+  WorkspaceLayoutTemplate
 } from "./types";
 
 export const RUNTIME_TABS_STATE_CHANNEL = "runtime-tabs:state";
@@ -29,6 +30,7 @@ export interface RuntimeTabChromeState extends EmbeddedRuntimeState {
   fullscreen: boolean;
   language: AppLanguage;
   tabIconDataUrls: Record<string, string>;
+  tabWorkspaceTemplates: Record<string, WorkspaceLayoutTemplate>;
   toolbarVisible: boolean;
   windowFullscreen: boolean;
 }

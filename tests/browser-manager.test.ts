@@ -280,7 +280,7 @@ describe("BrowserManager game host windows", () => {
       autoHideMenuBar: true,
       frame: true,
       titleBarStyle: "hidden",
-      titleBarOverlay: expect.objectContaining({ height: 40 }),
+      titleBarOverlay: { height: 40 },
       webPreferences: expect.objectContaining({
         backgroundThrottling: true,
         contextIsolation: true,

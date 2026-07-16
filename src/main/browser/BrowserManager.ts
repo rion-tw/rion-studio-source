@@ -1096,8 +1096,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
               ? {
                   titleBarStyle: "hidden",
                   titleBarOverlay: {
-                    color: "#1a1b1f",
-                    symbolColor: "#f4f4f5",
                     height: RUNTIME_TAB_CHROME_HEIGHT
                   }
                 }

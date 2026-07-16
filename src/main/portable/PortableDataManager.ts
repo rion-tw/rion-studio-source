@@ -22,14 +22,12 @@ import {
   type LaunchWorkspaceStore
 } from "../workspaces/LaunchWorkspaceStore";
 import {
-  DEFAULT_LAUNCH_PRESET,
   DEFAULT_LAUNCH_URL,
   DEFAULT_ROLE_WINDOW_HEIGHT,
   DEFAULT_ROLE_WINDOW_WIDTH,
   type GameBrowserSettings,
   type Game,
   type InheritableBrowserLaunchMode,
-  type LaunchPreset,
   type LaunchWorkspace,
   type Macro,
   type MacroRepeat,
@@ -359,7 +357,6 @@ export class PortableDataManager {
         windowWidth: role.windowWidth,
         windowHeight: role.windowHeight,
         notes: role.notes,
-        launchPreset: role.launchPreset,
         ...(role.coverImageDataUrl ? { coverImageDataUrl: role.coverImageDataUrl } : {}),
         ...(role.coverImageDominantColor ? { coverImageDominantColor: role.coverImageDominantColor } : {})
       })) : [],
@@ -982,7 +979,6 @@ function createMergedRole(
     windowWidth: source.windowWidth,
     windowHeight: source.windowHeight,
     notes: source.notes,
-    launchPreset: source.launchPreset,
     coverImageDataUrl: source.coverImageDataUrl,
     coverImageDominantColor: source.coverImageDataUrl ? source.coverImageDominantColor : undefined,
     updatedAt: timestamp
@@ -1003,7 +999,6 @@ function createImportedRole(
     windowWidth: source.windowWidth,
     windowHeight: source.windowHeight,
     notes: source.notes,
-    launchPreset: source.launchPreset,
     authState: "login_required",
     ...(source.coverImageDataUrl ? { coverImageDataUrl: source.coverImageDataUrl } : {}),
     ...(source.coverImageDataUrl && source.coverImageDominantColor
@@ -1027,7 +1022,6 @@ function toPortableRole(role: Role): PortableRole {
     windowWidth: role.windowWidth,
     windowHeight: role.windowHeight,
     notes: role.notes,
-    launchPreset: role.launchPreset,
     ...(role.coverImageDataUrl ? { coverImageDataUrl: role.coverImageDataUrl } : {}),
     ...(role.coverImageDominantColor ? { coverImageDominantColor: role.coverImageDominantColor } : {})
   };
@@ -1345,7 +1339,6 @@ function normalizePortableRole(value: unknown): PortableRole {
     windowWidth: normalizeWindowSize(role.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH),
     windowHeight: normalizeWindowSize(role.windowHeight, DEFAULT_ROLE_WINDOW_HEIGHT),
     notes: typeof role.notes === "string" ? role.notes.trim() : "",
-    launchPreset: normalizeLaunchPreset(role.launchPreset),
     ...(coverImageDataUrl ? { coverImageDataUrl } : {}),
     ...(coverImageDataUrl ? normalizeOptionalCoverImageDominantColorProperty(role.coverImageDominantColor) : {})
   };
@@ -1476,15 +1469,12 @@ function normalizePortableWorkspaceResourcePolicy(
   const input = toRecord(
     value === undefined || value === null ? DEFAULT_WORKSPACE_RESOURCE_POLICY : value
   );
-  if (
-    (input.mode !== "unrestricted" && input.mode !== "primary_priority" && input.mode !== "adaptive") ||
-    (input.backgroundCpuThrottleRate !== 2 && input.backgroundCpuThrottleRate !== 4)
-  ) {
+  if (input.mode !== "unrestricted" && input.mode !== "primary_priority" && input.mode !== "adaptive") {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 
   if (input.mode === "unrestricted") {
-    return { mode: input.mode, backgroundCpuThrottleRate: input.backgroundCpuThrottleRate };
+    return { mode: input.mode };
   }
 
   const roleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
@@ -1492,8 +1482,7 @@ function normalizePortableWorkspaceResourcePolicy(
     ? input.primaryRoleId
     : roleIds[0];
   return {
-    mode: input.mode,
-    backgroundCpuThrottleRate: input.backgroundCpuThrottleRate,
+    mode: "adaptive",
     ...(primaryRoleId ? { primaryRoleId } : {})
   };
 }
@@ -1505,7 +1494,7 @@ function remapWorkspaceResourcePolicy(
 ): WorkspaceResourcePolicy {
   const source = policy ?? DEFAULT_WORKSPACE_RESOURCE_POLICY;
   if (source.mode === "unrestricted") {
-    return { mode: source.mode, backgroundCpuThrottleRate: source.backgroundCpuThrottleRate };
+    return { mode: source.mode };
   }
 
   const assignedRoleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
@@ -1515,7 +1504,6 @@ function remapWorkspaceResourcePolicy(
     : assignedRoleIds[0];
   return {
     mode: source.mode,
-    backgroundCpuThrottleRate: source.backgroundCpuThrottleRate,
     ...(primaryRoleId ? { primaryRoleId } : {})
   };
 }
@@ -1599,8 +1587,6 @@ function normalizeOptionalPortableRoleDefaults(value: unknown): RoleDefaults | u
     const defaults = toRecord(value);
     const windowWidth = defaults.windowWidth;
     const windowHeight = defaults.windowHeight;
-    const launchPreset = defaults.launchPreset;
-
     if (
       !isValidRoleDefaultWindowSize(windowWidth) ||
       !isValidRoleDefaultWindowSize(windowHeight)
@@ -1610,8 +1596,7 @@ function normalizeOptionalPortableRoleDefaults(value: unknown): RoleDefaults | u
 
     return {
       windowWidth,
-      windowHeight,
-      launchPreset: normalizeLaunchPreset(launchPreset)
+      windowHeight
     };
   } catch {
     return undefined;
@@ -1749,14 +1734,6 @@ function normalizeName(value: unknown): string {
   }
 
   return name;
-}
-
-function normalizeLaunchPreset(value: unknown): LaunchPreset {
-  if (value === "balanced" || value === "performance") {
-    return value;
-  }
-
-  return DEFAULT_LAUNCH_PRESET;
 }
 
 function normalizeLaunchUrl(value: unknown): string {

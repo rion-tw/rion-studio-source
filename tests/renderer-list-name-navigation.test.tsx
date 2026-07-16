@@ -100,7 +100,6 @@ function role(): Role {
     windowWidth: 1280,
     windowHeight: 720,
     notes: "",
-    launchPreset: "performance",
     authState: "login_required",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z"
@@ -114,7 +113,7 @@ function workspace(): LaunchWorkspace {
     template: "single",
     browserLaunchMode: "inherit",
     browserZoomPercent: 90,
-    resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
+    resourcePolicy: { mode: "unrestricted" },
     slots: [{ id: "slot-1", rect: { x: 0, y: 0, width: 1, height: 1 } }],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z"

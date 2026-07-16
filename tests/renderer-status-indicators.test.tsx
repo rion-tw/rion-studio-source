@@ -115,7 +115,6 @@ function role(): Role {
     windowWidth: 1280,
     windowHeight: 720,
     notes: "",
-    launchPreset: "performance",
     authState: "authenticated",
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"

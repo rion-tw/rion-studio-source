@@ -64,7 +64,6 @@ const authenticatedRole: Role = {
   windowWidth: 1280,
   windowHeight: 720,
   notes: "",
-  launchPreset: "performance",
   authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
@@ -86,7 +85,7 @@ const workspace: LaunchWorkspace = {
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 100,
-  resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
+  resourcePolicy: { mode: "unrestricted" },
   slots: [
     {
       id: "slot-1",
@@ -286,15 +285,14 @@ describe("registerIpcHandlers workspace handlers", () => {
     vi.mocked(gameStore.getGame).mockResolvedValueOnce({
       ...customGame,
       defaultLaunchUrl: "https://defaults.test/play",
-      roleDefaults: { windowWidth: 1600, windowHeight: 1000, launchPreset: "balanced" }
+      roleDefaults: { windowWidth: 1600, windowHeight: 1000 }
     });
     await handlers.get(IPC_CHANNELS.rolesCreate)?.({}, { gameId: customGame.id, name: "Defaults" });
     expect(roleStore.createRole).toHaveBeenLastCalledWith(expect.objectContaining({
       gameId: customGame.id,
       launchUrl: "https://defaults.test/play",
       windowWidth: 1600,
-      windowHeight: 1000,
-      launchPreset: "balanced"
+      windowHeight: 1000
     }));
     vi.mocked(roleStore.createRole).mockClear();
 
@@ -395,15 +393,14 @@ describe("registerIpcHandlers workspace handlers", () => {
   });
 
   it("passes resolved role defaults to compatibility checks", async () => {
-    const defaults = { windowWidth: 1200, windowHeight: 800, launchPreset: "balanced" as const };
+    const defaults = { windowWidth: 1200, windowHeight: 800 };
     await handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id, defaults);
 
     expect(gameCompatibilityManager.runCheck).toHaveBeenCalledWith(customGame.id, defaults);
     await handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id);
     expect(gameCompatibilityManager.runCheck).toHaveBeenLastCalledWith(customGame.id, {
       windowWidth: 1440,
-      windowHeight: 900,
-      launchPreset: "balanced"
+      windowHeight: 900
     });
     await expect(handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id, {
       ...defaults,

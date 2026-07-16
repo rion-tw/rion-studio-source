@@ -3,13 +3,11 @@ import { access, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
-  DEFAULT_LAUNCH_PRESET,
   DEFAULT_LAUNCH_URL,
   DEFAULT_ROLE_WINDOW_HEIGHT,
   DEFAULT_ROLE_WINDOW_WIDTH,
   type AuthState,
   type CreateRoleInput,
-  type LaunchPreset,
   type ReorderItemsInput,
   type Role,
   type RolePaths,
@@ -65,21 +63,11 @@ export class RoleStore {
     });
   }
 
-  async migrateLaunchPresetsToBalanced(): Promise<boolean> {
+  async removeLegacyLaunchPresets(): Promise<boolean> {
     return this.taskQueue.run(async () => {
       const file = await this.readRolesFile();
-      let changed = false;
-      const roles = file.roles.map((role) => {
-        if (role.launchPreset === DEFAULT_LAUNCH_PRESET) {
-          return role;
-        }
-
-        changed = true;
-        return { ...role, launchPreset: DEFAULT_LAUNCH_PRESET };
-      });
-
-      await this.writeRolesFile({ roles });
-      return changed;
+      await this.writeRolesFile(file);
+      return true;
     });
   }
 
@@ -142,7 +130,6 @@ export class RoleStore {
         windowWidth: this.normalizeWindowSize(input.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH, "windowWidth"),
         windowHeight: this.normalizeWindowSize(input.windowHeight, DEFAULT_ROLE_WINDOW_HEIGHT, "windowHeight"),
         notes: input.notes?.trim() ?? "",
-        launchPreset: this.normalizeLaunchPreset(input.launchPreset),
         authState: "login_required",
         coverImageDataUrl,
         coverImageDominantColor: coverImageDataUrl ? coverImageDominantColor : undefined,
@@ -198,9 +185,6 @@ export class RoleStore {
           ? current.windowHeight
           : this.normalizeWindowSize(input.windowHeight, current.windowHeight, "windowHeight"),
         notes: input.notes === undefined ? current.notes : input.notes.trim(),
-        launchPreset: input.launchPreset === undefined
-          ? current.launchPreset
-          : this.normalizeLaunchPreset(input.launchPreset),
         authState: isSessionIdentityChanged ? "login_required" : current.authState,
         lastAuthCheckAt: isSessionIdentityChanged ? undefined : current.lastAuthCheckAt,
         lastSuccessfulLoginAt: isSessionIdentityChanged ? undefined : current.lastSuccessfulLoginAt,
@@ -402,28 +386,13 @@ export class RoleStore {
     return size;
   }
 
-  private normalizeLaunchPreset(value: LaunchPreset | undefined): LaunchPreset {
-    if (value === undefined) {
-      return DEFAULT_LAUNCH_PRESET;
-    }
-
-    if (value !== "balanced" && value !== "performance") {
-      throw new RoleStoreError("ROLE_PRESET_INVALID", "Launch preset is invalid.");
-    }
-
-    return value;
-  }
-
-  private normalizeStoredLaunchPreset(value: unknown): LaunchPreset {
-    return value === "balanced" || value === "performance" ? value : DEFAULT_LAUNCH_PRESET;
-  }
-
   private normalizeStoredRole(role: Role): Role {
     const {
       gameUrl: legacyLaunchUrl,
       loginProvider: _loginProvider,
+      launchPreset: _launchPreset,
       ...storedRole
-    } = role as Role & { gameUrl?: unknown; loginProvider?: unknown };
+    } = role as Role & { gameUrl?: unknown; loginProvider?: unknown; launchPreset?: unknown };
     const launchUrl = this.normalizeLaunchUrl(
       typeof storedRole.launchUrl === "string"
         ? storedRole.launchUrl
@@ -439,7 +408,6 @@ export class RoleStore {
       launchUrl,
       authState: this.normalizeAuthState(storedRole.authState),
       notes: storedRole.notes ?? "",
-      launchPreset: this.normalizeStoredLaunchPreset(storedRole.launchPreset),
       coverImageDataUrl,
       coverImageDominantColor: coverImageDataUrl
         ? this.normalizeCoverImageDominantColor(storedRole.coverImageDominantColor)

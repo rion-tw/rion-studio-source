@@ -5,27 +5,30 @@ import ja from "../src/renderer/src/i18n/ja.json";
 import zhCN from "../src/renderer/src/i18n/zh-CN.json";
 import zhTW from "../src/renderer/src/i18n/zh-TW.json";
 
-describe("background activity translations", () => {
-  it("uses accurate labels in every supported language", () => {
-    expect(en).toMatchObject({
-      "roleForm.launchPreset": "Background activity",
-      "preset.balanced": "Power saving (Recommended)",
-      "preset.performance": "Keep active"
-    });
-    expect(zhTW).toMatchObject({
-      "roleForm.launchPreset": "背景活動",
-      "preset.balanced": "自動節能（建議）",
-      "preset.performance": "持續運作"
-    });
-    expect(zhCN).toMatchObject({
-      "roleForm.launchPreset": "背景活动",
-      "preset.balanced": "自动节能（推荐）",
-      "preset.performance": "持续运行"
-    });
-    expect(ja).toMatchObject({
-      "roleForm.launchPreset": "バックグラウンド動作",
-      "preset.balanced": "自動省電（推奨）",
-      "preset.performance": "常時動作"
-    });
+const dictionaries = { en, ja, "zh-CN": zhCN, "zh-TW": zhTW };
+
+describe("automatic power saving i18n", () => {
+  it("removes background activity and fixed resource controls from every language", () => {
+    for (const dictionary of Object.values(dictionaries)) {
+      expect(dictionary).not.toHaveProperty("roleForm.launchPreset");
+      expect(dictionary).not.toHaveProperty("roleForm.backgroundActivityDescription");
+      expect(dictionary).not.toHaveProperty("workspaces.resourceModePrimary");
+      expect(dictionary).not.toHaveProperty("workspaces.throttleRate");
+      expect(dictionary).not.toHaveProperty("settings.defaultPreset");
+      expect(dictionary).not.toHaveProperty("preset.balanced");
+      expect(dictionary).not.toHaveProperty("preset.performance");
+    }
+  });
+
+  it("keeps adaptive and unrestricted labels with browser-size-only role descriptions", () => {
+    expect(en["roleForm.section.launchDescription"]).toBe("Set the browser size for this role.");
+    expect(zhTW["roleForm.section.launchDescription"]).toBe("設定此角色的瀏覽器尺寸。");
+    expect(zhCN["roleForm.section.launchDescription"]).toBe("设置此角色的浏览器尺寸。");
+    expect(ja["roleForm.section.launchDescription"]).toBe("このロールのブラウザーサイズを設定します。");
+
+    for (const dictionary of Object.values(dictionaries)) {
+      expect(dictionary["workspaces.resourceModeAdaptive"]).toBeTruthy();
+      expect(dictionary["workspaces.resourceModeUnrestricted"]).toBeTruthy();
+    }
   });
 });

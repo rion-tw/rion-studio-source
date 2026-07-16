@@ -1,7 +1,6 @@
 import type {
   GameSource,
   InheritableBrowserLaunchMode,
-  LaunchPreset,
   LaunchWorkspaceSlot,
   MacroRepeat,
   MacroStep,
@@ -19,7 +18,6 @@ export interface RoleFormState {
   windowWidth: number;
   windowHeight: number;
   notes: string;
-  launchPreset: LaunchPreset;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
 }
@@ -46,7 +44,6 @@ export interface GameFormState {
   usesGlobalRoleDefaults: boolean;
   windowWidth: number;
   windowHeight: number;
-  launchPreset: LaunchPreset;
   browserLaunchMode: InheritableBrowserLaunchMode;
 }
 

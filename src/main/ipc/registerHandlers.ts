@@ -1,11 +1,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc";
-import {
-  DEFAULT_LAUNCH_PRESET,
-  DEFAULT_ROLE_WINDOW_HEIGHT,
-  DEFAULT_ROLE_WINDOW_WIDTH
-} from "../../shared/types";
+import { DEFAULT_ROLE_WINDOW_HEIGHT, DEFAULT_ROLE_WINDOW_WIDTH } from "../../shared/types";
 import type {
   AcceptLegalDocumentsInput,
   AppLanguage,
@@ -379,8 +375,7 @@ export function registerIpcHandlers(
         ...input,
         launchUrl: input.launchUrl ?? game.defaultLaunchUrl,
         windowWidth: input.windowWidth ?? game.roleDefaults?.windowWidth,
-        windowHeight: input.windowHeight ?? game.roleDefaults?.windowHeight,
-        launchPreset: input.launchPreset ?? game.roleDefaults?.launchPreset
+        windowHeight: input.windowHeight ?? game.roleDefaults?.windowHeight
       } : input);
       options.onRolesChanged?.();
       return role;
@@ -844,13 +839,11 @@ function isWorkspaceLaunchInput(value: unknown): value is WorkspaceLaunchInput |
 function normalizeCompatibilityRoleDefaults(value: RoleDefaults | undefined): RoleDefaults {
   const defaults = value ?? {
     windowWidth: DEFAULT_ROLE_WINDOW_WIDTH,
-    windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT,
-    launchPreset: DEFAULT_LAUNCH_PRESET
+    windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT
   };
   if (
     !Number.isInteger(defaults.windowWidth) || defaults.windowWidth < 640 || defaults.windowWidth > 7680 ||
-    !Number.isInteger(defaults.windowHeight) || defaults.windowHeight < 640 || defaults.windowHeight > 7680 ||
-    (defaults.launchPreset !== "balanced" && defaults.launchPreset !== "performance")
+    !Number.isInteger(defaults.windowHeight) || defaults.windowHeight < 640 || defaults.windowHeight > 7680
   ) {
     throw new Error("Compatibility role defaults are invalid.");
   }

@@ -152,7 +152,6 @@ export class BrowserWorkspaceDisplayOccupiedError extends Error {
 }
 
 interface GameHostWindow {
-  adaptiveResources: boolean;
   activeDividerResize?: ActiveGameDividerResize;
   closing: boolean;
   dividers: GameDivider[];
@@ -410,8 +409,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         `${workspace.name} - ${roleNames}`,
         workspace.id,
         target?.workArea,
-        workspaceAppearance,
-        workspace.resourcePolicy.mode === "adaptive"
+        workspaceAppearance
       );
       try {
         await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
@@ -643,8 +641,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     title: string,
     workspaceId?: string,
     launchBounds?: PixelBounds,
-    workspaceAppearance: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
-    adaptiveResources = false
+    workspaceAppearance: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
   ): GameHostWindow {
     const bounds = launchBounds ?? this.options.getLaunchWorkArea();
     const isWorkspace = Boolean(workspaceId);
@@ -670,7 +667,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       window.contentView.setBackgroundColor("#00000000");
     }
     const host: GameHostWindow = {
-      adaptiveResources,
       closing: false,
       dividers: [],
       id: randomUUID(),
@@ -702,7 +698,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const partition = createRoleSessionPartition(role.id);
     const view = this.options.createView({
       webPreferences: {
-        backgroundThrottling: host.adaptiveResources || role.launchPreset !== "performance",
+        backgroundThrottling: true,
         contextIsolation: true,
         nodeIntegration: false,
         partition,
@@ -963,7 +959,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const popupView = this.options.createView({
       webPreferences: {
         ...windowOptions.webPreferences,
-        backgroundThrottling: host.adaptiveResources || session.role.launchPreset !== "performance",
+        backgroundThrottling: true,
         contextIsolation: true,
         nodeIntegration: false,
         partition: createRoleSessionPartition(session.role.id),

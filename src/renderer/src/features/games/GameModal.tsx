@@ -17,7 +17,6 @@ import type {
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
   InheritableBrowserLaunchMode,
-  LaunchPreset,
   RoleDefaults
 } from "../../../../shared/types";
 import { GameCompatibilityPanel } from "./GameCompatibilityPanel";
@@ -121,10 +120,9 @@ function GameEditor({
           <FormField label={t("games.form.roleDefaults")} description={t("games.form.roleDefaultsDescription")}>
             <Select value={form.usesGlobalRoleDefaults ? "global" : "custom"} onValueChange={(value) => setForm({ ...form, usesGlobalRoleDefaults: value === "global" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="global">{t("games.form.inheritGlobal")}</SelectItem><SelectItem value="custom">{t("games.form.customDefaults")}</SelectItem></SelectContent></Select>
           </FormField>
-          {!form.usesGlobalRoleDefaults ? <FormGrid columns={3}>
+          {!form.usesGlobalRoleDefaults ? <FormGrid columns={2}>
             <FormField label={t("roleForm.width")}><Input type="number" min={640} max={7680} value={form.windowWidth} onChange={(e) => setForm({ ...form, windowWidth: Number(e.target.value) })} /></FormField>
             <FormField label={t("roleForm.height")}><Input type="number" min={640} max={7680} value={form.windowHeight} onChange={(e) => setForm({ ...form, windowHeight: Number(e.target.value) })} /></FormField>
-            <FormField label={t("roleForm.launchPreset")} description={t("roleForm.backgroundActivityDescription")}><Select value={form.launchPreset} onValueChange={(value) => setForm({ ...form, launchPreset: value as LaunchPreset })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="balanced">{t("preset.balanced")}</SelectItem><SelectItem value="performance">{t("preset.performance")}</SelectItem></SelectContent></Select></FormField>
           </FormGrid> : null}
           <FormField label={t("games.form.launchMode")}><Select value={form.browserLaunchMode} onValueChange={(value) => setForm({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.mode.inherit")}</SelectItem><SelectItem value="auto">{t("games.mode.auto")}</SelectItem><SelectItem value="embedded">{t("games.mode.embedded")}</SelectItem><SelectItem value="external">{t("games.mode.external")}</SelectItem></SelectContent></Select></FormField>
         </Surface>

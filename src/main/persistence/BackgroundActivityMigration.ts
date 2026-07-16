@@ -5,12 +5,12 @@ import type { GameStore } from "../games/GameStore";
 import type { RoleStore } from "../roles/RoleStore";
 import { writeJsonFileAtomically } from "./atomicJsonFile";
 
-export const BACKGROUND_ACTIVITY_MIGRATION_VERSION = 1;
+export const BACKGROUND_ACTIVITY_MIGRATION_VERSION = 2;
 export const BACKGROUND_ACTIVITY_MIGRATION_FILE = "background-activity-migration.json";
 
 interface BackgroundActivityMigrationStores {
-  gameStore: Pick<GameStore, "migrateLaunchPresetsToBalanced">;
-  roleStore: Pick<RoleStore, "migrateLaunchPresetsToBalanced">;
+  gameStore: Pick<GameStore, "removeLegacyLaunchPresets">;
+  roleStore: Pick<RoleStore, "removeLegacyLaunchPresets">;
 }
 
 export async function runBackgroundActivityMigration(
@@ -22,8 +22,8 @@ export async function runBackgroundActivityMigration(
     return false;
   }
 
-  await stores.roleStore.migrateLaunchPresetsToBalanced();
-  await stores.gameStore.migrateLaunchPresetsToBalanced();
+  await stores.roleStore.removeLegacyLaunchPresets();
+  await stores.gameStore.removeLegacyLaunchPresets();
   await writeJsonFileAtomically(markerPath, { version: BACKGROUND_ACTIVITY_MIGRATION_VERSION });
   return true;
 }

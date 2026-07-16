@@ -348,11 +348,11 @@ describe("games cover UI", () => {
     expect(onRunCheck).toHaveBeenCalledWith(customGame.id);
   });
 
-  it("describes custom role defaults as embedded background activity", () => {
+  it("shows custom role window defaults without a background activity option", () => {
     const customGame = game({
       id: "game-1",
       name: "Custom game",
-      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" }
+      roleDefaults: { windowWidth: 1280, windowHeight: 720 }
     });
     const router = createMemoryRouter([{
       path: "/games/:id/edit",
@@ -374,16 +374,15 @@ describe("games cover UI", () => {
     }], { initialEntries: ["/games/game-1/edit"] });
     render(<RouterProvider router={router} />);
 
-    expect(screen.getByText("Background activity")).toBeTruthy();
-    expect(screen.getAllByText("Power saving (Recommended)").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Embedded mode only/)).toBeTruthy();
+    expect(screen.getByText("Width")).toBeTruthy();
+    expect(screen.getByText("Height")).toBeTruthy();
+    expect(screen.queryByText("Background activity")).toBeNull();
   });
 });
 
 const roleDefaults: RoleDefaults = {
   windowWidth: 1440,
-  windowHeight: 900,
-  launchPreset: "performance"
+  windowHeight: 900
 };
 
 const t: Translator = (key) => en[key];

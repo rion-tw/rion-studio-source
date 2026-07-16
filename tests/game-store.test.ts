@@ -48,28 +48,31 @@ describe("GameStore", () => {
     expect(repaired[0].coverImageDataUrl).toBeUndefined();
   });
 
-  it("migrates custom role defaults to balanced without changing game timestamps", async () => {
+  it("removes legacy launch presets from custom role defaults without changing timestamps", async () => {
     await store.initialize();
     const game = await store.createGame({
       name: "Performance defaults",
       defaultLaunchUrl: "https://example.test/performance",
-      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "performance" }
+      roleDefaults: { windowWidth: 1280, windowHeight: 720 }
     });
+    const gamesPath = join(baseDir, "games.json");
+    const file = JSON.parse(await readFile(gamesPath, "utf8")) as { games: Array<Record<string, unknown>> };
+    const storedGame = file.games.find((item) => item.id === game.id);
+    (storedGame?.roleDefaults as Record<string, unknown>).launchPreset = "performance";
+    await writeFile(gamesPath, JSON.stringify(file), "utf8");
 
-    await expect(store.migrateLaunchPresetsToBalanced()).resolves.toBe(true);
-    await expect(store.getGame(game.id)).resolves.toEqual({
-      ...game,
-      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" }
-    });
-    await expect(store.migrateLaunchPresetsToBalanced()).resolves.toBe(false);
+    const reloadedStore = new GameStore(baseDir, roleStore);
+    await expect(reloadedStore.removeLegacyLaunchPresets()).resolves.toBe(true);
+    await expect(new GameStore(baseDir, roleStore).getGame(game.id)).resolves.toEqual(game);
+    await expect(readFile(gamesPath, "utf8")).resolves.not.toContain("launchPreset");
   });
 
-  it("normalizes an invalid stored game launch preset to balanced during migration", async () => {
+  it("ignores and removes an invalid stored game launch preset", async () => {
     await store.initialize();
     const game = await store.createGame({
       name: "Invalid stored defaults",
       defaultLaunchUrl: "https://example.test/invalid",
-      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "performance" }
+      roleDefaults: { windowWidth: 1280, windowHeight: 720 }
     });
     const gamesPath = join(baseDir, "games.json");
     const file = JSON.parse(await readFile(gamesPath, "utf8")) as { games: Array<Record<string, unknown>> };
@@ -78,12 +81,9 @@ describe("GameStore", () => {
     await writeFile(gamesPath, JSON.stringify(file), "utf8");
     const reloadedStore = new GameStore(baseDir, roleStore);
 
-    await expect(reloadedStore.getGame(game.id)).resolves.toEqual({
-      ...game,
-      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" }
-    });
-    await reloadedStore.migrateLaunchPresetsToBalanced();
-    await expect(readFile(gamesPath, "utf8")).resolves.toContain('"launchPreset": "balanced"');
+    await expect(reloadedStore.getGame(game.id)).resolves.toEqual(game);
+    await reloadedStore.removeLegacyLaunchPresets();
+    await expect(readFile(gamesPath, "utf8")).resolves.not.toContain("launchPreset");
   });
 
   it("migrates known and unknown role URLs idempotently without changing role metadata", async () => {
@@ -194,7 +194,7 @@ describe("GameStore", () => {
     await expect(store.createGame({
       name: "Bad defaults",
       defaultLaunchUrl: "https://defaults.test",
-      roleDefaults: { windowWidth: 100, windowHeight: 900, launchPreset: "performance" }
+      roleDefaults: { windowWidth: 100, windowHeight: 900 }
     })).rejects.toMatchObject({ code: "GAME_ROLE_DEFAULTS_INVALID" });
   });
 
@@ -210,7 +210,7 @@ describe("GameStore", () => {
     await store.updateGame(FLYFF_UNIVERSE_GAME_ID, {
       defaultLaunchUrl: "https://example.test/override",
       browserLaunchMode: "external",
-      roleDefaults: { windowWidth: 1280, windowHeight: 720, launchPreset: "balanced" }
+      roleDefaults: { windowWidth: 1280, windowHeight: 720 }
     });
     const reset = await store.resetBuiltinGame(FLYFF_UNIVERSE_GAME_ID);
     expect(reset).toMatchObject({

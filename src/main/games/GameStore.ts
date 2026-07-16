@@ -7,7 +7,6 @@ import {
   createBuiltinGame,
   getBuiltinGameDefinition
 } from "../../shared/games";
-import { DEFAULT_LAUNCH_PRESET } from "../../shared/types";
 import type {
   CreateGameInput,
   Game,
@@ -101,24 +100,11 @@ export class GameStore {
     return this.taskQueue.run(async () => structuredClone((await this.readGamesFile()).games));
   }
 
-  async migrateLaunchPresetsToBalanced(): Promise<boolean> {
+  async removeLegacyLaunchPresets(): Promise<boolean> {
     return this.taskQueue.run(async () => {
       const file = await this.readGamesFile();
-      let changed = false;
-      const games = file.games.map((game) => {
-        if (!game.roleDefaults || game.roleDefaults.launchPreset === DEFAULT_LAUNCH_PRESET) {
-          return game;
-        }
-
-        changed = true;
-        return {
-          ...game,
-          roleDefaults: { ...game.roleDefaults, launchPreset: DEFAULT_LAUNCH_PRESET }
-        };
-      });
-
-      await this.writeGamesFile({ games });
-      return changed;
+      await this.writeGamesFile(file);
+      return true;
     });
   }
 
@@ -384,7 +370,7 @@ function normalizeStoredGame(value: unknown): Game {
     loginUrl: normalizeOptionalHttpUrl(value.loginUrl),
     iconImageDataUrl: definition ? undefined : normalizeImageDataUrl(value.iconImageDataUrl),
     coverImageDataUrl: definition ? undefined : normalizeCoverImageDataUrl(value.coverImageDataUrl),
-    roleDefaults: normalizeOptionalRoleDefaults(value.roleDefaults, true),
+    roleDefaults: normalizeOptionalRoleDefaults(value.roleDefaults),
     browserLaunchMode: normalizeBrowserLaunchMode(value.browserLaunchMode),
     createdAt: normalizeTimestamp(value.createdAt),
     updatedAt: normalizeTimestamp(value.updatedAt)
@@ -499,30 +485,23 @@ function getBase64PayloadByteLength(dataUrl: string): number {
   return Math.floor((payload.length * 3) / 4) - padding;
 }
 
-function normalizeOptionalRoleDefaults(
-  value: unknown,
-  defaultInvalidLaunchPreset = false
-): RoleDefaults | undefined {
+function normalizeOptionalRoleDefaults(value: unknown): RoleDefaults | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
   if (!isRecord(value)) {
     throw new GameStoreError("GAME_ROLE_DEFAULTS_INVALID", "Game role defaults are invalid.");
   }
-  const { windowWidth, windowHeight, launchPreset } = value;
+  const { windowWidth, windowHeight } = value;
   if (
     !Number.isInteger(windowWidth) || Number(windowWidth) < 640 || Number(windowWidth) > 7680 ||
-    !Number.isInteger(windowHeight) || Number(windowHeight) < 640 || Number(windowHeight) > 7680 ||
-    (!defaultInvalidLaunchPreset && launchPreset !== "balanced" && launchPreset !== "performance")
+    !Number.isInteger(windowHeight) || Number(windowHeight) < 640 || Number(windowHeight) > 7680
   ) {
     throw new GameStoreError("GAME_ROLE_DEFAULTS_INVALID", "Game role defaults are invalid.");
   }
   return {
     windowWidth: Number(windowWidth),
-    windowHeight: Number(windowHeight),
-    launchPreset: launchPreset === "balanced" || launchPreset === "performance"
-      ? launchPreset
-      : DEFAULT_LAUNCH_PRESET
+    windowHeight: Number(windowHeight)
   };
 }
 

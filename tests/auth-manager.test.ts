@@ -12,7 +12,6 @@ const role: Role = {
   windowWidth: 1280,
   windowHeight: 720,
   notes: "",
-  launchPreset: "performance",
   authState: "login_required",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"

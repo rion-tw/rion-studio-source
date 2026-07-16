@@ -58,7 +58,7 @@ const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
 ];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
-export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 2;
+export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 3;
 
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
@@ -480,10 +480,8 @@ export class LaunchWorkspaceStore {
 
     const input = normalizedValue as Record<string, unknown>;
     const mode = input.mode;
-    const backgroundCpuThrottleRate = input.backgroundCpuThrottleRate;
     if (
-      (mode !== "unrestricted" && mode !== "primary_priority" && mode !== "adaptive") ||
-      (backgroundCpuThrottleRate !== 2 && backgroundCpuThrottleRate !== 4)
+      mode !== "unrestricted" && mode !== "primary_priority" && mode !== "adaptive"
     ) {
       throw new LaunchWorkspaceStoreError(
         "WORKSPACE_RESOURCE_POLICY_INVALID",
@@ -492,7 +490,7 @@ export class LaunchWorkspaceStore {
     }
 
     if (mode === "unrestricted") {
-      return { mode, backgroundCpuThrottleRate };
+      return { mode };
     }
 
     const assignedRoleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
@@ -504,8 +502,8 @@ export class LaunchWorkspaceStore {
       : assignedRoleIds[0];
 
     return primaryRoleId
-      ? { mode, backgroundCpuThrottleRate, primaryRoleId }
-      : { mode, backgroundCpuThrottleRate };
+      ? { mode: "adaptive", primaryRoleId }
+      : { mode: "adaptive" };
   }
 
   private normalizeTargetDisplayId(value: unknown): number | undefined {
@@ -665,34 +663,19 @@ function cloneWorkspacesFile(file: LaunchWorkspacesFile): LaunchWorkspacesFile {
   };
 }
 
-export function migrateLegacyWorkspaceResourcePolicyDefault(
-  workspace: LaunchWorkspace
-): LaunchWorkspace {
-  if (workspace.resourcePolicy.mode !== "unrestricted") {
-    return workspace;
-  }
-
-  const primaryRoleId = workspace.slots.find((slot) => slot.roleId)?.roleId;
-  return {
-    ...workspace,
-    resourcePolicy: {
-      mode: "primary_priority",
-      backgroundCpuThrottleRate: 2,
-      ...(primaryRoleId ? { primaryRoleId } : {})
-    }
-  };
-}
-
 export function migrateWorkspaceResourcePolicyToAdaptive(
   workspace: LaunchWorkspace
 ): LaunchWorkspace {
+  if (workspace.resourcePolicy.mode === "unrestricted") {
+    return workspace;
+  }
+
   const primaryRoleId = workspace.resourcePolicy.primaryRoleId ??
     workspace.slots.find((slot) => slot.roleId)?.roleId;
   return {
     ...workspace,
     resourcePolicy: {
       mode: "adaptive",
-      backgroundCpuThrottleRate: 4,
       ...(primaryRoleId ? { primaryRoleId } : {})
     }
   };

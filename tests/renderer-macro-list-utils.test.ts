@@ -123,7 +123,6 @@ function role(overrides: Partial<Role>): Role {
     windowWidth: 1280,
     windowHeight: 720,
     notes: "",
-    launchPreset: "performance",
     authState: "unknown",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

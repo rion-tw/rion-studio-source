@@ -2,8 +2,6 @@ export const DEFAULT_LAUNCH_URL = "https://universe.flyff.com/play";
 export const DEFAULT_ROLE_WINDOW_WIDTH = 1440;
 export const DEFAULT_ROLE_WINDOW_HEIGHT = 900;
 
-export type LaunchPreset = "balanced" | "performance";
-export const DEFAULT_LAUNCH_PRESET: LaunchPreset = "balanced";
 export type WorkspaceLayoutTemplate =
   | "single"
   | "two_columns"
@@ -71,7 +69,6 @@ export interface Role {
   windowWidth: number;
   windowHeight: number;
   notes: string;
-  launchPreset: LaunchPreset;
   authState: AuthState;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
@@ -88,7 +85,6 @@ export interface CreateRoleInput {
   windowWidth?: number;
   windowHeight?: number;
   notes?: string;
-  launchPreset?: LaunchPreset;
   coverImageDataUrl?: string | null;
   coverImageDominantColor?: string | null;
 }
@@ -233,7 +229,7 @@ export interface LaunchWorkspaceSlot {
   rect: NormalizedRect;
 }
 
-export type WorkspaceResourceMode = "unrestricted" | "primary_priority" | "adaptive";
+export type WorkspaceResourceMode = "unrestricted" | "adaptive";
 export type WorkspaceCpuThrottleRate = 2 | 4;
 export type WorkspacePressureLevel = "normal" | "constrained";
 export type WorkspaceResourceReason =
@@ -253,7 +249,6 @@ export type WorkspaceResourceState =
 
 export interface WorkspaceResourcePolicy {
   mode: WorkspaceResourceMode;
-  backgroundCpuThrottleRate: WorkspaceCpuThrottleRate;
   primaryRoleId?: string;
 }
 
@@ -350,7 +345,6 @@ export interface AppErrorPayload {
 export interface RoleDefaults {
   windowWidth: number;
   windowHeight: number;
-  launchPreset: LaunchPreset;
 }
 
 export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
@@ -597,7 +591,6 @@ export interface PortableRole {
   windowWidth: number;
   windowHeight: number;
   notes: string;
-  launchPreset: LaunchPreset;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
 }

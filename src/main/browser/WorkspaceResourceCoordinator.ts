@@ -216,17 +216,14 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     await Promise.all(fullSpeedGroups.map((group) => this.applyGroupRate(managed, group, 1)));
     await Promise.all(
       throttledGroups.map((group) =>
-        this.applyGroupRate(managed, group, this.getBackgroundRate(managed.policy))
+        this.applyGroupRate(managed, group, this.getBackgroundRate())
       )
     );
     this.updateStatuses(managed, groups, fullSpeedRoleIds);
   }
 
-  private getBackgroundRate(policy: WorkspaceResourcePolicy): WorkspaceCpuThrottleRate {
-    if (policy.mode === "adaptive") {
-      return this.pressureSnapshot.level === "constrained" ? 4 : 2;
-    }
-    return policy.backgroundCpuThrottleRate;
+  private getBackgroundRate(): WorkspaceCpuThrottleRate {
+    return this.pressureSnapshot.level === "constrained" ? 4 : 2;
   }
 
   private async removeTargets(managed: ManagedWorkspace, roleIds: string[]): Promise<void> {
@@ -305,16 +302,12 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
             resourceReason: "shared_process"
           };
         } else {
-          const cpuThrottleRate = this.getBackgroundRate(managed.policy);
+          const cpuThrottleRate = this.getBackgroundRate();
           status = {
             resourceState: "throttled",
             cpuThrottleRate,
-            ...(managed.policy.mode === "adaptive"
-              ? {
-                  resourcePressureLevel: this.pressureSnapshot.level,
-                  resourceReason: this.pressureSnapshot.reason
-                }
-              : {})
+            resourcePressureLevel: this.pressureSnapshot.level,
+            resourceReason: this.pressureSnapshot.reason
           };
         }
         this.roleStatuses.set(target.roleId, status);

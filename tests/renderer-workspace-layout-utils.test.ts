@@ -76,7 +76,7 @@ describe("renderer workspace layout helpers", () => {
         name: "Party",
         template: "three_columns",
         browserZoomPercent: 125,
-        resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 },
+        resourcePolicy: { mode: "unrestricted" },
         targetDisplayId: 22,
         slots: applyWorkspaceTemplate([], "three_columns"),
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -144,8 +144,8 @@ describe("renderer workspace layout helpers", () => {
     ]);
   });
 
-  it("preserves primary priority while roles are assigned and removed", () => {
-    const policy = { mode: "primary_priority" as const, backgroundCpuThrottleRate: 2 as const };
+  it("preserves the adaptive primary while roles are assigned and removed", () => {
+    const policy = { mode: "adaptive" as const };
 
     expect(reconcileWorkspaceResourcePolicy(policy, [slot("slot-1"), slot("slot-2")]))
       .toEqual(policy);
@@ -527,7 +527,6 @@ function role(overrides: Partial<Role> = {}): Role {
     windowWidth: 1280,
     windowHeight: 720,
     notes: "",
-    launchPreset: "performance",
     authState: "unknown",
     createdAt: "2026-07-14T00:00:00.000Z",
     updatedAt: "2026-07-14T00:00:00.000Z",

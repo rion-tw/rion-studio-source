@@ -68,7 +68,7 @@ export function useRoleWorkflow({
         return true;
       }
 
-      return [role.name, gameNamesById.get(role.gameId), role.launchUrl, role.notes, role.launchPreset]
+      return [role.name, gameNamesById.get(role.gameId), role.launchUrl, role.notes]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery);
@@ -92,7 +92,6 @@ export function useRoleWorkflow({
         windowWidth: Number(form.windowWidth),
         windowHeight: Number(form.windowHeight),
         notes: form.notes,
-        launchPreset: form.launchPreset,
         coverImageDataUrl: form.coverImageDataUrl ?? null,
         coverImageDominantColor: form.coverImageDominantColor ?? null
       };
@@ -291,7 +290,6 @@ export function useRoleWorkflow({
         windowWidth: role.windowWidth,
         windowHeight: role.windowHeight,
         notes: role.notes,
-        launchPreset: role.launchPreset,
         coverImageDataUrl: role.coverImageDataUrl ?? null,
         coverImageDominantColor: role.coverImageDominantColor ?? null
       });

@@ -26,10 +26,10 @@ describe("LaunchWorkspaceStore", () => {
     const workspace = await store.createWorkspace({ name: "Party" });
     const listed = await store.listWorkspaces();
     listed[0].slots[0].rect.width = 0.75;
-    listed[0].resourcePolicy.backgroundCpuThrottleRate = 2;
+    listed[0].resourcePolicy.primaryRoleId = "mutated";
 
     expect((await store.getWorkspace(workspace.id)).slots[0].rect.width).toBe(0.5);
-    expect((await store.getWorkspace(workspace.id)).resourcePolicy.backgroundCpuThrottleRate).toBe(4);
+    expect((await store.getWorkspace(workspace.id)).resourcePolicy.primaryRoleId).toBeUndefined();
   });
 
   it("creates a launch workspace with default layout slots", async () => {
@@ -39,7 +39,7 @@ describe("LaunchWorkspaceStore", () => {
       name: "Boss run",
       template: "two_columns",
       browserZoomPercent: 100,
-      resourcePolicy: { mode: "adaptive", backgroundCpuThrottleRate: 4 }
+      resourcePolicy: { mode: "adaptive" }
     });
     expect(workspace.slots).toEqual([
       {
@@ -61,25 +61,22 @@ describe("LaunchWorkspaceStore", () => {
     });
     expect(updated.resourcePolicy).toEqual({
       mode: "adaptive",
-      backgroundCpuThrottleRate: 4,
       primaryRoleId: "role-1"
     });
   });
 
-  it("normalizes and persists a primary-priority resource policy", async () => {
+  it("normalizes and persists an adaptive resource policy", async () => {
     const workspace = await store.createWorkspace({
       name: "Priority party",
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 4,
+        mode: "adaptive",
         primaryRoleId: "missing-role"
       },
       slots: [{ roleId: "role-1" }, { roleId: "role-2" }]
     });
 
     expect(workspace.resourcePolicy).toEqual({
-      mode: "primary_priority",
-      backgroundCpuThrottleRate: 4,
+      mode: "adaptive",
       primaryRoleId: "role-1"
     });
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
@@ -541,7 +538,6 @@ describe("LaunchWorkspaceStore", () => {
     expect(unchanged).toContain(`"schemaVersion": ${LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION}`);
     expect(workspace.resourcePolicy).toEqual({
       mode: "adaptive",
-      backgroundCpuThrottleRate: 4,
       primaryRoleId: "role-1"
     });
     expect(workspace.slots).toMatchObject([
@@ -552,7 +548,7 @@ describe("LaunchWorkspaceStore", () => {
     ]);
   });
 
-  it("migrates unrestricted legacy policies once and preserves later user choices", async () => {
+  it("preserves unrestricted policies and migrates primary priority to adaptive", async () => {
     const path = join(baseDir, "launch-workspaces.json");
     const timestamp = "2026-07-10T00:00:00.000Z";
     await writeFile(
@@ -594,15 +590,10 @@ describe("LaunchWorkspaceStore", () => {
     expect(migrated[0]).toMatchObject({
       createdAt: timestamp,
       updatedAt: timestamp,
-      resourcePolicy: {
-        mode: "adaptive",
-        backgroundCpuThrottleRate: 4,
-        primaryRoleId: "role-1"
-      }
+      resourcePolicy: { mode: "unrestricted" }
     });
     expect(migrated[1].resourcePolicy).toEqual({
       mode: "adaptive",
-      backgroundCpuThrottleRate: 4,
       primaryRoleId: "role-2"
     });
     expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
@@ -610,11 +601,11 @@ describe("LaunchWorkspaceStore", () => {
     });
 
     await store.updateWorkspace("workspace-unrestricted", {
-      resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
+      resourcePolicy: { mode: "unrestricted" }
     });
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace("workspace-unrestricted"))
       .resolves.toMatchObject({
-        resourcePolicy: { mode: "unrestricted", backgroundCpuThrottleRate: 2 }
+        resourcePolicy: { mode: "unrestricted" }
       });
   });
 
@@ -733,12 +724,11 @@ describe("LaunchWorkspaceStore", () => {
     expect(updated.slots[1]).toMatchObject({ roleId: "role-2" });
   });
 
-  it("selects the next primary role and preserves the policy after the last role is removed", async () => {
+  it("selects the next adaptive primary and preserves the policy after the last role is removed", async () => {
     const workspace = await store.createWorkspace({
       name: "Priority party",
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 2,
+        mode: "adaptive",
         primaryRoleId: "role-1"
       },
       slots: [{ roleId: "role-1" }, { roleId: "role-2" }]
@@ -747,15 +737,14 @@ describe("LaunchWorkspaceStore", () => {
     await store.clearRole("role-1");
     await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
       resourcePolicy: {
-        mode: "primary_priority",
-        backgroundCpuThrottleRate: 2,
+        mode: "adaptive",
         primaryRoleId: "role-2"
       }
     });
 
     await store.clearRole("role-2");
     await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
-      resourcePolicy: { mode: "primary_priority", backgroundCpuThrottleRate: 2 }
+      resourcePolicy: { mode: "adaptive" }
     });
     expect((await store.getWorkspace(workspace.id)).resourcePolicy).not.toHaveProperty("primaryRoleId");
   });

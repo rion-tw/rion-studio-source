@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { PageFrame, SegmentedControl, Surface } from "../../components/ui/patterns";
 import {
   languageLabelKeys,
-  presetLabelKeys,
   resolvedThemeLabelKeys,
   themeLabelKeys,
   themeModes
@@ -42,7 +41,6 @@ import type {
   BrowserLaunchMode,
   GameBrowserSettings,
   GraphicsDiagnostics,
-  LaunchPreset,
   PortableDataSelection,
   PortableExportInput,
   PortableExportResult,
@@ -520,29 +518,6 @@ function SettingsViewBase({
                     t={t}
                     onRoleDefaultsChange={onRoleDefaultsChange}
                   />
-                }
-              />
-              <SettingsRow
-                title={t("settings.defaultPreset")}
-                description={t("settings.defaultPresetDescription")}
-                control={
-                  <Select
-                    value={roleDefaults.launchPreset}
-                    onValueChange={(value) =>
-                      onRoleDefaultsChange({
-                        ...roleDefaults,
-                        launchPreset: value as LaunchPreset
-                      })
-                    }
-                  >
-                    <SelectTrigger className="settings-menu-control" aria-label={t("settings.defaultPreset")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="balanced">{t(presetLabelKeys.balanced)}</SelectItem>
-                      <SelectItem value="performance">{t(presetLabelKeys.performance)}</SelectItem>
-                    </SelectContent>
-                  </Select>
                 }
               />
             </SettingsSection>

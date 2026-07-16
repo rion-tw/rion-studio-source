@@ -1,5 +1,4 @@
 import type { Language, TranslationKey } from "../i18n";
-import type { LaunchPreset } from "../../../shared/types";
 import type { RoleFormState, ResolvedTheme, ThemeMode } from "./types";
 import { createEmptyRoleForm } from "./roleDefaults";
 
@@ -9,11 +8,6 @@ export const LANGUAGE_STORAGE_KEY = "rion-studio-language";
 export const themeModes: ThemeMode[] = ["system", "light", "dark"];
 
 export const emptyForm: RoleFormState = createEmptyRoleForm();
-
-export const presetLabelKeys: Record<LaunchPreset, TranslationKey> = {
-  balanced: "preset.balanced",
-  performance: "preset.performance"
-};
 
 export const themeLabelKeys: Record<ThemeMode, TranslationKey> = {
   system: "theme.system",

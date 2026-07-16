@@ -44,8 +44,7 @@ export function useGameWorkflow({
           ? null
           : {
               windowWidth: Number(form.windowWidth),
-              windowHeight: Number(form.windowHeight),
-              launchPreset: form.launchPreset
+              windowHeight: Number(form.windowHeight)
             },
         browserLaunchMode: form.browserLaunchMode
       };

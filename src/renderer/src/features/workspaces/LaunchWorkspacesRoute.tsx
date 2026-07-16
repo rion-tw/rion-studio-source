@@ -327,7 +327,10 @@ function WorkspaceCard({
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
   const layoutTitle = t(workspaceTemplateLabelKeys[workspace.template]);
   const primaryActionLabel = isRunning ? t("workspaces.stop") : t("workspaces.launch");
-  const zoomTitle = `${t("workspaces.browserZoom")}: ${workspace.browserZoomPercent}%`;
+  const zoomLabel = workspace.browserZoomMode === "adaptive"
+    ? t("workspaces.browserZoomAdaptive")
+    : `${workspace.browserZoomPercent}%`;
+  const zoomTitle = `${t("workspaces.browserZoom")}: ${zoomLabel}`;
   const targetDisplay = getWorkspaceTargetDisplayPresentation(workspace.targetDisplayId, workspaceDisplays, t);
 
   return (
@@ -424,7 +427,7 @@ function WorkspaceCard({
             variant="secondary"
           >
             <ZoomIn size={12} aria-hidden="true" />
-            <span>{workspace.browserZoomPercent}%</span>
+            <span>{zoomLabel}</span>
           </Badge>
           {workspace.targetDisplayId !== undefined ? (
             <Badge

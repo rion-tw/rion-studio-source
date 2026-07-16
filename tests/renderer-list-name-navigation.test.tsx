@@ -112,6 +112,7 @@ function workspace(): LaunchWorkspace {
     name: "Main workspace",
     template: "single",
     browserLaunchMode: "inherit",
+    browserZoomMode: "fixed",
     browserZoomPercent: 90,
     resourcePolicy: { mode: "unrestricted" },
     slots: [{ id: "slot-1", rect: { x: 0, y: 0, width: 1, height: 1 } }],

@@ -73,6 +73,7 @@ describe("renderer workspace layout helpers", () => {
       createWorkspaceFormState({
         id: "workspace-1",
         browserLaunchMode: "inherit",
+        browserZoomMode: "fixed",
         name: "Party",
         template: "three_columns",
         browserZoomPercent: 125,
@@ -82,7 +83,12 @@ describe("renderer workspace layout helpers", () => {
         createdAt: "2026-07-10T00:00:00.000Z",
         updatedAt: "2026-07-10T00:00:00.000Z"
       })
-    ).toMatchObject({ browserZoomPercent: 125, targetDisplayId: 22, template: "three_columns" });
+    ).toMatchObject({
+      browserZoomMode: "fixed",
+      browserZoomPercent: 125,
+      targetDisplayId: 22,
+      template: "three_columns"
+    });
   });
 
   it("applies a template while preserving slot ids and assigned roles by index", () => {

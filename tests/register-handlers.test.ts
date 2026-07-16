@@ -82,6 +82,7 @@ const customGame: Game = {
 const workspace: LaunchWorkspace = {
   id: "workspace-1",
   browserLaunchMode: "inherit",
+  browserZoomMode: "fixed",
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 100,

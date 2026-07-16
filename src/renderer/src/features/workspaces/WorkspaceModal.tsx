@@ -34,7 +34,6 @@ import type {
   WorkspaceResourceMode
 } from "../../../../shared/types";
 import {
-  getDefaultWorkspaceBrowserZoomPercent,
   workspaceBrowserZoomPercents,
   workspaceLayoutTemplates
 } from "../../../../shared/workspaceLayout";
@@ -234,7 +233,6 @@ function WorkspaceLayoutFormEditor({
     onChange({
       ...form,
       template,
-      browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(template),
       resourcePolicy: reconcileWorkspaceResourcePolicy(form.resourcePolicy, nextSlots),
       slots: nextSlots
     });
@@ -423,12 +421,15 @@ function WorkspaceLayoutFormEditor({
             description={t("workspaces.browserZoomDescription")}
           >
             <Select
-              value={String(form.browserZoomPercent)}
+              value={form.browserZoomMode === "adaptive" ? "adaptive" : String(form.browserZoomPercent)}
               disabled={isSaving}
               onValueChange={(value) =>
                 onChange({
                   ...form,
-                  browserZoomPercent: Number(value) as WorkspaceBrowserZoomPercent
+                  browserZoomMode: value === "adaptive" ? "adaptive" : "fixed",
+                  ...(value === "adaptive"
+                    ? {}
+                    : { browserZoomPercent: Number(value) as WorkspaceBrowserZoomPercent })
                 })
               }
             >
@@ -436,6 +437,7 @@ function WorkspaceLayoutFormEditor({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="adaptive">{t("workspaces.browserZoomAdaptive")}</SelectItem>
                 {workspaceBrowserZoomPercents.map((zoomPercent) => (
                   <SelectItem key={zoomPercent} value={String(zoomPercent)}>
                     {zoomPercent}%

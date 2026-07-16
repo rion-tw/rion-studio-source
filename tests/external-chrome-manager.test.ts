@@ -252,6 +252,26 @@ describe("ExternalChromeManager", () => {
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
+  it("installs adaptive zoom after aligning an external Chrome workspace window", async () => {
+    const harness = createHarness();
+    const launchPromise = harness.manager.launchWorkspace(
+      { id: "workspace-1" },
+      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+      { zoomMode: "adaptive" }
+    );
+
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launchPromise;
+
+    const target = harness.automationTargets[0];
+    expect(target.setAdaptiveZoom).toHaveBeenCalledTimes(1);
+    expect(target.setZoomFactor).not.toHaveBeenCalled();
+    expect(target.setWindowBounds.mock.invocationCallOrder[0]).toBeLessThan(
+      target.setAdaptiveZoom.mock.invocationCallOrder[0]
+    );
+  });
+
   it("launches workspace roles using normalized slot rectangles", async () => {
     const harness = createHarness();
     const secondRole = { ...role, id: "role-2", name: "Alt" };
@@ -673,6 +693,7 @@ function createAutomationTarget() {
       disconnectListeners.add(listener);
       return () => disconnectListeners.delete(listener);
     }),
+    setAdaptiveZoom: vi.fn().mockResolvedValue(undefined),
     setWindowBounds: vi.fn().mockResolvedValue(undefined),
     setZoomFactor: vi.fn().mockResolvedValue(undefined)
   };

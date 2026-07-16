@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   connectExternalChromeAutomation,
+  createAdaptivePageZoomSource,
   createPageZoomSource,
   ExternalChromeAutomationTarget,
   getCdpKeyDescriptor
@@ -526,6 +527,33 @@ describe("ExternalChromeAutomationTarget", () => {
       "Runtime.evaluate",
       expect.objectContaining({ expression: resetSource })
     );
+  });
+
+  it("installs adaptive page zoom with viewport resize coalescing and shared thresholds", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    await target.setAdaptiveZoom();
+
+    const adaptiveSource = createAdaptivePageZoomSource();
+    expect(() => new Function(adaptiveSource)).not.toThrow();
+    expect(adaptiveSource).toContain("window.visualViewport?.width ?? window.innerWidth");
+    expect(adaptiveSource).toContain('window.addEventListener("resize", schedule)');
+    expect(adaptiveSource).toContain("requestAnimationFrame");
+    expect(adaptiveSource).toContain(
+      "[[0,25],[232,33],[332,50],[468,67],[568,75],[620,80],[680,90],[760,100],[840,110],[940,125]]"
+    );
+    expect(harness.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
+      source: adaptiveSource
+    });
+
+    await target.setZoomFactor(1);
+
+    expect(harness.send).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
+      identifier: "zoom-script-1"
+    });
+    expect(createPageZoomSource(1)).toContain("dispose?.()");
   });
 
   it("maps function and unknown physical codes safely", () => {

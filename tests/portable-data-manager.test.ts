@@ -159,6 +159,7 @@ describe("PortableDataManager", () => {
     expect(parsed.preferences?.roleDefaults).not.toHaveProperty("launchPreset");
     expect(parsed).not.toHaveProperty("gameCompatibilityReports");
     expect(parsed.launchWorkspaces[0]).toMatchObject({
+      browserZoomMode: "adaptive",
       browserZoomPercent: 75,
       resourcePolicy: {
         mode: "adaptive",
@@ -580,6 +581,7 @@ describe("PortableDataManager", () => {
     );
     expect(importedWorkspace).toMatchObject({
       id: existingWorkspace.id,
+      browserZoomMode: "adaptive",
       targetDisplayId: 42,
       resourcePolicy: {
         mode: "adaptive",
@@ -891,6 +893,7 @@ describe("PortableDataManager", () => {
     fixture.launchWorkspaces[0] = {
       ...fixture.launchWorkspaces[0],
       template: "three_columns",
+      browserZoomMode: "fixed",
       browserZoomPercent: 90,
       resourcePolicy: { mode: "unrestricted" },
       slots: [
@@ -916,6 +919,7 @@ describe("PortableDataManager", () => {
     expect(importedWorkspace?.resourcePolicy).toEqual({
       mode: "unrestricted"
     });
+    expect(importedWorkspace?.browserZoomMode).toBe("fixed");
     expect(JSON.parse(await readFile(join(baseDir, "launch-workspaces.json"), "utf8")))
       .toMatchObject({ schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION });
   });

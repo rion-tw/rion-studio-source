@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -57,6 +57,9 @@ describe("workspace editor role picker layout", () => {
     const roleList = container.querySelector<HTMLElement>("[data-workspace-role-list]");
     const roleButtons = container.querySelectorAll<HTMLElement>("[data-workspace-role-id]");
 
+    expect(screen.getByRole("combobox", { name: "Browser zoom" }).textContent).toContain(
+      "Adaptive (recommended)"
+    );
     expect(rolePanel?.className).toContain("flex-col");
     expect(rolePanel?.className).toContain("min-[1180px]:overflow-hidden");
     expect(rolePanel?.className).toContain("min-[1180px]:[contain:size]");
@@ -115,6 +118,7 @@ function workspace(): LaunchWorkspace {
     name: "Party",
     template: "two_columns",
     browserLaunchMode: "inherit",
+    browserZoomMode: "adaptive",
     browserZoomPercent: 100,
     resourcePolicy: { mode: "adaptive", primaryRoleId: "role-1" },
     slots: [

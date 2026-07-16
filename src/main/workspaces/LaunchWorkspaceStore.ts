@@ -11,11 +11,13 @@ import type {
   ReorderItemsInput,
   UpdateLaunchWorkspaceInput,
   WorkspaceBrowserZoomPercent,
+  WorkspaceBrowserZoomMode,
   WorkspaceResourcePolicy,
   WorkspaceLayoutTemplate
 } from "../../shared/types";
 import {
   createDefaultWorkspaceSlots,
+  DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
   DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT,
   DEFAULT_WORKSPACE_RESOURCE_POLICY,
   DEFAULT_WORKSPACE_TEMPLATE,
@@ -23,6 +25,7 @@ import {
   getDefaultWorkspaceRects,
   getWorkspaceTemplateSlotCount,
   isWorkspaceBrowserZoomPercent,
+  isWorkspaceBrowserZoomMode,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
   MIN_WORKSPACE_SLOT_SIZE,
@@ -40,8 +43,9 @@ type StoredLaunchWorkspaceSlot = Partial<LaunchWorkspaceSlot> & {
   [key: string]: unknown;
 };
 
-type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserLaunchMode" | "browserZoomPercent" | "resourcePolicy" | "slots" | "targetDisplayId"> & {
+type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserLaunchMode" | "browserZoomMode" | "browserZoomPercent" | "resourcePolicy" | "slots" | "targetDisplayId"> & {
   browserLaunchMode?: unknown;
+  browserZoomMode?: unknown;
   browserZoomPercent?: unknown;
   resourcePolicy?: unknown;
   targetDisplayId?: unknown;
@@ -58,7 +62,7 @@ const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
 ];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
-export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 3;
+export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 4;
 
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
@@ -143,6 +147,7 @@ export class LaunchWorkspaceStore {
         name,
         template,
         browserLaunchMode: this.normalizeBrowserLaunchMode(input.browserLaunchMode),
+        browserZoomMode: this.normalizeBrowserZoomMode(input.browserZoomMode),
         browserZoomPercent,
         resourcePolicy: this.normalizeResourcePolicy(input.resourcePolicy, slots),
         ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
@@ -173,6 +178,9 @@ export class LaunchWorkspaceStore {
       const browserLaunchMode = input.browserLaunchMode === undefined
         ? current.browserLaunchMode
         : this.normalizeBrowserLaunchMode(input.browserLaunchMode);
+      const browserZoomMode = input.browserZoomMode === undefined
+        ? current.browserZoomMode
+        : this.normalizeBrowserZoomMode(input.browserZoomMode);
       const browserZoomPercent = this.normalizeBrowserZoomPercent(
         input.browserZoomPercent,
         current.browserZoomPercent
@@ -198,6 +206,7 @@ export class LaunchWorkspaceStore {
         name,
         template,
         browserLaunchMode,
+        browserZoomMode,
         browserZoomPercent,
         resourcePolicy,
         slots,
@@ -311,6 +320,7 @@ export class LaunchWorkspaceStore {
       const didMigrate = parsed.workspaces.some(
         (workspace) =>
           !("browserLaunchMode" in workspace) ||
+          !("browserZoomMode" in workspace) ||
           !("resourcePolicy" in workspace) ||
           hasLegacyRoleSlotReference(workspace) ||
           hasLegacyCenteredMainDefaultLayout(workspace as StoredLaunchWorkspace)
@@ -372,6 +382,7 @@ export class LaunchWorkspaceStore {
       name: this.normalizeName(workspace.name),
       template,
       browserLaunchMode: this.normalizeBrowserLaunchMode(workspace.browserLaunchMode),
+      browserZoomMode: this.normalizeBrowserZoomMode(workspace.browserZoomMode),
       browserZoomPercent: this.normalizeBrowserZoomPercent(
         workspace.browserZoomPercent,
         DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
@@ -448,6 +459,19 @@ export class LaunchWorkspaceStore {
       );
     }
 
+    return value;
+  }
+
+  private normalizeBrowserZoomMode(value: unknown): WorkspaceBrowserZoomMode {
+    if (value === undefined || value === null) {
+      return DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE;
+    }
+    if (!isWorkspaceBrowserZoomMode(value)) {
+      throw new LaunchWorkspaceStoreError(
+        "WORKSPACE_BROWSER_ZOOM_INVALID",
+        "Launch workspace browser zoom is invalid."
+      );
+    }
     return value;
   }
 

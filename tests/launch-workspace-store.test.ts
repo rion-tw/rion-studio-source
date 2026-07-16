@@ -38,6 +38,7 @@ describe("LaunchWorkspaceStore", () => {
     expect(workspace).toMatchObject({
       name: "Boss run",
       template: "two_columns",
+      browserZoomMode: "adaptive",
       browserZoomPercent: 100,
       resourcePolicy: { mode: "adaptive" }
     });
@@ -323,9 +324,11 @@ describe("LaunchWorkspaceStore", () => {
   it("persists, updates, and validates a custom browser zoom", async () => {
     const workspace = await store.createWorkspace({
       name: "Custom zoom",
+      browserZoomMode: "fixed",
       browserZoomPercent: 75
     });
 
+    expect(workspace.browserZoomMode).toBe("fixed");
     expect(workspace.browserZoomPercent).toBe(75);
 
     const preserved = await store.updateWorkspace(workspace.id, {
@@ -338,8 +341,15 @@ describe("LaunchWorkspaceStore", () => {
     expect(updated.browserZoomPercent).toBe(80);
     await expect(store.getWorkspace(workspace.id)).resolves.toEqual(updated);
 
+    const adaptive = await store.updateWorkspace(workspace.id, { browserZoomMode: "adaptive" });
+    expect(adaptive.browserZoomMode).toBe("adaptive");
+    expect(adaptive.browserZoomPercent).toBe(80);
+
     await expect(
       store.updateWorkspace(workspace.id, { browserZoomPercent: 95 as never })
+    ).rejects.toMatchObject({ code: "WORKSPACE_BROWSER_ZOOM_INVALID" });
+    await expect(
+      store.updateWorkspace(workspace.id, { browserZoomMode: "automatic" as never })
     ).rejects.toMatchObject({ code: "WORKSPACE_BROWSER_ZOOM_INVALID" });
   });
 
@@ -533,7 +543,9 @@ describe("LaunchWorkspaceStore", () => {
     const unchanged = await readFile(join(baseDir, "launch-workspaces.json"), "utf8");
 
     expect(workspace.browserZoomPercent).toBe(100);
+    expect(workspace.browserZoomMode).toBe("adaptive");
     expect(unchanged).toContain('"browserLaunchMode": "inherit"');
+    expect(unchanged).toContain('"browserZoomMode": "adaptive"');
     expect(unchanged).toContain('"browserZoomPercent": 100');
     expect(unchanged).toContain(`"schemaVersion": ${LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION}`);
     expect(workspace.resourcePolicy).toEqual({

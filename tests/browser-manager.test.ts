@@ -40,6 +40,7 @@ const role: Role = {
 const workspace: LaunchWorkspace = {
   id: "workspace-1",
   browserLaunchMode: "inherit",
+  browserZoomMode: "fixed",
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 90,
@@ -532,6 +533,40 @@ describe("BrowserManager game host windows", () => {
     }
   );
 
+  it("adapts each embedded viewport zoom across divider and window resizes", async () => {
+    const harness = createHarness();
+    const adaptiveWorkspace = { ...workspace, browserZoomMode: "adaptive" as const };
+
+    await harness.manager.launchWorkspace(adaptiveWorkspace, [
+      { role, rect: adaptiveWorkspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: adaptiveWorkspace.slots[1].rect }
+    ]);
+
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.75);
+    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.75);
+
+    harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
+      phase: "move",
+      screenPosition: 720
+    });
+
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.9);
+    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.67);
+
+    const popup = createOAuthPopup(harness.views[0], harness.views);
+    expect(popup.webContents.getZoomFactor()).toBe(0.9);
+
+    harness.hosts[0].contentBounds.width = 1600;
+    harness.hosts[0].emit("resize");
+
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(1.25);
+    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.8);
+    expect(popup.webContents.getZoomFactor()).toBe(1.25);
+
+    await harness.views[0].webContents.loadURL("https://accounts.example.net/redirect");
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(1.25);
+  });
+
   it("inherits workspace zoom in popups and resets an existing session to 100 percent", async () => {
     const harness = createHarness();
     const zoomWorkspace = { ...workspace, browserZoomPercent: 75 as const };
@@ -680,6 +715,7 @@ describe("BrowserManager game host windows", () => {
         notice:
           "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
         workArea: target.workArea,
+        zoomMode: "fixed",
         zoomFactor: 0.9
       }
     );

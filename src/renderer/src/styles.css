@@ -512,6 +512,16 @@
       0 1px 1px hsl(var(--glass-shadow));
   }
 
+  .glass-control.macro-role-card-selected,
+  .glass-control.macro-role-card-selected:hover {
+    border-color: var(--color-blue-500);
+    background:
+      linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 68%),
+      color-mix(in srgb, var(--color-blue-500) 8%, hsl(var(--glass-control-selected)));
+    outline: 1px solid var(--color-blue-500);
+    outline-offset: -2px;
+  }
+
   .glass-control-selected {
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 68%),

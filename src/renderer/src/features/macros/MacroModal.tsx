@@ -17,7 +17,6 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { Button } from "../../components/ui/button";
-import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Switch } from "../../components/ui/switch";
 import {
@@ -351,7 +350,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                 {roles.length > 0 ? (
                   <div
                     id="macro-role"
-                    className="flex max-h-52 flex-wrap gap-2 overflow-auto"
+                    className="flex max-h-52 flex-wrap gap-2 overflow-auto p-0.5"
                   >
                     {missingRoleIds.map((roleId) => (
                       <div
@@ -367,18 +366,21 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                       const gameName = gameNameById.get(role.gameId) ?? role.launchUrl;
 
                       return (
-                        <label
+                        <button
                           key={role.id}
+                          aria-pressed={isSelected}
                           className={cn(
-                            "glass-control inline-flex min-h-12 w-auto max-w-full flex-none cursor-pointer items-center gap-2 rounded-lg p-2 text-left transition-colors",
-                            isSaving && "pointer-events-none opacity-60",
+                            "glass-control inline-flex min-h-12 w-auto max-w-full flex-none items-center gap-2 rounded-lg p-2 text-left transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60",
                             isSelected
-                              ? "border-primary/45 bg-primary/12 text-foreground"
+                              ? "macro-role-card-selected text-foreground"
                               : "text-muted-foreground hover:text-foreground"
                           )}
+                          disabled={isSaving}
+                          type="button"
+                          onClick={() => toggleRoleId(role.id)}
                         >
                           <span
-                            className="size-8 shrink-0 rounded-md bg-cover bg-center ring-1 ring-inset ring-border/60"
+                            className="size-8 shrink-0 rounded-sm bg-cover bg-center ring-1 ring-inset ring-border/60"
                             style={{
                               backgroundColor: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
                               backgroundImage: `url("${role.coverImageDataUrl ?? roleCoverPlaceholderUrl}")`
@@ -390,12 +392,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                               {gameName}
                             </span>
                           </span>
-                          <Checkbox
-                            checked={isSelected}
-                            disabled={isSaving}
-                            onCheckedChange={() => toggleRoleId(role.id)}
-                          />
-                        </label>
+                        </button>
                       );
                     })}
                   </div>

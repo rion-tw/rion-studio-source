@@ -22,7 +22,7 @@ beforeAll(() => {
 afterEach(cleanup);
 afterAll(() => vi.unstubAllGlobals());
 
-describe("macro editor enabled setting", () => {
+describe("macro editor controls", () => {
   it("loads a disabled macro and includes the changed enabled state when saving", async () => {
     const disabledMacro = macro({ enabled: false });
     const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
@@ -69,6 +69,48 @@ describe("macro editor enabled setting", () => {
         enabled: true
       }));
     });
+  });
+
+  it("uses the full role card as the selector without showing a checkbox", () => {
+    const selectedMacro = macro();
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/macros/:id/edit",
+          element: (
+            <MacroEditorRoute
+              games={[game()]}
+              isSaving={false}
+              macros={[selectedMacro]}
+              roles={[role()]}
+              t={t}
+              onSave={vi.fn()}
+            />
+          )
+        }
+      ],
+      { initialEntries: ["/macros/macro-1/edit"] }
+    );
+
+    const { container } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    const rolePicker = container.querySelector("#macro-role");
+    const roleButton = screen.getByRole("button", { name: /Main role/ });
+
+    expect(rolePicker?.className).toContain("p-0.5");
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(roleButton.getAttribute("aria-pressed")).toBe("true");
+    expect(roleButton.className).toContain("macro-role-card-selected");
+    expect(roleButton.firstElementChild?.className).toContain("rounded-sm");
+
+    fireEvent.click(roleButton);
+
+    expect(roleButton.getAttribute("aria-pressed")).toBe("false");
+    expect(roleButton.className).not.toContain("macro-role-card-selected");
   });
 });
 

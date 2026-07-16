@@ -226,6 +226,7 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.createHostWindow).not.toHaveBeenCalled();
     expect(harness.createTabbedHostWindow).toHaveBeenCalledWith(expect.objectContaining({
+      autoHideMenuBar: platform !== "darwin",
       frame: true,
       titleBarStyle,
       webPreferences: expect.objectContaining({
@@ -276,10 +277,6 @@ describe("BrowserManager game host windows", () => {
     harness.manager.showRuntimeTab(firstTab.id);
     expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(true);
     expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(false);
-    harness.manager.setRuntimeChromeOverlay(11, true);
-    expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(false);
-    harness.manager.setRuntimeChromeOverlay(11, false);
-    expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(true);
     expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
     expect(harness.views[1].webContents.loadURL).toHaveBeenCalledTimes(1);
 
@@ -288,6 +285,177 @@ describe("BrowserManager game host windows", () => {
       secondTab.id,
       firstTab.id
     ]);
+  });
+
+  it("auto-hides and reveals the toolbar in native fullscreen without reloading games", async () => {
+    vi.useFakeTimers();
+    let cursor = { x: 100, y: 100 };
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getCursorScreenPoint: () => cursor,
+      runtimeToolbarCollapseDelayMs: 700,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+
+    harness.hosts[0].emit("enter-full-screen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 2,
+      width: 1200,
+      height: 774
+    });
+    expect((harness.hosts[0] as ReturnType<typeof createMockBrowserHost>).webContents.send)
+      .toHaveBeenLastCalledWith(
+      "runtime-tabs:state",
+      expect.objectContaining({ fullscreen: true, toolbarVisible: false })
+    );
+
+    harness.manager.handleRuntimeToolbarPointer(11, true);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 40,
+      width: 1200,
+      height: 736
+    });
+
+    harness.manager.handleRuntimeToolbarPointer(11, false);
+    await vi.advanceTimersByTimeAsync(699);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+
+    cursor = { x: 100, y: 30 };
+    harness.manager.handleRuntimeToolbarPointer(11, true);
+    harness.manager.handleRuntimeToolbarPointer(11, false);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    cursor = { x: 100, y: 100 };
+    await vi.advanceTimersByTimeAsync(749);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+
+    harness.hosts[0].emit("leave-full-screen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("reveals fullscreen tabs from the main-process cursor monitor without DOM hover", async () => {
+    vi.useFakeTimers();
+    let cursor = { x: 100, y: 100 };
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getCursorScreenPoint: () => cursor,
+      platform: "darwin",
+      runtimeToolbarCollapseDelayMs: 700,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+    harness.hosts[0].emit("enter-full-screen");
+
+    cursor = { x: 100, y: 24 };
+    await vi.advanceTimersByTimeAsync(50);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+
+    cursor = { x: -1, y: 24 };
+    await vi.advanceTimersByTimeAsync(749);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+
+    cursor = { x: 100, y: 24 };
+    harness.hosts[0].hide();
+    harness.hosts[0].emit("hide");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+    harness.hosts[0].show();
+    harness.hosts[0].emit("show");
+    await vi.advanceTimersByTimeAsync(50);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+
+    harness.hosts[0].emit("leave-full-screen");
+    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("keeps fullscreen tabs revealed while a native runtime menu holds a lock", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getCursorScreenPoint: () => ({ x: 100, y: 100 }),
+      runtimeToolbarCollapseDelayMs: 700,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+    harness.hosts[0].emit("enter-full-screen");
+
+    const release = harness.manager.acquireRuntimeToolbarRevealLock(11);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+
+    release();
+    await vi.advanceTimersByTimeAsync(699);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+    harness.hosts[0].emit("leave-full-screen");
+    vi.useRealTimers();
+  });
+
+  it("reveals only the fullscreen host under the cursor across displays", async () => {
+    vi.useFakeTimers();
+    let cursor = { x: 1_300, y: 0 };
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getCursorScreenPoint: () => cursor,
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+    await harness.manager.launch(createRole("role-2", "Alt"), {
+      target: { displayId: 22, workArea: runtimeDisplays[1].workArea }
+    });
+    harness.hosts[0].emit("enter-full-screen");
+    harness.hosts[1].emit("enter-full-screen");
+
+    await vi.advanceTimersByTimeAsync(50);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+
+    cursor = { x: 100, y: 24 };
+    await vi.advanceTimersByTimeAsync(50);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
+    expect(harness.views[1].webContents.loadURL).toHaveBeenCalledTimes(1);
+
+    harness.hosts[0].emit("leave-full-screen");
+    harness.hosts[1].emit("leave-full-screen");
+    vi.useRealTimers();
+  });
+
+  it("combines HTML fullscreen with the global always-show toolbar preference", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+
+    harness.views[0].webContents.emit("enter-html-full-screen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+    harness.manager.setAlwaysShowToolbarInFullScreen(true);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    harness.manager.setAlwaysShowToolbarInFullScreen(false);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+    harness.views[0].webContents.emit("leave-html-full-screen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
   });
 
   it("moves a runtime tab to another display without reloading its session", async () => {
@@ -1857,6 +2025,7 @@ function createHarness(options: {
   applyBrowserProxy?: AnyMock;
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
+  getCursorScreenPoint?: () => { x: number; y: number };
   getLoginUrl?: (role: Role) => string | Promise<string>;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
@@ -1868,6 +2037,7 @@ function createHarness(options: {
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
   useTabbedHostWindow?: boolean;
+  runtimeToolbarCollapseDelayMs?: number;
 } = {}) {
   const hosts: ReturnType<typeof createMockHost>[] = [];
   const views: ReturnType<typeof createMockView>[] = [];
@@ -1924,6 +2094,7 @@ function createHarness(options: {
     runtimeTabsPreloadPath: "/app/out/preload/runtime-tabs.cjs",
     ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
+    ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
     ...(options.getLoginUrl ? { getLoginUrl: options.getLoginUrl } : {}),
     ...(options.getWorkspaceAppearanceSettings
       ? { getWorkspaceAppearanceSettings: options.getWorkspaceAppearanceSettings }
@@ -1932,6 +2103,9 @@ function createHarness(options: {
     ...(options.defaultLaunchTarget ? { getDefaultLaunchTarget: () => options.defaultLaunchTarget! } : {}),
     ...(options.workspaceDisplays ? { getWorkspaceDisplays: () => options.workspaceDisplays! } : {}),
     loginPollIntervalMs: 0,
+    ...(options.runtimeToolbarCollapseDelayMs === undefined
+      ? {}
+      : { runtimeToolbarCollapseDelayMs: options.runtimeToolbarCollapseDelayMs }),
     ...(options.platform ? { platform: options.platform } : {}),
     ...(options.prefersReducedTransparency
       ? { prefersReducedTransparency: options.prefersReducedTransparency }

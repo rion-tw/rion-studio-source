@@ -153,8 +153,9 @@ function render(): void {
 
   const add = iconButton("+", label("add"), () => send({ type: "openLauncher" }));
   add.classList.add("runtime-add");
+  tabs.append(add);
   if (process.platform === "darwin") bar.append(createTrafficLights());
-  bar.append(tabs, add);
+  bar.append(tabs);
   root.append(bar);
 }
 
@@ -238,6 +239,7 @@ function installStyles(): void {
       --runtime-tab-hover: rgba(255,255,255,.065);
       --runtime-tab-active: rgba(255,255,255,.115);
       --runtime-tab-border: rgba(255,255,255,.11);
+      --runtime-tab-divider: rgba(255,255,255,.075);
       --runtime-tab-highlight: rgba(255,255,255,.075);
       --runtime-control-hover: rgba(255,255,255,.1);
       --runtime-focus: rgba(138,180,255,.72);
@@ -275,7 +277,7 @@ function installStyles(): void {
     :root[data-platform="darwin"] .runtime-bar.is-collapsed { padding-left: 0; }
     :root[data-platform="win32"] .runtime-bar { padding-left: max(10px, env(titlebar-area-x, 0px)); padding-right: max(10px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); }
     :root[data-platform="win32"] .runtime-bar.is-collapsed { padding-left: 0; padding-right: 0; }
-    .runtime-tab-list { display: flex; flex: 1; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+    .runtime-tab-list { align-items: center; display: flex; flex: 1; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
     .runtime-tab-list::-webkit-scrollbar { display: none; }
     .runtime-tab, .runtime-icon-button, .runtime-window-controls, .runtime-traffic-light { -webkit-app-region: no-drag; }
     .runtime-window-controls { align-items: center; display: flex; flex: 0 0 auto; gap: 8px; margin: 0 7px 0 4px; }
@@ -292,23 +294,37 @@ function installStyles(): void {
       border-radius: 8px;
       color: inherit;
       display: flex;
-      flex: 0 1 220px;
+      flex: 0 1 auto;
       gap: 5px;
       height: 30px;
+      max-width: 220px;
       min-width: 96px;
-      overflow: hidden;
-      padding: 0 5px 0 9px;
+      overflow: visible;
+      padding: 0 4px 0 9px;
+      position: relative;
       transition: background-color 120ms ease, border-color 120ms ease;
+      width: max-content;
+    }
+    .runtime-tab + .runtime-tab::before {
+      background: var(--runtime-tab-divider);
+      content: "";
+      height: 14px;
+      left: -3px;
+      pointer-events: none;
+      position: absolute;
+      top: 7px;
+      width: 1px;
     }
     .runtime-tab:hover { background: var(--runtime-tab-hover); }
     .runtime-tab.is-active {
-      background: var(--runtime-tab-active);
+      background:
+        linear-gradient(180deg, var(--runtime-tab-highlight) 0%, transparent 68%),
+        var(--runtime-tab-active);
       border-color: var(--runtime-tab-border);
-      box-shadow: inset 0 1px 0 var(--runtime-tab-highlight);
     }
     .runtime-tab:focus-visible {
-      outline: 2px solid var(--runtime-focus);
-      outline-offset: -2px;
+      border-color: var(--runtime-focus);
+      outline: none;
     }
     .runtime-tab-marker {
       color: var(--runtime-muted);
@@ -319,11 +335,12 @@ function installStyles(): void {
     }
     .runtime-tab-marker.workspace { color: var(--runtime-workspace); font-size: 10px; }
     .runtime-tab-name {
-      flex: 1;
+      flex: 0 1 auto;
       font-size: 12px;
       font-weight: 500;
       letter-spacing: -.01em;
       line-height: 1;
+      min-width: 0;
       overflow: hidden;
       text-align: left;
       text-overflow: ellipsis;
@@ -349,7 +366,7 @@ function installStyles(): void {
       background: var(--runtime-control-hover);
       color: var(--runtime-text);
     }
-    .runtime-icon-button:focus-visible { outline: 2px solid var(--runtime-focus); outline-offset: -2px; }
+    .runtime-icon-button:focus-visible { box-shadow: inset 0 0 0 1px var(--runtime-focus); outline: none; }
     .runtime-tab-action { opacity: 0; }
     .runtime-tab:hover .runtime-tab-action,
     .runtime-tab.is-active .runtime-tab-action,
@@ -365,6 +382,7 @@ function installStyles(): void {
         --runtime-tab-hover: rgba(20,22,28,.052);
         --runtime-tab-active: rgba(255,255,255,.68);
         --runtime-tab-border: rgba(24,26,32,.095);
+        --runtime-tab-divider: rgba(24,26,32,.075);
         --runtime-tab-highlight: rgba(255,255,255,.52);
         --runtime-control-hover: rgba(20,22,28,.07);
         --runtime-focus: rgba(36,99,235,.62);

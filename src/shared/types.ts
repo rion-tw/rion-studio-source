@@ -20,6 +20,11 @@ export type WorkspaceBrowserZoomMode = "adaptive" | "fixed";
 export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppThemeMode = "system" | "light" | "dark";
 export type AppRendererReadyState = "failed" | "ready";
+
+export interface AppWindowState {
+  fullscreen: boolean;
+}
+
 export type AuthState = "unknown" | "login_required" | "authenticated" | "auth_failed";
 export type AuthFlowState =
   | "opening_app"

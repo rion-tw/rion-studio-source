@@ -4,6 +4,7 @@ import { IPC_CHANNELS } from "../shared/ipc";
 import type { RionStudioApi } from "../shared/api";
 import type {
   AppUpdateStatus,
+  AppWindowState,
   AuthFlowStatus,
   Game,
   GameCompatibilityReport,
@@ -20,6 +21,7 @@ import type {
 const api: RionStudioApi = {
   notifyAppReady: (state) => ipcRenderer.invoke(IPC_CHANNELS.appRendererReady, state),
   getAppSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.appSnapshot),
+  getCurrentWindowState: () => ipcRenderer.invoke(IPC_CHANNELS.appWindowState),
   getLegalAcceptanceStatus: () => ipcRenderer.invoke(IPC_CHANNELS.legalStatus),
   acceptLegalDocuments: (input) => ipcRenderer.invoke(IPC_CHANNELS.legalAccept, input),
   quitApplication: () => ipcRenderer.invoke(IPC_CHANNELS.appQuit),
@@ -96,6 +98,11 @@ const api: RionStudioApi = {
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.rolesStatusChanged, listener);
     };
+  },
+  onCurrentWindowStateChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: AppWindowState) => callback(state);
+    ipcRenderer.on(IPC_CHANNELS.appWindowStateChanged, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.appWindowStateChanged, listener);
   },
   onEmbeddedRuntimeStateChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, state: EmbeddedRuntimeState) => callback(state);

@@ -54,6 +54,7 @@ import { RoleStore } from "../roles/RoleStore";
 import type { AppUpdateManager } from "../updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCoordinator";
+import { getAppWindowState } from "../window/appWindowState";
 
 interface RegisterIpcHandlersOptions {
   legalAcceptanceStore?: Pick<LegalAcceptanceStore, "accept" | "getStatus">;
@@ -154,6 +155,14 @@ export function registerIpcHandlers(
       macros,
       macroStatuses: options.macroManager?.listStatuses() ?? []
     };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.appWindowState, (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) {
+      throw new Error("Current window is not available.");
+    }
+    return getAppWindowState(window);
   });
 
   ipcMain.handle(IPC_CHANNELS.runtimeState, () => browserManager.listEmbeddedRuntimeState());

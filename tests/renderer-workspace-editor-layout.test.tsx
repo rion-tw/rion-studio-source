@@ -1,0 +1,121 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
+import WorkspaceEditorRoute from "../src/renderer/src/features/workspaces/WorkspaceModal";
+import type { Translator } from "../src/renderer/src/i18n";
+import en from "../src/renderer/src/i18n/en.json";
+import type { Game, LaunchWorkspace, Role } from "../src/shared/types";
+
+beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class ResizeObserver {
+    disconnect(): void {}
+    observe(): void {}
+    unobserve(): void {}
+  });
+});
+
+afterEach(cleanup);
+afterAll(() => vi.unstubAllGlobals());
+
+describe("workspace editor role picker layout", () => {
+  it("caps the edge-aligned scroll region and keeps every role card at a fixed height", () => {
+    const roles = Array.from({ length: 7 }, (_value, index) => role(index + 1));
+    const selectedWorkspace = workspace();
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/workspaces/:id/edit",
+          element: (
+            <WorkspaceEditorRoute
+              games={[game()]}
+              isSaving={false}
+              roles={roles}
+              statusByRole={new Map()}
+              t={t}
+              workspaceDisplays={[]}
+              workspaces={[selectedWorkspace]}
+              onSave={vi.fn()}
+            />
+          )
+        }
+      ],
+      { initialEntries: ["/workspaces/workspace-1/edit"] }
+    );
+
+    const { container } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    const scrollRegion = container.querySelector<HTMLElement>("[data-workspace-role-scroll]");
+    const roleList = container.querySelector<HTMLElement>("[data-workspace-role-list]");
+    const roleButtons = container.querySelectorAll<HTMLElement>("[data-workspace-role-id]");
+
+    expect(scrollRegion?.className).toContain("max-h-[clamp(320px,45vh,440px)]");
+    expect(scrollRegion?.className).toContain("overflow-y-auto");
+    expect(scrollRegion?.className).toContain("overflow-x-hidden");
+    expect(scrollRegion?.className).not.toContain("max-h-none");
+    expect(roleList?.className).toContain("auto-rows-max");
+    expect(roleList?.className).toContain("content-start");
+    expect(roleButtons).toHaveLength(7);
+    roleButtons.forEach((button) => {
+      expect(button.className).toContain("h-[52px]");
+      expect(button.getAttribute("draggable")).toBe("true");
+    });
+
+    fireEvent.click(roleButtons[2]);
+
+    expect(roleButtons[2].textContent).toContain("S1");
+  });
+});
+
+const t: Translator = (key) => en[key];
+
+function game(): Game {
+  return {
+    id: "game-1",
+    source: "custom",
+    name: "Test game",
+    defaultLaunchUrl: "https://example.test/play",
+    browserLaunchMode: "inherit",
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T00:00:00.000Z"
+  };
+}
+
+function role(index: number): Role {
+  return {
+    id: `role-${index}`,
+    gameId: "game-1",
+    name: `Role ${index}`,
+    launchUrl: "https://example.test/play",
+    windowWidth: 1280,
+    windowHeight: 720,
+    notes: "",
+    authState: "authenticated",
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T00:00:00.000Z"
+  };
+}
+
+function workspace(): LaunchWorkspace {
+  return {
+    id: "workspace-1",
+    name: "Party",
+    template: "two_columns",
+    browserLaunchMode: "inherit",
+    browserZoomPercent: 100,
+    resourcePolicy: { mode: "adaptive", primaryRoleId: "role-1" },
+    slots: [
+      { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+      { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+    ],
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T00:00:00.000Z"
+  };
+}

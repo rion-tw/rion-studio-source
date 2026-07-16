@@ -52,6 +52,12 @@ const config = {
   mac: {
     icon: "build/icon.icns",
     category: "public.app-category.utilities",
+    extraResources: [
+      {
+        from: "build/native/darwin-arm64/rion-runtime-tabs.node",
+        to: "native/rion-runtime-tabs.node"
+      }
+    ],
     identity: "-",
     hardenedRuntime: true,
     entitlements: "build/entitlements.mac.plist",

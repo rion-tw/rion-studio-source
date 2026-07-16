@@ -43,6 +43,7 @@ import type {
 } from "../../shared/types";
 import {
   RUNTIME_TABS_STATE_CHANNEL,
+  type RuntimeTabAction,
   type RuntimeTabChromeState
 } from "../../shared/runtimeTabs";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
@@ -59,6 +60,10 @@ import {
 import type { ExternalChromeLaunchItem, ExternalChromeManager } from "./ExternalChromeManager";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import { ElectronWorkspaceResourceTarget } from "./ElectronWorkspaceResourceTarget";
+import type {
+  MacRuntimeTabsController,
+  MacRuntimeTabsControllerFactory
+} from "./MacRuntimeTabsController";
 import type { SystemPressureSource } from "./SystemPressureMonitor";
 import { WorkspaceResourceCoordinator } from "./WorkspaceResourceCoordinator";
 
@@ -119,6 +124,12 @@ export interface BrowserManagerOptions {
   getLaunchWorkArea: () => PixelBounds;
   getDefaultLaunchTarget?: () => BrowserWorkspaceLaunchTarget;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
+  handleRuntimeTabAction?: (
+    window: BaseWindow,
+    displayId: number,
+    action: RuntimeTabAction
+  ) => void;
+  createMacRuntimeTabsController?: MacRuntimeTabsControllerFactory;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
     | Promise<WorkspaceAppearanceSettings>;
@@ -206,6 +217,7 @@ interface EmbeddedDisplayHost {
   displayId: number;
   pendingWindowAction?: "close" | "hide";
   id: string;
+  macNativeTabs?: MacRuntimeTabsController;
   macSystemMenuBarHeight: number;
   systemMenuBarTemporarilyRevealed: boolean;
   tabIds: string[];
@@ -402,6 +414,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (this.alwaysShowToolbarInFullScreen === value) return;
     this.alwaysShowToolbarInFullScreen = value;
     this.displayHosts.forEach((host) => {
+      if (host.macNativeTabs) {
+        host.macNativeTabs.setFullscreenPolicy(value ? "always" : "autoHide");
+        this.sendRuntimeChromeState(host);
+        return;
+      }
       if (value) this.clearRuntimeToolbarCursorMonitor(host);
       host.toolbarTemporarilyVisible = false;
       host.systemMenuBarTemporarilyRevealed = false;
@@ -414,6 +431,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const displayHost = this.displayHosts.get(displayId);
     if (
       !displayHost ||
+      displayHost.macNativeTabs ||
       !this.isDisplayHostFullscreen(displayHost) ||
       this.alwaysShowToolbarInFullScreen
     ) return;
@@ -430,6 +448,23 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const displayHost = this.displayHosts.get(displayId);
     if (!displayHost || displayHost.closing) return () => undefined;
     displayHost.toolbarRevealLockCount += 1;
+    if (displayHost.macNativeTabs) {
+      if (displayHost.toolbarRevealLockCount === 1) {
+        displayHost.macNativeTabs.setRevealLocked(true);
+      }
+      let nativeReleased = false;
+      return () => {
+        if (nativeReleased) return;
+        nativeReleased = true;
+        displayHost.toolbarRevealLockCount = Math.max(
+          0,
+          displayHost.toolbarRevealLockCount - 1
+        );
+        if (displayHost.toolbarRevealLockCount === 0) {
+          displayHost.macNativeTabs?.setRevealLocked(false);
+        }
+      };
+    }
     if (
       this.isDisplayHostFullscreen(displayHost) &&
       !this.alwaysShowToolbarInFullScreen
@@ -1099,39 +1134,81 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       title: "Rion Studio",
       ...getWorkspaceWindowMaterialOptions(platform, prefersReducedTransparency)
     };
-    const useMacCustomChrome = platform === "darwin" && Boolean(this.options.createRuntimeChromeView);
-    const window = useMacCustomChrome
-      ? this.options.createHostWindow({
+    let macNativeTabs: MacRuntimeTabsController | undefined;
+    let window: BaseWindow;
+    if (platform === "darwin" && this.options.createMacRuntimeTabsController) {
+      const candidate = this.options.createHostWindow({
+        ...commonOptions,
+        frame: true,
+        fullscreenable: true,
+        titleBarStyle: "default"
+      });
+      try {
+        macNativeTabs = this.options.createMacRuntimeTabsController(
+          candidate,
+          (action) => this.options.handleRuntimeTabAction?.(
+            candidate,
+            target.displayId,
+            action
+          )
+        );
+        macNativeTabs.setFullscreenPolicy(
+          this.alwaysShowToolbarInFullScreen ? "always" : "autoHide"
+        );
+        window = candidate;
+      } catch (error) {
+        console.error(
+          "Failed to attach native macOS runtime tabs; using the HTML fallback.",
+          error
+        );
+        macNativeTabs?.destroy();
+        macNativeTabs = undefined;
+        candidate.close();
+        window = this.options.createHostWindow({
           ...commonOptions,
           frame: false,
           fullscreenable: true
-        })
-      : this.options.createTabbedHostWindow
-        ? this.options.createTabbedHostWindow({
+        });
+      }
+    } else {
+      const useMacHtmlChrome = platform === "darwin" &&
+        Boolean(this.options.createRuntimeChromeView);
+      window = useMacHtmlChrome
+        ? this.options.createHostWindow({
             ...commonOptions,
-            autoHideMenuBar: platform !== "darwin",
-            ...(platform === "win32"
-              ? {
-                  titleBarStyle: "hidden",
-                  titleBarOverlay: {
-                    height: RUNTIME_TAB_CHROME_HEIGHT
-                  }
-                }
-              : { titleBarStyle: "hidden" }),
-            webPreferences: {
-              backgroundThrottling: true,
-              contextIsolation: true,
-              nodeIntegration: false,
-              preload: this.options.runtimeTabsPreloadPath,
-              sandbox: true
-            }
+            frame: false,
+            fullscreenable: true
           })
-        : this.options.createHostWindow({ ...commonOptions, titleBarStyle: "default" });
+        : this.options.createTabbedHostWindow
+          ? this.options.createTabbedHostWindow({
+              ...commonOptions,
+              autoHideMenuBar: platform !== "darwin",
+              ...(platform === "win32"
+                ? {
+                    titleBarStyle: "hidden",
+                    titleBarOverlay: {
+                      height: RUNTIME_TAB_CHROME_HEIGHT
+                    }
+                  }
+                : { titleBarStyle: "hidden" }),
+              webPreferences: {
+                backgroundThrottling: true,
+                contextIsolation: true,
+                nodeIntegration: false,
+                preload: this.options.runtimeTabsPreloadPath,
+                sandbox: true
+              }
+            })
+          : this.options.createHostWindow({ ...commonOptions, titleBarStyle: "default" });
+    }
+    const useMacCustomChrome = platform === "darwin" &&
+      !macNativeTabs && Boolean(this.options.createRuntimeChromeView);
     window.contentView.setBackgroundColor("#00000000");
     const displayHost: EmbeddedDisplayHost = {
       closing: false,
       displayId: target.displayId,
       id: randomUUID(),
+      ...(macNativeTabs ? { macNativeTabs } : {}),
       macSystemMenuBarHeight: RUNTIME_TAB_MAC_MENU_BAR_FALLBACK_HEIGHT,
       systemMenuBarTemporarilyRevealed: false,
       tabIds: [],
@@ -1141,7 +1218,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       windowFullscreen: false
     };
     this.displayHosts.set(target.displayId, displayHost);
-    this.refreshMacSystemMenuBarHeight(displayHost);
+    if (!macNativeTabs) this.refreshMacSystemMenuBarHeight(displayHost);
     window.on("enter-full-screen", () => this.completeWindowFullscreenTransition(displayHost, true));
     window.on("leave-full-screen", () => this.completeWindowFullscreenTransition(displayHost, false));
 
@@ -1194,6 +1271,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
     window.once("closed", () => {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
+      displayHost.macNativeTabs?.destroy();
+      displayHost.macNativeTabs = undefined;
       if (displayHost.chromeWebContents) {
         this.displayHostByChromeWebContentsId.delete(displayHost.chromeWebContents.id);
       }
@@ -1302,6 +1381,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private finalizeDisplayHostDestroy(displayHost: EmbeddedDisplayHost): void {
     displayHost.pendingWindowAction = undefined;
     this.displayHosts.delete(displayHost.displayId);
+    displayHost.macNativeTabs?.destroy();
+    displayHost.macNativeTabs = undefined;
     if (displayHost.chromeWebContents) {
       this.displayHostByChromeWebContentsId.delete(displayHost.chromeWebContents.id);
     }
@@ -1310,7 +1391,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private sendRuntimeChromeState(displayHost: EmbeddedDisplayHost): void {
     const chromeWebContents = displayHost.chromeWebContents;
-    if (!chromeWebContents || chromeWebContents.isDestroyed()) return;
+    if (
+      !displayHost.macNativeTabs &&
+      (!chromeWebContents || chromeWebContents.isDestroyed())
+    ) return;
     const state: RuntimeTabChromeState = {
       ...this.listEmbeddedRuntimeState(),
       alwaysShowToolbarInFullScreen: this.alwaysShowToolbarInFullScreen,
@@ -1331,7 +1415,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       toolbarVisible: this.isRuntimeToolbarVisible(displayHost),
       windowFullscreen: displayHost.windowFullscreen
     };
-    chromeWebContents.send(RUNTIME_TABS_STATE_CHANNEL, state);
+    if (displayHost.macNativeTabs) {
+      try {
+        displayHost.macNativeTabs.update(state);
+      } catch (error) {
+        console.error("Failed to update native macOS runtime tabs.", error);
+      }
+    }
+    if (chromeWebContents && !chromeWebContents.isDestroyed()) {
+      chromeWebContents.send(RUNTIME_TABS_STATE_CHANNEL, state);
+    }
   }
 
   private async resolveRuntimeTabGameIcon(role: Role): Promise<string | undefined> {
@@ -1379,7 +1472,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       displayHost.windowFullscreenTransitionTarget !== undefined ||
       displayHost.windowFullscreen === fullscreen
     ) return false;
-    if (fullscreen) this.refreshMacSystemMenuBarHeight(displayHost);
+    if (fullscreen && !displayHost.macNativeTabs) {
+      this.refreshMacSystemMenuBarHeight(displayHost);
+    }
     displayHost.windowFullscreenTransitionTarget = fullscreen;
     try {
       displayHost.window.setFullScreen(fullscreen);
@@ -1520,6 +1615,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private syncRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {
+    if (displayHost.macNativeTabs) {
+      this.clearRuntimeToolbarCursorMonitor(displayHost);
+      return;
+    }
     const shouldMonitor = !displayHost.closing &&
       this.isDisplayHostFullscreen(displayHost) &&
       !this.alwaysShowToolbarInFullScreen &&
@@ -1652,7 +1751,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private isMacRuntimeFullscreen(displayHost: EmbeddedDisplayHost): boolean {
     return (this.options.platform ?? process.platform) === "darwin" &&
-      Boolean(displayHost.chromeView) &&
+      Boolean(displayHost.chromeView || displayHost.macNativeTabs) &&
       displayHost.windowFullscreen;
   }
 

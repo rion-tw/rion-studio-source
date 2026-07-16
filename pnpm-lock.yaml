@@ -90,6 +90,9 @@ importers:
       lucide-react:
         specifier: ^1.24.0
         version: 1.24.0(react@19.2.7)
+      node-gyp:
+        specifier: ^12.4.0
+        version: 12.4.0
       react:
         specifier: ^19.2.7
         version: 19.2.7

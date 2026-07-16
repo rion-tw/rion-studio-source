@@ -22,6 +22,7 @@ import { ExternalChromeManager } from "./browser/ExternalChromeManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
+import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
 import { AuthManager } from "./auth/AuthManager";
 import {
@@ -84,7 +85,8 @@ import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import {
   RUNTIME_TABS_ACTION_CHANNEL,
-  isRuntimeTabAction
+  isRuntimeTabAction,
+  type RuntimeTabAction
 } from "../shared/runtimeTabs";
 import type { MacroPageRequest, PendingWorkspaceLaunchRequest } from "../shared/types";
 
@@ -102,6 +104,7 @@ let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let appQuickMenu: AppQuickMenu | null = null;
 let applicationMenu: ApplicationMenuController | null = null;
+let runtimeTabMenu: RuntimeTabMenuController | null = null;
 let windowsTray: Tray | null = null;
 let pendingMacroPageRequest: MacroPageRequest | null = null;
 let pendingWorkspaceLaunchRequest: PendingWorkspaceLaunchRequest | null = null;
@@ -120,6 +123,15 @@ function getAppIconPath(): string {
   }
 
   return join(__dirname, "../../build/icon.png");
+}
+
+function getMacRuntimeTabsAddonPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "native/rion-runtime-tabs.node")
+    : join(
+        __dirname,
+        `../../build/native/darwin-${process.arch}/rion-runtime-tabs.node`
+      );
 }
 
 function getWindowsTrayIconPath(): string {
@@ -417,6 +429,9 @@ async function initializeApplication(): Promise<void> {
       ? { windowBoundsAdapter: externalChromeWindowBoundsAdapter }
       : {})
   });
+  const macRuntimeTabsControllerFactory = process.platform === "darwin"
+    ? loadMacRuntimeTabsControllerFactory(getMacRuntimeTabsAddonPath())
+    : undefined;
   browserManager = new BrowserManager(transactionalRoleAuthStore, {
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
@@ -427,6 +442,9 @@ async function initializeApplication(): Promise<void> {
       await cdnCompatibilityManager.applyToSession(session);
     },
     createHostWindow: (options) => new BaseWindow(options),
+    ...(macRuntimeTabsControllerFactory
+      ? { createMacRuntimeTabsController: macRuntimeTabsControllerFactory }
+      : {}),
     createRuntimeChromeView: (options) => new WebContentsView(options),
     createTabbedHostWindow: (options) => new BrowserWindow({
       ...options,
@@ -464,6 +482,9 @@ async function initializeApplication(): Promise<void> {
     getWorkspaceDisplays: () => getWorkspaceDisplayInfos(),
     getWorkspaceAppearanceSettings: async () =>
       (await gameBrowserSettingsStore.getSettings()).workspace,
+    handleRuntimeTabAction: (runtimeWindow, displayId, action) => {
+      dispatchRuntimeTabAction(runtimeWindow, displayId, action);
+    },
     prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
   });
   browserManager.setAlwaysShowToolbarInFullScreen(
@@ -551,7 +572,7 @@ async function initializeApplication(): Promise<void> {
     workspaceStore
   });
 
-  const runtimeTabMenu = new RuntimeTabMenuController({
+  runtimeTabMenu = new RuntimeTabMenuController({
     authManager,
     browserManager,
     getWorkspaceDisplays: getWorkspaceDisplayInfos,
@@ -585,58 +606,7 @@ async function initializeApplication(): Promise<void> {
     if (displayId === undefined) return;
     const runtimeWindow = browserManager.getRuntimeWindowForWebContents(event.sender.id);
     if (!runtimeWindow || runtimeWindow.isDestroyed()) return;
-    if ("tabId" in action) {
-      const actionTab = browserManager.listEmbeddedRuntimeState().tabs.find(
-        (tab) => tab.id === action.tabId
-      );
-      if (!actionTab) return;
-      const isAuthorizedMove = action.type === "move" &&
-        (actionTab.displayId === displayId || action.displayId === displayId);
-      if (actionTab.displayId !== displayId && !isAuthorizedMove) return;
-    }
-
-    switch (action.type) {
-      case "activate":
-        void browserManager.showRuntimeTab(action.tabId).catch((error) => {
-          console.error("Failed to activate runtime tab.", error);
-        });
-        break;
-      case "hide":
-        void browserManager.hideRuntimeTab(action.tabId).catch((error) => {
-          console.error("Failed to hide runtime tab.", error);
-        });
-        break;
-      case "stop":
-        void browserManager.stopRuntimeTab(action.tabId).catch((error) => {
-          console.error("Failed to stop runtime tab.", error);
-        });
-        break;
-      case "move":
-        void browserManager.moveRuntimeTab(action.tabId, action.displayId).catch((error) => {
-          console.error("Failed to move runtime tab.", error);
-        });
-        break;
-      case "reorder":
-        browserManager.reorderRuntimeTab(action.tabId, action.beforeTabId);
-        break;
-      case "openLauncher":
-        void runtimeTabMenu.openLauncher(runtimeWindow, displayId).catch((error) => {
-          console.error("Failed to open the runtime launcher menu.", error);
-        });
-        break;
-      case "openTabMenu":
-        runtimeTabMenu.openTabMenu(runtimeWindow, displayId, action.tabId);
-        break;
-      case "fullscreenToolbarEnter":
-        browserManager.handleRuntimeToolbarPointer(displayId, true);
-        break;
-      case "fullscreenToolbarLeave":
-        browserManager.handleRuntimeToolbarPointer(displayId, false);
-        break;
-      case "windowControl":
-        browserManager.handleRuntimeWindowControl(displayId, action.control);
-        break;
-    }
+    dispatchRuntimeTabAction(runtimeWindow, displayId, action);
   });
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
@@ -670,7 +640,7 @@ async function initializeApplication(): Promise<void> {
     onOverlayLanguageChanged: (language) => {
       macroOverlayInjector.setLanguage(language);
       browserManager?.setRuntimeTabsLanguage(language);
-      runtimeTabMenu.setLanguage(language);
+      runtimeTabMenu?.setLanguage(language);
       applicationMenu?.setLanguage(language);
     },
     onRendererReady: (senderId, state) => {
@@ -887,6 +857,68 @@ function getMainWindowDisplayWorkArea(): Electron.Rectangle {
 
 function getWorkspaceDisplayInfos() {
   return createWorkspaceDisplayInfos(screen.getAllDisplays(), screen.getPrimaryDisplay().id);
+}
+
+function dispatchRuntimeTabAction(
+  runtimeWindow: BaseWindow,
+  displayId: number,
+  action: RuntimeTabAction
+): void {
+  const manager = browserManager;
+  if (!manager || runtimeWindow.isDestroyed()) return;
+  if ("tabId" in action) {
+    const actionTab = manager.listEmbeddedRuntimeState().tabs.find(
+      (tab) => tab.id === action.tabId
+    );
+    if (!actionTab) return;
+    const isAuthorizedMove = action.type === "move" &&
+      (actionTab.displayId === displayId || action.displayId === displayId);
+    if (actionTab.displayId !== displayId && !isAuthorizedMove) return;
+  }
+
+  switch (action.type) {
+    case "activate":
+      void manager.showRuntimeTab(action.tabId).catch((error) => {
+        console.error("Failed to activate runtime tab.", error);
+      });
+      break;
+    case "hide":
+      void manager.hideRuntimeTab(action.tabId).catch((error) => {
+        console.error("Failed to hide runtime tab.", error);
+      });
+      break;
+    case "stop":
+      void manager.stopRuntimeTab(action.tabId).catch((error) => {
+        console.error("Failed to stop runtime tab.", error);
+      });
+      break;
+    case "move":
+      void manager.moveRuntimeTab(action.tabId, action.displayId).catch((error) => {
+        console.error("Failed to move runtime tab.", error);
+      });
+      break;
+    case "reorder":
+      manager.reorderRuntimeTab(action.tabId, action.beforeTabId);
+      break;
+    case "openLauncher":
+      if (!runtimeTabMenu) return;
+      void runtimeTabMenu.openLauncher(runtimeWindow, displayId).catch((error) => {
+        console.error("Failed to open the runtime launcher menu.", error);
+      });
+      break;
+    case "openTabMenu":
+      runtimeTabMenu?.openTabMenu(runtimeWindow, displayId, action.tabId);
+      break;
+    case "fullscreenToolbarEnter":
+      manager.handleRuntimeToolbarPointer(displayId, true);
+      break;
+    case "fullscreenToolbarLeave":
+      manager.handleRuntimeToolbarPointer(displayId, false);
+      break;
+    case "windowControl":
+      manager.handleRuntimeWindowControl(displayId, action.control);
+      break;
+  }
 }
 
 app.on("before-quit", (event) => {

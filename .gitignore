@@ -12,6 +12,7 @@ pnpm-debug.log*
 
 # Generated native helper artifacts
 /build/native/
+/native/macos/runtime-tabs/build/
 
 # Local runtime data
 /profiles/

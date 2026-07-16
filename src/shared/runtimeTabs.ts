@@ -16,7 +16,8 @@ export type RuntimeTabAction =
   | { type: "openLauncher" }
   | { type: "openTabMenu"; tabId: string }
   | { type: "fullscreenToolbarEnter" }
-  | { type: "fullscreenToolbarLeave" };
+  | { type: "fullscreenToolbarLeave" }
+  | { type: "reportNativeTitlebarHeight"; height: number };
 
 export interface RuntimeTabChromeState extends EmbeddedRuntimeState {
   alwaysShowToolbarInFullScreen: boolean;
@@ -24,6 +25,7 @@ export interface RuntimeTabChromeState extends EmbeddedRuntimeState {
   displays: WorkspaceDisplayInfo[];
   fullscreen: boolean;
   language: AppLanguage;
+  toolbarTopInset: number;
   toolbarVisible: boolean;
 }
 
@@ -41,6 +43,9 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
   if (action.type === "reorder") {
     return typeof action.tabId === "string" &&
       (action.beforeTabId === undefined || typeof action.beforeTabId === "string");
+  }
+  if (action.type === "reportNativeTitlebarHeight") {
+    return typeof action.height === "number" && Number.isFinite(action.height);
   }
   if (["openLauncher", "fullscreenToolbarEnter", "fullscreenToolbarLeave"].includes(action.type)) {
     return Object.keys(action).length === 1;

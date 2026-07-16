@@ -7,6 +7,10 @@ import {
   type RuntimeTabChromeState
 } from "../shared/runtimeTabs";
 import type { AppLanguage } from "../shared/types";
+import {
+  installRuntimeTitlebarHeightReporter,
+  type RuntimeTabsNavigator
+} from "./runtimeTabsWindowControlsOverlay";
 
 type LabelKey = "add" | "hide" | "more";
 
@@ -38,6 +42,7 @@ let currentState: RuntimeTabChromeState | undefined;
 window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.platform = process.platform;
   installStyles();
+  installWindowControlsOverlayMeasurement();
   render();
 });
 
@@ -59,12 +64,27 @@ function getDraggedTabId(dataTransfer: DataTransfer | null | undefined): string 
     dataTransfer?.getData("text/plain") || "";
 }
 
+function installWindowControlsOverlayMeasurement(): void {
+  installRuntimeTitlebarHeightReporter(
+    process.platform,
+    navigator as Navigator & RuntimeTabsNavigator,
+    (height) => send({ type: "reportNativeTitlebarHeight", height })
+  );
+}
+
 function render(): void {
   const root = document.getElementById("runtime-tabs-root");
   if (!root || !currentState) return;
   root.replaceChildren();
 
-  const bar = element("div", `runtime-bar${currentState.toolbarVisible ? "" : " is-collapsed"}`);
+  const toolbarTopInset = currentState.toolbarVisible ? currentState.toolbarTopInset : 0;
+  const bar = element(
+    "div",
+    `runtime-bar${currentState.toolbarVisible ? "" : " is-collapsed"}${
+      toolbarTopInset > 0 ? " has-native-titlebar-inset" : ""
+    }`
+  );
+  bar.style.setProperty("--runtime-toolbar-top-inset", `${toolbarTopInset}px`);
   if (currentState.fullscreen && !currentState.alwaysShowToolbarInFullScreen) {
     bar.addEventListener("pointerenter", () => send({ type: "fullscreenToolbarEnter" }));
     bar.addEventListener("pointerleave", () => send({ type: "fullscreenToolbarLeave" }));
@@ -172,10 +192,11 @@ function installStyles(): void {
     html, body, #runtime-tabs-root { height: 100%; margin: 0; overflow: hidden; }
     body { background: transparent; color: rgba(255,255,255,.92); user-select: none; }
     button { font: inherit; }
-    .runtime-bar { -webkit-app-region: drag; align-items: center; background: rgba(26,27,31,.88); border-bottom: 1px solid rgba(255,255,255,.12); display: flex; gap: 6px; height: 40px; overflow: hidden; padding: 4px 10px; }
+    .runtime-bar { -webkit-app-region: drag; align-items: center; background: rgba(26,27,31,.88); border-bottom: 1px solid rgba(255,255,255,.12); display: flex; gap: 6px; height: 40px; margin-top: var(--runtime-toolbar-top-inset, 0px); overflow: hidden; padding: 4px 10px; }
     .runtime-bar.is-collapsed { background: transparent; border-bottom: 0; height: 2px; padding: 0; }
     .runtime-bar.is-collapsed > * { visibility: hidden; }
     :root[data-platform="darwin"] .runtime-bar { padding-left: 82px; }
+    :root[data-platform="darwin"] .runtime-bar.has-native-titlebar-inset { padding-left: 10px; }
     :root[data-platform="darwin"] .runtime-bar.is-collapsed { padding-left: 0; }
     :root[data-platform="win32"] .runtime-bar { padding-left: max(10px, env(titlebar-area-x, 0px)); padding-right: max(10px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); }
     :root[data-platform="win32"] .runtime-bar.is-collapsed { padding-left: 0; padding-right: 0; }

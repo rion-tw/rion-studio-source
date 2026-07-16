@@ -604,6 +604,9 @@ async function initializeApplication(): Promise<void> {
       case "fullscreenToolbarLeave":
         browserManager.handleRuntimeToolbarPointer(displayId, false);
         break;
+      case "reportNativeTitlebarHeight":
+        browserManager.reportRuntimeNativeTitlebarHeight(displayId, action.height);
+        break;
     }
   });
 

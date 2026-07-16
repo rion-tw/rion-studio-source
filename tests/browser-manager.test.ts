@@ -545,7 +545,7 @@ describe("BrowserManager game host windows", () => {
   );
 
   it.each([24, 30, 38])(
-    "includes a %i DIP macOS menu-bar safe area inside the chrome container",
+    "positions fullscreen chrome below a %i DIP macOS menu-bar safe area",
     async (safeArea) => {
       const display: WorkspaceDisplayInfo = {
         ...runtimeDisplays[0],
@@ -567,16 +567,16 @@ describe("BrowserManager game host windows", () => {
 
       expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith({
         x: 0,
-        y: 0,
+        y: safeArea,
         width: 1200,
-        height: safeArea + 40
+        height: 40
       });
       expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
       harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
     }
   );
 
-  it("converts the macOS menu-bar bottom into chrome-container padding", async () => {
+  it("converts the macOS menu-bar bottom into a chrome-view offset", async () => {
     const display: WorkspaceDisplayInfo = {
       ...runtimeDisplays[0],
       bounds: { x: -1200, y: -100, width: 1200, height: 800 },
@@ -597,9 +597,9 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: 0,
+      y: 20,
       width: 1200,
-      height: 60
+      height: 40
     });
     expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
     harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
@@ -626,8 +626,8 @@ describe("BrowserManager game host windows", () => {
 
     harness.manager.handleRuntimeToolbarPointer(display.id, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 70,
-      y: 0
+      height: 40,
+      y: 30
     }));
     harness.manager.handleRuntimeToolbarPointer(display.id, false);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -638,8 +638,8 @@ describe("BrowserManager game host windows", () => {
     cursor = { x: 100, y: 0 };
     await vi.advanceTimersByTimeAsync(50);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 70,
-      y: 0
+      height: 40,
+      y: 30
     }));
     expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
     harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
@@ -827,13 +827,13 @@ describe("BrowserManager game host windows", () => {
 
     const release = harness.manager.acquireRuntimeToolbarRevealLock(display.id);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 70,
-      y: 0
+      height: 40,
+      y: 30
     }));
     await vi.advanceTimersByTimeAsync(1_000);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 70,
-      y: 0
+      height: 40,
+      y: 30
     }));
     release();
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -872,15 +872,15 @@ describe("BrowserManager game host windows", () => {
 
     await vi.advanceTimersByTimeAsync(50);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 70,
-      y: 0
+      height: 40,
+      y: 30
     }));
     expect(harness.chromeViews[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 2 }));
     cursor = { x: 600, y: 0 };
     await vi.advanceTimersByTimeAsync(50);
     expect(harness.chromeViews[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 70,
-      y: 0
+      height: 40,
+      y: 30
     }));
     expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
     expect(harness.views[1].webContents.loadURL).toHaveBeenCalledTimes(1);
@@ -906,8 +906,8 @@ describe("BrowserManager game host windows", () => {
     harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
     await vi.advanceTimersByTimeAsync(50);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 70,
-      y: 0
+      height: 40,
+      y: 30
     }));
 
     harness.manager.handleRuntimeWindowControl(display.id, "close");

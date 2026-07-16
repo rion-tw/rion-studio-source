@@ -24,10 +24,14 @@ describe("application View menu", () => {
       alwaysShowToolbarInFullScreen: false,
       language: "en",
       onAlwaysShowToolbarInFullScreenChanged: vi.fn(),
+      onToggleFullScreen: vi.fn(),
       platform
     });
     const view = getSubmenu(template, "View");
     expect(view[0]).toMatchObject({ checked: false, label: expectedLabel, type: "checkbox" });
+    expect(view.at(-1)).toMatchObject(platform === "darwin"
+      ? { accelerator: "Control+Command+F", label: "Toggle Full Screen" }
+      : { role: "togglefullscreen" });
     expect(template.find((item) => item.label === "Window")?.role).toBe("windowMenu");
   });
 
@@ -52,6 +56,22 @@ describe("application View menu", () => {
     expect(apply.mock.calls).toEqual([[true], [false]]);
     const restoredTemplate = buildFromTemplate.mock.calls.at(-1)![0];
     expect(getSubmenu(restoredTemplate, "View")[0]).toMatchObject({ checked: false });
+  });
+
+  it("routes the macOS fullscreen accelerator through the runtime-aware callback", () => {
+    const toggleFullScreen = vi.fn();
+    const template = buildApplicationMenuTemplate({
+      alwaysShowToolbarInFullScreen: false,
+      language: "en",
+      onAlwaysShowToolbarInFullScreenChanged: vi.fn(),
+      onToggleFullScreen: toggleFullScreen,
+      platform: "darwin"
+    });
+    const toggle = getSubmenu(template, "View").at(-1)!;
+
+    toggle.click?.({} as never, undefined, {} as never);
+
+    expect(toggleFullScreen).toHaveBeenCalledOnce();
   });
 });
 

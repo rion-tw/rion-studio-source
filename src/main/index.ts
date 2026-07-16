@@ -422,6 +422,7 @@ async function initializeApplication(): Promise<void> {
       await cdnCompatibilityManager.applyToSession(session);
     },
     createHostWindow: (options) => new BaseWindow(options),
+    createRuntimeChromeView: (options) => new WebContentsView(options),
     createTabbedHostWindow: (options) => new BrowserWindow({
       ...options,
       ...(loadAppIcon() ? { icon: loadAppIcon() } : {})
@@ -556,6 +557,12 @@ async function initializeApplication(): Promise<void> {
       await runtimeWindowPreferencesStore.updatePreferences({
         alwaysShowToolbarInFullScreen: value
       });
+    },
+    toggleFullScreen: () => {
+      const focusedWindow = BaseWindow.getFocusedWindow();
+      if (!focusedWindow || focusedWindow.isDestroyed()) return;
+      if (browserManager?.toggleRuntimeWindowFullscreenForWindow(focusedWindow.id)) return;
+      focusedWindow.setFullScreen(!focusedWindow.isFullScreen());
     }
   });
   applicationMenu.install();
@@ -564,7 +571,7 @@ async function initializeApplication(): Promise<void> {
     if (!browserManager || !isRuntimeTabAction(action)) return;
     const displayId = browserManager.getRuntimeDisplayIdForWebContents(event.sender.id);
     if (displayId === undefined) return;
-    const runtimeWindow = BrowserWindow.fromWebContents(event.sender);
+    const runtimeWindow = browserManager.getRuntimeWindowForWebContents(event.sender.id);
     if (!runtimeWindow || runtimeWindow.isDestroyed()) return;
     if ("tabId" in action) {
       const actionTab = browserManager.listEmbeddedRuntimeState().tabs.find(
@@ -614,8 +621,8 @@ async function initializeApplication(): Promise<void> {
       case "fullscreenToolbarLeave":
         browserManager.handleRuntimeToolbarPointer(displayId, false);
         break;
-      case "reportNativeTitlebarHeight":
-        browserManager.reportRuntimeNativeTitlebarHeight(displayId, action.height);
+      case "windowControl":
+        browserManager.handleRuntimeWindowControl(displayId, action.control);
         break;
     }
   });

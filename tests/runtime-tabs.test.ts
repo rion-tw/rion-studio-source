@@ -11,10 +11,13 @@ describe("runtime tab shared contracts", () => {
     expect(isRuntimeTabAction({ type: "openTabMenu", tabId: "tab-1" })).toBe(true);
     expect(isRuntimeTabAction({ type: "fullscreenToolbarEnter" })).toBe(true);
     expect(isRuntimeTabAction({ type: "fullscreenToolbarLeave" })).toBe(true);
+    expect(isRuntimeTabAction({ type: "reportNativeTitlebarHeight", height: 32.4 })).toBe(true);
 
     expect(isRuntimeTabAction({ type: "activate", tabId: "" })).toBe(false);
     expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", displayId: 1.5 })).toBe(false);
     expect(isRuntimeTabAction({ type: "openLauncher", itemId: "role-1" })).toBe(false);
     expect(isRuntimeTabAction({ type: "openTabMenu", tabId: "" })).toBe(false);
+    expect(isRuntimeTabAction({ type: "reportNativeTitlebarHeight", height: Number.NaN })).toBe(false);
+    expect(isRuntimeTabAction({ type: "reportNativeTitlebarHeight", height: "32" })).toBe(false);
   });
 });

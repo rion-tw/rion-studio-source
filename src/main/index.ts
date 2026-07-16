@@ -29,6 +29,8 @@ import {
   GAME_DIVIDER_POINTER_CHANNEL
 } from "./browser/BrowserManager";
 import { AppQuickMenu } from "./menu/AppQuickMenu";
+import { ApplicationMenuController } from "./menu/ApplicationMenu";
+import { RuntimeTabMenuController } from "./menu/RuntimeTabMenu";
 import { buildWindowsTrayMenuTemplate } from "./tray/WindowsTrayMenu";
 import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
 import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
@@ -74,12 +76,11 @@ import { LaunchWorkspaceStore } from "./workspaces/LaunchWorkspaceStore";
 import { WorkspaceLaunchCoordinator } from "./workspaces/WorkspaceLaunchCoordinator";
 import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { handleMainWindowClose } from "./window/mainWindowLifecycle";
+import { RuntimeWindowPreferencesStore } from "./window/RuntimeWindowPreferencesStore";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import {
   RUNTIME_TABS_ACTION_CHANNEL,
-  RUNTIME_TABS_LAUNCH_ITEMS_CHANNEL,
-  createRuntimeTabLaunchItems,
   isRuntimeTabAction
 } from "../shared/runtimeTabs";
 import type { MacroPageRequest, PendingWorkspaceLaunchRequest } from "../shared/types";
@@ -97,6 +98,7 @@ let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let appQuickMenu: AppQuickMenu | null = null;
+let applicationMenu: ApplicationMenuController | null = null;
 let windowsTray: Tray | null = null;
 let pendingMacroPageRequest: MacroPageRequest | null = null;
 let pendingWorkspaceLaunchRequest: PendingWorkspaceLaunchRequest | null = null;
@@ -348,6 +350,8 @@ async function initializeApplication(): Promise<void> {
   const macroStore = new MacroStore(userDataDir);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir);
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir);
+  const runtimeWindowPreferencesStore = new RuntimeWindowPreferencesStore(userDataDir);
+  const runtimeWindowPreferences = await runtimeWindowPreferencesStore.getPreferences();
   const browserFontApplier = new BrowserFontApplier({
     appUserDataDir: userDataDir,
     getSettings: () => gameBrowserSettingsStore.getSettings()
@@ -435,6 +439,7 @@ async function initializeApplication(): Promise<void> {
     },
     getLoginUrl: async (role) => (await gameStore.getGame(role.gameId)).loginUrl ?? role.launchUrl,
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
+    getCursorScreenPoint: () => screen.getCursorScreenPoint(),
     getDefaultLaunchTarget: () => {
       const display = getMainWindowDisplay();
       return { displayId: display.id, workArea: display.workArea };
@@ -444,6 +449,9 @@ async function initializeApplication(): Promise<void> {
       (await gameBrowserSettingsStore.getSettings()).workspace,
     prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
   });
+  browserManager.setAlwaysShowToolbarInFullScreen(
+    runtimeWindowPreferences.alwaysShowToolbarInFullScreen
+  );
   ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {
     browserManager?.handleDividerPointer(event.sender.id, payload);
   });
@@ -526,15 +534,34 @@ async function initializeApplication(): Promise<void> {
     workspaceStore
   });
 
-  ipcMain.handle(RUNTIME_TABS_LAUNCH_ITEMS_CHANNEL, () =>
-    Promise.all([roleStore.listRoles(), workspaceStore.listWorkspaces()]).then(([roles, workspaces]) =>
-      createRuntimeTabLaunchItems(roles, workspaces, browserManager?.listEmbeddedRuntimeState() ?? { windows: [], tabs: [] })
-    )
-  );
+  const runtimeTabMenu = new RuntimeTabMenuController({
+    authManager,
+    browserManager,
+    getWorkspaceDisplays: getWorkspaceDisplayInfos,
+    onWorkspaceDisplaySelectionRequired: requestWorkspaceDisplaySelection,
+    roleStore,
+    workspaceLauncher,
+    workspaceStore
+  });
+  applicationMenu = new ApplicationMenuController({
+    alwaysShowToolbarInFullScreen: runtimeWindowPreferences.alwaysShowToolbarInFullScreen,
+    applyAlwaysShowToolbarInFullScreen: (value) => {
+      browserManager?.setAlwaysShowToolbarInFullScreen(value);
+    },
+    saveAlwaysShowToolbarInFullScreen: async (value) => {
+      await runtimeWindowPreferencesStore.updatePreferences({
+        alwaysShowToolbarInFullScreen: value
+      });
+    }
+  });
+  applicationMenu.install();
+
   ipcMain.on(RUNTIME_TABS_ACTION_CHANNEL, (event, action: unknown) => {
     if (!browserManager || !isRuntimeTabAction(action)) return;
     const displayId = browserManager.getRuntimeDisplayIdForWebContents(event.sender.id);
     if (displayId === undefined) return;
+    const runtimeWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!runtimeWindow || runtimeWindow.isDestroyed()) return;
     if ("tabId" in action) {
       const actionTab = browserManager.listEmbeddedRuntimeState().tabs.find(
         (tab) => tab.id === action.tabId
@@ -563,44 +590,19 @@ async function initializeApplication(): Promise<void> {
       case "reorder":
         browserManager.reorderRuntimeTab(action.tabId, action.beforeTabId);
         break;
-      case "setOverlay":
-        browserManager.setRuntimeChromeOverlay(displayId, action.open);
+      case "openLauncher":
+        void runtimeTabMenu.openLauncher(runtimeWindow, displayId).catch((error) => {
+          console.error("Failed to open the runtime launcher menu.", error);
+        });
         break;
-      case "launch":
-        void (async () => {
-          const state = browserManager?.listEmbeddedRuntimeState();
-          const existing = action.itemType === "role"
-            ? state?.tabs.find((tab) => tab.roleIds.includes(action.itemId))
-            : state?.tabs.find((tab) => tab.type === "workspace" && tab.sourceId === action.itemId);
-          if (existing) {
-            browserManager?.showRuntimeTab(existing.id);
-            return;
-          }
-          if (action.itemType === "role") {
-            const role = await roleStore.getRole(action.itemId);
-            const targetDisplay = getWorkspaceDisplayInfos().find((display) => display.id === displayId);
-            const launchOptions = targetDisplay
-              ? { target: { displayId, workArea: targetDisplay.workArea } }
-              : undefined;
-            if (role.authState !== "authenticated") {
-              authManager.startLogin(role, launchOptions);
-              return;
-            }
-            await browserManager?.launch(role, launchOptions);
-            return;
-          }
-          const workspace = await workspaceStore.getWorkspace(action.itemId);
-          const result = await workspaceLauncher.launch(action.itemId, {
-            displayId: workspace.targetDisplayId ?? displayId
-          });
-          if (result.kind === "display_selection_required") {
-            requestWorkspaceDisplaySelection({
-              workspaceId: workspace.id,
-              workspaceName: workspace.name,
-              result
-            });
-          }
-        })().catch((error) => console.error("Runtime tab action failed.", error));
+      case "openTabMenu":
+        runtimeTabMenu.openTabMenu(runtimeWindow, displayId, action.tabId);
+        break;
+      case "fullscreenToolbarEnter":
+        browserManager.handleRuntimeToolbarPointer(displayId, true);
+        break;
+      case "fullscreenToolbarLeave":
+        browserManager.handleRuntimeToolbarPointer(displayId, false);
         break;
     }
   });
@@ -636,6 +638,8 @@ async function initializeApplication(): Promise<void> {
     onOverlayLanguageChanged: (language) => {
       macroOverlayInjector.setLanguage(language);
       browserManager?.setRuntimeTabsLanguage(language);
+      runtimeTabMenu.setLanguage(language);
+      applicationMenu?.setLanguage(language);
     },
     onRendererReady: (senderId, state) => {
       rendererReadyGate.notify(senderId, state);
@@ -819,10 +823,6 @@ function ensureApplicationStarted(): void {
 }
 
 app.whenReady().then(() => {
-  if (process.platform !== "darwin") {
-    Menu.setApplicationMenu(null);
-  }
-
   createWindowsTray();
 
   ensureApplicationStarted();

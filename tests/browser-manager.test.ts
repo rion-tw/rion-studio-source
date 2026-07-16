@@ -241,7 +241,7 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining({
       frame: false,
-      fullscreenable: false,
+      fullscreenable: true,
       show: false
     }));
     expect(harness.createTabbedHostWindow).not.toHaveBeenCalled();
@@ -449,7 +449,7 @@ describe("BrowserManager game host windows", () => {
     await harness.manager.launch(role);
 
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
-    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(true);
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
@@ -508,7 +508,7 @@ describe("BrowserManager game host windows", () => {
       y: 0
     }));
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
-    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(false);
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
     vi.useRealTimers();
   });
@@ -887,7 +887,7 @@ describe("BrowserManager game host windows", () => {
     vi.useRealTimers();
   });
 
-  it("clears auto-hidden menu-bar monitoring before hiding a simple-fullscreen host", async () => {
+  it("clears auto-hidden menu-bar monitoring before hiding a native-fullscreen host", async () => {
     vi.useFakeTimers();
     let cursor = { x: 100, y: 0 };
     const display: WorkspaceDisplayInfo = {
@@ -915,13 +915,13 @@ describe("BrowserManager game host windows", () => {
     cursor = { x: 100, y: 100 };
     await vi.advanceTimersByTimeAsync(1_000);
 
-    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(false);
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
     expect(harness.hosts[0].hide).toHaveBeenCalled();
     expect(harness.chromeViews[0].setBounds).toHaveBeenCalledTimes(chromeBoundsCalls);
     vi.useRealTimers();
   });
 
-  it("routes macOS traffic lights and Escape through simple fullscreen controls", async () => {
+  it("keeps macOS native fullscreen active when the game receives Escape", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       platform: "darwin",
@@ -941,24 +941,93 @@ describe("BrowserManager game host windows", () => {
     harness.manager.handleRuntimeWindowControl(11, "minimize");
     expect(harness.hosts[0].minimize).toHaveBeenCalledOnce();
     const preventDefault = vi.fn();
-    harness.chromeViews[0].webContents.emit("before-input-event", { preventDefault }, {
+    harness.views[0].webContents.emit("before-input-event", { preventDefault }, {
       type: "keyDown",
       key: "Escape"
     });
-    expect(preventDefault).toHaveBeenCalledOnce();
-    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(false);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(harness.hosts[0].setFullScreen).toHaveBeenCalledTimes(1);
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
+
+    const shortcutEvent = { preventDefault: vi.fn() };
+    harness.views[0].webContents.emit("before-input-event", shortcutEvent, {
+      control: true,
+      isAutoRepeat: false,
+      key: "f",
+      meta: true,
+      type: "keyDown"
+    });
+    expect(shortcutEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
 
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     harness.views[0].webContents.emit("enter-html-full-screen");
-    harness.chromeViews[0].webContents.emit("before-input-event", { preventDefault }, {
+    harness.views[0].webContents.emit("before-input-event", { preventDefault }, {
       type: "keyDown",
       key: "Escape"
     });
-    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(true);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
     harness.views[0].webContents.emit("leave-html-full-screen");
     harness.manager.handleRuntimeWindowControl(11, "close");
-    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(false);
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
     expect(harness.hosts[0].hide).toHaveBeenCalled();
+  });
+
+  it("tracks macOS native fullscreen only after the asynchronous window events", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      deferFullscreenTransitions: true,
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    harness.manager.handleRuntimeWindowControl(11, "minimize");
+    harness.manager.handleRuntimeWindowControl(11, "zoom");
+
+    expect(harness.hosts[0].setFullScreen).toHaveBeenCalledOnce();
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
+    expect(harness.hosts[0].minimize).not.toHaveBeenCalled();
+    expect(harness.hosts[0].maximize).not.toHaveBeenCalled();
+    expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
+      "runtime-tabs:state",
+      expect.objectContaining({ windowFullscreen: false })
+    );
+
+    harness.hosts[0].completeFullScreenTransition();
+
+    expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
+      "runtime-tabs:state",
+      expect.objectContaining({ windowFullscreen: true })
+    );
+  });
+
+  it("waits for native fullscreen to leave before destroying the last macOS host", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      deferFullscreenTransitions: true,
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+    const tabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+
+    await harness.manager.stopRuntimeTab(tabId);
+    expect(harness.hosts[0].close).not.toHaveBeenCalled();
+
+    harness.hosts[0].completeFullScreenTransition();
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
+    expect(harness.hosts[0].close).not.toHaveBeenCalled();
+
+    harness.hosts[0].completeFullScreenTransition();
+    expect(harness.hosts[0].close).toHaveBeenCalledOnce();
+    expect(harness.hosts[0].hide).not.toHaveBeenCalled();
   });
 
   it("retains the Windows fullscreen content inset behavior", async () => {
@@ -969,15 +1038,27 @@ describe("BrowserManager game host windows", () => {
       workspaceDisplays: runtimeDisplays
     });
     await harness.manager.launch(role);
-    harness.hosts[0].emit("enter-full-screen");
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+
+    const preventDefault = vi.fn();
+    harness.views[0].webContents.emit("before-input-event", { preventDefault }, {
+      type: "keyDown",
+      key: "Escape"
+    });
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(harness.hosts[0].setFullScreen).toHaveBeenCalledTimes(1);
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
+
     harness.manager.setAlwaysShowToolbarInFullScreen(true);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
     harness.manager.setAlwaysShowToolbarInFullScreen(false);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
     harness.manager.handleRuntimeToolbarPointer(11, true);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
-    harness.hosts[0].emit("leave-full-screen");
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
   });
 
@@ -2696,6 +2777,7 @@ function createHarness(options: {
   applyCdnCompatibility?: AnyMock;
   applyBrowserFonts?: AnyMock;
   applyBrowserProxy?: AnyMock;
+  deferFullscreenTransitions?: boolean;
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
@@ -2722,7 +2804,7 @@ function createHarness(options: {
     width?: number;
     height?: number;
   }) => {
-    const host = createMockHost();
+    const host = createMockHost(options.deferFullscreenTransitions);
     host.contentBounds = {
       x: options.platform === "darwin" && options.useTabbedHostWindow ? windowOptions.x ?? 0 : 0,
       y: options.platform === "darwin" && options.useTabbedHostWindow ? windowOptions.y ?? 0 : 0,
@@ -2738,7 +2820,7 @@ function createHarness(options: {
     width?: number;
     height?: number;
   }) => {
-    const host = createMockBrowserHost();
+    const host = createMockBrowserHost(options.deferFullscreenTransitions);
     host.contentBounds = {
       x: windowOptions.x ?? 0,
       y: windowOptions.y ?? 0,
@@ -2868,11 +2950,19 @@ function createExternalResourceTarget() {
   };
 }
 
-function createMockHost() {
+function createMockHost(deferFullscreenTransitions = false) {
   let visible = false;
+  let pendingFullscreenTransition: boolean | undefined;
   const host = Object.assign(new EventEmitter(), {
     id: Math.floor(Math.random() * 100_000),
     close: vi.fn(),
+    completeFullScreenTransition: vi.fn(() => {
+      if (pendingFullscreenTransition === undefined) return;
+      const fullscreen = pendingFullscreenTransition;
+      pendingFullscreenTransition = undefined;
+      host.fullscreen = fullscreen;
+      host.emit(fullscreen ? "enter-full-screen" : "leave-full-screen");
+    }),
     contentBounds: { x: 0, y: 0, width: 1200, height: 800 },
     contentView: {
       addChildView: vi.fn(),
@@ -2889,7 +2979,6 @@ function createMockHost() {
     isFullScreen: vi.fn(() => host.fullscreen),
     isMaximized: vi.fn(() => host.maximized),
     isMinimized: vi.fn(() => false),
-    isSimpleFullScreen: vi.fn(() => host.simpleFullscreen),
     isVisible: vi.fn(() => visible),
     fullscreen: false,
     maximize: vi.fn(() => {
@@ -2903,16 +2992,12 @@ function createMockHost() {
       host.contentBounds = bounds;
     }),
     setFullScreen: vi.fn((value: boolean) => {
-      host.fullscreen = value;
-      host.emit(value ? "enter-full-screen" : "leave-full-screen");
-    }),
-    setSimpleFullScreen: vi.fn((value: boolean) => {
-      host.simpleFullscreen = value;
+      pendingFullscreenTransition = value;
+      if (!deferFullscreenTransitions) host.completeFullScreenTransition();
     }),
     show: vi.fn(() => {
       visible = true;
     }),
-    simpleFullscreen: false,
     unmaximize: vi.fn(() => {
       host.maximized = false;
     })
@@ -2921,8 +3006,8 @@ function createMockHost() {
   return host;
 }
 
-function createMockBrowserHost() {
-  const host = createMockHost();
+function createMockBrowserHost(deferFullscreenTransitions = false) {
+  const host = createMockHost(deferFullscreenTransitions);
   const webContents = Object.assign(new EventEmitter(), {
     id: Math.floor(Math.random() * 100_000),
     isDestroyed: vi.fn(() => false),

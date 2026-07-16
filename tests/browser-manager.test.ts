@@ -6,6 +6,7 @@ import {
   BrowserGameLoadError,
   BrowserLaunchAuthError,
   BrowserManager,
+  type BrowserManagerOptions,
   BrowserWorkspaceDisplayOccupiedError,
   createRoleSessionPartition,
   normalizedRectToPixelBounds
@@ -1739,7 +1740,18 @@ describe("BrowserManager game host windows", () => {
       .toMatchObject({ active: true, displayId: 11, hidden: false });
   });
 
-  it("launches the primary first and then workspace roles in batches of two", async () => {
+  it.each([
+    {
+      name: "an unrestricted workspace",
+      resourcePolicy: { mode: "unrestricted" as const },
+      pressureLevel: "normal" as const
+    },
+    {
+      name: "an adaptive workspace under constrained system pressure",
+      resourcePolicy: { mode: "adaptive" as const, primaryRoleId: "role-3" },
+      pressureLevel: "constrained" as const
+    }
+  ])("launches every role concurrently for $name", async ({ resourcePolicy, pressureLevel }) => {
     const started: number[] = [];
     const releases: Array<() => void> = [];
     const loadUrlHandlers = Array.from({ length: 4 }, (_, index) => async () => {
@@ -1748,23 +1760,60 @@ describe("BrowserManager game host windows", () => {
         releases[index] = resolve;
       });
     });
-    const harness = createHarness({ loadUrlHandlers });
+    const resourcePressureMonitor: NonNullable<BrowserManagerOptions["resourcePressureMonitor"]> = {
+      getSnapshot: () => ({
+        level: pressureLevel,
+        reason: pressureLevel === "constrained" ? "cpu" : "baseline"
+      }),
+      on: vi.fn()
+    };
+    const harness = createHarness({ loadUrlHandlers, resourcePressureMonitor });
     const rects = getDefaultWorkspaceRects("quad");
     const roles = Array.from({ length: 4 }, (_, index) => createRole(`role-${index + 1}`, `Role ${index + 1}`));
     const launch = harness.manager.launchWorkspace(
-      workspace,
+      { ...workspace, resourcePolicy },
       roles.map((item, index) => ({ role: item, rect: rects[index] }))
     );
 
-    await vi.waitFor(() => expect(started).toEqual([0]));
-    releases[0]();
-    await vi.waitFor(() => expect(started).toEqual([0, 1, 2]));
-    releases[1]();
-    releases[2]();
     await vi.waitFor(() => expect(started).toEqual([0, 1, 2, 3]));
-    releases[3]();
+    releases.forEach((release) => release());
 
     await expect(launch).resolves.toHaveLength(4);
+  });
+
+  it("waits for every concurrent embedded launch before falling back atomically", async () => {
+    let finishFirstLaunch!: () => void;
+    let secondLaunchStarted = false;
+    const externalChromeManager = createExternalChromeManager();
+    const secondRole = createRole("role-2", "Alt");
+    const harness = createHarness({
+      externalChromeManager,
+      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
+      loadUrlHandlers: [
+        () => new Promise<void>((resolve) => {
+          finishFirstLaunch = resolve;
+        }),
+        async () => {
+          secondLaunchStarted = true;
+          throw new Error("ERR_FAILED (-2) loading the second role");
+        }
+      ]
+    });
+
+    const launch = harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: secondRole, rect: workspace.slots[1].rect }
+    ]);
+
+    await vi.waitFor(() => expect(secondLaunchStarted).toBe(true));
+    expect(externalChromeManager.launchWorkspace).not.toHaveBeenCalled();
+    finishFirstLaunch();
+
+    await expect(launch).resolves.toEqual([
+      expect.objectContaining({ runtimeMode: "external" })
+    ]);
+    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledTimes(1);
+    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
   });
 
   it("falls back a workspace to external Chrome compatibility mode after embedded game load failure", async () => {
@@ -2789,6 +2838,7 @@ function createHarness(options: {
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
+  resourcePressureMonitor?: BrowserManagerOptions["resourcePressureMonitor"];
   snapshotsByView?: Array<{ bodyText: string; localStorage: Record<string, string> }>;
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
@@ -2882,6 +2932,9 @@ function createHarness(options: {
     platform: options.platform ?? (options.useTabbedHostWindow ? "win32" : process.platform),
     ...(options.prefersReducedTransparency
       ? { prefersReducedTransparency: options.prefersReducedTransparency }
+      : {}),
+    ...(options.resourcePressureMonitor
+      ? { resourcePressureMonitor: options.resourcePressureMonitor }
       : {})
   });
   manager.setBeforeRolesStop(beforeRolesStop);

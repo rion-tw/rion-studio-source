@@ -270,7 +270,6 @@ const RUNTIME_TAB_TOOLBAR_CURSOR_MONITOR_INTERVAL_MS = 50;
 export const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
-const WORKSPACE_LAUNCH_CONCURRENCY = 2;
 
 function getWorkspaceWindowMaterialOptions(
   platform: NodeJS.Platform,
@@ -809,21 +808,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         await this.createHostDividers(host);
         const displayHost = this.getDisplayHost(host);
         if (displayHost) this.showDisplayHost(displayHost);
-        const primaryRoleId = workspace.resourcePolicy.primaryRoleId ?? sessions[0]?.role.id;
-        const primarySession = sessions.find((session) => session.role.id === primaryRoleId) ?? sessions[0];
-        if (primarySession) {
-          await this.finishLaunch(primarySession, primarySession.zoomFactor);
-        }
-        const backgroundSessions = sessions.filter((session) => session !== primarySession);
-        const launchConcurrency = workspace.resourcePolicy.mode === "adaptive" &&
-          this.options.resourcePressureMonitor?.getSnapshot().level === "constrained"
-          ? 1
-          : WORKSPACE_LAUNCH_CONCURRENCY;
-        await runInBatches(
-          backgroundSessions,
-          launchConcurrency,
-          (session) => this.finishLaunch(session, session.zoomFactor)
+        const launchResults = await Promise.allSettled(
+          sessions.map((session) => this.finishLaunch(session, session.zoomFactor))
         );
+        const failedLaunch = launchResults.find(
+          (result): result is PromiseRejectedResult => result.status === "rejected"
+        );
+        if (failedLaunch) throw failedLaunch.reason;
         if (host.closing || host.window.isDestroyed()) {
           return [];
         }
@@ -2737,20 +2728,4 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function runInBatches<T>(
-  items: T[],
-  concurrency: number,
-  operation: (item: T) => Promise<void>
-): Promise<void> {
-  for (let index = 0; index < items.length; index += concurrency) {
-    const results = await Promise.allSettled(
-      items.slice(index, index + concurrency).map((item) => operation(item))
-    );
-    const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (failure) {
-      throw failure.reason;
-    }
-  }
 }

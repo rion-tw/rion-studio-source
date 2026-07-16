@@ -6,7 +6,7 @@ import {
   type RuntimeTabAction,
   type RuntimeTabChromeState
 } from "../shared/runtimeTabs";
-import type { AppLanguage } from "../shared/types";
+import type { AppLanguage, EmbeddedRuntimeTabSummary } from "../shared/types";
 
 type LabelKey = "add" | "close" | "enterFullScreen" | "exitFullScreen" |
   "minimize" | "more" | "zoom";
@@ -133,8 +133,7 @@ function render(): void {
         : { type: "move", tabId: movedTabId, displayId: currentState.displayId });
     });
 
-    const marker = element("span", `runtime-tab-marker ${tab.type}`);
-    marker.textContent = tab.type === "workspace" ? "▦" : "●";
+    const marker = createTabMarker(tab);
     const name = element("span", "runtime-tab-name");
     name.textContent = tab.name;
     const count = element("span", "runtime-tab-count");
@@ -171,6 +170,52 @@ function createTrafficLights(): HTMLDivElement {
   });
   controls.append(close, minimize, fullscreen);
   return controls;
+}
+
+function createTabMarker(tab: EmbeddedRuntimeTabSummary): HTMLSpanElement {
+  const marker = element("span", `runtime-tab-marker ${tab.type}`);
+  marker.setAttribute("aria-hidden", "true");
+  if (tab.type === "workspace") {
+    marker.textContent = "▦";
+    return marker;
+  }
+
+  const showFallback = () => marker.replaceChildren(createGamepadIcon());
+  const iconDataUrl = currentState?.tabIconDataUrls[tab.id];
+  if (!iconDataUrl) {
+    showFallback();
+    return marker;
+  }
+
+  const image = document.createElement("img");
+  image.alt = "";
+  image.draggable = false;
+  image.addEventListener("error", showFallback, { once: true });
+  image.src = iconDataUrl;
+  marker.append(image);
+  return marker;
+}
+
+function createGamepadIcon(): SVGSVGElement {
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("stroke-width", "1.8");
+
+  const paths = [
+    "M6 11h4M8 9v4M15 12h.01M18 10h.01",
+    "M17.32 5H6.68a4 4 0 0 0-3.79 2.7l-1.71 5.12A3.2 3.2 0 0 0 4.22 17H5a2 2 0 0 0 1.6-.8l.6-.8a2 2 0 0 1 1.6-.8h6.4a2 2 0 0 1 1.6.8l.6.8A2 2 0 0 0 19 17h.78a3.2 3.2 0 0 0 3.04-4.18L21.11 7.7A4 4 0 0 0 17.32 5Z"
+  ];
+  paths.forEach((value) => {
+    const path = document.createElementNS(namespace, "path");
+    path.setAttribute("d", value);
+    svg.append(path);
+  });
+  return svg;
 }
 
 function trafficLight(
@@ -297,14 +342,16 @@ function installStyles(): void {
       transition: background-color 120ms ease, border-color 120ms ease;
       width: max-content;
     }
-    .runtime-tab + .runtime-tab::before {
+    .runtime-tab + .runtime-tab::before,
+    .runtime-tab + .runtime-add::before {
       background: var(--runtime-tab-divider);
       content: "";
       height: 14px;
-      left: -3px;
+      left: -2px;
       pointer-events: none;
       position: absolute;
-      top: 7px;
+      top: 50%;
+      transform: translate(-50%, -50%);
       width: 1px;
     }
     .runtime-tab:hover { background: var(--runtime-tab-hover); }
@@ -319,13 +366,20 @@ function installStyles(): void {
       outline: none;
     }
     .runtime-tab-marker {
+      align-items: center;
       color: var(--runtime-muted);
-      flex: 0 0 10px;
-      font-size: 7px;
+      display: inline-flex;
+      flex: 0 0 14px;
+      font-size: 10px;
+      height: 14px;
+      justify-content: center;
       line-height: 1;
       text-align: center;
+      width: 14px;
     }
-    .runtime-tab-marker.workspace { color: var(--runtime-workspace); font-size: 10px; }
+    .runtime-tab-marker img { border-radius: 3px; display: block; height: 14px; object-fit: cover; width: 14px; }
+    .runtime-tab-marker svg { display: block; height: 14px; width: 14px; }
+    .runtime-tab-marker.workspace { color: var(--runtime-workspace); font-size: 11px; }
     .runtime-tab-name {
       flex: 0 1 auto;
       font-size: 12px;
@@ -359,11 +413,11 @@ function installStyles(): void {
       color: var(--runtime-text);
     }
     .runtime-icon-button:focus-visible { box-shadow: inset 0 0 0 1px var(--runtime-focus); outline: none; }
-    .runtime-tab-action { opacity: 0; }
+    .runtime-tab-action { margin-left: auto; opacity: 0; }
     .runtime-tab:hover .runtime-tab-action,
     .runtime-tab.is-active .runtime-tab-action,
     .runtime-tab:focus-within .runtime-tab-action { opacity: 1; }
-    .runtime-add { flex: 0 0 28px; font-size: 18px; font-weight: 400; height: 28px; }
+    .runtime-add { flex: 0 0 28px; font-size: 18px; font-weight: 400; height: 28px; position: relative; }
     @media (prefers-color-scheme: light) {
       :root {
         --runtime-text: rgba(24,24,28,.88);

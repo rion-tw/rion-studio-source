@@ -46,6 +46,7 @@ import { SystemFontService } from "./game-browser/SystemFontService";
 import { GameCompatibilityManager } from "./games/GameCompatibilityManager";
 import { GameCompatibilityStore } from "./games/GameCompatibilityStore";
 import { GameStore } from "./games/GameStore";
+import { createRuntimeGameIconDataUrl } from "./games/runtimeGameIcon";
 import {
   broadcastMacrosChanged,
   broadcastWorkspaceDisplaysChanged,
@@ -443,6 +444,13 @@ async function initializeApplication(): Promise<void> {
       return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
     },
     getLoginUrl: async (role) => (await gameStore.getGame(role.gameId)).loginUrl ?? role.launchUrl,
+    getRuntimeTabGameIcon: async (role) => {
+      const game = await gameStore.getGame(role.gameId);
+      return createRuntimeGameIconDataUrl(
+        game,
+        (source) => nativeImage.createFromDataURL(source)
+      );
+    },
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
     getCursorScreenPoint: () => screen.getCursorScreenPoint(),
     getDefaultLaunchTarget: () => {

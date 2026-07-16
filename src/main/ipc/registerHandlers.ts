@@ -597,7 +597,8 @@ export function registerIpcHandlers(
     );
     ipcMain.handle(IPC_CHANNELS.macrosDeleteMany, (_event, input: BulkDeleteInput) =>
       runDataMutation(options, async () => {
-        const result = await runBulkDelete(input, (id) => deleteMacroRecord(macroStore, macroManager, id));
+        const ids = normalizeBulkDeleteIds(input);
+        const result = await macroManager.stopAndRunMutations(ids, () => macroStore.deleteMacros(ids));
         if (result.deletedIds.length > 0) {
           options.onMacrosChanged?.();
         }
@@ -699,16 +700,17 @@ function classifyBulkDeleteError(id: string, error: unknown): BulkDeleteSkippedI
   const code = readErrorCode(error);
   const message = error instanceof Error ? error.message : String(error);
   const details = error && typeof error === "object" && "details" in error
-    ? error.details as { roleNames?: unknown }
+    ? error.details as { relatedNames?: unknown; roleNames?: unknown }
     : undefined;
-  const relatedNames = Array.isArray(details?.roleNames)
-    ? details.roleNames.filter((name): name is string => typeof name === "string")
+  const rawRelatedNames = details?.relatedNames ?? details?.roleNames;
+  const relatedNames = Array.isArray(rawRelatedNames)
+    ? rawRelatedNames.filter((name): name is string => typeof name === "string")
     : undefined;
 
   if (code === "GAME_BUILTIN_DELETE_FORBIDDEN") {
     return { id, reason: "protected" };
   }
-  if (code === "GAME_IN_USE") {
+  if (code === "GAME_IN_USE" || code === "MACRO_IN_USE") {
     return { id, reason: "in_use", ...(relatedNames?.length ? { relatedNames } : {}) };
   }
   if (code.endsWith("_NOT_FOUND") || /not found/i.test(message)) {

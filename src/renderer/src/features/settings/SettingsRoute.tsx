@@ -1987,6 +1987,8 @@ function formatPortableWarning(warning: PortableImportWarning, t: Translator): s
       return t("settings.warningMacroShortcutReserved").replace("{name}", itemName);
     case "MACRO_SKIPPED_NO_ROLES":
       return t("settings.warningMacroSkipped").replace("{name}", itemName);
+    case "MACRO_SKIPPED_MISSING_DEPENDENCY":
+      return t("settings.warningMacroDependencySkipped").replace("{name}", itemName);
     default:
       return t("settings.warningUnknown");
   }

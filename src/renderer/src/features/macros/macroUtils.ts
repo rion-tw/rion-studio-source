@@ -6,12 +6,34 @@ import type {
   MacroTrigger,
   Role
 } from "../../../../shared/types";
+import { macroDependsOn } from "../../../../shared/macroDependencies";
 import type { MacroFormState } from "../../app/types";
 import type { TranslationKey, Translator } from "../../i18n";
 
 export const MACRO_INTERVAL_PRESETS = [50, 100, 250, 500, 1000, 2000, 5000, 10000] as const;
 export const MACRO_INTERVAL_CUSTOM_VALUE = "custom";
 export const MACRO_INTERVAL_OPTIONS = [...MACRO_INTERVAL_PRESETS, MACRO_INTERVAL_CUSTOM_VALUE] as const;
+
+export function isCallableMacroTarget(
+  macros: Macro[],
+  currentMacroId: string | undefined,
+  targetMacroId: string
+): boolean {
+  const target = macros.find((macro) => macro.id === targetMacroId);
+  return Boolean(
+    target &&
+    target.repeat.type === "once" &&
+    target.id !== currentMacroId &&
+    !(currentMacroId && macroDependsOn(macros, target.id, currentMacroId))
+  );
+}
+
+export function getCallableMacroTargets(
+  macros: Macro[],
+  currentMacroId?: string
+): Macro[] {
+  return macros.filter((macro) => isCallableMacroTarget(macros, currentMacroId, macro.id));
+}
 
 export function isMacroIntervalPreset(value: number): boolean {
   return MACRO_INTERVAL_PRESETS.some((preset) => preset === value);
@@ -87,7 +109,8 @@ const codeLabels: Record<string, string> = {
 const macroStepLabelKeys: Record<MacroStep["type"], TranslationKey> = {
   click: "macro.step.click",
   delay: "macro.step.delay",
-  key: "macro.step.key"
+  key: "macro.step.key",
+  macro: "macro.step.macro"
 };
 
 export function createEmptyMacroFormName(macros: Macro[], t: Translator): string {
@@ -193,12 +216,16 @@ export function formatMacroRepeat(repeat: MacroRepeat, t: Translator): string {
   return t("macros.repeat.loop").replace("{ms}", String(repeat.intervalMs));
 }
 
-export function summarizeMacroSteps(steps: MacroStep[], t: Translator): string {
+export function summarizeMacroSteps(
+  steps: MacroStep[],
+  t: Translator,
+  macroNameById?: ReadonlyMap<string, string>
+): string {
   if (steps.length === 0) {
     return t("macros.steps.empty");
   }
 
-  const summary = steps.slice(0, 4).map((step) => formatMacroStep(step, t));
+  const summary = steps.slice(0, 4).map((step) => formatMacroStep(step, t, macroNameById));
 
   if (steps.length > summary.length) {
     summary.push(t("macros.steps.more").replace("{count}", String(steps.length - summary.length)));
@@ -207,7 +234,11 @@ export function summarizeMacroSteps(steps: MacroStep[], t: Translator): string {
   return summary.join(" > ");
 }
 
-export function formatMacroStep(step: MacroStep, t: Translator): string {
+export function formatMacroStep(
+  step: MacroStep,
+  t: Translator,
+  macroNameById?: ReadonlyMap<string, string>
+): string {
   switch (step.type) {
     case "key":
       return `${t(macroStepLabelKeys.key)}:${formatMacroCode(step.code)}`;
@@ -215,6 +246,8 @@ export function formatMacroStep(step: MacroStep, t: Translator): string {
       return `${t(macroStepLabelKeys.click)}:X ${step.xPercent}%, Y ${step.yPercent}%`;
     case "delay":
       return `${t(macroStepLabelKeys.delay)}:${step.ms}ms`;
+    case "macro":
+      return `${t(macroStepLabelKeys.macro)}:${macroNameById?.get(step.macroId) ?? t("macros.unknownMacro")}`;
   }
 }
 

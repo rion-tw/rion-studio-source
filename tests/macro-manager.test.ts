@@ -498,6 +498,395 @@ describe("MacroManager", () => {
     await manager.stop("macro-1");
     expect(manager.listStatuses()).toEqual([]);
   });
+
+  it("runs a called macro synchronously before continuing the parent", async () => {
+    const parentTarget = createTarget();
+    const childTarget = createTarget();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["role-parent"],
+      steps: [
+        { id: "before", type: "key", code: "KeyA" },
+        { id: "call", type: "macro", macroId: "child" },
+        { id: "after", type: "key", code: "KeyC" }
+      ]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["role-child"],
+      steps: [{ id: "child-key", type: "key", code: "KeyB" }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "role-parent": parentTarget, "role-child": childTarget }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(parentTarget.dispatchKey).toHaveBeenCalledTimes(2));
+
+    expect(parentTarget.dispatchKey).toHaveBeenNthCalledWith(1, "KeyA", expect.any(AbortSignal));
+    expect(childTarget.dispatchKey).toHaveBeenCalledWith("KeyB", expect.any(AbortSignal));
+    expect(parentTarget.dispatchKey).toHaveBeenNthCalledWith(2, "KeyC", expect.any(AbortSignal));
+    expect(parentTarget.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
+      childTarget.dispatchKey.mock.invocationCallOrder[0]
+    );
+    expect(childTarget.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
+      parentTarget.dispatchKey.mock.invocationCallOrder[1]
+    );
+  });
+
+  it("waits at a multi-role barrier and creates only one child invocation", async () => {
+    const firstParentTarget = createTarget();
+    const secondParentTarget = createTarget();
+    const childTarget = createTarget();
+    const delayedParent = createDeferred<void>();
+    secondParentTarget.dispatchKey.mockImplementationOnce(() => delayedParent.promise);
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-1", "parent-2"],
+      steps: [
+        { id: "before", type: "key", code: "KeyA" },
+        { id: "call", type: "macro", macroId: "child" }
+      ]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["child-role"],
+      steps: [{ id: "child-key", type: "key", code: "KeyB" }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: {
+        "parent-1": firstParentTarget,
+        "parent-2": secondParentTarget,
+        "child-role": childTarget
+      }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(firstParentTarget.dispatchKey).toHaveBeenCalledOnce());
+    expect(childTarget.ensureInputFocus).not.toHaveBeenCalled();
+
+    delayedParent.resolve(undefined);
+    await vi.waitFor(() => expect(childTarget.dispatchKey).toHaveBeenCalledOnce());
+    expect(childTarget.ensureInputFocus).toHaveBeenCalledOnce();
+  });
+
+  it("waits for every called-macro role before all parent roles continue", async () => {
+    const parentTargets = { first: createTarget(), second: createTarget() };
+    const childTargets = { first: createTarget(), second: createTarget() };
+    const delayedChild = createDeferred<void>();
+    childTargets.second.dispatchKey.mockImplementationOnce(() => delayedChild.promise);
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-1", "parent-2"],
+      steps: [
+        { id: "call", type: "macro", macroId: "child" },
+        { id: "after", type: "key", code: "KeyC" }
+      ]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["child-1", "child-2"],
+      steps: [{ id: "child-key", type: "key", code: "KeyB" }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: {
+        "parent-1": parentTargets.first,
+        "parent-2": parentTargets.second,
+        "child-1": childTargets.first,
+        "child-2": childTargets.second
+      }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(childTargets.first.dispatchKey).toHaveBeenCalledOnce());
+    expect(parentTargets.first.dispatchKey).not.toHaveBeenCalled();
+    expect(parentTargets.second.dispatchKey).not.toHaveBeenCalled();
+
+    delayedChild.resolve(undefined);
+    await vi.waitFor(() => expect(parentTargets.first.dispatchKey).toHaveBeenCalledWith(
+      "KeyC",
+      expect.any(AbortSignal)
+    ));
+    expect(parentTargets.second.dispatchKey).toHaveBeenCalledWith("KeyC", expect.any(AbortSignal));
+  });
+
+  it("fails the parent when the called macro is already active", async () => {
+    vi.useFakeTimers();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-role"],
+      steps: [{ id: "call", type: "macro", macroId: "child" }]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["child-role"],
+      steps: [{ id: "wait", type: "delay", ms: 1000 }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "parent-role": createTarget(), "child-role": createTarget() }
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await manager.start("child");
+    await manager.start("parent");
+    await vi.waitFor(() => expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({
+        macroId: "parent",
+        state: "failed",
+        error: "Called macro \"Child\" is already running."
+      })
+    ));
+
+    await manager.stop("child");
+    await manager.stop("parent");
+    warning.mockRestore();
+  });
+
+  it("cancels the parent when its owned called invocation is manually stopped", async () => {
+    vi.useFakeTimers();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-role"],
+      steps: [
+        { id: "call", type: "macro", macroId: "child" },
+        { id: "after", type: "key", code: "KeyC" }
+      ]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["child-role"],
+      steps: [{ id: "wait", type: "delay", ms: 1000 }]
+    };
+    const parentTarget = createTarget();
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "parent-role": parentTarget, "child-role": createTarget() }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({ macroId: "child", state: "running" })
+    ));
+    await manager.stop("child");
+    await vi.waitFor(() => expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({
+        macroId: "parent",
+        state: "cancelled",
+        error: "Cancelled because a called macro was stopped."
+      })
+    ));
+    expect(parentTarget.dispatchKey).not.toHaveBeenCalled();
+    await manager.stop("parent");
+  });
+
+  it("stopping a parent recursively stops its child without affecting unrelated runs", async () => {
+    vi.useFakeTimers();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-role"],
+      steps: [{ id: "call", type: "macro", macroId: "child" }]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["child-role"],
+      steps: [{ id: "wait", type: "delay", ms: 1000 }]
+    };
+    const unrelated: Macro = {
+      ...macro,
+      id: "unrelated",
+      roleIds: ["unrelated-role"],
+      steps: [{ id: "wait", type: "delay", ms: 1000 }]
+    };
+    const manager = createManager({
+      macroById: { parent, child, unrelated },
+      targets: {
+        "parent-role": createTarget(),
+        "child-role": createTarget(),
+        "unrelated-role": createTarget()
+      }
+    });
+
+    await manager.start("unrelated");
+    await manager.start("parent");
+    await vi.waitFor(() => expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({ macroId: "child", state: "running" })
+    ));
+    await manager.stop("parent");
+
+    expect(manager.listStatuses()).toEqual([
+      expect.objectContaining({ macroId: "unrelated", state: "running" })
+    ]);
+    await manager.stop("unrelated");
+  });
+
+  it("supports nested synchronous macro calls", async () => {
+    const targets = { a: createTarget(), b: createTarget(), c: createTarget() };
+    const macroA: Macro = {
+      ...macro,
+      id: "a",
+      roleIds: ["role-a"],
+      steps: [
+        { id: "call-b", type: "macro", macroId: "b" },
+        { id: "key-a", type: "key", code: "KeyA" }
+      ]
+    };
+    const macroB: Macro = {
+      ...macro,
+      id: "b",
+      roleIds: ["role-b"],
+      steps: [
+        { id: "call-c", type: "macro", macroId: "c" },
+        { id: "key-b", type: "key", code: "KeyB" }
+      ]
+    };
+    const macroC: Macro = {
+      ...macro,
+      id: "c",
+      roleIds: ["role-c"],
+      steps: [{ id: "key-c", type: "key", code: "KeyC" }]
+    };
+    const manager = createManager({
+      macroById: { a: macroA, b: macroB, c: macroC },
+      targets: { "role-a": targets.a, "role-b": targets.b, "role-c": targets.c }
+    });
+
+    await manager.start("a");
+    await vi.waitFor(() => expect(targets.a.dispatchKey).toHaveBeenCalledOnce());
+    expect(targets.c.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
+      targets.b.dispatchKey.mock.invocationCallOrder[0]
+    );
+    expect(targets.b.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
+      targets.a.dispatchKey.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("propagates a called macro failure to its parent", async () => {
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-role"],
+      steps: [{ id: "call", type: "macro", macroId: "child" }]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["child-role"],
+      steps: [{ id: "key", type: "key", code: "F2" }]
+    };
+    const childTarget = createTarget();
+    childTarget.dispatchKey.mockRejectedValue(new Error("child target detached"));
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "parent-role": createTarget(), "child-role": childTarget }
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({ macroId: "parent", state: "failed", error: "child target detached" })
+    ));
+    expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({ macroId: "child", state: "failed", error: "child target detached" })
+    );
+    await manager.stop("parent");
+    await manager.stop("child");
+    warning.mockRestore();
+  });
+
+  it.each([
+    {
+      childEnabled: false,
+      expectedError: "Enable this macro before running it.",
+      includeChildTarget: true
+    },
+    {
+      childEnabled: true,
+      expectedError: "Launch at least one assigned role before running a macro.",
+      includeChildTarget: false
+    }
+  ])("fails the parent when a called macro cannot start", async ({
+    childEnabled,
+    expectedError,
+    includeChildTarget
+  }) => {
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-role"],
+      steps: [{ id: "call", type: "macro", macroId: "child" }]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      enabled: childEnabled,
+      name: "Child",
+      roleIds: ["child-role"]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: {
+        "parent-role": createTarget(),
+        ...(includeChildTarget ? { "child-role": createTarget() } : {})
+      }
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({ macroId: "parent", state: "failed", error: expectedError })
+    ));
+    await manager.stop("parent");
+    warning.mockRestore();
+  });
+
+  it("calls a run-once child again on every parent loop iteration", async () => {
+    const childTarget = createTarget();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-role"],
+      repeat: { type: "loop", intervalMs: 1 },
+      steps: [{ id: "call", type: "macro", macroId: "child" }]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["child-role"],
+      steps: [{ id: "key", type: "key", code: "F2" }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "parent-role": createTarget(), "child-role": childTarget }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(childTarget.dispatchKey.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await manager.stop("parent");
+  });
 });
 
 function createDeferred<T>() {

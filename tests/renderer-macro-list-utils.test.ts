@@ -11,10 +11,12 @@ import type { Macro, Role } from "../src/shared/types";
 const translations: Partial<Record<Parameters<Translator>[0], string>> = {
   "macro.step.delay": "Delay",
   "macro.step.key": "Key",
+  "macro.step.macro": "Run macro",
   "macros.noShortcut": "No shortcut",
   "macros.repeat.loop": "Every {ms} ms",
   "macros.repeat.once": "Once",
   "macros.steps.more": "+{count} more",
+  "macros.unknownMacro": "Unknown macro",
   "macros.unknownRole": "Unknown role"
 };
 

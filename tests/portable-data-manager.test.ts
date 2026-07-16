@@ -17,7 +17,12 @@ import {
   LaunchWorkspaceStore
 } from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
-import type { PortableDataSelection, RionPortableDataV1, RionPortableDataV2 } from "../src/shared/types";
+import type {
+  PortableDataSelection,
+  RionPortableDataV1,
+  RionPortableDataV2,
+  RionPortableDataV3
+} from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
 const ALL_PORTABLE_DATA: PortableDataSelection = {
@@ -107,7 +112,7 @@ describe("PortableDataManager", () => {
         themeMode: "dark"
       }
     });
-    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV1;
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV3;
 
     expect(result).toMatchObject({
       gameCount: 2,
@@ -119,7 +124,7 @@ describe("PortableDataManager", () => {
     });
     expect(parsed).toMatchObject({
       app: "Rion Studio",
-      schemaVersion: 2,
+      schemaVersion: 3,
       appVersion: "1.2.3",
       preferences: {
         gameBrowserSettings: {
@@ -163,6 +168,44 @@ describe("PortableDataManager", () => {
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
   });
 
+  it("round-trips portable v3 macro dependency ids", async () => {
+    const filePath = join(baseDir, "macro-flow-export.json");
+    const role = await roleStore.createRole({
+      gameId: "builtin-flyff-universe",
+      name: "Flow role"
+    });
+    const child = await macroStore.createMacro({
+      name: "Child flow",
+      roleIds: [role.id],
+      steps: [{ id: "child-key", type: "key", code: "F2" }]
+    });
+    const parent = await macroStore.createMacro({
+      name: "Parent flow",
+      roleIds: [role.id],
+      steps: [{ id: "call", type: "macro", macroId: child.id }]
+    });
+    const manager = createManager({
+      exportPath: filePath,
+      importPath: filePath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await manager.exportData({ selection: ALL_PORTABLE_DATA });
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV3;
+    expect(exported.schemaVersion).toBe(3);
+    expect(exported.macros.find((macro) => macro.id === parent.id)?.steps).toEqual([
+      { id: "call", type: "macro", macroId: child.id }
+    ]);
+
+    const preview = await manager.previewImport();
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+    await expect(macroStore.getMacro(parent.id)).resolves.toMatchObject({
+      steps: [{ id: "call", type: "macro", macroId: child.id }]
+    });
+  });
+
   it("exports selected categories and automatically includes roles required by macros", async () => {
     const exportPath = join(baseDir, "selected-export.json");
     const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
@@ -184,7 +227,7 @@ describe("PortableDataManager", () => {
         preferences: false
       }
     });
-    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV1;
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV3;
 
     expect(result).toMatchObject({
       roleCount: 1,
@@ -289,6 +332,116 @@ describe("PortableDataManager", () => {
     const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
 
     await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+  });
+
+  it("imports portable v3 macro calls with a two-pass id remap", async () => {
+    const importPath = join(baseDir, "macro-dependencies-v3.json");
+    const base = createPortableV2Fixture();
+    const fixture: RionPortableDataV3 = {
+      ...base,
+      schemaVersion: 3,
+      macros: [
+        {
+          id: "source-parent",
+          enabled: true,
+          name: "Parent flow",
+          roleIds: ["old-role"],
+          repeat: { type: "once" },
+          steps: [{ id: "call", type: "macro", macroId: "source-child" }]
+        },
+        {
+          id: "source-child",
+          enabled: true,
+          name: "Child flow",
+          roleIds: ["old-role"],
+          repeat: { type: "once" },
+          steps: [{ id: "key", type: "key", code: "F2" }]
+        }
+      ]
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    await manager.applyImport({
+      importId: preview!.importId,
+      selection: ALL_PORTABLE_DATA
+    });
+
+    const imported = await macroStore.listMacros();
+    const parent = imported.find((item) => item.name === "Parent flow")!;
+    const child = imported.find((item) => item.name === "Child flow")!;
+    expect(parent.id).not.toBe("source-parent");
+    expect(child.id).not.toBe("source-child");
+    expect(parent.steps).toEqual([{ id: "call", type: "macro", macroId: child.id }]);
+  });
+
+  it("skips portable macro dependents when their called target cannot be imported", async () => {
+    const importPath = join(baseDir, "macro-dependency-skipped-v3.json");
+    const base = createPortableV2Fixture();
+    const fixture: RionPortableDataV3 = {
+      ...base,
+      schemaVersion: 3,
+      macros: [
+        {
+          id: "source-parent",
+          name: "Parent flow",
+          roleIds: ["old-role"],
+          repeat: { type: "once" },
+          steps: [{ id: "call", type: "macro", macroId: "source-child" }]
+        },
+        {
+          id: "source-child",
+          name: "Missing child role",
+          roleIds: ["missing-role"],
+          repeat: { type: "once" },
+          steps: [{ id: "key", type: "key", code: "F2" }]
+        }
+      ]
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+
+    expect(preview?.operations.macros.skip).toBe(2);
+    expect(preview?.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "MACRO_SKIPPED_MISSING_DEPENDENCY",
+        itemName: "Parent flow"
+      })
+    ]));
+  });
+
+  it("rejects portable v3 macro dependency cycles", async () => {
+    const importPath = join(baseDir, "macro-cycle-v3.json");
+    const base = createPortableV2Fixture();
+    const fixture: RionPortableDataV3 = {
+      ...base,
+      schemaVersion: 3,
+      macros: [
+        {
+          id: "a",
+          name: "A",
+          roleIds: ["old-role"],
+          repeat: { type: "once" },
+          steps: [{ id: "call-b", type: "macro", macroId: "b" }]
+        },
+        {
+          id: "b",
+          name: "B",
+          roleIds: ["old-role"],
+          repeat: { type: "once" },
+          steps: [{ id: "call-a", type: "macro", macroId: "a" }]
+        }
+      ]
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    await expect(manager.previewImport()).rejects.toMatchObject({
+      code: "PORTABLE_MACRO_DEPENDENCY_INVALID"
+    });
   });
 
   it("rejects an export without any available selected content", async () => {

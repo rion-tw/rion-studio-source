@@ -62,6 +62,20 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes macro dependency and called-macro errors without losing names", async () => {
+    await Promise.all([loadTranslations("zh-TW"), loadTranslations("zh-CN"), loadTranslations("ja")]);
+
+    expect(localizeErrorMessage("Macro is used by: Parent one, Parent two.", "zh-TW")).toBe(
+      "此巨集正被下列巨集呼叫：Parent one, Parent two。"
+    );
+    expect(localizeErrorMessage('Called macro "Child" is already running.', "zh-CN")).toBe(
+      "被调用的宏“Child”已在运行。"
+    );
+    expect(localizeErrorMessage("Macro step target must run once.", "ja")).toBe(
+      "呼び出されるマクロは1回実行にしてください。"
+    );
+  });
+
   it("localizes external Chrome zoom failures alone and inside fallback notices", async () => {
     const fallback =
       "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";

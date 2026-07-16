@@ -163,6 +163,11 @@ export type MacroStep =
       id: string;
       type: "delay";
       ms: number;
+    }
+  | {
+      id: string;
+      type: "macro";
+      macroId: string;
     };
 
 export interface Macro {
@@ -658,7 +663,19 @@ export interface RionPortableDataV2 {
   preferences?: PortablePreferences;
 }
 
-export type RionPortableData = RionPortableDataV1 | RionPortableDataV2;
+export interface RionPortableDataV3 {
+  app: "Rion Studio";
+  schemaVersion: 3;
+  exportedAt: string;
+  appVersion: string;
+  games: PortableGame[];
+  roles: PortableRole[];
+  launchWorkspaces: PortableLaunchWorkspace[];
+  macros: PortableMacro[];
+  preferences?: PortablePreferences;
+}
+
+export type RionPortableData = RionPortableDataV1 | RionPortableDataV2 | RionPortableDataV3;
 
 export interface PortableExportResult {
   filePath: string;
@@ -681,7 +698,8 @@ export type PortableImportWarningCode =
   | "MACRO_ROLE_MISSING"
   | "MACRO_SHORTCUT_CLEARED_CONFLICT"
   | "MACRO_SHORTCUT_CLEARED_RESERVED"
-  | "MACRO_SKIPPED_NO_ROLES";
+  | "MACRO_SKIPPED_NO_ROLES"
+  | "MACRO_SKIPPED_MISSING_DEPENDENCY";
 
 export interface PortableImportWarning {
   code: PortableImportWarningCode;

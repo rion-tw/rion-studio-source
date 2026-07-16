@@ -5,6 +5,7 @@ import {
   formatMacroIntervalPreset,
   formatMacroRepeat,
   formatMacroShortcut,
+  getCallableMacroTargets,
   getMacroPartialStartCounts,
   isMacroIntervalPreset,
   isValidMacroInterval,
@@ -20,13 +21,15 @@ const t: Translator = (key) =>
       "macro.step.click": "Click",
       "macro.step.delay": "Delay",
       "macro.step.key": "Key",
+      "macro.step.macro": "Run macro",
       "macroForm.intervalMilliseconds": "{value} ms",
       "macroForm.intervalSeconds": "{value} sec",
       "macros.noShortcut": "No shortcut",
       "macros.repeat.loop": "Every {ms} ms",
       "macros.repeat.once": "Once",
       "macros.steps.empty": "No steps",
-      "macros.steps.more": "+{count} more"
+      "macros.steps.more": "+{count} more",
+      "macros.unknownMacro": "Unknown macro"
     } as Record<string, string>
   )[key] ?? key;
 
@@ -65,6 +68,14 @@ describe("macroUtils", () => {
         t
       )
     ).toBe("Key:F1 > Key:F2 > Key:F3 > Key:F4 > +1 more");
+
+    expect(
+      summarizeMacroSteps(
+        [{ id: "call", type: "macro", macroId: "child" }],
+        t,
+        new Map([["child", "After thunder"]])
+      )
+    ).toBe("Run macro:After thunder");
   });
 
   it("formats repeat settings and run keys", () => {
@@ -112,5 +123,37 @@ describe("macroUtils", () => {
     expect(isValidMacroInterval(0)).toBe(false);
     expect(isValidMacroInterval(600001)).toBe(false);
     expect(isValidMacroInterval(1.5)).toBe(false);
+  });
+
+  it("offers only run-once macro targets that cannot create a dependency cycle", () => {
+    const base = {
+      enabled: true,
+      roleIds: ["role-1"],
+      repeat: { type: "once" as const },
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    };
+    const macros = [
+      { ...base, id: "a", name: "A", steps: [{ id: "key-a", type: "key" as const, code: "F1" }] },
+      {
+        ...base,
+        id: "b",
+        name: "B",
+        enabled: false,
+        steps: [{ id: "call-a", type: "macro" as const, macroId: "a" }]
+      },
+      {
+        ...base,
+        id: "loop",
+        name: "Loop",
+        repeat: { type: "loop" as const, intervalMs: 100 },
+        steps: [{ id: "wait", type: "delay" as const, ms: 1 }]
+      },
+      { ...base, id: "c", name: "C", steps: [{ id: "key-c", type: "key" as const, code: "F3" }] }
+    ];
+
+    expect(getCallableMacroTargets(macros, "a").map((macro) => macro.id)).toEqual(["c"]);
+    expect(getCallableMacroTargets(macros, "c").map((macro) => macro.id)).toEqual(["a", "b"]);
+    expect(getCallableMacroTargets(macros).map((macro) => macro.id)).toEqual(["a", "b", "c"]);
   });
 });

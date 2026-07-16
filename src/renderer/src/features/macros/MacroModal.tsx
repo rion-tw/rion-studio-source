@@ -42,6 +42,8 @@ import {
   formatMacroCode,
   formatMacroIntervalPreset,
   formatMacroShortcut,
+  getCallableMacroTargets,
+  isCallableMacroTarget,
   isMacroIntervalPreset,
   isValidMacroInterval,
   MACRO_INTERVAL_CUSTOM_VALUE,
@@ -113,13 +115,32 @@ function MacroEditor({
       ? t("macroForm.shortcutConflict").replace("{name}", conflictingMacro.name)
       : undefined;
   }, [form.id, form.roleIds, form.trigger, macros, t]);
+  const macroStepError = useMemo(() => {
+    if (
+      form.id &&
+      form.repeat.type === "loop" &&
+      macros.some((macro) =>
+        macro.id !== form.id &&
+        macro.steps.some((step) => step.type === "macro" && step.macroId === form.id)
+      )
+    ) {
+      return t("macroForm.saveHint.referencedLoop");
+    }
+
+    const invalidStep = form.steps.find((step) => {
+      if (step.type !== "macro") return false;
+      return !isCallableMacroTarget(macros, form.id, step.macroId);
+    });
+    return invalidStep ? t("macroForm.saveHint.invalidMacroTarget") : undefined;
+  }, [form.id, form.repeat.type, form.steps, macros, t]);
   const canSubmit =
     form.name.trim().length > 0 &&
     form.roleIds.length > 0 &&
     form.steps.length > 0 &&
     (form.repeat.type === "once" || isValidMacroInterval(form.repeat.intervalMs)) &&
+    !macroStepError &&
     !shortcutConflict;
-  const saveHint = shortcutConflict ?? (
+  const saveHint = shortcutConflict ?? macroStepError ?? (
     form.roleIds.length === 0
       ? t("macroForm.saveHint.needsRole")
       : form.steps.length === 0
@@ -172,6 +193,7 @@ function MacroEditor({
         form={form}
         games={games}
         isSaving={isSaving}
+        macros={macros}
         roles={roles}
         shortcutConflict={shortcutConflict}
         t={t}
@@ -185,19 +207,33 @@ interface MacroFormProps {
   form: MacroFormState;
   games: Game[];
   isSaving: boolean;
+  macros: Macro[];
   onChange: (form: MacroFormState | ((current: MacroFormState) => MacroFormState)) => void;
   roles: Role[];
   shortcutConflict?: string;
   t: Translator;
 }
 
-function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t }: MacroFormProps): JSX.Element {
+function MacroForm({
+  form,
+  games,
+  isSaving,
+  macros,
+  onChange,
+  roles,
+  shortcutConflict,
+  t
+}: MacroFormProps): JSX.Element {
   const [newStepType, setNewStepType] = useState<MacroStep["type"]>("key");
   const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
   const roleIds = useMemo(() => new Set(form.roleIds), [form.roleIds]);
   const missingRoleIds = useMemo(
     () => form.roleIds.filter((roleId) => !roles.some((role) => role.id === roleId)),
     [form.roleIds, roles]
+  );
+  const macroTargets = useMemo(
+    () => getCallableMacroTargets(macros, form.id),
+    [form.id, macros]
   );
 
   function update(updater: (current: MacroFormState) => MacroFormState): void {
@@ -222,7 +258,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
   }
 
   function addStep(type: MacroStep["type"]): void {
-    const step = createStep(type);
+    const step = createStep(type, undefined, macroTargets[0]?.id);
     update((current) => ({ ...current, steps: [...current.steps, step] }));
   }
 
@@ -424,6 +460,7 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                           isFirst={index === 0}
                           isLast={index === form.steps.length - 1}
                           isSaving={isSaving}
+                          macroTargets={macroTargets}
                           step={step}
                           t={t}
                           onMoveDown={() => moveStep(step.id, 1)}
@@ -677,6 +714,7 @@ interface MacroStepEditorProps {
   isFirst: boolean;
   isLast: boolean;
   isSaving: boolean;
+  macroTargets: Macro[];
   onMoveDown: () => void;
   onMoveUp: () => void;
   onRemove: () => void;
@@ -690,6 +728,7 @@ function MacroStepEditor({
   isFirst,
   isLast,
   isSaving,
+  macroTargets,
   onMoveDown,
   onMoveUp,
   onRemove,
@@ -705,7 +744,9 @@ function MacroStepEditor({
 
       <Select
         value={step.type}
-        onValueChange={(value) => onUpdate(createStep(value as MacroStep["type"], step.id))}
+        onValueChange={(value) =>
+          onUpdate(createStep(value as MacroStep["type"], step.id, macroTargets[0]?.id))
+        }
         disabled={isSaving}
       >
         <SelectTrigger aria-label={t("macroForm.stepType")}>
@@ -720,7 +761,13 @@ function MacroStepEditor({
         </SelectContent>
       </Select>
 
-      <MacroStepFields step={step} t={t} onUpdate={onUpdate} isSaving={isSaving} />
+      <MacroStepFields
+        isSaving={isSaving}
+        macroTargets={macroTargets}
+        step={step}
+        t={t}
+        onUpdate={onUpdate}
+      />
 
       <div className="flex justify-end gap-1">
         <Button
@@ -758,19 +805,30 @@ function MacroStepEditor({
   );
 }
 
-const macroStepTypeOrder: Array<MacroStep["type"]> = ["key", "click", "delay"];
+const macroStepTypeOrder: Array<MacroStep["type"]> = ["key", "click", "delay", "macro"];
 
 function getMacroStepTypeLabel(type: MacroStep["type"], t: Translator): string {
-  return t(type === "key" ? "macro.step.key" : type === "click" ? "macro.step.click" : "macro.step.delay");
+  switch (type) {
+    case "key":
+      return t("macro.step.key");
+    case "click":
+      return t("macro.step.click");
+    case "delay":
+      return t("macro.step.delay");
+    case "macro":
+      return t("macro.step.macro");
+  }
 }
 
 function MacroStepFields({
   isSaving,
+  macroTargets,
   onUpdate,
   step,
   t
 }: {
   isSaving: boolean;
+  macroTargets: Macro[];
   onUpdate: (step: MacroStep) => void;
   step: MacroStep;
   t: Translator;
@@ -838,6 +896,33 @@ function MacroStepFields({
     );
   }
 
+  if (step.type === "macro") {
+    const selectedTarget = macroTargets.find((macro) => macro.id === step.macroId);
+    return (
+      <Select
+        disabled={isSaving || macroTargets.length === 0}
+        value={step.macroId || undefined}
+        onValueChange={(macroId) => onUpdate({ ...step, macroId })}
+      >
+        <SelectTrigger className="w-full min-w-44" aria-label={t("macroForm.macroTarget")}>
+          <SelectValue placeholder={t("macroForm.macroTargetPlaceholder")} />
+        </SelectTrigger>
+        <SelectContent>
+          {macroTargets.map((macro) => (
+            <SelectItem key={macro.id} value={macro.id}>
+              {macro.enabled
+                ? macro.name
+                : `${macro.name} (${t("macroForm.macroTargetDisabled")})`}
+            </SelectItem>
+          ))}
+          {!selectedTarget && step.macroId ? (
+            <SelectItem value={step.macroId}>{t("macroForm.macroTargetUnavailable")}</SelectItem>
+          ) : null}
+        </SelectContent>
+      </Select>
+    );
+  }
+
   return (
     <AffixedInput
       aria-label={t("macroForm.delayMs")}
@@ -901,7 +986,11 @@ function KeyRecorder({
   );
 }
 
-function createStep(type: MacroStep["type"], id = createClientId()): MacroStep {
+function createStep(
+  type: MacroStep["type"],
+  id = createClientId(),
+  macroId = ""
+): MacroStep {
   switch (type) {
     case "key":
       return {
@@ -922,6 +1011,12 @@ function createStep(type: MacroStep["type"], id = createClientId()): MacroStep {
         id,
         type: "delay",
         ms: 1000
+      };
+    case "macro":
+      return {
+        id,
+        type: "macro",
+        macroId
       };
   }
 }

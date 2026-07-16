@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type {
+  BulkDeleteResult,
   CreateMacroInput,
   Macro,
   MacroRepeat,
@@ -10,6 +11,7 @@ import type {
   MacroTrigger,
   UpdateMacroInput
 } from "../../shared/types";
+import { findMacroDependencyIssue, getMacroReferrers } from "../../shared/macroDependencies";
 import {
   areMacroTriggersEqual,
   macroRoleAssignmentsOverlap,
@@ -35,11 +37,13 @@ const MACRO_STEPS_MAX_LENGTH = 100;
 const MACRO_DELAY_MAX_MS = 600_000;
 const MACRO_CODE_MAX_LENGTH = 48;
 const MACRO_LABEL_MAX_LENGTH = 48;
+const MACRO_ID_MAX_LENGTH = 128;
 
 export class MacroStoreError extends Error {
   constructor(
     readonly code: string,
-    message: string
+    message: string,
+    readonly details?: { relatedNames?: string[] }
   ) {
     super(message);
     this.name = "MacroStoreError";
@@ -68,6 +72,7 @@ export class MacroStore {
       normalized.forEach((macro) => {
         this.assertTriggerAvailable(macro.trigger, macro.roleIds, normalized, macro.id);
       });
+      this.assertDependencyGraph(normalized);
       await this.writeMacrosFile({ macros: normalized }, publishCache);
       return cloneMacrosFile({ macros: normalized }).macros;
     });
@@ -109,6 +114,8 @@ export class MacroStore {
 
       this.assertTriggerAvailable(macro.trigger, macro.roleIds, file.macros);
 
+      this.assertDependencyGraph([...file.macros, macro]);
+
       file.macros.push(macro);
       await this.writeMacrosFile(file);
 
@@ -141,6 +148,8 @@ export class MacroStore {
 
       this.assertTriggerAvailable(updated.trigger, updated.roleIds, file.macros, id);
 
+      this.assertDependencyGraph(file.macros.map((macro) => macro.id === id ? updated : macro));
+
       file.macros[index] = updated;
       await this.writeMacrosFile(file);
 
@@ -151,30 +160,99 @@ export class MacroStore {
   async deleteMacro(id: string): Promise<void> {
     return this.taskQueue.run(async () => {
       const file = await this.readMacrosFile();
-      const nextMacros = file.macros.filter((macro) => macro.id !== id);
-
-      if (nextMacros.length === file.macros.length) {
+      if (!file.macros.some((macro) => macro.id === id)) {
         throw new MacroStoreError("MACRO_NOT_FOUND", "Macro not found.");
       }
 
-      await this.writeMacrosFile({ macros: nextMacros });
+      const referrers = getMacroReferrers(file.macros, id);
+      if (referrers.length > 0) {
+        throw new MacroStoreError(
+          "MACRO_IN_USE",
+          `Macro is used by: ${referrers.map((macro) => macro.name).join(", ")}.`,
+          { relatedNames: referrers.map((macro) => macro.name) }
+        );
+      }
+
+      await this.writeMacrosFile({ macros: file.macros.filter((macro) => macro.id !== id) });
+    });
+  }
+
+  async deleteMacros(ids: string[]): Promise<BulkDeleteResult> {
+    return this.taskQueue.run(async () => {
+      const file = await this.readMacrosFile();
+      const requestedIds = [...new Set(ids)];
+      const existingIds = new Set(file.macros.map((macro) => macro.id));
+      const deletableIds = new Set(requestedIds.filter((id) => existingIds.has(id)));
+
+      let didChange = true;
+      while (didChange) {
+        didChange = false;
+        const remainingMacros = file.macros.filter((macro) => !deletableIds.has(macro.id));
+        for (const id of [...deletableIds]) {
+          if (getMacroReferrers(remainingMacros, id).length > 0) {
+            deletableIds.delete(id);
+            didChange = true;
+          }
+        }
+      }
+
+      const remainingMacros = file.macros.filter((macro) => !deletableIds.has(macro.id));
+      const skipped: BulkDeleteResult["skipped"] = [];
+      requestedIds.forEach((id) => {
+        if (!existingIds.has(id)) {
+          skipped.push({ id, reason: "not_found" });
+        } else if (!deletableIds.has(id)) {
+          skipped.push({
+            id,
+            reason: "in_use",
+            relatedNames: getMacroReferrers(remainingMacros, id).map((macro) => macro.name)
+          });
+        }
+      });
+      const result: BulkDeleteResult = {
+        deletedIds: requestedIds.filter((id) => deletableIds.has(id)),
+        skipped
+      };
+
+      if (result.deletedIds.length > 0) {
+        await this.writeMacrosFile({
+          macros: file.macros.filter((macro) => !deletableIds.has(macro.id))
+        });
+      }
+      return result;
     });
   }
 
   async deleteRoleMacros(roleId: string): Promise<void> {
     return this.taskQueue.run(async () => {
       const file = await this.readMacrosFile();
-      const macros = file.macros
-        .map((macro) => ({
-          ...macro,
-          roleIds: macro.roleIds.filter((assignedRoleId) => assignedRoleId !== roleId)
-        }))
-        .filter((macro) => macro.roleIds.length > 0);
+      const updatedMacros = file.macros.map((macro) => ({
+        ...macro,
+        roleIds: macro.roleIds.filter((assignedRoleId) => assignedRoleId !== roleId)
+      }));
+      const removedIds = new Set(
+        updatedMacros.filter((macro) => macro.roleIds.length === 0).map((macro) => macro.id)
+      );
+      let didExpand = true;
+      while (didExpand) {
+        didExpand = false;
+        updatedMacros.forEach((macro) => {
+          if (
+            !removedIds.has(macro.id) &&
+            macro.steps.some((step) => step.type === "macro" && removedIds.has(step.macroId))
+          ) {
+            removedIds.add(macro.id);
+            didExpand = true;
+          }
+        });
+      }
+      const macros = updatedMacros.filter((macro) => !removedIds.has(macro.id));
 
       if (JSON.stringify(macros) === JSON.stringify(file.macros)) {
         return;
       }
 
+      this.assertDependencyGraph(macros);
       await this.writeMacrosFile({ macros });
     });
   }
@@ -204,6 +282,7 @@ export class MacroStore {
       const file = {
         macros: parsed.macros.map((macro) => this.normalizeStoredMacro(macro as StoredMacro))
       };
+      this.assertDependencyGraph(file.macros);
 
       if (didMigrate) {
         await this.writeMacrosFile(file);
@@ -401,6 +480,12 @@ export class MacroStore {
             type: "delay",
             ms: this.normalizeMilliseconds(step.ms, "Macro delay must be between 0 and 600000 ms.")
           };
+        case "macro":
+          return {
+            id,
+            type: "macro",
+            macroId: this.normalizeMacroId(step.macroId)
+          };
         default:
           throw new MacroStoreError("MACRO_STEP_INVALID", "Macro step is invalid.");
       }
@@ -415,6 +500,31 @@ export class MacroStore {
     }
 
     return normalized;
+  }
+
+  private normalizeMacroId(value: string | undefined): string {
+    const normalized = value?.trim() ?? "";
+    if (!normalized || normalized.length > MACRO_ID_MAX_LENGTH) {
+      throw new MacroStoreError("MACRO_STEP_TARGET_INVALID", "Macro step target is invalid.");
+    }
+    return normalized;
+  }
+
+  private assertDependencyGraph(macros: Macro[]): void {
+    const issue = findMacroDependencyIssue(macros);
+    if (!issue) return;
+
+    const macroById = new Map(macros.map((macro) => [macro.id, macro]));
+    if (issue.type === "missing") {
+      throw new MacroStoreError("MACRO_STEP_TARGET_NOT_FOUND", "Macro step target was not found.");
+    }
+    if (issue.type === "repeat") {
+      throw new MacroStoreError("MACRO_STEP_TARGET_REPEATS", "Macro step target must run once.");
+    }
+    throw new MacroStoreError(
+      "MACRO_DEPENDENCY_CYCLE",
+      `Macro dependency cycle: ${issue.macroIds.map((id) => macroById.get(id)?.name ?? id).join(" → ")}.`
+    );
   }
 
   private normalizeOptionalLabel(label: string | undefined): string | undefined {
@@ -450,7 +560,6 @@ export class MacroStore {
 
     return value;
   }
-
 }
 
 function cloneMacrosFile(file: MacrosFile): MacrosFile {

@@ -18,6 +18,7 @@ import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Switch } from "../../components/ui/switch";
 import {
   FormField,
   SegmentedControl,
@@ -308,6 +309,22 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                     />
                   ) : null}
                 </div>
+              </FormField>
+            </Surface>
+
+            <Surface className="p-4" padding="none" variant="inset">
+              <FormField
+                className="flex-row items-center gap-4"
+                label={t("macroForm.enabled")}
+                description={t("macroForm.enabledDescription")}
+              >
+                <Switch
+                  aria-label={t("macroForm.enabled")}
+                  checked={form.enabled}
+                  disabled={isSaving}
+                  title={t(form.enabled ? "macros.disable" : "macros.enable")}
+                  onCheckedChange={(enabled) => update((current) => ({ ...current, enabled }))}
+                />
               </FormField>
             </Surface>
 

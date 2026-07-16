@@ -48,7 +48,7 @@ export function useMacroWorkflow({
 
     try {
       const input = {
-        ...(form.id ? {} : { enabled: true }),
+        enabled: form.enabled,
         name: form.name,
         roleIds: form.roleIds,
         repeat: form.repeat,

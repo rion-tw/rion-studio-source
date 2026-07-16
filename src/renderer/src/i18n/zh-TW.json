@@ -260,6 +260,8 @@
   "macroForm.repeat": "輪詢",
   "macroForm.repeatDescription": "執行一次，或在設定間隔後重複執行。",
   "macroForm.repeat.loop": "重複",
+  "macroForm.enabled": "啟用",
+  "macroForm.enabledDescription": "允許從 App、快捷鍵與遊戲內選單執行這個巨集。",
   "macroForm.intervalMs": "間隔",
   "macroForm.intervalMilliseconds": "{value} 毫秒",
   "macroForm.intervalSeconds": "{value} 秒",

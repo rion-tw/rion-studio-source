@@ -260,6 +260,8 @@
   "macroForm.repeat": "Repeat",
   "macroForm.repeatDescription": "Run once or loop after the configured interval.",
   "macroForm.repeat.loop": "Loop",
+  "macroForm.enabled": "有効",
+  "macroForm.enabledDescription": "アプリ、ショートカット、ゲーム内メニューからこのマクロを実行できるようにします。",
   "macroForm.intervalMs": "Interval",
   "macroForm.intervalMilliseconds": "{value} ミリ秒",
   "macroForm.intervalSeconds": "{value} 秒",

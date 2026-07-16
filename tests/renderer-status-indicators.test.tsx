@@ -5,6 +5,7 @@ import { Settings } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { NavItem } from "../src/renderer/src/components/ui/patterns";
+import { Switch } from "../src/renderer/src/components/ui/switch";
 import MacrosRoute from "../src/renderer/src/features/macros/MacrosRoute";
 import { DEFAULT_MACRO_LIST_SORT } from "../src/renderer/src/features/macros/macroListUtils";
 import type { Translator } from "../src/renderer/src/i18n";
@@ -14,6 +15,28 @@ import type { Macro, Role } from "../src/shared/types";
 afterEach(cleanup);
 
 describe("renderer status indicators", () => {
+  it("uses a symmetrical system-blue shared switch without changing its size", () => {
+    const onCheckedChange = vi.fn();
+    render(
+      <Switch
+        aria-label="Enabled"
+        checked
+        onCheckedChange={onCheckedChange}
+      />
+    );
+
+    const toggle = screen.getByRole("switch", { name: "Enabled" });
+    expect(toggle.className).toContain("h-5");
+    expect(toggle.className).toContain("w-9");
+    expect(toggle.className).toContain("bg-blue-500");
+    expect(toggle.className).toContain("border-blue-500/70");
+    expect(toggle.firstElementChild?.className).toContain("size-3.5");
+    expect(toggle.firstElementChild?.className).toContain("translate-x-4");
+
+    fireEvent.click(toggle);
+    expect(onCheckedChange).toHaveBeenCalledWith(false);
+  });
+
   it("shows an active role dot for a running role even when its macro is idle", () => {
     const assignedRole = role();
 
@@ -98,6 +121,12 @@ describe("renderer status indicators", () => {
 
     const toggle = screen.getByRole("switch", { name: "Enable Auto heal" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
+    const layout = toggle.closest("[data-macro-enabled-control]");
+    expect(layout?.className).toContain("absolute");
+    expect(layout?.className).toContain("inset-0");
+    expect(layout?.className).toContain("place-items-center");
+    expect(layout?.parentElement?.className).toContain("relative");
+    expect(layout?.parentElement?.className).toContain("p-0");
     fireEvent.click(toggle);
     expect(onSetMacroEnabled).toHaveBeenCalledWith(disabledMacro, true);
     expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);

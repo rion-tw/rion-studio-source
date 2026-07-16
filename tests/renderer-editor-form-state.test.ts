@@ -49,11 +49,14 @@ describe("editor form state", () => {
 
   it("creates macro forms with a valid requested role and clones saved nested values", () => {
     const roles = [role(), role({ id: "role-2", name: "Support" })];
-    expect(createNewMacroForm([], roles, t, "role-2").roleIds).toEqual(["role-2"]);
+    const newForm = createNewMacroForm([], roles, t, "role-2");
+    expect(newForm.enabled).toBe(true);
+    expect(newForm.roleIds).toEqual(["role-2"]);
     expect(createNewMacroForm([], roles, t, "missing").roleIds).toEqual(["role-1"]);
 
-    const saved = macro();
+    const saved = macro({ enabled: false });
     const form = createMacroFormState(saved);
+    expect(form.enabled).toBe(false);
     const firstStep = form.steps[0];
     if (firstStep.type !== "key") {
       throw new Error("Expected a key step.");
@@ -70,10 +73,14 @@ describe("editor form state", () => {
       roleIds: [...a.roleIds],
       name: a.name,
       id: a.id,
+      enabled: a.enabled,
       trigger: undefined
     };
 
     expect(areEditorFormsEqual(a, b)).toBe(true);
+    b.enabled = !b.enabled;
+    expect(areEditorFormsEqual(a, b)).toBe(false);
+    b.enabled = a.enabled;
     const firstStep = b.steps[0];
     if (firstStep.type !== "key") {
       throw new Error("Expected a key step.");
@@ -120,7 +127,7 @@ function workspace(): LaunchWorkspace {
   };
 }
 
-function macro(): Macro {
+function macro(overrides: Partial<Macro> = {}): Macro {
   return {
     id: "macro-1",
     enabled: true,
@@ -129,6 +136,7 @@ function macro(): Macro {
     repeat: { type: "once" },
     steps: [{ id: "step-1", type: "key", code: "F1" }],
     createdAt: "2026-07-14T00:00:00.000Z",
-    updatedAt: "2026-07-14T00:00:00.000Z"
+    updatedAt: "2026-07-14T00:00:00.000Z",
+    ...overrides
   };
 }

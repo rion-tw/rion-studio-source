@@ -103,6 +103,7 @@ export interface BrowserManagerOptions {
   applyBrowserProxy?: BrowserProxyApplier;
   applyCdnCompatibility?: BrowserCdnCompatibilityApplier;
   createHostWindow: (options: BaseWindowConstructorOptions) => BaseWindow;
+  createRuntimeChromeView?: (options: WebContentsViewConstructorOptions) => WebContentsView;
   createTabbedHostWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   createView: (options: WebContentsViewConstructorOptions) => WebContentsView;
   dividerPreloadPath: string;
@@ -196,19 +197,18 @@ interface GameHostWindow {
 
 interface EmbeddedDisplayHost {
   activeTabId?: string;
-  chromeHeight: number;
+  chromeView?: WebContentsView;
+  chromeWebContents?: WebContents;
   closing: boolean;
   displayId: number;
   id: string;
-  nativeFullscreen: boolean;
-  nativeTitlebarHeight: number;
-  nativeTitlebarRevealed: boolean;
   tabIds: string[];
   toolbarCollapseTimer?: ReturnType<typeof setTimeout>;
   toolbarCursorMonitorTimer?: ReturnType<typeof setTimeout>;
   toolbarRevealLockCount: number;
   toolbarTemporarilyVisible: boolean;
   window: BaseWindow;
+  windowFullscreen: boolean;
 }
 
 type DividerAxis = "horizontal" | "vertical";
@@ -260,9 +260,6 @@ const RUNTIME_TAB_FULLSCREEN_REVEAL_DETECTION_HEIGHT = 4;
 const RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT = 48;
 const RUNTIME_TAB_TOOLBAR_COLLAPSE_DELAY_MS = 700;
 const RUNTIME_TAB_TOOLBAR_CURSOR_MONITOR_INTERVAL_MS = 50;
-const RUNTIME_TAB_NATIVE_TITLEBAR_DEFAULT_HEIGHT = 32;
-const RUNTIME_TAB_NATIVE_TITLEBAR_MIN_HEIGHT = 20;
-const RUNTIME_TAB_NATIVE_TITLEBAR_MAX_HEIGHT = 64;
 export const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
@@ -401,24 +398,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.displayHosts.forEach((host) => {
       this.clearRuntimeToolbarCollapseTimer(host);
       host.toolbarTemporarilyVisible = false;
-      host.nativeTitlebarRevealed = false;
       this.applyRuntimeToolbarState(host);
       this.syncRuntimeToolbarCursorMonitor(host);
     });
-  }
-
-  reportRuntimeNativeTitlebarHeight(displayId: number, height: number): void {
-    if ((this.options.platform ?? process.platform) !== "darwin" || !Number.isFinite(height)) return;
-    const displayHost = this.displayHosts.get(displayId);
-    if (!displayHost || displayHost.closing || !isBrowserWindow(displayHost.window)) return;
-    const normalizedHeight = Math.round(height);
-    if (
-      normalizedHeight < RUNTIME_TAB_NATIVE_TITLEBAR_MIN_HEIGHT ||
-      normalizedHeight > RUNTIME_TAB_NATIVE_TITLEBAR_MAX_HEIGHT ||
-      normalizedHeight === displayHost.nativeTitlebarHeight
-    ) return;
-    displayHost.nativeTitlebarHeight = normalizedHeight;
-    this.applyRuntimeToolbarState(displayHost);
   }
 
   handleRuntimeToolbarPointer(displayId: number, entered: boolean): void {
@@ -454,7 +436,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         displayHost.toolbarRevealLockCount === 0 &&
         !displayHost.closing &&
         this.isDisplayHostFullscreen(displayHost) &&
-        (!this.alwaysShowToolbarInFullScreen || displayHost.nativeTitlebarRevealed)
+        !this.alwaysShowToolbarInFullScreen
       ) {
         this.scheduleRuntimeToolbarCollapse(displayHost);
       }
@@ -463,6 +445,41 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   getRuntimeDisplayIdForWebContents(webContentsId: number): number | undefined {
     return this.displayHostByChromeWebContentsId.get(webContentsId)?.displayId;
+  }
+
+  getRuntimeWindowForWebContents(webContentsId: number): BaseWindow | undefined {
+    const displayHost = this.displayHostByChromeWebContentsId.get(webContentsId);
+    return displayHost?.window.isDestroyed() ? undefined : displayHost?.window;
+  }
+
+  toggleRuntimeWindowFullscreenForWindow(windowId: number): boolean {
+    const displayHost = [...this.displayHosts.values()].find((host) => host.window.id === windowId);
+    if (!displayHost) return false;
+    this.toggleRuntimeWindowFullscreen(displayHost);
+    return true;
+  }
+
+  handleRuntimeWindowControl(
+    displayId: number,
+    control: "close" | "minimize" | "toggleFullscreen" | "zoom"
+  ): void {
+    const displayHost = this.displayHosts.get(displayId);
+    if (!displayHost || displayHost.closing || displayHost.window.isDestroyed()) return;
+    switch (control) {
+      case "close":
+        this.hideDisplayHost(displayHost);
+        return;
+      case "minimize":
+        if (!displayHost.windowFullscreen) displayHost.window.minimize();
+        return;
+      case "toggleFullscreen":
+        this.toggleRuntimeWindowFullscreen(displayHost);
+        return;
+      case "zoom":
+        if (displayHost.windowFullscreen) return;
+        if (displayHost.window.isMaximized()) displayHost.window.unmaximize();
+        else displayHost.window.maximize();
+    }
   }
 
   async showEmbeddedRuntimeWindows(displayId?: number): Promise<void> {
@@ -516,7 +533,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (displayHost.activeTabId === tab.id) {
       displayHost.activeTabId = nextTabId;
     }
-    if (!displayHost.activeTabId) displayHost.window.hide();
+    if (!displayHost.activeTabId) {
+      this.exitRuntimeSimpleFullscreen(displayHost);
+      displayHost.window.hide();
+    }
     this.layoutDisplayHost(displayHost);
     await this.reconcileRuntimeTabs();
   }
@@ -1038,9 +1058,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     const platform = this.options.platform ?? process.platform;
     const prefersReducedTransparency = this.options.prefersReducedTransparency?.() ?? false;
-    const commonOptions: BrowserWindowConstructorOptions = {
+    const commonOptions: BaseWindowConstructorOptions = {
       ...target.workArea,
-      autoHideMenuBar: platform !== "darwin",
       closable: true,
       frame: true,
       maximizable: true,
@@ -1052,16 +1071,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       title: "Rion Studio",
       ...getWorkspaceWindowMaterialOptions(platform, prefersReducedTransparency)
     };
-    const window = this.options.createTabbedHostWindow
-      ? this.options.createTabbedHostWindow({
+    const useMacCustomChrome = platform === "darwin" && Boolean(this.options.createRuntimeChromeView);
+    const window = useMacCustomChrome
+      ? this.options.createHostWindow({
           ...commonOptions,
-          ...(platform === "darwin"
-            ? {
-                titleBarStyle: "hiddenInset",
-                titleBarOverlay: true,
-                trafficLightPosition: { x: 14, y: 12 }
-              }
-            : platform === "win32"
+          frame: false,
+          fullscreenable: false
+        })
+      : this.options.createTabbedHostWindow
+        ? this.options.createTabbedHostWindow({
+            ...commonOptions,
+            autoHideMenuBar: platform !== "darwin",
+            ...(platform === "win32"
               ? {
                   titleBarStyle: "hidden",
                   titleBarOverlay: {
@@ -1071,36 +1092,55 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
                   }
                 }
               : { titleBarStyle: "hidden" }),
-          webPreferences: {
-            backgroundThrottling: true,
-            contextIsolation: true,
-            nodeIntegration: false,
-            preload: this.options.runtimeTabsPreloadPath,
-            sandbox: true
-          }
-        })
-      : this.options.createHostWindow({ ...commonOptions, titleBarStyle: "default" });
+            webPreferences: {
+              backgroundThrottling: true,
+              contextIsolation: true,
+              nodeIntegration: false,
+              preload: this.options.runtimeTabsPreloadPath,
+              sandbox: true
+            }
+          })
+        : this.options.createHostWindow({ ...commonOptions, titleBarStyle: "default" });
     window.contentView.setBackgroundColor("#00000000");
     const displayHost: EmbeddedDisplayHost = {
-      chromeHeight: this.options.createTabbedHostWindow ? RUNTIME_TAB_CHROME_HEIGHT : 0,
       closing: false,
       displayId: target.displayId,
       id: randomUUID(),
-      nativeFullscreen: false,
-      nativeTitlebarHeight: RUNTIME_TAB_NATIVE_TITLEBAR_DEFAULT_HEIGHT,
-      nativeTitlebarRevealed: false,
       tabIds: [],
       toolbarRevealLockCount: 0,
       toolbarTemporarilyVisible: false,
-      window
+      window,
+      windowFullscreen: false
     };
     this.displayHosts.set(target.displayId, displayHost);
 
-    if (isBrowserWindow(window)) {
+    if (useMacCustomChrome) {
+      const chromeView = this.options.createRuntimeChromeView!({
+        webPreferences: {
+          backgroundThrottling: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          preload: this.options.runtimeTabsPreloadPath,
+          sandbox: true
+        }
+      });
+      chromeView.setBackgroundColor("#00000000");
+      displayHost.chromeView = chromeView;
+      displayHost.chromeWebContents = chromeView.webContents;
+      window.contentView.addChildView(chromeView);
+      this.displayHostByChromeWebContentsId.set(chromeView.webContents.id, displayHost);
+      chromeView.webContents.once("did-finish-load", () => this.sendRuntimeChromeState(displayHost));
+      this.configureRuntimeWindowShortcuts(displayHost, chromeView.webContents);
+      void chromeView.webContents.loadURL(this.options.runtimeTabsPageUrl ?? "about:blank").catch((error) => {
+        console.error("Failed to load the runtime tab chrome.", error);
+      });
+    } else if (isBrowserWindow(window)) {
+      displayHost.chromeWebContents = window.webContents;
       this.displayHostByChromeWebContentsId.set(window.webContents.id, displayHost);
       window.webContents.once("did-finish-load", () => this.sendRuntimeChromeState(displayHost));
-      window.on("enter-full-screen", () => this.setNativeFullscreen(displayHost, true));
-      window.on("leave-full-screen", () => this.setNativeFullscreen(displayHost, false));
+      window.on("enter-full-screen", () => this.setWindowFullscreen(displayHost, true));
+      window.on("leave-full-screen", () => this.setWindowFullscreen(displayHost, false));
+      this.configureRuntimeWindowShortcuts(displayHost, window.webContents);
       void window.loadURL(this.options.runtimeTabsPageUrl ?? "about:blank").catch((error) => {
         console.error("Failed to load the runtime tab chrome.", error);
       });
@@ -1115,20 +1155,20 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
       this.clearRuntimeToolbarCollapseTimer(displayHost);
       displayHost.toolbarTemporarilyVisible = false;
-      displayHost.nativeTitlebarRevealed = false;
       this.applyRuntimeToolbarState(displayHost);
       void this.reconcileRuntimeTabs();
     });
     window.on("close", (event) => {
       if (displayHost.closing) return;
       event.preventDefault();
-      window.hide();
-      void this.reconcileRuntimeTabs();
+      this.hideDisplayHost(displayHost);
     });
     window.once("closed", () => {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
       this.clearRuntimeToolbarCollapseTimer(displayHost);
-      if (isBrowserWindow(window)) this.displayHostByChromeWebContentsId.delete(window.webContents.id);
+      if (displayHost.chromeWebContents) {
+        this.displayHostByChromeWebContentsId.delete(displayHost.chromeWebContents.id);
+      }
       if (this.displayHosts.get(displayHost.displayId) === displayHost) {
         this.displayHosts.delete(displayHost.displayId);
       }
@@ -1157,7 +1197,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private getTabContentBounds(tab: GameHostWindow): PixelBounds {
     const displayHost = this.getDisplayHost(tab);
     const bounds = tab.window.getContentBounds();
-    const chromeHeight = displayHost?.chromeHeight ?? 0;
+    const chromeHeight = displayHost ? this.getRuntimeContentTopInset(displayHost) : 0;
     return {
       x: 0,
       y: chromeHeight,
@@ -1172,6 +1212,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       const tab = this.hosts.get(tabId);
       if (tab) this.layoutHost(tab);
     });
+    this.layoutRuntimeChrome(displayHost);
     this.sendRuntimeChromeState(displayHost);
   }
 
@@ -1181,6 +1222,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     host.window.show();
     host.window.focus();
     this.layoutDisplayHost(host);
+    this.syncRuntimeToolbarCursorMonitor(host);
+  }
+
+  private hideDisplayHost(displayHost: EmbeddedDisplayHost): void {
+    if (displayHost.window.isDestroyed()) return;
+    this.exitRuntimeSimpleFullscreen(displayHost);
+    displayHost.window.hide();
+    void this.reconcileRuntimeTabs();
   }
 
   private detachTabViews(tab: GameHostWindow, displayHost: EmbeddedDisplayHost): void {
@@ -1203,6 +1252,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       session.popupViews.forEach((view) => displayHost.window.contentView.addChildView(view));
     });
     tab.dividers.forEach((divider) => displayHost.window.contentView.addChildView(divider.view));
+    this.bringRuntimeChromeToFront(displayHost);
   }
 
   private destroyDisplayHostIfEmpty(displayHost: EmbeddedDisplayHost): void {
@@ -1210,16 +1260,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     displayHost.closing = true;
     this.clearRuntimeToolbarCursorMonitor(displayHost);
     this.clearRuntimeToolbarCollapseTimer(displayHost);
-    displayHost.nativeTitlebarRevealed = false;
+    this.exitRuntimeSimpleFullscreen(displayHost);
     this.displayHosts.delete(displayHost.displayId);
-    if (isBrowserWindow(displayHost.window)) {
-      this.displayHostByChromeWebContentsId.delete(displayHost.window.webContents.id);
+    if (displayHost.chromeWebContents) {
+      this.displayHostByChromeWebContentsId.delete(displayHost.chromeWebContents.id);
     }
     if (!displayHost.window.isDestroyed()) displayHost.window.close();
   }
 
   private sendRuntimeChromeState(displayHost: EmbeddedDisplayHost): void {
-    if (!isBrowserWindow(displayHost.window) || displayHost.window.webContents.isDestroyed()) return;
+    const chromeWebContents = displayHost.chromeWebContents;
+    if (!chromeWebContents || chromeWebContents.isDestroyed()) return;
     const state: RuntimeTabChromeState = {
       ...this.listEmbeddedRuntimeState(),
       alwaysShowToolbarInFullScreen: this.alwaysShowToolbarInFullScreen,
@@ -1227,23 +1278,39 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       displays: this.options.getWorkspaceDisplays?.() ?? [],
       fullscreen: this.isDisplayHostFullscreen(displayHost),
       language: this.runtimeTabsLanguage,
-      toolbarTopInset: this.getRuntimeToolbarTopInset(displayHost),
-      toolbarVisible: this.isRuntimeToolbarVisible(displayHost)
+      toolbarVisible: this.isRuntimeToolbarVisible(displayHost),
+      windowFullscreen: displayHost.windowFullscreen
     };
-    displayHost.window.webContents.send(RUNTIME_TABS_STATE_CHANNEL, state);
+    chromeWebContents.send(RUNTIME_TABS_STATE_CHANNEL, state);
   }
 
   private isDisplayHostFullscreen(displayHost: EmbeddedDisplayHost): boolean {
-    return displayHost.nativeFullscreen || displayHost.tabIds.some(
+    return displayHost.windowFullscreen || displayHost.tabIds.some(
       (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
     );
   }
 
-  private setNativeFullscreen(displayHost: EmbeddedDisplayHost, fullscreen: boolean): void {
+  private setWindowFullscreen(displayHost: EmbeddedDisplayHost, fullscreen: boolean): void {
     const wasFullscreen = this.isDisplayHostFullscreen(displayHost);
-    displayHost.nativeFullscreen = fullscreen;
-    displayHost.nativeTitlebarRevealed = false;
+    displayHost.windowFullscreen = fullscreen;
     this.handleDisplayHostFullscreenTransition(displayHost, wasFullscreen);
+  }
+
+  private toggleRuntimeWindowFullscreen(displayHost: EmbeddedDisplayHost): void {
+    if (displayHost.window.isDestroyed()) return;
+    const next = !displayHost.windowFullscreen;
+    if (displayHost.chromeView) {
+      displayHost.window.setSimpleFullScreen(next);
+      this.setWindowFullscreen(displayHost, next);
+      return;
+    }
+    if (isBrowserWindow(displayHost.window)) displayHost.window.setFullScreen(next);
+  }
+
+  private exitRuntimeSimpleFullscreen(displayHost: EmbeddedDisplayHost): void {
+    if (!displayHost.chromeView || !displayHost.windowFullscreen || displayHost.window.isDestroyed()) return;
+    displayHost.window.setSimpleFullScreen(false);
+    this.setWindowFullscreen(displayHost, false);
   }
 
   private setHtmlFullscreen(host: GameHostWindow, webContentsId: number, fullscreen: boolean): void {
@@ -1269,27 +1336,52 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
       this.clearRuntimeToolbarCollapseTimer(displayHost);
       displayHost.toolbarTemporarilyVisible = false;
-      displayHost.nativeTitlebarRevealed = false;
     }
+    if (fullscreen !== wasFullscreen) this.layoutDisplayHost(displayHost);
     this.applyRuntimeToolbarState(displayHost);
     this.syncRuntimeToolbarCursorMonitor(displayHost);
   }
 
   private applyRuntimeToolbarState(displayHost: EmbeddedDisplayHost): void {
     if (displayHost.window.isDestroyed()) return;
-    const toolbarVisible = this.isRuntimeToolbarVisible(displayHost);
-    const toolbarTopInset = this.getRuntimeToolbarTopInset(displayHost);
-    const nextHeight = !isBrowserWindow(displayHost.window)
-      ? 0
-      : toolbarVisible
-        ? toolbarTopInset + RUNTIME_TAB_CHROME_HEIGHT
-        : RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT;
-    if (displayHost.chromeHeight === nextHeight) {
+    if (displayHost.chromeView) {
+      this.layoutRuntimeChrome(displayHost);
       this.sendRuntimeChromeState(displayHost);
-      return;
+    } else {
+      this.layoutDisplayHost(displayHost);
     }
-    displayHost.chromeHeight = nextHeight;
-    this.layoutDisplayHost(displayHost);
+  }
+
+  private getRuntimeToolbarHeight(displayHost: EmbeddedDisplayHost): number {
+    return this.isRuntimeToolbarVisible(displayHost)
+      ? RUNTIME_TAB_CHROME_HEIGHT
+      : RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT;
+  }
+
+  private getRuntimeContentTopInset(displayHost: EmbeddedDisplayHost): number {
+    if (displayHost.chromeView) {
+      return this.isDisplayHostFullscreen(displayHost) ? 0 : RUNTIME_TAB_CHROME_HEIGHT;
+    }
+    if (displayHost.chromeWebContents) return this.getRuntimeToolbarHeight(displayHost);
+    return 0;
+  }
+
+  private layoutRuntimeChrome(displayHost: EmbeddedDisplayHost): void {
+    const chromeView = displayHost.chromeView;
+    if (!chromeView) return;
+    const bounds = displayHost.window.getContentBounds();
+    chromeView.setBounds({
+      x: 0,
+      y: 0,
+      width: Math.max(1, bounds.width),
+      height: this.getRuntimeToolbarHeight(displayHost)
+    });
+    this.bringRuntimeChromeToFront(displayHost);
+  }
+
+  private bringRuntimeChromeToFront(displayHost: EmbeddedDisplayHost | undefined): void {
+    if (!displayHost?.chromeView || displayHost.window.isDestroyed()) return;
+    displayHost.window.contentView.addChildView(displayHost.chromeView);
   }
 
   private scheduleRuntimeToolbarCollapse(displayHost: EmbeddedDisplayHost): void {
@@ -1311,22 +1403,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const cursor = this.options.getCursorScreenPoint?.();
     if (cursor && this.isCursorInRuntimeToolbarZone(displayHost, cursor)) return;
 
-    let changed = false;
     if (!this.alwaysShowToolbarInFullScreen && displayHost.toolbarTemporarilyVisible) {
       displayHost.toolbarTemporarilyVisible = false;
-      changed = true;
+      this.applyRuntimeToolbarState(displayHost);
     }
-    if (displayHost.nativeTitlebarRevealed) {
-      displayHost.nativeTitlebarRevealed = false;
-      changed = true;
-    }
-    if (changed) this.applyRuntimeToolbarState(displayHost);
   }
 
   private syncRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {
     const shouldMonitor = !displayHost.closing &&
       this.isDisplayHostFullscreen(displayHost) &&
-      (!this.alwaysShowToolbarInFullScreen || this.isMacNativeFullscreen(displayHost)) &&
+      !this.alwaysShowToolbarInFullScreen &&
       isWindowVisible(displayHost.window) &&
       Boolean(this.options.getCursorScreenPoint);
     if (!shouldMonitor) {
@@ -1345,7 +1431,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (
       displayHost.closing ||
       !this.isDisplayHostFullscreen(displayHost) ||
-      (this.alwaysShowToolbarInFullScreen && !this.isMacNativeFullscreen(displayHost)) ||
+      this.alwaysShowToolbarInFullScreen ||
       !isWindowVisible(displayHost.window)
     ) return;
 
@@ -1360,10 +1446,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (cursorInRevealBand) {
         this.clearRuntimeToolbarCollapseTimer(displayHost);
         this.revealRuntimeToolbar(displayHost);
-      } else if (
-        displayHost.toolbarTemporarilyVisible ||
-        displayHost.nativeTitlebarRevealed
-      ) {
+      } else if (displayHost.toolbarTemporarilyVisible) {
         if (displayHost.toolbarRevealLockCount > 0 || cursorInToolbarZone) {
           this.clearRuntimeToolbarCollapseTimer(displayHost);
         } else {
@@ -1381,7 +1464,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     height?: number
   ): boolean {
     const bounds = getWindowBounds(displayHost.window);
-    const zoneHeight = height ?? this.getRuntimeToolbarHoldZoneHeight(displayHost);
+    const zoneHeight = height ?? this.getRuntimeToolbarHoldZoneHeight();
     return cursor.x >= bounds.x &&
       cursor.x < bounds.x + bounds.width &&
       cursor.y >= bounds.y &&
@@ -1389,44 +1472,22 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private revealRuntimeToolbar(displayHost: EmbeddedDisplayHost): void {
-    let changed = false;
     if (!this.alwaysShowToolbarInFullScreen && !displayHost.toolbarTemporarilyVisible) {
       displayHost.toolbarTemporarilyVisible = true;
-      changed = true;
+      this.applyRuntimeToolbarState(displayHost);
     }
-    if (this.isMacNativeFullscreen(displayHost) && !displayHost.nativeTitlebarRevealed) {
-      displayHost.nativeTitlebarRevealed = true;
-      changed = true;
-    }
-    if (changed) this.applyRuntimeToolbarState(displayHost);
   }
 
   private isRuntimeToolbarVisible(displayHost: EmbeddedDisplayHost): boolean {
-    return isBrowserWindow(displayHost.window) && (
+    return Boolean(displayHost.chromeWebContents) && (
       !this.isDisplayHostFullscreen(displayHost) ||
       this.alwaysShowToolbarInFullScreen ||
       displayHost.toolbarTemporarilyVisible
     );
   }
 
-  private isMacNativeFullscreen(displayHost: EmbeddedDisplayHost): boolean {
-    return (this.options.platform ?? process.platform) === "darwin" && displayHost.nativeFullscreen;
-  }
-
-  private getRuntimeToolbarTopInset(displayHost: EmbeddedDisplayHost): number {
-    return this.isRuntimeToolbarVisible(displayHost) &&
-      this.isMacNativeFullscreen(displayHost) &&
-      displayHost.nativeTitlebarRevealed
-      ? displayHost.nativeTitlebarHeight
-      : 0;
-  }
-
-  private getRuntimeToolbarHoldZoneHeight(displayHost: EmbeddedDisplayHost): number {
-    const nativeTitlebarHeight = this.isMacNativeFullscreen(displayHost) &&
-      displayHost.nativeTitlebarRevealed
-      ? displayHost.nativeTitlebarHeight
-      : 0;
-    return nativeTitlebarHeight + RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT;
+  private getRuntimeToolbarHoldZoneHeight(): number {
+    return RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT;
   }
 
   private clearRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {
@@ -1567,6 +1628,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       const divider: GameDivider = { ...descriptor, view };
       this.applyWorkspaceBackground(divider, host.workspaceAppearance);
       host.window.contentView.addChildView(view);
+      const displayHost = this.getDisplayHost(host);
+      if (displayHost) this.configureRuntimeWindowShortcuts(displayHost, view.webContents);
       const webContentsId = view.webContents.id;
       this.dividerByWebContentsId.set(webContentsId, { divider, hostId: host.id });
       view.webContents.once("destroyed", () => {
@@ -1576,6 +1639,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return divider;
     });
     this.layoutHost(host);
+    this.bringRuntimeChromeToFront(this.getDisplayHost(host));
     await Promise.all(loadPromises);
   }
 
@@ -1717,12 +1781,32 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private configureCloseShortcut(host: GameHostWindow, webContents: WebContents): void {
+    const displayHost = this.getDisplayHost(host);
+    if (displayHost) this.configureRuntimeWindowShortcuts(displayHost, webContents);
     webContents.on("before-input-event", (event, input) => {
       if (input.type !== "keyDown" || input.key.toLowerCase() !== "w" || (!input.meta && !input.control)) {
         return;
       }
       event.preventDefault();
       void this.hideRuntimeTab(host.id);
+    });
+  }
+
+  private configureRuntimeWindowShortcuts(
+    displayHost: EmbeddedDisplayHost,
+    webContents: WebContents
+  ): void {
+    webContents.on("before-input-event", (event, input) => {
+      if (
+        input.type !== "keyDown" ||
+        input.key !== "Escape" ||
+        !displayHost.windowFullscreen ||
+        displayHost.tabIds.some(
+          (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
+        )
+      ) return;
+      event.preventDefault();
+      this.toggleRuntimeWindowFullscreen(displayHost);
     });
   }
 
@@ -1751,6 +1835,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     popupView.setBounds(this.getSessionBounds(host, session));
     host.window.contentView.addChildView(popupView);
+    this.bringRuntimeChromeToFront(this.getDisplayHost(host));
     session.popupViews.add(popupView);
     this.configureZoomPersistence(session, popupView.webContents);
     this.configureWindowOpenHandler(session, popupView.webContents);
@@ -2126,7 +2211,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         displayHost.activeTabId = nextActiveTabId;
       }
       this.handleDisplayHostFullscreenTransition(displayHost, displayHostWasFullscreen);
-      if (!displayHost.activeTabId) displayHost.window.hide();
+      if (!displayHost.activeTabId) {
+        this.exitRuntimeSimpleFullscreen(displayHost);
+        displayHost.window.hide();
+      }
       this.layoutDisplayHost(displayHost);
       this.destroyDisplayHostIfEmpty(displayHost);
     }

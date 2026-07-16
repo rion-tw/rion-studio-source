@@ -17,7 +17,10 @@ export type RuntimeTabAction =
   | { type: "openTabMenu"; tabId: string }
   | { type: "fullscreenToolbarEnter" }
   | { type: "fullscreenToolbarLeave" }
-  | { type: "reportNativeTitlebarHeight"; height: number };
+  | {
+      type: "windowControl";
+      control: "close" | "minimize" | "toggleFullscreen" | "zoom";
+    };
 
 export interface RuntimeTabChromeState extends EmbeddedRuntimeState {
   alwaysShowToolbarInFullScreen: boolean;
@@ -25,8 +28,8 @@ export interface RuntimeTabChromeState extends EmbeddedRuntimeState {
   displays: WorkspaceDisplayInfo[];
   fullscreen: boolean;
   language: AppLanguage;
-  toolbarTopInset: number;
   toolbarVisible: boolean;
+  windowFullscreen: boolean;
 }
 
 export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
@@ -44,8 +47,10 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
     return typeof action.tabId === "string" &&
       (action.beforeTabId === undefined || typeof action.beforeTabId === "string");
   }
-  if (action.type === "reportNativeTitlebarHeight") {
-    return typeof action.height === "number" && Number.isFinite(action.height);
+  if (action.type === "windowControl") {
+    return ["close", "minimize", "toggleFullscreen", "zoom"].includes(
+      action.control as string
+    ) && Object.keys(action).length === 2;
   }
   if (["openLauncher", "fullscreenToolbarEnter", "fullscreenToolbarLeave"].includes(action.type)) {
     return Object.keys(action).length === 1;

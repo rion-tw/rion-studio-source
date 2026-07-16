@@ -211,13 +211,64 @@ describe("BrowserManager game host windows", () => {
     expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
   });
 
-  it.each([
-    ["darwin", "hiddenInset"],
-    ["win32", "hidden"]
-  ] as const)("uses secure custom runtime tabs with native %s window controls", async (platform, titleBarStyle) => {
+  it("uses a frameless macOS BaseWindow with a secure overlay chrome view", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      platform,
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+
+    await harness.manager.launch(role);
+
+    expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining({
+      frame: false,
+      fullscreenable: false,
+      show: false
+    }));
+    expect(harness.createTabbedHostWindow).not.toHaveBeenCalled();
+    expect(harness.createRuntimeChromeView).toHaveBeenCalledWith(expect.objectContaining({
+      webPreferences: expect.objectContaining({
+        backgroundThrottling: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        preload: "/app/out/preload/runtime-tabs.cjs",
+        sandbox: true
+      })
+    }));
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 40,
+      width: 1200,
+      height: 736
+    });
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 40
+    });
+    expect(harness.hosts[0].contentView.addChildView).toHaveBeenLastCalledWith(
+      harness.chromeViews[0].view
+    );
+    expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
+      "runtime-tabs:state",
+      expect.objectContaining({ toolbarVisible: true, windowFullscreen: false })
+    );
+    expect(harness.manager.getRuntimeWindowForWebContents(harness.views[0].webContents.id)).toBeUndefined();
+    expect(harness.manager.getRuntimeWindowForWebContents(harness.chromeViews[0].webContents.id))
+      .toBe(harness.hosts[0]);
+
+    createOAuthPopup(harness.views[0], harness.views);
+    expect(harness.hosts[0].contentView.addChildView).toHaveBeenLastCalledWith(
+      harness.chromeViews[0].view
+    );
+  });
+
+  it("keeps Windows native caption buttons and title-bar overlay", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      platform: "win32",
       useTabbedHostWindow: true,
       workspaceDisplays: runtimeDisplays
     });
@@ -226,9 +277,10 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.createHostWindow).not.toHaveBeenCalled();
     expect(harness.createTabbedHostWindow).toHaveBeenCalledWith(expect.objectContaining({
-      autoHideMenuBar: platform !== "darwin",
+      autoHideMenuBar: true,
       frame: true,
-      titleBarStyle,
+      titleBarStyle: "hidden",
+      titleBarOverlay: expect.objectContaining({ height: 40 }),
       webPreferences: expect.objectContaining({
         backgroundThrottling: true,
         contextIsolation: true,
@@ -240,16 +292,6 @@ describe("BrowserManager game host windows", () => {
     expect(harness.createTabbedHostWindow).toHaveBeenCalledWith(
       expect.not.objectContaining({ tabbingIdentifier: expect.anything() })
     );
-    if (platform === "darwin") {
-      expect(harness.createTabbedHostWindow).toHaveBeenCalledWith(expect.objectContaining({
-        titleBarOverlay: true,
-        trafficLightPosition: { x: 14, y: 12 }
-      }));
-    } else {
-      expect(harness.createTabbedHostWindow).toHaveBeenCalledWith(expect.objectContaining({
-        titleBarOverlay: expect.objectContaining({ height: 40 })
-      }));
-    }
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 40,
@@ -259,7 +301,7 @@ describe("BrowserManager game host windows", () => {
     expect((harness.hosts[0] as ReturnType<typeof createMockBrowserHost>).webContents.send)
       .toHaveBeenLastCalledWith(
       "runtime-tabs:state",
-      expect.objectContaining({ toolbarTopInset: 0, toolbarVisible: true })
+      expect.objectContaining({ toolbarVisible: true, windowFullscreen: false })
     );
   });
 
@@ -298,280 +340,196 @@ describe("BrowserManager game host windows", () => {
     ]);
   });
 
-  it("auto-hides and reveals the toolbar in native fullscreen without reloading games", async () => {
+  it("overlays macOS fullscreen chrome without relaying out or reloading the game", async () => {
     vi.useFakeTimers();
     let cursor = { x: 100, y: 120 };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       getCursorScreenPoint: () => cursor,
+      platform: "darwin",
       runtimeToolbarCollapseDelayMs: 700,
       useTabbedHostWindow: true,
       workspaceDisplays: runtimeDisplays
     });
     await harness.manager.launch(role);
 
-    harness.hosts[0].emit("enter-full-screen");
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(true);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: 2,
+      y: 0,
       width: 1200,
-      height: 774
+      height: 776
     });
-    expect((harness.hosts[0] as ReturnType<typeof createMockBrowserHost>).webContents.send)
-      .toHaveBeenLastCalledWith(
-      "runtime-tabs:state",
-      expect.objectContaining({ fullscreen: true, toolbarVisible: false })
-    );
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 2
+    });
+    const gameBoundsCalls = harness.views[0].setBounds.mock.calls.length;
 
     harness.manager.handleRuntimeToolbarPointer(11, true);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
-      x: 0,
-      y: 72,
-      width: 1200,
-      height: 704
-    });
-    expect((harness.hosts[0] as ReturnType<typeof createMockBrowserHost>).webContents.send)
-      .toHaveBeenLastCalledWith(
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 40 }));
+    expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+    expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
       "runtime-tabs:state",
-      expect.objectContaining({ toolbarTopInset: 32, toolbarVisible: true })
+      expect.objectContaining({ fullscreen: true, toolbarVisible: true, windowFullscreen: true })
     );
 
     harness.manager.handleRuntimeToolbarPointer(11, false);
     await vi.advanceTimersByTimeAsync(699);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 40 }));
     await vi.advanceTimersByTimeAsync(1);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
-
-    cursor = { x: 100, y: 30 };
-    harness.manager.handleRuntimeToolbarPointer(11, true);
-    harness.manager.handleRuntimeToolbarPointer(11, false);
-    await vi.advanceTimersByTimeAsync(700);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-    cursor = { x: 100, y: 120 };
-    await vi.advanceTimersByTimeAsync(749);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-    await vi.advanceTimersByTimeAsync(1);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
-
-    harness.hosts[0].emit("leave-full-screen");
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 2 }));
+    expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
     expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
-    vi.useRealTimers();
-  });
 
-  it("uses normalized macOS window-controls-overlay height while native fullscreen chrome is revealed", async () => {
-    const harness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      platform: "darwin",
-      useTabbedHostWindow: true,
-      workspaceDisplays: runtimeDisplays
-    });
-    await harness.manager.launch(role);
-    harness.hosts[0].emit("enter-full-screen");
-    harness.manager.handleRuntimeToolbarPointer(11, true);
-
-    harness.manager.reportRuntimeNativeTitlebarHeight(11, 37.6);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
-      x: 0,
-      y: 78,
-      width: 1200,
-      height: 698
-    });
-    expect((harness.hosts[0] as ReturnType<typeof createMockBrowserHost>).webContents.send)
-      .toHaveBeenLastCalledWith(
-      "runtime-tabs:state",
-      expect.objectContaining({ toolbarTopInset: 38, toolbarVisible: true })
-    );
-
-    const boundsCallCount = harness.views[0].setBounds.mock.calls.length;
-    harness.manager.reportRuntimeNativeTitlebarHeight(11, 19.4);
-    harness.manager.reportRuntimeNativeTitlebarHeight(11, 64.5);
-    harness.manager.reportRuntimeNativeTitlebarHeight(11, Number.NaN);
-    expect(harness.views[0].setBounds).toHaveBeenCalledTimes(boundsCallCount);
-
-    harness.hosts[0].emit("leave-full-screen");
+    cursor = { x: 100, y: 24 };
+    await vi.advanceTimersByTimeAsync(50);
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 40 }));
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(false);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
-  });
-
-  it("temporarily moves an always-visible macOS toolbar below revealed native fullscreen chrome", async () => {
-    vi.useFakeTimers();
-    let cursor = { x: 100, y: 100 };
-    const harness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      getCursorScreenPoint: () => cursor,
-      platform: "darwin",
-      runtimeToolbarCollapseDelayMs: 700,
-      useTabbedHostWindow: true,
-      workspaceDisplays: runtimeDisplays
-    });
-    await harness.manager.launch(role);
-    harness.hosts[0].emit("enter-full-screen");
-    harness.manager.setAlwaysShowToolbarInFullScreen(true);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
-
-    cursor = { x: 100, y: 24 };
-    await vi.advanceTimersByTimeAsync(50);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-
-    cursor = { x: -1, y: 24 };
-    await vi.advanceTimersByTimeAsync(749);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-    await vi.advanceTimersByTimeAsync(1);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
-
-    harness.manager.setAlwaysShowToolbarInFullScreen(false);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
-    harness.hosts[0].emit("leave-full-screen");
     vi.useRealTimers();
   });
 
-  it("does not add a native titlebar inset on Windows or HTML-only fullscreen", async () => {
-    const windowsHarness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      platform: "win32",
-      useTabbedHostWindow: true,
-      workspaceDisplays: runtimeDisplays
-    });
-    await windowsHarness.manager.launch(role);
-    windowsHarness.hosts[0].emit("enter-full-screen");
-    windowsHarness.manager.handleRuntimeToolbarPointer(11, true);
-    windowsHarness.manager.reportRuntimeNativeTitlebarHeight(11, 38);
-    expect(windowsHarness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
-    expect((windowsHarness.hosts[0] as ReturnType<typeof createMockBrowserHost>).webContents.send)
-      .toHaveBeenLastCalledWith(
-      "runtime-tabs:state",
-      expect.objectContaining({ toolbarTopInset: 0, toolbarVisible: true })
-    );
-
-    const htmlHarness = createHarness({
+  it("keeps macOS game bounds fixed while always-show and HTML fullscreen change chrome", async () => {
+    const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       platform: "darwin",
-      useTabbedHostWindow: true,
-      workspaceDisplays: runtimeDisplays
-    });
-    await htmlHarness.manager.launch(createRole("role-html", "HTML"));
-    htmlHarness.views[0].webContents.emit("enter-html-full-screen");
-    htmlHarness.manager.handleRuntimeToolbarPointer(11, true);
-    expect(htmlHarness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
-    expect((htmlHarness.hosts[0] as ReturnType<typeof createMockBrowserHost>).webContents.send)
-      .toHaveBeenLastCalledWith(
-      "runtime-tabs:state",
-      expect.objectContaining({ toolbarTopInset: 0, toolbarVisible: true })
-    );
-  });
-
-  it("reveals fullscreen tabs from the main-process cursor monitor without DOM hover", async () => {
-    vi.useFakeTimers();
-    let cursor = { x: 100, y: 100 };
-    const harness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      getCursorScreenPoint: () => cursor,
-      platform: "darwin",
-      runtimeToolbarCollapseDelayMs: 700,
-      useTabbedHostWindow: true,
-      workspaceDisplays: runtimeDisplays
-    });
-    await harness.manager.launch(role);
-    harness.hosts[0].emit("enter-full-screen");
-
-    cursor = { x: 100, y: 24 };
-    await vi.advanceTimersByTimeAsync(50);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-
-    cursor = { x: -1, y: 24 };
-    await vi.advanceTimersByTimeAsync(749);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-    await vi.advanceTimersByTimeAsync(1);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
-
-    cursor = { x: 100, y: 24 };
-    harness.hosts[0].hide();
-    harness.hosts[0].emit("hide");
-    await vi.advanceTimersByTimeAsync(100);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
-    harness.hosts[0].show();
-    harness.hosts[0].emit("show");
-    await vi.advanceTimersByTimeAsync(50);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-
-    harness.hosts[0].emit("leave-full-screen");
-    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
-    vi.useRealTimers();
-  });
-
-  it("keeps fullscreen tabs revealed while a native runtime menu holds a lock", async () => {
-    vi.useFakeTimers();
-    const harness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      getCursorScreenPoint: () => ({ x: 100, y: 120 }),
-      runtimeToolbarCollapseDelayMs: 700,
-      useTabbedHostWindow: true,
-      workspaceDisplays: runtimeDisplays
-    });
-    await harness.manager.launch(role);
-    harness.hosts[0].emit("enter-full-screen");
-
-    const release = harness.manager.acquireRuntimeToolbarRevealLock(11);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-
-    release();
-    await vi.advanceTimersByTimeAsync(699);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-    await vi.advanceTimersByTimeAsync(1);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
-    harness.hosts[0].emit("leave-full-screen");
-    vi.useRealTimers();
-  });
-
-  it("reveals only the fullscreen host under the cursor across displays", async () => {
-    vi.useFakeTimers();
-    let cursor = { x: 1_300, y: 0 };
-    const harness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      getCursorScreenPoint: () => cursor,
-      platform: "darwin",
-      useTabbedHostWindow: true,
-      workspaceDisplays: runtimeDisplays
-    });
-    await harness.manager.launch(role);
-    await harness.manager.launch(createRole("role-2", "Alt"), {
-      target: { displayId: 22, workArea: runtimeDisplays[1].workArea }
-    });
-    harness.hosts[0].emit("enter-full-screen");
-    harness.hosts[1].emit("enter-full-screen");
-
-    await vi.advanceTimersByTimeAsync(50);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
-    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-
-    cursor = { x: 100, y: 24 };
-    await vi.advanceTimersByTimeAsync(50);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 72 }));
-    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
-    expect(harness.views[1].webContents.loadURL).toHaveBeenCalledTimes(1);
-
-    harness.hosts[0].emit("leave-full-screen");
-    harness.hosts[1].emit("leave-full-screen");
-    vi.useRealTimers();
-  });
-
-  it("combines HTML fullscreen with the global always-show toolbar preference", async () => {
-    const harness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       useTabbedHostWindow: true,
       workspaceDisplays: runtimeDisplays
     });
     await harness.manager.launch(role);
 
     harness.views[0].webContents.emit("enter-html-full-screen");
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 0, height: 776 }));
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 2 }));
+    const gameBoundsCalls = harness.views[0].setBounds.mock.calls.length;
     harness.manager.setAlwaysShowToolbarInFullScreen(true);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 40 }));
     harness.manager.setAlwaysShowToolbarInFullScreen(false);
-    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 2 }));
+    expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
     harness.views[0].webContents.emit("leave-html-full-screen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+  });
+
+  it("keeps fullscreen chrome revealed while a native menu holds its lock", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getCursorScreenPoint: () => ({ x: 100, y: 120 }),
+      platform: "darwin",
+      runtimeToolbarCollapseDelayMs: 700,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+
+    const release = harness.manager.acquireRuntimeToolbarRevealLock(11);
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 40 }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 40 }));
+    release();
+    await vi.advanceTimersByTimeAsync(700);
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 2 }));
+    vi.useRealTimers();
+  });
+
+  it("monitors fullscreen chrome independently on negative-coordinate displays", async () => {
+    vi.useFakeTimers();
+    const displays: WorkspaceDisplayInfo[] = [
+      {
+        ...runtimeDisplays[0],
+        id: 33,
+        bounds: { x: -1200, y: 0, width: 1200, height: 800 },
+        workArea: { x: -1200, y: 0, width: 1200, height: 800 }
+      },
+      { ...runtimeDisplays[1], id: 44, bounds: { x: 0, y: 0, width: 1200, height: 800 },
+        workArea: { x: 0, y: 0, width: 1200, height: 800 } }
+    ];
+    let cursor = { x: -600, y: 0 };
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 33, workArea: displays[0].workArea },
+      getCursorScreenPoint: () => cursor,
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: displays
+    });
+    await harness.manager.launch(role);
+    await harness.manager.launch(createRole("role-2", "Alt"), {
+      target: { displayId: 44, workArea: displays[1].workArea }
+    });
+    harness.manager.handleRuntimeWindowControl(33, "toggleFullscreen");
+    harness.manager.handleRuntimeWindowControl(44, "toggleFullscreen");
+
+    await vi.advanceTimersByTimeAsync(50);
+    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 40 }));
+    expect(harness.chromeViews[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 2 }));
+    cursor = { x: 600, y: 0 };
+    await vi.advanceTimersByTimeAsync(50);
+    expect(harness.chromeViews[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 40 }));
+    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
+    expect(harness.views[1].webContents.loadURL).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("routes macOS traffic lights and Escape through simple fullscreen controls", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+
+    harness.manager.handleRuntimeWindowControl(11, "minimize");
+    expect(harness.hosts[0].minimize).toHaveBeenCalledOnce();
+    harness.manager.handleRuntimeWindowControl(11, "zoom");
+    harness.manager.handleRuntimeWindowControl(11, "zoom");
+    expect(harness.hosts[0].maximize).toHaveBeenCalledOnce();
+    expect(harness.hosts[0].unmaximize).toHaveBeenCalledOnce();
+
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    harness.manager.handleRuntimeWindowControl(11, "minimize");
+    expect(harness.hosts[0].minimize).toHaveBeenCalledOnce();
+    const preventDefault = vi.fn();
+    harness.chromeViews[0].webContents.emit("before-input-event", { preventDefault }, {
+      type: "keyDown",
+      key: "Escape"
+    });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(false);
+
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    harness.views[0].webContents.emit("enter-html-full-screen");
+    harness.chromeViews[0].webContents.emit("before-input-event", { preventDefault }, {
+      type: "keyDown",
+      key: "Escape"
+    });
+    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(true);
+    harness.views[0].webContents.emit("leave-html-full-screen");
+    harness.manager.handleRuntimeWindowControl(11, "close");
+    expect(harness.hosts[0].setSimpleFullScreen).toHaveBeenLastCalledWith(false);
+    expect(harness.hosts[0].hide).toHaveBeenCalled();
+  });
+
+  it("retains the Windows fullscreen content inset behavior", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      platform: "win32",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+    harness.hosts[0].emit("enter-full-screen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 2 }));
+    harness.manager.handleRuntimeToolbarPointer(11, true);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
+    harness.hosts[0].emit("leave-full-screen");
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ y: 40 }));
   });
 
@@ -2272,10 +2230,22 @@ function createHarness(options: {
   runtimeToolbarCollapseDelayMs?: number;
 } = {}) {
   const hosts: ReturnType<typeof createMockHost>[] = [];
+  const chromeViews: ReturnType<typeof createMockView>[] = [];
   const views: ReturnType<typeof createMockView>[] = [];
   const defaultSnapshot = { bodyText: "Welcome", localStorage: { authToken: "token-1" } };
-  const createHostWindow = vi.fn(() => {
+  const createHostWindow = vi.fn((windowOptions: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+  }) => {
     const host = createMockHost();
+    host.contentBounds = {
+      x: options.platform === "darwin" && options.useTabbedHostWindow ? windowOptions.x ?? 0 : 0,
+      y: options.platform === "darwin" && options.useTabbedHostWindow ? windowOptions.y ?? 0 : 0,
+      width: windowOptions.width ?? 1200,
+      height: windowOptions.height ?? 800
+    };
     hosts.push(host);
     return host as never;
   });
@@ -2306,6 +2276,11 @@ function createHarness(options: {
     views.push(view);
     return view.view as never;
   });
+  const createRuntimeChromeView = vi.fn(() => {
+    const view = createMockView(() => defaultSnapshot);
+    chromeViews.push(view);
+    return view.view as never;
+  });
   const roleStore = {
     updateAuthState: vi.fn().mockImplementation(async (_id: string, authState: Role["authState"]) => ({
       ...role,
@@ -2318,6 +2293,7 @@ function createHarness(options: {
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
     ...(options.applyBrowserProxy ? { applyBrowserProxy: options.applyBrowserProxy } : {}),
     createHostWindow,
+    ...(options.useTabbedHostWindow ? { createRuntimeChromeView } : {}),
     ...(options.useTabbedHostWindow ? { createTabbedHostWindow } : {}),
     createView,
     dividerPreloadPath: "/app/out/preload/divider.cjs",
@@ -2338,7 +2314,7 @@ function createHarness(options: {
     ...(options.runtimeToolbarCollapseDelayMs === undefined
       ? {}
       : { runtimeToolbarCollapseDelayMs: options.runtimeToolbarCollapseDelayMs }),
-    ...(options.platform ? { platform: options.platform } : {}),
+    platform: options.platform ?? (options.useTabbedHostWindow ? "win32" : process.platform),
     ...(options.prefersReducedTransparency
       ? { prefersReducedTransparency: options.prefersReducedTransparency }
       : {})
@@ -2347,7 +2323,9 @@ function createHarness(options: {
 
   return {
     beforeRolesStop,
+    chromeViews,
     createHostWindow,
+    createRuntimeChromeView,
     createTabbedHostWindow,
     createView,
     hosts,
@@ -2410,6 +2388,7 @@ function createExternalResourceTarget() {
 function createMockHost() {
   let visible = false;
   const host = Object.assign(new EventEmitter(), {
+    id: Math.floor(Math.random() * 100_000),
     close: vi.fn(),
     contentBounds: { x: 0, y: 0, width: 1200, height: 800 },
     contentView: {
@@ -2424,15 +2403,35 @@ function createMockHost() {
       visible = false;
     }),
     isDestroyed: vi.fn(() => false),
+    isFullScreen: vi.fn(() => host.fullscreen),
+    isMaximized: vi.fn(() => host.maximized),
     isMinimized: vi.fn(() => false),
+    isSimpleFullScreen: vi.fn(() => host.simpleFullscreen),
     isVisible: vi.fn(() => visible),
+    fullscreen: false,
+    maximize: vi.fn(() => {
+      host.maximized = true;
+    }),
+    maximized: false,
+    minimize: vi.fn(),
     minimized: false,
     restore: vi.fn(),
     setBounds: vi.fn((bounds: PixelBounds) => {
       host.contentBounds = bounds;
     }),
+    setFullScreen: vi.fn((value: boolean) => {
+      host.fullscreen = value;
+      host.emit(value ? "enter-full-screen" : "leave-full-screen");
+    }),
+    setSimpleFullScreen: vi.fn((value: boolean) => {
+      host.simpleFullscreen = value;
+    }),
     show: vi.fn(() => {
       visible = true;
+    }),
+    simpleFullscreen: false,
+    unmaximize: vi.fn(() => {
+      host.maximized = false;
     })
   });
   host.isMinimized.mockImplementation(() => host.minimized);

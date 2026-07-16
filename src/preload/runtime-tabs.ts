@@ -7,33 +7,50 @@ import {
   type RuntimeTabChromeState
 } from "../shared/runtimeTabs";
 import type { AppLanguage } from "../shared/types";
-import {
-  installRuntimeTitlebarHeightReporter,
-  type RuntimeTabsNavigator
-} from "./runtimeTabsWindowControlsOverlay";
 
-type LabelKey = "add" | "hide" | "more";
+type LabelKey = "add" | "close" | "enterFullScreen" | "exitFullScreen" | "hide" |
+  "minimize" | "more" | "zoom";
 
 const translations: Record<AppLanguage, Record<LabelKey, string>> = {
   en: {
     add: "Open role or workspace",
+    close: "Close game window",
+    enterFullScreen: "Enter full screen",
+    exitFullScreen: "Exit full screen",
     hide: "Hide tab (keeps running)",
-    more: "More actions"
+    minimize: "Minimize game window",
+    more: "More actions",
+    zoom: "Zoom game window"
   },
   "zh-TW": {
     add: "開啟角色或工作區",
+    close: "關閉遊戲視窗",
+    enterFullScreen: "進入全螢幕",
+    exitFullScreen: "離開全螢幕",
     hide: "隱藏分頁（保持運行）",
-    more: "更多操作"
+    minimize: "最小化遊戲視窗",
+    more: "更多操作",
+    zoom: "縮放遊戲視窗"
   },
   "zh-CN": {
     add: "打开角色或工作区",
+    close: "关闭游戏窗口",
+    enterFullScreen: "进入全屏",
+    exitFullScreen: "退出全屏",
     hide: "隐藏标签页（保持运行）",
-    more: "更多操作"
+    minimize: "最小化游戏窗口",
+    more: "更多操作",
+    zoom: "缩放游戏窗口"
   },
   ja: {
     add: "ロールまたはワークスペースを開く",
+    close: "ゲームウインドウを閉じる",
+    enterFullScreen: "フルスクリーンにする",
+    exitFullScreen: "フルスクリーンを解除",
     hide: "タブを非表示（実行を継続）",
-    more: "その他の操作"
+    minimize: "ゲームウインドウを最小化",
+    more: "その他の操作",
+    zoom: "ゲームウインドウを拡大／復元"
   }
 };
 
@@ -42,7 +59,6 @@ let currentState: RuntimeTabChromeState | undefined;
 window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.platform = process.platform;
   installStyles();
-  installWindowControlsOverlayMeasurement();
   render();
 });
 
@@ -64,27 +80,12 @@ function getDraggedTabId(dataTransfer: DataTransfer | null | undefined): string 
     dataTransfer?.getData("text/plain") || "";
 }
 
-function installWindowControlsOverlayMeasurement(): void {
-  installRuntimeTitlebarHeightReporter(
-    process.platform,
-    navigator as Navigator & RuntimeTabsNavigator,
-    (height) => send({ type: "reportNativeTitlebarHeight", height })
-  );
-}
-
 function render(): void {
   const root = document.getElementById("runtime-tabs-root");
   if (!root || !currentState) return;
   root.replaceChildren();
 
-  const toolbarTopInset = currentState.toolbarVisible ? currentState.toolbarTopInset : 0;
-  const bar = element(
-    "div",
-    `runtime-bar${currentState.toolbarVisible ? "" : " is-collapsed"}${
-      toolbarTopInset > 0 ? " has-native-titlebar-inset" : ""
-    }`
-  );
-  bar.style.setProperty("--runtime-toolbar-top-inset", `${toolbarTopInset}px`);
+  const bar = element("div", `runtime-bar${currentState.toolbarVisible ? "" : " is-collapsed"}`);
   if (currentState.fullscreen && !currentState.alwaysShowToolbarInFullScreen) {
     bar.addEventListener("pointerenter", () => send({ type: "fullscreenToolbarEnter" }));
     bar.addEventListener("pointerleave", () => send({ type: "fullscreenToolbarLeave" }));
@@ -152,8 +153,47 @@ function render(): void {
 
   const add = iconButton("+", label("add"), () => send({ type: "openLauncher" }));
   add.classList.add("runtime-add");
+  if (process.platform === "darwin") bar.append(createTrafficLights());
   bar.append(tabs, add);
   root.append(bar);
+}
+
+function createTrafficLights(): HTMLDivElement {
+  const controls = element("div", "runtime-window-controls");
+  const close = trafficLight("close", "×", label("close"), () => {
+    send({ type: "windowControl", control: "close" });
+  });
+  const minimize = trafficLight("minimize", "−", label("minimize"), () => {
+    send({ type: "windowControl", control: "minimize" });
+  });
+  minimize.disabled = Boolean(currentState?.windowFullscreen);
+  const fullscreenLabel = label(currentState?.windowFullscreen ? "exitFullScreen" : "enterFullScreen");
+  const fullscreen = trafficLight("fullscreen", "↗", fullscreenLabel, (event) => {
+    send({
+      type: "windowControl",
+      control: event.altKey ? "zoom" : "toggleFullscreen"
+    });
+  });
+  controls.append(close, minimize, fullscreen);
+  return controls;
+}
+
+function trafficLight(
+  kind: "close" | "minimize" | "fullscreen",
+  glyph: string,
+  labelText: string,
+  onClick: (event: MouseEvent) => void
+): HTMLButtonElement {
+  const button = element("button", `runtime-traffic-light ${kind}`);
+  button.type = "button";
+  button.textContent = glyph;
+  button.title = labelText;
+  button.setAttribute("aria-label", labelText);
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onClick(event);
+  });
+  return button;
 }
 
 function iconButton(text: string, labelText: string, onClick: () => void): HTMLButtonElement {
@@ -192,17 +232,22 @@ function installStyles(): void {
     html, body, #runtime-tabs-root { height: 100%; margin: 0; overflow: hidden; }
     body { background: transparent; color: rgba(255,255,255,.92); user-select: none; }
     button { font: inherit; }
-    .runtime-bar { -webkit-app-region: drag; align-items: center; background: rgba(26,27,31,.88); border-bottom: 1px solid rgba(255,255,255,.12); display: flex; gap: 6px; height: 40px; margin-top: var(--runtime-toolbar-top-inset, 0px); overflow: hidden; padding: 4px 10px; }
+    .runtime-bar { -webkit-app-region: drag; align-items: center; background: rgba(26,27,31,.88); border-bottom: 1px solid rgba(255,255,255,.12); display: flex; gap: 6px; height: 40px; overflow: hidden; padding: 4px 10px; }
     .runtime-bar.is-collapsed { background: transparent; border-bottom: 0; height: 2px; padding: 0; }
     .runtime-bar.is-collapsed > * { visibility: hidden; }
-    :root[data-platform="darwin"] .runtime-bar { padding-left: 82px; }
-    :root[data-platform="darwin"] .runtime-bar.has-native-titlebar-inset { padding-left: 10px; }
     :root[data-platform="darwin"] .runtime-bar.is-collapsed { padding-left: 0; }
     :root[data-platform="win32"] .runtime-bar { padding-left: max(10px, env(titlebar-area-x, 0px)); padding-right: max(10px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); }
     :root[data-platform="win32"] .runtime-bar.is-collapsed { padding-left: 0; padding-right: 0; }
     .runtime-tab-list { display: flex; flex: 1; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
     .runtime-tab-list::-webkit-scrollbar { display: none; }
-    .runtime-tab, .runtime-icon-button { -webkit-app-region: no-drag; }
+    .runtime-tab, .runtime-icon-button, .runtime-window-controls, .runtime-traffic-light { -webkit-app-region: no-drag; }
+    .runtime-window-controls { align-items: center; display: flex; flex: 0 0 auto; gap: 8px; margin: 0 7px 0 4px; }
+    .runtime-traffic-light { align-items: center; border: 0; border-radius: 50%; color: transparent; display: inline-flex; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10px; font-weight: 700; height: 13px; justify-content: center; line-height: 13px; padding: 0; width: 13px; }
+    .runtime-window-controls:hover .runtime-traffic-light { color: rgba(28,28,30,.75); }
+    .runtime-traffic-light.close { background: #ff5f57; border: 1px solid #e0443e; }
+    .runtime-traffic-light.minimize { background: #febc2e; border: 1px solid #d89e24; }
+    .runtime-traffic-light.fullscreen { background: #28c840; border: 1px solid #1aaa32; }
+    .runtime-traffic-light:disabled { background: #5d5d61; border-color: #4c4c50; color: transparent; }
     .runtime-tab { align-items: center; background: rgba(255,255,255,.055); border: 1px solid transparent; border-radius: 7px; color: inherit; display: flex; flex: 0 1 210px; gap: 6px; height: 31px; min-width: 108px; overflow: hidden; padding: 0 6px 0 9px; }
     .runtime-tab:hover { background: rgba(255,255,255,.1); }
     .runtime-tab.is-active { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.15); }

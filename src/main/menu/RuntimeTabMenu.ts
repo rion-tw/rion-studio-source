@@ -1,4 +1,4 @@
-import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
+import { Menu, type BaseWindow, type MenuItemConstructorOptions } from "electron";
 
 import type { AppLanguage, PendingWorkspaceLaunchRequest, WorkspaceDisplayInfo } from "../../shared/types";
 import type { AuthManager } from "../auth/AuthManager";
@@ -76,7 +76,7 @@ export class RuntimeTabMenuController {
     this.language = language;
   }
 
-  async openLauncher(window: BrowserWindow, sourceDisplayId: number): Promise<void> {
+  async openLauncher(window: BaseWindow, sourceDisplayId: number): Promise<void> {
     const [roles, workspaces] = await Promise.all([
       this.options.roleStore.listRoles(),
       this.options.workspaceStore.listWorkspaces()
@@ -137,7 +137,7 @@ export class RuntimeTabMenuController {
     this.popupWithRevealLock(window, sourceDisplayId, template);
   }
 
-  openTabMenu(window: BrowserWindow, sourceDisplayId: number, tabId: string): void {
+  openTabMenu(window: BaseWindow, sourceDisplayId: number, tabId: string): void {
     const tab = this.options.browserManager.listEmbeddedRuntimeState().tabs.find(
       (candidate) => candidate.id === tabId && candidate.displayId === sourceDisplayId
     );
@@ -168,7 +168,7 @@ export class RuntimeTabMenuController {
   }
 
   private popupWithRevealLock(
-    window: BrowserWindow,
+    window: BaseWindow,
     displayId: number,
     template: MenuItemConstructorOptions[]
   ): void {

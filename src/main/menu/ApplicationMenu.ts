@@ -2,7 +2,7 @@ import { Menu, type MenuItemConstructorOptions } from "electron";
 
 import type { AppLanguage } from "../../shared/types";
 
-type MenuLabelKey = "app" | "edit" | "view" | "window" | "alwaysShow";
+type MenuLabelKey = "app" | "edit" | "view" | "window" | "alwaysShow" | "toggleFullScreen";
 
 const labels: Record<AppLanguage, Record<MenuLabelKey, string>> = {
   en: {
@@ -10,28 +10,32 @@ const labels: Record<AppLanguage, Record<MenuLabelKey, string>> = {
     edit: "Edit",
     view: "View",
     window: "Window",
-    alwaysShow: "Always Show Toolbar in Full Screen"
+    alwaysShow: "Always Show Toolbar in Full Screen",
+    toggleFullScreen: "Toggle Full Screen"
   },
   "zh-TW": {
     app: "Rion Studio",
     edit: "編輯",
     view: "顯示",
     window: "視窗",
-    alwaysShow: "全螢幕時一律顯示工具列"
+    alwaysShow: "全螢幕時一律顯示工具列",
+    toggleFullScreen: "切換全螢幕"
   },
   "zh-CN": {
     app: "Rion Studio",
     edit: "编辑",
     view: "视图",
     window: "窗口",
-    alwaysShow: "全屏时始终显示工具栏"
+    alwaysShow: "全屏时始终显示工具栏",
+    toggleFullScreen: "切换全屏"
   },
   ja: {
     app: "Rion Studio",
     edit: "編集",
     view: "表示",
     window: "ウインドウ",
-    alwaysShow: "フルスクリーンでツールバーを常に表示"
+    alwaysShow: "フルスクリーンでツールバーを常に表示",
+    toggleFullScreen: "フルスクリーンを切り替える"
   }
 };
 
@@ -43,6 +47,7 @@ interface ApplicationMenuOptions {
   platform?: NodeJS.Platform;
   saveAlwaysShowToolbarInFullScreen: (value: boolean) => Promise<void>;
   setApplicationMenu?: (menu: Menu) => void;
+  toggleFullScreen?: () => void;
 }
 
 export class ApplicationMenuController {
@@ -71,6 +76,7 @@ export class ApplicationMenuController {
       alwaysShowToolbarInFullScreen: this.alwaysShowToolbarInFullScreen,
       language: this.language,
       onAlwaysShowToolbarInFullScreenChanged: (value) => void this.updateAlwaysShow(value),
+      onToggleFullScreen: this.options.toggleFullScreen ?? (() => undefined),
       platform: this.options.platform ?? process.platform
     }));
     (this.options.setApplicationMenu ?? Menu.setApplicationMenu)(menu);
@@ -98,11 +104,13 @@ export function buildApplicationMenuTemplate({
   alwaysShowToolbarInFullScreen,
   language,
   onAlwaysShowToolbarInFullScreenChanged,
+  onToggleFullScreen,
   platform
 }: {
   alwaysShowToolbarInFullScreen: boolean;
   language: AppLanguage;
   onAlwaysShowToolbarInFullScreenChanged: (value: boolean) => void;
+  onToggleFullScreen: () => void;
   platform: NodeJS.Platform;
 }): MenuItemConstructorOptions[] {
   const text = labels[language];
@@ -151,7 +159,13 @@ export function buildApplicationMenuTemplate({
         { role: "zoomIn" },
         { role: "zoomOut" },
         { type: "separator" },
-        { role: "togglefullscreen" }
+        ...(platform === "darwin"
+          ? [{
+              accelerator: "Control+Command+F",
+              click: onToggleFullScreen,
+              label: text.toggleFullScreen
+            }]
+          : [{ role: "togglefullscreen" as const }])
       ]
     },
     {

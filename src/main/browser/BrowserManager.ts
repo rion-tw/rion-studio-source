@@ -202,6 +202,8 @@ interface EmbeddedDisplayHost {
   closing: boolean;
   displayId: number;
   id: string;
+  macSystemMenuBarHeight: number;
+  systemMenuBarTemporarilyRevealed: boolean;
   tabIds: string[];
   toolbarCollapseTimer?: ReturnType<typeof setTimeout>;
   toolbarCursorMonitorTimer?: ReturnType<typeof setTimeout>;
@@ -258,6 +260,8 @@ const RUNTIME_TAB_CHROME_HEIGHT = 40;
 const RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT = 2;
 const RUNTIME_TAB_FULLSCREEN_REVEAL_DETECTION_HEIGHT = 4;
 const RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT = 48;
+const RUNTIME_TAB_MAC_MENU_BAR_FALLBACK_HEIGHT = 30;
+const RUNTIME_TAB_MAC_MENU_BAR_MAX_HEIGHT = 64;
 const RUNTIME_TAB_TOOLBAR_COLLAPSE_DELAY_MS = 700;
 const RUNTIME_TAB_TOOLBAR_CURSOR_MONITOR_INTERVAL_MS = 50;
 export const EXTERNAL_COMPAT_NOTICE =
@@ -398,7 +402,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.displayHosts.forEach((host) => {
       this.clearRuntimeToolbarCollapseTimer(host);
       host.toolbarTemporarilyVisible = false;
-      this.applyRuntimeToolbarState(host);
+      host.systemMenuBarTemporarilyRevealed = false;
+      this.layoutDisplayHost(host);
       this.syncRuntimeToolbarCursorMonitor(host);
     });
   }
@@ -436,7 +441,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         displayHost.toolbarRevealLockCount === 0 &&
         !displayHost.closing &&
         this.isDisplayHostFullscreen(displayHost) &&
-        !this.alwaysShowToolbarInFullScreen
+        (!this.alwaysShowToolbarInFullScreen || displayHost.systemMenuBarTemporarilyRevealed)
       ) {
         this.scheduleRuntimeToolbarCollapse(displayHost);
       }
@@ -617,8 +622,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   handleDisplayMetricsChanged(displayId: number, workArea: PixelBounds): void {
     const host = this.displayHosts.get(displayId);
     if (!host || host.window.isDestroyed()) return;
-    host.window.setBounds(clampBoundsToWorkArea(getWindowBounds(host.window), workArea));
+    this.refreshMacSystemMenuBarHeight(host, workArea);
+    if (!this.isMacSimpleFullscreen(host)) {
+      host.window.setBounds(clampBoundsToWorkArea(getWindowBounds(host.window), workArea));
+    }
+    host.systemMenuBarTemporarilyRevealed = false;
     this.layoutDisplayHost(host);
+    this.syncRuntimeToolbarCursorMonitor(host);
   }
 
   listWorkspaceDisplayReservations(): Array<{ workspaceId: string; workspaceName: string; displayId: number }> {
@@ -1106,6 +1116,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       closing: false,
       displayId: target.displayId,
       id: randomUUID(),
+      macSystemMenuBarHeight: RUNTIME_TAB_MAC_MENU_BAR_FALLBACK_HEIGHT,
+      systemMenuBarTemporarilyRevealed: false,
       tabIds: [],
       toolbarRevealLockCount: 0,
       toolbarTemporarilyVisible: false,
@@ -1113,6 +1125,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       windowFullscreen: false
     };
     this.displayHosts.set(target.displayId, displayHost);
+    this.refreshMacSystemMenuBarHeight(displayHost);
 
     if (useMacCustomChrome) {
       const chromeView = this.options.createRuntimeChromeView!({
@@ -1155,6 +1168,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
       this.clearRuntimeToolbarCollapseTimer(displayHost);
       displayHost.toolbarTemporarilyVisible = false;
+      displayHost.systemMenuBarTemporarilyRevealed = false;
       this.applyRuntimeToolbarState(displayHost);
       void this.reconcileRuntimeTabs();
     });
@@ -1260,6 +1274,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     displayHost.closing = true;
     this.clearRuntimeToolbarCursorMonitor(displayHost);
     this.clearRuntimeToolbarCollapseTimer(displayHost);
+    displayHost.systemMenuBarTemporarilyRevealed = false;
     this.exitRuntimeSimpleFullscreen(displayHost);
     this.displayHosts.delete(displayHost.displayId);
     if (displayHost.chromeWebContents) {
@@ -1300,6 +1315,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (displayHost.window.isDestroyed()) return;
     const next = !displayHost.windowFullscreen;
     if (displayHost.chromeView) {
+      if (next) this.refreshMacSystemMenuBarHeight(displayHost);
       displayHost.window.setSimpleFullScreen(next);
       this.setWindowFullscreen(displayHost, next);
       return;
@@ -1332,10 +1348,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const fullscreen = this.isDisplayHostFullscreen(displayHost);
     if (!wasFullscreen && fullscreen) {
       displayHost.toolbarTemporarilyVisible = false;
+      displayHost.systemMenuBarTemporarilyRevealed = false;
     } else if (wasFullscreen && !fullscreen) {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
       this.clearRuntimeToolbarCollapseTimer(displayHost);
       displayHost.toolbarTemporarilyVisible = false;
+      displayHost.systemMenuBarTemporarilyRevealed = false;
     }
     if (fullscreen !== wasFullscreen) this.layoutDisplayHost(displayHost);
     this.applyRuntimeToolbarState(displayHost);
@@ -1345,6 +1363,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private applyRuntimeToolbarState(displayHost: EmbeddedDisplayHost): void {
     if (displayHost.window.isDestroyed()) return;
     if (displayHost.chromeView) {
+      if (this.alwaysShowToolbarInFullScreen && this.isDisplayHostFullscreen(displayHost)) {
+        this.layoutDisplayHost(displayHost);
+        return;
+      }
       this.layoutRuntimeChrome(displayHost);
       this.sendRuntimeChromeState(displayHost);
     } else {
@@ -1360,7 +1382,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private getRuntimeContentTopInset(displayHost: EmbeddedDisplayHost): number {
     if (displayHost.chromeView) {
-      return this.isDisplayHostFullscreen(displayHost) ? 0 : RUNTIME_TAB_CHROME_HEIGHT;
+      if (!this.isDisplayHostFullscreen(displayHost)) return RUNTIME_TAB_CHROME_HEIGHT;
+      return this.alwaysShowToolbarInFullScreen
+        ? this.getRuntimeToolbarTopInset(displayHost) + RUNTIME_TAB_CHROME_HEIGHT
+        : 0;
     }
     if (displayHost.chromeWebContents) return this.getRuntimeToolbarHeight(displayHost);
     return 0;
@@ -1372,7 +1397,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const bounds = displayHost.window.getContentBounds();
     chromeView.setBounds({
       x: 0,
-      y: 0,
+      y: this.getRuntimeToolbarTopInset(displayHost),
       width: Math.max(1, bounds.width),
       height: this.getRuntimeToolbarHeight(displayHost)
     });
@@ -1403,16 +1428,23 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const cursor = this.options.getCursorScreenPoint?.();
     if (cursor && this.isCursorInRuntimeToolbarZone(displayHost, cursor)) return;
 
+    let changed = false;
     if (!this.alwaysShowToolbarInFullScreen && displayHost.toolbarTemporarilyVisible) {
       displayHost.toolbarTemporarilyVisible = false;
-      this.applyRuntimeToolbarState(displayHost);
+      changed = true;
     }
+    if (displayHost.systemMenuBarTemporarilyRevealed) {
+      displayHost.systemMenuBarTemporarilyRevealed = false;
+      changed = true;
+    }
+    if (changed) this.applyRuntimeToolbarState(displayHost);
   }
 
   private syncRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {
+    const shouldTrackAutoHiddenMenuBar = this.shouldTrackAutoHiddenSystemMenuBar(displayHost);
     const shouldMonitor = !displayHost.closing &&
       this.isDisplayHostFullscreen(displayHost) &&
-      !this.alwaysShowToolbarInFullScreen &&
+      (!this.alwaysShowToolbarInFullScreen || shouldTrackAutoHiddenMenuBar) &&
       isWindowVisible(displayHost.window) &&
       Boolean(this.options.getCursorScreenPoint);
     if (!shouldMonitor) {
@@ -1431,7 +1463,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (
       displayHost.closing ||
       !this.isDisplayHostFullscreen(displayHost) ||
-      this.alwaysShowToolbarInFullScreen ||
+      (this.alwaysShowToolbarInFullScreen && !this.shouldTrackAutoHiddenSystemMenuBar(displayHost)) ||
       !isWindowVisible(displayHost.window)
     ) return;
 
@@ -1446,7 +1478,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (cursorInRevealBand) {
         this.clearRuntimeToolbarCollapseTimer(displayHost);
         this.revealRuntimeToolbar(displayHost);
-      } else if (displayHost.toolbarTemporarilyVisible) {
+      } else if (
+        displayHost.toolbarTemporarilyVisible ||
+        displayHost.systemMenuBarTemporarilyRevealed
+      ) {
         if (displayHost.toolbarRevealLockCount > 0 || cursorInToolbarZone) {
           this.clearRuntimeToolbarCollapseTimer(displayHost);
         } else {
@@ -1464,7 +1499,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     height?: number
   ): boolean {
     const bounds = getWindowBounds(displayHost.window);
-    const zoneHeight = height ?? this.getRuntimeToolbarHoldZoneHeight();
+    const zoneHeight = height ?? this.getRuntimeToolbarHoldZoneHeight(displayHost);
     return cursor.x >= bounds.x &&
       cursor.x < bounds.x + bounds.width &&
       cursor.y >= bounds.y &&
@@ -1472,10 +1507,19 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private revealRuntimeToolbar(displayHost: EmbeddedDisplayHost): void {
+    let changed = false;
     if (!this.alwaysShowToolbarInFullScreen && !displayHost.toolbarTemporarilyVisible) {
       displayHost.toolbarTemporarilyVisible = true;
-      this.applyRuntimeToolbarState(displayHost);
+      changed = true;
     }
+    if (
+      this.shouldTrackAutoHiddenSystemMenuBar(displayHost) &&
+      !displayHost.systemMenuBarTemporarilyRevealed
+    ) {
+      displayHost.systemMenuBarTemporarilyRevealed = true;
+      changed = true;
+    }
+    if (changed) this.applyRuntimeToolbarState(displayHost);
   }
 
   private isRuntimeToolbarVisible(displayHost: EmbeddedDisplayHost): boolean {
@@ -1486,8 +1530,54 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     );
   }
 
-  private getRuntimeToolbarHoldZoneHeight(): number {
-    return RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT;
+  private getRuntimeToolbarTopInset(displayHost: EmbeddedDisplayHost): number {
+    if (!this.isRuntimeToolbarVisible(displayHost) || !this.isMacSimpleFullscreen(displayHost)) {
+      return 0;
+    }
+    const display = this.getWorkspaceDisplay(displayHost.displayId);
+    if (!display) return 0;
+    const liveMenuBarHeight = getMacSystemMenuBarHeight(display);
+    const menuBarBottom = liveMenuBarHeight > 0
+      ? display.workArea.y
+      : displayHost.systemMenuBarTemporarilyRevealed
+        ? display.bounds.y + displayHost.macSystemMenuBarHeight
+        : undefined;
+    if (menuBarBottom === undefined) return 0;
+    return clampMacSystemMenuBarHeight(
+      menuBarBottom - displayHost.window.getContentBounds().y
+    );
+  }
+
+  private refreshMacSystemMenuBarHeight(
+    displayHost: EmbeddedDisplayHost,
+    workArea?: PixelBounds
+  ): void {
+    if ((this.options.platform ?? process.platform) !== "darwin") return;
+    const display = this.getWorkspaceDisplay(displayHost.displayId);
+    if (!display) return;
+    const height = clampMacSystemMenuBarHeight(
+      (workArea ?? display.workArea).y - display.bounds.y
+    );
+    if (height > 0) displayHost.macSystemMenuBarHeight = height;
+  }
+
+  private getWorkspaceDisplay(displayId: number): WorkspaceDisplayInfo | undefined {
+    return this.options.getWorkspaceDisplays?.().find((candidate) => candidate.id === displayId);
+  }
+
+  private shouldTrackAutoHiddenSystemMenuBar(displayHost: EmbeddedDisplayHost): boolean {
+    return this.isMacSimpleFullscreen(displayHost) &&
+      getMacSystemMenuBarHeight(this.getWorkspaceDisplay(displayHost.displayId)) === 0;
+  }
+
+  private isMacSimpleFullscreen(displayHost: EmbeddedDisplayHost): boolean {
+    return (this.options.platform ?? process.platform) === "darwin" &&
+      Boolean(displayHost.chromeView) &&
+      displayHost.windowFullscreen;
+  }
+
+  private getRuntimeToolbarHoldZoneHeight(displayHost: EmbeddedDisplayHost): number {
+    return this.getRuntimeToolbarTopInset(displayHost) + RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT;
   }
 
   private clearRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {
@@ -2294,6 +2384,16 @@ function isBrowserWindow(window: BaseWindow): window is BrowserWindow {
 
 function toPixelBounds(bounds: { x: number; y: number; width: number; height: number }): PixelBounds {
   return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+}
+
+function clampMacSystemMenuBarHeight(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(RUNTIME_TAB_MAC_MENU_BAR_MAX_HEIGHT, Math.round(value)));
+}
+
+function getMacSystemMenuBarHeight(display: WorkspaceDisplayInfo | undefined): number {
+  if (!display) return 0;
+  return clampMacSystemMenuBarHeight(display.workArea.y - display.bounds.y);
 }
 
 function getWindowBounds(window: BaseWindow): PixelBounds {

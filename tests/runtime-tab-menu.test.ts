@@ -117,9 +117,11 @@ describe("RuntimeTabMenuController", () => {
 
   it("routes stopped workspaces to their saved display and validates tab menu ownership", async () => {
     const workspaceLaunch = vi.fn().mockResolvedValue({ kind: "launched", statuses: [] });
+    const hideRuntimeTab = vi.fn().mockResolvedValue(undefined);
     const moveRuntimeTab = vi.fn();
     const stopRuntimeTab = vi.fn().mockResolvedValue(undefined);
     const controller = createController({
+      hideRuntimeTab,
       moveRuntimeTab,
       stopRuntimeTab,
       workspaceLaunch
@@ -139,6 +141,9 @@ describe("RuntimeTabMenuController", () => {
     const moveItems = getSubmenu(tabTemplate, "Move to Display");
     moveItems[1].click?.({} as never, undefined, {} as never);
     expect(moveRuntimeTab).toHaveBeenCalledWith("tab-1", 22);
+    tabTemplate.find((item) => item.label === "Hide tab (keeps running)")
+      ?.click?.({} as never, undefined, {} as never);
+    await vi.waitFor(() => expect(hideRuntimeTab).toHaveBeenCalledWith("tab-1"));
     tabTemplate.at(-1)?.click?.({} as never, undefined, {} as never);
     await vi.waitFor(() => expect(stopRuntimeTab).toHaveBeenCalledWith("tab-1"));
   });
@@ -165,6 +170,7 @@ describe("RuntimeTabMenuController", () => {
 
 function createController(overrides: {
   acquireRuntimeToolbarRevealLock?: ReturnType<typeof vi.fn>;
+  hideRuntimeTab?: ReturnType<typeof vi.fn>;
   listEmbeddedRuntimeState?: () => EmbeddedRuntimeState;
   moveRuntimeTab?: ReturnType<typeof vi.fn>;
   role?: Role;
@@ -192,6 +198,7 @@ function createController(overrides: {
     browserManager: {
       acquireRuntimeToolbarRevealLock: (overrides.acquireRuntimeToolbarRevealLock ??
         vi.fn(() => vi.fn())) as never,
+      hideRuntimeTab: (overrides.hideRuntimeTab ?? vi.fn().mockResolvedValue(undefined)) as never,
       launch: vi.fn(),
       listEmbeddedRuntimeState,
       moveRuntimeTab: (overrides.moveRuntimeTab ?? vi.fn()) as never,

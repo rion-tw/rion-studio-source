@@ -1397,11 +1397,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const chromeView = displayHost.chromeView;
     if (!chromeView) return;
     const bounds = displayHost.window.getContentBounds();
+    const safeAreaInset = this.getRuntimeToolbarSafeAreaInset(displayHost);
     chromeView.setBounds({
       x: 0,
-      y: this.getRuntimeToolbarTopInset(displayHost),
+      y: 0,
       width: Math.max(1, bounds.width),
-      height: this.getRuntimeToolbarHeight(displayHost)
+      height: this.getRuntimeToolbarHeight(displayHost) + safeAreaInset
     });
     this.bringRuntimeChromeToFront(displayHost);
   }
@@ -1533,7 +1534,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     );
   }
 
-  private getRuntimeToolbarTopInset(displayHost: EmbeddedDisplayHost): number {
+  private getRuntimeToolbarSafeAreaInset(displayHost: EmbeddedDisplayHost): number {
     if (
       this.alwaysShowToolbarInFullScreen ||
       !this.isRuntimeToolbarVisible(displayHost) ||
@@ -1584,7 +1585,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private getRuntimeToolbarHoldZoneHeight(displayHost: EmbeddedDisplayHost): number {
-    return this.getRuntimeToolbarTopInset(displayHost) + RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT;
+    return this.getRuntimeToolbarSafeAreaInset(displayHost) +
+      RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT;
   }
 
   private clearRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {

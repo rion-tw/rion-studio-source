@@ -8,7 +8,7 @@ import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import type { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCoordinator";
 
 type RuntimeMenuLabelKey = "roles" | "workspaces" | "noRoles" | "noWorkspaces" |
-  "move" | "display" | "stop";
+  "move" | "display" | "hide" | "stop";
 
 const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
   en: {
@@ -18,6 +18,7 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
     noWorkspaces: "No Workspaces",
     move: "Move to Display",
     display: "Display",
+    hide: "Hide tab (keeps running)",
     stop: "Stop and Close"
   },
   "zh-TW": {
@@ -27,6 +28,7 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
     noWorkspaces: "沒有工作區",
     move: "移至顯示器",
     display: "顯示器",
+    hide: "隱藏分頁（保持運行）",
     stop: "停止並關閉"
   },
   "zh-CN": {
@@ -36,6 +38,7 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
     noWorkspaces: "没有工作区",
     move: "移至显示器",
     display: "显示器",
+    hide: "隐藏标签页（保持运行）",
     stop: "停止并关闭"
   },
   ja: {
@@ -45,6 +48,7 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
     noWorkspaces: "ワークスペースなし",
     move: "ディスプレイへ移動",
     display: "ディスプレイ",
+    hide: "タブを非表示（実行を継続）",
     stop: "停止して閉じる"
   }
 };
@@ -54,7 +58,7 @@ interface RuntimeTabMenuOptions {
   browserManager: Pick<
     BrowserManager,
     "acquireRuntimeToolbarRevealLock" | "launch" | "listEmbeddedRuntimeState" |
-      "moveRuntimeTab" | "showRuntimeTab" | "stopRuntimeTab"
+      "hideRuntimeTab" | "moveRuntimeTab" | "showRuntimeTab" | "stopRuntimeTab"
   >;
   getWorkspaceDisplays: () => WorkspaceDisplayInfo[];
   logger?: Pick<Console, "error">;
@@ -153,6 +157,15 @@ export class RuntimeTabMenuController {
           label: display.label || `${text.display} ${display.id}`,
           click: () => void this.options.browserManager.moveRuntimeTab(tabId, display.id)
         }))
+      },
+      { type: "separator" },
+      {
+        label: text.hide,
+        click: () => {
+          void this.options.browserManager.hideRuntimeTab(tabId).catch((error) => {
+            this.logger.error(`Failed to hide runtime tab: ${tabId}`, error);
+          });
+        }
       },
       { type: "separator" },
       {

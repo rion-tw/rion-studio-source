@@ -284,6 +284,112 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
+  it("uses native AppKit tabs for framed macOS windows without HTML chrome polling", async () => {
+    vi.useFakeTimers();
+    const getCursorScreenPoint = vi.fn(() => ({ x: 100, y: 0 }));
+    const handleRuntimeTabAction = vi.fn();
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getCursorScreenPoint,
+      handleRuntimeTabAction,
+      platform: "darwin",
+      useMacNativeChrome: true,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+
+    await harness.manager.launch(role);
+
+    expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining({
+      frame: true,
+      fullscreenable: true,
+      show: false,
+      titleBarStyle: "default"
+    }));
+    expect(harness.createRuntimeChromeView).not.toHaveBeenCalled();
+    expect(harness.createTabbedHostWindow).not.toHaveBeenCalled();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 776
+    });
+    expect(harness.nativeChromeControllers[0].setFullscreenPolicy)
+      .toHaveBeenCalledWith("autoHide");
+    expect(harness.nativeChromeControllers[0].update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        displayId: 11,
+        tabs: [expect.objectContaining({ id: expect.any(String), name: "Main" })]
+      })
+    );
+
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 776
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(getCursorScreenPoint).not.toHaveBeenCalled();
+
+    const release = harness.manager.acquireRuntimeToolbarRevealLock(11);
+    expect(harness.nativeChromeControllers[0].setRevealLocked).toHaveBeenLastCalledWith(true);
+    release();
+    expect(harness.nativeChromeControllers[0].setRevealLocked).toHaveBeenLastCalledWith(false);
+
+    harness.manager.setAlwaysShowToolbarInFullScreen(true);
+    expect(harness.nativeChromeControllers[0].setFullscreenPolicy)
+      .toHaveBeenLastCalledWith("always");
+    harness.nativeChromeControllers[0].emitAction({ type: "activate", tabId: "native-tab" });
+    expect(handleRuntimeTabAction).toHaveBeenCalledWith(
+      harness.hosts[0],
+      11,
+      { type: "activate", tabId: "native-tab" }
+    );
+
+    harness.hosts[0].emit("closed");
+    expect(harness.nativeChromeControllers[0].destroy).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it("falls back to secure HTML chrome when native macOS attachment fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      macNativeChromeError: new Error("native unavailable"),
+      platform: "darwin",
+      useMacNativeChrome: true,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+
+    await harness.manager.launch(role);
+
+    expect(harness.createHostWindow).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ frame: true, titleBarStyle: "default" })
+    );
+    expect(harness.hosts[0].close).toHaveBeenCalledOnce();
+    expect(harness.createHostWindow).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ frame: false, fullscreenable: true })
+    );
+    expect(harness.createRuntimeChromeView).toHaveBeenCalledOnce();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 40,
+      width: 1200,
+      height: 736
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to attach native macOS runtime tabs; using the HTML fallback.",
+      expect.any(Error)
+    );
+    consoleError.mockRestore();
+  });
+
   it("keeps Windows native caption buttons and title-bar overlay", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
@@ -2836,6 +2942,8 @@ function createHarness(options: {
     | WorkspaceAppearanceSettings
     | Promise<WorkspaceAppearanceSettings>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
+  macNativeChromeError?: Error;
+  handleRuntimeTabAction?: BrowserManagerOptions["handleRuntimeTabAction"];
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   resourcePressureMonitor?: BrowserManagerOptions["resourcePressureMonitor"];
@@ -2843,9 +2951,17 @@ function createHarness(options: {
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
   useTabbedHostWindow?: boolean;
+  useMacNativeChrome?: boolean;
 } = {}) {
   const hosts: ReturnType<typeof createMockHost>[] = [];
   const chromeViews: ReturnType<typeof createMockView>[] = [];
+  const nativeChromeControllers: Array<{
+    destroy: ReturnType<typeof vi.fn>;
+    emitAction: (action: Parameters<NonNullable<BrowserManagerOptions["handleRuntimeTabAction"]>>[2]) => void;
+    setFullscreenPolicy: ReturnType<typeof vi.fn>;
+    setRevealLocked: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+  }> = [];
   const views: ReturnType<typeof createMockView>[] = [];
   const defaultSnapshot = { bodyText: "Welcome", localStorage: { authToken: "token-1" } };
   const createHostWindow = vi.fn((windowOptions: {
@@ -2896,6 +3012,18 @@ function createHarness(options: {
     chromeViews.push(view);
     return view.view as never;
   });
+  const createMacRuntimeTabsController = vi.fn((_window, onAction) => {
+    if (options.macNativeChromeError) throw options.macNativeChromeError;
+    const controller = {
+      destroy: vi.fn(),
+      emitAction: onAction,
+      setFullscreenPolicy: vi.fn(),
+      setRevealLocked: vi.fn(),
+      update: vi.fn()
+    };
+    nativeChromeControllers.push(controller);
+    return controller;
+  });
   const roleStore = {
     updateAuthState: vi.fn().mockImplementation(async (_id: string, authState: Role["authState"]) => ({
       ...role,
@@ -2908,6 +3036,7 @@ function createHarness(options: {
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
     ...(options.applyBrowserProxy ? { applyBrowserProxy: options.applyBrowserProxy } : {}),
     createHostWindow,
+    ...(options.useMacNativeChrome ? { createMacRuntimeTabsController } : {}),
     ...(options.useTabbedHostWindow ? { createRuntimeChromeView } : {}),
     ...(options.useTabbedHostWindow ? { createTabbedHostWindow } : {}),
     createView,
@@ -2924,6 +3053,9 @@ function createHarness(options: {
       : {}),
     ...(options.getWorkspaceAppearanceSettings
       ? { getWorkspaceAppearanceSettings: options.getWorkspaceAppearanceSettings }
+      : {}),
+    ...(options.handleRuntimeTabAction
+      ? { handleRuntimeTabAction: options.handleRuntimeTabAction }
       : {}),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     ...(options.defaultLaunchTarget ? { getDefaultLaunchTarget: () => options.defaultLaunchTarget! } : {}),
@@ -2943,11 +3075,13 @@ function createHarness(options: {
     beforeRolesStop,
     chromeViews,
     createHostWindow,
+    createMacRuntimeTabsController,
     createRuntimeChromeView,
     createTabbedHostWindow,
     createView,
     hosts,
     manager,
+    nativeChromeControllers,
     roleStore,
     views
   };

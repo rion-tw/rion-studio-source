@@ -70,6 +70,22 @@ Generated helper binaries live under `build/native/win32-x64` and are packaged
 under `resources/native`. Release CI also verifies the helper from the unpacked
 application before accepting a Windows artifact.
 
+macOS runtime game windows use an Objective-C++ Node-API addon to host the tab
+strip in `NSTitlebarAccessoryViewController`. `pnpm run dev`, `package`, and
+`dist` build the addon automatically on macOS. To run the native build and
+verification directly:
+
+```bash
+pnpm run build:native:macos
+pnpm run test:native:macos
+```
+
+The development addon is written to `build/native/darwin-${arch}` and the
+release workflow packages the arm64 build at
+`Contents/Resources/native/rion-runtime-tabs.node`. The addon uses Node-API
+protocol version 1 and targets macOS 12 or later. Release CI verifies its Mach-O
+architecture, exported protocol, native controller tests, and nested signature.
+
 macOS packaging uses a complete ad-hoc signature with hardened runtime. The main
 app and helper apps must include `com.apple.security.cs.allow-jit` and
 `com.apple.security.cs.disable-library-validation` so ad-hoc hardened runtime

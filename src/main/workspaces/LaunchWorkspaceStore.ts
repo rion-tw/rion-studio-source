@@ -12,9 +12,16 @@ import type {
   UpdateLaunchWorkspaceInput,
   WorkspaceBrowserZoomPercent,
   WorkspaceBrowserZoomMode,
+  WorkspaceDisplayFingerprint,
+  WorkspaceDisplayInfo,
+  WorkspaceDisplayTarget,
   WorkspaceResourcePolicy,
   WorkspaceLayoutTemplate
 } from "../../shared/types";
+import {
+  createWorkspaceDisplayTarget,
+  resolveWorkspaceDisplayTarget
+} from "../../shared/workspaceDisplays";
 import {
   createDefaultWorkspaceSlots,
   DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
@@ -43,11 +50,12 @@ type StoredLaunchWorkspaceSlot = Partial<LaunchWorkspaceSlot> & {
   [key: string]: unknown;
 };
 
-type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserLaunchMode" | "browserZoomMode" | "browserZoomPercent" | "resourcePolicy" | "slots" | "targetDisplayId"> & {
+type StoredLaunchWorkspace = Omit<LaunchWorkspace, "browserLaunchMode" | "browserZoomMode" | "browserZoomPercent" | "resourcePolicy" | "slots" | "targetDisplay"> & {
   browserLaunchMode?: unknown;
   browserZoomMode?: unknown;
   browserZoomPercent?: unknown;
   resourcePolicy?: unknown;
+  targetDisplay?: unknown;
   targetDisplayId?: unknown;
   slots: StoredLaunchWorkspaceSlot[];
 };
@@ -62,7 +70,7 @@ const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
 ];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
-export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 4;
+export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 5;
 
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
@@ -127,6 +135,45 @@ export class LaunchWorkspaceStore {
     });
   }
 
+  async reconcileTargetDisplays(displays: WorkspaceDisplayInfo[]): Promise<LaunchWorkspace[]> {
+    return this.taskQueue.run(async () => {
+      const file = await this.readWorkspacesFile();
+      let didChange = false;
+      const workspaces = file.workspaces.map((workspace) => {
+        const resolvedDisplay = resolveWorkspaceDisplayTarget(workspace.targetDisplay, displays);
+        if (!resolvedDisplay || !workspace.targetDisplay) {
+          return workspace;
+        }
+
+        const reconciledTarget = createWorkspaceDisplayTarget(resolvedDisplay);
+        if (
+          workspace.targetDisplay.id === reconciledTarget.id &&
+          workspace.targetDisplay.fingerprint !== undefined
+        ) {
+          return workspace;
+        }
+
+        didChange = true;
+        return {
+          ...workspace,
+          targetDisplay: reconciledTarget
+        };
+      });
+
+      if (didChange) {
+        await this.writeWorkspacesFile({
+          schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+          workspaces
+        });
+      }
+
+      return cloneWorkspacesFile({
+        schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+        workspaces
+      }).workspaces;
+    });
+  }
+
   async createWorkspace(input: CreateLaunchWorkspaceInput): Promise<LaunchWorkspace> {
     return this.taskQueue.run(async () => {
       const file = await this.readWorkspacesFile();
@@ -137,7 +184,7 @@ export class LaunchWorkspaceStore {
         input.browserZoomPercent,
         getDefaultWorkspaceBrowserZoomPercent(template)
       );
-      const targetDisplayId = this.normalizeTargetDisplayId(input.targetDisplayId);
+      const targetDisplay = this.normalizeTargetDisplay(input.targetDisplay);
       const slots = this.normalizeSlots(template, input.slots);
 
       this.ensureUniqueName(file.workspaces, name);
@@ -150,7 +197,7 @@ export class LaunchWorkspaceStore {
         browserZoomMode: this.normalizeBrowserZoomMode(input.browserZoomMode),
         browserZoomPercent,
         resourcePolicy: this.normalizeResourcePolicy(input.resourcePolicy, slots),
-        ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
+        ...(targetDisplay === undefined ? {} : { targetDisplay }),
         slots,
         createdAt: now,
         updatedAt: now
@@ -185,9 +232,9 @@ export class LaunchWorkspaceStore {
         input.browserZoomPercent,
         current.browserZoomPercent
       );
-      const targetDisplayId = input.targetDisplayId === undefined
-        ? current.targetDisplayId
-        : this.normalizeTargetDisplayId(input.targetDisplayId);
+      const targetDisplay = input.targetDisplay === undefined
+        ? current.targetDisplay
+        : this.normalizeTargetDisplay(input.targetDisplay);
       const sourceSlots = input.slots ?? (
         input.template === undefined
           ? current.slots
@@ -212,10 +259,10 @@ export class LaunchWorkspaceStore {
         slots,
         updatedAt: new Date().toISOString()
       };
-      if (targetDisplayId === undefined) {
-        delete updated.targetDisplayId;
+      if (targetDisplay === undefined) {
+        delete updated.targetDisplay;
       } else {
-        updated.targetDisplayId = targetDisplayId;
+        updated.targetDisplay = targetDisplay;
       }
 
       file.workspaces[index] = updated;
@@ -368,7 +415,9 @@ export class LaunchWorkspaceStore {
 
   private normalizeStoredWorkspace(workspace: StoredLaunchWorkspace): LaunchWorkspace {
     const template = this.normalizeTemplate(workspace.template);
-    const targetDisplayId = this.normalizeTargetDisplayId(workspace.targetDisplayId);
+    const targetDisplay = workspace.targetDisplay === undefined
+      ? this.normalizeLegacyTargetDisplayId(workspace.targetDisplayId)
+      : this.normalizeTargetDisplay(workspace.targetDisplay);
     const slots = this.normalizeSlots(template, workspace.slots as StoredLaunchWorkspaceSlot[]);
     const normalizedSlots = hasLegacyCenteredMainDefaultLayout(workspace)
       ? slots.map((slot, index) => ({
@@ -388,7 +437,7 @@ export class LaunchWorkspaceStore {
         DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
       ),
       resourcePolicy: this.normalizeResourcePolicy(workspace.resourcePolicy, normalizedSlots),
-      ...(targetDisplayId === undefined ? {} : { targetDisplayId }),
+      ...(targetDisplay === undefined ? {} : { targetDisplay }),
       slots: normalizedSlots,
       createdAt: typeof workspace.createdAt === "string" ? workspace.createdAt : new Date().toISOString(),
       updatedAt: typeof workspace.updatedAt === "string" ? workspace.updatedAt : new Date().toISOString()
@@ -530,19 +579,117 @@ export class LaunchWorkspaceStore {
       : { mode: "adaptive" };
   }
 
-  private normalizeTargetDisplayId(value: unknown): number | undefined {
+  private normalizeTargetDisplay(value: unknown): WorkspaceDisplayTarget | undefined {
     if (value === undefined || value === null) {
       return undefined;
     }
 
-    if (typeof value !== "number" || !Number.isSafeInteger(value) || value === -1) {
-      throw new LaunchWorkspaceStoreError(
-        "WORKSPACE_TARGET_DISPLAY_INVALID",
-        "Launch workspace target display is invalid."
-      );
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw this.createTargetDisplayError();
     }
 
+    const input = value as Record<string, unknown>;
+    const id = this.normalizeTargetDisplayId(input.id);
+    const fingerprint = this.normalizeTargetDisplayFingerprint(input.fingerprint);
+
+    return {
+      id,
+      ...(fingerprint ? { fingerprint } : {})
+    };
+  }
+
+  private normalizeLegacyTargetDisplayId(value: unknown): WorkspaceDisplayTarget | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    return { id: this.normalizeTargetDisplayId(value) };
+  }
+
+  private normalizeTargetDisplayId(value: unknown): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value === -1) {
+      throw this.createTargetDisplayError();
+    }
     return value;
+  }
+
+  private normalizeTargetDisplayFingerprint(value: unknown): WorkspaceDisplayFingerprint | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw this.createTargetDisplayError();
+    }
+
+    const input = value as Record<string, unknown>;
+    const bounds = this.normalizeTargetDisplayBounds(input.bounds);
+    const resolution = this.normalizeTargetDisplayResolution(input.resolution);
+    const scaleFactor = input.scaleFactor;
+    if (
+      typeof input.label !== "string" ||
+      typeof scaleFactor !== "number" || !Number.isFinite(scaleFactor) || scaleFactor <= 0 ||
+      typeof input.isPrimary !== "boolean" ||
+      typeof input.isInternal !== "boolean"
+    ) {
+      throw this.createTargetDisplayError();
+    }
+
+    return {
+      label: input.label.trim(),
+      bounds,
+      resolution,
+      scaleFactor,
+      isPrimary: input.isPrimary,
+      isInternal: input.isInternal
+    };
+  }
+
+  private normalizeTargetDisplayBounds(value: unknown): WorkspaceDisplayFingerprint["bounds"] {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw this.createTargetDisplayError();
+    }
+    const bounds = value as Record<string, unknown>;
+    if (
+      !isFiniteNumber(bounds.x) ||
+      !isFiniteNumber(bounds.y) ||
+      !isFiniteNumber(bounds.width) || bounds.width <= 0 ||
+      !isFiniteNumber(bounds.height) || bounds.height <= 0
+    ) {
+      throw this.createTargetDisplayError();
+    }
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height
+    };
+  }
+
+  private normalizeTargetDisplayResolution(value: unknown): WorkspaceDisplayFingerprint["resolution"] {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw this.createTargetDisplayError();
+    }
+    const resolution = value as Record<string, unknown>;
+    if (
+      typeof resolution.width !== "number" ||
+      !Number.isSafeInteger(resolution.width) ||
+      resolution.width <= 0 ||
+      typeof resolution.height !== "number" ||
+      !Number.isSafeInteger(resolution.height) ||
+      resolution.height <= 0
+    ) {
+      throw this.createTargetDisplayError();
+    }
+    return {
+      width: resolution.width,
+      height: resolution.height
+    };
+  }
+
+  private createTargetDisplayError(): LaunchWorkspaceStoreError {
+    return new LaunchWorkspaceStoreError(
+      "WORKSPACE_TARGET_DISPLAY_INVALID",
+      "Launch workspace target display is invalid."
+    );
   }
 
   private normalizeSlots(
@@ -731,4 +878,8 @@ function rectMatches(value: NormalizedRect | undefined, expected: NormalizedRect
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }

@@ -7,6 +7,7 @@ import type {
   MacroTrigger,
   WorkspaceBrowserZoomPercent,
   WorkspaceBrowserZoomMode,
+  WorkspaceDisplayTarget,
   WorkspaceLayoutTemplate,
   WorkspaceResourcePolicy
 } from "../../../shared/types";
@@ -31,7 +32,7 @@ export interface WorkspaceFormState {
   browserZoomMode: WorkspaceBrowserZoomMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   resourcePolicy: WorkspaceResourcePolicy;
-  targetDisplayId?: number;
+  targetDisplay?: WorkspaceDisplayTarget;
   slots: LaunchWorkspaceSlot[];
 }
 

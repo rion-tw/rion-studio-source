@@ -41,6 +41,10 @@ import {
   formatWorkspaceResizeRatio,
   snapWorkspaceResizePosition
 } from "../../../../shared/workspaceResize";
+import {
+  createWorkspaceDisplayTarget,
+  resolveWorkspaceDisplayTarget
+} from "../../../../shared/workspaceDisplays";
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { formatWorkspaceDisplayLabel } from "./workspaceDisplayUtils";
 import {
@@ -62,6 +66,7 @@ import {
 } from "./workspaceLayoutUtils";
 
 const FOLLOW_APP_DISPLAY_SELECT_VALUE = "__follow_app_display__";
+const UNAVAILABLE_DISPLAY_SELECT_VALUE = "__unavailable_display__";
 
 interface WorkspaceEditorRouteProps {
   games: Game[];
@@ -91,7 +96,7 @@ function WorkspaceEditorRoute(props: WorkspaceEditorRouteProps): JSX.Element {
   }
 
   const initialForm = selectedWorkspace
-    ? createWorkspaceFormState(selectedWorkspace)
+    ? createWorkspaceFormState(selectedWorkspace, props.workspaceDisplays)
     : createNewWorkspaceForm(props.workspaces, props.t);
   return <WorkspaceEditor key={id ?? "new"} {...props} initialForm={initialForm} />;
 }
@@ -205,6 +210,12 @@ function WorkspaceLayoutFormEditor({
   );
   const selectedSlot = slots[selectedSlotIndex] ?? slots[0];
   const selectedSlotLabel = t("workspaces.slot").replace("{index}", String(selectedSlotIndex + 1));
+  const resolvedTargetDisplay = resolveWorkspaceDisplayTarget(form.targetDisplay, workspaceDisplays);
+  const targetDisplaySelectValue = !form.targetDisplay
+    ? FOLLOW_APP_DISPLAY_SELECT_VALUE
+    : resolvedTargetDisplay
+      ? String(resolvedTargetDisplay.id)
+      : UNAVAILABLE_DISPLAY_SELECT_VALUE;
 
   useEffect(() => {
     resizeAbortRef.current?.abort();
@@ -455,16 +466,19 @@ function WorkspaceLayoutFormEditor({
             description={t("workspaces.targetDisplayDescription")}
           >
             <Select
-              value={form.targetDisplayId === undefined
-                ? FOLLOW_APP_DISPLAY_SELECT_VALUE
-                : String(form.targetDisplayId)}
+              value={targetDisplaySelectValue}
               disabled={isSaving}
-              onValueChange={(value) =>
-                onChange({
-                  ...form,
-                  targetDisplayId: value === FOLLOW_APP_DISPLAY_SELECT_VALUE ? undefined : Number(value)
-                })
-              }
+              onValueChange={(value) => {
+                if (value === FOLLOW_APP_DISPLAY_SELECT_VALUE) {
+                  const { targetDisplay: _targetDisplay, ...nextForm } = form;
+                  onChange(nextForm);
+                  return;
+                }
+                const display = workspaceDisplays.find((candidate) => candidate.id === Number(value));
+                if (display) {
+                  onChange({ ...form, targetDisplay: createWorkspaceDisplayTarget(display) });
+                }
+              }}
             >
               <SelectTrigger id="workspace-target-display">
                 <SelectValue />
@@ -473,10 +487,9 @@ function WorkspaceLayoutFormEditor({
                 <SelectItem value={FOLLOW_APP_DISPLAY_SELECT_VALUE}>
                   {t("workspaces.targetDisplayFollowApp")}
                 </SelectItem>
-                {form.targetDisplayId !== undefined &&
-                !workspaceDisplays.some((display) => display.id === form.targetDisplayId) ? (
-                  <SelectItem value={String(form.targetDisplayId)} disabled>
-                    {t("workspaces.targetDisplayUnavailable").replace("{id}", String(form.targetDisplayId))}
+                {form.targetDisplay && !resolvedTargetDisplay ? (
+                  <SelectItem value={UNAVAILABLE_DISPLAY_SELECT_VALUE} disabled>
+                    {t("workspaces.targetDisplayUnavailable").replace("{id}", String(form.targetDisplay.id))}
                   </SelectItem>
                 ) : null}
                 {workspaceDisplays.map((display, index) => (

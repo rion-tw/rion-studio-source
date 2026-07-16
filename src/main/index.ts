@@ -352,6 +352,7 @@ async function initializeApplication(): Promise<void> {
   await gameStore.initialize();
   await runBackgroundActivityMigration(userDataDir, { gameStore, roleStore });
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
+  await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
   const macroStore = new MacroStore(userDataDir);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir);
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir);
@@ -689,8 +690,12 @@ async function initializeApplication(): Promise<void> {
     workspaceLauncher
   });
   const notifyWorkspaceDisplaysChanged = (): void => {
-    broadcastWorkspaceDisplaysChanged(getWorkspaceDisplayInfos());
+    const displays = getWorkspaceDisplayInfos();
+    broadcastWorkspaceDisplaysChanged(displays);
     appQuickMenu?.scheduleRefresh();
+    void withDataMutation(() => workspaceStore.reconcileTargetDisplays(displays))
+      .then(() => appQuickMenu?.scheduleRefresh())
+      .catch((error) => console.error("Failed to reconcile workspace target displays.", error));
   };
   screen.on("display-added", notifyWorkspaceDisplaysChanged);
   screen.on("display-removed", (_event, removedDisplay) => {

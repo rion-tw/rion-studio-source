@@ -8,6 +8,7 @@ import {
 } from "../src/renderer/src/features/workspaces/workspaceDisplayUtils";
 import type { Translator } from "../src/renderer/src/i18n";
 import type { WorkspaceDisplayLaunchOption } from "../src/shared/types";
+import { createWorkspaceDisplayTarget } from "../src/shared/workspaceDisplays";
 
 const t = ((key: string) => {
   const translations: Record<string, string> = {
@@ -47,7 +48,7 @@ describe("workspace display picker helpers", () => {
   });
 
   it("uses the connected display name and includes its full details in the title", () => {
-    expect(getWorkspaceTargetDisplayPresentation(11, [display(11, "Built-in Retina Display")], t)).toEqual({
+    expect(getWorkspaceTargetDisplayPresentation({ id: 11 }, [display(11, "Built-in Retina Display")], t)).toEqual({
       isUnavailable: false,
       label: "Built-in Retina Display",
       title: "Target display: Built-in Retina Display · 1920×1080 · Primary · Built-in"
@@ -55,7 +56,7 @@ describe("workspace display picker helpers", () => {
   });
 
   it("uses a positional fallback for a connected display without a name", () => {
-    expect(getWorkspaceTargetDisplayPresentation(22, [display(11, "Built-in"), display(22, "")], t)).toEqual({
+    expect(getWorkspaceTargetDisplayPresentation({ id: 22 }, [display(11, "Built-in"), display(22, "")], t)).toEqual({
       isUnavailable: false,
       label: "Display 2",
       title: "Target display: Display 2 · 1920×1080"
@@ -63,10 +64,24 @@ describe("workspace display picker helpers", () => {
   });
 
   it("marks a saved display that is no longer connected as unavailable", () => {
-    expect(getWorkspaceTargetDisplayPresentation(42, [display(11, "Built-in")], t)).toEqual({
+    expect(getWorkspaceTargetDisplayPresentation({ id: 42 }, [display(11, "Built-in")], t)).toEqual({
       isUnavailable: true,
       label: "Unavailable display (ID 42)",
       title: "Target display: Unavailable display (ID 42)"
+    });
+  });
+
+  it("presents the current display when a saved fingerprint resolves to a new id", () => {
+    const previouslySelected = display(22, "Q27G4Z");
+    const currentDisplay = { ...previouslySelected, id: 4_294_967_294 };
+
+    expect(getWorkspaceTargetDisplayPresentation(
+      createWorkspaceDisplayTarget(previouslySelected),
+      [currentDisplay],
+      t
+    )).toMatchObject({
+      isUnavailable: false,
+      label: "Q27G4Z"
     });
   });
 });

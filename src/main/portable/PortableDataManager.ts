@@ -67,6 +67,7 @@ import {
   MIN_WORKSPACE_SLOT_SIZE,
   normalizeWorkspaceRectEdges
 } from "../../shared/workspaceLayout";
+import { cloneWorkspaceDisplayTarget } from "../../shared/workspaceDisplays";
 
 interface PortableSaveDialogOptions {
   defaultPath: string;
@@ -1136,7 +1137,9 @@ function createImportedWorkspace(
     browserZoomMode: source.browserZoomMode ?? DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
     browserZoomPercent: source.browserZoomPercent,
     resourcePolicy: remapWorkspaceResourcePolicy(source.resourcePolicy, roleIdMap, slots),
-    ...(existing?.targetDisplayId === undefined ? {} : { targetDisplayId: existing.targetDisplayId }),
+    ...(existing?.targetDisplay === undefined
+      ? {}
+      : { targetDisplay: cloneWorkspaceDisplayTarget(existing.targetDisplay) }),
     slots,
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp

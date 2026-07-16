@@ -27,6 +27,7 @@ import type {
   SystemFontFamily,
   WorkspaceDisplayInfo
 } from "../src/shared/types";
+import { createWorkspaceDisplayTarget } from "../src/shared/workspaceDisplays";
 
 type AnyMock = Mock;
 
@@ -539,6 +540,20 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(workspaceStore.updateWorkspace).not.toHaveBeenCalled();
   });
 
+  it("canonicalizes a rebound target display before persisting workspace input", async () => {
+    const oldTarget = createWorkspaceDisplayTarget({ ...workspaceDisplays[1], id: 1493485485 });
+
+    await handlers.get(IPC_CHANNELS.workspacesCreate)?.({}, {
+      name: "Rebound display",
+      targetDisplay: oldTarget
+    });
+
+    expect(workspaceStore.createWorkspace).toHaveBeenCalledWith({
+      name: "Rebound display",
+      targetDisplay: createWorkspaceDisplayTarget(workspaceDisplays[1])
+    });
+  });
+
   it("syncs the overlay language preference", async () => {
     await handlers.get(IPC_CHANNELS.preferencesSetOverlayLanguage)?.({}, "zh-CN");
 
@@ -650,7 +665,10 @@ describe("registerIpcHandlers workspace handlers", () => {
   });
 
   it("lists displays and launches on a saved or one-time target without changing the workspace", async () => {
-    const fixedWorkspace = { ...workspace, targetDisplayId: 22 };
+    const fixedWorkspace = {
+      ...workspace,
+      targetDisplay: createWorkspaceDisplayTarget({ ...workspaceDisplays[1], id: 1493485485 })
+    };
     workspaceStore.getWorkspace = vi.fn().mockResolvedValue(fixedWorkspace);
 
     expect(handlers.get(IPC_CHANNELS.workspacesDisplays)?.({})).toEqual(workspaceDisplays);
@@ -722,7 +740,7 @@ describe("registerIpcHandlers workspace handlers", () => {
     workspaceStore.getWorkspace = vi.fn().mockResolvedValue({
       ...workspace,
       browserLaunchMode: "external",
-      targetDisplayId: 99
+      targetDisplay: { id: 99 }
     });
     vi.mocked(browserManager.listWorkspaceDisplayReservations).mockReturnValue([]);
     await expect(handlers.get(IPC_CHANNELS.workspacesLaunch)?.({}, workspace.id)).resolves.toMatchObject({

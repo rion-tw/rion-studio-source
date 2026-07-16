@@ -4,6 +4,7 @@ import type { Translator } from "../../i18n";
 import type { WorkspaceFormState } from "../../app/types";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import type { LaunchWorkspace, LaunchWorkspaceSlot, NormalizedRect, Role, WorkspaceLayoutTemplate } from "../../../../shared/types";
+import type { WorkspaceDisplayInfo } from "../../../../shared/types";
 import {
   DEFAULT_WORKSPACE_TEMPLATE,
   DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
@@ -13,6 +14,11 @@ import {
   getWorkspaceTemplateSlotCount,
   MIN_WORKSPACE_SLOT_SIZE
 } from "../../../../shared/workspaceLayout";
+import {
+  cloneWorkspaceDisplayTarget,
+  createWorkspaceDisplayTarget,
+  resolveWorkspaceDisplayTarget
+} from "../../../../shared/workspaceDisplays";
 
 export interface WorkspaceSplits {
   horizontal: number[];
@@ -85,8 +91,17 @@ export function createEmptyWorkspaceForm(workspaces: LaunchWorkspace[], t: Trans
   };
 }
 
-export function createWorkspaceFormState(workspace: LaunchWorkspace): WorkspaceFormState {
+export function createWorkspaceFormState(
+  workspace: LaunchWorkspace,
+  displays: WorkspaceDisplayInfo[] = []
+): WorkspaceFormState {
   const template = workspace.template === "single" ? DEFAULT_WORKSPACE_TEMPLATE : workspace.template;
+  const resolvedTargetDisplay = resolveWorkspaceDisplayTarget(workspace.targetDisplay, displays);
+  const targetDisplay = resolvedTargetDisplay
+    ? createWorkspaceDisplayTarget(resolvedTargetDisplay)
+    : workspace.targetDisplay
+      ? cloneWorkspaceDisplayTarget(workspace.targetDisplay)
+      : undefined;
 
   return {
     id: workspace.id,
@@ -96,7 +111,7 @@ export function createWorkspaceFormState(workspace: LaunchWorkspace): WorkspaceF
     browserZoomMode: workspace.browserZoomMode,
     browserZoomPercent: workspace.browserZoomPercent,
     resourcePolicy: { ...workspace.resourcePolicy },
-    ...(workspace.targetDisplayId === undefined ? {} : { targetDisplayId: workspace.targetDisplayId }),
+    ...(targetDisplay === undefined ? {} : { targetDisplay }),
     slots: template === workspace.template ? workspace.slots : applyWorkspaceTemplate(workspace.slots, template)
   };
 }

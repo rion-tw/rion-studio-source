@@ -542,7 +542,7 @@ describe("ExternalChromeAutomationTarget", () => {
     expect(adaptiveSource).toContain('window.addEventListener("resize", schedule)');
     expect(adaptiveSource).toContain("requestAnimationFrame");
     expect(adaptiveSource).toContain(
-      "[[0,25],[232,33],[332,50],[468,67],[568,75],[620,80],[680,90],[760,100],[840,110],[940,125]]"
+      "[[0,25],[372,33],[532,50],[749,67],[909,75],[992,80],[1088,90],[1216,100],[1344,110],[1504,125]]"
     );
     expect(harness.send).toHaveBeenCalledWith("Page.addScriptToEvaluateOnNewDocument", {
       source: adaptiveSource

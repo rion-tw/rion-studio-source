@@ -40,12 +40,105 @@ describe("MacroManager", () => {
     await vi.waitFor(() => expect(targets["role-2"].dispatchClick).toHaveBeenCalledTimes(1));
 
     for (const target of Object.values(targets)) {
+      expect(target.ensureInputFocus).toHaveBeenCalledOnce();
+      expect(target.ensureInputFocus.mock.invocationCallOrder[0]).toBeLessThan(
+        target.dispatchKey.mock.invocationCallOrder[0]
+      );
       expect(target.dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal));
       expect(target.dispatchClick).toHaveBeenCalledWith(25, 75, expect.any(AbortSignal));
       expect(target.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
         target.dispatchClick.mock.invocationCallOrder[0]
       );
     }
+  });
+
+  it("checks every target before publishing running state or dispatching the first step", async () => {
+    const targets = {
+      "role-1": createTarget(),
+      "role-2": createTarget()
+    };
+    let releaseRole1!: () => void;
+    let releaseRole2!: () => void;
+    targets["role-1"].ensureInputFocus.mockReturnValue(new Promise<boolean>((resolve) => {
+      releaseRole1 = () => resolve(true);
+    }));
+    targets["role-2"].ensureInputFocus.mockReturnValue(new Promise<boolean>((resolve) => {
+      releaseRole2 = () => resolve(true);
+    }));
+    const manager = createManager({ targets });
+
+    const start = manager.start("macro-1");
+    await vi.waitFor(() => {
+      expect(targets["role-1"].ensureInputFocus).toHaveBeenCalledOnce();
+      expect(targets["role-2"].ensureInputFocus).toHaveBeenCalledOnce();
+    });
+
+    expect(manager.listStatuses()).toEqual([]);
+    expect(targets["role-1"].dispatchKey).not.toHaveBeenCalled();
+    expect(targets["role-2"].dispatchKey).not.toHaveBeenCalled();
+    releaseRole1();
+    releaseRole2();
+    await expect(start).resolves.toHaveLength(2);
+  });
+
+  it("rechecks an active role for every macro start without refocusing an already focused canvas", async () => {
+    vi.useFakeTimers();
+    const target = createTarget();
+    const focusCanvas = vi.fn();
+    let canvasFocused = false;
+    target.ensureInputFocus.mockImplementation(async () => {
+      if (canvasFocused) return true;
+      canvasFocused = true;
+      focusCanvas();
+      return true;
+    });
+    const macros = Object.fromEntries(["macro-1", "macro-2", "macro-3"].map((id) => [id, {
+      ...macro,
+      id,
+      roleIds: ["role-1"],
+      steps: [{ id: `${id}-delay`, type: "delay" as const, ms: 1000 }]
+    }]));
+    const manager = createManager({ macroById: macros, targets: { "role-1": target } });
+
+    await manager.start("macro-1");
+    await manager.start("macro-2");
+
+    expect(target.ensureInputFocus).toHaveBeenCalledTimes(2);
+    expect(focusCanvas).toHaveBeenCalledOnce();
+
+    canvasFocused = false;
+    await manager.start("macro-3");
+    expect(target.ensureInputFocus).toHaveBeenCalledTimes(3);
+    expect(focusCanvas).toHaveBeenCalledTimes(2);
+
+    await Promise.all([manager.stop("macro-1"), manager.stop("macro-2"), manager.stop("macro-3")]);
+  });
+
+  it("serializes concurrent input preparation for the same role", async () => {
+    const target = createTarget();
+    let releaseFirst!: () => void;
+    target.ensureInputFocus
+      .mockReturnValueOnce(new Promise<boolean>((resolve) => {
+        releaseFirst = () => resolve(true);
+      }))
+      .mockResolvedValue(true);
+    const macros = Object.fromEntries(["macro-1", "macro-2"].map((id) => [id, {
+      ...macro,
+      id,
+      roleIds: ["role-1"]
+    }]));
+    const manager = createManager({ macroById: macros, targets: { "role-1": target } });
+
+    const first = manager.start("macro-1");
+    const second = manager.start("macro-2");
+    await vi.waitFor(() => expect(target.ensureInputFocus).toHaveBeenCalledOnce());
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(target.ensureInputFocus).toHaveBeenCalledTimes(2);
+    expect(target.ensureInputFocus.mock.invocationCallOrder[0]).toBeLessThan(
+      target.ensureInputFocus.mock.invocationCallOrder[1]
+    );
   });
 
   it("waits for resource overrides before dispatch and clears them after completion", async () => {
@@ -454,6 +547,7 @@ function createTarget() {
   return {
     dispatchClick: vi.fn().mockResolvedValue(undefined),
     dispatchKey: vi.fn().mockResolvedValue(undefined),
+    ensureInputFocus: vi.fn().mockResolvedValue(true),
     evaluate: vi.fn().mockResolvedValue(undefined),
     focus: vi.fn().mockResolvedValue(undefined)
   };

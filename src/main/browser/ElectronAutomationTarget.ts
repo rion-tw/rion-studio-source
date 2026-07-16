@@ -8,20 +8,34 @@ import {
 export interface BrowserAutomationTarget {
   dispatchClick: (xPercent: number, yPercent: number, signal?: AbortSignal) => Promise<void>;
   dispatchKey: (code: string, signal?: AbortSignal) => Promise<void>;
+  ensureInputFocus: () => Promise<boolean>;
   evaluate: <T = unknown>(source: string) => Promise<T>;
   focus: () => Promise<void>;
 }
 
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
   private inputDispatchTail: Promise<void> = Promise.resolve();
+  private syntheticClickDispatchDepth = 0;
 
   constructor(
     private readonly view: Pick<WebContentsView, "getBounds">,
     private readonly webContents: Pick<
       WebContents,
-      "executeJavaScript" | "focus" | "isDestroyed" | "mainFrame" | "sendInputEvent"
+      "executeJavaScript" | "focus" | "isDestroyed" | "mainFrame" | "on" | "sendInputEvent"
     >
-  ) {}
+  ) {
+    this.webContents.on("before-mouse-event", (_event, mouse) => {
+      if (
+        this.syntheticClickDispatchDepth > 0 ||
+        mouse.type !== "mouseDown" ||
+        mouse.button !== "left"
+      ) {
+        return;
+      }
+
+      void this.focusCanvasAtPoint(mouse.x, mouse.y);
+    });
+  }
 
   async focus(): Promise<void> {
     if (this.webContents.isDestroyed()) {
@@ -29,13 +43,25 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     }
 
     this.webContents.focus();
-    await this.focusPageTarget();
+    await this.focusPageTarget(true);
   }
 
-  private async focusPageTarget(signal?: AbortSignal): Promise<void> {
+  async ensureInputFocus(): Promise<boolean> {
+    return this.focusPageTarget(false);
+  }
+
+  private async focusPageTarget(allowBodyFallback: boolean, signal?: AbortSignal): Promise<boolean> {
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
-      return;
+      return false;
+    }
+
+    const topLevelResult = await this.webContents
+      .executeJavaScript(createFocusSource(false))
+      .catch(() => "");
+    signal?.throwIfAborted();
+    if (topLevelResult === "canvas") {
+      return true;
     }
 
     const frames = [...this.webContents.mainFrame.framesInSubtree].reverse();
@@ -44,12 +70,27 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       const result = await executeFrameScript(frame, createFocusSource(false)).catch(() => "");
       signal?.throwIfAborted();
       if (result === "canvas") {
-        return;
+        return true;
       }
     }
 
-    await this.webContents.executeJavaScript(createFocusSource(true)).catch(() => undefined);
+    const result = await this.webContents
+      .executeJavaScript(createFocusSource(true, allowBodyFallback))
+      .catch(() => "");
     signal?.throwIfAborted();
+    return result === "canvas" || result === "iframe" || result === "body";
+  }
+
+  private async focusCanvasAtPoint(x: number, y: number): Promise<boolean> {
+    if (this.webContents.isDestroyed()) {
+      return false;
+    }
+
+    return Boolean(
+      await this.webContents
+        .executeJavaScript(createCanvasFocusAtPointSource(x, y))
+        .catch(() => false)
+    );
   }
 
   dispatchKey(code: string, signal?: AbortSignal): Promise<void> {
@@ -111,6 +152,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     const release = { type: "mouseUp" as const, button: "left" as const, clickCount: 1, x, y };
     let didPress = false;
     let didRelease = false;
+    this.syntheticClickDispatchDepth += 1;
     try {
       this.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, x, y });
       didPress = true;
@@ -124,6 +166,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           // Best-effort recovery for a partially dispatched native click sequence.
         }
       }
+      this.syntheticClickDispatchDepth -= 1;
     }
   }
 
@@ -142,7 +185,7 @@ function executeFrameScript(frame: WebFrameMain, source: string): Promise<unknow
   return frame.executeJavaScript(source);
 }
 
-export function createFocusSource(allowFallback: boolean): string {
+export function createFocusSource(allowFallback: boolean, allowBodyFallback = allowFallback): string {
   return `(() => {
     const isVisible = (element) => {
       const rect = element.getBoundingClientRect();
@@ -170,7 +213,28 @@ export function createFocusSource(allowFallback: boolean): string {
     if (focusElement(largest("canvas"))) return "canvas";
     if (!${JSON.stringify(allowFallback)}) return "";
     if (focusElement(largest("iframe"))) return "iframe";
+    if (!${JSON.stringify(allowBodyFallback)}) return "";
     return focusElement(document.body) ? "body" : "";
+  })()`;
+}
+
+export function createCanvasFocusAtPointSource(x: number, y: number): string {
+  return `(() => {
+    const x = ${JSON.stringify(x)};
+    const y = ${JSON.stringify(y)};
+    let element = document.elementFromPoint(x, y);
+    while (element?.shadowRoot) {
+      const nested = element.shadowRoot.elementFromPoint(x, y);
+      if (!nested || nested === element) break;
+      element = nested;
+    }
+    if (!(element instanceof HTMLCanvasElement)) return false;
+    if (document.activeElement === element) return true;
+    const hadTabIndex = element.hasAttribute("tabindex");
+    if (!hadTabIndex) element.setAttribute("tabindex", "-1");
+    try { element.focus({ preventScroll: true }); } catch { element.focus(); }
+    if (!hadTabIndex) setTimeout(() => element.removeAttribute("tabindex"), 0);
+    return document.activeElement === element;
   })()`;
 }
 

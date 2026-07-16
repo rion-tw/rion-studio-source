@@ -278,8 +278,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v29"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.7"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v30"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.8"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
     expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "open" });');
     expect(MACRO_OVERLAY_SCRIPT).toContain('event.code === "KeyM"');
@@ -287,6 +287,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("function disposeIfDetached(nextState)");
     expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("pointerdown"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("mousedown"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("click"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badges" aria-hidden="true"');
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="panel"');

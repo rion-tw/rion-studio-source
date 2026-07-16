@@ -60,7 +60,9 @@ describe("macro overlay interactions", () => {
   });
 
   it("opens the app once from a physical trigger click without rendering an action menu", async () => {
-    createGameSurface(document);
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
     const binding = vi.fn(async (_request: unknown) => ({ macros: [assignedMacro], statuses: [] }));
     const controller = installOverlay(window, binding);
     await controller.refresh();
@@ -72,12 +74,16 @@ describe("macro overlay interactions", () => {
     document.addEventListener("pointerdown", pagePointerDown);
     const pointerDown = createMouseEvent(window, "pointerdown");
     expect(trigger.dispatchEvent(pointerDown)).toBe(true);
+    const mouseDown = createMouseEvent(window, "mousedown");
+    expect(trigger.dispatchEvent(mouseDown)).toBe(false);
     trigger.dispatchEvent(createMouseEvent(window, "pointerup"));
     const click = createMouseEvent(window, "click");
     expect(trigger.dispatchEvent(click)).toBe(false);
     document.removeEventListener("pointerdown", pagePointerDown);
 
     expect(pointerDown.defaultPrevented).toBe(false);
+    expect(mouseDown.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(canvas);
     expect(pagePointerDown).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "open" }));
     expect(binding.mock.calls.filter(([request]) => isRecord(request) && request.type === "open")).toHaveLength(1);
@@ -246,7 +252,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v29")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v30")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -312,7 +318,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v29")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v30")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v29";
+  const hostId = "rion-studio-macro-overlay-v30";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 27 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 28 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-16.7";
+  const scriptVersion = "2026-07-16.8";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -318,6 +318,11 @@
     resourceElement = root.querySelector(".resource-state");
     triggerElement = root.querySelector(".trigger");
     triggerElement?.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+    triggerElement?.addEventListener("mousedown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
       event.stopPropagation();
     });
     triggerElement?.addEventListener("click", (event) => {

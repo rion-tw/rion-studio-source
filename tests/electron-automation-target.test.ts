@@ -186,6 +186,54 @@ describe("ElectronAutomationTarget", () => {
     expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('largest("canvas")'));
   });
 
+  it("ensures the page input target without focusing the native view", async () => {
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    await expect(target.ensureInputFocus()).resolves.toBe(true);
+
+    expect(harness.webContents.focus).not.toHaveBeenCalled();
+    expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('largest("canvas")'));
+  });
+
+  it("checks the top-level canvas before scanning embedded frames", async () => {
+    const harness = createHarness();
+    harness.webContents.executeJavaScript.mockResolvedValue("canvas");
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    await expect(target.ensureInputFocus()).resolves.toBe(true);
+
+    expect(harness.webContents.executeJavaScript).toHaveBeenCalledTimes(1);
+    expect(harness.webContents.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('largest("canvas")')
+    );
+    expect(harness.frame.executeJavaScript).not.toHaveBeenCalled();
+  });
+
+  it("focuses a canvas hit by a physical left click but ignores macro clicks", async () => {
+    const harness = createHarness();
+    harness.webContents.executeJavaScript.mockResolvedValue(true);
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    harness.emitBeforeMouseEvent({ button: "left", type: "mouseDown", x: 320, y: 240 });
+    await vi.waitFor(() => expect(harness.webContents.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringMatching(/const x = 320;[\s\S]*const y = 240;[\s\S]*document\.elementFromPoint\(x, y\)/)
+    ));
+    expect(harness.webContents.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining("if (!(element instanceof HTMLCanvasElement)) return false")
+    );
+    harness.webContents.executeJavaScript.mockClear();
+    harness.webContents.sendInputEvent.mockImplementation((event: { type: string }) => {
+      if (event.type === "mouseDown") {
+        harness.emitBeforeMouseEvent({ button: "left", type: "mouseDown", x: 320, y: 240 });
+      }
+    });
+
+    await target.dispatchClick(25, 75);
+
+    expect(harness.webContents.executeJavaScript).not.toHaveBeenCalled();
+  });
+
   it("does not prepare or dispatch input after the target is destroyed", async () => {
     const harness = createHarness();
     harness.webContents.isDestroyed.mockReturnValue(true);
@@ -201,6 +249,7 @@ describe("ElectronAutomationTarget", () => {
 });
 
 function createHarness(bounds: { width: number; height: number } = { width: 1280, height: 720 }) {
+  let beforeMouseEvent: ((event: unknown, mouse: Record<string, unknown>) => void) | undefined;
   const frame = {
     executeJavaScript: vi.fn().mockResolvedValue("canvas")
   };
@@ -209,11 +258,19 @@ function createHarness(bounds: { width: number; height: number } = { width: 1280
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
     mainFrame: { framesInSubtree: [frame] },
+    on: vi.fn((event: string, listener: (event: unknown, mouse: Record<string, unknown>) => void) => {
+      if (event === "before-mouse-event") beforeMouseEvent = listener;
+    }),
     sendInputEvent: vi.fn()
   };
   const view = {
     getBounds: vi.fn(() => ({ x: 200, y: 100, ...bounds }))
   };
 
-  return { frame, view, webContents };
+  return {
+    emitBeforeMouseEvent: (mouse: Record<string, unknown>) => beforeMouseEvent?.({}, mouse),
+    frame,
+    view,
+    webContents
+  };
 }

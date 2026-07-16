@@ -5,6 +5,7 @@ import { Settings } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { NavItem } from "../src/renderer/src/components/ui/patterns";
+import { Checkbox } from "../src/renderer/src/components/ui/checkbox";
 import { Switch } from "../src/renderer/src/components/ui/switch";
 import MacrosRoute from "../src/renderer/src/features/macros/MacrosRoute";
 import { DEFAULT_MACRO_LIST_SORT } from "../src/renderer/src/features/macros/macroListUtils";
@@ -15,6 +16,26 @@ import type { Macro, Role } from "../src/shared/types";
 afterEach(cleanup);
 
 describe("renderer status indicators", () => {
+  it("uses a compact system-blue shared checkbox", () => {
+    const onCheckedChange = vi.fn();
+    render(
+      <Checkbox
+        aria-label="Selected"
+        checked
+        onCheckedChange={onCheckedChange}
+      />
+    );
+
+    const checkbox = screen.getByRole("checkbox", { name: "Selected" });
+    expect(checkbox.className).toContain("size-3.5");
+    expect(checkbox.className).toContain("data-[state=checked]:bg-blue-500");
+    expect(checkbox.className).toContain("data-[state=checked]:border-blue-500");
+    expect(checkbox.getAttribute("data-state")).toBe("checked");
+
+    fireEvent.click(checkbox);
+    expect(onCheckedChange).toHaveBeenCalledWith(false);
+  });
+
   it("uses a symmetrical system-blue shared switch without changing its size", () => {
     const onCheckedChange = vi.fn();
     render(

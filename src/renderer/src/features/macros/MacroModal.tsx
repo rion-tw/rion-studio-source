@@ -17,6 +17,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Switch } from "../../components/ui/switch";
 import {
@@ -389,12 +390,10 @@ function MacroForm({ form, games, isSaving, onChange, roles, shortcutConflict, t
                               {gameName}
                             </span>
                           </span>
-                          <input
-                            className="size-3.5 shrink-0 accent-primary"
-                            type="checkbox"
+                          <Checkbox
                             checked={isSelected}
                             disabled={isSaving}
-                            onChange={() => toggleRoleId(role.id)}
+                            onCheckedChange={() => toggleRoleId(role.id)}
                           />
                         </label>
                       );

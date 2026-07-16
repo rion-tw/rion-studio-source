@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import type { MacroFormState } from "../src/renderer/src/app/types";
@@ -11,7 +11,16 @@ import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
 import type { Game, Macro, Role } from "../src/shared/types";
 
+beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class ResizeObserver {
+    disconnect(): void {}
+    observe(): void {}
+    unobserve(): void {}
+  });
+});
+
 afterEach(cleanup);
+afterAll(() => vi.unstubAllGlobals());
 
 describe("macro editor enabled setting", () => {
   it("loads a disabled macro and includes the changed enabled state when saving", async () => {

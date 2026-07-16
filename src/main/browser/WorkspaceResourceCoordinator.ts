@@ -15,7 +15,6 @@ export interface WorkspaceResourceTarget {
   runtimeMode: BrowserRuntimeMode;
   focus?: () => Promise<void>;
   getProcessId?: () => number | undefined;
-  onFocus: (listener: () => void) => () => void;
   onInvalidated?: (listener: () => void) => () => void;
   releaseThrottle: () => Promise<void>;
   setCpuThrottleRate: (rate: 1 | WorkspaceCpuThrottleRate) => Promise<void>;
@@ -32,7 +31,6 @@ interface ManagedWorkspace {
   id: string;
   macroRoleIds: Set<string>;
   policy: WorkspaceResourcePolicy;
-  primaryRoleId: string;
   removeListeners: Array<() => void>;
   tail: Promise<void>;
   targets: Map<string, WorkspaceResourceTarget>;
@@ -47,7 +45,7 @@ interface TargetGroup {
 export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
   private readonly roleStatuses = new Map<string, WorkspaceResourceStatus>();
   private readonly workspaces = new Map<string, ManagedWorkspace>();
-  private backgroundWorkspaceIds = new Set<string>();
+  private hiddenRuntimeTabIds = new Set<string>();
   private macroRoleIds = new Set<string>();
   private pressureSnapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
 
@@ -58,7 +56,7 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
       pressureMonitor.on("change", (snapshot) => {
         this.pressureSnapshot = snapshot;
         void Promise.all([...this.workspaces.values()].map((managed) =>
-          managed.policy.mode === "adaptive" || this.backgroundWorkspaceIds.has(managed.id)
+          managed.policy.mode === "adaptive" && this.hiddenRuntimeTabIds.has(managed.id)
             ? this.enqueue(managed, () => this.applyWorkspace(managed))
             : Promise.resolve()
         )).catch(() => undefined);
@@ -92,7 +90,6 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
       id: workspaceId,
       macroRoleIds: new Set([...this.macroRoleIds].filter((roleId) => targetByRoleId.has(roleId))),
       policy: { ...policy, primaryRoleId },
-      primaryRoleId,
       removeListeners: [],
       tail: Promise.resolve(),
       targets: targetByRoleId,
@@ -100,9 +97,6 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     };
     this.workspaces.set(workspaceId, managed);
     targets.forEach((target) => {
-      managed.removeListeners.push(target.onFocus(() => {
-        void this.enqueue(managed, () => this.promoteRole(managed, target.roleId));
-      }));
       if (target.onInvalidated) {
         managed.removeListeners.push(target.onInvalidated(() => {
           void this.enqueue(managed, () => this.applyWorkspace(managed));
@@ -145,11 +139,19 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     }));
   }
 
-  async setBackgroundWorkspaceIds(workspaceIds: Iterable<string>): Promise<void> {
-    this.backgroundWorkspaceIds = new Set(workspaceIds);
+  async setHiddenRuntimeTabIds(workspaceIds: Iterable<string>): Promise<void> {
+    this.hiddenRuntimeTabIds = new Set(workspaceIds);
     await Promise.all([...this.workspaces.values()].map((managed) =>
       this.enqueue(managed, () => this.applyWorkspace(managed))
     ));
+  }
+
+  async prepareWorkspaceForeground(workspaceId: string): Promise<void> {
+    this.hiddenRuntimeTabIds.delete(workspaceId);
+    const managed = this.workspaces.get(workspaceId);
+    if (managed) {
+      await this.enqueue(managed, () => this.applyWorkspace(managed));
+    }
   }
 
   async reconcileRuntimeRoleIds(
@@ -179,26 +181,9 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     return result;
   }
 
-  private async promoteRole(managed: ManagedWorkspace, roleId: string): Promise<void> {
-    if (managed.primaryRoleId === roleId || !managed.targets.has(roleId)) {
-      return;
-    }
-
-    const group = this.createGroups(managed).find((candidate) =>
-      candidate.targets.some((target) => target.roleId === roleId)
-    );
-    if (!group) {
-      return;
-    }
-
-    await this.applyGroupRate(managed, group, 1);
-    managed.primaryRoleId = roleId;
-    await this.applyWorkspace(managed);
-  }
-
   private async applyWorkspace(managed: ManagedWorkspace): Promise<void> {
-    const isRuntimeBackground = this.backgroundWorkspaceIds.has(managed.id);
-    if (!isRuntimeBackground && (managed.policy.mode === "unrestricted" || managed.targets.size < 2)) {
+    const isHiddenRuntimeTab = this.hiddenRuntimeTabIds.has(managed.id);
+    if (managed.policy.mode === "unrestricted" || !isHiddenRuntimeTab) {
       await Promise.all(
         [...managed.targets.values()].map((target) => target.releaseThrottle().catch(() => undefined))
       );
@@ -211,15 +196,9 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
       }
       return;
     }
-    if (!managed.targets.has(managed.primaryRoleId)) {
-      managed.primaryRoleId = managed.targets.keys().next().value ?? "";
-    }
 
     const groups = this.createGroups(managed);
-    const fullSpeedRoleIds = new Set([
-      ...(isRuntimeBackground ? [] : [managed.primaryRoleId]),
-      ...managed.macroRoleIds
-    ]);
+    const fullSpeedRoleIds = new Set(managed.macroRoleIds);
     const fullSpeedGroups = groups.filter((group) =>
       group.targets.some((target) => fullSpeedRoleIds.has(target.roleId))
     );
@@ -231,7 +210,7 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
         this.applyGroupRate(managed, group, this.getBackgroundRate())
       )
     );
-    this.updateStatuses(managed, groups, fullSpeedRoleIds, isRuntimeBackground);
+    this.updateStatuses(managed, groups, fullSpeedRoleIds);
   }
 
   private getBackgroundRate(): WorkspaceCpuThrottleRate {
@@ -251,9 +230,6 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
       return [target];
     });
     await Promise.all(removedTargets.map((target) => target.releaseThrottle().catch(() => undefined)));
-    if (!managed.targets.has(managed.primaryRoleId)) {
-      managed.primaryRoleId = managed.targets.keys().next().value ?? "";
-    }
     await this.applyWorkspace(managed);
   }
 
@@ -291,8 +267,7 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
   private updateStatuses(
     managed: ManagedWorkspace,
     groups: TargetGroup[],
-    fullSpeedRoleIds: Set<string>,
-    isRuntimeBackground: boolean
+    fullSpeedRoleIds: Set<string>
   ): void {
     groups.forEach((group) => {
       const groupHasFullSpeedRole = group.targets.some((target) => fullSpeedRoleIds.has(target.roleId));
@@ -304,8 +279,6 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
             cpuThrottleRate: 1,
             resourceReason: "unavailable"
           };
-        } else if (!isRuntimeBackground && target.roleId === managed.primaryRoleId) {
-          status = { resourceState: "primary", cpuThrottleRate: 1 };
         } else if (managed.macroRoleIds.has(target.roleId)) {
           status = { resourceState: "macro_override", cpuThrottleRate: 1, resourceReason: "macro" };
         } else if (groupHasFullSpeedRole) {
@@ -320,7 +293,7 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
             resourceState: "throttled",
             cpuThrottleRate,
             resourcePressureLevel: this.pressureSnapshot.level,
-            resourceReason: isRuntimeBackground
+            resourceReason: this.pressureSnapshot.level === "normal"
               ? "runtime_tab_background"
               : this.pressureSnapshot.reason
           };

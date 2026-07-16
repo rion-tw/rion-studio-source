@@ -31,11 +31,6 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
     }
   }
 
-  onFocus(listener: () => void): () => void {
-    this.webContents.on("focus", listener);
-    return () => this.webContents.removeListener("focus", listener);
-  }
-
   onInvalidated(listener: () => void): () => void {
     const invalidate = (): void => {
       this.currentRate = undefined;

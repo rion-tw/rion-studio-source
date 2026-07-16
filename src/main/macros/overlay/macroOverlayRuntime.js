@@ -5,7 +5,7 @@
     ...Array.from({ length: 28 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-16.8";
+  const scriptVersion = "2026-07-16.9";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -31,7 +31,6 @@
     en: {
       noShortcut: "No shortcut",
       resourceMacroOverride: "Temporarily full speed",
-      resourcePrimary: "Primary",
       resourceSharedProcess: "Shared process / full speed",
       resourceUnavailable: "Throttling unavailable",
       triggerAria: "Open Rion Studio Macros",
@@ -40,7 +39,6 @@
     "zh-TW": {
       noShortcut: "無快捷鍵",
       resourceMacroOverride: "暫時全速",
-      resourcePrimary: "主控",
       resourceSharedProcess: "共用程序／全速",
       resourceUnavailable: "無法節流",
       triggerAria: "開啟 Rion Studio 巨集",
@@ -49,7 +47,6 @@
     "zh-CN": {
       noShortcut: "无快捷键",
       resourceMacroOverride: "暂时全速",
-      resourcePrimary: "主控",
       resourceSharedProcess: "共享进程／全速",
       resourceUnavailable: "无法限速",
       triggerAria: "打开 Rion Studio 宏",
@@ -58,7 +55,6 @@
     ja: {
       noShortcut: "ショートカットなし",
       resourceMacroOverride: "一時的にフル速度",
-      resourcePrimary: "メイン",
       resourceSharedProcess: "共有プロセス／フル速度",
       resourceUnavailable: "速度制限不可",
       triggerAria: "Rion Studio マクロを開く",
@@ -122,7 +118,6 @@
   function getResourceLabel() {
     const text = getText();
     switch (state.resourceState) {
-      case "primary": return text.resourcePrimary;
       case "throttled": return String(state.cpuThrottleRate || 1) + "x";
       case "macro_override": return text.resourceMacroOverride;
       case "shared_process": return text.resourceSharedProcess;

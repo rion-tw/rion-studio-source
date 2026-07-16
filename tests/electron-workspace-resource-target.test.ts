@@ -54,14 +54,10 @@ describe("ElectronWorkspaceResourceTarget", () => {
     expect(harness.detach).toHaveBeenCalledOnce();
   });
 
-  it("reports the renderer PID, forwards focus, and fails safely while DevTools is open", async () => {
+  it("reports the renderer PID, focuses on request, and fails safely while DevTools is open", async () => {
     const harness = createHarness();
     const target = new ElectronWorkspaceResourceTarget("role-1", harness.webContents);
-    const focusListener = vi.fn();
-    target.onFocus(focusListener);
 
-    harness.webContentsEmitter.emit("focus");
-    expect(focusListener).toHaveBeenCalledOnce();
     expect(target.getProcessId()).toBe(321);
     await target.focus();
     expect(harness.focus).toHaveBeenCalledOnce();

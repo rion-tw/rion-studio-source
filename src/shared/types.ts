@@ -273,7 +273,6 @@ export type WorkspaceResourceReason =
   | "runtime_tab_background"
   | "unavailable";
 export type WorkspaceResourceState =
-  | "primary"
   | "throttled"
   | "macro_override"
   | "shared_process"

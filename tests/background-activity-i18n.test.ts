@@ -13,6 +13,7 @@ describe("automatic power saving i18n", () => {
       expect(dictionary).not.toHaveProperty("roleForm.launchPreset");
       expect(dictionary).not.toHaveProperty("roleForm.backgroundActivityDescription");
       expect(dictionary).not.toHaveProperty("workspaces.resourceModePrimary");
+      expect(dictionary).not.toHaveProperty("workspaces.resourceState.primary");
       expect(dictionary).not.toHaveProperty("workspaces.throttleRate");
       expect(dictionary).not.toHaveProperty("settings.defaultPreset");
       expect(dictionary).not.toHaveProperty("preset.balanced");
@@ -29,6 +30,12 @@ describe("automatic power saving i18n", () => {
     for (const dictionary of Object.values(dictionaries)) {
       expect(dictionary["workspaces.resourceModeAdaptive"]).toBeTruthy();
       expect(dictionary["workspaces.resourceModeUnrestricted"]).toBeTruthy();
+      expect(dictionary["workspaces.resourceReason.runtimeTabBackground"]).toBeTruthy();
     }
+
+    expect(en["workspaces.resourceModeDescription"]).toContain("visible roles");
+    expect(en["workspaces.primaryRoleDescription"]).toContain("initial focus");
+    expect(zhTW["workspaces.resourceModeDescription"]).toContain("非作用中分頁");
+    expect(zhTW["workspaces.primaryRoleDescription"]).toContain("先聚焦");
   });
 });

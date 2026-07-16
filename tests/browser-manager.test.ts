@@ -230,6 +230,7 @@ describe("BrowserManager game host windows", () => {
       frame: true,
       titleBarStyle,
       webPreferences: expect.objectContaining({
+        backgroundThrottling: true,
         contextIsolation: true,
         nodeIntegration: false,
         preload: "/app/out/preload/runtime-tabs.cjs",
@@ -279,8 +280,12 @@ describe("BrowserManager game host windows", () => {
     expect(harness.createTabbedHostWindow).toHaveBeenCalledTimes(1);
     expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(false);
     expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(true);
+    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      expect.anything()
+    );
 
-    harness.manager.showRuntimeTab(firstTab.id);
+    await harness.manager.showRuntimeTab(firstTab.id);
     expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(true);
     expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(false);
     expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
@@ -579,7 +584,7 @@ describe("BrowserManager game host windows", () => {
     await harness.manager.launch(role);
     const tabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
 
-    harness.manager.moveRuntimeTab(tabId, 22);
+    await harness.manager.moveRuntimeTab(tabId, 22);
 
     expect(harness.manager.listEmbeddedRuntimeState()).toMatchObject({
       windows: [{ displayId: 22, tabCount: 1 }],
@@ -794,7 +799,7 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
-  it("applies the adaptive policy to external Chrome targets", async () => {
+  it("leaves external Chrome resource scheduling entirely to Chrome", async () => {
     const externalChromeManager = createExternalChromeManager();
     const secondRole = createRole("role-2", "Alt");
     const firstTarget = createExternalResourceTarget();
@@ -818,7 +823,7 @@ describe("BrowserManager game host windows", () => {
       }
     };
 
-    await harness.manager.launchWorkspace(
+    const result = await harness.manager.launchWorkspace(
       priorityWorkspace,
       [
         { role, rect: priorityWorkspace.slots[0].rect },
@@ -828,15 +833,10 @@ describe("BrowserManager game host windows", () => {
       "external"
     );
 
-    expect(firstTarget.setRate).toHaveBeenCalledWith(1);
-    expect(secondTarget.setRate).toHaveBeenCalledWith(2);
-    secondTarget.emitFocus();
-    await vi.waitFor(() => {
-      expect(harness.manager.listStatuses()).toEqual(expect.arrayContaining([
-        expect.objectContaining({ roleId: secondRole.id, resourceState: "primary" }),
-        expect.objectContaining({ roleId: role.id, resourceState: "throttled", cpuThrottleRate: 2 })
-      ]));
-    });
+    expect(result).toEqual(statuses);
+    expect(externalChromeManager.getAutomationSession).not.toHaveBeenCalled();
+    expect(firstTarget.setRate).not.toHaveBeenCalled();
+    expect(secondTarget.setRate).not.toHaveBeenCalled();
   });
 
   it("applies browser font preferences before creating a new role view", async () => {
@@ -1064,7 +1064,7 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 800 });
   });
 
-  it("applies and follows the adaptive policy in embedded workspaces", async () => {
+  it("keeps every role in the visible adaptive workspace at full speed", async () => {
     const harness = createHarness({ platform: "win32" });
     const secondRole = createRole("role-2", "Alt");
     const priorityWorkspace: LaunchWorkspace = {
@@ -1081,25 +1081,140 @@ describe("BrowserManager game host windows", () => {
     ]);
 
     expect(statuses).toEqual(expect.arrayContaining([
-      expect.objectContaining({ roleId: role.id, resourceState: "primary", cpuThrottleRate: 1 }),
-      expect.objectContaining({ roleId: secondRole.id, resourceState: "throttled", cpuThrottleRate: 2 })
+      expect.objectContaining({ roleId: role.id }),
+      expect.objectContaining({ roleId: secondRole.id })
     ]));
-    expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
+    expect(statuses.every((status) => status.resourceState === undefined)).toBe(true);
+    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
-      { rate: 1 }
+      expect.anything()
     );
-    expect(harness.views[1].debuggerApi.sendCommand).toHaveBeenCalledWith(
+    expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
-      { rate: 2 }
+      expect.anything()
     );
 
     harness.views[1].webContents.emit("focus");
-    await vi.waitFor(() => {
-      expect(harness.manager.listStatuses()).toEqual(expect.arrayContaining([
-        expect.objectContaining({ roleId: secondRole.id, resourceState: "primary", cpuThrottleRate: 1 }),
-        expect.objectContaining({ roleId: role.id, resourceState: "throttled", cpuThrottleRate: 2 })
-      ]));
+    await Promise.resolve();
+    expect(harness.manager.listStatuses().every((status) => status.resourceState === undefined)).toBe(true);
+  });
+
+  it("throttles only inactive adaptive runtime tabs and releases before showing them", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      platform: "win32",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
     });
+    const firstWorkspace: LaunchWorkspace = {
+      ...workspace,
+      id: "adaptive-tab-1",
+      resourcePolicy: { mode: "adaptive", primaryRoleId: role.id }
+    };
+    const secondRole = createRole("role-2", "Alt");
+    const secondWorkspace: LaunchWorkspace = {
+      ...workspace,
+      id: "adaptive-tab-2",
+      resourcePolicy: { mode: "adaptive", primaryRoleId: secondRole.id }
+    };
+
+    await harness.manager.launchWorkspace(firstWorkspace, [
+      { role, rect: { x: 0, y: 0, width: 1, height: 1 } }
+    ]);
+    const firstTabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+    await harness.manager.launchWorkspace(secondWorkspace, [
+      { role: secondRole, rect: { x: 0, y: 0, width: 1, height: 1 } }
+    ]);
+
+    expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      { rate: 2 }
+    );
+    expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      expect.anything()
+    );
+    expect(harness.manager.listStatuses().find((status) => status.roleId === role.id)).toMatchObject({
+      resourceState: "throttled",
+      cpuThrottleRate: 2
+    });
+    expect(harness.manager.listStatuses().find((status) => status.roleId === secondRole.id)?.resourceState)
+      .toBeUndefined();
+
+    harness.hosts[0].emit("hide");
+    await Promise.resolve();
+    expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      expect.anything()
+    );
+
+    harness.views[0].debuggerApi.sendCommand.mockRejectedValueOnce(new Error("CDP release failed"));
+    await harness.manager.showRuntimeTab(firstTabId);
+
+    const releaseCallIndex = harness.views[0].debuggerApi.sendCommand.mock.calls.findIndex(
+      ([method, params]) => method === "Emulation.setCPUThrottlingRate" && params?.rate === 1
+    );
+    const releaseOrder = harness.views[0].debuggerApi.sendCommand.mock.invocationCallOrder[releaseCallIndex];
+    const visibleOrder = harness.views[0].view.setVisible.mock.invocationCallOrder.at(-1);
+    expect(releaseCallIndex).toBeGreaterThanOrEqual(0);
+    expect(releaseOrder).toBeLessThan(visibleOrder!);
+    expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(true);
+    expect(harness.manager.listStatuses().find((status) => status.roleId === role.id)?.resourceState)
+      .toBeUndefined();
+    expect(harness.manager.listStatuses().find((status) => status.roleId === secondRole.id)).toMatchObject({
+      resourceState: "throttled",
+      cpuThrottleRate: 2
+    });
+
+    await harness.manager.hideRuntimeTab(firstTabId);
+    const secondReleaseCallIndex = harness.views[1].debuggerApi.sendCommand.mock.calls.findIndex(
+      ([method, params]) => method === "Emulation.setCPUThrottlingRate" && params?.rate === 1
+    );
+    expect(harness.views[1].debuggerApi.sendCommand.mock.invocationCallOrder[secondReleaseCallIndex])
+      .toBeLessThan(harness.views[1].view.setVisible.mock.invocationCallOrder.at(-1)!);
+    expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(true);
+
+    const firstRateOneCallCount = harness.views[0].debuggerApi.sendCommand.mock.calls.filter(
+      ([method, params]) => method === "Emulation.setCPUThrottlingRate" && params?.rate === 1
+    ).length;
+    await harness.manager.moveRuntimeTab(firstTabId, 22);
+    const firstRateOneCalls = harness.views[0].debuggerApi.sendCommand.mock.calls
+      .map(([method, params], index) => ({ index, method, rate: params?.rate }))
+      .filter((call) => call.method === "Emulation.setCPUThrottlingRate" && call.rate === 1);
+    expect(firstRateOneCalls).toHaveLength(firstRateOneCallCount + 1);
+    const moveReleaseCall = firstRateOneCalls.at(-1)!;
+    expect(harness.views[0].debuggerApi.sendCommand.mock.invocationCallOrder[moveReleaseCall.index])
+      .toBeLessThan(harness.views[0].view.setVisible.mock.invocationCallOrder.at(-1)!);
+    expect(harness.manager.listEmbeddedRuntimeState().tabs.find((tab) => tab.id === firstTabId))
+      .toMatchObject({ active: true, displayId: 22, hidden: false });
+
+    const thirdRole = createRole("role-3", "Third");
+    const thirdWorkspace: LaunchWorkspace = {
+      ...workspace,
+      id: "adaptive-tab-3",
+      resourcePolicy: { mode: "adaptive", primaryRoleId: thirdRole.id }
+    };
+    await harness.manager.launchWorkspace(thirdWorkspace, [
+      { role: thirdRole, rect: { x: 0, y: 0, width: 1, height: 1 } }
+    ]);
+    const thirdTabId = harness.manager.listEmbeddedRuntimeState().tabs.find(
+      (tab) => tab.sourceId === thirdWorkspace.id
+    )!.id;
+    const secondRateOneCallCount = harness.views[1].debuggerApi.sendCommand.mock.calls.filter(
+      ([method, params]) => method === "Emulation.setCPUThrottlingRate" && params?.rate === 1
+    ).length;
+
+    await harness.manager.stopRuntimeTab(thirdTabId);
+
+    const secondRateOneCalls = harness.views[1].debuggerApi.sendCommand.mock.calls
+      .map(([method, params], index) => ({ index, method, rate: params?.rate }))
+      .filter((call) => call.method === "Emulation.setCPUThrottlingRate" && call.rate === 1);
+    expect(secondRateOneCalls).toHaveLength(secondRateOneCallCount + 1);
+    const automaticReleaseCall = secondRateOneCalls.at(-1)!;
+    expect(harness.views[1].debuggerApi.sendCommand.mock.invocationCallOrder[automaticReleaseCall.index])
+      .toBeLessThan(harness.views[1].view.setVisible.mock.invocationCallOrder.at(-1)!);
+    expect(harness.manager.listEmbeddedRuntimeState().tabs.find((tab) => tab.sourceId === secondWorkspace.id))
+      .toMatchObject({ active: true, displayId: 11, hidden: false });
   });
 
   it("launches the primary first and then workspace roles in batches of two", async () => {

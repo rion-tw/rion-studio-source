@@ -59,10 +59,7 @@ import type { ExternalChromeLaunchItem, ExternalChromeManager } from "./External
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import { ElectronWorkspaceResourceTarget } from "./ElectronWorkspaceResourceTarget";
 import type { SystemPressureSource } from "./SystemPressureMonitor";
-import {
-  WorkspaceResourceCoordinator,
-  type WorkspaceResourceTarget
-} from "./WorkspaceResourceCoordinator";
+import { WorkspaceResourceCoordinator } from "./WorkspaceResourceCoordinator";
 
 export interface BrowserManagerEvents {
   change: [RoleStatus[]];
@@ -322,10 +319,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.resourceCoordinator = new WorkspaceResourceCoordinator(options.resourcePressureMonitor);
     this.options.externalChromeManager?.on("change", () => {
       this.cleanupWorkspaceDisplayReservations();
-      void this.resourceCoordinator.reconcileRuntimeRoleIds(
-        "external",
-        this.options.externalChromeManager?.listStatuses().map((status) => status.roleId) ?? []
-      );
       this.emitChange();
     });
     this.resourceCoordinator.on("change", () => this.emitChange());
@@ -472,48 +465,60 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return this.displayHostByChromeWebContentsId.get(webContentsId)?.displayId;
   }
 
-  showEmbeddedRuntimeWindows(displayId?: number): void {
+  async showEmbeddedRuntimeWindows(displayId?: number): Promise<void> {
     const targets = displayId === undefined
       ? [...this.displayHosts.values()]
       : [this.displayHosts.get(displayId)].filter((host): host is EmbeddedDisplayHost => Boolean(host));
-    targets.forEach((host) => {
+    await Promise.all(targets.map(async (host) => {
       const active = host.activeTabId ? this.hosts.get(host.activeTabId) : undefined;
+      let foregroundTab = active;
       if (!active || active.hidden) {
         const next = host.tabIds.map((id) => this.hosts.get(id)).find(Boolean);
         if (next) {
-          next.hidden = false;
-          host.activeTabId = next.id;
+          foregroundTab = next;
         }
       }
+      if (foregroundTab) {
+        await this.prepareRuntimeTabForeground(foregroundTab.id);
+        foregroundTab.hidden = false;
+        host.activeTabId = foregroundTab.id;
+      }
       this.showDisplayHost(host);
-    });
-    this.reconcileRuntimeTabs();
+    }));
+    await this.reconcileRuntimeTabs();
   }
 
-  showRuntimeTab(tabId: string): void {
+  async showRuntimeTab(tabId: string): Promise<void> {
     const tab = this.hosts.get(tabId);
     if (!tab) return;
     const displayHost = this.getDisplayHost(tab);
     if (!displayHost) return;
+    await this.prepareRuntimeTabForeground(tab.id);
     tab.hidden = false;
     displayHost.activeTabId = tab.id;
     this.showDisplayHost(displayHost);
     this.layoutDisplayHost(displayHost);
-    this.reconcileRuntimeTabs();
+    await this.reconcileRuntimeTabs();
   }
 
-  hideRuntimeTab(tabId: string): void {
+  async hideRuntimeTab(tabId: string): Promise<void> {
     const tab = this.hosts.get(tabId);
     if (!tab) return;
     const displayHost = this.getDisplayHost(tab);
     if (!displayHost) return;
+    const nextTabId = displayHost.activeTabId === tab.id
+      ? displayHost.tabIds.find((id) => !this.hosts.get(id)?.hidden && id !== tab.id)
+      : displayHost.activeTabId;
+    if (nextTabId && nextTabId !== displayHost.activeTabId) {
+      await this.prepareRuntimeTabForeground(nextTabId);
+    }
     tab.hidden = true;
     if (displayHost.activeTabId === tab.id) {
-      displayHost.activeTabId = displayHost.tabIds.find((id) => !this.hosts.get(id)?.hidden && id !== tab.id);
+      displayHost.activeTabId = nextTabId;
     }
     if (!displayHost.activeTabId) displayHost.window.hide();
     this.layoutDisplayHost(displayHost);
-    this.reconcileRuntimeTabs();
+    await this.reconcileRuntimeTabs();
   }
 
   stopRuntimeTab(tabId: string): Promise<void> {
@@ -532,11 +537,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.emitChange();
   }
 
-  moveRuntimeTab(tabId: string, displayId: number): void {
+  async moveRuntimeTab(tabId: string, displayId: number): Promise<void> {
     const tab = this.hosts.get(tabId);
     const source = tab ? this.getDisplayHost(tab) : undefined;
     const targetInfo = this.getLaunchTargetForDisplay(displayId);
     if (!tab || !source || !targetInfo || source.displayId === displayId) return;
+    await this.prepareRuntimeTabForeground(tab.id);
     const target = this.getOrCreateDisplayHost(targetInfo);
     const sourceWasFullscreen = this.isDisplayHostFullscreen(source);
     const targetWasFullscreen = this.isDisplayHostFullscreen(target);
@@ -558,7 +564,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.layoutDisplayHost(source);
     this.layoutDisplayHost(target);
     this.destroyDisplayHostIfEmpty(source);
-    this.reconcileRuntimeTabs();
+    await this.reconcileRuntimeTabs();
   }
 
   handleDisplayRemoved(displayId: number, fallbackDisplayId: number): void {
@@ -585,7 +591,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (sourceWasVisible && !isWindowVisible(target.window)) showWindowWithoutFocus(target.window);
     this.layoutDisplayHost(target);
     this.destroyDisplayHostIfEmpty(source);
-    this.reconcileRuntimeTabs();
+    void this.reconcileRuntimeTabs();
   }
 
   handleDisplayMetricsChanged(displayId: number, workArea: PixelBounds): void {
@@ -694,6 +700,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         { mode: "unrestricted" },
         [new ElectronWorkspaceResourceTarget(role.id, session.view.webContents)]
       );
+      await this.reconcileRuntimeTabs();
       await session.target.focus();
       return this.toStatus(role.id, session);
     } catch (error) {
@@ -783,6 +790,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
             new ElectronWorkspaceResourceTarget(session.role.id, session.view.webContents)
           )
         );
+        await this.reconcileRuntimeTabs();
         return sessions.map((session) =>
           this.withResourceStatus(this.toStatus(session.role.id, session))
         );
@@ -882,8 +890,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.destroySession(roleId, session);
 
     const host = this.hosts.get(session.hostId);
-    if (host && host.roleIds.size === 0) {
-      this.closeHostWindow(host);
+    if (host && host.roleIds.size === 0 && !host.closing) {
+      await this.closeHostWindow(host);
     }
   }
 
@@ -1064,7 +1072,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
                 }
               : { titleBarStyle: "hidden" }),
           webPreferences: {
-            backgroundThrottling: false,
+            backgroundThrottling: true,
             contextIsolation: true,
             nodeIntegration: false,
             preload: this.options.runtimeTabsPreloadPath,
@@ -1101,7 +1109,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     window.on("restore", () => this.layoutDisplayHost(displayHost));
     window.on("show", () => {
       this.syncRuntimeToolbarCursorMonitor(displayHost);
-      this.reconcileRuntimeTabs();
+      void this.reconcileRuntimeTabs();
     });
     window.on("hide", () => {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
@@ -1109,13 +1117,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       displayHost.toolbarTemporarilyVisible = false;
       displayHost.nativeTitlebarRevealed = false;
       this.applyRuntimeToolbarState(displayHost);
-      this.reconcileRuntimeTabs();
+      void this.reconcileRuntimeTabs();
     });
     window.on("close", (event) => {
       if (displayHost.closing) return;
       event.preventDefault();
       window.hide();
-      this.reconcileRuntimeTabs();
+      void this.reconcileRuntimeTabs();
     });
     window.once("closed", () => {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
@@ -1441,22 +1449,27 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     webContents.once("destroyed", () => this.setHtmlFullscreen(host, webContents.id, false));
   }
 
-  private reconcileRuntimeTabs(): void {
-    const backgroundTabIds = [...this.hosts.values()].flatMap((tab) => {
+  private async reconcileRuntimeTabs(): Promise<void> {
+    const hiddenRuntimeTabIds = [...this.hosts.values()].flatMap((tab) => {
       const displayHost = this.getDisplayHost(tab);
-      const active = displayHost?.activeTabId === tab.id &&
-        !tab.hidden &&
-        isWindowVisible(displayHost.window);
-      return active ? [] : [tab.id];
+      const isInternalHidden = tab.hidden || displayHost?.activeTabId !== tab.id;
+      return isInternalHidden ? [tab.id] : [];
     });
-    void this.resourceCoordinator.setBackgroundWorkspaceIds(backgroundTabIds).catch((error) => {
-      console.warn("Failed to reconcile runtime tab resource state.", error);
-    });
+    const resourceUpdate = this.resourceCoordinator.setHiddenRuntimeTabIds(hiddenRuntimeTabIds);
     this.displayHosts.forEach((host) => {
       this.layoutDisplayHost(host);
       this.sendRuntimeChromeState(host);
     });
     this.emit("runtimeChange", this.listEmbeddedRuntimeState());
+    await resourceUpdate.catch((error) => {
+      console.warn("Failed to reconcile runtime tab resource state.", error);
+    });
+  }
+
+  private async prepareRuntimeTabForeground(tabId: string): Promise<void> {
+    await this.resourceCoordinator.prepareWorkspaceForeground(tabId).catch((error) => {
+      console.warn(`Failed to release runtime tab throttling before display: ${tabId}`, error);
+    });
   }
 
   private createSession(
@@ -1511,7 +1524,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         host.roleIds.delete(role.id);
         void this.resourceCoordinator.reconcileRuntimeRoleIds("embedded", this.sessions.keys());
         if (host.roleIds.size === 0 && !host.closing) {
-          this.closeHostWindow(host);
+          void this.closeHostWindow(host);
         }
         this.emitChange();
       }
@@ -1636,39 +1649,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       zoomMode: workspace.browserZoomMode,
       zoomFactor: workspace.browserZoomPercent / 100
     });
-    await this.resourceCoordinator.activateWorkspace(
-      workspace.id,
-      workspace.resourcePolicy,
-      this.createExternalResourceTargets(items)
-    );
-    return statuses.map((status) => this.withResourceStatus(status));
-  }
-
-  private createExternalResourceTargets(items: ExternalChromeLaunchItem[]): WorkspaceResourceTarget[] {
-    return items.map((item) => {
-      const automation = this.options.externalChromeManager?.getAutomationSession(item.role.id)?.target;
-      if (!automation) {
-        return {
-          roleId: item.role.id,
-          runtimeMode: "external" as const,
-          onFocus: () => () => undefined,
-          releaseThrottle: async () => undefined,
-          setCpuThrottleRate: async () => {
-            throw new Error("External Chrome DevTools control is unavailable.");
-          }
-        };
-      }
-
-      return {
-        roleId: item.role.id,
-        runtimeMode: "external" as const,
-        focus: () => automation.focus(),
-        onFocus: (listener) => automation.onFocus(listener),
-        onInvalidated: (listener) => automation.onDisconnect(listener),
-        releaseThrottle: () => automation.releaseThrottle(),
-        setCpuThrottleRate: (rate) => automation.setCpuThrottleRate(rate)
-      };
-    });
+    return statuses;
   }
 
   private async ensureSessionAuthenticated(role: Role, session: BrowserSession): Promise<void> {
@@ -1741,7 +1722,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         return;
       }
       event.preventDefault();
-      this.hideRuntimeTab(host.id);
+      void this.hideRuntimeTab(host.id);
     });
   }
 
@@ -1999,7 +1980,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (!host || host.window.isDestroyed()) {
       return;
     }
-    this.showRuntimeTab(host.id);
+    await this.showRuntimeTab(host.id);
     await session.target.focus();
   }
 
@@ -2037,7 +2018,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         this.destroySession(roleId, session);
       }
     });
-    this.closeHostWindow(host);
+    await this.closeHostWindow(host);
   }
 
   private destroySession(roleId: string, session: BrowserSession): void {
@@ -2115,7 +2096,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
   }
 
-  private closeHostWindow(host: GameHostWindow): void {
+  private async closeHostWindow(host: GameHostWindow): Promise<void> {
     host.closing = true;
     this.finishDividerResize(host);
     host.dividers.forEach((divider) => {
@@ -2132,18 +2113,24 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const displayHostWasFullscreen = displayHost
       ? this.isDisplayHostFullscreen(displayHost)
       : false;
+    const nextActiveTabId = displayHost?.activeTabId === host.id
+      ? displayHost.tabIds.find((tabId) => tabId !== host.id && !this.hosts.get(tabId)?.hidden)
+      : displayHost?.activeTabId;
+    if (nextActiveTabId && nextActiveTabId !== displayHost?.activeTabId) {
+      await this.prepareRuntimeTabForeground(nextActiveTabId);
+    }
     this.deleteHost(host);
     if (displayHost) {
       displayHost.tabIds = displayHost.tabIds.filter((tabId) => tabId !== host.id);
       if (displayHost.activeTabId === host.id) {
-        displayHost.activeTabId = displayHost.tabIds.find((tabId) => !this.hosts.get(tabId)?.hidden);
+        displayHost.activeTabId = nextActiveTabId;
       }
       this.handleDisplayHostFullscreenTransition(displayHost, displayHostWasFullscreen);
       if (!displayHost.activeTabId) displayHost.window.hide();
       this.layoutDisplayHost(displayHost);
       this.destroyDisplayHostIfEmpty(displayHost);
     }
-    this.reconcileRuntimeTabs();
+    await this.reconcileRuntimeTabs();
   }
 
   private deleteHost(host: GameHostWindow): void {

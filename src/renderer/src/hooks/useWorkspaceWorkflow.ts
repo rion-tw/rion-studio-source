@@ -212,7 +212,10 @@ export function useWorkspaceWorkflow({
     }
   }
 
-  async function handleLaunchWorkspace(workspace: LaunchWorkspace): Promise<void> {
+  async function handleLaunchWorkspace(
+    workspace: LaunchWorkspace,
+    initialResult?: Extract<WorkspaceLaunchResult, { kind: "display_selection_required" }>
+  ): Promise<void> {
     if (launchInProgressRef.current) {
       return;
     }
@@ -229,6 +232,7 @@ export function useWorkspaceWorkflow({
 
     try {
       const nextStatuses = await runWorkspaceLaunch({
+        initialResult,
         launch: (input) => window.rionStudio.launchWorkspace(workspace.id, input),
         selectDisplay: (result) => requestWorkspaceDisplaySelection(workspace, result)
       });

@@ -40,6 +40,18 @@ describe("workspace launch workflow", () => {
     await expect(runWorkspaceLaunch({ launch, selectDisplay })).resolves.toBeUndefined();
     expect(launch).toHaveBeenCalledTimes(1);
   });
+
+  it("resumes a pending native-menu launch directly from display selection", async () => {
+    const initialResult = selectionResult("target_occupied", [display(11, "Raid"), display(22)]);
+    const launched = launchResult(22);
+    const launch = vi.fn().mockResolvedValue(launched);
+    const selectDisplay = vi.fn().mockResolvedValue(22);
+
+    await expect(runWorkspaceLaunch({ initialResult, launch, selectDisplay }))
+      .resolves.toEqual(launched.statuses);
+    expect(selectDisplay).toHaveBeenCalledWith(initialResult);
+    expect(launch).toHaveBeenCalledWith({ displayId: 22 });
+  });
 });
 
 function launchResult(displayId: number): Extract<WorkspaceLaunchResult, { kind: "launched" }> {

@@ -221,6 +221,7 @@ export function App(): JSX.Element {
     t: preferences.t,
     workspaces: data.workspaces
   });
+  const handleWorkspaceLaunch = workspaceWorkflow.handleLaunchWorkspace;
 
   const macroWorkflow = useMacroWorkflow({
     beginErrorOperation: data.beginErrorOperation,
@@ -281,6 +282,52 @@ export function App(): JSX.Element {
       unsubscribe();
     };
   }, [hasBridge, initialLoadState, navigateToMacros, openListForRole, setError]);
+
+  useEffect(() => {
+    if (!hasBridge || initialLoadState !== "ready") {
+      return;
+    }
+
+    let isDisposed = false;
+
+    const consumePendingLaunchRequest = (): void => {
+      void window.rionStudio
+        .consumePendingWorkspaceLaunchRequest()
+        .then((request) => {
+          if (isDisposed || !request) {
+            return;
+          }
+
+          const workspace = data.workspaces.find((item) => item.id === request.workspaceId);
+          navigate("/workspaces");
+          if (!workspace) {
+            setError(new Error("Launch workspace not found."));
+            return;
+          }
+
+          void handleWorkspaceLaunch(workspace, request.result);
+        })
+        .catch(setError);
+    };
+
+    const unsubscribe = window.rionStudio.onWorkspaceLaunchRequested(() => {
+      consumePendingLaunchRequest();
+    });
+
+    consumePendingLaunchRequest();
+
+    return () => {
+      isDisposed = true;
+      unsubscribe();
+    };
+  }, [
+    data.workspaces,
+    hasBridge,
+    initialLoadState,
+    navigate,
+    setError,
+    handleWorkspaceLaunch
+  ]);
 
   useEffect(() => {
     if (!hasBridge || initialLoadState === "loading" || legal.isLoading) {

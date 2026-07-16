@@ -19,6 +19,7 @@ import type {
   Macro,
   MacroPageRequest,
   MacroRunStatus,
+  PendingWorkspaceLaunchRequest,
   PortableExportInput,
   PortableImportInput,
   ReorderItemsInput,
@@ -29,13 +30,10 @@ import type {
   UpdateMacroInput,
   UpdateRoleInput,
   WorkspaceDisplayInfo,
-  WorkspaceDisplayLaunchOption,
-  WorkspaceLaunchInput,
-  WorkspaceLaunchResult
+  WorkspaceLaunchInput
 } from "../../shared/types";
 import type { AuthManager } from "../auth/AuthManager";
 import {
-  BrowserWorkspaceDisplayOccupiedError,
   EXTERNAL_COMPAT_NOTICE,
   type BrowserManager
 } from "../browser/BrowserManager";
@@ -54,6 +52,7 @@ import type { PortableDataManager } from "../portable/PortableDataManager";
 import { RoleStore } from "../roles/RoleStore";
 import type { AppUpdateManager } from "../updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
+import { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCoordinator";
 
 interface RegisterIpcHandlersOptions {
   legalAcceptanceStore?: Pick<LegalAcceptanceStore, "accept" | "getStatus">;
@@ -68,6 +67,7 @@ interface RegisterIpcHandlersOptions {
   systemFontService?: Pick<SystemFontService, "listFonts">;
   updateManager?: AppUpdateManager;
   consumePendingMacroPageRequest?: () => MacroPageRequest | null;
+  consumePendingWorkspaceLaunchRequest?: () => PendingWorkspaceLaunchRequest | null;
   onMacrosChanged?: () => void;
   onMacroOverlayRequest?: (webContents: WebContents, request: MacroOverlayRequest) => Promise<unknown>;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
@@ -75,6 +75,7 @@ interface RegisterIpcHandlersOptions {
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
+  workspaceLauncher?: Pick<WorkspaceLaunchCoordinator, "launch">;
   withDataMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
   getDefaultWorkspaceDisplayId?: () => number;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
@@ -94,6 +95,15 @@ export function registerIpcHandlers(
   authManager: AuthManager,
   options: RegisterIpcHandlersOptions = {}
 ): void {
+  const workspaceLauncher = options.workspaceLauncher ?? new WorkspaceLaunchCoordinator({
+    browserManager,
+    gameBrowserSettingsStore: options.gameBrowserSettingsStore,
+    gameCompatibilityManager: options.gameCompatibilityManager,
+    getDefaultWorkspaceDisplayId: options.getDefaultWorkspaceDisplayId,
+    getWorkspaceDisplays: options.getWorkspaceDisplays,
+    roleStore,
+    workspaceStore
+  });
   browserManager.on("change", (statuses) => {
     broadcastStatusChange(statuses);
   });
@@ -530,93 +540,16 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.workspacesDisplays, () => getWorkspaceDisplays(options));
 
+  ipcMain.handle(
+    IPC_CHANNELS.workspacesConsumeLaunchRequest,
+    () => options.consumePendingWorkspaceLaunchRequest?.() ?? null
+  );
+
   ipcMain.handle(IPC_CHANNELS.workspacesLaunch, async (_event, id: string, input?: WorkspaceLaunchInput) => {
     if (!isWorkspaceLaunchInput(input)) {
       throw new Error("Launch workspace display selection is invalid.");
     }
-
-    const workspace = await workspaceStore.getWorkspace(id);
-    const launchSlots = workspace.slots.filter((slot) => slot.roleId);
-
-    if (launchSlots.length === 0) {
-      throw new Error("Launch workspace has no roles.");
-    }
-
-    const launchItems = await Promise.all(
-      launchSlots.map(async (slot) => ({
-        slot,
-        role: await roleStore.getRole(slot.roleId ?? "")
-      }))
-    );
-
-    const unauthenticatedRole = launchItems.find((item) => item.role.authState !== "authenticated");
-
-    if (unauthenticatedRole) {
-      throw new Error("Login required. Use Login before launching every role in this workspace.");
-    }
-
-    const displays = getWorkspaceDisplays(options);
-    const targetDisplayId =
-      input?.displayId ??
-      workspace.targetDisplayId ??
-      options.getDefaultWorkspaceDisplayId?.() ??
-      displays[0]?.id;
-    const targetDisplay = displays.find((display) => display.id === targetDisplayId);
-    const launchOptions = createWorkspaceDisplayLaunchOptions(displays, browserManager, workspace.id);
-
-    if (!targetDisplay) {
-      return {
-        kind: "display_selection_required",
-        reason: "target_unavailable",
-        displays: launchOptions
-      } satisfies WorkspaceLaunchResult;
-    }
-
-    if (launchOptions.find((display) => display.id === targetDisplay.id)?.occupiedByWorkspace) {
-      return {
-        kind: "display_selection_required",
-        reason: "target_occupied",
-        displays: launchOptions
-      } satisfies WorkspaceLaunchResult;
-    }
-
-    try {
-      const globalLaunchMode = options.gameBrowserSettingsStore
-        ? (await options.gameBrowserSettingsStore.getSettings()).launchMode
-        : "embedded";
-      const workspaceLaunchMode = workspace.browserLaunchMode === "inherit"
-        ? globalLaunchMode
-        : workspace.browserLaunchMode;
-      const statuses = await browserManager.launchWorkspace(
-        workspace,
-        launchItems.map(({ role, slot }) => ({ role, rect: slot.rect })),
-        { displayId: targetDisplay.id, workArea: targetDisplay.workArea },
-        workspaceLaunchMode
-      );
-      await Promise.all(statuses.map((status) => {
-        const role = launchItems.find((item) => item.role.id === status.roleId)?.role;
-        return role ? recordLaunchSuccess(options, role.gameId, status) : Promise.resolve();
-      }));
-      return {
-        kind: "launched",
-        displayId: targetDisplay.id,
-        statuses
-      } satisfies WorkspaceLaunchResult;
-    } catch (error) {
-      if (!(error instanceof BrowserWorkspaceDisplayOccupiedError)) {
-        await Promise.all(
-          [...new Set(launchItems.map((item) => item.role.gameId))]
-            .map((gameId) => recordLaunchFailure(options, gameId, error))
-        );
-        throw error;
-      }
-
-      return {
-        kind: "display_selection_required",
-        reason: "target_occupied",
-        displays: createWorkspaceDisplayLaunchOptions(getWorkspaceDisplays(options), browserManager, workspace.id)
-      } satisfies WorkspaceLaunchResult;
-    }
+    return workspaceLauncher.launch(id, input);
   });
 
   ipcMain.handle(IPC_CHANNELS.workspacesStop, async (_event, id: string) => {
@@ -870,34 +803,6 @@ function getWorkspaceDisplays(options: RegisterIpcHandlersOptions): WorkspaceDis
 
 function hasPortableImportChanges(summary: { create: number; update: number }): boolean {
   return summary.create > 0 || summary.update > 0;
-}
-
-function createWorkspaceDisplayLaunchOptions(
-  displays: WorkspaceDisplayInfo[],
-  browserManager: BrowserManager,
-  launchingWorkspaceId: string
-): WorkspaceDisplayLaunchOption[] {
-  const reservations = browserManager.listWorkspaceDisplayReservations?.() ?? [];
-  const reservationByDisplayId = new Map(
-    reservations
-      .filter((reservation) => reservation.workspaceId !== launchingWorkspaceId)
-      .map((reservation) => [reservation.displayId, reservation] as const)
-  );
-
-  return displays.map((display) => {
-    const reservation = reservationByDisplayId.get(display.id);
-    return {
-      ...display,
-      ...(reservation
-        ? {
-            occupiedByWorkspace: {
-              id: reservation.workspaceId,
-              name: reservation.workspaceName
-            }
-          }
-        : {})
-    };
-  });
 }
 
 function isAppLanguage(value: unknown): value is AppLanguage {

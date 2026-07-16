@@ -69,6 +69,13 @@ export interface BrowserWorkspaceLaunchTarget {
   workArea: PixelBounds;
 }
 
+export type BrowserWorkspaceRuntimeState = "launching" | "running" | "stopping";
+
+export interface BrowserWorkspaceRuntimeStatus {
+  workspaceId: string;
+  state: BrowserWorkspaceRuntimeState;
+}
+
 export interface BrowserAutomationSession {
   role: Role;
   target: BrowserAutomationTarget;
@@ -311,6 +318,44 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }));
   }
 
+  listWorkspaceRuntimeStatuses(): BrowserWorkspaceRuntimeStatus[] {
+    const states = new Map<string, BrowserWorkspaceRuntimeState>();
+    const setState = (workspaceId: string, state: BrowserWorkspaceRuntimeState): void => {
+      const current = states.get(workspaceId);
+      if (!current || getWorkspaceRuntimeStatePriority(state) > getWorkspaceRuntimeStatePriority(current)) {
+        states.set(workspaceId, state);
+      }
+    };
+
+    this.pendingWorkspaceLaunchIds.forEach((workspaceId) => setState(workspaceId, "launching"));
+    this.workspaceHostIds.forEach((hostId, workspaceId) => {
+      const host = this.hosts.get(hostId);
+      if (!host) {
+        return;
+      }
+      if (host.closing) {
+        setState(workspaceId, "stopping");
+        return;
+      }
+
+      const sessionStates = [...host.roleIds]
+        .map((roleId) => this.sessions.get(roleId)?.state)
+        .filter((state): state is RoleStatus["state"] => state !== undefined);
+      if (sessionStates.includes("stopping")) {
+        setState(workspaceId, "stopping");
+      } else if (sessionStates.includes("launching")) {
+        setState(workspaceId, "launching");
+      } else {
+        setState(workspaceId, "running");
+      }
+    });
+    this.options.externalChromeManager?.listWorkspaceRuntimeStatuses?.().forEach((status) => {
+      setState(status.workspaceId, status.state);
+    });
+
+    return [...states].map(([workspaceId, state]) => ({ workspaceId, state }));
+  }
+
   getRoleIdForWebContents(webContentsId: number): string | undefined {
     return [...this.sessions.entries()].find(([, session]) => session.view.webContents.id === webContentsId)?.[0];
   }
@@ -397,6 +442,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (target) {
       this.reserveWorkspaceDisplay(workspace.id, workspace.name, target.displayId);
       this.pendingWorkspaceLaunchIds.add(workspace.id);
+      this.emitChange();
     }
 
     try {
@@ -466,6 +512,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (target) {
         this.pendingWorkspaceLaunchIds.delete(workspace.id);
         this.cleanupWorkspaceDisplayReservation(workspace.id);
+        this.emitChange();
       }
     }
   }
@@ -1375,6 +1422,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private withResourceStatus(status: RoleStatus): RoleStatus {
     const resourceStatus = this.resourceCoordinator.getStatus(status.roleId);
     return resourceStatus ? { ...status, ...resourceStatus } : status;
+  }
+}
+
+function getWorkspaceRuntimeStatePriority(state: BrowserWorkspaceRuntimeState): number {
+  switch (state) {
+    case "running":
+      return 1;
+    case "launching":
+      return 2;
+    case "stopping":
+      return 3;
   }
 }
 

@@ -11,6 +11,7 @@ import type {
   Macro,
   MacroPageRequest,
   MacroRunStatus,
+  PendingWorkspaceLaunchRequest,
   RoleStatus,
   WorkspaceDisplayInfo
 } from "../shared/types";
@@ -55,6 +56,8 @@ const api: RionStudioApi = {
   listWorkspaceDisplays: () => ipcRenderer.invoke(IPC_CHANNELS.workspacesDisplays),
   launchWorkspace: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.workspacesLaunch, id, input),
   stopLaunchWorkspace: (id) => ipcRenderer.invoke(IPC_CHANNELS.workspacesStop, id),
+  consumePendingWorkspaceLaunchRequest: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.workspacesConsumeLaunchRequest),
   listMacros: () => ipcRenderer.invoke(IPC_CHANNELS.macrosList),
   createMacro: (input) => ipcRenderer.invoke(IPC_CHANNELS.macrosCreate, input),
   updateMacro: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.macrosUpdate, id, input),
@@ -112,6 +115,17 @@ const api: RionStudioApi = {
 
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.workspacesDisplaysChanged, listener);
+    };
+  },
+  onWorkspaceLaunchRequested: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: PendingWorkspaceLaunchRequest) => {
+      callback(request);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.workspacesLaunchRequested, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.workspacesLaunchRequested, listener);
     };
   },
   onAuthStatusChanged: (callback) => {

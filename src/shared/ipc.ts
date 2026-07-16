@@ -42,6 +42,8 @@ export const IPC_CHANNELS = {
   workspacesDisplaysChanged: "workspaces:displays-changed",
   workspacesLaunch: "workspaces:launch",
   workspacesStop: "workspaces:stop",
+  workspacesLaunchRequested: "workspaces:launch-requested",
+  workspacesConsumeLaunchRequest: "workspaces:consume-launch-request",
   macrosList: "macros:list",
   macrosCreate: "macros:create",
   macrosUpdate: "macros:update",

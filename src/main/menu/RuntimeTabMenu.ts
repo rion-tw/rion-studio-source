@@ -105,7 +105,7 @@ export class RuntimeTabMenuController {
                 ...(existing ? { checked: true, type: "checkbox" as const } : {}),
                 click: () => {
                   if (existing) {
-                    this.options.browserManager.showRuntimeTab(existing.id);
+                    void this.options.browserManager.showRuntimeTab(existing.id);
                     return;
                   }
                   void this.launchRole(role.id, sourceDisplayId);
@@ -124,7 +124,7 @@ export class RuntimeTabMenuController {
                 ...(existing ? { checked: true, type: "checkbox" as const } : {}),
                 click: () => {
                   if (existing) {
-                    this.options.browserManager.showRuntimeTab(existing.id);
+                    void this.options.browserManager.showRuntimeTab(existing.id);
                     return;
                   }
                   void this.launchWorkspace(workspace.id, sourceDisplayId);
@@ -151,7 +151,7 @@ export class RuntimeTabMenuController {
         submenu: displays.map((display) => ({
           enabled: display.id !== sourceDisplayId,
           label: display.label || `${text.display} ${display.id}`,
-          click: () => this.options.browserManager.moveRuntimeTab(tabId, display.id)
+          click: () => void this.options.browserManager.moveRuntimeTab(tabId, display.id)
         }))
       },
       { type: "separator" },

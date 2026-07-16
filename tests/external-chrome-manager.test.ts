@@ -375,6 +375,11 @@ describe("ExternalChromeManager", () => {
       width: 800,
       height: 900
     });
+    expect(harness.automationTargets[0].focus).toHaveBeenCalledOnce();
+    expect(harness.automationTargets[1].focus).not.toHaveBeenCalled();
+    expect(harness.automationTargets[0].focus.mock.invocationCallOrder[0]).toBeGreaterThan(
+      harness.automationTargets[1].setWindowBounds.mock.invocationCallOrder[0]
+    );
     expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.75);
     expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-2/browser", 0.75);
     expect(statuses).toEqual([

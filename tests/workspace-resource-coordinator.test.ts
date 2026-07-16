@@ -3,14 +3,13 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 
 import type { SystemPressureSnapshot } from "../src/main/browser/SystemPressureMonitor";
-
 import {
   WorkspaceResourceCoordinator,
   type WorkspaceResourceTarget
 } from "../src/main/browser/WorkspaceResourceCoordinator";
 
 describe("WorkspaceResourceCoordinator", () => {
-  it("adapts background roles from 2x to 4x when system pressure rises", async () => {
+  it("keeps every visible adaptive role at full speed without attaching CDP", async () => {
     let snapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
     const pressure = Object.assign(new EventEmitter(), { getSnapshot: () => snapshot });
     const coordinator = new WorkspaceResourceCoordinator(pressure);
@@ -22,95 +21,78 @@ describe("WorkspaceResourceCoordinator", () => {
       { mode: "adaptive", primaryRoleId: "role-1" },
       [first.target, second.target]
     );
-    expect(second.setRate).toHaveBeenLastCalledWith(2);
-    expect(coordinator.getStatus("role-2")).toMatchObject({
-      cpuThrottleRate: 2,
-      resourcePressureLevel: "normal",
-      resourceReason: "baseline"
-    });
+
+    expect(first.focus).toHaveBeenCalledOnce();
+    expect(first.setRate).not.toHaveBeenCalled();
+    expect(second.setRate).not.toHaveBeenCalled();
+    expect(coordinator.getStatus("role-1")).toBeUndefined();
+    expect(coordinator.getStatus("role-2")).toBeUndefined();
 
     snapshot = { level: "constrained", reason: "cpu" };
     pressure.emit("change", snapshot);
-    await vi.waitFor(() => expect(second.setRate).toHaveBeenLastCalledWith(4));
-    expect(coordinator.getStatus("role-2")).toMatchObject({
-      cpuThrottleRate: 4,
-      resourcePressureLevel: "constrained",
-      resourceReason: "cpu"
-    });
+    await Promise.resolve();
+    expect(first.setRate).not.toHaveBeenCalled();
+    expect(second.setRate).not.toHaveBeenCalled();
   });
 
-  it("keeps the configured primary at 1x and throttles the other roles", async () => {
+  it("uses the initial primary only for the first focus", async () => {
     const coordinator = new WorkspaceResourceCoordinator();
     const first = createTarget("role-1");
     const second = createTarget("role-2");
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-1" },
+      { mode: "adaptive", primaryRoleId: "role-2" },
       [first.target, second.target]
     );
+    await first.target.focus?.();
 
-    expect(first.setRate).toHaveBeenCalledWith(1);
-    expect(second.setRate).toHaveBeenCalledWith(2);
+    expect(second.focus).toHaveBeenCalledOnce();
     expect(first.focus).toHaveBeenCalledOnce();
-    expect(coordinator.getStatus("role-1")).toEqual({ resourceState: "primary", cpuThrottleRate: 1 });
-    expect(coordinator.getStatus("role-2")).toEqual({
+    expect(first.setRate).not.toHaveBeenCalled();
+    expect(second.setRate).not.toHaveBeenCalled();
+  });
+
+  it("adapts hidden tabs from 2x to 4x and reports the actual reason", async () => {
+    let snapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
+    const pressure = Object.assign(new EventEmitter(), { getSnapshot: () => snapshot });
+    const coordinator = new WorkspaceResourceCoordinator(pressure);
+    const target = createTarget("role-1");
+    await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [target.target]);
+
+    await coordinator.setHiddenRuntimeTabIds(["tab-1"]);
+    expect(target.setRate).toHaveBeenLastCalledWith(2);
+    expect(coordinator.getStatus("role-1")).toEqual({
       resourceState: "throttled",
       cpuThrottleRate: 2,
       resourcePressureLevel: "normal",
-      resourceReason: "baseline"
+      resourceReason: "runtime_tab_background"
     });
+
+    snapshot = { level: "constrained", reason: "memory" };
+    pressure.emit("change", snapshot);
+    await vi.waitFor(() => expect(target.setRate).toHaveBeenLastCalledWith(4));
+    expect(coordinator.getStatus("role-1")?.resourceReason).toBe("memory");
   });
 
-  it("uses the first target when no initial primary is configured", async () => {
+  it("never attaches CDP for unrestricted tabs, including hidden tabs", async () => {
+    const coordinator = new WorkspaceResourceCoordinator();
+    const target = createTarget("role-1");
+    await coordinator.activateWorkspace("tab-1", { mode: "unrestricted" }, [target.target]);
+
+    await coordinator.setHiddenRuntimeTabIds(["tab-1"]);
+
+    expect(target.setRate).not.toHaveBeenCalled();
+    expect(target.release).toHaveBeenCalled();
+    expect(coordinator.getStatus("role-1")).toBeUndefined();
+  });
+
+  it("temporarily restores macro roles in hidden tabs and reapplies throttling afterwards", async () => {
     const coordinator = new WorkspaceResourceCoordinator();
     const first = createTarget("role-1");
     const second = createTarget("role-2");
-
-    await coordinator.activateWorkspace(
-      "workspace-1",
-      { mode: "adaptive" },
-      [first.target, second.target]
-    );
-
-    expect(first.setRate).toHaveBeenCalledWith(1);
-    expect(second.setRate).toHaveBeenCalledWith(2);
-    expect(first.focus).toHaveBeenCalledOnce();
-    expect(coordinator.getStatus("role-1")?.resourceState).toBe("primary");
-  });
-
-  it("restores the new primary before slowing the old primary", async () => {
-    const operations: string[] = [];
-    const coordinator = new WorkspaceResourceCoordinator();
-    const first = createTarget("role-1", { operations });
-    const second = createTarget("role-2", { operations });
-    await coordinator.activateWorkspace(
-      "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-1" },
-      [first.target, second.target]
-    );
-    operations.length = 0;
-
-    second.emitFocus();
-
-    await vi.waitFor(() => {
-      expect(coordinator.getStatus("role-2")?.resourceState).toBe("primary");
-    });
-    const restoreIndex = operations.indexOf("role-2:1");
-    const throttleIndex = operations.indexOf("role-1:2");
-    expect(restoreIndex).toBeGreaterThanOrEqual(0);
-    expect(throttleIndex).toBeGreaterThan(restoreIndex);
-  });
-
-  it("temporarily restores macro roles and reapplies the policy afterwards", async () => {
-    const coordinator = new WorkspaceResourceCoordinator();
-    const first = createTarget("role-1");
-    const second = createTarget("role-2");
-    await coordinator.activateWorkspace(
-      "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-1" },
-      [first.target, second.target]
-    );
+    await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [first.target, second.target]);
+    await coordinator.setHiddenRuntimeTabIds(["tab-1"]);
 
     await coordinator.setMacroActiveRoleIds(["role-2"]);
     expect(second.setRate).toHaveBeenLastCalledWith(1);
@@ -125,16 +107,14 @@ describe("WorkspaceResourceCoordinator", () => {
     expect(coordinator.getStatus("role-2")?.resourceState).toBe("throttled");
   });
 
-  it("protects every role sharing the primary renderer process", async () => {
+  it("keeps a renderer process shared with a macro role at full speed", async () => {
     const coordinator = new WorkspaceResourceCoordinator();
     const first = createTarget("role-1", { processId: 101 });
     const second = createTarget("role-2", { processId: 101 });
+    await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [first.target, second.target]);
+    await coordinator.setHiddenRuntimeTabIds(["tab-1"]);
 
-    await coordinator.activateWorkspace(
-      "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-1" },
-      [first.target, second.target]
-    );
+    await coordinator.setMacroActiveRoleIds(["role-1"]);
 
     expect(second.setRate).toHaveBeenLastCalledWith(1);
     expect(coordinator.getStatus("role-2")).toEqual({
@@ -144,113 +124,53 @@ describe("WorkspaceResourceCoordinator", () => {
     });
   });
 
-  it("regroups and reapplies rates after an embedded renderer PID changes", async () => {
+  it("regroups after renderer invalidation and fails open when CDP is unavailable", async () => {
     const coordinator = new WorkspaceResourceCoordinator();
     const first = createTarget("role-1", { processId: 101 });
-    const second = createTarget("role-2", { processId: 101 });
-    await coordinator.activateWorkspace(
-      "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-1" },
-      [first.target, second.target]
-    );
+    const second = createTarget("role-2", { processId: 101, rejectRate: 2 });
+    await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [first.target, second.target]);
+    await coordinator.setMacroActiveRoleIds(["role-1"]);
+    await coordinator.setHiddenRuntimeTabIds(["tab-1"]);
 
     second.setProcessId(202);
     second.emitInvalidated();
 
     await vi.waitFor(() => {
       expect(coordinator.getStatus("role-2")).toEqual({
-        resourceState: "throttled",
-        cpuThrottleRate: 2,
-        resourcePressureLevel: "normal",
-        resourceReason: "baseline"
+        resourceState: "unavailable",
+        cpuThrottleRate: 1,
+        resourceReason: "unavailable"
       });
     });
+    expect(second.release).toHaveBeenCalled();
   });
 
-  it("fails open and reports unavailable when a CDP command fails", async () => {
+  it("releases throttling before a hidden workspace returns to the foreground", async () => {
+    const operations: string[] = [];
     const coordinator = new WorkspaceResourceCoordinator();
-    const first = createTarget("role-1");
-    const second = createTarget("role-2", { rejectRate: 2 });
+    const target = createTarget("role-1", { operations });
+    await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [target.target]);
+    await coordinator.setHiddenRuntimeTabIds(["tab-1"]);
+    operations.length = 0;
 
-    await coordinator.activateWorkspace(
-      "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-1" },
-      [first.target, second.target]
-    );
+    await coordinator.prepareWorkspaceForeground("tab-1");
 
-    expect(second.release).toHaveBeenCalledOnce();
-    expect(coordinator.getStatus("role-2")).toEqual({
-      resourceState: "unavailable",
-      cpuThrottleRate: 1,
-      resourceReason: "unavailable"
-    });
+    expect(operations).toEqual(["role-1:release"]);
+    expect(coordinator.getStatus("role-1")).toBeUndefined();
   });
 
-  it("does nothing for unrestricted or single-role workspaces", async () => {
+  it("releases removed targets and clears their state", async () => {
     const coordinator = new WorkspaceResourceCoordinator();
     const first = createTarget("role-1");
     const second = createTarget("role-2");
-
-    await coordinator.activateWorkspace(
-      "workspace-1",
-      { mode: "unrestricted" },
-      [first.target, second.target]
-    );
-    await coordinator.activateWorkspace(
-      "workspace-2",
-      { mode: "adaptive", primaryRoleId: "role-1" },
-      [first.target]
-    );
-
-    expect(first.setRate).not.toHaveBeenCalled();
-    expect(second.setRate).not.toHaveBeenCalled();
-  });
-
-  it("throttles hidden runtime tabs at 2x or 4x while preserving macro overrides", async () => {
-    let snapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
-    const pressure = Object.assign(new EventEmitter(), { getSnapshot: () => snapshot });
-    const coordinator = new WorkspaceResourceCoordinator(pressure);
-    const target = createTarget("role-1");
-    await coordinator.activateWorkspace("tab-1", { mode: "unrestricted" }, [target.target]);
-
-    await coordinator.setBackgroundWorkspaceIds(["tab-1"]);
-    expect(target.setRate).toHaveBeenLastCalledWith(2);
-    expect(coordinator.getStatus("role-1")).toMatchObject({
-      cpuThrottleRate: 2,
-      resourceReason: "runtime_tab_background",
-      resourceState: "throttled"
-    });
-
-    snapshot = { level: "constrained", reason: "memory" };
-    pressure.emit("change", snapshot);
-    await vi.waitFor(() => expect(target.setRate).toHaveBeenLastCalledWith(4));
-
-    await coordinator.setMacroActiveRoleIds(["role-1"]);
-    expect(target.setRate).toHaveBeenLastCalledWith(1);
-    expect(coordinator.getStatus("role-1")?.resourceState).toBe("macro_override");
-
-    await coordinator.setMacroActiveRoleIds([]);
-    expect(target.setRate).toHaveBeenLastCalledWith(4);
-    await coordinator.setBackgroundWorkspaceIds([]);
-    expect(target.release).toHaveBeenCalled();
-  });
-
-  it("releases the remaining role when the primary runtime disappears", async () => {
-    const coordinator = new WorkspaceResourceCoordinator();
-    const first = createTarget("role-1");
-    const second = createTarget("role-2");
-    await coordinator.activateWorkspace(
-      "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-1" },
-      [first.target, second.target]
-    );
+    await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [first.target, second.target]);
+    await coordinator.setHiddenRuntimeTabIds(["tab-1"]);
 
     await coordinator.reconcileRuntimeRoleIds("embedded", ["role-2"]);
 
-    expect(first.release).toHaveBeenCalledOnce();
-    expect(second.release).toHaveBeenCalledOnce();
+    expect(first.release).toHaveBeenCalled();
     expect(coordinator.getStatus("role-1")).toBeUndefined();
-    expect(coordinator.getStatus("role-2")).toBeUndefined();
+    expect(coordinator.getStatus("role-2")?.resourceState).toBe("throttled");
   });
 });
 
@@ -262,26 +182,21 @@ function createTarget(
     rejectRate?: 1 | 2 | 4;
   } = {}
 ) {
-  const focusListeners = new Set<() => void>();
   const invalidationListeners = new Set<() => void>();
   let processId = options.processId;
   const setRate = vi.fn(async (rate: 1 | 2 | 4) => {
     options.operations?.push(`${roleId}:${rate}`);
-    if (options.rejectRate === rate) {
-      throw new Error("CDP unavailable");
-    }
+    if (options.rejectRate === rate) throw new Error("CDP unavailable");
   });
-  const release = vi.fn(async () => undefined);
+  const release = vi.fn(async () => {
+    options.operations?.push(`${roleId}:release`);
+  });
   const focus = vi.fn(async () => undefined);
   const target: WorkspaceResourceTarget = {
     roleId,
     runtimeMode: "embedded",
     focus,
     getProcessId: () => processId,
-    onFocus: (listener) => {
-      focusListeners.add(listener);
-      return () => focusListeners.delete(listener);
-    },
     onInvalidated: (listener) => {
       invalidationListeners.add(listener);
       return () => invalidationListeners.delete(listener);
@@ -290,7 +205,6 @@ function createTarget(
     setCpuThrottleRate: setRate
   };
   return {
-    emitFocus: () => focusListeners.forEach((listener) => listener()),
     emitInvalidated: () => invalidationListeners.forEach((listener) => listener()),
     focus,
     release,

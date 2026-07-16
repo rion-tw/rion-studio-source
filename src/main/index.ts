@@ -578,10 +578,14 @@ async function initializeApplication(): Promise<void> {
 
     switch (action.type) {
       case "activate":
-        browserManager.showRuntimeTab(action.tabId);
+        void browserManager.showRuntimeTab(action.tabId).catch((error) => {
+          console.error("Failed to activate runtime tab.", error);
+        });
         break;
       case "hide":
-        browserManager.hideRuntimeTab(action.tabId);
+        void browserManager.hideRuntimeTab(action.tabId).catch((error) => {
+          console.error("Failed to hide runtime tab.", error);
+        });
         break;
       case "stop":
         void browserManager.stopRuntimeTab(action.tabId).catch((error) => {
@@ -589,7 +593,9 @@ async function initializeApplication(): Promise<void> {
         });
         break;
       case "move":
-        browserManager.moveRuntimeTab(action.tabId, action.displayId);
+        void browserManager.moveRuntimeTab(action.tabId, action.displayId).catch((error) => {
+          console.error("Failed to move runtime tab.", error);
+        });
         break;
       case "reorder":
         browserManager.reorderRuntimeTab(action.tabId, action.beforeTabId);

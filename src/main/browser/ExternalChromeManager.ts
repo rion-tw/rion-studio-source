@@ -246,6 +246,9 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       }
 
       const sessionByRoleId = new Map(sessions.map(({ roleId, session }) => [roleId, session]));
+      await sessionByRoleId.get(primaryRoleId ?? "")?.automationTarget?.focus().catch((error) => {
+        console.warn("Failed to restore initial focus to the primary external Chrome role.", error);
+      });
       return items.map(({ role }) => this.toStatus(role.id, sessionByRoleId.get(role.id)!));
     } catch (error) {
       await Promise.all(sessions.map(({ roleId }) => this.stop(roleId)));

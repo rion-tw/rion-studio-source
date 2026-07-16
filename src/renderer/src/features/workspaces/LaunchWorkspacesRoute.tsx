@@ -722,6 +722,8 @@ function getResourceStateTitle(status: RoleStatus, t: Translator): string {
       return `${label} — ${t("workspaces.resourceReason.memory")}`;
     case "thermal":
       return `${label} — ${t("workspaces.resourceReason.thermal")}`;
+    case "runtime_tab_background":
+      return `${label} — ${t("workspaces.resourceReason.runtimeTabBackground")}`;
     default:
       return `${label} — ${t("workspaces.resourceReason.baseline")}`;
   }
@@ -729,8 +731,6 @@ function getResourceStateTitle(status: RoleStatus, t: Translator): string {
 
 function getResourceStateLabel(status: RoleStatus, t: Translator): string {
   switch (status.resourceState) {
-    case "primary":
-      return t("workspaces.resourceState.primary");
     case "throttled":
       return status.resourcePressureLevel
         ? `${t("workspaces.resourceState.auto")} ${status.cpuThrottleRate ?? 1}x`

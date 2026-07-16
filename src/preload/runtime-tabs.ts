@@ -227,12 +227,49 @@ function element<K extends keyof HTMLElementTagNameMap>(
 function installStyles(): void {
   const style = document.createElement("style");
   style.textContent = `
-    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      --runtime-text: rgba(255,255,255,.9);
+      --runtime-muted: rgba(255,255,255,.54);
+      --runtime-bar-material: rgba(24,25,29,.58);
+      --runtime-bar-highlight: rgba(255,255,255,.045);
+      --runtime-edge: rgba(255,255,255,.095);
+      --runtime-tab-hover: rgba(255,255,255,.065);
+      --runtime-tab-active: rgba(255,255,255,.115);
+      --runtime-tab-border: rgba(255,255,255,.11);
+      --runtime-tab-highlight: rgba(255,255,255,.075);
+      --runtime-control-hover: rgba(255,255,255,.1);
+      --runtime-focus: rgba(138,180,255,.72);
+      --runtime-workspace: #9bbcff;
+    }
     * { box-sizing: border-box; }
     html, body, #runtime-tabs-root { height: 100%; margin: 0; overflow: hidden; }
-    body { background: transparent; color: rgba(255,255,255,.92); user-select: none; }
-    button { font: inherit; }
-    .runtime-bar { -webkit-app-region: drag; align-items: center; background: rgba(26,27,31,.88); border-bottom: 1px solid rgba(255,255,255,.12); display: flex; gap: 6px; height: 40px; overflow: hidden; padding: 4px 10px; }
+    body {
+      background: transparent;
+      color: var(--runtime-text);
+      font-size: 12px;
+      line-height: 1;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    button { color: inherit; font: inherit; }
+    .runtime-bar {
+      -webkit-app-region: drag;
+      align-items: center;
+      background:
+        linear-gradient(180deg, var(--runtime-bar-highlight) 0%, transparent 72%),
+        var(--runtime-bar-material);
+      border-bottom: 1px solid var(--runtime-edge);
+      display: flex;
+      gap: 6px;
+      height: 40px;
+      overflow: hidden;
+      padding: 4px 10px;
+      -webkit-backdrop-filter: blur(24px) saturate(1.18);
+      backdrop-filter: blur(24px) saturate(1.18);
+    }
     .runtime-bar.is-collapsed { background: transparent; border-bottom: 0; height: 2px; padding: 0; }
     .runtime-bar.is-collapsed > * { visibility: hidden; }
     :root[data-platform="darwin"] .runtime-bar.is-collapsed { padding-left: 0; }
@@ -242,33 +279,107 @@ function installStyles(): void {
     .runtime-tab-list::-webkit-scrollbar { display: none; }
     .runtime-tab, .runtime-icon-button, .runtime-window-controls, .runtime-traffic-light { -webkit-app-region: no-drag; }
     .runtime-window-controls { align-items: center; display: flex; flex: 0 0 auto; gap: 8px; margin: 0 7px 0 4px; }
-    .runtime-traffic-light { align-items: center; border: 0; border-radius: 50%; color: transparent; display: inline-flex; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10px; font-weight: 700; height: 13px; justify-content: center; line-height: 13px; padding: 0; width: 13px; }
+    .runtime-traffic-light { align-items: center; border: 0; border-radius: 50%; color: transparent; display: inline-flex; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 9px; font-weight: 700; height: 13px; justify-content: center; line-height: 13px; padding: 0; width: 13px; }
     .runtime-window-controls:hover .runtime-traffic-light { color: rgba(28,28,30,.75); }
     .runtime-traffic-light.close { background: #ff5f57; border: 1px solid #e0443e; }
     .runtime-traffic-light.minimize { background: #febc2e; border: 1px solid #d89e24; }
     .runtime-traffic-light.fullscreen { background: #28c840; border: 1px solid #1aaa32; }
     .runtime-traffic-light:disabled { background: #5d5d61; border-color: #4c4c50; color: transparent; }
-    .runtime-tab { align-items: center; background: rgba(255,255,255,.055); border: 1px solid transparent; border-radius: 7px; color: inherit; display: flex; flex: 0 1 210px; gap: 6px; height: 31px; min-width: 108px; overflow: hidden; padding: 0 6px 0 9px; }
-    .runtime-tab:hover { background: rgba(255,255,255,.1); }
-    .runtime-tab.is-active { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.15); }
-    .runtime-tab-marker { color: #9ca3af; font-size: 11px; }
-    .runtime-tab-marker.workspace { color: #8ab4ff; }
-    .runtime-tab-name { flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-    .runtime-tab-count { color: rgba(255,255,255,.55); font-size: 10px; }
-    .runtime-icon-button { align-items: center; background: transparent; border: 0; border-radius: 5px; color: rgba(255,255,255,.72); display: inline-flex; height: 23px; justify-content: center; min-width: 23px; padding: 0; }
-    .runtime-icon-button:hover { background: rgba(255,255,255,.13); color: white; }
+    .runtime-tab {
+      align-items: center;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: inherit;
+      display: flex;
+      flex: 0 1 220px;
+      gap: 5px;
+      height: 30px;
+      min-width: 96px;
+      overflow: hidden;
+      padding: 0 5px 0 9px;
+      transition: background-color 120ms ease, border-color 120ms ease;
+    }
+    .runtime-tab:hover { background: var(--runtime-tab-hover); }
+    .runtime-tab.is-active {
+      background: var(--runtime-tab-active);
+      border-color: var(--runtime-tab-border);
+      box-shadow: inset 0 1px 0 var(--runtime-tab-highlight);
+    }
+    .runtime-tab:focus-visible {
+      outline: 2px solid var(--runtime-focus);
+      outline-offset: -2px;
+    }
+    .runtime-tab-marker {
+      color: var(--runtime-muted);
+      flex: 0 0 10px;
+      font-size: 7px;
+      line-height: 1;
+      text-align: center;
+    }
+    .runtime-tab-marker.workspace { color: var(--runtime-workspace); font-size: 10px; }
+    .runtime-tab-name {
+      flex: 1;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: -.01em;
+      line-height: 1;
+      overflow: hidden;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .runtime-tab-count { color: var(--runtime-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+    .runtime-tab-count:empty { display: none; }
+    .runtime-icon-button {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      border-radius: 6px;
+      color: var(--runtime-muted);
+      display: inline-flex;
+      flex: 0 0 auto;
+      height: 22px;
+      justify-content: center;
+      min-width: 22px;
+      padding: 0;
+      transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+    }
+    .runtime-icon-button:hover, .runtime-icon-button:focus-visible {
+      background: var(--runtime-control-hover);
+      color: var(--runtime-text);
+    }
+    .runtime-icon-button:focus-visible { outline: 2px solid var(--runtime-focus); outline-offset: -2px; }
     .runtime-tab-action { opacity: 0; }
-    .runtime-tab:hover .runtime-tab-action, .runtime-tab.is-active .runtime-tab-action { opacity: 1; }
-    .runtime-add { flex: 0 0 30px; font-size: 19px; height: 30px; }
+    .runtime-tab:hover .runtime-tab-action,
+    .runtime-tab.is-active .runtime-tab-action,
+    .runtime-tab:focus-within .runtime-tab-action { opacity: 1; }
+    .runtime-add { flex: 0 0 28px; font-size: 18px; font-weight: 400; height: 28px; }
     @media (prefers-color-scheme: light) {
-      body { color: rgba(20,20,24,.9); }
-      .runtime-bar { background: rgba(244,244,246,.91); border-bottom-color: rgba(0,0,0,.14); }
-      .runtime-bar.is-collapsed { background: transparent; border-bottom: 0; }
-      .runtime-tab { background: rgba(0,0,0,.045); }
-      .runtime-tab:hover { background: rgba(0,0,0,.08); }
-      .runtime-tab.is-active { background: rgba(255,255,255,.82); border-color: rgba(0,0,0,.12); }
-      .runtime-icon-button { color: rgba(0,0,0,.65); }
-      .runtime-icon-button:hover { background: rgba(0,0,0,.08); color: black; }
+      :root {
+        --runtime-text: rgba(24,24,28,.88);
+        --runtime-muted: rgba(24,24,28,.52);
+        --runtime-bar-material: rgba(244,245,247,.62);
+        --runtime-bar-highlight: rgba(255,255,255,.34);
+        --runtime-edge: rgba(26,28,34,.1);
+        --runtime-tab-hover: rgba(20,22,28,.052);
+        --runtime-tab-active: rgba(255,255,255,.68);
+        --runtime-tab-border: rgba(24,26,32,.095);
+        --runtime-tab-highlight: rgba(255,255,255,.52);
+        --runtime-control-hover: rgba(20,22,28,.07);
+        --runtime-focus: rgba(36,99,235,.62);
+        --runtime-workspace: #3867bd;
+      }
+    }
+    @media (prefers-reduced-transparency: reduce) {
+      :root { --runtime-bar-material: rgb(43,44,49); --runtime-bar-highlight: transparent; }
+      .runtime-bar { -webkit-backdrop-filter: none; backdrop-filter: none; }
+    }
+    @media (prefers-color-scheme: light) and (prefers-reduced-transparency: reduce) {
+      :root { --runtime-bar-material: rgb(238,239,242); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .runtime-tab, .runtime-icon-button { transition: none; }
     }
   `;
   document.head.append(style);

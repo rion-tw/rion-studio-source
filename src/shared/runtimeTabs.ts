@@ -28,6 +28,7 @@ export interface RuntimeTabChromeState extends EmbeddedRuntimeState {
   displays: WorkspaceDisplayInfo[];
   fullscreen: boolean;
   language: AppLanguage;
+  tabIconDataUrls: Record<string, string>;
   toolbarVisible: boolean;
   windowFullscreen: boolean;
 }

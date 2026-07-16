@@ -305,6 +305,78 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
+  it("sends a cached role game icon only through the runtime chrome state", async () => {
+    const iconDataUrl = "data:image/png;base64,cnVudGltZS1pY29u";
+    const getRuntimeTabGameIcon = vi.fn().mockResolvedValue(iconDataUrl);
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getRuntimeTabGameIcon,
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+
+    await harness.manager.launch(role);
+    const [tab] = harness.manager.listEmbeddedRuntimeState().tabs;
+
+    expect(getRuntimeTabGameIcon).toHaveBeenCalledOnce();
+    expect(getRuntimeTabGameIcon).toHaveBeenCalledWith(role);
+    expect(tab).not.toHaveProperty("gameIconDataUrl");
+    expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
+      "runtime-tabs:state",
+      expect.objectContaining({
+        tabIconDataUrls: { [tab.id]: iconDataUrl }
+      })
+    );
+
+    harness.manager.setRuntimeTabsLanguage("ja");
+    expect(getRuntimeTabGameIcon).toHaveBeenCalledOnce();
+  });
+
+  it("keeps workspace tabs on their layout marker without resolving game icons", async () => {
+    const getRuntimeTabGameIcon = vi.fn().mockResolvedValue("data:image/png;base64,dW51c2Vk");
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getRuntimeTabGameIcon,
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+
+    await harness.manager.launchWorkspace(
+      workspace,
+      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }]
+    );
+
+    expect(getRuntimeTabGameIcon).not.toHaveBeenCalled();
+    expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
+      { type: "workspace" }
+    ]);
+    expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
+      "runtime-tabs:state",
+      expect.objectContaining({ tabIconDataUrls: {} })
+    );
+  });
+
+  it("falls back without failing launch when the runtime game icon resolver rejects", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      getRuntimeTabGameIcon: vi.fn().mockRejectedValue(new Error("bad icon")),
+      platform: "darwin",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+
+    await expect(harness.manager.launch(role)).resolves.toMatchObject({
+      roleId: role.id,
+      state: "running"
+    });
+    expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(
+      "runtime-tabs:state",
+      expect.objectContaining({ tabIconDataUrls: {} })
+    );
+  });
+
   it("switches and reorders tabs without reloading their game views", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
@@ -2604,6 +2676,7 @@ function createHarness(options: {
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
   getLoginUrl?: (role: Role) => string | Promise<string>;
+  getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
     | Promise<WorkspaceAppearanceSettings>;
@@ -2691,6 +2764,9 @@ function createHarness(options: {
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
     ...(options.getLoginUrl ? { getLoginUrl: options.getLoginUrl } : {}),
+    ...(options.getRuntimeTabGameIcon
+      ? { getRuntimeTabGameIcon: options.getRuntimeTabGameIcon }
+      : {}),
     ...(options.getWorkspaceAppearanceSettings
       ? { getWorkspaceAppearanceSettings: options.getWorkspaceAppearanceSettings }
       : {}),

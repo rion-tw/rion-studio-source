@@ -114,6 +114,7 @@ export interface BrowserManagerOptions {
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
   getLoginUrl?: (role: Role) => string | Promise<string>;
+  getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getLaunchWorkArea: () => PixelBounds;
   getDefaultLaunchTarget?: () => BrowserWorkspaceLaunchTarget;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
@@ -182,6 +183,7 @@ interface GameHostWindow {
   activeDividerResize?: ActiveGameDividerResize;
   closing: boolean;
   dividers: GameDivider[];
+  gameIconDataUrl?: string;
   id: string;
   displayHostId: string;
   hidden: boolean;
@@ -721,7 +723,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     const target = options.target ?? this.getDefaultLaunchTarget();
-    const host = this.createHost(role.name, undefined, target.workArea, undefined, target.displayId, role.id);
+    const gameIconDataUrl = await this.resolveRuntimeTabGameIcon(role);
+    const host = this.createHost(
+      role.name,
+      undefined,
+      target.workArea,
+      undefined,
+      target.displayId,
+      role.id,
+      gameIconDataUrl
+    );
     await this.applyBrowserFonts(role);
     const session = this.createSession(role, host, FULL_WINDOW_RECT, zoomFactor);
 
@@ -855,7 +866,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     if (!session) {
       const target = options.target ?? this.getDefaultLaunchTarget();
-      const host = this.createHost(role.name, undefined, target.workArea, undefined, target.displayId, role.id);
+      const gameIconDataUrl = await this.resolveRuntimeTabGameIcon(role);
+      const host = this.createHost(
+        role.name,
+        undefined,
+        target.workArea,
+        undefined,
+        target.displayId,
+        role.id,
+        gameIconDataUrl
+      );
       await this.applyBrowserFonts(role);
       session = this.createSession(role, host, FULL_WINDOW_RECT, DEFAULT_BROWSER_ZOOM_FACTOR);
     } else {
@@ -1033,7 +1053,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     launchBounds?: PixelBounds,
     workspaceAppearance: WorkspaceAppearanceSettings = DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
     displayId?: number,
-    sourceId = workspaceId ?? title
+    sourceId = workspaceId ?? title,
+    gameIconDataUrl?: string
   ): GameHostWindow {
     const target = displayId === undefined
       ? this.getDefaultLaunchTarget()
@@ -1043,6 +1064,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       closing: false,
       displayHostId: displayHost.id,
       dividers: [],
+      ...(gameIconDataUrl ? { gameIconDataUrl } : {}),
       hidden: false,
       htmlFullscreenWebContentsIds: new Set(),
       id: randomUUID(),
@@ -1295,10 +1317,23 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       displays: this.options.getWorkspaceDisplays?.() ?? [],
       fullscreen: this.isDisplayHostFullscreen(displayHost),
       language: this.runtimeTabsLanguage,
+      tabIconDataUrls: Object.fromEntries(
+        [...this.hosts.values()].flatMap((host) =>
+          host.gameIconDataUrl ? [[host.id, host.gameIconDataUrl] as const] : []
+        )
+      ),
       toolbarVisible: this.isRuntimeToolbarVisible(displayHost),
       windowFullscreen: displayHost.windowFullscreen
     };
     chromeWebContents.send(RUNTIME_TABS_STATE_CHANNEL, state);
+  }
+
+  private async resolveRuntimeTabGameIcon(role: Role): Promise<string | undefined> {
+    try {
+      return await this.options.getRuntimeTabGameIcon?.(role);
+    } catch {
+      return undefined;
+    }
   }
 
   private isDisplayHostFullscreen(displayHost: EmbeddedDisplayHost): boolean {

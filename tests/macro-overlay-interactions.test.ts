@@ -190,6 +190,77 @@ describe("macro overlay pointer interactions", () => {
     });
   });
 
+  it("starts and stops from macro rows without nested controls triggering the row", async () => {
+    createGameSurface(document);
+    let statuses: Array<Record<string, unknown>> = [];
+    const binding = vi.fn(async (request: unknown) => {
+      const action = isRecord(request) && typeof request.type === "string" ? request.type : "list";
+      if (action === "start") {
+        statuses = [{
+          roleId: "role-1",
+          macroId: assignedMacro.id,
+          state: "running",
+          startedAt: "2026-07-10T00:00:00.000Z",
+          updatedAt: "2026-07-10T00:00:00.000Z"
+        }];
+      } else if (action === "stop") {
+        statuses = [];
+      }
+      return { macros: [assignedMacro], statuses };
+    });
+    const controller = installOverlay(window, binding);
+    await controller.refresh({ renderAfter: true });
+    controller.togglePanel(true);
+    await controller.refresh({ renderAfter: true });
+
+    let root = getOverlayRoot(document);
+    root.querySelector<HTMLButtonElement>(".macro-edit")?.click();
+    await vi.waitFor(() => {
+      expect(binding).toHaveBeenCalledWith({ macroId: assignedMacro.id, type: "edit" });
+    });
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "start" }));
+
+    controller.togglePanel(true);
+    await controller.refresh({ renderAfter: true });
+    root = getOverlayRoot(document);
+    root.querySelector<HTMLButtonElement>(".macro-enabled-switch")?.click();
+    await vi.waitFor(() => {
+      expect(binding).toHaveBeenCalledWith({
+        type: "set-enabled",
+        macroId: assignedMacro.id,
+        enabled: false
+      });
+    });
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "start" }));
+
+    root = getOverlayRoot(document);
+    const row = root.querySelector<HTMLElement>(".macro-row");
+    if (!row) {
+      throw new Error("Expected a macro row.");
+    }
+    const pagePointerDown = vi.fn();
+    document.addEventListener("pointerdown", pagePointerDown);
+    const pointerEvent = createPointerDown(window);
+    expect(row.dispatchEvent(pointerEvent)).toBe(false);
+    document.removeEventListener("pointerdown", pagePointerDown);
+    expect(pointerEvent.defaultPrevented).toBe(true);
+    expect(pagePointerDown).not.toHaveBeenCalled();
+
+    row.dispatchEvent(createClick(window));
+    await vi.waitFor(() => {
+      expect(binding).toHaveBeenCalledWith({ macroId: assignedMacro.id, type: "start" });
+    });
+    expect(root.innerHTML).toContain(".panel{display:none");
+
+    controller.togglePanel(true);
+    await controller.refresh({ renderAfter: true });
+    root = getOverlayRoot(document);
+    root.querySelector<HTMLElement>(".macro-row")?.dispatchEvent(createClick(window));
+    await vi.waitFor(() => {
+      expect(binding).toHaveBeenCalledWith({ macroId: assignedMacro.id, type: "stop" });
+    });
+  });
+
   it("lets disabled shortcuts reach the game and toggles them from the macro menu", async () => {
     createGameSurface(document);
     let currentMacro = {
@@ -228,8 +299,14 @@ describe("macro overlay pointer interactions", () => {
     expect(roleCount?.textContent).toBe("2");
     expect(roleCount?.getAttribute("data-tooltip")).toBe("Main, Support");
 
+    root.querySelector<HTMLElement>(".macro-row")?.dispatchEvent(createClick(window));
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "start" }));
+
     const toggle = root.querySelector<HTMLButtonElement>(".macro-enabled-switch");
     expect(toggle?.getAttribute("aria-checked")).toBe("false");
+    await controller.refresh({ renderAfter: true });
+    expect(getOverlayRoot(document).querySelector(".macro-enabled-switch")).toBe(toggle);
+    expect(toggle?.isConnected).toBe(true);
     toggle?.click();
     await vi.waitFor(() => {
       expect(binding).toHaveBeenCalledWith({
@@ -283,6 +360,15 @@ function createGameSurface(ownerDocument: Document): { button: HTMLButtonElement
 function createPointerDown(targetWindow: Window): MouseEvent {
   const MouseEventConstructor = (targetWindow as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent;
   return new MouseEventConstructor("pointerdown", {
+    bubbles: true,
+    cancelable: true,
+    composed: true
+  });
+}
+
+function createClick(targetWindow: Window): MouseEvent {
+  const MouseEventConstructor = (targetWindow as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent;
+  return new MouseEventConstructor("click", {
     bubbles: true,
     cancelable: true,
     composed: true

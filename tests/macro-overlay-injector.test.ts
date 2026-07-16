@@ -308,7 +308,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.1"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.2"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
@@ -365,7 +365,9 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('visibleSteps.push(text.stepsMore.replace("{count}", String(steps.length - visibleSteps.length)));');
     expect(MACRO_OVERLAY_SCRIPT).toContain("const steps = formatSteps(macro.steps);");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const poll = formatRepeat(macro.repeat);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<div class="macro-row" role="menuitem"><span class="macro-title"><span class="status-dot ');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('<div class="macro-row" role="menuitem" data-macro-id="');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('" data-enabled="');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('" aria-disabled="');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="create-row"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('data-action="create"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "create" });');
@@ -411,6 +413,11 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("background:#5cae58");
     expect(MACRO_OVERLAY_SCRIPT).toContain('role="switch"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('void runAction("set-enabled", macroId');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('targetRoot.querySelectorAll("button,.macro-row")');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('targetRoot.querySelectorAll(".macro-row")');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('closeAfter: true');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("function getRenderSignature()");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("const renderSignatureChanged = previousRenderSignature !== getRenderSignature()");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.disabled");
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="people-icon"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="macro-role-count" data-tooltip="');

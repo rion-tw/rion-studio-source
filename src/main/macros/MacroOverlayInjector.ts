@@ -410,7 +410,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v25"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-16.1";
+  const scriptVersion = "2026-07-16.2";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
@@ -677,6 +677,19 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
 
   function getRunningBadgeSignature() {
     return JSON.stringify(getRunningBadgeMacros().map((macro) => [macro.id, macro.name, formatShortcut(macro.trigger)]));
+  }
+
+  function getRenderSignature() {
+    return JSON.stringify([
+      state.cpuThrottleRate,
+      state.error,
+      state.isOpen,
+      state.language,
+      state.macros,
+      state.notice,
+      state.resourceState,
+      state.statuses
+    ]);
   }
 
   function formatCode(code) {
@@ -1011,7 +1024,13 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
           : "";
 
         return [
-          '<div class="macro-row" role="menuitem"><span class="macro-title"><span class="status-dot ',
+          '<div class="macro-row" role="menuitem" data-macro-id="',
+          escapeHtml(macro.id),
+          '" data-enabled="',
+          enabled ? "true" : "false",
+          '" aria-disabled="',
+          enabled ? "false" : "true",
+          '"><span class="macro-title"><span class="status-dot ',
           !enabled ? "disabled" : failed ? "failed" : running || stopping ? "running" : "idle",
           '"></span><strong>',
           escapeHtml(macro.name),
@@ -1067,7 +1086,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       ".create-row:hover{background:rgba(255,255,255,.065);}",
       ".create-icon{color:rgba(255,255,255,.72);display:block;fill:none;flex:0 0 auto;height:14px;stroke:currentColor;stroke-linecap:round;stroke-width:2;width:14px;}",
       ".macro-row{align-items:center;border-radius:10px;color:rgba(255,255,255,.94);display:grid;gap:6px 7px;grid-template-areas:'title title toggle edit' 'steps shortcut poll poll';grid-template-columns:minmax(60px,1fr) auto 32px 24px;min-height:56px;padding:8px 9px;text-align:left;width:100%;}",
-      ".macro-row:hover{background:rgba(255,255,255,.065);}",
+      ".macro-row[data-enabled='true']{cursor:pointer;}",
+      ".macro-row[data-enabled='true']:hover{background:rgba(255,255,255,.065);}",
+      ".macro-row[data-enabled='false']{cursor:not-allowed;}",
       ".status-dot{border-radius:999px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);display:block;height:7px;width:7px;}",
       ".status-dot.running{background:#7dff72;color:rgba(125,255,114,.42);}",
       ".status-dot.failed{background:#ffbd5c;color:rgba(255,189,92,.42);}",
@@ -1118,8 +1139,8 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       "</div>"
     ].join("");
 
-    targetRoot.querySelectorAll("button").forEach((button) => {
-      button.addEventListener("pointerdown", (event) => {
+    targetRoot.querySelectorAll("button,.macro-row").forEach((control) => {
+      control.addEventListener("pointerdown", (event) => {
         event.preventDefault();
         event.stopPropagation();
       });
@@ -1135,6 +1156,25 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       event.preventDefault();
       event.stopPropagation();
       void requestCreateMacro();
+    });
+
+    targetRoot.querySelectorAll(".macro-row").forEach((row) => {
+      row.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const eventPath = event.composedPath?.() ?? [];
+        if (eventPath.some((candidate) => candidate?.tagName === "BUTTON")) {
+          return;
+        }
+        const macroId = row.getAttribute("data-macro-id");
+        const macro = state.macros.find((item) => item.id === macroId);
+        if (!macroId || !macro || macro.enabled === false) {
+          return;
+        }
+        void runAction(isRunning(macroId) || isStopping(macroId) ? "stop" : "start", macroId, {
+          closeAfter: true
+        });
+      });
     });
 
     targetRoot.querySelectorAll(".macro-edit").forEach((button) => {
@@ -1192,6 +1232,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       return;
     }
     const renderAfter = options.renderAfter !== false;
+    const previousRenderSignature = getRenderSignature();
     const previousRunningBadgeSignature = getRunningBadgeSignature();
     const requestVersion = ++state.requestVersion;
 
@@ -1214,7 +1255,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
       state.error = error instanceof Error ? error.message : getText().loadError;
     }
 
-    if (renderAfter || previousRunningBadgeSignature !== getRunningBadgeSignature()) {
+    const renderSignatureChanged = previousRenderSignature !== getRenderSignature();
+    const runningBadgeSignatureChanged = previousRunningBadgeSignature !== getRunningBadgeSignature();
+    const hostNeedsRender = !host || !host.isConnected || !root;
+    if (hostNeedsRender || runningBadgeSignatureChanged || (renderAfter && renderSignatureChanged)) {
       render();
     }
   }

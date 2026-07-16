@@ -35,15 +35,15 @@ export const adaptiveWorkspaceBrowserZoomThresholds: ReadonlyArray<{
   percent: WorkspaceBrowserZoomPercent;
 }> = [
   { minWidth: 0, percent: 25 },
-  { minWidth: 232, percent: 33 },
-  { minWidth: 332, percent: 50 },
-  { minWidth: 468, percent: 67 },
-  { minWidth: 568, percent: 75 },
-  { minWidth: 620, percent: 80 },
-  { minWidth: 680, percent: 90 },
-  { minWidth: 760, percent: 100 },
-  { minWidth: 840, percent: 110 },
-  { minWidth: 940, percent: 125 }
+  { minWidth: 372, percent: 33 },
+  { minWidth: 532, percent: 50 },
+  { minWidth: 749, percent: 67 },
+  { minWidth: 909, percent: 75 },
+  { minWidth: 992, percent: 80 },
+  { minWidth: 1_088, percent: 90 },
+  { minWidth: 1_216, percent: 100 },
+  { minWidth: 1_344, percent: 110 },
+  { minWidth: 1_504, percent: 125 }
 ];
 
 const WORKSPACE_RECT_PRECISION_SCALE = 10_000;

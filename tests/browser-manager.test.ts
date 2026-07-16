@@ -710,29 +710,29 @@ describe("BrowserManager game host windows", () => {
       { role: createRole("role-2", "Alt"), rect: adaptiveWorkspace.slots[1].rect }
     ]);
 
-    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.75);
-    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.75);
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.5);
+    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.5);
 
     harness.manager.handleDividerPointer(harness.views[2].webContents.id, {
       phase: "move",
       screenPosition: 720
     });
 
-    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.9);
-    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.67);
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.5);
+    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.33);
 
     const popup = createOAuthPopup(harness.views[0], harness.views);
-    expect(popup.webContents.getZoomFactor()).toBe(0.9);
+    expect(popup.webContents.getZoomFactor()).toBe(0.5);
 
     harness.hosts[0].contentBounds.width = 1600;
     harness.hosts[0].emit("resize");
 
-    expect(harness.views[0].webContents.getZoomFactor()).toBe(1.25);
-    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.8);
-    expect(popup.webContents.getZoomFactor()).toBe(1.25);
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.75);
+    expect(harness.views[1].webContents.getZoomFactor()).toBe(0.5);
+    expect(popup.webContents.getZoomFactor()).toBe(0.75);
 
     await harness.views[0].webContents.loadURL("https://accounts.example.net/redirect");
-    expect(harness.views[0].webContents.getZoomFactor()).toBe(1.25);
+    expect(harness.views[0].webContents.getZoomFactor()).toBe(0.75);
   });
 
   it("inherits workspace zoom in popups and resets an existing session to 100 percent", async () => {

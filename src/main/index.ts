@@ -507,13 +507,9 @@ async function initializeApplication(): Promise<void> {
       startUpdateCheck();
       dockRoleMenu?.scheduleRefresh();
     },
-    onMacroOverlayRequest: async (webContentsId, request) => {
-      const roleId = browserManager?.getRoleIdForWebContents(webContentsId);
-      if (!roleId) {
-        throw new Error("Embedded game view is not associated with a role.");
-      }
-
-      return macroOverlayInjector.handleRequest(roleId, request);
+    onMacroOverlayRequest: async (webContents, request) => {
+      const activeRoleId = browserManager?.getRoleIdForWebContents(webContents.id);
+      return macroOverlayInjector.handleEmbeddedRequest(webContents, activeRoleId, request);
     },
     onOverlayLanguageChanged: (language) => {
       macroOverlayInjector.setLanguage(language);

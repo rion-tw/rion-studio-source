@@ -11,6 +11,7 @@ interface MacroOverlayItem extends Macro {
 
 interface MacroOverlayState {
   cpuThrottleRate?: RoleStatus["cpuThrottleRate"];
+  detached?: true;
   language?: AppLanguage;
   macros: MacroOverlayItem[];
   resourceState?: RoleStatus["resourceState"];
@@ -121,6 +122,30 @@ export class MacroOverlayInjector {
   setLanguage(language: AppLanguage): void {
     this.language = language;
     this.refreshInstalledOverlays();
+  }
+
+  async handleEmbeddedRequest(
+    webContents: WebContents,
+    activeRoleId: string | undefined,
+    request: MacroOverlayRequest
+  ): Promise<MacroOverlayState> {
+    const installedRoleId = this.contentRoleIds.get(webContents);
+    if (!this.installedContents.has(webContents) || !installedRoleId) {
+      throw new Error("Embedded game view is not associated with a role.");
+    }
+    if (!activeRoleId) {
+      return {
+        detached: true,
+        language: this.language,
+        macros: [],
+        statuses: []
+      };
+    }
+    if (activeRoleId !== installedRoleId) {
+      throw new Error("Embedded game view is associated with a different role.");
+    }
+
+    return this.handleRequest(installedRoleId, request);
   }
 
   async handleRequest(roleId: string, request: MacroOverlayRequest): Promise<MacroOverlayState> {
@@ -410,7 +435,7 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     "rion-studio-macro-overlay-v25"
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-16.2";
+  const scriptVersion = "2026-07-16.3";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};
   const hostStyleEntries = [
@@ -632,6 +657,15 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     return language === "en" || language === "zh-TW" || language === "zh-CN" || language === "ja"
       ? language
       : undefined;
+  }
+
+  function disposeIfDetached(nextState) {
+    if (nextState?.detached !== true) {
+      return false;
+    }
+
+    dispose();
+    return true;
   }
 
   function showStartNotice(summary) {
@@ -1207,7 +1241,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
 
   async function requestCreateMacro() {
     try {
-      await binding({ type: "create" });
+      const nextState = await binding({ type: "create" });
+      if (disposeIfDetached(nextState)) {
+        return;
+      }
       state.error = "";
       closePanel({ focus: false });
     } catch (error) {
@@ -1218,7 +1255,10 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
 
   async function requestEditMacro(macroId) {
     try {
-      await binding({ type: "edit", macroId });
+      const nextState = await binding({ type: "edit", macroId });
+      if (disposeIfDetached(nextState)) {
+        return;
+      }
       state.error = "";
       closePanel({ focus: false });
     } catch (error) {
@@ -1239,6 +1279,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
     try {
       const nextState = await binding({ type: "list" });
       if (requestVersion !== state.requestVersion) {
+        return;
+      }
+      if (disposeIfDetached(nextState)) {
         return;
       }
       state.error = "";
@@ -1277,6 +1320,9 @@ export const MACRO_OVERLAY_SCRIPT = String.raw`
           ? { type: action, macroId, enabled: options.enabled === true }
           : { type: action, macroId }
       );
+      if (disposeIfDetached(nextState)) {
+        return;
+      }
       if (requestVersion === state.requestVersion) {
         state.error = "";
         state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;

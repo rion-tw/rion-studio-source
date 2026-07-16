@@ -6,7 +6,8 @@ import {
   MACRO_SHORTCUT_GUARD_SOURCE,
   MACRO_OVERLAY_SCRIPT,
   MacroOverlayInjector,
-  shouldIgnoreMacroShortcutEvent
+  shouldIgnoreMacroShortcutEvent,
+  type MacroOverlayRequest
 } from "../src/main/macros/MacroOverlayInjector";
 import type { Macro, MacroRunStatus, Role, RoleStatus } from "../src/shared/types";
 
@@ -141,9 +142,13 @@ describe("MacroOverlayInjector", () => {
     await injector.install(role, page.page as never);
     injector.setLanguage("zh-TW");
 
-    const listState = await injector.handleRequest(role.id, { type: "list" });
-    const startState = await injector.handleRequest(role.id, { type: "start", macroId: "macro-1" });
-    await injector.handleRequest(role.id, { type: "stop", macroId: "macro-1" });
+    const listState = await injector.handleEmbeddedRequest(page.page as never, role.id, { type: "list" });
+    const startState = await injector.handleEmbeddedRequest(
+      page.page as never,
+      role.id,
+      { type: "start", macroId: "macro-1" }
+    );
+    await injector.handleEmbeddedRequest(page.page as never, role.id, { type: "stop", macroId: "macro-1" });
 
     expect(listState).toMatchObject({
       language: "zh-TW",
@@ -165,6 +170,65 @@ describe("MacroOverlayInjector", () => {
     ).resolves.toMatchObject({ startSummary: { skippedCount: 0, startedCount: 2 } });
     expect(macroManager.start).toHaveBeenCalledWith("macro-1");
     expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
+  });
+
+  it("returns a detached state without side effects for stale embedded views", async () => {
+    const page = createPage();
+    const listMacros = vi.fn().mockResolvedValue([assignedMacro]);
+    const updateMacro = vi.fn();
+    const listStatuses = vi.fn(() => []);
+    const startForRole = vi.fn();
+    const stopForRole = vi.fn();
+    const stopAndRunMutation = vi.fn();
+    const onMacroEditorRequested = vi.fn();
+    const onMacrosChanged = vi.fn();
+    const injector = new MacroOverlayInjector(
+      { listMacros, updateMacro } as never,
+      { listStatuses, startForRole, stopForRole, stopAndRunMutation } as never,
+      onMacroEditorRequested,
+      undefined,
+      undefined,
+      onMacrosChanged
+    );
+    const requests = [
+      { type: "list" },
+      { type: "create" },
+      { type: "edit", macroId: assignedMacro.id },
+      { type: "start", macroId: assignedMacro.id },
+      { type: "stop", macroId: assignedMacro.id },
+      { type: "set-enabled", macroId: assignedMacro.id, enabled: false }
+    ] satisfies MacroOverlayRequest[];
+
+    await injector.install(role, page.page as never);
+    for (const request of requests) {
+      await expect(
+        injector.handleEmbeddedRequest(page.page as never, undefined, request)
+      ).resolves.toMatchObject({ detached: true, macros: [], statuses: [] });
+    }
+
+    expect(listMacros).not.toHaveBeenCalled();
+    expect(updateMacro).not.toHaveBeenCalled();
+    expect(listStatuses).not.toHaveBeenCalled();
+    expect(startForRole).not.toHaveBeenCalled();
+    expect(stopForRole).not.toHaveBeenCalled();
+    expect(stopAndRunMutation).not.toHaveBeenCalled();
+    expect(onMacroEditorRequested).not.toHaveBeenCalled();
+    expect(onMacrosChanged).not.toHaveBeenCalled();
+  });
+
+  it("rejects untracked embedded views and active role mismatches", async () => {
+    const page = createPage();
+    const untrackedPage = createPage();
+    const injector = createInjector();
+
+    await injector.install(role, page.page as never);
+
+    await expect(
+      injector.handleEmbeddedRequest(untrackedPage.page as never, role.id, { type: "list" })
+    ).rejects.toThrow("Embedded game view is not associated with a role.");
+    await expect(
+      injector.handleEmbeddedRequest(page.page as never, "role-2", { type: "list" })
+    ).rejects.toThrow("Embedded game view is associated with a different role.");
   });
 
   it("disables a macro through the lifecycle lock and includes all assigned role names", async () => {
@@ -308,11 +372,13 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.2"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.3"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
     expect(MACRO_OVERLAY_SCRIPT).toContain("dispose");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("function disposeIfDetached(nextState)");
+    expect(MACRO_OVERLAY_SCRIPT.match(/disposeIfDetached\(nextState\)/g)).toHaveLength(5);
     expect(MACRO_OVERLAY_SCRIPT).toContain("host.style.setProperty(property, value, \"important\")");
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"right\", \"8px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"top\", \"8px\"]");

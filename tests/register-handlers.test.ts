@@ -860,6 +860,32 @@ describe("registerIpcHandlers macro handlers", () => {
     expect(consumePendingMacroEditorRequest).toHaveBeenCalledTimes(1);
   });
 
+  it("forwards validated macro overlay requests with the complete sender", async () => {
+    const onMacroOverlayRequest = vi.fn().mockResolvedValue({ macros: [], statuses: [] });
+    registerIpcHandlers(
+      roleStore as RoleStore,
+      workspaceStore as LaunchWorkspaceStore,
+      browserManager as BrowserManager,
+      authManager as AuthManager,
+      { onMacroOverlayRequest }
+    );
+    const sender = { id: 42 };
+
+    await expect(
+      handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.({ sender }, { type: "list" })
+    ).resolves.toEqual({ macros: [], statuses: [] });
+    expect(onMacroOverlayRequest).toHaveBeenCalledWith(sender, { type: "list" });
+    expect(() =>
+      handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.({ sender }, { type: "unknown" })
+    ).toThrow("Macro overlay request is invalid.");
+  });
+
+  it("rejects macro overlay requests when the callback is unavailable", () => {
+    expect(() =>
+      handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.({ sender: { id: 42 } }, { type: "list" })
+    ).toThrow("Macro overlay request is invalid.");
+  });
+
   it("registers macro CRUD and run handlers", async () => {
     await expect(handlers.get(IPC_CHANNELS.macrosList)?.({})).resolves.toEqual([macro]);
     await expect(

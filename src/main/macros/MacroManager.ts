@@ -14,19 +14,60 @@ interface MacroRun {
   cancelActiveOperation?: () => void;
   cancelDelay?: () => void;
   completion: Promise<void>;
+  invocationId: string;
   isCancelled: boolean;
   resolveCompletion: () => void;
   status: MacroRunStatus;
   terminalStatus?: MacroRunStatus;
 }
 
+type MacroInvocationOutcome =
+  | { state: "completed" }
+  | { state: "failed"; error: Error }
+  | { state: "cancelled"; error: Error };
+
+interface MacroStepBarrier {
+  arrivedRunKeys: Set<string>;
+  promise: Promise<void>;
+  reject: (error: Error) => void;
+  resolve: () => void;
+  started: boolean;
+}
+
+interface MacroInvocation {
+  ancestry: string[];
+  barriers: Map<string, MacroStepBarrier>;
+  childStartCompletions: Set<Promise<void>>;
+  childInvocationIds: Set<string>;
+  completion: Promise<MacroInvocationOutcome>;
+  id: string;
+  macroId: string;
+  outcome?: MacroInvocationOutcome;
+  remainingRunKeys: Set<string>;
+  resolveCompletion: (outcome: MacroInvocationOutcome) => void;
+  runKeys: Set<string>;
+}
+
+interface StartedMacroInvocation {
+  invocation: MacroInvocation;
+  statuses: MacroRunStatus[];
+}
+
 const MACRO_TARGET_OPERATION_TIMEOUT_MS = 10_000;
 const SIBLING_FAILURE_MESSAGE = "Cancelled because another assigned role failed.";
+const CHILD_CANCELLED_MESSAGE = "Cancelled because a called macro was stopped.";
 
 class MacroRunCancelledError extends Error {
-  constructor() {
-    super("Macro run cancelled.");
+  constructor(message = "Macro run cancelled.") {
+    super(message);
     this.name = "MacroRunCancelledError";
+  }
+}
+
+class ChildMacroCancelledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChildMacroCancelledError";
   }
 }
 
@@ -38,10 +79,12 @@ export class MacroMutationBusyError extends Error {
 }
 
 export class MacroManager extends EventEmitter<MacroManagerEvents> {
-  private readonly terminalStatuses = new Map<string, MacroRunStatus>();
+  private readonly invocations = new Map<string, MacroInvocation>();
   private readonly macroMutationTails = new Map<string, Promise<void>>();
   private readonly roleInputPreparationTails = new Map<string, Promise<void>>();
   private readonly runs = new Map<string, MacroRun>();
+  private readonly terminalStatuses = new Map<string, MacroRunStatus>();
+  private nextInvocationId = 1;
 
   constructor(
     private readonly browserManager: Pick<BrowserManager, "getAutomationSession"> &
@@ -62,11 +105,15 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   }
 
   start(macroId: string): Promise<MacroRunStatus[]> {
-    return this.withMacroMutationLock(macroId, () => this.startUnlocked(macroId));
+    return this.withMacroMutationLock(macroId, async () =>
+      (await this.startInvocationUnlocked(macroId)).statuses
+    );
   }
 
   startForRole(macroId: string, roleId: string): Promise<MacroRunStatus[]> {
-    return this.withMacroMutationLock(macroId, () => this.startUnlocked(macroId, roleId));
+    return this.withMacroMutationLock(macroId, async () =>
+      (await this.startInvocationUnlocked(macroId, roleId)).statuses
+    );
   }
 
   stop(macroId: string): Promise<void> {
@@ -94,20 +141,12 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   }
 
   runStoppedMutations<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
-    const ids = [...new Set(macroIds)].sort();
-    const acquire = (index: number): Promise<T> => {
-      const macroId = ids[index];
-      if (!macroId) {
-        return operation();
+    return this.withMacroMutationLocks(macroIds, async () => {
+      if (macroIds.some((macroId) => this.hasActiveMacroRun(macroId))) {
+        throw new MacroMutationBusyError();
       }
-      return this.withMacroMutationLock(macroId, async () => {
-        if (this.hasActiveMacroRun(macroId)) {
-          throw new MacroMutationBusyError();
-        }
-        return acquire(index + 1);
-      });
-    };
-    return acquire(0);
+      return operation();
+    });
   }
 
   stopAndRunMutation<T>(macroId: string, operation: () => Promise<T>): Promise<T> {
@@ -117,27 +156,41 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     });
   }
 
+  stopAndRunMutations<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
+    return this.withMacroMutationLocks(macroIds, async () => {
+      for (const macroId of macroIds) {
+        await this.stopMacroRunsUnlocked(macroId, true);
+      }
+      return operation();
+    });
+  }
+
   async stopRole(roleId: string): Promise<void> {
-    const macroIds = new Set<string>();
+    const invocationIds = new Set<string>();
     this.runs.forEach((run) => {
       if (run.status.roleId === roleId) {
-        macroIds.add(run.status.macroId);
-      }
-    });
-    this.terminalStatuses.forEach((status) => {
-      if (status.roleId === roleId) {
-        macroIds.add(status.macroId);
+        invocationIds.add(run.invocationId);
       }
     });
 
     await Promise.all(
-      [...macroIds].map((macroId) =>
-        this.withMacroMutationLock(macroId, () => this.stopMacroRunsUnlocked(macroId, true))
-      )
+      [...invocationIds].map((invocationId) => {
+        const invocation = this.invocations.get(invocationId);
+        return invocation ? this.cancelInvocationAndWait(invocation) : Promise.resolve();
+      })
     );
+    this.clearTerminalStatuses((status) => status.roleId === roleId);
   }
 
-  private async startUnlocked(macroId: string, requestingRoleId?: string): Promise<MacroRunStatus[]> {
+  private async startInvocationUnlocked(
+    macroId: string,
+    requestingRoleId?: string,
+    parentAncestry: string[] = []
+  ): Promise<StartedMacroInvocation> {
+    if (parentAncestry.includes(macroId)) {
+      throw new Error("Macro dependency cycle detected while running a called macro.");
+    }
+
     const macro = await this.macroStore.getMacro(macroId);
     if (requestingRoleId) {
       this.assertMacroAssignedToRole(macro, requestingRoleId);
@@ -145,6 +198,13 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     if (!macro.enabled) {
       throw new Error("Enable this macro before running it.");
     }
+    if (parentAncestry.length > 0 && macro.repeat.type !== "once") {
+      throw new Error(`Called macro "${macro.name}" must run once.`);
+    }
+    if (parentAncestry.length > 0 && this.hasActiveMacroRun(macroId)) {
+      throw new Error(`Called macro "${macro.name}" is already running.`);
+    }
+
     const sessions = macro.roleIds.flatMap((roleId) => {
       const key = createRunKey(roleId, macroId);
       if (this.runs.has(key)) {
@@ -152,22 +212,21 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       }
 
       const session = this.browserManager.getAutomationSession(roleId);
-      if (!session) {
-        return [];
-      }
-
-      return [{ key, roleId, target: session.target }];
+      return session ? [{ key, roleId, target: session.target }] : [];
     });
 
     if (sessions.length === 0) {
       throw new Error("Launch at least one assigned role before running a macro.");
     }
 
-    await Promise.all(
-      sessions.map(({ roleId, target }) => this.prepareRoleInput(roleId, target))
-    );
+    await Promise.all(sessions.map(({ roleId, target }) => this.prepareRoleInput(roleId, target)));
 
     this.clearTerminalStatuses((status) => status.macroId === macroId, false);
+    const invocation = this.createInvocation(
+      macroId,
+      sessions.map(({ key }) => key),
+      [...parentAncestry, macroId]
+    );
     const now = new Date().toISOString();
     const runItems = sessions.map(({ key, roleId, target }) => {
       let resolveCompletion: () => void = () => undefined;
@@ -177,12 +236,13 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       const run: MacroRun = {
         abortController: new AbortController(),
         completion,
+        invocationId: invocation.id,
         isCancelled: false,
         resolveCompletion,
         status: {
           roleId,
           macroId,
-          state: "running" as const,
+          state: "running",
           startedAt: now,
           updatedAt: now
         }
@@ -195,9 +255,11 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     this.emitChange();
 
     runItems.forEach(({ key, run, target }) => {
-      void this.runMacro(key, run, macro, target)
+      void this.runMacro(key, run, invocation, macro, target)
         .catch((error) => {
-          if (!(error instanceof MacroRunCancelledError) && !run.isCancelled) {
+          if (error instanceof ChildMacroCancelledError && !run.isCancelled) {
+            this.handleRunCancellation(key, run, error);
+          } else if (!(error instanceof MacroRunCancelledError) && !run.isCancelled) {
             this.handleRunFailure(key, run, error);
           }
         })
@@ -210,11 +272,37 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
           }
           await this.syncResourceOverrides();
           run.resolveCompletion();
+          this.finishInvocationRun(invocation, key);
           this.emitChange();
         });
     });
 
-    return runItems.map(({ run }) => run.status);
+    return { invocation, statuses: runItems.map(({ run }) => run.status) };
+  }
+
+  private createInvocation(
+    macroId: string,
+    runKeys: string[],
+    ancestry: string[]
+  ): MacroInvocation {
+    let resolveCompletion: (outcome: MacroInvocationOutcome) => void = () => undefined;
+    const completion = new Promise<MacroInvocationOutcome>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const invocation: MacroInvocation = {
+      ancestry,
+      barriers: new Map(),
+      childStartCompletions: new Set(),
+      childInvocationIds: new Set(),
+      completion,
+      id: `macro-invocation-${this.nextInvocationId++}`,
+      macroId,
+      remainingRunKeys: new Set(runKeys),
+      resolveCompletion,
+      runKeys: new Set(runKeys)
+    };
+    this.invocations.set(invocation.id, invocation);
+    return invocation;
   }
 
   private async prepareRoleInput(roleId: string, target: BrowserAutomationTarget): Promise<void> {
@@ -236,13 +324,45 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   }
 
   private async stopMacroRunsUnlocked(macroId: string, clearFailures: boolean): Promise<void> {
-    const runs = [...this.runs.values()].filter((run) => run.status.macroId === macroId);
-    this.cancelRuns(runs);
-    await Promise.all(runs.map((run) => run.completion));
+    const invocationIds = new Set(
+      [...this.runs.values()]
+        .filter((run) => run.status.macroId === macroId)
+        .map((run) => run.invocationId)
+    );
+    const invocations = [...invocationIds]
+      .map((id) => this.invocations.get(id))
+      .filter((invocation): invocation is MacroInvocation => Boolean(invocation));
+    await Promise.all(invocations.map((invocation) => this.cancelInvocationAndWait(invocation)));
 
     if (clearFailures) {
       this.clearTerminalStatuses((status) => status.macroId === macroId);
     }
+  }
+
+  private async cancelInvocationAndWait(
+    invocation: MacroInvocation,
+    terminal?: Pick<MacroRunStatus, "state" | "error">
+  ): Promise<void> {
+    this.settleInvocation(invocation, {
+      state: "cancelled",
+      error: new MacroRunCancelledError(terminal?.error)
+    });
+    const barriers = [...invocation.barriers.values()];
+    barriers.forEach((barrier) => barrier.reject(new MacroRunCancelledError(terminal?.error)));
+
+    const runs = [...invocation.runKeys]
+      .map((key) => this.runs.get(key))
+      .filter((run): run is MacroRun => run?.invocationId === invocation.id);
+    this.cancelRuns(runs, terminal);
+
+    await Promise.all(invocation.childStartCompletions);
+    const children = [...invocation.childInvocationIds]
+      .map((id) => this.invocations.get(id))
+      .filter((child): child is MacroInvocation => Boolean(child));
+    await Promise.all([
+      ...runs.map((run) => run.completion),
+      ...children.map((child) => this.cancelInvocationAndWait(child))
+    ]);
   }
 
   private cancelRuns(
@@ -252,16 +372,10 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     let didChange = false;
     const now = new Date().toISOString();
     runs.forEach((run) => {
-      if (run.isCancelled) {
-        return;
-      }
+      if (run.isCancelled) return;
       run.isCancelled = true;
       if (terminal) {
-        run.terminalStatus = {
-          ...run.status,
-          ...terminal,
-          updatedAt: now
-        };
+        run.terminalStatus = { ...run.status, ...terminal, updatedAt: now };
       }
       run.status = { ...run.status, state: "stopping", updatedAt: now };
       run.abortController.abort();
@@ -269,29 +383,82 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       run.cancelDelay?.();
       didChange = true;
     });
-
-    if (didChange) {
-      this.emitChange();
-    }
+    if (didChange) this.emitChange();
   }
 
   private handleRunFailure(key: string, run: MacroRun, error: unknown): void {
+    const failureError = error instanceof Error ? error : new Error("Macro execution failed.");
     const now = new Date().toISOString();
     const failureStatus: MacroRunStatus = {
       ...run.status,
       state: "failed",
       updatedAt: now,
-      error: error instanceof Error ? error.message : "Macro execution failed."
+      error: failureError.message
     };
     run.status = failureStatus;
     run.terminalStatus = failureStatus;
 
-    const siblingRuns = [...this.runs.entries()]
-      .filter(([siblingKey, sibling]) => siblingKey !== key && sibling.status.macroId === run.status.macroId)
-      .map(([, sibling]) => sibling);
-    this.cancelRuns(siblingRuns, { state: "cancelled", error: SIBLING_FAILURE_MESSAGE });
+    const invocation = this.invocations.get(run.invocationId);
+    if (invocation) {
+      this.settleInvocation(invocation, { state: "failed", error: failureError });
+      invocation.barriers.forEach((barrier) => barrier.reject(failureError));
+      this.cancelInvocationSiblings(key, invocation, {
+        state: "cancelled",
+        error: SIBLING_FAILURE_MESSAGE
+      });
+      void this.cancelOwnedChildInvocations(invocation);
+    }
     this.emitChange();
     console.warn("Macro execution failed.", error);
+  }
+
+  private handleRunCancellation(key: string, run: MacroRun, error: ChildMacroCancelledError): void {
+    const terminal = { state: "cancelled" as const, error: error.message };
+    run.status = { ...run.status, ...terminal, updatedAt: new Date().toISOString() };
+    run.terminalStatus = run.status;
+
+    const invocation = this.invocations.get(run.invocationId);
+    if (invocation) {
+      this.settleInvocation(invocation, { state: "cancelled", error });
+      invocation.barriers.forEach((barrier) => barrier.reject(error));
+      this.cancelInvocationSiblings(key, invocation, terminal);
+      void this.cancelOwnedChildInvocations(invocation);
+    }
+    this.emitChange();
+  }
+
+  private cancelInvocationSiblings(
+    runKey: string,
+    invocation: MacroInvocation,
+    terminal: Pick<MacroRunStatus, "state" | "error">
+  ): void {
+    const siblings = [...invocation.runKeys]
+      .filter((key) => key !== runKey)
+      .map((key) => this.runs.get(key))
+      .filter((run): run is MacroRun => run?.invocationId === invocation.id);
+    this.cancelRuns(siblings, terminal);
+  }
+
+  private async cancelOwnedChildInvocations(invocation: MacroInvocation): Promise<void> {
+    await Promise.all(invocation.childStartCompletions);
+    const children = [...invocation.childInvocationIds]
+      .map((id) => this.invocations.get(id))
+      .filter((child): child is MacroInvocation => Boolean(child));
+    await Promise.all(children.map((child) => this.cancelInvocationAndWait(child)));
+  }
+
+  private settleInvocation(invocation: MacroInvocation, outcome: MacroInvocationOutcome): void {
+    if (invocation.outcome) return;
+    invocation.outcome = outcome;
+    invocation.resolveCompletion(outcome);
+  }
+
+  private finishInvocationRun(invocation: MacroInvocation, runKey: string): void {
+    invocation.remainingRunKeys.delete(runKey);
+    if (invocation.remainingRunKeys.size === 0) {
+      this.settleInvocation(invocation, { state: "completed" });
+      this.invocations.delete(invocation.id);
+    }
   }
 
   private hasActiveMacroRun(macroId: string): boolean {
@@ -323,50 +490,120 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         didChange = true;
       }
     });
-
-    if (didChange && emitChange) {
-      this.emitChange();
-    }
+    if (didChange && emitChange) this.emitChange();
   }
 
   private async runMacro(
     runKey: string,
     run: MacroRun,
+    invocation: MacroInvocation,
     macro: Macro,
     target: BrowserAutomationTarget
   ): Promise<void> {
+    let iteration = 0;
     do {
       for (const step of macro.steps) {
         this.throwIfCancelled(run);
-        await this.executeStep(run, target, step);
+        await this.executeStep(runKey, run, invocation, iteration, target, step);
       }
+      iteration += 1;
 
-      if (macro.repeat.type !== "loop") {
-        break;
-      }
-
+      if (macro.repeat.type !== "loop") break;
       await this.delay(run, Math.max(1, macro.repeat.intervalMs));
     } while (!run.isCancelled && this.runs.get(runKey) === run);
   }
 
   private async executeStep(
+    runKey: string,
     run: MacroRun,
+    invocation: MacroInvocation,
+    iteration: number,
     target: BrowserAutomationTarget,
     step: MacroStep
   ): Promise<void> {
     switch (step.type) {
       case "key":
-        await this.executeTargetOperation(run, () => target.dispatchKey(step.code, run.abortController.signal));
+        await this.executeTargetOperation(run, () =>
+          target.dispatchKey(step.code, run.abortController.signal)
+        );
         return;
       case "click":
-        await this.executeTargetOperation(
-          run,
-          () => target.dispatchClick(step.xPercent, step.yPercent, run.abortController.signal)
+        await this.executeTargetOperation(run, () =>
+          target.dispatchClick(step.xPercent, step.yPercent, run.abortController.signal)
         );
         return;
       case "delay":
         await this.delay(run, step.ms);
         return;
+      case "macro":
+        await this.enterMacroBarrier(runKey, run, invocation, iteration, step);
+    }
+  }
+
+  private async enterMacroBarrier(
+    runKey: string,
+    run: MacroRun,
+    invocation: MacroInvocation,
+    iteration: number,
+    step: Extract<MacroStep, { type: "macro" }>
+  ): Promise<void> {
+    const barrierKey = `${iteration}:${step.id}`;
+    let barrier = invocation.barriers.get(barrierKey);
+    if (!barrier) {
+      let resolve: () => void = () => undefined;
+      let reject: (error: Error) => void = () => undefined;
+      const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      barrier = { arrivedRunKeys: new Set(), promise, reject, resolve, started: false };
+      invocation.barriers.set(barrierKey, barrier);
+    }
+
+    barrier.arrivedRunKeys.add(runKey);
+    if (!barrier.started && barrier.arrivedRunKeys.size === invocation.runKeys.size) {
+      barrier.started = true;
+      void this.runCalledMacro(invocation, step.macroId)
+        .then(barrier.resolve, barrier.reject)
+        .finally(() => {
+          if (invocation.barriers.get(barrierKey) === barrier) {
+            invocation.barriers.delete(barrierKey);
+          }
+        });
+    }
+
+    await barrier.promise;
+    this.throwIfCancelled(run);
+  }
+
+  private async runCalledMacro(parent: MacroInvocation, macroId: string): Promise<void> {
+    let resolveChildStart: () => void = () => undefined;
+    const childStartCompletion = new Promise<void>((resolve) => {
+      resolveChildStart = resolve;
+    });
+    parent.childStartCompletions.add(childStartCompletion);
+
+    let started: StartedMacroInvocation;
+    try {
+      started = await this.withMacroMutationLock(macroId, () =>
+        this.startInvocationUnlocked(macroId, undefined, parent.ancestry)
+      );
+      parent.childInvocationIds.add(started.invocation.id);
+    } finally {
+      resolveChildStart();
+      parent.childStartCompletions.delete(childStartCompletion);
+    }
+
+    if (parent.outcome) {
+      await this.cancelInvocationAndWait(started.invocation);
+      throw new MacroRunCancelledError();
+    }
+
+    const outcome = await started.invocation.completion;
+    parent.childInvocationIds.delete(started.invocation.id);
+    if (outcome.state === "failed") throw outcome.error;
+    if (outcome.state === "cancelled") {
+      throw new ChildMacroCancelledError(CHILD_CANCELLED_MESSAGE);
     }
   }
 
@@ -396,16 +633,13 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
   private async delay(run: MacroRun, ms: number): Promise<void> {
     this.throwIfCancelled(run);
-    if (ms === 0) {
-      return;
-    }
+    if (ms === 0) return;
 
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         run.cancelDelay = undefined;
         resolve();
       }, ms);
-
       run.cancelDelay = () => {
         clearTimeout(timer);
         run.cancelDelay = undefined;
@@ -416,9 +650,18 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   }
 
   private throwIfCancelled(run: MacroRun): void {
-    if (run.isCancelled) {
-      throw new MacroRunCancelledError();
-    }
+    if (run.isCancelled) throw new MacroRunCancelledError();
+  }
+
+  private withMacroMutationLocks<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
+    const ids = [...new Set(macroIds)].sort();
+    const acquire = (index: number): Promise<T> => {
+      const macroId = ids[index];
+      return macroId
+        ? this.withMacroMutationLock(macroId, () => acquire(index + 1))
+        : operation();
+    };
+    return acquire(0);
   }
 
   private withMacroMutationLock<T>(macroId: string, operation: () => Promise<T>): Promise<T> {

@@ -96,6 +96,10 @@ function MacrosRoute({
 }: MacrosRouteProps): JSX.Element {
   const pageRef = useRef<HTMLElement | null>(null);
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
+  const macroNameById = useMemo(
+    () => new Map(macros.map((macro) => [macro.id, macro.name])),
+    [macros]
+  );
   const runningCount = new Set(
     macroStatuses.filter((status) => status.state === "running").map((status) => status.macroId)
   ).size;
@@ -321,7 +325,7 @@ function MacrosRoute({
                       {formatMacroRepeat(macro.repeat, t)}
                     </td>
                     <td className="max-w-[320px] px-4 py-2.5 align-baseline font-medium text-muted-foreground">
-                      {summarizeMacroSteps(macro.steps, t)}
+                      {summarizeMacroSteps(macro.steps, t, macroNameById)}
                     </td>
                     <td className="relative w-20 p-0 text-center">
                       <div className="absolute inset-0 grid place-items-center" data-macro-enabled-control>

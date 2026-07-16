@@ -42,6 +42,7 @@ export function getMacroListItems({
   t
 }: GetMacroListItemsOptions): Macro[] {
   const roleById = new Map(roles.map((role) => [role.id, role]));
+  const macroNameById = new Map(macros.map((macro) => [macro.id, macro.name]));
   const normalizedQuery = query.trim().toLowerCase();
 
   return macros
@@ -62,13 +63,13 @@ export function getMacroListItems({
         ...roleNames,
         formatMacroShortcut(macro.trigger, t),
         formatMacroRepeat(macro.repeat, t),
-        summarizeMacroSteps(macro.steps, t)
+        summarizeMacroSteps(macro.steps, t, macroNameById)
       ]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery);
     })
-    .sort((a, b) => compareMacroListItems(a, b, roles, roleById, sort, t))
+    .sort((a, b) => compareMacroListItems(a, b, roles, roleById, macroNameById, sort, t))
     .map(({ macro }) => macro);
 }
 
@@ -77,10 +78,11 @@ function compareMacroListItems(
   b: IndexedMacro,
   roles: Role[],
   roleById: Map<string, Role>,
+  macroNameById: Map<string, string>,
   sort: MacroListSortState,
   t: Translator
 ): number {
-  const primary = compareBySortKey(a.macro, b.macro, roles, roleById, sort.key, t);
+  const primary = compareBySortKey(a.macro, b.macro, roles, roleById, macroNameById, sort.key, t);
   if (primary !== 0) {
     return sort.direction === "asc" ? primary : -primary;
   }
@@ -93,6 +95,7 @@ function compareBySortKey(
   b: Macro,
   roles: Role[],
   roleById: Map<string, Role>,
+  macroNameById: Map<string, string>,
   sortKey: MacroListSortKey,
   t: Translator
 ): number {
@@ -106,7 +109,10 @@ function compareBySortKey(
     case "repeat":
       return compareText(formatMacroRepeat(a.repeat, t), formatMacroRepeat(b.repeat, t));
     case "steps":
-      return compareText(summarizeMacroSteps(a.steps, t), summarizeMacroSteps(b.steps, t));
+      return compareText(
+        summarizeMacroSteps(a.steps, t, macroNameById),
+        summarizeMacroSteps(b.steps, t, macroNameById)
+      );
   }
 }
 

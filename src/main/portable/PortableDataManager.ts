@@ -9,6 +9,7 @@ import {
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../shared/macroShortcuts";
+import { findMacroDependencyIssue, macroDependsOn } from "../../shared/macroDependencies";
 import { MacroMutationBusyError } from "../macros/MacroManager";
 import type { MacroStore } from "../macros/MacroStore";
 import type { GameStore } from "../games/GameStore";
@@ -49,7 +50,7 @@ import {
   type PortableMacroConflict,
   type PortableMacroConflictResolution,
   type PortableRole,
-  type RionPortableDataV2,
+  type RionPortableDataV3,
   type Role,
   type RoleDefaults,
   type WorkspaceResourcePolicy
@@ -126,8 +127,16 @@ interface ImportPlan {
   warnings: PortableImportWarning[];
 }
 
+interface PlannedPortableMacro {
+  destinationId: string;
+  existing?: Macro;
+  macro: PortableMacro;
+  name: string;
+  roleIds: string[];
+}
+
 interface PendingImport {
-  data: RionPortableDataV2;
+  data: RionPortableDataV3;
   filePath: string;
 }
 
@@ -148,7 +157,7 @@ interface PortableImportJournal {
 }
 
 const PORTABLE_APP_NAME = "Rion Studio";
-const PORTABLE_SCHEMA_VERSION = 2;
+const PORTABLE_SCHEMA_VERSION = 3;
 const PORTABLE_IMPORT_JOURNAL_FILE = "portable-import-transaction.json";
 const PORTABLE_IMPORT_STAGE_DIRECTORY = "portable-import-transaction.stage";
 const MAX_COVER_IMAGE_DATA_URL_LENGTH = 1_500_000;
@@ -334,7 +343,7 @@ export class PortableDataManager {
   private async createPortableData(
     preferences: PortablePreferences | undefined,
     selection: PortableDataSelection
-  ): Promise<RionPortableDataV2> {
+  ): Promise<RionPortableDataV3> {
     const [games, roles, launchWorkspaces, macros] = await Promise.all([
       this.options.gameStore.listGames(),
       this.options.roleStore.listRoles(),
@@ -523,7 +532,7 @@ export class PortableDataManager {
   }
 
   private async buildImportPlan(
-    data: RionPortableDataV2,
+    data: RionPortableDataV3,
     resolutions: PortableMacroConflictResolution[]
   ): Promise<ImportPlan> {
     const [existingGames, existingRoles, existingWorkspaces, existingMacros] = await Promise.all([
@@ -678,7 +687,7 @@ export class PortableDataManager {
     const conflicts: PortableMacroConflict[] = [];
     const seenMacroKeys = new Set<string>();
     const usedMacroCopyNames = new Set(existingMacros.map((macro) => normalizeNameKey(macro.name)));
-    const plannedMacros: Array<{ existing?: Macro; macro: PortableMacro; name: string; roleIds: string[] }> = [];
+    const plannedMacros: PlannedPortableMacro[] = [];
     for (const macro of data.macros) {
       const roleIds = [...new Set(macro.roleIds.map((roleId) => roleIdMap.get(roleId)).filter(isString))];
       const missingRoleCount = [...new Set(macro.roleIds)].filter((roleId) => !roleIdMap.has(roleId)).length;
@@ -697,7 +706,7 @@ export class PortableDataManager {
       if (isDuplicateSourceIdentity) {
         const name = reserveUniqueName(macro.name, usedMacroCopyNames);
         warnings.push({ code: "MACRO_NAME_RENAMED", itemName: macro.name, replacementName: name });
-        plannedMacros.push({ macro, name, roleIds });
+        plannedMacros.push({ destinationId: randomUUID(), macro, name, roleIds });
         continue;
       }
 
@@ -705,7 +714,13 @@ export class PortableDataManager {
         (candidate) => createMacroIdentityKey(candidate.name, candidate.roleIds) === identityKey
       );
       if (candidates.length <= 1) {
-        plannedMacros.push({ existing: candidates[0], macro, name: macro.name, roleIds });
+        plannedMacros.push({
+          destinationId: candidates[0]?.id ?? randomUUID(),
+          existing: candidates[0],
+          macro,
+          name: macro.name,
+          roleIds
+        });
         continue;
       }
 
@@ -718,25 +733,54 @@ export class PortableDataManager {
       if (resolution?.action === "copy") {
         const name = reserveUniqueName(macro.name, usedMacroCopyNames);
         warnings.push({ code: "MACRO_NAME_RENAMED", itemName: macro.name, replacementName: name });
-        plannedMacros.push({ macro, name, roleIds });
+        plannedMacros.push({ destinationId: randomUUID(), macro, name, roleIds });
         continue;
       }
       const selected = resolution?.action === "update"
         ? candidates.find((candidate) => candidate.id === resolution.targetMacroId)
         : undefined;
       if (selected) {
-        plannedMacros.push({ existing: selected, macro, name: macro.name, roleIds });
+        plannedMacros.push({
+          destinationId: selected.id,
+          existing: selected,
+          macro,
+          name: macro.name,
+          roleIds
+        });
         continue;
       }
 
       conflicts.push(createPortableMacroConflict(conflictId, macro, roleIds, candidates, finalRoles));
     }
 
-    const replacedMacroIds = new Set(plannedMacros.flatMap((item) => item.existing ? [item.existing.id] : []));
+    const macroIdMap = new Map(
+      plannedMacros.map((item) => [item.macro.id, item.destinationId])
+    );
+    let didSkipDependency = true;
+    while (didSkipDependency) {
+      didSkipDependency = false;
+      for (let index = plannedMacros.length - 1; index >= 0; index -= 1) {
+        const item = plannedMacros[index];
+        const hasMissingDependency = item.macro.steps.some(
+          (step) => step.type === "macro" && !macroIdMap.has(step.macroId)
+        );
+        if (!hasMissingDependency) continue;
+
+        plannedMacros.splice(index, 1);
+        macroIdMap.delete(item.macro.id);
+        warnings.push({ code: "MACRO_SKIPPED_MISSING_DEPENDENCY", itemName: item.name });
+        incrementOperation(operations.macros, "skip");
+        didSkipDependency = true;
+      }
+    }
+
+    const replacedMacroIds = new Set(
+      plannedMacros.flatMap((item) => item.existing ? [item.existing.id] : [])
+    );
     const acceptedMacros = existingMacros.filter((macro) => !replacedMacroIds.has(macro.id));
     const macroReplacementById = new Map<string, Macro>();
     const createdMacros: Macro[] = [];
-    const affectedMacroIds: string[] = [];
+    const directlyAffectedMacroIds: string[] = [];
     for (const item of plannedMacros) {
       let trigger = item.macro.trigger ? { ...item.macro.trigger } : undefined;
       if (trigger && areMacroTriggersEqual(trigger, MACRO_OVERLAY_TRIGGER)) {
@@ -753,7 +797,23 @@ export class PortableDataManager {
         trigger = undefined;
       }
 
-      const merged = createImportedMacro(item.macro, item.name, item.roleIds, trigger, timestamp, item.existing);
+      const remappedMacro: PortableMacro = {
+        ...item.macro,
+        steps: item.macro.steps.map((step) =>
+          step.type === "macro"
+            ? { ...step, macroId: macroIdMap.get(step.macroId)! }
+            : { ...step }
+        )
+      };
+      const merged = createImportedMacro(
+        remappedMacro,
+        item.name,
+        item.roleIds,
+        trigger,
+        timestamp,
+        item.existing,
+        item.destinationId
+      );
       if (!item.existing) {
         createdMacros.push(merged);
         acceptedMacros.push(merged);
@@ -765,13 +825,27 @@ export class PortableDataManager {
       } else {
         macroReplacementById.set(item.existing.id, merged);
         acceptedMacros.push(merged);
-        affectedMacroIds.push(item.existing.id);
+        directlyAffectedMacroIds.push(item.existing.id);
         incrementOperation(operations.macros, "update");
       }
     }
     const finalMacros = existingMacros
       .map((macro) => macroReplacementById.get(macro.id) ?? macro)
       .concat(createdMacros);
+    if (findMacroDependencyIssue(finalMacros)) {
+      throw new PortableDataError(
+        "PORTABLE_MACRO_DEPENDENCY_INVALID",
+        "Imported macro dependencies are invalid."
+      );
+    }
+    const affectedMacroIds = existingMacros
+      .filter((macro) =>
+        directlyAffectedMacroIds.includes(macro.id) ||
+        directlyAffectedMacroIds.some((targetId) =>
+          macroDependsOn(existingMacros, macro.id, targetId)
+        )
+      )
+      .map((macro) => macro.id);
 
     return {
       affectedMacroIds,
@@ -1119,10 +1193,11 @@ function createImportedMacro(
   roleIds: string[],
   trigger: MacroTrigger | undefined,
   timestamp: string,
-  existing?: Macro
+  existing: Macro | undefined,
+  destinationId: string
 ): Macro {
   return {
-    id: existing?.id ?? randomUUID(),
+    id: destinationId,
     enabled: source.enabled ?? true,
     name,
     roleIds: [...roleIds],
@@ -1232,7 +1307,10 @@ function normalizePortableMacroConflictResolutions(value: unknown): PortableMacr
   });
 }
 
-function selectPortableData(data: RionPortableDataV2, selection: PortableDataSelection): RionPortableDataV2 {
+function selectPortableData(
+  data: RionPortableDataV3,
+  selection: PortableDataSelection
+): RionPortableDataV3 {
   return {
     app: data.app,
     schemaVersion: data.schemaVersion,
@@ -1246,7 +1324,7 @@ function selectPortableData(data: RionPortableDataV2, selection: PortableDataSel
   };
 }
 
-function getEffectivePortableDataSelection(data: RionPortableDataV2): PortableDataSelection {
+function getEffectivePortableDataSelection(data: RionPortableDataV3): PortableDataSelection {
   return {
     games: data.games.length > 0,
     roles: data.roles.length > 0,
@@ -1256,7 +1334,7 @@ function getEffectivePortableDataSelection(data: RionPortableDataV2): PortableDa
   };
 }
 
-function ensurePortableContentSelected(data: RionPortableDataV2): void {
+function ensurePortableContentSelected(data: RionPortableDataV3): void {
   const selection = getEffectivePortableDataSelection(data);
   if (!selection.games && !selection.roles && !selection.launchWorkspaces && !selection.macros && !selection.preferences) {
     throw new PortableDataError("PORTABLE_SELECTION_EMPTY", "Select at least one available data category.");
@@ -1278,14 +1356,14 @@ function toPortableGame(game: Game): PortableGame {
   };
 }
 
-function parsePortableData(raw: string): RionPortableDataV2 {
+function parsePortableData(raw: string): RionPortableDataV3 {
   try {
     const parsed = JSON.parse(raw) as unknown;
     const data = toRecord(parsed);
 
     if (
       data.app !== PORTABLE_APP_NAME ||
-      (data.schemaVersion !== 1 && data.schemaVersion !== PORTABLE_SCHEMA_VERSION) ||
+      (data.schemaVersion !== 1 && data.schemaVersion !== 2 && data.schemaVersion !== PORTABLE_SCHEMA_VERSION) ||
       !Array.isArray(data.roles) ||
       !Array.isArray(data.launchWorkspaces) ||
       !Array.isArray(data.macros)
@@ -1294,7 +1372,7 @@ function parsePortableData(raw: string): RionPortableDataV2 {
     }
 
     let roles = data.roles.map(normalizePortableRole);
-    const games = data.schemaVersion === PORTABLE_SCHEMA_VERSION && Array.isArray(data.games)
+    const games = (data.schemaVersion === 2 || data.schemaVersion === PORTABLE_SCHEMA_VERSION) && Array.isArray(data.games)
       ? data.games.map(normalizePortableGame)
       : [];
     const normalizedGames = recoverPortableGames(games, roles);
@@ -1306,6 +1384,12 @@ function parsePortableData(raw: string): RionPortableDataV2 {
     ensureUniqueIds(normalizedGames.games.map((game) => game.id));
     ensureUniqueIds(launchWorkspaces.map((workspace) => workspace.id));
     ensureUniqueIds(macros.map((macro) => macro.id));
+    if (findMacroDependencyIssue(macros)) {
+      throw new PortableDataError(
+        "PORTABLE_MACRO_DEPENDENCY_INVALID",
+        "Imported macro dependencies are invalid."
+      );
+    }
 
     return {
       app: PORTABLE_APP_NAME,
@@ -1677,6 +1761,12 @@ function normalizeSteps(value: unknown): MacroStep[] {
           id,
           type: "delay",
           ms: normalizeMilliseconds(step.ms)
+        };
+      case "macro":
+        return {
+          id,
+          type: "macro",
+          macroId: normalizeRequiredString(step.macroId)
         };
       default:
         throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");

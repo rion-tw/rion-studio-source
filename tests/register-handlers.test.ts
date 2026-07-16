@@ -790,11 +790,12 @@ describe("registerIpcHandlers macro handlers", () => {
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let macroStore: Pick<
     MacroStore,
-    "createMacro" | "deleteMacro" | "deleteRoleMacros" | "listMacros" | "updateMacro"
+    "createMacro" | "deleteMacro" | "deleteMacros" | "deleteRoleMacros" | "listMacros" | "updateMacro"
   >;
   let macroManager: Pick<
     MacroManager,
-    "listStatuses" | "on" | "runStoppedMutation" | "start" | "stop" | "stopAndRunMutation" | "stopRole"
+    "listStatuses" | "on" | "runStoppedMutation" | "start" | "stop" |
+    "stopAndRunMutation" | "stopAndRunMutations" | "stopRole"
   >;
   let consumePendingMacroPageRequest: AnyMock;
 
@@ -826,6 +827,7 @@ describe("registerIpcHandlers macro handlers", () => {
     macroStore = {
       createMacro: vi.fn().mockResolvedValue(macro),
       deleteMacro: vi.fn().mockResolvedValue(undefined),
+      deleteMacros: vi.fn(async (ids: string[]) => ({ deletedIds: ids, skipped: [] })),
       deleteRoleMacros: vi.fn().mockResolvedValue(undefined),
       listMacros: vi.fn().mockResolvedValue([macro]),
       updateMacro: vi.fn().mockResolvedValue({ ...macro, name: "Updated" })
@@ -853,6 +855,7 @@ describe("registerIpcHandlers macro handlers", () => {
       runStoppedMutation: vi.fn(async (_macroId: string, operation: () => Promise<unknown>) => operation()) as never,
       stop: vi.fn().mockResolvedValue(undefined),
       stopAndRunMutation: vi.fn(async (_macroId: string, operation: () => Promise<unknown>) => operation()) as never,
+      stopAndRunMutations: vi.fn(async (_macroIds: string[], operation: () => Promise<unknown>) => operation()) as never,
       stopRole: vi.fn().mockResolvedValue(undefined)
     };
     consumePendingMacroPageRequest = vi.fn(() => ({ roleId: "role-1" }));
@@ -967,11 +970,10 @@ describe("registerIpcHandlers macro handlers", () => {
     expect(macroStore.deleteMacro).toHaveBeenCalledWith("macro-1");
   });
 
-  it("bulk stops macros and continues after an item disappears", async () => {
-    vi.mocked(macroStore.deleteMacro).mockImplementation(async (id) => {
-      if (id === "macro-missing") {
-        throw Object.assign(new Error("Macro not found."), { code: "MACRO_NOT_FOUND" });
-      }
+  it("bulk-stops selected macros and applies one atomic dependency-aware deletion", async () => {
+    vi.mocked(macroStore.deleteMacros).mockResolvedValue({
+      deletedIds: ["macro-1", "macro-2"],
+      skipped: [{ id: "macro-missing", reason: "not_found" }]
     });
 
     await expect(handlers.get(IPC_CHANNELS.macrosDeleteMany)?.({}, {
@@ -980,8 +982,15 @@ describe("registerIpcHandlers macro handlers", () => {
       deletedIds: ["macro-1", "macro-2"],
       skipped: [{ id: "macro-missing", reason: "not_found" }]
     });
-    expect(macroManager.stopAndRunMutation).toHaveBeenCalledTimes(3);
-    expect(macroStore.deleteMacro).toHaveBeenCalledTimes(3);
+    expect(macroManager.stopAndRunMutations).toHaveBeenCalledWith(
+      ["macro-1", "macro-missing", "macro-2"],
+      expect.any(Function)
+    );
+    expect(macroStore.deleteMacros).toHaveBeenCalledWith([
+      "macro-1",
+      "macro-missing",
+      "macro-2"
+    ]);
   });
 
   it("deletes stored macros after the browser manager stops a deleted role", async () => {

@@ -384,4 +384,132 @@ describe("MacroStore", () => {
       })
     ).resolves.toMatchObject({ trigger });
   });
+
+  it("stores macro steps by id and preserves references when the target is renamed", async () => {
+    const target = await store.createMacro({
+      name: "Target",
+      roleIds: ["role-2"],
+      steps: [{ id: "target-key", type: "key", code: "F2" }]
+    });
+    const parent = await store.createMacro({
+      name: "Parent",
+      roleIds: ["role-1"],
+      steps: [{ id: "call", type: "macro", macroId: target.id }]
+    });
+
+    await store.updateMacro(target.id, { name: "Renamed target" });
+
+    await expect(store.getMacro(parent.id)).resolves.toMatchObject({
+      steps: [{ id: "call", type: "macro", macroId: target.id }]
+    });
+  });
+
+  it("rejects missing, repeating, direct-cycle, and indirect-cycle macro dependencies", async () => {
+    await expect(store.createMacro({
+      name: "Missing target",
+      roleIds: ["role-1"],
+      steps: [{ id: "call", type: "macro", macroId: "missing" }]
+    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_NOT_FOUND" });
+
+    const repeating = await store.createMacro({
+      name: "Repeating",
+      roleIds: ["role-2"],
+      repeat: { type: "loop", intervalMs: 100 },
+      steps: [{ id: "wait", type: "delay", ms: 1 }]
+    });
+    await expect(store.createMacro({
+      name: "Calls repeating",
+      roleIds: ["role-1"],
+      steps: [{ id: "call", type: "macro", macroId: repeating.id }]
+    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_REPEATS" });
+
+    const first = await store.createMacro({
+      name: "First",
+      roleIds: ["role-1"],
+      steps: [{ id: "key", type: "key", code: "F1" }]
+    });
+    await expect(store.updateMacro(first.id, {
+      steps: [{ id: "self", type: "macro", macroId: first.id }]
+    })).rejects.toMatchObject({ code: "MACRO_DEPENDENCY_CYCLE" });
+
+    const second = await store.createMacro({
+      name: "Second",
+      roleIds: ["role-2"],
+      steps: [{ id: "call-first", type: "macro", macroId: first.id }]
+    });
+    await expect(store.updateMacro(first.id, {
+      steps: [{ id: "call-second", type: "macro", macroId: second.id }]
+    })).rejects.toMatchObject({ code: "MACRO_DEPENDENCY_CYCLE" });
+  });
+
+  it("prevents a referenced target from becoming a looping macro", async () => {
+    const target = await store.createMacro({
+      name: "Target",
+      roleIds: ["role-2"],
+      steps: [{ id: "key", type: "key", code: "F2" }]
+    });
+    await store.createMacro({
+      name: "Parent",
+      roleIds: ["role-1"],
+      steps: [{ id: "call", type: "macro", macroId: target.id }]
+    });
+
+    await expect(store.updateMacro(target.id, {
+      repeat: { type: "loop", intervalMs: 100 }
+    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_REPEATS" });
+  });
+
+  it("blocks deleting a referenced macro and reports every direct referrer", async () => {
+    const target = await store.createMacro({
+      name: "Target",
+      roleIds: ["role-3"],
+      steps: [{ id: "key", type: "key", code: "F3" }]
+    });
+    await store.createMacro({
+      name: "Parent one",
+      roleIds: ["role-1"],
+      steps: [{ id: "call", type: "macro", macroId: target.id }]
+    });
+    await store.createMacro({
+      name: "Parent two",
+      roleIds: ["role-2"],
+      steps: [{ id: "call", type: "macro", macroId: target.id }]
+    });
+
+    await expect(store.deleteMacro(target.id)).rejects.toMatchObject({
+      code: "MACRO_IN_USE",
+      details: { relatedNames: ["Parent one", "Parent two"] }
+    });
+  });
+
+  it("bulk-deletes a complete dependency closure atomically and skips incomplete chains", async () => {
+    const child = await store.createMacro({
+      name: "Child",
+      roleIds: ["role-3"],
+      steps: [{ id: "key", type: "key", code: "F3" }]
+    });
+    const parent = await store.createMacro({
+      name: "Parent",
+      roleIds: ["role-2"],
+      steps: [{ id: "call-child", type: "macro", macroId: child.id }]
+    });
+    const root = await store.createMacro({
+      name: "Root",
+      roleIds: ["role-1"],
+      steps: [{ id: "call-parent", type: "macro", macroId: parent.id }]
+    });
+
+    await expect(store.deleteMacros([parent.id, child.id])).resolves.toEqual({
+      deletedIds: [],
+      skipped: [
+        { id: parent.id, reason: "in_use", relatedNames: ["Root"] },
+        { id: child.id, reason: "in_use", relatedNames: ["Parent"] }
+      ]
+    });
+    await expect(store.deleteMacros([root.id, parent.id, child.id])).resolves.toEqual({
+      deletedIds: [root.id, parent.id, child.id],
+      skipped: []
+    });
+    await expect(store.listMacros()).resolves.toEqual([]);
+  });
 });

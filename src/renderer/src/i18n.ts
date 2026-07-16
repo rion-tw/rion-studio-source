@@ -89,6 +89,12 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro click Y must be between 0 and 100.": "error.macroClickYInvalid",
   "Macro delay must be between 0 and 600000 ms.": "error.macroDelayInvalid",
   "Macro step is invalid.": "error.macroStepInvalid",
+  "Macro step target is invalid.": "error.macroStepTargetInvalid",
+  "Macro step target was not found.": "error.macroStepTargetNotFound",
+  "Macro step target must run once.": "error.macroStepTargetRepeats",
+  "Macro dependency cycle detected while running a called macro.": "error.macroDependencyCycle",
+  "Cancelled because a called macro was stopped.": "error.macroChildStopped",
+  "Imported macro dependencies are invalid.": "error.portableMacroDependencyInvalid",
   "Macro enabled state is invalid.": "error.macroEnabledInvalid",
   "A macro with this name already exists.": "error.macroNameDuplicate",
   "Portable data export is not available.": "error.portableUnavailable",
@@ -192,14 +198,26 @@ export function isLanguage(value: string | null): value is Language {
 }
 
 export function localizeErrorMessage(message: string, language: Language): string {
+  const translations = getLoadedTranslations(language) ?? fallbackTranslations;
   const alreadyRunningMatch = /^Already running in another game window: (.+)\.$/.exec(message);
   if (alreadyRunningMatch) {
-    const translations = getLoadedTranslations(language) ?? fallbackTranslations;
     const template = translations["error.rolesAlreadyRunning"] ?? fallbackTranslations["error.rolesAlreadyRunning"];
     return template.replace("{names}", alreadyRunningMatch[1]);
   }
 
-  const translations = getLoadedTranslations(language) ?? fallbackTranslations;
+  const dynamicMacroErrors: Array<[RegExp, TranslationKey, string]> = [
+    [/^Macro is used by: (.+)\.$/, "error.macroInUse", "{names}"],
+    [/^Macro dependency cycle: (.+)\.$/, "error.macroDependencyCycleNames", "{names}"],
+    [/^Called macro "(.+)" must run once\.$/, "error.macroChildRepeats", "{name}"],
+    [/^Called macro "(.+)" is already running\.$/, "error.macroChildAlreadyRunning", "{name}"]
+  ];
+  for (const [pattern, key, placeholder] of dynamicMacroErrors) {
+    const match = pattern.exec(message);
+    if (match) {
+      return (translations[key] ?? fallbackTranslations[key]).replace(placeholder, match[1]);
+    }
+  }
+
   const key = knownErrorMessages[message];
   if (key) {
     return translations[key] ?? fallbackTranslations[key] ?? message;

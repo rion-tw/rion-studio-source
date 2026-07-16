@@ -58,7 +58,7 @@ export function GameCompatibilityPanel({
       />
       <div className="grid gap-3 rounded-lg bg-muted/35 p-3">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 shrink-0 text-warning" size={18} />
+          <AlertTriangle className="mt-0.5 shrink-0 text-warning-foreground" size={18} />
           <div>
             <p className="text-sm font-semibold">{t("games.compatibility.noticeTitle")}</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{t("games.compatibility.notice")}</p>
@@ -170,6 +170,6 @@ function StatusIcon({ state }: { state?: "available" | "failed" | "cancelled" })
   ) : state === "failed" ? (
     <XCircle className="text-destructive" size={19} />
   ) : (
-    <AlertTriangle className="text-warning" size={19} />
+    <AlertTriangle className="text-warning-foreground" size={19} />
   );
 }

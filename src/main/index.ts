@@ -19,6 +19,7 @@ import {
 } from "electron";
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
+import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
@@ -356,6 +357,7 @@ async function initializeApplication(): Promise<void> {
     appUserDataDir: userDataDir,
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
+  const chromeZoomPreferenceApplier = new ChromeZoomPreferenceApplier();
   const browserProxyApplier = new BrowserProxyApplier({
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
@@ -391,6 +393,8 @@ async function initializeApplication(): Promise<void> {
     applyBrowserFonts: async (_role, browserUserDataDir) => {
       await browserFontApplier.applyToChromeUserDataDir(browserUserDataDir);
     },
+    applyBrowserZoom: (browserUserDataDir, zoomFactor) =>
+      chromeZoomPreferenceApplier.applyToChromeUserDataDir(browserUserDataDir, zoomFactor),
     prepareCdnCompatibility: async (role, _browserUserDataDir) => {
       const settings = normalizeGameBrowserSettings(await gameBrowserSettingsStore.getSettings());
       const browserSession = electronSession.fromPartition(createRoleSessionPartition(role.id));

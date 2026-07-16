@@ -122,7 +122,7 @@
   "workspaces.layout": "版面配置",
   "workspaces.layoutDescription": "選擇排列方式，拖拉分割線來調整 App 內的遊戲區域。",
   "workspaces.browserZoom": "瀏覽器縮放",
-  "workspaces.browserZoomDescription": "依各遊戲視口寬度自動調整，或選擇固定縮放比例。",
+  "workspaces.browserZoomDescription": "依各遊戲視口寬度自動調整；內嵌視窗會隨縮放即時更新，外部 Chrome 則在重新啟動時計算。也可選擇固定比例。",
   "workspaces.browserZoomAdaptive": "自適應（建議）",
   "workspaces.resourceMode": "資源策略",
   "workspaces.resourceModeDescription": "讓目前操作的主控角色保持全速，降低其他角色的 CPU 執行速度。",

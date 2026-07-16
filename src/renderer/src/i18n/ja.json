@@ -122,7 +122,7 @@
   "workspaces.layout": "レイアウト",
   "workspaces.layoutDescription": "レイアウトを選択し、分割線をドラッグしてアプリ内のゲーム領域を調整します。",
   "workspaces.browserZoom": "Browser zoom",
-  "workspaces.browserZoomDescription": "各ゲームビューポートの幅に合わせて自動調整するか、固定倍率を選択します。",
+  "workspaces.browserZoomDescription": "各ゲームビューポートの幅に合わせて自動調整します。埋め込み表示はリサイズ時に更新され、外部 Chrome は再起動時に再計算されます。固定倍率も選択できます。",
   "workspaces.browserZoomAdaptive": "自動調整（推奨）",
   "workspaces.resourceMode": "リソースポリシー",
   "workspaces.resourceModeDescription": "操作中のメインロールをフル速度に保ち、他のロールの CPU 実行速度を下げます。",

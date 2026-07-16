@@ -3,12 +3,8 @@ import {
   createMacroShortcutSuppressionClearSource,
   createMacroShortcutSuppressionSource
 } from "../../shared/macroShortcuts";
-import type { PixelBounds, WorkspaceBrowserZoomMode } from "../../shared/types";
+import type { PixelBounds } from "../../shared/types";
 import type { WorkspaceCpuThrottleRate } from "../../shared/types";
-import {
-  ADAPTIVE_WORKSPACE_BROWSER_ZOOM_HYSTERESIS_DIP,
-  adaptiveWorkspaceBrowserZoomThresholds
-} from "../../shared/workspaceLayout";
 import {
   createCdnCompatibilityRequestPatterns,
   rewriteCdnCompatibilityUrl
@@ -29,8 +25,6 @@ const OVERLAY_BRIDGE_KEY = "__rionStudioExternalMacroBridge";
 const FOCUS_BINDING_NAME = "rionStudioWindowFocus";
 const FOCUS_TRACKER_KEY = "__rionStudioWindowFocusTracker";
 const POINTER_FOCUS_STATE_KEY = "__rionStudioPointerFocusState";
-const PAGE_ZOOM_STATE_KEY = "__rionStudioWorkspaceZoomState";
-const PAGE_ADAPTIVE_ZOOM_STATE_KEY = "__rionStudioWorkspaceAdaptiveZoomState";
 
 export type ExternalMacroOverlayHandler = (request: unknown) => Promise<unknown>;
 
@@ -42,8 +36,6 @@ export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget
   releaseThrottle: () => Promise<void>;
   setCpuThrottleRate: (rate: 1 | WorkspaceCpuThrottleRate) => Promise<void>;
   setWindowBounds: (bounds: PixelBounds) => Promise<void>;
-  setAdaptiveZoom: () => Promise<void>;
-  setZoomFactor: (factor: number) => Promise<void>;
 }
 
 export interface ConnectExternalChromeAutomationOptions {
@@ -113,9 +105,6 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   private currentCpuThrottleRate: 1 | WorkspaceCpuThrottleRate = 1;
   private desiredCpuThrottleRate: 1 | WorkspaceCpuThrottleRate = 1;
   private resourceControlPromise?: Promise<void>;
-  private zoomFactor?: number;
-  private zoomMode?: WorkspaceBrowserZoomMode;
-  private zoomScriptIdentifier?: string;
 
   constructor(private readonly client: CdpEventClientLike) {}
 
@@ -230,67 +219,6 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         height: bounds.height
       }
     });
-  }
-
-  async setZoomFactor(zoomFactor: number): Promise<void> {
-    if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
-      throw new Error("External Chrome zoom factor must be greater than zero.");
-    }
-    if (this.zoomMode === "fixed" && this.zoomFactor === zoomFactor) {
-      return;
-    }
-
-    await this.applyZoomSource(createPageZoomSource(zoomFactor), zoomFactor !== 1);
-    this.zoomFactor = zoomFactor;
-    this.zoomMode = "fixed";
-  }
-
-  async setAdaptiveZoom(): Promise<void> {
-    if (this.zoomMode === "adaptive") {
-      return;
-    }
-
-    await this.applyZoomSource(createAdaptivePageZoomSource(), true);
-    this.zoomFactor = undefined;
-    this.zoomMode = "adaptive";
-  }
-
-  private async applyZoomSource(source: string, persist: boolean): Promise<void> {
-
-    if (this.zoomScriptIdentifier) {
-      await this.client.send("Page.removeScriptToEvaluateOnNewDocument", {
-        identifier: this.zoomScriptIdentifier
-      });
-      this.zoomScriptIdentifier = undefined;
-    }
-
-    let nextScriptIdentifier: string | undefined;
-
-    try {
-      if (persist) {
-        const result = await this.client.send<{ identifier?: string }>(
-          "Page.addScriptToEvaluateOnNewDocument",
-          { source }
-        );
-        if (!result.identifier) {
-          throw new Error("External Chrome did not register the workspace zoom script.");
-        }
-        nextScriptIdentifier = result.identifier;
-        this.zoomScriptIdentifier = result.identifier;
-      }
-
-      await this.evaluate(source);
-    } catch (error) {
-      if (nextScriptIdentifier) {
-        await this.client.send("Page.removeScriptToEvaluateOnNewDocument", {
-          identifier: nextScriptIdentifier
-        }).catch(() => undefined);
-      }
-      this.zoomFactor = undefined;
-      this.zoomMode = undefined;
-      this.zoomScriptIdentifier = undefined;
-      throw error;
-    }
   }
 
   async focus(): Promise<void> {
@@ -636,144 +564,6 @@ function createExternalPointerFocusTrackingSource(): string {
 
 function createPointerFocusSuppressionSource(suppressed: boolean): string {
   return `window[${JSON.stringify(POINTER_FOCUS_STATE_KEY)}]?.setSuppressed?.(${JSON.stringify(suppressed)})`;
-}
-
-export function createPageZoomSource(zoomFactor: number): string {
-  const serializedZoomFactor = JSON.stringify(zoomFactor);
-  const serializedStateKey = JSON.stringify(PAGE_ZOOM_STATE_KEY);
-  const serializedAdaptiveStateKey = JSON.stringify(PAGE_ADAPTIVE_ZOOM_STATE_KEY);
-
-  return `(() => {
-    if (window.top !== window) return;
-    const adaptiveStateKey = ${serializedAdaptiveStateKey};
-    window[adaptiveStateKey]?.dispose?.();
-    delete window[adaptiveStateKey];
-    const apply = () => {
-      const root = document.documentElement;
-      if (!root) return false;
-      const stateKey = ${serializedStateKey};
-      const existingState = root[stateKey];
-      if (${serializedZoomFactor} === 1) {
-        if (existingState) {
-          if (existingState.value) {
-            root.style.setProperty("zoom", existingState.value, existingState.priority);
-          } else {
-            root.style.removeProperty("zoom");
-          }
-          delete root[stateKey];
-        }
-        return true;
-      }
-      if (!existingState) {
-        Object.defineProperty(root, stateKey, {
-          configurable: true,
-          value: {
-            value: root.style.getPropertyValue("zoom"),
-            priority: root.style.getPropertyPriority("zoom")
-          }
-        });
-      }
-      root.style.setProperty("zoom", String(${serializedZoomFactor}), "important");
-      return true;
-    };
-    if (!apply()) {
-      const observer = new MutationObserver(() => {
-        if (apply()) observer.disconnect();
-      });
-      observer.observe(document, { childList: true });
-    }
-  })()`;
-}
-
-export function createAdaptivePageZoomSource(): string {
-  const serializedStateKey = JSON.stringify(PAGE_ZOOM_STATE_KEY);
-  const serializedAdaptiveStateKey = JSON.stringify(PAGE_ADAPTIVE_ZOOM_STATE_KEY);
-  const serializedThresholds = JSON.stringify(
-    adaptiveWorkspaceBrowserZoomThresholds.map(({ minWidth, percent }) => [minWidth, percent])
-  );
-  const serializedHysteresis = JSON.stringify(ADAPTIVE_WORKSPACE_BROWSER_ZOOM_HYSTERESIS_DIP);
-
-  return `(() => {
-    if (window.top !== window) return;
-    const stateKey = ${serializedStateKey};
-    const adaptiveStateKey = ${serializedAdaptiveStateKey};
-    const thresholds = ${serializedThresholds};
-    const hysteresis = ${serializedHysteresis};
-    window[adaptiveStateKey]?.dispose?.();
-
-    let observer;
-    const state = {
-      currentPercent: undefined,
-      frame: 0,
-      dispose: () => {
-        if (state.frame) cancelAnimationFrame(state.frame);
-        observer?.disconnect();
-        window.removeEventListener("resize", schedule);
-        window.visualViewport?.removeEventListener("resize", schedule);
-      }
-    };
-    window[adaptiveStateKey] = state;
-
-    const findTargetIndex = (width) => {
-      for (let index = thresholds.length - 1; index >= 0; index -= 1) {
-        if (width >= thresholds[index][0]) return index;
-      }
-      return 0;
-    };
-    const resolvePercent = (width) => {
-      const targetIndex = findTargetIndex(width);
-      if (state.currentPercent === undefined) return thresholds[targetIndex][1];
-      const currentIndex = thresholds.findIndex((entry) => entry[1] === state.currentPercent);
-      if (currentIndex < 0 || currentIndex === targetIndex) return thresholds[targetIndex][1];
-      if (targetIndex > currentIndex) {
-        const nextThreshold = thresholds[currentIndex + 1]?.[0];
-        if (nextThreshold !== undefined && width < nextThreshold + hysteresis) {
-          return state.currentPercent;
-        }
-      } else {
-        const currentThreshold = thresholds[currentIndex]?.[0];
-        if (currentThreshold !== undefined && width >= currentThreshold - hysteresis) {
-          return state.currentPercent;
-        }
-      }
-      return thresholds[targetIndex][1];
-    };
-    const apply = () => {
-      const root = document.documentElement;
-      if (!root) return false;
-      observer?.disconnect();
-      const existingState = root[stateKey];
-      if (!existingState) {
-        Object.defineProperty(root, stateKey, {
-          configurable: true,
-          value: {
-            value: root.style.getPropertyValue("zoom"),
-            priority: root.style.getPropertyPriority("zoom")
-          }
-        });
-      }
-      const width = window.visualViewport?.width ?? window.innerWidth;
-      const nextPercent = resolvePercent(width);
-      if (nextPercent !== state.currentPercent) {
-        state.currentPercent = nextPercent;
-        root.style.setProperty("zoom", String(nextPercent / 100), "important");
-      }
-      return true;
-    };
-    function schedule() {
-      if (state.frame) return;
-      state.frame = requestAnimationFrame(() => {
-        state.frame = 0;
-        apply();
-      });
-    }
-    window.addEventListener("resize", schedule);
-    window.visualViewport?.addEventListener("resize", schedule);
-    if (!apply()) {
-      observer = new MutationObserver(schedule);
-      observer.observe(document, { childList: true });
-    }
-  })()`;
 }
 
 function createFocusTrackingSource(): string {

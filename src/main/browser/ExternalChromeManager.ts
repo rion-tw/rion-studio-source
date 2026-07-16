@@ -23,7 +23,10 @@ import type {
   WorkspaceBrowserZoomMode,
   WorkspaceResourcePolicy
 } from "../../shared/types";
-import { normalizeWorkspaceRectEdges } from "../../shared/workspaceLayout";
+import {
+  getAdaptiveWorkspaceBrowserZoomPercent,
+  normalizeWorkspaceRectEdges
+} from "../../shared/workspaceLayout";
 import {
   connectExternalChromeAutomation,
   type ConnectExternalChromeAutomationOptions,
@@ -53,6 +56,7 @@ export interface ExternalChromeLaunchOptions {
 
 export interface ExternalChromeManagerOptions {
   applyBrowserFonts?: (role: Role, browserUserDataDir: string) => Promise<void>;
+  applyBrowserZoom?: (browserUserDataDir: string, zoomFactor: number) => Promise<void>;
   prepareCdnCompatibility?: (
     role: Role,
     browserUserDataDir: string
@@ -84,6 +88,7 @@ interface ExternalChromeSession {
   role: Role;
   state: RoleStatus["state"];
   workspaceId?: string;
+  zoomFactor: number;
 }
 
 export class ExternalChromeRoleAlreadyRunningError extends Error {
@@ -154,21 +159,6 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   }
 
   async launch(role: Role, options: ExternalChromeLaunchOptions = {}): Promise<RoleStatus> {
-    const existing = this.sessions.get(role.id);
-    if (existing) {
-      existing.role = role;
-      existing.notice = options.notice ?? existing.notice;
-      if (existing.automationTarget) {
-        await this.applyZoom(
-          existing,
-          existing.automationTarget,
-          options.zoomMode ?? "fixed",
-          options.zoomFactor ?? 1
-        );
-      }
-      return this.toStatus(role.id, existing);
-    }
-
     const workArea = options.workArea ?? this.options.getLaunchWorkArea();
     const width = Math.min(role.windowWidth, workArea.width);
     const height = Math.min(role.windowHeight, workArea.height);
@@ -178,6 +168,21 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       width,
       height
     };
+    const zoomFactor = resolveExternalChromeZoomFactor(
+      options.zoomMode ?? "fixed",
+      options.zoomFactor ?? 1,
+      bounds.width
+    );
+    const existing = this.sessions.get(role.id);
+    if (existing) {
+      existing.role = role;
+      existing.notice = options.notice ?? existing.notice;
+      if (existing.zoomFactor !== zoomFactor) {
+        existing.notice = appendNotice(existing.notice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+      }
+      return this.toStatus(role.id, existing);
+    }
+
     const physicalBounds = this.toPhysicalBounds(bounds);
     const session = await this.launchSession(
       role,
@@ -185,8 +190,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       physicalBounds,
       undefined,
       options.notice,
-      options.zoomMode ?? "fixed",
-      options.zoomFactor ?? 1
+      zoomFactor
     );
     return this.toStatus(role.id, session);
   }
@@ -232,8 +236,11 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
           physicalBounds?.[index],
           workspace.id,
           options.notice,
-          options.zoomMode ?? "fixed",
-          options.zoomFactor ?? 1
+          resolveExternalChromeZoomFactor(
+            options.zoomMode ?? "fixed",
+            options.zoomFactor ?? 1,
+            dipBounds[index].width
+          )
         );
         sessions.push({ roleId: item.role.id, session });
       }
@@ -276,7 +283,6 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     physicalBounds: PixelBounds | undefined,
     workspaceId: string | undefined,
     notice: string | undefined,
-    zoomMode: WorkspaceBrowserZoomMode,
     zoomFactor: number
   ): Promise<ExternalChromeSession> {
     const executablePath = (this.options.findExecutable ?? findSystemChromeExecutable)();
@@ -288,6 +294,10 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     let cdnCompatibilityRequested = false;
     let proxyServer: string | undefined;
     let sessionNotice = notice;
+    await this.options.applyBrowserZoom?.(browserUserDataDir, zoomFactor).catch((error) => {
+      console.warn("Failed to apply workspace zoom before opening external Chrome.", error);
+      sessionNotice = appendNotice(sessionNotice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+    });
     try {
       const compatibility = await this.options.prepareCdnCompatibility?.(role, browserUserDataDir);
       cdnCompatibilityRequested = compatibility?.enabled ?? false;
@@ -306,7 +316,8 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       notice: sessionNotice,
       role,
       state: "launching",
-      workspaceId
+      workspaceId,
+      zoomFactor
     };
     this.sessions.set(role.id, session);
     this.emitChange();
@@ -343,7 +354,6 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       } catch (error) {
         console.warn("Failed to align external Chrome window bounds.", error);
       }
-      await this.applyZoom(session, target, zoomMode, zoomFactor);
       await this.macroOverlayInstaller?.(role, target).catch((error) => {
         console.warn("Failed to install the macro overlay in external Chrome.", error);
       });
@@ -356,9 +366,6 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_UNAVAILABLE_NOTICE);
       }
       session.notice = appendNotice(session.notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
-      if (zoomMode === "adaptive" || zoomFactor !== 1) {
-        session.notice = appendNotice(session.notice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
-      }
     }
 
     await this.alignVisibleWindow(child, physicalBounds);
@@ -370,24 +377,6 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     session.launchedAt = new Date().toISOString();
     this.emitChange();
     return session;
-  }
-
-  private async applyZoom(
-    session: ExternalChromeSession,
-    target: ExternalBrowserAutomationTarget,
-    zoomMode: WorkspaceBrowserZoomMode,
-    zoomFactor: number
-  ): Promise<void> {
-    try {
-      if (zoomMode === "adaptive") {
-        await target.setAdaptiveZoom();
-      } else {
-        await target.setZoomFactor(zoomFactor);
-      }
-    } catch (error) {
-      console.warn("Failed to apply workspace zoom in external Chrome.", error);
-      session.notice = appendNotice(session.notice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
-    }
   }
 
   private toPhysicalBounds(bounds: PixelBounds): PixelBounds | undefined {
@@ -567,6 +556,16 @@ function normalizedRectToPixelBounds(rect: NormalizedRect, contentBounds: PixelB
     width: Math.max(1, right - left),
     height: Math.max(1, bottom - top)
   };
+}
+
+function resolveExternalChromeZoomFactor(
+  zoomMode: WorkspaceBrowserZoomMode,
+  fixedZoomFactor: number,
+  viewportWidth: number
+): number {
+  return zoomMode === "adaptive"
+    ? getAdaptiveWorkspaceBrowserZoomPercent(viewportWidth) / 100
+    : fixedZoomFactor;
 }
 
 function externalChromeSeamOverlap(platform: NodeJS.Platform): number {

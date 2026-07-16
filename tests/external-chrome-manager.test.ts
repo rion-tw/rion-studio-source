@@ -219,7 +219,7 @@ describe("ExternalChromeManager", () => {
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
-  it("keeps external Chrome running and reports when custom zoom cannot connect", async () => {
+  it("keeps native zoom independent when macro automation cannot connect", async () => {
     const harness = createHarness({
       connectAutomation: vi.fn().mockRejectedValue(new Error("CDP unavailable"))
     });
@@ -230,15 +230,15 @@ describe("ExternalChromeManager", () => {
     const status = await launchPromise;
 
     expect(status).toMatchObject({ state: "running", automationState: "unavailable" });
-    expect(status.notice).toContain(EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+    expect(status.notice).not.toContain(EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.75);
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
-  it("keeps automation ready when only external workspace zoom fails", async () => {
-    const automationTarget = createAutomationTarget();
-    automationTarget.setZoomFactor.mockRejectedValue(new Error("zoom rejected"));
+  it("keeps automation ready when only native zoom preference writing fails", async () => {
+    const applyBrowserZoom = vi.fn().mockRejectedValue(new Error("zoom rejected"));
     const harness = createHarness({
-      connectAutomation: vi.fn().mockResolvedValue(automationTarget)
+      applyBrowserZoom
     });
 
     const launchPromise = harness.manager.launch(role, { zoomFactor: 0.75 });
@@ -248,11 +248,26 @@ describe("ExternalChromeManager", () => {
 
     expect(status).toMatchObject({ state: "running", automationState: "ready" });
     expect(status.notice).toBe(EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
-    expect(harness.manager.getAutomationSession(role.id)?.target).toBe(automationTarget);
+    expect(harness.manager.getAutomationSession(role.id)?.target).toBe(harness.automationTargets[0]);
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
-  it("installs adaptive zoom after aligning an external Chrome workspace window", async () => {
+  it("keeps a running external session unchanged when a different zoom is requested", async () => {
+    const harness = createHarness();
+    const launchPromise = harness.manager.launch(role, { zoomFactor: 0.75 });
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launchPromise;
+
+    const status = await harness.manager.launch(role, { zoomFactor: 0.9 });
+
+    expect(status.notice).toBe(EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+    expect(harness.applyBrowserZoom).toHaveBeenCalledTimes(1);
+    expect(harness.spawnChrome).toHaveBeenCalledTimes(1);
+    expect(harness.children[0].kill).not.toHaveBeenCalled();
+  });
+
+  it("applies adaptive native zoom before spawning an external Chrome workspace window", async () => {
     const harness = createHarness();
     const launchPromise = harness.manager.launchWorkspace(
       { id: "workspace-1" },
@@ -264,12 +279,50 @@ describe("ExternalChromeManager", () => {
     harness.children[0].emit("spawn");
     await launchPromise;
 
-    const target = harness.automationTargets[0];
-    expect(target.setAdaptiveZoom).toHaveBeenCalledTimes(1);
-    expect(target.setZoomFactor).not.toHaveBeenCalled();
-    expect(target.setWindowBounds.mock.invocationCallOrder[0]).toBeLessThan(
-      target.setAdaptiveZoom.mock.invocationCallOrder[0]
+    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.9);
+    expect(harness.applyBrowserZoom.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.spawnChrome.mock.invocationCallOrder[0]
     );
+  });
+
+  it("calculates adaptive native zoom independently for every eight-grid role", async () => {
+    const harness = createHarness();
+    const roles = Array.from({ length: 8 }, (_value, index) => ({
+      ...role,
+      id: `role-${index + 1}`,
+      name: `Role ${index + 1}`
+    }));
+    const items = roles.map((gridRole, index) => ({
+      role: gridRole,
+      rect: {
+        x: (index % 4) * 0.25,
+        y: Math.floor(index / 4) * 0.5,
+        width: 0.25,
+        height: 0.5
+      }
+    }));
+
+    const launchPromise = harness.manager.launchWorkspace(
+      { id: "workspace-eight-grid" },
+      items,
+      {
+        workArea: { x: 0, y: 0, width: 2_560, height: 1_400 },
+        zoomMode: "adaptive"
+      }
+    );
+    for (let index = 0; index < roles.length; index += 1) {
+      await waitForChild(harness.children, index);
+      harness.children[index].emit("spawn");
+    }
+    await launchPromise;
+
+    expect(harness.applyBrowserZoom).toHaveBeenCalledTimes(8);
+    for (const gridRole of roles) {
+      expect(harness.applyBrowserZoom).toHaveBeenCalledWith(
+        `/profiles/${gridRole.id}/browser`,
+        0.5
+      );
+    }
   });
 
   it("launches workspace roles using normalized slot rectangles", async () => {
@@ -322,8 +375,8 @@ describe("ExternalChromeManager", () => {
       width: 800,
       height: 900
     });
-    expect(harness.automationTargets[0].setZoomFactor).toHaveBeenCalledWith(0.75);
-    expect(harness.automationTargets[1].setZoomFactor).toHaveBeenCalledWith(0.75);
+    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.75);
+    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-2/browser", 0.75);
     expect(statuses).toEqual([
       expect.objectContaining({ roleId: "role-1", notice: "fallback", runtimeMode: "external" }),
       expect.objectContaining({ roleId: "role-2", notice: "fallback", runtimeMode: "external" })
@@ -641,6 +694,7 @@ describe("ExternalChromeManager", () => {
 });
 
 function createHarness(options: {
+  applyBrowserZoom?: AnyMock;
   childPid?: number;
   connectAutomation?: AnyMock;
   platform?: NodeJS.Platform;
@@ -664,7 +718,9 @@ function createHarness(options: {
     automationTargets.push(target);
     return target;
   });
+  const applyBrowserZoom = options.applyBrowserZoom ?? vi.fn().mockResolvedValue(undefined);
   const manager = new ExternalChromeManager(roleStore, {
+    applyBrowserZoom,
     connectAutomation,
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
@@ -676,7 +732,15 @@ function createHarness(options: {
     ...(options.windowBoundsAdapter ? { windowBoundsAdapter: options.windowBoundsAdapter } : {})
   });
 
-  return { automationTargets, children, connectAutomation, manager, roleStore, spawnChrome };
+  return {
+    applyBrowserZoom,
+    automationTargets,
+    children,
+    connectAutomation,
+    manager,
+    roleStore,
+    spawnChrome
+  };
 }
 
 function createAutomationTarget() {
@@ -693,9 +757,7 @@ function createAutomationTarget() {
       disconnectListeners.add(listener);
       return () => disconnectListeners.delete(listener);
     }),
-    setAdaptiveZoom: vi.fn().mockResolvedValue(undefined),
-    setWindowBounds: vi.fn().mockResolvedValue(undefined),
-    setZoomFactor: vi.fn().mockResolvedValue(undefined)
+    setWindowBounds: vi.fn().mockResolvedValue(undefined)
   };
 }
 

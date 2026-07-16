@@ -284,14 +284,16 @@ function MacrosRoute({
                     data-selection-id={macro.id}
                     onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
                   >
-                    <td className="w-9 px-2 py-2.5 align-top">
-                      <SelectionToggle
-                        alwaysVisible
-                        isSelected={selection.isSelected(macro.id)}
-                        label={t(selection.isSelected(macro.id) ? "selection.deselectItem" : "selection.selectItem")
-                          .replace("{name}", macro.name)}
-                        onToggle={() => selection.toggleSelection(macro.id)}
-                      />
+                    <td className="relative w-9 p-0">
+                      <div className="absolute inset-0 grid place-items-center" data-macro-selection-control>
+                        <SelectionToggle
+                          alwaysVisible
+                          isSelected={selection.isSelected(macro.id)}
+                          label={t(selection.isSelected(macro.id) ? "selection.deselectItem" : "selection.selectItem")
+                            .replace("{name}", macro.name)}
+                          onToggle={() => selection.toggleSelection(macro.id)}
+                        />
+                      </div>
                     </td>
                     <td className="max-w-[240px] px-4 py-2.5 align-baseline">
                       <button
@@ -333,8 +335,8 @@ function MacrosRoute({
                         />
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 align-baseline">
-                      <div className="-my-1 flex justify-end">
+                    <td className="relative w-20 p-0">
+                      <div className="absolute inset-0 flex items-center justify-end px-3" data-macro-actions-control>
                         <MacroActionMenu
                           busyMacroIds={busyMacroIds}
                           busyRunKeys={busyRunKeys}

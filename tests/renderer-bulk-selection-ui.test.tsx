@@ -218,8 +218,24 @@ describe("bulk selection UI", () => {
       />
     );
 
-    const checkbox = screen.getByRole("button", { name: "Select Auto heal" });
+    const checkbox = screen.getByRole("checkbox", { name: "Select Auto heal" });
+    expect(checkbox.className).toContain("size-3.5");
+    expect(checkbox.className).toContain("data-[state=checked]:bg-blue-500");
     expect(checkbox.className).toContain("opacity-100");
+    expect(checkbox.className).not.toContain("shadow-sm");
+    const checkboxLayout = checkbox.closest("[data-macro-selection-control]");
+    expect(checkboxLayout?.className).toContain("absolute");
+    expect(checkboxLayout?.className).toContain("inset-0");
+    expect(checkboxLayout?.className).toContain("place-items-center");
+    expect(checkboxLayout?.parentElement?.className).toContain("relative");
+    expect(checkboxLayout?.parentElement?.className).toContain("p-0");
+
+    const actionLayout = screen.getByRole("button", { name: "Start" }).closest("[data-macro-actions-control]");
+    expect(actionLayout?.className).toContain("absolute");
+    expect(actionLayout?.className).toContain("inset-0");
+    expect(actionLayout?.className).toContain("items-center");
+    expect(screen.getByRole("button", { name: "Macro actions" }).closest("[data-macro-actions-control]"))
+      .toBe(actionLayout);
     await user.click(checkbox);
     expect(screen.getByText("1 selected")).toBeTruthy();
     expect(document.querySelector("[data-selection-overlay]")).toBeNull();

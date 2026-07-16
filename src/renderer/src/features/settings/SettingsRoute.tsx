@@ -3,6 +3,7 @@ import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import { useConfirmation } from "../../components/confirmation";
 import { LegalDocumentDialog } from "../legal/LegalDocumentDialog";
 import type { LegalDocumentKind } from "../legal/legalDocuments";
@@ -1861,14 +1862,12 @@ function PortableDataSelectionControls({
                 itemDisabled ? "opacity-60" : "cursor-pointer"
               }`}
             >
-              <input
-                className="size-4 shrink-0 accent-primary"
-                type="checkbox"
+              <Checkbox
                 checked={selection[section]}
                 disabled={itemDisabled}
-                onChange={(event) =>
+                onCheckedChange={(checked) =>
                   onChange(
-                    updatePortableDataSelection(selection, section, event.target.checked, availability)
+                    updatePortableDataSelection(selection, section, checked === true, availability)
                   )
                 }
               />

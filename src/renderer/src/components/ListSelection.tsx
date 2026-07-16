@@ -1,4 +1,4 @@
-import { Check, Loader2, Trash2, X } from "lucide-react";
+import { Loader2, Trash2, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { JSX, MouseEvent } from "react";
 
@@ -6,6 +6,7 @@ import type { Translator } from "../i18n";
 import type { SelectionRect } from "../hooks/useListSelection";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import { Surface } from "./ui/patterns";
 
 interface SelectionToggleProps {
@@ -44,28 +45,22 @@ export function SelectionToggle({
   }
 
   return (
-    <button
+    <Checkbox
       aria-label={label}
-      aria-pressed={isSelected}
+      checked={isSelected}
       className={cn(
-        "selection-toggle grid size-6 shrink-0 place-items-center rounded-md border shadow-sm backdrop-blur-md transition-[opacity,background-color,border-color,color]",
+        "selection-toggle transition-opacity",
         isSelected
-          ? "border-blue-500/80 bg-blue-500 text-white opacity-100"
-          : cn(
-              "border-border/70 bg-background/80 text-transparent",
-              alwaysVisible
-                ? "opacity-100"
-                : "opacity-0 hover:text-muted-foreground group-hover:opacity-100 group-focus-within:opacity-100"
-            ),
+          ? "opacity-100"
+          : alwaysVisible
+            ? "opacity-100"
+            : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
         className
       )}
       data-selection-control
-      type="button"
       onClick={handleClick}
       onPointerDown={(event) => event.stopPropagation()}
-    >
-      <Check size={14} strokeWidth={2.5} aria-hidden="true" />
-    </button>
+    />
   );
 }
 

@@ -35,6 +35,7 @@
     "src/renderer/src/components/ui/badge.tsx",
     "src/renderer/src/components/ui/button.tsx",
     "src/renderer/src/components/ui/card.tsx",
+    "src/renderer/src/components/ui/checkbox.tsx",
     "src/renderer/src/components/ui/input.tsx",
     "src/renderer/src/components/ui/patterns.tsx",
     "src/renderer/src/components/ui/select.tsx",

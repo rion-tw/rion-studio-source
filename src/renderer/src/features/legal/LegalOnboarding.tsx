@@ -4,6 +4,7 @@ import { type JSX, useState } from "react";
 import appIconUrl from "../../assets/app-icon.png";
 import { languageLabelKeys } from "../../app/constants";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Surface } from "../../components/ui/patterns";
 import { languages, type Language, type Translator } from "../../i18n";
@@ -136,11 +137,10 @@ function DocumentButton({ label, onClick }: { label: string; onClick: () => void
 function AgreementCheckbox({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }): JSX.Element {
   return (
     <label className="flex cursor-pointer items-start gap-3 text-xs font-medium leading-5 text-foreground">
-      <input
-        className="mt-0.5 size-4 shrink-0 accent-primary"
-        type="checkbox"
+      <Checkbox
+        className="mt-0.5"
         checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
+        onCheckedChange={(nextChecked) => onChange(nextChecked === true)}
       />
       <span>{label}</span>
     </label>

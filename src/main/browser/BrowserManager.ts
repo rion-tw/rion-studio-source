@@ -401,6 +401,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.alwaysShowToolbarInFullScreen = value;
     this.displayHosts.forEach((host) => {
       this.clearRuntimeToolbarCollapseTimer(host);
+      if (value) this.clearRuntimeToolbarCursorMonitor(host);
       host.toolbarTemporarilyVisible = false;
       host.systemMenuBarTemporarilyRevealed = false;
       this.layoutDisplayHost(host);
@@ -430,7 +431,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (!displayHost || displayHost.closing) return () => undefined;
     displayHost.toolbarRevealLockCount += 1;
     this.clearRuntimeToolbarCollapseTimer(displayHost);
-    if (this.isDisplayHostFullscreen(displayHost)) this.revealRuntimeToolbar(displayHost);
+    if (
+      this.isDisplayHostFullscreen(displayHost) &&
+      !this.alwaysShowToolbarInFullScreen
+    ) this.revealRuntimeToolbar(displayHost);
 
     let released = false;
     return () => {
@@ -441,7 +445,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         displayHost.toolbarRevealLockCount === 0 &&
         !displayHost.closing &&
         this.isDisplayHostFullscreen(displayHost) &&
-        (!this.alwaysShowToolbarInFullScreen || displayHost.systemMenuBarTemporarilyRevealed)
+        !this.alwaysShowToolbarInFullScreen
       ) {
         this.scheduleRuntimeToolbarCollapse(displayHost);
       }
@@ -1382,7 +1386,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (displayHost.chromeView) {
       if (!this.isDisplayHostFullscreen(displayHost)) return RUNTIME_TAB_CHROME_HEIGHT;
       return this.alwaysShowToolbarInFullScreen
-        ? this.getRuntimeToolbarTopInset(displayHost) + RUNTIME_TAB_CHROME_HEIGHT
+        ? RUNTIME_TAB_CHROME_HEIGHT
         : 0;
     }
     if (displayHost.chromeWebContents) return this.getRuntimeToolbarHeight(displayHost);
@@ -1420,6 +1424,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (
       displayHost.closing ||
       !this.isDisplayHostFullscreen(displayHost) ||
+      this.alwaysShowToolbarInFullScreen ||
       displayHost.toolbarRevealLockCount > 0
     ) return;
 
@@ -1439,10 +1444,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private syncRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {
-    const shouldTrackAutoHiddenMenuBar = this.shouldTrackAutoHiddenSystemMenuBar(displayHost);
     const shouldMonitor = !displayHost.closing &&
       this.isDisplayHostFullscreen(displayHost) &&
-      (!this.alwaysShowToolbarInFullScreen || shouldTrackAutoHiddenMenuBar) &&
+      !this.alwaysShowToolbarInFullScreen &&
       isWindowVisible(displayHost.window) &&
       Boolean(this.options.getCursorScreenPoint);
     if (!shouldMonitor) {
@@ -1461,7 +1465,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (
       displayHost.closing ||
       !this.isDisplayHostFullscreen(displayHost) ||
-      (this.alwaysShowToolbarInFullScreen && !this.shouldTrackAutoHiddenSystemMenuBar(displayHost)) ||
+      this.alwaysShowToolbarInFullScreen ||
       !isWindowVisible(displayHost.window)
     ) return;
 
@@ -1511,6 +1515,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       changed = true;
     }
     if (
+      !this.alwaysShowToolbarInFullScreen &&
       this.shouldTrackAutoHiddenSystemMenuBar(displayHost) &&
       !displayHost.systemMenuBarTemporarilyRevealed
     ) {
@@ -1529,7 +1534,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private getRuntimeToolbarTopInset(displayHost: EmbeddedDisplayHost): number {
-    if (!this.isRuntimeToolbarVisible(displayHost) || !this.isMacSimpleFullscreen(displayHost)) {
+    if (
+      this.alwaysShowToolbarInFullScreen ||
+      !this.isRuntimeToolbarVisible(displayHost) ||
+      !this.isMacSimpleFullscreen(displayHost)
+    ) {
       return 0;
     }
     const display = this.getWorkspaceDisplay(displayHost.displayId);

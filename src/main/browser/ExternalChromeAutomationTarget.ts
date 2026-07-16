@@ -270,10 +270,10 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
 
   async focus(): Promise<void> {
     await this.client.send("Page.bringToFront");
-    await this.preparePageTarget();
+    await this.focusPageTarget();
   }
 
-  private async preparePageTarget(signal?: AbortSignal): Promise<void> {
+  private async focusPageTarget(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     await this.evaluate(createExternalFocusSource()).catch(() => undefined);
     signal?.throwIfAborted();
@@ -284,7 +284,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   }
 
   private async dispatchKeyUnlocked(code: string, signal?: AbortSignal): Promise<void> {
-    await this.preparePageTarget(signal);
+    signal?.throwIfAborted();
     await this.suppressNextShortcut(code);
     const descriptor = getCdpKeyDescriptor(code);
     let didSendKeyDown = false;
@@ -332,7 +332,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   }
 
   private async dispatchClickUnlocked(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
-    await this.preparePageTarget(signal);
+    signal?.throwIfAborted();
     const metrics = await this.client.send<{
       cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
     }>("Page.getLayoutMetrics");

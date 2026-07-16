@@ -188,9 +188,8 @@ export interface CreateMacroInput {
 
 export type UpdateMacroInput = Partial<CreateMacroInput>;
 
-export interface MacroEditorRequest {
+export interface MacroPageRequest {
   roleId: string;
-  macroId?: string;
 }
 
 export type MacroRunState = "running" | "stopping" | "failed" | "cancelled";

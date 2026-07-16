@@ -46,11 +46,12 @@ const otherMacro: Macro = {
 };
 
 describe("MacroOverlayInjector", () => {
-  it("assembles the raw runtime, shortcut guard, and overlay styles into executable source", () => {
+  it("assembles executable raw runtime, shortcut guard, and minimal overlay styles", () => {
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("__RION_STUDIO_MACRO_OVERLAY_CSS__");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const overlayCss = "*{box-sizing:border-box');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('.panel[data-open=\\"true\\"]{display:grid;}');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('.trigger{');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('.panel{');
     expect(() => new Function(MACRO_OVERLAY_SCRIPT)).not.toThrow();
   });
 
@@ -77,21 +78,22 @@ describe("MacroOverlayInjector", () => {
       start: vi.fn().mockResolvedValue([]),
       stop: vi.fn().mockResolvedValue(undefined)
     };
-    const injector = createInjector({ macroManager });
+    const onMacroPageRequested = vi.fn();
+    const injector = createInjector({ macroManager, onMacroPageRequested });
 
     await injector.installExternal(role, host);
     expect(host.installMacroOverlay).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT, expect.any(Function));
-    await expect(requestHandler?.({ type: "start", macroId: "macro-1" })).resolves.toMatchObject({
-      macros: [{ id: "macro-1" }]
+    await expect(requestHandler?.({ type: "start", macroId: assignedMacro.id })).resolves.toMatchObject({
+      macros: [{ id: assignedMacro.id }]
     });
+    await requestHandler?.({ type: "open" });
     await expect(requestHandler?.({ type: "unknown" })).rejects.toThrow("Invalid macro overlay request");
-    expect(macroManager.start).toHaveBeenCalledWith("macro-1");
+    expect(macroManager.start).toHaveBeenCalledWith(assignedMacro.id);
+    expect(onMacroPageRequested).toHaveBeenCalledWith({ roleId: role.id });
 
     injector.refreshInstalledOverlays(role.id);
     await vi.waitFor(() =>
-      expect(host.evaluate).toHaveBeenCalledWith(
-        "window.__rionStudioMacroOverlay?.refresh?.({ renderAfter: true })"
-      )
+      expect(host.evaluate).toHaveBeenCalledWith("window.__rionStudioMacroOverlay?.refresh?.()")
     );
   });
 
@@ -110,27 +112,9 @@ describe("MacroOverlayInjector", () => {
   it("filters overlay state and routes start and stop requests", async () => {
     const page = createPage();
     const statuses: MacroRunStatus[] = [
-      {
-        roleId: "role-1",
-        macroId: "macro-1",
-        state: "running",
-        startedAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:00:00.000Z"
-      },
-      {
-        roleId: "role-2",
-        macroId: "macro-1",
-        state: "running",
-        startedAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:00:00.000Z"
-      },
-      {
-        roleId: "role-2",
-        macroId: "macro-2",
-        state: "running",
-        startedAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:00:00.000Z"
-      }
+      runStatus("role-1", "macro-1"),
+      runStatus("role-2", "macro-1"),
+      runStatus("role-2", "macro-2")
     ];
     const macroManager = {
       listStatuses: vi.fn(() => statuses),
@@ -149,62 +133,56 @@ describe("MacroOverlayInjector", () => {
 
     await injector.install(role, page.page as never);
     injector.setLanguage("zh-TW");
-
     const listState = await injector.handleEmbeddedRequest(page.page as never, role.id, { type: "list" });
     const startState = await injector.handleEmbeddedRequest(
       page.page as never,
       role.id,
-      { type: "start", macroId: "macro-1" }
+      { type: "start", macroId: assignedMacro.id }
     );
-    await injector.handleEmbeddedRequest(page.page as never, role.id, { type: "stop", macroId: "macro-1" });
+    await injector.handleEmbeddedRequest(
+      page.page as never,
+      role.id,
+      { type: "stop", macroId: assignedMacro.id }
+    );
 
     expect(listState).toMatchObject({
       language: "zh-TW",
       resourceState: "throttled",
       cpuThrottleRate: 2,
-      macros: [{ id: "macro-1" }],
+      macros: [{ id: assignedMacro.id }],
       statuses: [
-        { roleId: "role-1", macroId: "macro-1" },
-        { roleId: "role-2", macroId: "macro-1" }
+        { roleId: "role-1", macroId: assignedMacro.id },
+        { roleId: "role-2", macroId: assignedMacro.id }
       ]
     });
     expect(startState).toMatchObject({
-      macros: [{ id: "macro-1" }],
       startSummary: { skippedCount: 1, startedCount: 1 }
     });
     macroManager.start.mockResolvedValueOnce([statuses[0], statuses[1]]);
     await expect(
-      injector.handleRequest(role.id, { type: "start", macroId: "macro-1" })
+      injector.handleRequest(role.id, { type: "start", macroId: assignedMacro.id })
     ).resolves.toMatchObject({ startSummary: { skippedCount: 0, startedCount: 2 } });
-    expect(macroManager.start).toHaveBeenCalledWith("macro-1");
-    expect(macroManager.stop).toHaveBeenCalledWith("macro-1");
+    expect(macroManager.start).toHaveBeenCalledWith(assignedMacro.id);
+    expect(macroManager.stop).toHaveBeenCalledWith(assignedMacro.id);
   });
 
-  it("returns a detached state without side effects for stale embedded views", async () => {
+  it("returns a detached state without side effects for every stale request", async () => {
     const page = createPage();
     const listMacros = vi.fn().mockResolvedValue([assignedMacro]);
-    const updateMacro = vi.fn();
     const listStatuses = vi.fn(() => []);
     const startForRole = vi.fn();
     const stopForRole = vi.fn();
-    const stopAndRunMutation = vi.fn();
-    const onMacroEditorRequested = vi.fn();
-    const onMacrosChanged = vi.fn();
+    const onMacroPageRequested = vi.fn();
     const injector = new MacroOverlayInjector(
-      { listMacros, updateMacro } as never,
-      { listStatuses, startForRole, stopForRole, stopAndRunMutation } as never,
-      onMacroEditorRequested,
-      undefined,
-      undefined,
-      onMacrosChanged
+      { listMacros },
+      { listStatuses, startForRole, stopForRole },
+      onMacroPageRequested
     );
     const requests = [
       { type: "list" },
-      { type: "create" },
-      { type: "edit", macroId: assignedMacro.id },
+      { type: "open" },
       { type: "start", macroId: assignedMacro.id },
-      { type: "stop", macroId: assignedMacro.id },
-      { type: "set-enabled", macroId: assignedMacro.id, enabled: false }
+      { type: "stop", macroId: assignedMacro.id }
     ] satisfies MacroOverlayRequest[];
 
     await injector.install(role, page.page as never);
@@ -215,13 +193,10 @@ describe("MacroOverlayInjector", () => {
     }
 
     expect(listMacros).not.toHaveBeenCalled();
-    expect(updateMacro).not.toHaveBeenCalled();
     expect(listStatuses).not.toHaveBeenCalled();
     expect(startForRole).not.toHaveBeenCalled();
     expect(stopForRole).not.toHaveBeenCalled();
-    expect(stopAndRunMutation).not.toHaveBeenCalled();
-    expect(onMacroEditorRequested).not.toHaveBeenCalled();
-    expect(onMacrosChanged).not.toHaveBeenCalled();
+    expect(onMacroPageRequested).not.toHaveBeenCalled();
   });
 
   it("rejects untracked embedded views and active role mismatches", async () => {
@@ -235,123 +210,54 @@ describe("MacroOverlayInjector", () => {
       injector.handleEmbeddedRequest(untrackedPage.page as never, role.id, { type: "list" })
     ).rejects.toThrow("Embedded game view is not associated with a role.");
     await expect(
-      injector.handleEmbeddedRequest(page.page as never, "role-2", { type: "list" })
+      injector.handleEmbeddedRequest(page.page as never, "role-2", { type: "open" })
     ).rejects.toThrow("Embedded game view is associated with a different role.");
   });
 
-  it("disables a macro through the lifecycle lock and includes all assigned role names", async () => {
-    let currentMacro = assignedMacro;
-    const updateMacro = vi.fn(async (_macroId: string, input: { enabled?: boolean }) => {
-      currentMacro = { ...currentMacro, enabled: input.enabled ?? currentMacro.enabled };
-      return currentMacro;
-    });
-    const stopAndRunMutation = vi.fn(async (_macroId: string, operation: () => Promise<Macro>) => operation());
-    const onMacrosChanged = vi.fn();
-    const supportRole = { ...role, id: "role-2", name: "Support" };
-    const injector = new MacroOverlayInjector(
-      { listMacros: vi.fn(async () => [currentMacro]), updateMacro } as never,
-      {
-        listStatuses: vi.fn(() => []),
-        startForRole: vi.fn(),
-        stopForRole: vi.fn(),
-        stopAndRunMutation
-      } as never,
-      undefined,
-      undefined,
-      { listRoles: vi.fn(async () => [role, supportRole]) } as never,
-      onMacrosChanged
-    );
-
-    await expect(injector.handleRequest(role.id, { type: "list" })).resolves.toMatchObject({
-      macros: [{ roleNames: ["Main", "Support"] }]
-    });
-    await expect(
-      injector.handleRequest(role.id, { type: "set-enabled", macroId: assignedMacro.id, enabled: false })
-    ).resolves.toMatchObject({ macros: [{ enabled: false }] });
-
-    expect(stopAndRunMutation).toHaveBeenCalledWith(assignedMacro.id, expect.any(Function));
-    expect(updateMacro).toHaveBeenCalledWith(assignedMacro.id, { enabled: false });
-    expect(onMacrosChanged).toHaveBeenCalledOnce();
-  });
-
-  it("rejects edit, start, and stop requests for macros not assigned to the overlay role", async () => {
-    const onMacroEditorRequested = vi.fn();
+  it("rejects start and stop requests for macros not assigned to the overlay role", async () => {
     const macroManager = {
       listStatuses: vi.fn(() => []),
       start: vi.fn().mockResolvedValue([]),
       stop: vi.fn().mockResolvedValue(undefined)
     };
-    const injector = createInjector({ macroManager, onMacroEditorRequested });
+    const injector = createInjector({ macroManager });
 
-    for (const type of ["edit", "start", "stop"] as const) {
-      await expect(injector.handleRequest(role.id, { type, macroId: "macro-2" })).rejects.toThrow(
+    for (const type of ["start", "stop"] as const) {
+      await expect(injector.handleRequest(role.id, { type, macroId: otherMacro.id })).rejects.toThrow(
         "This macro is not assigned to the current role."
       );
     }
 
-    expect(onMacroEditorRequested).not.toHaveBeenCalled();
     expect(macroManager.start).not.toHaveBeenCalled();
     expect(macroManager.stop).not.toHaveBeenCalled();
   });
 
-  it("routes create and edit requests with the installed role id", async () => {
+  it("opens the macro page for the installed role", async () => {
     const page = createPage();
-    const onMacroEditorRequested = vi.fn();
-    const injector = createInjector({ onMacroEditorRequested });
+    const onMacroPageRequested = vi.fn();
+    const injector = createInjector({ onMacroPageRequested });
 
     await injector.install(role, page.page as never);
+    await injector.handleEmbeddedRequest(page.page as never, role.id, { type: "open" });
 
-    await injector.handleRequest(role.id, { type: "create" });
-    await injector.handleRequest(role.id, { type: "edit", macroId: "macro-1" });
-
-    expect(onMacroEditorRequested).toHaveBeenNthCalledWith(1, { roleId: "role-1" });
-    expect(onMacroEditorRequested).toHaveBeenNthCalledWith(2, {
-      macroId: "macro-1",
-      roleId: "role-1"
-    });
-  });
-
-  it("rejects overlay edits while any assigned role is active", async () => {
-    const onMacroEditorRequested = vi.fn();
-    const macroManager = {
-      listStatuses: vi.fn(() => [{
-        roleId: "role-2",
-        macroId: "macro-1",
-        state: "running",
-        startedAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:00:00.000Z"
-      }] satisfies MacroRunStatus[]),
-      start: vi.fn().mockResolvedValue([]),
-      stop: vi.fn().mockResolvedValue(undefined)
-    };
-    const injector = createInjector({ macroManager, onMacroEditorRequested });
-
-    await expect(injector.handleRequest(role.id, { type: "edit", macroId: "macro-1" })).rejects.toThrow(
-      "Stop the macro before editing it."
-    );
-    expect(onMacroEditorRequested).not.toHaveBeenCalled();
+    expect(onMacroPageRequested).toHaveBeenCalledOnce();
+    expect(onMacroPageRequested).toHaveBeenCalledWith({ roleId: role.id });
   });
 
   it("captures statuses after an asynchronous macro list finishes", async () => {
     const macros = createDeferred<Macro[]>();
     let statuses: MacroRunStatus[] = [];
     const injector = new MacroOverlayInjector(
-      { listMacros: vi.fn(() => macros.promise) } as never,
+      { listMacros: vi.fn(() => macros.promise) },
       {
         listStatuses: vi.fn(() => statuses),
         startForRole: vi.fn(),
         stopForRole: vi.fn()
-      } as never
+      }
     );
 
     const state = injector.handleRequest(role.id, { type: "list" });
-    statuses = [{
-      roleId: role.id,
-      macroId: assignedMacro.id,
-      state: "running",
-      startedAt: "2026-07-10T00:00:00.000Z",
-      updatedAt: "2026-07-10T00:00:00.000Z"
-    }];
+    statuses = [runStatus(role.id, assignedMacro.id)];
     macros.resolve([assignedMacro]);
 
     await expect(state).resolves.toMatchObject({ statuses: [{ state: "running" }] });
@@ -366,257 +272,57 @@ describe("MacroOverlayInjector", () => {
 
     await vi.waitFor(() =>
       expect(page.page.executeJavaScript).toHaveBeenCalledWith(
-        "window.__rionStudioMacroOverlay?.refresh?.({ renderAfter: true })"
+        "window.__rionStudioMacroOverlay?.refresh?.()"
       )
     );
   });
 
-  it("keeps the overlay script wired for physical-code shortcuts and menu toggle", () => {
+  it("keeps a stable trigger while removing the action menu and focus restoration", () => {
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v29"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.7"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "open" });');
     expect(MACRO_OVERLAY_SCRIPT).toContain('event.code === "KeyM"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("event.code === trigger.code");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("stopImmediatePropagation");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("setInterval");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("[\"pointer-events\", \"none\"]");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.4"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("dispose");
     expect(MACRO_OVERLAY_SCRIPT).toContain("function disposeIfDetached(nextState)");
-    expect(MACRO_OVERLAY_SCRIPT.match(/disposeIfDetached\(nextState\)/g)).toHaveLength(5);
-    expect(MACRO_OVERLAY_SCRIPT).toContain("host.style.setProperty(property, value, \"important\")");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("[\"right\", \"8px\"]");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("[\"top\", \"8px\"]");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      "[\"font-family\", \"system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif\"]"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain("[\"-webkit-font-smoothing\", \"antialiased\"]");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      "*{box-sizing:border-box;font-family:inherit;-webkit-font-smoothing:antialiased;}"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain("document.body.appendChild(host)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("return window.top === window;");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("Boolean(document.fullscreenElement)");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="close"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('aria-label="Close"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('title="\' + escapeHtml(text.triggerTitle) + \'"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('aria-label="\' + escapeHtml(text.triggerAria) + \'"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('aria-label="Rion Studio Macros">M</button>');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<svg class="trigger-icon" viewBox="0 0 24 24"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('aria-hidden="true" focusable="false"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<rect width="20" height="16" x="2" y="4" rx="2"/>');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<path d="M7 16h10"/>');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('fill="currentColor"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("height:32px;justify-content:center;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("width:32px;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".trigger-icon{display:block;fill:none;height:16px;width:16px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.75;"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain("stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("<span>Macros</span>");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="refresh"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("refreshFromMenu");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.running");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.idle");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("pointerdown"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("click"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badges" aria-hidden="true"');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="panel"');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("macro-enabled-switch");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("macro-edit");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("macro-row");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('type: "create"');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('type: "edit"');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('type: "set-enabled"');
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("focusAutomationTarget");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("document.activeElement === element");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain('querySelectorAll("canvas");');
   });
 
-  it("renders macro menu rows with value badges and an edit action", () => {
-    const macroContentIndex = MACRO_OVERLAY_SCRIPT.indexOf("state.macros.length > 0 ? macroRows :");
-    const createRowIndex = MACRO_OVERLAY_SCRIPT.indexOf("'<button class=\"create-row\"");
-
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function formatRepeat(repeat)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function formatStep(step)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function formatSteps(steps)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("return text.noShortcut;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('return text.everyMs.replace("{ms}", String(repeat.intervalMs));');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("return text.noSteps;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('return text.keyStep + ":" + formatCode(step.code);');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('return text.clickStep + ":X " + step.xPercent + "%, Y " + step.yPercent + "%";');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('return text.delayStep + ":" + step.ms + "ms";');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('visibleSteps.push(text.stepsMore.replace("{count}", String(steps.length - visibleSteps.length)));');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("const steps = formatSteps(macro.steps);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("const poll = formatRepeat(macro.repeat);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<div class="macro-row" role="menuitem" data-macro-id="');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('" data-enabled="');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('" aria-disabled="');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('class="create-row"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('data-action="create"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "create" });');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('"</strong>",');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('multiRoleBadge');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('</span><span class="macro-details"><span class="macro-detail-steps"><b>');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<span class="macro-detail-shortcut"><b>');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<span class="macro-detail-poll"><b>');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<button class="macro-edit" type="button"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('disabled aria-disabled="true"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("if (button.disabled)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<svg class="create-icon" viewBox="0 0 24 24"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<path d="M12 5v14"/>');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<path d="M5 12h14"/>');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('<span class="create-icon" aria-hidden="true">+</span>');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('<svg class="edit-icon" viewBox="0 0 24 24"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "edit", macroId });');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.stepsLabel)");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.shortcutLabel)");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("escapeHtml(text.pollLabel)");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="macro-action-pill');
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".create-row{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".create-icon{");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-list{");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="macro-list"');
-    expect(macroContentIndex).toBeGreaterThan(-1);
-    expect(createRowIndex).toBeGreaterThan(-1);
-    expect(macroContentIndex).toBeLessThan(createRowIndex);
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-row{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-template-areas:'title title toggle edit' 'steps shortcut poll poll'");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain(".macro-header{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-title{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-details{display:contents;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-shortcut{grid-area:shortcut;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-detail-poll{grid-area:poll;}");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("grid-area:steps");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-edit{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".edit-icon{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-enabled-switch{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".macro-enabled-switch[aria-checked='true']{background:oklch(62.3% .214 259.815);"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("background:#5cae58");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('role="switch"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('void runAction("set-enabled", macroId');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('targetRoot.querySelectorAll("button,.macro-row")');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('targetRoot.querySelectorAll(".macro-row")');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('closeAfter: true');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function getRenderSignature()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("const renderSignatureChanged = previousRenderSignature !== getRenderSignature()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.disabled");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('class="people-icon"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('class="macro-role-count" data-tooltip="');
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".panel{display:none");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('.panel[data-open=\\"true\\"]{display:grid;}');
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".trigger{");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("pointer-events:auto");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot{");
-  });
-
-  it("localizes overlay menu text for English and Traditional Chinese", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain("const overlayTexts = {");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('addMacro: "Add macro"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('addMacro: "新增巨集"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('createError: "無法開啟 Rion Studio。"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('edit: "Edit"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('edit: "編輯"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('editError: "無法在 Rion Studio 開啟此巨集。"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('stepsLabel: "Steps"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('shortcutLabel: "快捷鍵"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('pollLabel: "輪詢"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('keyStep: "按鍵"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('everyMs: "每 {ms} ms"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      'partialStartNotice: "已在 {started} 個角色啟動，略過 {skipped} 個未啟動或無法控制的角色。"'
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain("language: detectOverlayLanguage()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function getText()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function normalizeOverlayLanguage(language)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function detectOverlayLanguage()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function isTraditionalChineseLocale(locale)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function isSimplifiedChineseLocale(locale)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function isJapaneseLocale(locale)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('return "zh-CN";');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('return "ja";');
-  });
-
-  it("renders a transient partial-start notice outside the menu panel", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function showStartNotice(summary)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('if (action === "start")');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("showStartNotice(nextState?.startSummary)");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("}, 4000);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('state.notice ? \'<div class="notice" role="status">\'');
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".notice{");
-  });
-
-  it("renders passive running macro badges at the top-center of the browser view", () => {
-    const runningBadgeFunction = MACRO_OVERLAY_SCRIPT.slice(
-      MACRO_OVERLAY_SCRIPT.indexOf("function getRunningBadgeMacros()"),
-      MACRO_OVERLAY_SCRIPT.indexOf("function getRunningBadgeSignature()")
-    );
-    const activeBadgeStyles = MACRO_OVERLAY_SCRIPT.slice(
-      MACRO_OVERLAY_SCRIPT.indexOf(".active-badge{"),
-      MACRO_OVERLAY_SCRIPT.indexOf(".active-badge-name{")
-    );
-
+  it("localizes the open action and renders passive running badges", () => {
+    expect(MACRO_OVERLAY_SCRIPT).toContain('triggerAria: "Open Rion Studio Macros"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('triggerAria: "開啟 Rion Studio 巨集"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('triggerAria: "打开 Rion Studio 宏"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('triggerAria: "Rion Studio マクロを開く"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("function getRunningBadgeMacros()");
     expect(MACRO_OVERLAY_SCRIPT).toContain(
       "return state.macros.filter((macro) => macro.enabled !== false && isRunning(macro.id));"
     );
-    expect(MACRO_OVERLAY_SCRIPT).toContain("function getRunningBadgeSignature()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("[macro.id, macro.name, formatShortcut(macro.trigger)]");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("const shortcut = formatShortcut(macro.trigger);");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge" aria-hidden="true"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge-name"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge-shortcut"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badges" aria-hidden="true"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".active-badges{align-items:center;display:flex;flex-wrap:nowrap;gap:");
     expect(MACRO_OVERLAY_SCRIPT).toContain("left:50%");
     expect(MACRO_OVERLAY_SCRIPT).toContain("top:20%");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("transform:translateX(-50%)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("pointer-events:none;position:fixed");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      ".active-badge{-webkit-backdrop-filter:blur(30px) saturate(140%);-webkit-font-smoothing:antialiased;align-items:center;"
-    );
-    expect(MACRO_OVERLAY_SCRIPT).toContain("font-size:10px");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("min-height:20px");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("padding:4px 8px");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(
-      "backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.5);border:1px solid rgba(255,255,255,.14);"
-    );
-    expect(activeBadgeStyles).toContain("box-shadow:0 8px 24px rgba(0,0,0,.2);");
-    expect(activeBadgeStyles).toContain("font-size:10px;gap:5px;");
-    expect(activeBadgeStyles).not.toContain("text-shadow");
-    expect(activeBadgeStyles).not.toContain("inset");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".active-badge-name{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".active-badge-shortcut{color:#fff;display:block;flex:0 0 auto;font-size:9.5px;font-weight:600;");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("previousRunningBadgeSignature !== getRunningBadgeSignature()");
-    expect(runningBadgeFunction).not.toContain("isStopping");
-  });
-
-  it("isolates overlay controls without redirecting outside pointer events", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('tabindex="-1"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('addEventListener("pointerdown"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("event.preventDefault()");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("focusAutomationTarget");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("closePanel({ focus: true })");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("closePanel({ focus: false })");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("postTopMessage(\"closePanel\")");
-
-    const pointerHandler = MACRO_OVERLAY_SCRIPT.slice(
-      MACRO_OVERLAY_SCRIPT.indexOf("function handleDocumentPointerDown(event)"),
-      MACRO_OVERLAY_SCRIPT.indexOf("function handleMessage(event)")
-    );
-
-    expect(pointerHandler).not.toContain("focusAutomationTarget");
-    expect(pointerHandler).not.toContain("preventDefault");
-    expect(pointerHandler).not.toContain("stopPropagation");
-  });
-
-  it("initializes overlay host state before cleaning stale injected hosts", () => {
-    expect(MACRO_OVERLAY_SCRIPT.indexOf("let host = null")).toBeGreaterThan(-1);
-    expect(MACRO_OVERLAY_SCRIPT.indexOf("removeLegacyHosts();")).toBeGreaterThan(-1);
-    expect(MACRO_OVERLAY_SCRIPT.indexOf("let host = null")).toBeLessThan(
-      MACRO_OVERLAY_SCRIPT.indexOf("removeLegacyHosts();")
-    );
   });
 });
 
 describe("macro shortcut editable guard", () => {
-  it("ignores page-handled events, IME composition, and editable documents", () => {
+  it("allows page-handled events while ignoring IME composition and editable documents", () => {
     const body = createElementStub("body");
 
-    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ defaultPrevented: true }), body)).toBe(true);
+    expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ defaultPrevented: true }), body)).toBe(false);
     expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ isComposing: true }), body)).toBe(true);
     expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ key: "Process" }), body)).toBe(true);
     expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ keyCode: 229 }), body)).toBe(true);
@@ -625,7 +331,6 @@ describe("macro shortcut editable guard", () => {
 
   it.each(["input", "textarea", "select"])("ignores events from %s elements", (localName) => {
     const element = createElementStub(localName);
-
     expect(
       shouldIgnoreMacroShortcutEvent(
         createKeyboardEventStub({ composedPath: () => [element], target: element }),
@@ -649,8 +354,8 @@ describe("macro shortcut editable guard", () => {
       shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ composedPath: () => [ariaChild], target: ariaChild }))
     ).toBe(true);
 
-    for (const role of ["searchbox", "combobox", "spinbutton"]) {
-      const element = createElementStub("div", { attributes: { role } });
+    for (const editableRole of ["searchbox", "combobox", "spinbutton"]) {
+      const element = createElementStub("div", { attributes: { role: editableRole } });
       expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ target: element }))).toBe(true);
     }
   });
@@ -662,12 +367,6 @@ describe("macro shortcut editable guard", () => {
 
     expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ target: canvas }), input)).toBe(true);
     expect(shouldIgnoreMacroShortcutEvent(createKeyboardEventStub({ target: canvas }), shadowHost)).toBe(true);
-    expect(
-      shouldIgnoreMacroShortcutEvent(
-        createKeyboardEventStub({ composedPath: () => [input, shadowHost], target: shadowHost }),
-        shadowHost
-      )
-    ).toBe(true);
   });
 
   it("allows shortcuts from non-editable game surfaces", () => {
@@ -697,21 +396,20 @@ describe("macro shortcut editable guard", () => {
     expect(serializedGuard(createKeyboardEventStub({ target: canvas }), canvas)).toBe(false);
   });
 
-  it("runs the editable guard before refresh, menu, and macro matching", () => {
+  it("runs the editable guard before refresh, open, and macro matching", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain(
       `const shouldIgnoreShortcutEvent = ${MACRO_SHORTCUT_GUARD_SOURCE};`
     );
-
     const handler = MACRO_OVERLAY_SCRIPT.slice(
       MACRO_OVERLAY_SCRIPT.indexOf("function handleKeyDown(event)"),
-      MACRO_OVERLAY_SCRIPT.indexOf("function handleEscapeKeyDown(event)")
+      MACRO_OVERLAY_SCRIPT.indexOf("function handleFocus()")
     );
-    const guardIndex = handler.indexOf("shouldIgnoreShortcutEvent(event, document.activeElement, document.designMode)");
+    const guardIndex = handler.indexOf("shouldIgnoreShortcutEvent(event, undefined, document.designMode)");
 
     expect(guardIndex).toBeGreaterThan(-1);
     expect(guardIndex).toBeLessThan(handler.indexOf("refreshIfStale()"));
-    expect(guardIndex).toBeLessThan(handler.indexOf("matchesMenuToggle(event)"));
-    expect(guardIndex).toBeLessThan(handler.indexOf("matchesShortcut(event, item.trigger)"));
+    expect(guardIndex).toBeLessThan(handler.indexOf("matchesOpenShortcut(event)"));
+    expect(guardIndex).toBeLessThan(handler.indexOf("matchesShortcut(event, macro.trigger)"));
     expect(guardIndex).toBeLessThan(handler.indexOf("consumeShortcutEvent(event)"));
   });
 });
@@ -720,10 +418,10 @@ function createInjector({
   getRoleStatus,
   macroManager = {
     listStatuses: vi.fn(() => []),
-    start: vi.fn().mockResolvedValue(undefined),
+    start: vi.fn().mockResolvedValue([]),
     stop: vi.fn().mockResolvedValue(undefined)
   },
-  onMacroEditorRequested
+  onMacroPageRequested
 }: {
   macroManager?: {
     listStatuses: AnyMock;
@@ -731,7 +429,7 @@ function createInjector({
     stop: AnyMock;
   };
   getRoleStatus?: (roleId: string) => RoleStatus | undefined;
-  onMacroEditorRequested?: AnyMock;
+  onMacroPageRequested?: AnyMock;
 } = {}): MacroOverlayInjector {
   const roleAwareMacroManager = {
     listStatuses: macroManager.listStatuses,
@@ -749,13 +447,21 @@ function createInjector({
     })
   };
   return new MacroOverlayInjector(
-    {
-      listMacros: vi.fn().mockResolvedValue([assignedMacro, otherMacro])
-    } as never,
-    roleAwareMacroManager as never,
-    onMacroEditorRequested,
+    { listMacros: vi.fn().mockResolvedValue([assignedMacro, otherMacro]) },
+    roleAwareMacroManager,
+    onMacroPageRequested,
     getRoleStatus
   );
+}
+
+function runStatus(roleId: string, macroId: string): MacroRunStatus {
+  return {
+    roleId,
+    macroId,
+    state: "running",
+    startedAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T00:00:00.000Z"
+  };
 }
 
 function createPage() {
@@ -764,13 +470,10 @@ function createPage() {
     executeJavaScript: vi.fn().mockResolvedValue(undefined),
     isDestroyed: vi.fn(() => false),
     on: vi.fn((event: string, handler: () => void) => {
-      if (event === "did-finish-load") {
-        handlers.didFinishLoad = handler;
-      }
+      if (event === "did-finish-load") handlers.didFinishLoad = handler;
     }),
     once: vi.fn()
   };
-
   return { handlers, page };
 }
 
@@ -803,7 +506,6 @@ interface ElementStub {
 
 function createElementStub(localName: string, options: ElementStubOptions = {}): ElementStub {
   const attributes = new Map(Object.entries(options.attributes ?? {}));
-
   return {
     getAttribute: (name) => attributes.get(name) ?? null,
     getRootNode: () => ({ host: options.rootHost }),

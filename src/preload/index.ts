@@ -9,7 +9,7 @@ import type {
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
   Macro,
-  MacroEditorRequest,
+  MacroPageRequest,
   MacroRunStatus,
   RoleStatus,
   WorkspaceDisplayInfo
@@ -71,7 +71,7 @@ const api: RionStudioApi = {
   updateGameBrowserSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.gameBrowserSettingsUpdate, settings),
   getGraphicsDiagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.graphicsDiagnosticsGet),
   listSystemFonts: () => ipcRenderer.invoke(IPC_CHANNELS.systemFontsList),
-  consumePendingMacroEditorRequest: () => ipcRenderer.invoke(IPC_CHANNELS.macrosConsumeEditorRequest),
+  consumePendingMacroPageRequest: () => ipcRenderer.invoke(IPC_CHANNELS.macrosConsumePageRequest),
   setOverlayLanguage: (language) => ipcRenderer.invoke(IPC_CHANNELS.preferencesSetOverlayLanguage, language),
   getAppVersion: () => ipcRenderer.invoke(IPC_CHANNELS.appVersion),
   getUpdateStatus: () => ipcRenderer.invoke(IPC_CHANNELS.updatesStatus),
@@ -141,15 +141,15 @@ const api: RionStudioApi = {
     ipcRenderer.on(IPC_CHANNELS.macrosChanged, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.macrosChanged, listener);
   },
-  onMacroEditorRequested: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, request: MacroEditorRequest) => {
+  onMacroPageRequested: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: MacroPageRequest) => {
       callback(request);
     };
 
-    ipcRenderer.on(IPC_CHANNELS.macrosEditorRequested, listener);
+    ipcRenderer.on(IPC_CHANNELS.macrosPageRequested, listener);
 
     return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.macrosEditorRequested, listener);
+      ipcRenderer.removeListener(IPC_CHANNELS.macrosPageRequested, listener);
     };
   },
   onUpdateStatusChanged: (callback) => {

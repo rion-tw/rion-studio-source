@@ -3,20 +3,15 @@ import type { WebContents } from "electron";
 import macroOverlayCss from "./overlay/macroOverlay.css?raw";
 import macroOverlayRuntimeSource from "./overlay/macroOverlayRuntime.js?raw";
 
-import type { AppLanguage, Macro, MacroEditorRequest, MacroRunStatus, Role, RoleStatus } from "../../shared/types";
+import type { AppLanguage, Macro, MacroPageRequest, MacroRunStatus, Role, RoleStatus } from "../../shared/types";
 import type { MacroManager } from "./MacroManager";
 import type { MacroStore } from "./MacroStore";
-import type { RoleStore } from "../roles/RoleStore";
-
-interface MacroOverlayItem extends Macro {
-  roleNames: string[];
-}
 
 interface MacroOverlayState {
   cpuThrottleRate?: RoleStatus["cpuThrottleRate"];
   detached?: true;
   language?: AppLanguage;
-  macros: MacroOverlayItem[];
+  macros: Macro[];
   resourceState?: RoleStatus["resourceState"];
   startSummary?: {
     skippedCount: number;
@@ -36,11 +31,7 @@ export type MacroOverlayRequest =
       type: "list";
     }
   | {
-      type: "create";
-    }
-  | {
-      macroId: string;
-      type: "edit";
+      type: "open";
     }
   | {
       macroId: string;
@@ -49,11 +40,6 @@ export type MacroOverlayRequest =
   | {
       macroId: string;
       type: "stop";
-    }
-  | {
-      enabled: boolean;
-      macroId: string;
-      type: "set-enabled";
     };
 
 export class MacroOverlayInjector {
@@ -65,15 +51,13 @@ export class MacroOverlayInjector {
   private language: AppLanguage | undefined;
 
   constructor(
-    private readonly macroStore: Pick<MacroStore, "listMacros" | "updateMacro">,
+    private readonly macroStore: Pick<MacroStore, "listMacros">,
     private readonly macroManager: Pick<
       MacroManager,
-      "listStatuses" | "startForRole" | "stopForRole" | "stopAndRunMutation"
+      "listStatuses" | "startForRole" | "stopForRole"
     >,
-    private readonly onMacroEditorRequested?: (request: MacroEditorRequest) => void | Promise<void>,
-    private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined,
-    private readonly roleStore?: Pick<RoleStore, "listRoles">,
-    private readonly onMacrosChanged?: () => void
+    private readonly onMacroPageRequested?: (request: MacroPageRequest) => void | Promise<void>,
+    private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined
   ) {}
 
   async install(role: Role, webContents: WebContents): Promise<void> {
@@ -152,46 +136,33 @@ export class MacroOverlayInjector {
   }
 
   async handleRequest(roleId: string, request: MacroOverlayRequest): Promise<MacroOverlayState> {
-    let startedCount: number | undefined;
-
     switch (request.type) {
       case "list":
         break;
-      case "create":
-        await this.onMacroEditorRequested?.({ roleId });
-        break;
-      case "edit":
-        await this.assertMacroAssignedToRole(roleId, request.macroId);
-        if (this.macroManager.listStatuses().some(
-          (status) => status.macroId === request.macroId &&
-            (status.state === "running" || status.state === "stopping")
-        )) {
-          throw new Error("Stop the macro before editing it.");
-        }
-        await this.onMacroEditorRequested?.({ macroId: request.macroId, roleId });
+      case "open":
+        await this.onMacroPageRequested?.({ roleId });
         break;
       case "start":
-        startedCount = (await this.macroManager.startForRole(request.macroId, roleId)).length;
-        break;
+        return this.withStartSummary(
+          roleId,
+          request.macroId,
+          (await this.macroManager.startForRole(request.macroId, roleId)).length
+        );
       case "stop":
         await this.macroManager.stopForRole(request.macroId, roleId);
         break;
-      case "set-enabled":
-        await this.assertMacroAssignedToRole(roleId, request.macroId);
-        await this.macroManager.stopAndRunMutation(request.macroId, () =>
-          this.macroStore.updateMacro(request.macroId, { enabled: request.enabled })
-        );
-        this.refreshInstalledOverlays();
-        this.onMacrosChanged?.();
-        break;
     }
 
+    return this.getOverlayState(roleId);
+  }
+
+  private async withStartSummary(
+    roleId: string,
+    macroId: string,
+    startedCount: number
+  ): Promise<MacroOverlayState> {
     const state = await this.getOverlayState(roleId);
-    if (request.type !== "start" || startedCount === undefined) {
-      return state;
-    }
-
-    const macro = state.macros.find((item) => item.id === request.macroId);
+    const macro = state.macros.find((item) => item.id === macroId);
     return {
       ...state,
       startSummary: {
@@ -217,9 +188,7 @@ export class MacroOverlayInjector {
 
   private async refreshContentsOverlay(webContents: WebContents): Promise<void> {
     try {
-      await webContents.executeJavaScript(
-        "window.__rionStudioMacroOverlay?.refresh?.({ renderAfter: true })"
-      );
+      await webContents.executeJavaScript("window.__rionStudioMacroOverlay?.refresh?.()");
     } catch (error) {
       if (!isBenignFrameInstallError(error)) {
         console.warn("Failed to refresh Rion Studio macro overlay.", error);
@@ -231,7 +200,7 @@ export class MacroOverlayInjector {
 
   private async refreshExternalOverlay(host: ExternalMacroOverlayHost): Promise<void> {
     try {
-      await host.evaluate("window.__rionStudioMacroOverlay?.refresh?.({ renderAfter: true })");
+      await host.evaluate("window.__rionStudioMacroOverlay?.refresh?.()");
     } catch (error) {
       if (!isBenignFrameInstallError(error)) {
         console.warn("Failed to refresh the external Chrome macro overlay.", error);
@@ -254,20 +223,10 @@ export class MacroOverlayInjector {
   }
 
   private async getOverlayState(roleId: string): Promise<MacroOverlayState> {
-    const [macros, roles] = await Promise.all([
-      this.macroStore.listMacros(),
-      this.roleStore?.listRoles() ?? Promise.resolve([])
-    ]);
+    const macros = await this.macroStore.listMacros();
     const statuses = this.macroManager.listStatuses();
     const roleStatus = this.getRoleStatus?.(roleId);
-    const roleNameById = new Map(roles.map((role) => [role.id, role.name]));
-
-    const assignedMacros = macros
-      .filter((macro) => macro.roleIds.includes(roleId))
-      .map((macro) => ({
-        ...macro,
-        roleNames: macro.roleIds.map((assignedRoleId) => roleNameById.get(assignedRoleId) ?? assignedRoleId)
-      }));
+    const assignedMacros = macros.filter((macro) => macro.roleIds.includes(roleId));
     const assignedMacroIds = new Set(assignedMacros.map((macro) => macro.id));
 
     return {
@@ -278,28 +237,18 @@ export class MacroOverlayInjector {
       statuses: statuses.filter((status) => assignedMacroIds.has(status.macroId))
     };
   }
-
-  private async assertMacroAssignedToRole(roleId: string, macroId: string): Promise<void> {
-    const macro = (await this.macroStore.listMacros()).find((item) => item.id === macroId);
-    if (!macro?.roleIds.includes(roleId)) {
-      throw new Error("This macro is not assigned to the current role.");
-    }
-  }
 }
 
 export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequest {
   if (typeof value !== "object" || value === null || !("type" in value)) {
     return false;
   }
-  const request = value as { type?: unknown; macroId?: unknown; enabled?: unknown };
-  if (request.type === "list" || request.type === "create") {
+  const request = value as { type?: unknown; macroId?: unknown };
+  if (request.type === "list" || request.type === "open") {
     return true;
   }
-  if (request.type === "set-enabled") {
-    return typeof request.macroId === "string" && Boolean(request.macroId) && typeof request.enabled === "boolean";
-  }
   return (
-    (request.type === "edit" || request.type === "start" || request.type === "stop") &&
+    (request.type === "start" || request.type === "stop") &&
     typeof request.macroId === "string" &&
     Boolean(request.macroId)
   );
@@ -328,7 +277,6 @@ export function shouldIgnoreMacroShortcutEvent(
   designMode?: string
 ): boolean {
   if (
-    event.defaultPrevented ||
     event.isComposing ||
     event.key === "Process" ||
     event.keyCode === 229 ||

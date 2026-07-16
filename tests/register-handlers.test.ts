@@ -777,7 +777,7 @@ describe("registerIpcHandlers macro handlers", () => {
     MacroManager,
     "listStatuses" | "on" | "runStoppedMutation" | "start" | "stop" | "stopAndRunMutation" | "stopRole"
   >;
-  let consumePendingMacroEditorRequest: AnyMock;
+  let consumePendingMacroPageRequest: AnyMock;
 
   beforeEach(() => {
     handlers.clear();
@@ -836,7 +836,7 @@ describe("registerIpcHandlers macro handlers", () => {
       stopAndRunMutation: vi.fn(async (_macroId: string, operation: () => Promise<unknown>) => operation()) as never,
       stopRole: vi.fn().mockResolvedValue(undefined)
     };
-    consumePendingMacroEditorRequest = vi.fn(() => ({ macroId: "macro-1", roleId: "role-1" }));
+    consumePendingMacroPageRequest = vi.fn(() => ({ roleId: "role-1" }));
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -844,20 +844,19 @@ describe("registerIpcHandlers macro handlers", () => {
       browserManager as BrowserManager,
       authManager as AuthManager,
       {
-        consumePendingMacroEditorRequest,
+        consumePendingMacroPageRequest,
         macroManager: macroManager as MacroManager,
         macroStore: macroStore as MacroStore
       }
     );
   });
 
-  it("consumes pending macro editor requests", () => {
-    expect(handlers.get(IPC_CHANNELS.macrosConsumeEditorRequest)?.({})).toEqual({
-      macroId: "macro-1",
+  it("consumes pending macro page requests", () => {
+    expect(handlers.get(IPC_CHANNELS.macrosConsumePageRequest)?.({})).toEqual({
       roleId: "role-1"
     });
 
-    expect(consumePendingMacroEditorRequest).toHaveBeenCalledTimes(1);
+    expect(consumePendingMacroPageRequest).toHaveBeenCalledTimes(1);
   });
 
   it("forwards validated macro overlay requests with the complete sender", async () => {
@@ -875,6 +874,10 @@ describe("registerIpcHandlers macro handlers", () => {
       handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.({ sender }, { type: "list" })
     ).resolves.toEqual({ macros: [], statuses: [] });
     expect(onMacroOverlayRequest).toHaveBeenCalledWith(sender, { type: "list" });
+    await expect(
+      handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.({ sender }, { type: "open" })
+    ).resolves.toEqual({ macros: [], statuses: [] });
+    expect(onMacroOverlayRequest).toHaveBeenCalledWith(sender, { type: "open" });
     expect(() =>
       handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.({ sender }, { type: "unknown" })
     ).toThrow("Macro overlay request is invalid.");

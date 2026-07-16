@@ -11,6 +11,9 @@
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
                     sourceDisplayID:(NSInteger)sourceDisplayID
                    beforeIdentifier:(nullable NSString *)beforeIdentifier;
+- (void)applyLiquidGlassTitlebarAppearance;
+- (void)attachAccessoryController;
+- (void)detachAccessoryController;
 - (void)hideInsertionIndicator;
 - (void)layoutTitlebarContent;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
@@ -111,8 +114,10 @@ int main() {
     Assert(window.toolbar != nil && window.toolbar.visible,
            "Normal windows must use a visible unified toolbar for titlebar height and material.");
     Assert(window.toolbar.items.count == 1 &&
-               window.toolbar.items.firstObject.view.frame.size.height == 28.0,
-           "The unified toolbar must retain its invisible 28pt layout spacer.");
+               window.toolbar.items.firstObject.view.frame.size.height == 44.0 &&
+               window.toolbar.items.firstObject.visibilityPriority ==
+                   NSToolbarItemVisibilityPriorityHigh,
+           "The unified toolbar must retain its high-priority 44pt layout spacer.");
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Attaching runtime tabs must preserve standard traffic lights.");
 
@@ -134,8 +139,53 @@ int main() {
     NSVisualEffectView *backdrop = [controller valueForKey:@"_titlebarBackdrop"];
     Assert([backdrop isKindOfClass:NSVisualEffectView.class] &&
                backdrop.material == NSVisualEffectMaterialHeaderView &&
+               backdrop.blendingMode == NSVisualEffectBlendingModeBehindWindow &&
+               backdrop.state == NSVisualEffectStateFollowsWindowActiveState &&
                NSEqualRects(backdrop.frame, root.bounds),
            "The full titlebar must use a soft system header blur material.");
+    NSTitlebarAccessoryViewController *accessory =
+        [controller valueForKey:@"_accessoryController"];
+    Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 44.0,
+           "Windowed and fullscreen tabs must share the same 44pt titlebar layout.");
+
+    // AppKit may mutate titlebar properties while re-hosting the accessory for
+    // fullscreen. The shared appearance pass must restore the exact windowed
+    // Liquid Glass metrics and material without replacing the tab surfaces.
+    NSArray<NSView *> *originalTabSurfaces = tabSurfaces;
+    window.titleVisibility = NSWindowTitleVisible;
+    window.titlebarAppearsTransparent = NO;
+    if (@available(macOS 11.0, *)) {
+      window.toolbarStyle = NSWindowToolbarStyleExpanded;
+    }
+    backdrop.material = NSVisualEffectMaterialMenu;
+    backdrop.blendingMode = NSVisualEffectBlendingModeWithinWindow;
+    backdrop.state = NSVisualEffectStateInactive;
+    accessory.layoutAttribute = NSLayoutAttributeBottom;
+    accessory.fullScreenMinHeight = 28.0;
+    [controller applyLiquidGlassTitlebarAppearance];
+    Assert(window.titleVisibility == NSWindowTitleHidden &&
+               window.titlebarAppearsTransparent,
+           "The fullscreen re-host pass must restore the windowed titlebar style.");
+    if (@available(macOS 11.0, *)) {
+      Assert(window.toolbarStyle == NSWindowToolbarStyleUnified,
+             "The fullscreen re-host pass must restore the unified toolbar style.");
+    }
+    Assert(backdrop.material == NSVisualEffectMaterialHeaderView &&
+               backdrop.blendingMode == NSVisualEffectBlendingModeBehindWindow &&
+               backdrop.state == NSVisualEffectStateFollowsWindowActiveState,
+           "The fullscreen re-host pass must restore the same blurred header material.");
+    Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 44.0,
+           "The fullscreen re-host pass must restore the same accessory geometry.");
+    Assert([controller valueForKey:@"_tabSurfaces"] == originalTabSurfaces,
+           "Re-hosting must preserve the existing Liquid Glass tab surfaces.");
+    [controller detachAccessoryController];
+    Assert(window.titlebarAccessoryViewControllers.count == 0,
+           "Fullscreen transitions must completely detach the accessory host.");
+    [controller attachAccessoryController];
+    Assert(window.titlebarAccessoryViewControllers.count == 1,
+           "Fullscreen transitions must reliably reattach the Liquid Glass tabs.");
     for (NSView *surface in tabSurfaces) {
       Assert(surface.frame.size.height == 28.0,
              "Tab surfaces must use the 28pt visual height.");

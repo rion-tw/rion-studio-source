@@ -223,27 +223,29 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
     try {
       const primaryRoleId = workspace.resourcePolicy?.primaryRoleId ?? items[0]?.role.id;
-      const launchIndexes = items.map((_item, index) => index).sort((left, right) => {
-        if (items[left].role.id === primaryRoleId) return -1;
-        if (items[right].role.id === primaryRoleId) return 1;
-        return left - right;
+      const launchResults = await Promise.allSettled(
+        items.map((item, index) =>
+          this.launchSession(
+            item.role,
+            dipBounds[index],
+            physicalBounds?.[index],
+            workspace.id,
+            options.notice,
+            resolveExternalChromeZoomFactor(
+              options.zoomMode ?? "fixed",
+              options.zoomFactor ?? 1,
+              dipBounds[index].width
+            )
+          ).then((session) => ({ roleId: item.role.id, session }))
+        )
+      );
+      launchResults.forEach((result) => {
+        if (result.status === "fulfilled") sessions.push(result.value);
       });
-      for (const index of launchIndexes) {
-        const item = items[index];
-        const session = await this.launchSession(
-          item.role,
-          dipBounds[index],
-          physicalBounds?.[index],
-          workspace.id,
-          options.notice,
-          resolveExternalChromeZoomFactor(
-            options.zoomMode ?? "fixed",
-            options.zoomFactor ?? 1,
-            dipBounds[index].width
-          )
-        );
-        sessions.push({ roleId: item.role.id, session });
-      }
+      const failedLaunch = launchResults.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected"
+      );
+      if (failedLaunch) throw failedLaunch.reason;
 
       const sessionByRoleId = new Map(sessions.map(({ roleId, session }) => [roleId, session]));
       await sessionByRoleId.get(primaryRoleId ?? "")?.automationTarget?.focus().catch((error) => {

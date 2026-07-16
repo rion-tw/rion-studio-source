@@ -348,37 +348,38 @@ describe("ExternalChromeManager", () => {
       }
     );
     await waitForChild(harness.children, 0);
+    await waitForChild(harness.children, 1);
     expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([
       { workspaceId: "workspace-1", state: "launching" }
     ]);
     harness.children[0].emit("spawn");
-    await waitForChild(harness.children, 1);
     harness.children[1].emit("spawn");
     const statuses = await launchPromise;
 
-    const spawnCalls = harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
-    expect(spawnCalls[0][1]).toEqual(
-      expect.arrayContaining(["--window-position=2800,40", "--window-size=800,900"])
-    );
-    expect(spawnCalls[1][1]).toEqual(
+    expect(getSpawnArgsForRole(harness.spawnChrome, role.id)).toEqual(
       expect.arrayContaining(["--window-position=2000,40", "--window-size=800,900"])
     );
-    expect(harness.automationTargets[0].setWindowBounds).toHaveBeenCalledWith({
-      x: 2800,
-      y: 40,
-      width: 800,
-      height: 900
-    });
-    expect(harness.automationTargets[1].setWindowBounds).toHaveBeenCalledWith({
+    expect(getSpawnArgsForRole(harness.spawnChrome, secondRole.id)).toEqual(
+      expect.arrayContaining(["--window-position=2800,40", "--window-size=800,900"])
+    );
+    const firstTarget = harness.automationTargetsByRoleId.get(role.id)!;
+    const primaryTarget = harness.automationTargetsByRoleId.get(secondRole.id)!;
+    expect(firstTarget.setWindowBounds).toHaveBeenCalledWith({
       x: 2000,
       y: 40,
       width: 800,
       height: 900
     });
-    expect(harness.automationTargets[0].focus).toHaveBeenCalledOnce();
-    expect(harness.automationTargets[1].focus).not.toHaveBeenCalled();
-    expect(harness.automationTargets[0].focus.mock.invocationCallOrder[0]).toBeGreaterThan(
-      harness.automationTargets[1].setWindowBounds.mock.invocationCallOrder[0]
+    expect(primaryTarget.setWindowBounds).toHaveBeenCalledWith({
+      x: 2800,
+      y: 40,
+      width: 800,
+      height: 900
+    });
+    expect(firstTarget.focus).not.toHaveBeenCalled();
+    expect(primaryTarget.focus).toHaveBeenCalledOnce();
+    expect(primaryTarget.focus.mock.invocationCallOrder[0]).toBeGreaterThan(
+      firstTarget.setWindowBounds.mock.invocationCallOrder[0]
     );
     expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.75);
     expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-2/browser", 0.75);
@@ -390,6 +391,27 @@ describe("ExternalChromeManager", () => {
     expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([
       { workspaceId: "workspace-1", state: "running" }
     ]);
+  });
+
+  it("stops fulfilled workspace sessions when another concurrent Chrome launch fails", async () => {
+    const harness = createHarness();
+    const secondRole = { ...role, id: "role-2", name: "Alt" };
+    const launchPromise = harness.manager.launchWorkspace(
+      { id: "workspace-partial-failure" },
+      [
+        { role, rect: { x: 0, y: 0, width: 0.5, height: 1 } },
+        { role: secondRole, rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+      ]
+    );
+
+    await waitForChild(harness.children, 1);
+    harness.children[0].emit("spawn");
+    harness.children[1].emit("error", new Error("Chrome failed to spawn"));
+
+    await expect(launchPromise).rejects.toThrow("Chrome failed to spawn");
+    expect(harness.children[0].kill).toHaveBeenCalledTimes(1);
+    expect(harness.manager.listStatuses()).toEqual([]);
+    expect(harness.manager.hasWorkspace("workspace-partial-failure")).toBe(false);
   });
 
   it("aligns every external Chrome window to shared rounded grid edges", async () => {
@@ -417,7 +439,9 @@ describe("ExternalChromeManager", () => {
     }
     await launchPromise;
 
-    expect(harness.automationTargets.map((target) => target.setWindowBounds.mock.calls[0][0]))
+    expect(roles.map((gridRole) =>
+      harness.automationTargetsByRoleId.get(gridRole.id)!.setWindowBounds.mock.calls[0][0]
+    ))
       .toEqual([
         { x: 2000, y: 40, width: 801, height: 451 },
         { x: 2801, y: 40, width: 800, height: 451 },
@@ -454,7 +478,9 @@ describe("ExternalChromeManager", () => {
     }
     await launchPromise;
 
-    const bounds = harness.automationTargets.map((target) => target.setWindowBounds.mock.calls[0][0]);
+    const bounds = roles.map((gridRole) =>
+      harness.automationTargetsByRoleId.get(gridRole.id)!.setWindowBounds.mock.calls[0][0]
+    );
     expect(bounds).toEqual([
       { x: 2000, y: 40, width: 401, height: 452 },
       { x: 2401, y: 40, width: 401, height: 452 },
@@ -504,16 +530,17 @@ describe("ExternalChromeManager", () => {
     harness.children[1].emit("spawn");
     await launchPromise;
 
-    expect(harness.automationTargets.map((target) => target.setWindowBounds.mock.calls[0][0]))
+    expect([role, secondRole].map((workspaceRole) =>
+      harness.automationTargetsByRoleId.get(workspaceRole.id)!.setWindowBounds.mock.calls[0][0]
+    ))
       .toEqual([
         { x: 2000, y: 40, width: 812, height: 900 },
         { x: 2800, y: 40, width: 800, height: 900 }
       ]);
-    const spawnCalls = harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
-    expect(spawnCalls[0][1]).toEqual(
+    expect(getSpawnArgsForRole(harness.spawnChrome, role.id)).toEqual(
       expect.arrayContaining(["--window-position=2000,40", "--window-size=812,900"])
     );
-    expect(spawnCalls[1][1]).toEqual(
+    expect(getSpawnArgsForRole(harness.spawnChrome, secondRole.id)).toEqual(
       expect.arrayContaining(["--window-position=2800,40", "--window-size=800,900"])
     );
   });
@@ -556,7 +583,9 @@ describe("ExternalChromeManager", () => {
       width: 1601,
       height: 901
     });
-    expect(windowBoundsAdapter.alignVisibleBounds.mock.calls.map(([input]) => input)).toEqual([
+    expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalledTimes(4);
+    expect(windowBoundsAdapter.alignVisibleBounds.mock.calls.map(([input]) => input)).toEqual(
+      expect.arrayContaining([
       {
         browserProcessId: 5000,
         physicalBounds: { x: -1920, y: -80, width: 1002, height: 565 }
@@ -573,7 +602,8 @@ describe("ExternalChromeManager", () => {
         browserProcessId: 5003,
         physicalBounds: { x: -919, y: 484, width: 1000, height: 563 }
       }
-    ]);
+      ])
+    );
   });
 
   it("still runs native visible-frame alignment when CDP cannot connect", async () => {
@@ -708,6 +738,7 @@ function createHarness(options: {
 } = {}) {
   const children: Array<ReturnType<typeof createChild>> = [];
   const automationTargets: Array<ReturnType<typeof createAutomationTarget>> = [];
+  const automationTargetsByRoleId = new Map<string, ReturnType<typeof createAutomationTarget>>();
   const roleStore = {
     ensureBrowserUserDataDir: vi.fn(async (roleId: string) => `/profiles/${roleId}/browser`)
   };
@@ -718,9 +749,11 @@ function createHarness(options: {
     children.push(child);
     return child as never;
   });
-  const connectAutomation = options.connectAutomation ?? vi.fn(async () => {
+  const connectAutomation = options.connectAutomation ?? vi.fn(async (browserUserDataDir: string) => {
     const target = createAutomationTarget();
     automationTargets.push(target);
+    const roleId = /^\/profiles\/(.+)\/browser$/.exec(browserUserDataDir)?.[1];
+    if (roleId) automationTargetsByRoleId.set(roleId, target);
     return target;
   });
   const applyBrowserZoom = options.applyBrowserZoom ?? vi.fn().mockResolvedValue(undefined);
@@ -740,6 +773,7 @@ function createHarness(options: {
   return {
     applyBrowserZoom,
     automationTargets,
+    automationTargetsByRoleId,
     children,
     connectAutomation,
     manager,
@@ -793,4 +827,13 @@ function createWindowBoundsAdapter(
 
 async function waitForChild(children: Array<ReturnType<typeof createChild>>, index: number): Promise<void> {
   await vi.waitFor(() => expect(children[index]).toBeDefined());
+}
+
+function getSpawnArgsForRole(spawnChrome: AnyMock, roleId: string): string[] {
+  const calls = spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
+  const call = calls.find(([, args]) =>
+    args.includes(`--user-data-dir=/profiles/${roleId}/browser`)
+  );
+  if (!call) throw new Error(`Chrome spawn arguments not found for role ${roleId}.`);
+  return call[1];
 }

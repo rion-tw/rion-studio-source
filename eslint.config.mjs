@@ -40,6 +40,12 @@ export default tseslint.config(
     }
   },
   {
+    files: ["src/main/macros/overlay/**/*.js"],
+    languageOptions: {
+      globals: globals.browser
+    }
+  },
+  {
     files: ["src/main/**/*.ts", "src/preload/**/*.ts", "tests/**/*.ts", "scripts/**/*.mjs", "electron.vite.config.ts"],
     languageOptions: {
       globals: globals.node

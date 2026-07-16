@@ -46,6 +46,14 @@ const otherMacro: Macro = {
 };
 
 describe("MacroOverlayInjector", () => {
+  it("assembles the raw runtime, shortcut guard, and overlay styles into executable source", () => {
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("__RION_STUDIO_MACRO_OVERLAY_CSS__");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const overlayCss = "*{box-sizing:border-box');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('.panel[data-open=\\"true\\"]{display:grid;}');
+    expect(() => new Function(MACRO_OVERLAY_SCRIPT)).not.toThrow();
+  });
+
   it("installs the overlay script into embedded web contents", async () => {
     const page = createPage();
     const injector = createInjector();
@@ -372,7 +380,7 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("[\"max-width\", \"320px\"]");
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v26"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("rion-studio-macro-overlay-v25");
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.3"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.4"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("if (event.repeat)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("const pendingMacroActions = new Set()");
     expect(MACRO_OVERLAY_SCRIPT).toContain("requestVersion: 0");
@@ -487,7 +495,8 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.disabled");
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="people-icon"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="macro-role-count" data-tooltip="');
-    expect(MACRO_OVERLAY_SCRIPT).toContain(".panel{display:");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".panel{display:none");
+    expect(MACRO_OVERLAY_SCRIPT).toContain('.panel[data-open=\\"true\\"]{display:grid;}');
     expect(MACRO_OVERLAY_SCRIPT).toContain(".trigger{");
     expect(MACRO_OVERLAY_SCRIPT).toContain("pointer-events:auto");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot{");

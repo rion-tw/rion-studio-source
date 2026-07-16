@@ -260,6 +260,8 @@
   "macroForm.repeat": "轮询",
   "macroForm.repeatDescription": "执行一次，或在设置间隔后重複执行。",
   "macroForm.repeat.loop": "重複",
+  "macroForm.enabled": "启用",
+  "macroForm.enabledDescription": "允许从 App、快捷键与游戏内菜单运行这个宏。",
   "macroForm.intervalMs": "间隔",
   "macroForm.intervalMilliseconds": "{value} 毫秒",
   "macroForm.intervalSeconds": "{value} 秒",

@@ -260,6 +260,8 @@
   "macroForm.repeat": "Repeat",
   "macroForm.repeatDescription": "Run once or loop after the configured interval.",
   "macroForm.repeat.loop": "Loop",
+  "macroForm.enabled": "Enabled",
+  "macroForm.enabledDescription": "Allow this macro to run from the app, shortcuts, and the in-game menu.",
   "macroForm.intervalMs": "Interval",
   "macroForm.intervalMilliseconds": "{value} ms",
   "macroForm.intervalSeconds": "{value} sec",

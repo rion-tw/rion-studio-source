@@ -321,15 +321,17 @@ function MacrosRoute({
                     <td className="max-w-[320px] px-4 py-2.5 align-baseline font-medium text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t)}
                     </td>
-                    <td className="px-4 py-2.5 align-top text-center">
-                      <Switch
-                        checked={macro.enabled}
-                        disabled={busyMacroIds.has(macro.id)}
-                        title={t(macro.enabled ? "macros.disable" : "macros.enable")}
-                        aria-label={t(macro.enabled ? "macros.disableNamed" : "macros.enableNamed")
-                          .replace("{name}", macro.name)}
-                        onCheckedChange={(enabled) => onSetMacroEnabled?.(macro, enabled)}
-                      />
+                    <td className="relative w-20 p-0 text-center">
+                      <div className="absolute inset-0 grid place-items-center" data-macro-enabled-control>
+                        <Switch
+                          checked={macro.enabled}
+                          disabled={busyMacroIds.has(macro.id)}
+                          title={t(macro.enabled ? "macros.disable" : "macros.enable")}
+                          aria-label={t(macro.enabled ? "macros.disableNamed" : "macros.enableNamed")
+                            .replace("{name}", macro.name)}
+                          onCheckedChange={(enabled) => onSetMacroEnabled?.(macro, enabled)}
+                        />
+                      </div>
                     </td>
                     <td className="px-4 py-2.5 align-baseline">
                       <div className="-my-1 flex justify-end">

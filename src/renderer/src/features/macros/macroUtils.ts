@@ -118,6 +118,7 @@ export function createEmptyMacroForm(
       : roles[0]?.id ?? "";
 
   return {
+    enabled: true,
     name: createEmptyMacroFormName(macros, t),
     roleIds: roleId ? [roleId] : [],
     repeat: { type: "once" },
@@ -135,6 +136,7 @@ export function createEmptyMacroForm(
 export function createMacroFormState(macro: Macro): MacroFormState {
   return {
     id: macro.id,
+    enabled: macro.enabled,
     name: macro.name,
     roleIds: [...macro.roleIds],
     repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },

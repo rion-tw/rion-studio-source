@@ -45,6 +45,7 @@
     "src/renderer/src/features/games/GamesRoute.tsx",
     "src/renderer/src/features/games/gameCover.ts",
     "src/renderer/src/features/macros/MacrosRoute.tsx",
+    "src/renderer/src/features/macros/MacroModal.tsx",
     "src/renderer/src/features/macros/macroListUtils.ts",
     "src/renderer/src/features/macros/macroUtils.ts",
     "src/renderer/src/features/roles/LoginSessionGuide.tsx",

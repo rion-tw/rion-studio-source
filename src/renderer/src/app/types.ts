@@ -49,6 +49,7 @@ export interface GameFormState {
 
 export interface MacroFormState {
   id?: string;
+  enabled: boolean;
   name: string;
   roleIds: string[];
   repeat: MacroRepeat;

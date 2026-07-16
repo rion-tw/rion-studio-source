@@ -405,6 +405,10 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-edit{");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".edit-icon{");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".macro-enabled-switch{");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(
+      ".macro-enabled-switch[aria-checked='true']{background:oklch(62.3% .214 259.815);"
+    );
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("background:#5cae58");
     expect(MACRO_OVERLAY_SCRIPT).toContain('role="switch"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('void runAction("set-enabled", macroId');
     expect(MACRO_OVERLAY_SCRIPT).toContain(".status-dot.disabled");

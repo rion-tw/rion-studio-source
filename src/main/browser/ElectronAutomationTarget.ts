@@ -29,10 +29,10 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     }
 
     this.webContents.focus();
-    await this.preparePageTarget();
+    await this.focusPageTarget();
   }
 
-  private async preparePageTarget(signal?: AbortSignal): Promise<void> {
+  private async focusPageTarget(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
@@ -57,8 +57,6 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   private async dispatchKeyUnlocked(code: string, signal?: AbortSignal): Promise<void> {
-    await this.preparePageTarget(signal);
-
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
@@ -102,8 +100,6 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   private async dispatchClickUnlocked(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
-    await this.preparePageTarget(signal);
-
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;

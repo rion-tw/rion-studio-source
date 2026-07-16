@@ -19,7 +19,7 @@ import type {
   LaunchWorkspace,
   LegalAcceptanceStatus,
   Macro,
-  MacroEditorRequest,
+  MacroPageRequest,
   MacroRunStatus,
   PortableExportInput,
   PortableExportResult,
@@ -96,7 +96,7 @@ export interface RionStudioApi {
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
   listSystemFonts: () => Promise<SystemFontFamily[]>;
-  consumePendingMacroEditorRequest: () => Promise<MacroEditorRequest | null>;
+  consumePendingMacroPageRequest: () => Promise<MacroPageRequest | null>;
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;
   getAppVersion: () => Promise<string>;
   getUpdateStatus: () => Promise<AppUpdateStatus>;
@@ -112,6 +112,6 @@ export interface RionStudioApi {
   onAuthStatusChanged: (callback: (statuses: AuthFlowStatus[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
-  onMacroEditorRequested: (callback: (request: MacroEditorRequest) => void) => () => void;
+  onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
 }

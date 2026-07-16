@@ -1,4 +1,4 @@
-import { useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { createCopyName } from "../app/copyName";
 import { formatBulkDeleteResult } from "../app/bulkDelete";
@@ -36,6 +36,12 @@ export function useMacroWorkflow({
   const [sort, setSort] = useState<MacroListSortState>(DEFAULT_MACRO_LIST_SORT);
   const isSavingMacroRef = useRef(false);
   const listScrollTopRef = useRef(0);
+
+  const openListForRole = useCallback((roleId: string): void => {
+    setQuery("");
+    setRoleFilterId(roleId);
+    listScrollTopRef.current = 0;
+  }, []);
 
   async function saveMacro(form: MacroFormState): Promise<Macro | undefined> {
     if (isSavingMacroRef.current) {
@@ -259,6 +265,7 @@ export function useMacroWorkflow({
     handleStopMacro,
     isSavingMacro,
     listScrollTopRef,
+    openListForRole,
     query,
     resetListState,
     roleFilterId,

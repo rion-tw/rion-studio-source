@@ -3,16 +3,20 @@ import { describe, expect, it, vi } from "vitest";
 import { ElectronAutomationTarget } from "../src/main/browser/ElectronAutomationTarget";
 
 describe("ElectronAutomationTarget", () => {
-  it("prepares the game canvas without stealing native focus before dispatching a key", async () => {
+  it("dispatches a key without scanning or focusing the game DOM", async () => {
     const harness = createHarness();
     const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
 
     await target.dispatchKey("F2");
 
     expect(harness.webContents.focus).not.toHaveBeenCalled();
-    expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('largest("canvas")'));
-    expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining("if (document.activeElement === element) return true")
+    expect(harness.webContents.executeJavaScript).not.toHaveBeenCalled();
+    expect(harness.frame.executeJavaScript.mock.calls.flat()).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('largest("canvas")'),
+        expect.stringContaining("document.activeElement"),
+        expect.stringContaining(".focus(")
+      ])
     );
     expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('suppressNextShortcut?.("F2")')
@@ -34,6 +38,8 @@ describe("ElectronAutomationTarget", () => {
     await target.dispatchClick(25, 75);
 
     expect(harness.webContents.focus).not.toHaveBeenCalled();
+    expect(harness.frame.executeJavaScript).not.toHaveBeenCalled();
+    expect(harness.webContents.executeJavaScript).not.toHaveBeenCalled();
     expect(harness.webContents.sendInputEvent).toHaveBeenNthCalledWith(1, {
       type: "mouseDown",
       button: "left",
@@ -48,6 +54,24 @@ describe("ElectronAutomationTarget", () => {
       x: 200,
       y: 450
     });
+  });
+
+  it("never scans or focuses the page during repeated high-frequency input", async () => {
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    for (let index = 0; index < 50; index += 1) {
+      await target.dispatchKey("Digit1");
+      await target.dispatchClick(50, 50);
+    }
+
+    const executedSources = harness.frame.executeJavaScript.mock.calls.flat().join("\n");
+    expect(executedSources).not.toContain('largest("canvas")');
+    expect(executedSources).not.toContain("document.activeElement");
+    expect(executedSources).not.toContain(".focus(");
+    expect(harness.webContents.executeJavaScript).not.toHaveBeenCalled();
+    expect(harness.webContents.focus).not.toHaveBeenCalled();
+    expect(harness.webContents.sendInputEvent).toHaveBeenCalledTimes(200);
   });
 
   it("serializes concurrent macro key dispatches for the same browser target", async () => {

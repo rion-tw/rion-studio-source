@@ -74,7 +74,7 @@ import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { handleMainWindowClose } from "./window/mainWindowLifecycle";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
-import type { MacroEditorRequest } from "../shared/types";
+import type { MacroPageRequest } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
 
@@ -90,7 +90,7 @@ let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let dockRoleMenu: MacDockRoleMenu | null = null;
 let windowsTray: Tray | null = null;
-let pendingMacroEditorRequest: MacroEditorRequest | null = null;
+let pendingMacroPageRequest: MacroPageRequest | null = null;
 let appInitialized = false;
 let initializationFailed = false;
 let mainWindowReady = false;
@@ -287,20 +287,20 @@ function showMainWindow(): void {
   mainWindow.focus();
 }
 
-function requestMacroEditorFromOverlay(request: MacroEditorRequest): void {
-  pendingMacroEditorRequest = request;
+function requestMacroPageFromOverlay(request: MacroPageRequest): void {
+  pendingMacroPageRequest = request;
   showMainWindow();
 
   if (!mainWindow || mainWindow.isDestroyed() || !mainWindowReady) {
     return;
   }
 
-  mainWindow.webContents.send(IPC_CHANNELS.macrosEditorRequested, request);
+  mainWindow.webContents.send(IPC_CHANNELS.macrosPageRequested, request);
 }
 
-function consumePendingMacroEditorRequest(): MacroEditorRequest | null {
-  const request = pendingMacroEditorRequest;
-  pendingMacroEditorRequest = null;
+function consumePendingMacroPageRequest(): MacroPageRequest | null {
+  const request = pendingMacroPageRequest;
+  pendingMacroPageRequest = null;
   return request;
 }
 
@@ -436,12 +436,8 @@ async function initializeApplication(): Promise<void> {
   const macroOverlayInjector = new MacroOverlayInjector(
     macroStore,
     macroManager,
-    requestMacroEditorFromOverlay,
-    (roleId) => browserManager?.listStatuses().find((status) => status.roleId === roleId),
-    roleStore,
-    () => {
-      void macroStore.listMacros().then(broadcastMacrosChanged);
-    }
+    requestMacroPageFromOverlay,
+    (roleId) => browserManager?.listStatuses().find((status) => status.roleId === roleId)
   );
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
   browserManager.setExternalMacroOverlayInstaller((role, target) => macroOverlayInjector.installExternal(role, target));
@@ -485,7 +481,7 @@ async function initializeApplication(): Promise<void> {
   });
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
-    consumePendingMacroEditorRequest,
+    consumePendingMacroPageRequest,
     gameCompatibilityManager,
     gameStore,
     gameBrowserSettingsStore,

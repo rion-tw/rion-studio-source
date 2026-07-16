@@ -51,7 +51,7 @@ describe("ExternalChromeAutomationTarget", () => {
     expect(fetchTargets).toHaveBeenCalledTimes(3);
   });
 
-  it("dispatches physical key events without bringing external Chrome to front", async () => {
+  it("dispatches physical key events without scanning or focusing the page", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);
     await target.initialize();
@@ -59,14 +59,12 @@ describe("ExternalChromeAutomationTarget", () => {
     await target.dispatchKey("KeyQ");
 
     expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
-    expect(harness.send).toHaveBeenCalledWith(
-      "Runtime.evaluate",
-      expect.objectContaining({ expression: expect.stringContaining('querySelectorAll("canvas, iframe")') })
-    );
-    expect(harness.send).toHaveBeenCalledWith(
-      "Runtime.evaluate",
-      expect.objectContaining({ expression: expect.stringContaining("document.activeElement === target") })
-    );
+    const evaluatedSources = harness.send.mock.calls
+      .filter(([method]) => method === "Runtime.evaluate")
+      .map(([, params]) => String(params?.expression));
+    expect(evaluatedSources.join("\n")).not.toContain('querySelectorAll("canvas, iframe")');
+    expect(evaluatedSources.join("\n")).not.toContain("document.activeElement");
+    expect(evaluatedSources.join("\n")).not.toContain(".focus(");
     expect(harness.send).toHaveBeenCalledWith("Input.dispatchKeyEvent", {
       type: "rawKeyDown",
       code: "KeyQ",
@@ -79,6 +77,28 @@ describe("ExternalChromeAutomationTarget", () => {
       key: "q",
       windowsVirtualKeyCode: 81
     });
+  });
+
+  it("never scans or focuses the page during repeated high-frequency input", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    for (let index = 0; index < 50; index += 1) {
+      await target.dispatchKey("Digit1");
+      await target.dispatchClick(50, 50);
+    }
+
+    const evaluatedSources = harness.send.mock.calls
+      .filter(([method]) => method === "Runtime.evaluate")
+      .map(([, params]) => String(params?.expression))
+      .join("\n");
+    expect(evaluatedSources).not.toContain('querySelectorAll("canvas, iframe")');
+    expect(evaluatedSources).not.toContain("document.activeElement");
+    expect(evaluatedSources).not.toContain(".focus(");
+    expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
+    expect(harness.send.mock.calls.filter(([method]) => method === "Input.dispatchKeyEvent")).toHaveLength(100);
+    expect(harness.send.mock.calls.filter(([method]) => method === "Input.dispatchMouseEvent")).toHaveLength(100);
   });
 
   it("reports page focus through a one-shot binding listener", async () => {

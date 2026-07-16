@@ -17,7 +17,7 @@ import type {
   CreateRoleInput,
   GameBrowserSettings,
   Macro,
-  MacroEditorRequest,
+  MacroPageRequest,
   MacroRunStatus,
   PortableExportInput,
   PortableImportInput,
@@ -45,7 +45,10 @@ import type { GameCompatibilityManager } from "../games/GameCompatibilityManager
 import type { GameStore } from "../games/GameStore";
 import type { LegalAcceptanceStore } from "../legal/LegalAcceptanceStore";
 import type { MacroManager } from "../macros/MacroManager";
-import type { MacroOverlayRequest } from "../macros/MacroOverlayInjector";
+import {
+  isMacroOverlayRequest,
+  type MacroOverlayRequest
+} from "../macros/MacroOverlayInjector";
 import type { MacroStore } from "../macros/MacroStore";
 import type { PortableDataManager } from "../portable/PortableDataManager";
 import { RoleStore } from "../roles/RoleStore";
@@ -64,7 +67,7 @@ interface RegisterIpcHandlersOptions {
   >;
   systemFontService?: Pick<SystemFontService, "listFonts">;
   updateManager?: AppUpdateManager;
-  consumePendingMacroEditorRequest?: () => MacroEditorRequest | null;
+  consumePendingMacroPageRequest?: () => MacroPageRequest | null;
   onMacrosChanged?: () => void;
   onMacroOverlayRequest?: (webContents: WebContents, request: MacroOverlayRequest) => Promise<unknown>;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
@@ -239,7 +242,7 @@ export function registerIpcHandlers(
     options.onOverlayLanguageChanged?.(language);
   });
 
-  ipcMain.handle(IPC_CHANNELS.macrosConsumeEditorRequest, () => options.consumePendingMacroEditorRequest?.() ?? null);
+  ipcMain.handle(IPC_CHANNELS.macrosConsumePageRequest, () => options.consumePendingMacroPageRequest?.() ?? null);
 
   ipcMain.handle(IPC_CHANNELS.macrosOverlayRequest, (event, request: MacroOverlayRequest) => {
     if (!options.onMacroOverlayRequest || !isMacroOverlayRequest(request)) {
@@ -1011,21 +1014,4 @@ function readErrorCode(error: unknown): string {
     return String(error.code);
   }
   return "LAUNCH_FAILED";
-}
-
-function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequest {
-  if (typeof value !== "object" || value === null || !("type" in value)) {
-    return false;
-  }
-
-  const request = value as { macroId?: unknown; type?: unknown };
-  if (request.type === "list" || request.type === "create") {
-    return true;
-  }
-
-  return (
-    (request.type === "edit" || request.type === "start" || request.type === "stop") &&
-    typeof request.macroId === "string" &&
-    request.macroId.length > 0
-  );
 }

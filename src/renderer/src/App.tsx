@@ -27,7 +27,6 @@ import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import type {
   GameBrowserSettings,
   GraphicsDiagnostics,
-  MacroEditorRequest,
   PortableExportInput,
   PortableExportResult,
   PortableImportInput,
@@ -231,12 +230,8 @@ export function App(): JSX.Element {
     setNotice,
     t: preferences.t
   });
-  const {
-    initialLoadState,
-    macros,
-    setError,
-    setMacros
-  } = data;
+  const { openListForRole } = macroWorkflow;
+  const { initialLoadState, setError } = data;
 
   useEffect(() => {
     if (initialLoadState !== "ready" || data.error === null) {
@@ -263,49 +258,29 @@ export function App(): JSX.Element {
 
     let isDisposed = false;
 
-    const openMacroEditorRequest = async (request: MacroEditorRequest): Promise<void> => {
-      if (!request.macroId) {
-        navigateToNewMacro(request.roleId);
-        return;
-      }
-
-      let macro = macros.find((item) => item.id === request.macroId);
-      if (!macro) {
-        const latestMacros = await window.rionStudio.listMacros();
-        setMacros(latestMacros);
-        macro = latestMacros.find((item) => item.id === request.macroId);
-      }
-
-      if (!macro) {
-        navigateToMacros();
-        throw new Error("The requested macro is no longer available.");
-      }
-
-      navigateToEditMacro(macro.id);
-    };
-
-    const consumePendingEditorRequest = (): void => {
+    const consumePendingPageRequest = (): void => {
       void window.rionStudio
-        .consumePendingMacroEditorRequest()
-        .then(async (request) => {
+        .consumePendingMacroPageRequest()
+        .then((request) => {
           if (!isDisposed && request) {
-            await openMacroEditorRequest(request);
+            openListForRole(request.roleId);
+            navigateToMacros();
           }
         })
         .catch(setError);
     };
 
-    const unsubscribe = window.rionStudio.onMacroEditorRequested(() => {
-      consumePendingEditorRequest();
+    const unsubscribe = window.rionStudio.onMacroPageRequested(() => {
+      consumePendingPageRequest();
     });
 
-    consumePendingEditorRequest();
+    consumePendingPageRequest();
 
     return () => {
       isDisposed = true;
       unsubscribe();
     };
-  }, [hasBridge, initialLoadState, macros, navigateToEditMacro, navigateToMacros, navigateToNewMacro, setError, setMacros]);
+  }, [hasBridge, initialLoadState, navigateToMacros, openListForRole, setError]);
 
   useEffect(() => {
     if (!hasBridge || initialLoadState === "loading" || legal.isLoading) {

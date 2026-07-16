@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -10,6 +11,9 @@
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
                     sourceDisplayID:(NSInteger)sourceDisplayID
                    beforeIdentifier:(nullable NSString *)beforeIdentifier;
+- (void)hideInsertionIndicator;
+- (void)layoutTitlebarContent;
+- (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
 
 @end
 
@@ -17,6 +21,64 @@ static void Assert(bool condition, const char *message) {
   if (!condition) {
     std::cerr << message << std::endl;
     std::exit(1);
+  }
+}
+
+static RionRuntimeTabModel *MakeTab(NSString *identifier, NSString *name,
+                                    BOOL active, NSInteger roleCount) {
+  RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
+  tab.active = active;
+  tab.identifier = identifier;
+  tab.name = name;
+  tab.roleCount = roleCount;
+  tab.type = roleCount > 0 ? @"workspace" : @"role";
+  tab.workspaceTemplate = roleCount > 0 ? @"quad" : nil;
+  return tab;
+}
+
+static RionRuntimeTabsState *MakeState(NSArray<RionRuntimeTabModel *> *tabs) {
+  RionRuntimeTabsState *state = [[RionRuntimeTabsState alloc] init];
+  state.addLabel = @"Add";
+  state.displayID = 11;
+  state.moreLabel = @"More";
+  state.tabs = tabs;
+  return state;
+}
+
+static void AssertItemSubviewsDoNotOverlap(NSView *item) {
+  NSView *icon = [item valueForKey:@"_iconView"];
+  NSView *title = [item valueForKey:@"_titleField"];
+  NSView *badge = [item valueForKey:@"_badgeView"];
+  NSView *more = [item valueForKey:@"_moreButton"];
+  if (NSIntersectsRect(icon.frame, title.frame) ||
+      NSIntersectsRect(title.frame, more.frame) ||
+      (!badge.hidden && (NSIntersectsRect(title.frame, badge.frame) ||
+                         NSIntersectsRect(badge.frame, more.frame)))) {
+    std::cerr << "Overlapping tab frames: item=" << NSStringFromRect(item.frame).UTF8String
+              << " icon=" << NSStringFromRect(icon.frame).UTF8String
+              << " title=" << NSStringFromRect(title.frame).UTF8String
+              << " badge=" << NSStringFromRect(badge.frame).UTF8String
+              << " more=" << NSStringFromRect(more.frame).UTF8String << std::endl;
+  }
+  Assert(!NSIntersectsRect(icon.frame, title.frame),
+         "Icon and title frames must not overlap.");
+  Assert(!NSIntersectsRect(title.frame, more.frame),
+         "Title and more-button frames must not overlap.");
+  if (item.frame.size.width < 223.5) {
+    NSTextField *titleField = (NSTextField *)title;
+    CGFloat measuredTitleWidth =
+        [titleField.stringValue sizeWithAttributes:@{
+          NSFontAttributeName : [NSFont systemFontOfSize:12.0
+                                                   weight:NSFontWeightSemibold]
+        }].width;
+    Assert(title.frame.size.width + 0.5 >= ceil(measuredTitleWidth),
+           "A non-max-width tab must not truncate its title prematurely.");
+  }
+  if (!badge.hidden) {
+    Assert(!NSIntersectsRect(title.frame, badge.frame),
+           "Title and badge frames must not overlap.");
+    Assert(!NSIntersectsRect(badge.frame, more.frame),
+           "Badge and more-button frames must not overlap.");
   }
 }
 
@@ -42,37 +104,114 @@ int main() {
     Assert(controller != nil, "Expected the native runtime tabs controller.");
     Assert(window.titleVisibility == NSWindowTitleHidden,
            "Expected the native title to be hidden.");
+    Assert(window.titlebarAppearsTransparent,
+           "Expected the system titlebar material to remain visible through the accessory.");
     Assert(window.titlebarAccessoryViewControllers.count == 1,
            "Expected one titlebar accessory controller.");
+    Assert(window.toolbar != nil && window.toolbar.visible,
+           "Normal windows must use a visible unified toolbar for titlebar height and material.");
+    Assert(window.toolbar.items.count == 1 &&
+               window.toolbar.items.firstObject.view.frame.size.height == 28.0,
+           "The unified toolbar must retain its invisible 28pt layout spacer.");
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Attaching runtime tabs must preserve standard traffic lights.");
 
-    RionRuntimeTabModel *role = [[RionRuntimeTabModel alloc] init];
-    role.active = YES;
-    role.identifier = @"tab-1";
-    role.name = @"Mina";
-    role.roleCount = 0;
-    role.type = @"role";
-    RionRuntimeTabModel *workspace = [[RionRuntimeTabModel alloc] init];
-    workspace.active = NO;
-    workspace.identifier = @"tab-2";
-    workspace.name = @"Team";
-    workspace.roleCount = 4;
-    workspace.type = @"workspace";
-    workspace.workspaceTemplate = @"quad";
-    RionRuntimeTabsState *state = [[RionRuntimeTabsState alloc] init];
-    state.addLabel = @"Add";
-    state.displayID = 11;
-    state.moreLabel = @"More";
-    state.tabs = @[ role, workspace ];
+    RionRuntimeTabModel *role = MakeTab(@"tab-1", @"Mina", YES, 0);
+    RionRuntimeTabModel *workspace = MakeTab(@"tab-2", @"Team", NO, 4);
+    RionRuntimeTabsState *state = MakeState(@[ role, workspace ]);
     [controller updateState:state];
     Assert(controller.renderedTabCount == 2, "Expected two rendered native tabs.");
 
-    NSButton *addButton =
-        [controller valueForKeyPath:@"_accessoryController.view"]
-            ? [[controller valueForKeyPath:@"_accessoryController.view"]
-                  viewWithTag:41001]
-            : nil;
+    NSArray<NSView *> *tabItems = [controller valueForKey:@"_tabItems"];
+    NSArray<NSView *> *tabSurfaces = [controller valueForKey:@"_tabSurfaces"];
+    NSView *root = [controller valueForKeyPath:@"_accessoryController.view"];
+    NSView *addSurface = [controller valueForKey:@"_addSurface"];
+    NSScrollView *scrollView = [controller valueForKey:@"_tabScrollView"];
+    Assert(tabItems.count == 2 && tabSurfaces.count == 2,
+           "Expected one item and surface for every tab.");
+    Assert(root.intrinsicContentSize.height == 44.0,
+           "The accessory root must preserve a 44pt titlebar height.");
+    NSVisualEffectView *backdrop = [controller valueForKey:@"_titlebarBackdrop"];
+    Assert([backdrop isKindOfClass:NSVisualEffectView.class] &&
+               backdrop.material == NSVisualEffectMaterialHeaderView &&
+               NSEqualRects(backdrop.frame, root.bounds),
+           "The full titlebar must use a soft system header blur material.");
+    for (NSView *surface in tabSurfaces) {
+      Assert(surface.frame.size.height == 28.0,
+             "Tab surfaces must use the 28pt visual height.");
+      Assert(surface.frame.size.width >= 112.0 &&
+                 surface.frame.size.width <= 224.0,
+             "Tab surfaces must respect the 112–224pt width range.");
+    }
+    for (NSView *item in tabItems) AssertItemSubviewsDoNotOverlap(item);
+    Assert([[tabItems[0] accessibilityRole]
+               isEqualToString:NSAccessibilityRadioButtonRole],
+           "Tabs must expose the radio-button accessibility role.");
+    Assert([[[tabItems[0] accessibilityValue] description] isEqualToString:@"1"],
+           "The active tab must expose its selected accessibility value.");
+    Assert(std::fabs(NSMinX(addSurface.frame) -
+                         (NSMaxX(scrollView.frame) + 8.0)) < 0.5,
+           "The add button must follow the tab strip by 8pt.");
+    Assert(NSMaxX(addSurface.frame) < root.bounds.size.width - 12.0,
+           "A short tab strip must leave a clean draggable trailing region.");
+
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+    if (@available(macOS 26.0, *)) {
+      NSView *container = [controller valueForKey:@"_clusterContainer"];
+      NSView *effect = [tabSurfaces[0] valueForKey:@"_effectView"];
+      Assert([container isKindOfClass:NSGlassEffectContainerView.class],
+             "macOS 26 must group tab glass in NSGlassEffectContainerView.");
+      Assert([effect isKindOfClass:NSGlassEffectView.class],
+             "macOS 26 must render tabs with regular Liquid Glass.");
+    } else
+#endif
+    {
+      NSView *effect = [tabSurfaces[0] valueForKey:@"_effectView"];
+      Assert([effect isKindOfClass:NSVisualEffectView.class],
+             "macOS 12–25 must use the visual-effect material fallback.");
+    }
+
+    [window setContentSize:NSMakeSize(960, 640)];
+    NSMutableArray<RionRuntimeTabModel *> *manyTabs = [NSMutableArray array];
+    for (NSInteger index = 0; index < 10; ++index) {
+      NSString *identifier = [NSString stringWithFormat:@"many-%ld", (long)index];
+      NSString *name = index == 3
+                           ? @"A very long workspace name that must truncate safely"
+                           : [NSString stringWithFormat:@"Tab %ld", (long)index + 1];
+      [manyTabs addObject:MakeTab(identifier, name, index == 9,
+                                  index == 3 ? 128 : 0)];
+    }
+    [controller updateState:MakeState(manyTabs)];
+    tabItems = [controller valueForKey:@"_tabItems"];
+    tabSurfaces = [controller valueForKey:@"_tabSurfaces"];
+    root = [controller valueForKeyPath:@"_accessoryController.view"];
+    addSurface = [controller valueForKey:@"_addSurface"];
+    scrollView = [controller valueForKey:@"_tabScrollView"];
+    Assert(scrollView.documentView.frame.size.width > scrollView.bounds.size.width,
+           "Many tabs must overflow into a horizontal scroll view.");
+    Assert(scrollView.horizontalScroller == nil ||
+               scrollView.horizontalScroller.isHidden,
+           "Overflow must not depend on a visible scrollbar.");
+    Assert(scrollView.contentView.bounds.origin.x > 0,
+           "The active trailing tab must be scrolled into view.");
+    NSView *activeSurface = tabSurfaces.lastObject;
+    NSRect visibleDocumentRect = scrollView.documentVisibleRect;
+    Assert(NSMinX(activeSurface.frame) >= NSMinX(visibleDocumentRect) - 0.5 &&
+               NSMaxX(activeSurface.frame) <= NSMaxX(visibleDocumentRect) + 0.5,
+           "The active tab must remain fully visible after automatic scrolling.");
+    for (NSView *item in tabItems) AssertItemSubviewsDoNotOverlap(item);
+    Assert(NSMaxX(addSurface.frame) <= root.bounds.size.width - 12.0 + 0.5,
+           "Overflow layout must preserve at least 12pt of draggable space.");
+
+    [controller updateInsertionIndicatorBeforeIdentifier:@"many-3"];
+    NSView *insertionIndicator = [controller valueForKey:@"_insertionIndicator"];
+    Assert(!insertionIndicator.hidden && insertionIndicator.frame.size.width == 2.0,
+           "Dragging must display a 2pt accent insertion indicator.");
+    [controller hideInsertionIndicator];
+    Assert(insertionIndicator.hidden,
+           "The insertion indicator must disappear when dragging ends.");
+
+    NSButton *addButton = root ? [root viewWithTag:41001] : nil;
     Assert(addButton != nil, "Expected the native add button.");
     [addButton performClick:nil];
     Assert([lastAction[@"type"] isEqualToString:@"openLauncher"],
@@ -102,6 +241,8 @@ int main() {
     [controller destroy];
     Assert(window.titlebarAccessoryViewControllers.count == 0,
            "Destroying the controller must detach its accessory.");
+    Assert(window.toolbar == nil,
+           "Destroying runtime tabs must restore the previous toolbar.");
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Destroying runtime tabs must preserve standard traffic lights.");
   }

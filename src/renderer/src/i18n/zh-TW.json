@@ -269,6 +269,7 @@
   "macroForm.intervalSeconds": "{value} 秒",
   "macroForm.intervalCustom": "自訂",
   "macroForm.intervalCustomValue": "自訂間隔",
+  "macroForm.intervalLowWarning": "低於 250 毫秒的輪詢可能增加系統負擔或造成執行不穩定，建議使用 250 毫秒以上。",
   "macroForm.steps": "步驟",
   "macroForm.stepsDescription": "依執行順序新增按鍵、點擊位置、延遲與同步巨集呼叫。",
   "macroForm.addStep": "新增步驟",

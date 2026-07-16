@@ -108,16 +108,20 @@ describe("macroUtils", () => {
   });
 
   it("provides ordered interval presets and formats their units", () => {
-    expect(MACRO_INTERVAL_PRESETS).toEqual([50, 100, 250, 500, 1000, 2000, 5000, 10000]);
-    expect(MACRO_INTERVAL_OPTIONS).toEqual([50, 100, 250, 500, 1000, 2000, 5000, 10000, "custom"]);
-    expect(formatMacroIntervalPreset(50, t)).toBe("50 ms");
+    expect(MACRO_INTERVAL_PRESETS).toEqual([250, 500, 1000, 2000, 5000, 10000]);
+    expect(MACRO_INTERVAL_OPTIONS).toEqual([250, 500, 1000, 2000, 5000, 10000, "custom"]);
+    expect(formatMacroIntervalPreset(250, t)).toBe("250 ms");
     expect(formatMacroIntervalPreset(1000, t)).toBe("1 sec");
     expect(formatMacroIntervalPreset(10000, t)).toBe("10 sec");
   });
 
   it("distinguishes preset and valid custom intervals", () => {
     expect(isMacroIntervalPreset(500)).toBe(true);
+    expect(isMacroIntervalPreset(50)).toBe(false);
+    expect(isMacroIntervalPreset(100)).toBe(false);
     expect(isMacroIntervalPreset(333)).toBe(false);
+    expect(isValidMacroInterval(50)).toBe(true);
+    expect(isValidMacroInterval(100)).toBe(true);
     expect(isValidMacroInterval(1)).toBe(true);
     expect(isValidMacroInterval(600000)).toBe(true);
     expect(isValidMacroInterval(0)).toBe(false);

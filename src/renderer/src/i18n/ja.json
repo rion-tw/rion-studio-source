@@ -269,6 +269,7 @@
   "macroForm.intervalSeconds": "{value} 秒",
   "macroForm.intervalCustom": "カスタム",
   "macroForm.intervalCustomValue": "カスタム間隔",
+  "macroForm.intervalLowWarning": "250ミリ秒未満のポーリングは、システム負荷の増加や動作の不安定化を招く可能性があります。250ミリ秒以上の使用をおすすめします。",
   "macroForm.steps": "Steps",
   "macroForm.stepsDescription": "キー、クリック位置、遅延、同期マクロ呼び出しを実行順に追加します。",
   "macroForm.addStep": "Add step",

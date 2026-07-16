@@ -10,7 +10,7 @@ import { macroDependsOn } from "../../../../shared/macroDependencies";
 import type { MacroFormState } from "../../app/types";
 import type { TranslationKey, Translator } from "../../i18n";
 
-export const MACRO_INTERVAL_PRESETS = [50, 100, 250, 500, 1000, 2000, 5000, 10000] as const;
+export const MACRO_INTERVAL_PRESETS = [250, 500, 1000, 2000, 5000, 10000] as const;
 export const MACRO_INTERVAL_CUSTOM_VALUE = "custom";
 export const MACRO_INTERVAL_OPTIONS = [...MACRO_INTERVAL_PRESETS, MACRO_INTERVAL_CUSTOM_VALUE] as const;
 

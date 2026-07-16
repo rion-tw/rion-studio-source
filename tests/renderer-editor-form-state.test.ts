@@ -31,6 +31,7 @@ describe("editor form state", () => {
     const newForm = createNewWorkspaceForm([], t);
     expect(newForm).toMatchObject({
       template: "two_columns",
+      browserZoomMode: "adaptive",
       browserZoomPercent: 100,
       resourcePolicy: { mode: "adaptive" }
     });
@@ -110,6 +111,7 @@ function workspace(): LaunchWorkspace {
   return {
     id: "workspace-1",
     browserLaunchMode: "inherit",
+    browserZoomMode: "fixed",
     name: "Party",
     template: "two_columns",
     browserZoomPercent: 100,

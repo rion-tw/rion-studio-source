@@ -1,6 +1,7 @@
 import type {
   LaunchWorkspaceSlot,
   NormalizedRect,
+  WorkspaceBrowserZoomMode,
   WorkspaceBrowserZoomPercent,
   WorkspaceLayoutTemplate,
   WorkspaceResourcePolicy
@@ -9,6 +10,7 @@ import type {
 export const MAX_WORKSPACE_SLOTS = 8;
 export const MIN_WORKSPACE_SLOT_SIZE = 0.12;
 export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns";
+export const DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE: WorkspaceBrowserZoomMode = "adaptive";
 export const DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT: WorkspaceBrowserZoomPercent = 100;
 export const DEFAULT_WORKSPACE_RESOURCE_POLICY: WorkspaceResourcePolicy = {
   mode: "adaptive"
@@ -24,6 +26,24 @@ export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [
   100,
   110,
   125
+];
+
+export const ADAPTIVE_WORKSPACE_BROWSER_ZOOM_HYSTERESIS_DIP = 12;
+
+export const adaptiveWorkspaceBrowserZoomThresholds: ReadonlyArray<{
+  minWidth: number;
+  percent: WorkspaceBrowserZoomPercent;
+}> = [
+  { minWidth: 0, percent: 25 },
+  { minWidth: 232, percent: 33 },
+  { minWidth: 332, percent: 50 },
+  { minWidth: 468, percent: 67 },
+  { minWidth: 568, percent: 75 },
+  { minWidth: 620, percent: 80 },
+  { minWidth: 680, percent: 90 },
+  { minWidth: 760, percent: 100 },
+  { minWidth: 840, percent: 110 },
+  { minWidth: 940, percent: 125 }
 ];
 
 const WORKSPACE_RECT_PRECISION_SCALE = 10_000;
@@ -83,6 +103,60 @@ export function isWorkspaceBrowserZoomPercent(value: unknown): value is Workspac
     typeof value === "number" &&
     workspaceBrowserZoomPercents.includes(value as WorkspaceBrowserZoomPercent)
   );
+}
+
+export function isWorkspaceBrowserZoomMode(value: unknown): value is WorkspaceBrowserZoomMode {
+  return value === "adaptive" || value === "fixed";
+}
+
+export function getAdaptiveWorkspaceBrowserZoomPercent(
+  viewportWidth: number,
+  currentPercent?: WorkspaceBrowserZoomPercent
+): WorkspaceBrowserZoomPercent {
+  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) {
+    return currentPercent ?? DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT;
+  }
+
+  const targetIndex = findAdaptiveWorkspaceBrowserZoomIndex(viewportWidth);
+  if (currentPercent === undefined) {
+    return adaptiveWorkspaceBrowserZoomThresholds[targetIndex].percent;
+  }
+
+  const currentIndex = adaptiveWorkspaceBrowserZoomThresholds.findIndex(
+    ({ percent }) => percent === currentPercent
+  );
+  if (currentIndex === -1 || currentIndex === targetIndex) {
+    return adaptiveWorkspaceBrowserZoomThresholds[targetIndex].percent;
+  }
+
+  if (targetIndex > currentIndex) {
+    const nextThreshold = adaptiveWorkspaceBrowserZoomThresholds[currentIndex + 1]?.minWidth;
+    if (
+      nextThreshold !== undefined &&
+      viewportWidth < nextThreshold + ADAPTIVE_WORKSPACE_BROWSER_ZOOM_HYSTERESIS_DIP
+    ) {
+      return currentPercent;
+    }
+  } else {
+    const currentThreshold = adaptiveWorkspaceBrowserZoomThresholds[currentIndex]?.minWidth;
+    if (
+      currentThreshold !== undefined &&
+      viewportWidth >= currentThreshold - ADAPTIVE_WORKSPACE_BROWSER_ZOOM_HYSTERESIS_DIP
+    ) {
+      return currentPercent;
+    }
+  }
+
+  return adaptiveWorkspaceBrowserZoomThresholds[targetIndex].percent;
+}
+
+function findAdaptiveWorkspaceBrowserZoomIndex(viewportWidth: number): number {
+  for (let index = adaptiveWorkspaceBrowserZoomThresholds.length - 1; index >= 0; index -= 1) {
+    if (viewportWidth >= adaptiveWorkspaceBrowserZoomThresholds[index].minWidth) {
+      return index;
+    }
+  }
+  return 0;
 }
 
 export function getWorkspaceTemplateSlotCount(template: WorkspaceLayoutTemplate): number {

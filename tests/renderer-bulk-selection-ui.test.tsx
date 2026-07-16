@@ -156,7 +156,7 @@ describe("bulk selection UI", () => {
 
   it("adds a selectable state to workspace cards", async () => {
     const user = userEvent.setup();
-    const item = workspace("workspace-1", "Party");
+    const item = { ...workspace("workspace-1", "Party"), browserZoomMode: "adaptive" as const };
     render(
       <LaunchWorkspacesRoute
         busyWorkspaceIds={new Set()}
@@ -182,6 +182,7 @@ describe("bulk selection UI", () => {
     );
 
     const card = getSelectionItem("workspace-1");
+    expect(screen.getByText("Adaptive (recommended)")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Select Party" })).toBeNull();
     await user.click(card);
     expect(screen.getByText("1 selected")).toBeTruthy();
@@ -277,6 +278,7 @@ function workspace(id: string, name: string): LaunchWorkspace {
     name,
     template: "single",
     browserLaunchMode: "inherit",
+    browserZoomMode: "fixed",
     browserZoomPercent: 90,
     resourcePolicy: { mode: "unrestricted" },
     slots: [{ id: "slot-1", rect: { x: 0, y: 0, width: 1, height: 1 } }],

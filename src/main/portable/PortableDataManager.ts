@@ -56,9 +56,11 @@ import {
   type WorkspaceResourcePolicy
 } from "../../shared/types";
 import {
+  DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
   DEFAULT_WORKSPACE_RESOURCE_POLICY,
   getDefaultWorkspaceRects,
   getWorkspaceTemplateSlotCount,
+  isWorkspaceBrowserZoomMode,
   isWorkspaceBrowserZoomPercent,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
@@ -374,6 +376,7 @@ export class PortableDataManager {
         name: workspace.name,
         template: workspace.template,
         browserLaunchMode: workspace.browserLaunchMode,
+        browserZoomMode: workspace.browserZoomMode,
         browserZoomPercent: workspace.browserZoomPercent,
         resourcePolicy: { ...workspace.resourcePolicy },
         slots: workspace.slots.map((slot) => ({
@@ -1130,6 +1133,7 @@ function createImportedWorkspace(
     name,
     template: source.template,
     browserLaunchMode: source.browserLaunchMode ?? "inherit",
+    browserZoomMode: source.browserZoomMode ?? DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
     browserZoomPercent: source.browserZoomPercent,
     resourcePolicy: remapWorkspaceResourcePolicy(source.resourcePolicy, roleIdMap, slots),
     ...(existing?.targetDisplayId === undefined ? {} : { targetDisplayId: existing.targetDisplayId }),
@@ -1149,6 +1153,7 @@ function toPortableWorkspace(workspace: LaunchWorkspace): PortableLaunchWorkspac
     name: workspace.name,
     template: workspace.template,
     browserLaunchMode: workspace.browserLaunchMode,
+    browserZoomMode: workspace.browserZoomMode,
     browserZoomPercent: workspace.browserZoomPercent,
     resourcePolicy: { ...workspace.resourcePolicy },
     slots: workspace.slots.map((slot) => ({
@@ -1517,9 +1522,14 @@ function recoverPortableGames(
 function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspace {
   const workspace = toRecord(value);
   const template = workspace.template;
+  const browserZoomMode = workspace.browserZoomMode;
   const browserZoomPercent = workspace.browserZoomPercent;
 
-  if (!isWorkspaceLayoutTemplate(template) || !isWorkspaceBrowserZoomPercent(browserZoomPercent)) {
+  if (
+    !isWorkspaceLayoutTemplate(template) ||
+    (browserZoomMode !== undefined && !isWorkspaceBrowserZoomMode(browserZoomMode)) ||
+    !isWorkspaceBrowserZoomPercent(browserZoomPercent)
+  ) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 
@@ -1540,6 +1550,7 @@ function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspa
     name: normalizeName(workspace.name),
     template,
     browserLaunchMode: normalizeInheritableBrowserLaunchMode(workspace.browserLaunchMode),
+    browserZoomMode: browserZoomMode ?? DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
     browserZoomPercent,
     resourcePolicy: normalizePortableWorkspaceResourcePolicy(workspace.resourcePolicy, normalizedSlots),
     slots: normalizedSlots

@@ -30,10 +30,13 @@ import type {
   PixelBounds,
   Role,
   RoleStatus,
+  WorkspaceBrowserZoomMode,
+  WorkspaceBrowserZoomPercent,
   WorkspaceAppearanceSettings
 } from "../../shared/types";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
 import {
+  getAdaptiveWorkspaceBrowserZoomPercent,
   MIN_WORKSPACE_SLOT_SIZE,
   normalizeWorkspaceRectEdges
 } from "../../shared/workspaceLayout";
@@ -208,6 +211,7 @@ interface BrowserSession {
   target: BrowserAutomationTarget;
   view: WebContentsView;
   zoomFactor: number;
+  zoomMode: WorkspaceBrowserZoomMode;
 }
 
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
@@ -415,7 +419,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   launchWorkspace(
-    workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "name" | "resourcePolicy">,
+    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget,
     launchMode?: BrowserLaunchMode
@@ -427,7 +431,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async launchWorkspaceUnlocked(
-    workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "name" | "resourcePolicy">,
+    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget,
     requestedLaunchMode?: BrowserLaunchMode
@@ -464,14 +468,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         const normalizedRects = normalizeWorkspaceRectEdges(items.map((item) => item.rect));
         const zoomFactor = workspace.browserZoomPercent / 100;
         const sessions = items.map((item, index) =>
-          this.createSession(item.role, host, normalizedRects[index], zoomFactor)
+          this.createSession(item.role, host, normalizedRects[index], zoomFactor, workspace.browserZoomMode)
         );
         await this.createHostDividers(host);
         host.window.show();
         const primaryRoleId = workspace.resourcePolicy.primaryRoleId ?? sessions[0]?.role.id;
         const primarySession = sessions.find((session) => session.role.id === primaryRoleId) ?? sessions[0];
         if (primarySession) {
-          await this.finishLaunch(primarySession, zoomFactor);
+          await this.finishLaunch(primarySession, primarySession.zoomFactor);
         }
         const backgroundSessions = sessions.filter((session) => session !== primarySession);
         const launchConcurrency = workspace.resourcePolicy.mode === "adaptive" &&
@@ -481,7 +485,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         await runInBatches(
           backgroundSessions,
           launchConcurrency,
-          (session) => this.finishLaunch(session, zoomFactor)
+          (session) => this.finishLaunch(session, session.zoomFactor)
         );
         if (host.closing || host.window.isDestroyed()) {
           return [];
@@ -747,8 +751,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     role: Role,
     host: GameHostWindow,
     rect: NormalizedRect,
-    zoomFactor: number
+    zoomFactor: number,
+    zoomMode: WorkspaceBrowserZoomMode = "fixed"
   ): BrowserSession {
+    const initialZoomFactor = zoomMode === "adaptive"
+      ? getAdaptiveWorkspaceBrowserZoomPercent(
+          normalizedRectToPixelBounds(rect, host.window.getContentBounds()).width
+        ) / 100
+      : zoomFactor;
     const partition = createRoleSessionPartition(role.id);
     const view = this.options.createView({
       webPreferences: {
@@ -760,7 +770,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         sandbox: true,
         spellcheck: false,
         webgl: true,
-        zoomFactor
+        zoomFactor: initialZoomFactor
       }
     });
     const session: BrowserSession = {
@@ -771,7 +781,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       state: "launching",
       target: new ElectronAutomationTarget(view, view.webContents),
       view,
-      zoomFactor
+      zoomFactor: initialZoomFactor,
+      zoomMode
     };
 
     this.sessions.set(role.id, session);
@@ -887,7 +898,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async launchExternalWorkspace(
-    workspace: Pick<LaunchWorkspace, "browserZoomPercent" | "id" | "resourcePolicy">,
+    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "resourcePolicy">,
     items: ExternalChromeLaunchItem[],
     notice?: string,
     target?: BrowserWorkspaceLaunchTarget
@@ -899,6 +910,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const statuses = await this.options.externalChromeManager.launchWorkspace(workspace, items, {
       notice,
       workArea: target?.workArea,
+      zoomMode: workspace.browserZoomMode,
       zoomFactor: workspace.browserZoomPercent / 100
     });
     await this.resourceCoordinator.activateWorkspace(
@@ -1075,6 +1087,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const bounds = this.getSessionBounds(host, session);
     session.view.setBounds(bounds);
     session.popupViews.forEach((popupView) => popupView.setBounds(bounds));
+    this.applyAdaptiveZoom(session, bounds.width);
   }
 
   private getSessionBounds(host: GameHostWindow, session: BrowserSession): PixelBounds {
@@ -1203,8 +1216,26 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async applyZoom(session: BrowserSession, zoomFactor: number): Promise<void> {
+    this.setSessionZoomFactor(session, zoomFactor);
+  }
+
+  private applyAdaptiveZoom(session: BrowserSession, viewportWidth: number): void {
+    if (session.zoomMode !== "adaptive") {
+      return;
+    }
+    const currentPercent = Math.round(session.zoomFactor * 100) as WorkspaceBrowserZoomPercent;
+    const nextPercent = getAdaptiveWorkspaceBrowserZoomPercent(viewportWidth, currentPercent);
+    if (nextPercent === currentPercent) {
+      return;
+    }
+    this.setSessionZoomFactor(session, nextPercent / 100);
+  }
+
+  private setSessionZoomFactor(session: BrowserSession, zoomFactor: number): void {
     session.zoomFactor = zoomFactor;
-    session.view.webContents.setZoomFactor(zoomFactor);
+    if (!session.view.webContents.isDestroyed()) {
+      session.view.webContents.setZoomFactor(zoomFactor);
+    }
     session.popupViews.forEach((popupView) => {
       if (!popupView.webContents.isDestroyed()) {
         popupView.webContents.setZoomFactor(zoomFactor);

@@ -16,6 +16,7 @@ export type WorkspaceLayoutTemplate =
   | "six_grid"
   | "eight_grid";
 export type WorkspaceBrowserZoomPercent = 25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125;
+export type WorkspaceBrowserZoomMode = "adaptive" | "fixed";
 export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppThemeMode = "system" | "light" | "dark";
 export type AppRendererReadyState = "failed" | "ready";
@@ -261,6 +262,7 @@ export interface LaunchWorkspace {
   name: string;
   template: WorkspaceLayoutTemplate;
   browserLaunchMode: InheritableBrowserLaunchMode;
+  browserZoomMode: WorkspaceBrowserZoomMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   resourcePolicy: WorkspaceResourcePolicy;
   targetDisplayId?: number;
@@ -273,6 +275,7 @@ export interface CreateLaunchWorkspaceInput {
   name: string;
   template?: WorkspaceLayoutTemplate;
   browserLaunchMode?: InheritableBrowserLaunchMode;
+  browserZoomMode?: WorkspaceBrowserZoomMode;
   browserZoomPercent?: WorkspaceBrowserZoomPercent;
   resourcePolicy?: WorkspaceResourcePolicy;
   targetDisplayId?: number | null;
@@ -610,6 +613,8 @@ export interface PortableLaunchWorkspace {
   name: string;
   template: WorkspaceLayoutTemplate;
   browserLaunchMode?: InheritableBrowserLaunchMode;
+  /** Missing in exports created before adaptive browser zoom was introduced. */
+  browserZoomMode?: WorkspaceBrowserZoomMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
   resourcePolicy?: WorkspaceResourcePolicy;
   slots: LaunchWorkspaceSlot[];

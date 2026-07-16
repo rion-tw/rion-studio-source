@@ -73,6 +73,7 @@ describe("macro overlay pointer interactions", () => {
     const pagePointerDown = vi.fn();
     document.addEventListener("pointerdown", pagePointerDown);
     controller.togglePanel(true);
+    expect(getOverlayRoot(document).querySelector(".panel")?.getAttribute("data-open")).toBe("true");
     button.focus();
 
     const event = createPointerDown(window);
@@ -84,7 +85,7 @@ describe("macro overlay pointer interactions", () => {
     expect(pagePointerDown).toHaveBeenCalledOnce();
     expect(document.activeElement).toBe(button);
     expect(document.activeElement).not.toBe(canvas);
-    expect(getOverlayRoot(document).innerHTML).toContain(".panel{display:none");
+    expect(getOverlayRoot(document).querySelector(".panel")?.getAttribute("data-open")).toBe("false");
   });
 
   it("only asks the top frame to close when a game control is pressed inside an iframe", async () => {
@@ -123,6 +124,7 @@ describe("macro overlay pointer interactions", () => {
     const { button, canvas } = createGameSurface(document);
     const controller = installOverlay(window);
     controller.togglePanel(true);
+    expect(getOverlayRoot(document).querySelector(".panel")?.getAttribute("data-open")).toBe("true");
     button.focus();
 
     button.dispatchEvent(new window.KeyboardEvent("keydown", {
@@ -133,7 +135,7 @@ describe("macro overlay pointer interactions", () => {
     }));
 
     expect(document.activeElement).toBe(canvas);
-    expect(getOverlayRoot(document).innerHTML).toContain(".panel{display:none");
+    expect(getOverlayRoot(document).querySelector(".panel")?.getAttribute("data-open")).toBe("false");
   });
 
   it("continues to isolate overlay controls and consume assigned macro shortcuts", async () => {
@@ -270,7 +272,7 @@ describe("macro overlay pointer interactions", () => {
     await vi.waitFor(() => {
       expect(binding).toHaveBeenCalledWith({ macroId: assignedMacro.id, type: "start" });
     });
-    expect(root.innerHTML).toContain(".panel{display:none");
+    expect(root.querySelector(".panel")?.getAttribute("data-open")).toBe("false");
 
     controller.togglePanel(true);
     await controller.refresh({ renderAfter: true });

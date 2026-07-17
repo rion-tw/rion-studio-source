@@ -81,6 +81,7 @@ import { createWorkspaceDisplayInfos } from "./workspaces/workspaceDisplays";
 import { handleMainWindowClose } from "./window/mainWindowLifecycle";
 import { bindAppWindowStateBroadcast } from "./window/appWindowState";
 import { RuntimeWindowPreferencesStore } from "./window/RuntimeWindowPreferencesStore";
+import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecycle";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import {
@@ -828,20 +829,31 @@ function ensureApplicationStarted(): void {
   });
 }
 
-app.whenReady().then(() => {
-  createWindowsTray();
+const isPrimaryAppInstance = configureSingleInstanceLifecycle({
+  onSecondInstance: (listener) => {
+    app.on("second-instance", listener);
+  },
+  quitSecondaryInstance: () => app.quit(),
+  requestLock: () => app.requestSingleInstanceLock(),
+  showPrimaryInstance: showMainWindow
+});
 
-  ensureApplicationStarted();
-
-  app.on("activate", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      showMainWindow();
-      return;
-    }
+if (isPrimaryAppInstance) {
+  app.whenReady().then(() => {
+    createWindowsTray();
 
     ensureApplicationStarted();
+
+    app.on("activate", () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        showMainWindow();
+        return;
+      }
+
+      ensureApplicationStarted();
+    });
   });
-});
+}
 
 function getMainWindowDisplay(): Electron.Display {
   if (!mainWindow || mainWindow.isDestroyed()) {

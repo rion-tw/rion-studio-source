@@ -552,12 +552,30 @@ describe("ExternalChromeManager", () => {
       width: 2001,
       height: 1127
     }));
-    const harness = createHarness({ childPid: 5000, platform: "win32", windowBoundsAdapter });
     const roles = Array.from({ length: 4 }, (_value, index) => ({
       ...role,
       id: `physical-role-${index + 1}`,
       name: `Physical Role ${index + 1}`
     }));
+    const zoomResolversByRoleId = new Map<string, () => void>();
+    const applyBrowserZoom = vi.fn((browserUserDataDir: string) => new Promise<void>((resolve) => {
+      const roleId = /^\/profiles\/(.+)\/browser$/.exec(browserUserDataDir)![1];
+      zoomResolversByRoleId.set(roleId, resolve);
+      if (zoomResolversByRoleId.size === roles.length) {
+        queueMicrotask(() => {
+          // Reproduce an out-of-order Windows launch instead of assuming role index matches PID order.
+          [roles[0], roles[1], roles[3], roles[2]].forEach((workspaceRole) => {
+            zoomResolversByRoleId.get(workspaceRole.id)!();
+          });
+        });
+      }
+    }));
+    const harness = createHarness({
+      applyBrowserZoom,
+      childPid: 5000,
+      platform: "win32",
+      windowBoundsAdapter
+    });
     const rects = [
       { x: 0, y: 0, width: 0.5, height: 0.5 },
       { x: 0.5, y: 0, width: 0.5, height: 0.5 },
@@ -584,25 +602,23 @@ describe("ExternalChromeManager", () => {
       height: 901
     });
     expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalledTimes(4);
+    expect(getSpawnCallIndexForRole(harness.spawnChrome, roles[3].id))
+      .toBeLessThan(getSpawnCallIndexForRole(harness.spawnChrome, roles[2].id));
+    const expectedPhysicalBounds = [
+      { x: -1920, y: -80, width: 1002, height: 565 },
+      { x: -919, y: -80, width: 1000, height: 565 },
+      { x: -1920, y: 484, width: 1002, height: 563 },
+      { x: -919, y: 484, width: 1000, height: 563 }
+    ];
     expect(windowBoundsAdapter.alignVisibleBounds.mock.calls.map(([input]) => input)).toEqual(
-      expect.arrayContaining([
-      {
-        browserProcessId: 5000,
-        physicalBounds: { x: -1920, y: -80, width: 1002, height: 565 }
-      },
-      {
-        browserProcessId: 5001,
-        physicalBounds: { x: -919, y: -80, width: 1000, height: 565 }
-      },
-      {
-        browserProcessId: 5002,
-        physicalBounds: { x: -1920, y: 484, width: 1002, height: 563 }
-      },
-      {
-        browserProcessId: 5003,
-        physicalBounds: { x: -919, y: 484, width: 1000, height: 563 }
-      }
-      ])
+      expect.arrayContaining(roles.map((workspaceRole, index) => ({
+        browserProcessId: getSpawnedChildPidForRole(
+          harness.spawnChrome,
+          harness.children,
+          workspaceRole.id
+        ),
+        physicalBounds: expectedPhysicalBounds[index]
+      })))
     );
   });
 
@@ -831,9 +847,24 @@ async function waitForChild(children: Array<ReturnType<typeof createChild>>, ind
 
 function getSpawnArgsForRole(spawnChrome: AnyMock, roleId: string): string[] {
   const calls = spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
-  const call = calls.find(([, args]) =>
+  return calls[getSpawnCallIndexForRole(spawnChrome, roleId)][1];
+}
+
+function getSpawnCallIndexForRole(spawnChrome: AnyMock, roleId: string): number {
+  const calls = spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
+  const callIndex = calls.findIndex(([, args]) =>
     args.includes(`--user-data-dir=/profiles/${roleId}/browser`)
   );
-  if (!call) throw new Error(`Chrome spawn arguments not found for role ${roleId}.`);
-  return call[1];
+  if (callIndex < 0) throw new Error(`Chrome spawn arguments not found for role ${roleId}.`);
+  return callIndex;
+}
+
+function getSpawnedChildPidForRole(
+  spawnChrome: AnyMock,
+  children: Array<ReturnType<typeof createChild>>,
+  roleId: string
+): number {
+  const pid = children[getSpawnCallIndexForRole(spawnChrome, roleId)]?.pid;
+  if (!Number.isInteger(pid)) throw new Error(`Chrome process ID not found for role ${roleId}.`);
+  return pid as number;
 }

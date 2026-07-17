@@ -7,9 +7,18 @@
 // never leaves a separator-colored strip above the game content.
 static const CGFloat kRionTitlebarHeight = 40.0;
 static const CGFloat kRionTabHeight = 28.0;
-static const CGFloat kRionTabMinimumWidth = 112.0;
-static const CGFloat kRionTabMaximumWidth = 224.0;
+static const CGFloat kRionTabMinimumWidth = 144.0;
+static const CGFloat kRionTabMaximumWidth = 280.0;
 static const CGFloat kRionTabSpacing = 6.0;
+static const CGFloat kRionTabLeadingPadding = 10.0;
+static const CGFloat kRionTabIconSize = 16.0;
+static const CGFloat kRionTabIconTitleSpacing = 6.0;
+static const CGFloat kRionTabAccessorySpacing = 4.0;
+static const CGFloat kRionTabMoreButtonWidth = 20.0;
+static const CGFloat kRionTabTrailingPadding = 8.0;
+static const CGFloat kRionBadgeHeight = 16.0;
+static const CGFloat kRionBadgeMinimumWidth = 18.0;
+static const CGFloat kRionBadgeHorizontalPadding = 10.0;
 static const CGFloat kRionAddButtonSpacing = 8.0;
 static const CGFloat kRionRootLeadingInset = 4.0;
 static const CGFloat kRionRootTrailingDraggableWidth = 12.0;
@@ -27,6 +36,9 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 @end
 
 @interface RionRuntimeBackdropView : NSVisualEffectView
+@end
+
+@interface RionRuntimeVerticallyCenteredTextFieldCell : NSTextFieldCell
 @end
 
 @interface RionRuntimeSurfaceView : NSView
@@ -141,6 +153,30 @@ static void *RionRuntimeTrafficLightObservationContext =
 
 - (BOOL)mouseDownCanMoveWindow {
   return YES;
+}
+
+@end
+
+@implementation RionRuntimeVerticallyCenteredTextFieldCell
+
+- (NSRect)titleRectForBounds:(NSRect)bounds {
+  NSRect titleRect = [super titleRectForBounds:bounds];
+  NSFont *font = self.font;
+  if (!font || NSHeight(bounds) <= 0) return titleRect;
+
+  CGFloat metricHeight =
+      ceil(font.ascender - font.descender + font.leading);
+  CGFloat titleHeight = MIN(NSHeight(bounds), MAX(0, metricHeight));
+  titleRect.origin.y =
+      NSMinY(bounds) + (NSHeight(bounds) - titleHeight) / 2.0;
+  titleRect.size.height = titleHeight;
+  return titleRect;
+}
+
+- (void)drawInteriorWithFrame:(NSRect)cellFrame
+                       inView:(NSView *)controlView {
+  [super drawInteriorWithFrame:[self titleRectForBounds:cellFrame]
+                        inView:controlView];
 }
 
 @end
@@ -296,20 +332,39 @@ static void *RionRuntimeTrafficLightObservationContext =
   _iconView.layer.cornerRadius = 4.0;
   _iconView.layer.masksToBounds = YES;
 
-  _titleField = [NSTextField labelWithString:@""];
-  _titleField.alignment = NSTextAlignmentLeft;
-  _titleField.lineBreakMode = NSLineBreakByTruncatingTail;
-  _titleField.maximumNumberOfLines = 1;
-  _titleField.usesSingleLineMode = YES;
+  RionRuntimeVerticallyCenteredTextFieldCell *titleCell =
+      [[RionRuntimeVerticallyCenteredTextFieldCell alloc] initTextCell:@""];
+  titleCell.alignment = NSTextAlignmentLeft;
+  titleCell.bezeled = NO;
+  titleCell.bordered = NO;
+  titleCell.drawsBackground = NO;
+  titleCell.editable = NO;
+  titleCell.selectable = NO;
+  titleCell.usesSingleLineMode = YES;
+  titleCell.lineBreakMode = NSLineBreakByTruncatingTail;
+  _titleField = [[NSTextField alloc] initWithFrame:NSZeroRect];
+  _titleField.cell = titleCell;
+  _titleField.focusRingType = NSFocusRingTypeNone;
 
   _badgeView = [[NSView alloc] initWithFrame:NSZeroRect];
   _badgeView.wantsLayer = YES;
   _badgeView.layer.cornerRadius = 8.0;
   _badgeView.layer.masksToBounds = YES;
-  _badgeField = [NSTextField labelWithString:@""];
-  _badgeField.alignment = NSTextAlignmentCenter;
-  _badgeField.font = [NSFont monospacedDigitSystemFontOfSize:10.0
-                                                    weight:NSFontWeightMedium];
+  RionRuntimeVerticallyCenteredTextFieldCell *badgeCell =
+      [[RionRuntimeVerticallyCenteredTextFieldCell alloc] initTextCell:@""];
+  badgeCell.alignment = NSTextAlignmentCenter;
+  badgeCell.font = [NSFont monospacedDigitSystemFontOfSize:10.0
+                                                   weight:NSFontWeightMedium];
+  badgeCell.bezeled = NO;
+  badgeCell.bordered = NO;
+  badgeCell.drawsBackground = NO;
+  badgeCell.editable = NO;
+  badgeCell.selectable = NO;
+  badgeCell.usesSingleLineMode = YES;
+  badgeCell.lineBreakMode = NSLineBreakByClipping;
+  _badgeField = [[NSTextField alloc] initWithFrame:NSZeroRect];
+  _badgeField.cell = badgeCell;
+  _badgeField.focusRingType = NSFocusRingTypeNone;
   [_badgeView addSubview:_badgeField];
 
   NSImage *ellipsis = [NSImage imageWithSystemSymbolName:@"ellipsis"
@@ -339,8 +394,12 @@ static void *RionRuntimeTrafficLightObservationContext =
   CGFloat labelWidth = [_titleField.stringValue sizeWithAttributes:@{
     NSFontAttributeName : [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]
   }].width;
-  CGFloat fixedWidth = 10.0 + 16.0 + 6.0 + 4.0 + 20.0 + 8.0;
-  if (!_badgeView.hidden) fixedWidth += 4.0 + _badgeWidth;
+  CGFloat fixedWidth = kRionTabLeadingPadding + kRionTabIconSize +
+      kRionTabIconTitleSpacing + kRionTabAccessorySpacing +
+      kRionTabMoreButtonWidth + kRionTabTrailingPadding;
+  if (!_badgeView.hidden) {
+    fixedWidth += kRionTabAccessorySpacing + _badgeWidth;
+  }
   return MIN(kRionTabMaximumWidth,
              MAX(kRionTabMinimumWidth, ceil(labelWidth) + fixedWidth));
 }
@@ -371,7 +430,8 @@ static void *RionRuntimeTrafficLightObservationContext =
     CGFloat measured = [count sizeWithAttributes:@{
       NSFontAttributeName : _badgeField.font
     }].width;
-    _badgeWidth = MAX(18.0, ceil(measured) + 10.0);
+    _badgeWidth =
+        MAX(kRionBadgeMinimumWidth, ceil(measured) + kRionBadgeHorizontalPadding);
     _badgeView.hidden = NO;
   } else {
     _badgeField.stringValue = @"";
@@ -386,20 +446,27 @@ static void *RionRuntimeTrafficLightObservationContext =
 - (void)layout {
   [super layout];
   CGFloat width = self.bounds.size.width;
-  CGFloat x = 10.0;
-  _iconView.frame = NSMakeRect(x, 6.0, 16.0, 16.0);
-  x += 22.0;
+  CGFloat x = kRionTabLeadingPadding;
+  _iconView.frame =
+      NSMakeRect(x, (kRionTabHeight - kRionTabIconSize) / 2.0,
+                 kRionTabIconSize, kRionTabIconSize);
+  x += kRionTabIconSize + kRionTabIconTitleSpacing;
 
-  CGFloat moreX = MAX(x, width - 28.0);
-  _moreButton.frame = NSMakeRect(moreX, 0, 20.0, kRionTabHeight);
-  CGFloat titleEnd = moreX - 4.0;
+  CGFloat moreX = MAX(
+      x, width - kRionTabTrailingPadding - kRionTabMoreButtonWidth);
+  _moreButton.frame =
+      NSMakeRect(moreX, 0, kRionTabMoreButtonWidth, kRionTabHeight);
+  CGFloat titleEnd = moreX - kRionTabAccessorySpacing;
   if (!_badgeView.hidden) {
     CGFloat badgeX = MAX(x, titleEnd - _badgeWidth);
-    _badgeView.frame = NSMakeRect(badgeX, 6.0, _badgeWidth, 16.0);
+    _badgeView.frame =
+        NSMakeRect(badgeX, (kRionTabHeight - kRionBadgeHeight) / 2.0,
+                   _badgeWidth, kRionBadgeHeight);
     _badgeField.frame = _badgeView.bounds;
-    titleEnd = badgeX - 4.0;
+    titleEnd = badgeX - kRionTabAccessorySpacing;
   }
-  _titleField.frame = NSMakeRect(x, 5.0, MAX(1.0, titleEnd - x), 18.0);
+  _titleField.frame =
+      NSMakeRect(x, 0, MAX(1.0, titleEnd - x), kRionTabHeight);
 }
 
 - (void)updateTrackingAreas {

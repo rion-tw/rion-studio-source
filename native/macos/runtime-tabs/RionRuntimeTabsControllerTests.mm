@@ -76,7 +76,7 @@ static void AssertItemSubviewsDoNotOverlap(NSView *item) {
          "Icon and title frames must not overlap.");
   Assert(!NSIntersectsRect(title.frame, more.frame),
          "Title and more-button frames must not overlap.");
-  if (item.frame.size.width < 223.5) {
+  if (item.frame.size.width < 279.5) {
     NSTextField *titleField = (NSTextField *)title;
     CGFloat measuredTitleWidth =
         [titleField.stringValue sizeWithAttributes:@{
@@ -92,6 +92,55 @@ static void AssertItemSubviewsDoNotOverlap(NSView *item) {
     Assert(!NSIntersectsRect(badge.frame, more.frame),
            "Badge and more-button frames must not overlap.");
   }
+}
+
+static void AssertTitleTextVerticallyCentered(NSView *item) {
+  NSTextField *titleField = [item valueForKey:@"_titleField"];
+  NSTextFieldCell *titleCell = (NSTextFieldCell *)titleField.cell;
+  Assert([titleCell isKindOfClass:
+                        NSClassFromString(@"RionRuntimeVerticallyCenteredTextFieldCell")],
+         "Tab names must use the vertically centered native text-field cell.");
+  Assert(titleCell.alignment == NSTextAlignmentLeft,
+         "Vertically centering tab names must preserve their left alignment.");
+
+  NSRect titleRect = [titleCell titleRectForBounds:titleField.bounds];
+  NSFont *font = titleCell.font;
+  CGFloat metricHeight =
+      MIN(NSHeight(titleField.bounds),
+          ceil(font.ascender - font.descender + font.leading));
+  Assert(std::fabs(NSMidY(titleRect) - NSMidY(titleField.bounds)) < 0.01 &&
+             std::fabs(NSHeight(titleRect) - metricHeight) < 0.01,
+         "Tab-name title rects must be vertically centered from native font metrics.");
+}
+
+static void AssertBadgeTextVerticallyCentered(NSView *item,
+                                              NSInteger count) {
+  NSView *badge = [item valueForKey:@"_badgeView"];
+  NSTextField *badgeField = [item valueForKey:@"_badgeField"];
+  NSTextFieldCell *badgeCell = (NSTextFieldCell *)badgeField.cell;
+  NSString *expected = [NSString stringWithFormat:@"%ld", (long)count];
+  Assert(!badge.hidden && badge.frame.size.height == 16.0 &&
+             [badgeField.stringValue isEqualToString:expected],
+         "One-, two-, and three-digit badges must retain the 16pt badge height.");
+  Assert([badgeCell isKindOfClass:
+                        NSClassFromString(@"RionRuntimeVerticallyCenteredTextFieldCell")],
+         "Badges must use the vertically centered native text-field cell.");
+
+  NSRect titleRect = [badgeCell titleRectForBounds:badgeField.bounds];
+  NSFont *font = badgeCell.font;
+  CGFloat metricHeight =
+      MIN(NSHeight(badgeField.bounds),
+          ceil(font.ascender - font.descender + font.leading));
+  Assert(std::fabs(NSMidY(titleRect) - NSMidY(badgeField.bounds)) < 0.01 &&
+             std::fabs(NSHeight(titleRect) - metricHeight) < 0.01,
+         "Badge title rects must be vertically centered from native font metrics.");
+
+  NSView *title = [item valueForKey:@"_titleField"];
+  NSView *more = [item valueForKey:@"_moreButton"];
+  Assert(std::fabs(NSMaxX(badge.frame) - (NSMinX(more.frame) - 4.0)) < 0.01 &&
+             std::fabs(NSMaxX(title.frame) - (NSMinX(badge.frame) - 4.0)) <
+                 0.01,
+         "The badge and more button must keep fixed trailing slots while the title receives the remaining width.");
 }
 
 int main() {
@@ -209,11 +258,14 @@ int main() {
     for (NSView *surface in tabSurfaces) {
       Assert(surface.frame.size.height == 28.0,
              "Tab surfaces must use the 28pt visual height.");
-      Assert(surface.frame.size.width >= 112.0 &&
-                 surface.frame.size.width <= 224.0,
-             "Tab surfaces must respect the 112–224pt width range.");
+      Assert(surface.frame.size.width >= 144.0 &&
+                 surface.frame.size.width <= 280.0,
+             "Tab surfaces must respect the 144–280pt width range.");
     }
-    for (NSView *item in tabItems) AssertItemSubviewsDoNotOverlap(item);
+    for (NSView *item in tabItems) {
+      AssertItemSubviewsDoNotOverlap(item);
+      AssertTitleTextVerticallyCentered(item);
+    }
     Assert([[tabItems[0] accessibilityRole]
                isEqualToString:NSAccessibilityRadioButtonRole],
            "Tabs must expose the radio-button accessibility role.");
@@ -224,6 +276,16 @@ int main() {
            "The add button must follow the tab strip by 8pt.");
     Assert(NSMaxX(addSurface.frame) < root.bounds.size.width - 12.0,
            "A short tab strip must leave a clean draggable trailing region.");
+
+    for (NSNumber *count in @[ @1, @12, @123 ]) {
+      RionRuntimeTabModel *countedWorkspace =
+          MakeTab(@"tab-2", @"Team", NO, count.integerValue);
+      [controller updateState:MakeState(@[ role, countedWorkspace ])];
+      NSArray<NSView *> *countedItems = [controller valueForKey:@"_tabItems"];
+      AssertBadgeTextVerticallyCentered(countedItems[1], count.integerValue);
+      AssertItemSubviewsDoNotOverlap(countedItems[1]);
+    }
+    [controller updateState:state];
 
     CGFloat windowedLeadingInset = scrollView.frame.origin.x;
     CGFloat windowedTrafficReserve = [controller trafficLightReserveWidth];

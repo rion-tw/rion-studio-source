@@ -173,16 +173,22 @@ export function detectSystemLanguage(): Language {
   }
 
   const locales = navigator.languages.length > 0 ? navigator.languages : [navigator.language];
-  if (locales.some(isJapaneseLocale)) {
-    return "ja";
-  }
+  return resolvePreferredLanguage(locales);
+}
 
-  if (locales.some(isTraditionalChineseLocale)) {
-    return "zh-TW";
-  }
+export function resolvePreferredLanguage(locales: readonly string[]): Language {
+  for (const locale of locales) {
+    if (isTraditionalChineseLocale(locale)) {
+      return "zh-TW";
+    }
 
-  if (locales.some(isSimplifiedChineseLocale)) {
-    return "zh-CN";
+    if (isSimplifiedChineseLocale(locale)) {
+      return "zh-CN";
+    }
+
+    if (isJapaneseLocale(locale)) {
+      return "ja";
+    }
   }
 
   return "en";

@@ -7,6 +7,7 @@ import type {
   Role
 } from "../../../../shared/types";
 import { macroDependsOn } from "../../../../shared/macroDependencies";
+import { MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 import type { MacroFormState } from "../../app/types";
 import type { TranslationKey, Translator } from "../../i18n";
 
@@ -40,7 +41,7 @@ export function isMacroIntervalPreset(value: number): boolean {
 }
 
 export function isValidMacroInterval(value: number): boolean {
-  return Number.isInteger(value) && value >= 0 && value <= 600000;
+  return Number.isInteger(value) && value >= 0 && value <= MACRO_DELAY_MAX_MS;
 }
 
 export function formatMacroIntervalPreset(value: number, t: Translator): string {

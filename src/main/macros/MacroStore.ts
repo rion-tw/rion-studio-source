@@ -12,6 +12,7 @@ import type {
   UpdateMacroInput
 } from "../../shared/types";
 import { findMacroDependencyIssue, getMacroReferrers } from "../../shared/macroDependencies";
+import { MACRO_DELAY_MAX_MS } from "../../shared/macroSettings";
 import {
   areMacroTriggersEqual,
   macroRoleAssignmentsOverlap,
@@ -34,10 +35,11 @@ const LEGACY_ROLE_ID_FIELD = "profile" + "Id";
 
 const MACRO_NAME_MAX_LENGTH = 80;
 const MACRO_STEPS_MAX_LENGTH = 100;
-const MACRO_DELAY_MAX_MS = 600_000;
 const MACRO_CODE_MAX_LENGTH = 48;
 const MACRO_LABEL_MAX_LENGTH = 48;
 const MACRO_ID_MAX_LENGTH = 128;
+const MACRO_DELAY_INVALID_MESSAGE = `Macro delay must be between 0 and ${MACRO_DELAY_MAX_MS} ms.`;
+const MACRO_INTERVAL_INVALID_MESSAGE = `Macro interval must be between 0 and ${MACRO_DELAY_MAX_MS} ms.`;
 
 export class MacroStoreError extends Error {
   constructor(
@@ -473,7 +475,7 @@ export class MacroStore {
           return {
             id,
             type: "delay",
-            ms: this.normalizeMilliseconds(step.ms, "Macro delay must be between 0 and 600000 ms.")
+            ms: this.normalizeMilliseconds(step.ms, MACRO_DELAY_INVALID_MESSAGE)
           };
         case "macro":
           return {
@@ -550,7 +552,7 @@ export class MacroStore {
 
   private normalizeLoopInterval(value: number): number {
     if (!Number.isInteger(value) || value < 0 || value > MACRO_DELAY_MAX_MS) {
-      throw new MacroStoreError("MACRO_TIME_INVALID", "Macro interval must be between 0 and 600000 ms.");
+      throw new MacroStoreError("MACRO_TIME_INVALID", MACRO_INTERVAL_INVALID_MESSAGE);
     }
 
     return value;

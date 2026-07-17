@@ -18,6 +18,7 @@ import {
   LaunchWorkspaceStore
 } from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
+import { MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
 import type {
   PortableDataSelection,
   RionPortableDataV1,
@@ -234,7 +235,7 @@ describe("PortableDataManager", () => {
           startupDelayMs: 0,
           keyHoldMs: 20,
           postInputDelayMs: 10,
-          defaultLoopDelayMs: 0
+          defaultLoopDelayMs: MACRO_DELAY_MAX_MS
         }
       },
       selection
@@ -245,7 +246,7 @@ describe("PortableDataManager", () => {
       startupDelayMs: 0,
       keyHoldMs: 20,
       postInputDelayMs: 10,
-      defaultLoopDelayMs: 0
+      defaultLoopDelayMs: MACRO_DELAY_MAX_MS
     });
 
     await macroSettingsStore.updateSettings({
@@ -911,6 +912,31 @@ describe("PortableDataManager", () => {
     });
 
     await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+  });
+
+  it("accepts 24-hour macro waits in portable data and rejects values above the boundary", async () => {
+    const importPath = join(baseDir, "daily-macro.json");
+    const fixture = createPortableFixture();
+    fixture.macros[0] = {
+      ...fixture.macros[0],
+      repeat: { type: "loop", intervalMs: MACRO_DELAY_MAX_MS },
+      steps: [{ id: "daily-delay", type: "delay", ms: MACRO_DELAY_MAX_MS }]
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    await expect(manager.previewImport()).resolves.toMatchObject({ macroCount: 1 });
+
+    fixture.macros[0].steps = [{ id: "too-long", type: "delay", ms: MACRO_DELAY_MAX_MS + 1 }];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const invalidDelayManager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    await expect(invalidDelayManager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+
+    fixture.macros[0].steps = [{ id: "valid-delay", type: "delay", ms: MACRO_DELAY_MAX_MS }];
+    fixture.macros[0].repeat = { type: "loop", intervalMs: MACRO_DELAY_MAX_MS + 1 };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const invalidLoopManager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    await expect(invalidLoopManager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
   it("accepts eight-grid portable workspaces and rejects a ninth slot", async () => {

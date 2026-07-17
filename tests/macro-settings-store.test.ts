@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MacroSettingsStore } from "../src/main/macros/MacroSettingsStore";
 import {
   DEFAULT_MACRO_SETTINGS,
+  MACRO_DELAY_MAX_MS,
   MACRO_SETTINGS_CONSTRAINTS,
   isValidMacroSettingValue,
   normalizeMacroSettings
@@ -38,7 +39,7 @@ describe("MacroSettingsStore", () => {
         startupDelayMs: 0,
         keyHoldMs: 19,
         postInputDelayMs: 10,
-        defaultLoopDelayMs: 600_001
+        defaultLoopDelayMs: MACRO_DELAY_MAX_MS + 1
       }),
       "utf8"
     );
@@ -78,10 +79,17 @@ describe("MacroSettingsStore", () => {
   it("defines hard limits separately from recommended minimums", () => {
     expect(MACRO_SETTINGS_CONSTRAINTS.keyHoldMs).toEqual({ min: 20, max: 1000, recommendedMin: 30 });
     expect(MACRO_SETTINGS_CONSTRAINTS.postInputDelayMs).toEqual({ min: 10, max: 1000, recommendedMin: 30 });
+    expect(MACRO_SETTINGS_CONSTRAINTS.defaultLoopDelayMs).toEqual({
+      min: 0,
+      max: MACRO_DELAY_MAX_MS,
+      recommendedMin: 250
+    });
     expect(isValidMacroSettingValue("keyHoldMs", 19)).toBe(false);
     expect(isValidMacroSettingValue("keyHoldMs", 20)).toBe(true);
     expect(isValidMacroSettingValue("startupDelayMs", 0)).toBe(true);
     expect(isValidMacroSettingValue("defaultLoopDelayMs", 0)).toBe(true);
+    expect(isValidMacroSettingValue("defaultLoopDelayMs", MACRO_DELAY_MAX_MS)).toBe(true);
+    expect(isValidMacroSettingValue("defaultLoopDelayMs", MACRO_DELAY_MAX_MS + 1)).toBe(false);
     expect(normalizeMacroSettings({ keyHoldMs: 0 })).toEqual(DEFAULT_MACRO_SETTINGS);
   });
 });

@@ -9,6 +9,7 @@ import type { MacroFormState } from "../src/renderer/src/app/types";
 import MacroEditorRoute from "../src/renderer/src/features/macros/MacroModal";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
+import { MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
 import type { Game, Macro, Role } from "../src/shared/types";
 
 beforeAll(() => {
@@ -262,6 +263,56 @@ describe("macro editor controls", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ repeat: { type: "loop", intervalMs: 0 } })
     ));
+  });
+
+  it("accepts 24-hour loop and delay values in the editor", async () => {
+    const dailyMacro = macro({
+      repeat: { type: "loop", intervalMs: MACRO_DELAY_MAX_MS },
+      steps: [{ id: "daily-delay", type: "delay", ms: MACRO_DELAY_MAX_MS }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...dailyMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/macros/:id/edit",
+          element: (
+            <MacroEditorRoute
+              games={[game()]}
+              isSaving={false}
+              macros={[dailyMacro]}
+              roles={[role()]}
+              t={t}
+              onSave={onSave}
+            />
+          )
+        },
+        { path: "/macros", element: <div>Macro list</div> }
+      ],
+      { initialEntries: ["/macros/macro-1/edit"] }
+    );
+
+    render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    const interval = screen.getByRole("spinbutton", { name: "Custom interval" }) as HTMLInputElement;
+    const delay = screen.getByRole("spinbutton", { name: "Delay" }) as HTMLInputElement;
+    expect(interval.value).toBe(String(MACRO_DELAY_MAX_MS));
+    expect(interval.max).toBe(String(MACRO_DELAY_MAX_MS));
+    expect(delay.value).toBe(String(MACRO_DELAY_MAX_MS));
+    expect(delay.max).toBe(String(MACRO_DELAY_MAX_MS));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      repeat: { type: "loop", intervalMs: MACRO_DELAY_MAX_MS },
+      steps: [{ id: "daily-delay", type: "delay", ms: MACRO_DELAY_MAX_MS }]
+    })));
   });
 });
 

@@ -14,6 +14,7 @@ import {
   summarizeMacroSteps
 } from "../src/renderer/src/features/macros/macroUtils";
 import type { Translator } from "../src/renderer/src/i18n";
+import { MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
 
 const t: Translator = (key) =>
   (
@@ -127,9 +128,9 @@ describe("macroUtils", () => {
     expect(isValidMacroInterval(50)).toBe(true);
     expect(isValidMacroInterval(100)).toBe(true);
     expect(isValidMacroInterval(1)).toBe(true);
-    expect(isValidMacroInterval(600000)).toBe(true);
+    expect(isValidMacroInterval(MACRO_DELAY_MAX_MS)).toBe(true);
     expect(isValidMacroInterval(0)).toBe(true);
-    expect(isValidMacroInterval(600001)).toBe(false);
+    expect(isValidMacroInterval(MACRO_DELAY_MAX_MS + 1)).toBe(false);
     expect(isValidMacroInterval(1.5)).toBe(false);
   });
 

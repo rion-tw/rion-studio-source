@@ -199,6 +199,7 @@ interface GameHostWindow {
   displayHostId: string;
   hidden: boolean;
   htmlFullscreenWebContentsIds: Set<number>;
+  lastFocusedView?: WebContentsView;
   name: string;
   roleIds: Set<string>;
   sourceId: string;
@@ -1123,6 +1124,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const prefersReducedTransparency = this.options.prefersReducedTransparency?.() ?? false;
     const commonOptions: BaseWindowConstructorOptions = {
       ...target.workArea,
+      ...(platform === "darwin" ? { acceptFirstMouse: true } : {}),
       closable: true,
       frame: true,
       maximizable: true,
@@ -1253,6 +1255,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
     window.on("resize", () => this.layoutDisplayHost(displayHost));
     window.on("restore", () => this.layoutDisplayHost(displayHost));
+    window.on("focus", () => this.restoreActiveGameViewFocus(displayHost));
     window.on("show", () => {
       this.syncRuntimeToolbarCursorMonitor(displayHost);
       void this.reconcileRuntimeTabs();
@@ -1842,6 +1845,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.configureWindowOpenHandler(session, view.webContents);
     this.configureCloseShortcut(host, view.webContents);
     this.configureHtmlFullscreen(host, view.webContents);
+    this.trackGameViewFocus(host, view);
     view.webContents.once("destroyed", () => {
       if (this.sessions.get(role.id) === session) {
         this.sessions.delete(role.id);
@@ -2104,6 +2108,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.configureWindowOpenHandler(session, popupView.webContents);
     this.configureCloseShortcut(host, popupView.webContents);
     this.configureHtmlFullscreen(host, popupView.webContents);
+    this.trackGameViewFocus(host, popupView);
     popupView.webContents.once("destroyed", () => {
       session.popupViews.delete(popupView);
       if (!host.window.isDestroyed()) {
@@ -2321,6 +2326,49 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         console.warn("Failed to reapply browser zoom after navigation.", error);
       }
     });
+  }
+
+  private trackGameViewFocus(host: GameHostWindow, view: WebContentsView): void {
+    if (!host.lastFocusedView) {
+      host.lastFocusedView = view;
+    }
+    view.webContents.on("focus", () => {
+      if (!host.closing && !view.webContents.isDestroyed()) {
+        host.lastFocusedView = view;
+      }
+    });
+    view.webContents.once("destroyed", () => {
+      if (host.lastFocusedView === view) {
+        host.lastFocusedView = undefined;
+      }
+    });
+  }
+
+  private restoreActiveGameViewFocus(displayHost: EmbeddedDisplayHost): void {
+    if (displayHost.closing || displayHost.window.isDestroyed()) {
+      return;
+    }
+    const activeHost = displayHost.activeTabId
+      ? this.hosts.get(displayHost.activeTabId)
+      : undefined;
+    if (!activeHost || activeHost.hidden || activeHost.closing) {
+      return;
+    }
+
+    const rememberedView = activeHost.lastFocusedView;
+    const fallbackViews = [...activeHost.roleIds].flatMap((roleId) => {
+      const session = this.sessions.get(roleId);
+      return session ? [...session.popupViews].reverse().concat(session.view) : [];
+    });
+    const targetView = [rememberedView, ...fallbackViews].find(
+      (view): view is WebContentsView => Boolean(view && !view.webContents.isDestroyed())
+    );
+    if (!targetView) {
+      return;
+    }
+
+    activeHost.lastFocusedView = targetView;
+    targetView.webContents.focus();
   }
 
   private async focusSession(session: BrowserSession): Promise<void> {

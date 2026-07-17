@@ -208,6 +208,15 @@ describe("BrowserManager game host windows", () => {
       expect(harness.createHostWindow).toHaveBeenCalledWith(
         expect.not.objectContaining({ webPreferences: expect.anything() })
       );
+      if (platform === "darwin") {
+        expect(harness.createHostWindow).toHaveBeenCalledWith(
+          expect.objectContaining({ acceptFirstMouse: true })
+        );
+      } else {
+        expect(harness.createHostWindow).toHaveBeenCalledWith(
+          expect.not.objectContaining({ acceptFirstMouse: expect.anything() })
+        );
+      }
       expect(harness.createView).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({
@@ -229,6 +238,73 @@ describe("BrowserManager game host windows", () => {
       expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
     }
   );
+
+  it.each(["darwin", "win32"] as const)(
+    "restores the last focused game view when the host regains focus on %s",
+    async (platform) => {
+      const harness = createHarness({ platform });
+      const secondRole = createRole("role-2", "Alt");
+
+      await harness.manager.launchWorkspace(workspace, [
+        { role, rect: workspace.slots[0].rect },
+        { role: secondRole, rect: workspace.slots[1].rect }
+      ]);
+      const firstView = harness.views[0];
+      const secondView = harness.views[1];
+      firstView.webContents.focus.mockClear();
+      secondView.webContents.focus.mockClear();
+      firstView.webContents.executeJavaScript.mockClear();
+      secondView.webContents.executeJavaScript.mockClear();
+
+      secondView.webContents.emit("focus");
+      harness.hosts[0].emit("focus");
+
+      expect(secondView.webContents.focus).toHaveBeenCalledOnce();
+      expect(firstView.webContents.focus).not.toHaveBeenCalled();
+      expect(firstView.webContents.executeJavaScript).not.toHaveBeenCalled();
+      expect(secondView.webContents.executeJavaScript).not.toHaveBeenCalled();
+    }
+  );
+
+  it("restores a focused popup and falls back to its game view after the popup closes", async () => {
+    const harness = createHarness({ platform: "darwin" });
+
+    await harness.manager.launch(role);
+    const gameView = harness.views[0];
+    const popupView = createOAuthPopup(gameView, harness.views);
+    gameView.webContents.focus.mockClear();
+    popupView.webContents.focus.mockClear();
+
+    popupView.webContents.emit("focus");
+    harness.hosts[0].emit("focus");
+
+    expect(popupView.webContents.focus).toHaveBeenCalledOnce();
+    expect(gameView.webContents.focus).not.toHaveBeenCalled();
+
+    popupView.webContents.close();
+    harness.hosts[0].emit("focus");
+
+    expect(popupView.webContents.focus).toHaveBeenCalledOnce();
+    expect(gameView.webContents.focus).toHaveBeenCalledOnce();
+  });
+
+  it("restores focus only to the active runtime tab", async () => {
+    const harness = createHarness({ platform: "win32" });
+    const secondRole = createRole("role-2", "Alt");
+
+    await harness.manager.launch(role);
+    const firstView = harness.views[0];
+    firstView.webContents.emit("focus");
+    await harness.manager.launch(secondRole);
+    const secondView = harness.views[1];
+    firstView.webContents.focus.mockClear();
+    secondView.webContents.focus.mockClear();
+
+    harness.hosts[0].emit("focus");
+
+    expect(secondView.webContents.focus).toHaveBeenCalledOnce();
+    expect(firstView.webContents.focus).not.toHaveBeenCalled();
+  });
 
   it("uses a frameless macOS BaseWindow with a secure overlay chrome view", async () => {
     const harness = createHarness({

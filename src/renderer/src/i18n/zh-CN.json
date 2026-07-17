@@ -273,7 +273,7 @@
   "macroForm.clearShortcut": "清除",
   "macroForm.activation": "启动方式",
   "macroForm.activationDescription": "选择快捷键按一下切换宏，或只在实体按住期间运行。",
-  "macroForm.activation.toggle": "按一下／切换",
+  "macroForm.activation.toggle": "按一下",
   "macroForm.activation.whileHeld": "按住期间",
   "macroForm.repeat": "轮询",
   "macroForm.repeatDescription": "执行一次，或在完整步骤与额外等待结束后重复执行。",

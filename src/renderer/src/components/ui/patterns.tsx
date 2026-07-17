@@ -243,7 +243,7 @@ function CountPill({ children, className }: CountPillProps) {
   return (
     <span
       className={cn(
-        "count-pill inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/30 bg-background/35 px-1 text-[10px] font-semibold leading-none text-muted-foreground backdrop-blur-xl",
+        "count-pill inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border/30 bg-background/35 px-1 text-[10px] leading-none text-muted-foreground backdrop-blur-xl",
         className
       )}
     >

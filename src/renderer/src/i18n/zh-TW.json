@@ -273,7 +273,7 @@
   "macroForm.clearShortcut": "清除",
   "macroForm.activation": "啟動方式",
   "macroForm.activationDescription": "選擇快捷鍵按一下切換巨集，或只在實體按住期間執行。",
-  "macroForm.activation.toggle": "按一下／切換",
+  "macroForm.activation.toggle": "按一下",
   "macroForm.activation.whileHeld": "按住期間",
   "macroForm.repeat": "輪詢",
   "macroForm.repeatDescription": "執行一次，或在完整步驟與額外等待結束後重複執行。",

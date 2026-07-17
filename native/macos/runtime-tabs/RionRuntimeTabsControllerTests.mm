@@ -11,11 +11,13 @@
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
                     sourceDisplayID:(NSInteger)sourceDisplayID
                    beforeIdentifier:(nullable NSString *)beforeIdentifier;
+- (void)applyFullScreenPolicy;
 - (void)applyLiquidGlassTitlebarAppearance;
 - (void)attachAccessoryController;
 - (void)detachAccessoryController;
 - (void)hideInsertionIndicator;
 - (void)layoutTitlebarContent;
+- (CGFloat)trafficLightReserveWidth;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
 
 @end
@@ -97,6 +99,7 @@ int main() {
                       defer:NO];
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Expected a standard close button before attaching runtime tabs.");
+    NSWindowToolbarStyle previousToolbarStyle = window.toolbarStyle;
 
     __block NSDictionary<NSString *, id> *lastAction = nil;
     RionRuntimeTabsController *controller = [[RionRuntimeTabsController alloc]
@@ -112,12 +115,16 @@ int main() {
     Assert(window.titlebarAccessoryViewControllers.count == 1,
            "Expected one titlebar accessory controller.");
     Assert(window.toolbar != nil && window.toolbar.visible,
-           "Normal windows must use a visible unified toolbar for titlebar height and material.");
+           "Normal windows must use a visible compact toolbar for titlebar height and material.");
     Assert(window.toolbar.items.count == 1 &&
-               window.toolbar.items.firstObject.view.frame.size.height == 44.0 &&
+               window.toolbar.items.firstObject.view.frame.size.height == 28.0 &&
                window.toolbar.items.firstObject.visibilityPriority ==
                    NSToolbarItemVisibilityPriorityHigh,
-           "The unified toolbar must retain its high-priority 44pt layout spacer.");
+           "The compact toolbar must retain its high-priority 28pt layout spacer.");
+    if (@available(macOS 11.0, *)) {
+      Assert(window.toolbarStyle == NSWindowToolbarStyleUnifiedCompact,
+             "Runtime tabs must use the standard compact macOS toolbar host.");
+    }
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Attaching runtime tabs must preserve standard traffic lights.");
 
@@ -134,8 +141,8 @@ int main() {
     NSScrollView *scrollView = [controller valueForKey:@"_tabScrollView"];
     Assert(tabItems.count == 2 && tabSurfaces.count == 2,
            "Expected one item and surface for every tab.");
-    Assert(root.intrinsicContentSize.height == 44.0,
-           "The accessory root must preserve a 44pt titlebar height.");
+    Assert(root.intrinsicContentSize.height == 40.0,
+           "The accessory root must match the compact 40pt titlebar host.");
     NSVisualEffectView *backdrop = [controller valueForKey:@"_titlebarBackdrop"];
     Assert([backdrop isKindOfClass:NSVisualEffectView.class] &&
                backdrop.material == NSVisualEffectMaterialHeaderView &&
@@ -146,8 +153,8 @@ int main() {
     NSTitlebarAccessoryViewController *accessory =
         [controller valueForKey:@"_accessoryController"];
     Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
-               accessory.fullScreenMinHeight == 44.0,
-           "Windowed and fullscreen tabs must share the same 44pt titlebar layout.");
+               accessory.fullScreenMinHeight == 40.0,
+           "Windowed and fullscreen tabs must share the same 40pt titlebar layout.");
 
     // AppKit may mutate titlebar properties while re-hosting the accessory for
     // fullscreen. The shared appearance pass must restore the exact windowed
@@ -168,15 +175,15 @@ int main() {
                window.titlebarAppearsTransparent,
            "The fullscreen re-host pass must restore the windowed titlebar style.");
     if (@available(macOS 11.0, *)) {
-      Assert(window.toolbarStyle == NSWindowToolbarStyleUnified,
-             "The fullscreen re-host pass must restore the unified toolbar style.");
+      Assert(window.toolbarStyle == NSWindowToolbarStyleUnifiedCompact,
+             "The fullscreen re-host pass must restore the compact toolbar style.");
     }
     Assert(backdrop.material == NSVisualEffectMaterialHeaderView &&
                backdrop.blendingMode == NSVisualEffectBlendingModeBehindWindow &&
                backdrop.state == NSVisualEffectStateFollowsWindowActiveState,
            "The fullscreen re-host pass must restore the same blurred header material.");
     Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
-               accessory.fullScreenMinHeight == 44.0,
+               accessory.fullScreenMinHeight == 40.0,
            "The fullscreen re-host pass must restore the same accessory geometry.");
     Assert([controller valueForKey:@"_tabSurfaces"] == originalTabSurfaces,
            "Re-hosting must preserve the existing Liquid Glass tab surfaces.");
@@ -204,6 +211,19 @@ int main() {
            "The add button must follow the tab strip by 8pt.");
     Assert(NSMaxX(addSurface.frame) < root.bounds.size.width - 12.0,
            "A short tab strip must leave a clean draggable trailing region.");
+
+    CGFloat windowedLeadingInset = scrollView.frame.origin.x;
+    CGFloat windowedTrafficReserve = [controller trafficLightReserveWidth];
+    [controller setValue:@YES forKey:@"fullscreenTransitionActive"];
+    [controller applyFullScreenPolicy];
+    Assert(window.toolbar.visible,
+           "Fullscreen auto-hide must keep the complete toolbar installed.");
+    Assert(std::fabs([controller trafficLightReserveWidth] -
+                         windowedTrafficReserve) < 0.5 &&
+               std::fabs(scrollView.frame.origin.x - windowedLeadingInset) < 0.5,
+           "Fullscreen tabs must retain the windowed traffic-light reserve.");
+    [controller setValue:@NO forKey:@"fullscreenTransitionActive"];
+    [controller applyFullScreenPolicy];
 
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
     if (@available(macOS 26.0, *)) {
@@ -293,6 +313,10 @@ int main() {
            "Destroying the controller must detach its accessory.");
     Assert(window.toolbar == nil,
            "Destroying runtime tabs must restore the previous toolbar.");
+    if (@available(macOS 11.0, *)) {
+      Assert(window.toolbarStyle == previousToolbarStyle,
+             "Destroying runtime tabs must restore the previous toolbar style.");
+    }
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Destroying runtime tabs must preserve standard traffic lights.");
   }

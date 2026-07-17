@@ -2,7 +2,10 @@
 
 #include <cmath>
 
-static const CGFloat kRionTitlebarHeight = 44.0;
+// Unified compact is AppKit's 40pt titlebar host on macOS 12 and newer. Keep
+// the accessory at the exact host height so the blur covers the whole row and
+// never leaves a separator-colored strip above the game content.
+static const CGFloat kRionTitlebarHeight = 40.0;
 static const CGFloat kRionTabHeight = 28.0;
 static const CGFloat kRionTabMinimumWidth = 112.0;
 static const CGFloat kRionTabMaximumWidth = 224.0;
@@ -16,6 +19,88 @@ static NSToolbarItemIdentifier const RionRuntimeToolbarSpacerIdentifier =
     @"com.rionstudio.runtime-tabs.layout-spacer";
 static NSPasteboardType const RionRuntimeTabPasteboardType =
     @"com.rionstudio.runtime-tab";
+
+// NSApplicationPresentationAutoHideToolbar is process-wide. Runtime windows
+// can exist on more than one display, so merge their requests and restore the
+// presentation bit that Electron owned before the first request.
+static NSMutableDictionary<NSValue *, NSNumber *> *RionFullscreenToolbarRequests() {
+  static NSMutableDictionary<NSValue *, NSNumber *> *requests;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    requests = [NSMutableDictionary dictionary];
+  });
+  return requests;
+}
+
+static BOOL RionFullscreenToolbarBaselineCaptured = NO;
+static BOOL RionFullscreenToolbarBaselineAutoHide = NO;
+
+static void RionApplyFullscreenToolbarPresentationPolicy() {
+  NSApplication *application = NSApplication.sharedApplication;
+  NSApplicationPresentationOptions current = application.presentationOptions;
+  BOOL appIsFullScreen =
+      (current & NSApplicationPresentationFullScreen) != 0;
+  NSMutableDictionary<NSValue *, NSNumber *> *requests =
+      RionFullscreenToolbarRequests();
+
+  if (appIsFullScreen && !RionFullscreenToolbarBaselineCaptured &&
+      requests.count > 0) {
+    RionFullscreenToolbarBaselineCaptured = YES;
+    RionFullscreenToolbarBaselineAutoHide =
+        (current & NSApplicationPresentationAutoHideToolbar) != 0;
+  }
+
+  if (!appIsFullScreen) {
+    if (requests.count == 0) {
+      RionFullscreenToolbarBaselineCaptured = NO;
+      RionFullscreenToolbarBaselineAutoHide = NO;
+    }
+    return;
+  }
+
+  BOOL shouldAutoHide = RionFullscreenToolbarBaselineAutoHide;
+  if (requests.count > 0) {
+    shouldAutoHide = YES;
+    for (NSNumber *request in requests.objectEnumerator) {
+      if (!request.boolValue) {
+        shouldAutoHide = NO;
+        break;
+      }
+    }
+  }
+
+  NSApplicationPresentationOptions updated = current;
+  if (shouldAutoHide) {
+    updated |= NSApplicationPresentationAutoHideToolbar;
+  } else {
+    updated &= ~NSApplicationPresentationAutoHideToolbar;
+  }
+  if (updated == current) return;
+
+  @try {
+    application.presentationOptions = updated;
+  } @catch (NSException *exception) {
+    NSLog(@"Rion Studio could not update the fullscreen toolbar policy: %@",
+          exception.reason);
+  }
+}
+
+static void RionSetFullscreenToolbarRequest(const void *owner, BOOL active,
+                                            BOOL autoHide) {
+  NSValue *key = [NSValue valueWithPointer:owner];
+  NSMutableDictionary<NSValue *, NSNumber *> *requests =
+      RionFullscreenToolbarRequests();
+  if (active) {
+    requests[key] = @(autoHide);
+  } else {
+    [requests removeObjectForKey:key];
+  }
+  RionApplyFullscreenToolbarPresentationPolicy();
+  if (requests.count == 0) {
+    RionFullscreenToolbarBaselineCaptured = NO;
+    RionFullscreenToolbarBaselineAutoHide = NO;
+  }
+}
 
 @class RionRuntimeTabsController;
 @class RionRuntimeSurfaceView;
@@ -85,6 +170,7 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 - (nullable NSString *)tabIdentifierBeforePoint:(NSPoint)point inView:(NSView *)view;
 - (void)hideInsertionIndicator;
 - (void)scheduleLiquidGlassTitlebarRehost;
+- (void)updateFullscreenToolbarPresentationPolicy;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
 
 @end
@@ -585,10 +671,13 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
   RionRuntimeBackdropView *_titlebarBackdrop;
   NSWindowTitleVisibility _previousTitleVisibility;
   BOOL _previousTitlebarAppearsTransparent;
+  NSWindowToolbarStyle _previousToolbarStyle;
   NSToolbar *_previousToolbar;
   __weak NSWindow *_window;
   NSMutableArray<id> *_windowObservers;
   BOOL _destroyed;
+  BOOL _fullscreenTransitionActive;
+  CGFloat _stableTrafficLightReserveWidth;
 }
 
 - (nullable instancetype)initWithWindow:(NSWindow *)window
@@ -604,11 +693,17 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
   _windowObservers = [NSMutableArray array];
   _previousTitleVisibility = window.titleVisibility;
   _previousTitlebarAppearsTransparent = window.titlebarAppearsTransparent;
+  _previousToolbarStyle = window.toolbarStyle;
   _previousToolbar = window.toolbar;
+  _fullscreenTransitionActive =
+      (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  _stableTrafficLightReserveWidth = kRionTrafficLightFallbackWidth;
 
   window.titleVisibility = NSWindowTitleHidden;
   window.titlebarAppearsTransparent = YES;
-  if (@available(macOS 11.0, *)) window.toolbarStyle = NSWindowToolbarStyleUnified;
+  if (@available(macOS 11.0, *)) {
+    window.toolbarStyle = NSWindowToolbarStyleUnifiedCompact;
+  }
 
   _toolbar = [[NSToolbar alloc]
       initWithIdentifier:[NSString stringWithFormat:@"rion-runtime-tabs-%p", self]];
@@ -719,11 +814,11 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
   NSToolbarItem *item =
       [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
   RionRuntimeDraggableView *spacer = [[RionRuntimeDraggableView alloc]
-      initWithFrame:NSMakeRect(0, 0, 1.0, kRionTitlebarHeight)];
+      initWithFrame:NSMakeRect(0, 0, 1.0, kRionTabHeight)];
   spacer.translatesAutoresizingMaskIntoConstraints = NO;
   [NSLayoutConstraint activateConstraints:@[
     [spacer.widthAnchor constraintEqualToConstant:1.0],
-    [spacer.heightAnchor constraintEqualToConstant:kRionTitlebarHeight]
+    [spacer.heightAnchor constraintEqualToConstant:kRionTabHeight]
   ]];
   item.view = spacer;
   item.visibilityPriority = NSToolbarItemVisibilityPriorityHigh;
@@ -756,20 +851,25 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
         [strongSelf updateWindowActiveState];
       } else if ([notification.name
                      isEqualToString:NSWindowWillEnterFullScreenNotification]) {
+        strongSelf->_fullscreenTransitionActive = YES;
         [strongSelf detachAccessoryController];
         strongSelf->_toolbar.visible = NO;
         strongSelf->_window.toolbar = strongSelf->_previousToolbar;
       } else if ([notification.name
                      isEqualToString:NSWindowDidEnterFullScreenNotification]) {
+        strongSelf->_fullscreenTransitionActive = YES;
         strongSelf->_window.toolbar = strongSelf->_toolbar;
         [strongSelf applyFullScreenPolicy];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
       } else if ([notification.name
                      isEqualToString:NSWindowWillExitFullScreenNotification]) {
+        strongSelf->_fullscreenTransitionActive = NO;
+        [strongSelf updateFullscreenToolbarPresentationPolicy];
         strongSelf->_toolbar.visible = NO;
         [strongSelf detachAccessoryController];
       } else if ([notification.name
                      isEqualToString:NSWindowDidExitFullScreenNotification]) {
+        strongSelf->_fullscreenTransitionActive = NO;
         strongSelf->_window.toolbar = strongSelf->_toolbar;
         [strongSelf applyFullScreenPolicy];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
@@ -800,7 +900,7 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
   _window.titleVisibility = NSWindowTitleHidden;
   _window.titlebarAppearsTransparent = YES;
   if (@available(macOS 11.0, *)) {
-    _window.toolbarStyle = NSWindowToolbarStyleUnified;
+    _window.toolbarStyle = NSWindowToolbarStyleUnifiedCompact;
   }
 
   _toolbar.allowsUserCustomization = NO;
@@ -851,7 +951,10 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 }
 
 - (CGFloat)trafficLightReserveWidth {
-  if ((_window.styleMask & NSWindowStyleMaskFullScreen) != 0) return 0;
+  BOOL fullScreen = _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  if (fullScreen) return _stableTrafficLightReserveWidth;
+
   CGFloat maximumX = 0;
   for (NSNumber *buttonType in @[
          @(NSWindowCloseButton),
@@ -864,7 +967,10 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
     NSRect windowRect = [button.superview convertRect:button.frame toView:nil];
     maximumX = MAX(maximumX, NSMaxX(windowRect));
   }
-  return maximumX > 0 ? ceil(maximumX + 8.0) : kRionTrafficLightFallbackWidth;
+  if (maximumX > 0) {
+    _stableTrafficLightReserveWidth = ceil(maximumX + 8.0);
+  }
+  return _stableTrafficLightReserveWidth;
 }
 
 - (CGFloat)tabsContentWidth {
@@ -880,7 +986,9 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
   if (_destroyed || !_window) return;
   NSView *root = _accessoryController.view;
   CGFloat rootWidth = MAX(1.0, _window.frame.size.width);
-  root.frame = NSMakeRect(0, 0, rootWidth, kRionTitlebarHeight);
+  CGFloat rootHeight = root.bounds.size.height;
+  if (rootHeight < kRionTabHeight) rootHeight = kRionTitlebarHeight;
+  root.frame = NSMakeRect(0, 0, rootWidth, rootHeight);
   _titlebarBackdrop.frame = root.bounds;
   _clusterContainer.frame = root.bounds;
   _clusterContent.frame = root.bounds;
@@ -892,7 +1000,7 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
       rootWidth - leadingInset - kRionRootTrailingDraggableWidth -
           kRionTabHeight - kRionAddButtonSpacing);
   CGFloat viewportWidth = MIN(tabsWidth, maximumViewportWidth);
-  CGFloat verticalInset = (kRionTitlebarHeight - kRionTabHeight) / 2.0;
+  CGFloat verticalInset = MAX(0, (rootHeight - kRionTabHeight) / 2.0);
   _tabScrollView.frame = NSMakeRect(leadingInset, verticalInset,
                                     viewportWidth, kRionTabHeight);
   _tabCanvas.frame = NSMakeRect(0, 0, MAX(tabsWidth, viewportWidth), kRionTabHeight);
@@ -1090,7 +1198,10 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
       convertPoint:NSMakePoint(canvasX, 0)
           fromView:_tabCanvas];
   _insertionIndicator.frame =
-      NSMakeRect(round(rootPoint.x - 1.0), 11.0, 2.0, 22.0);
+      NSMakeRect(round(rootPoint.x - 1.0),
+                 MAX(0, (_accessoryController.view.bounds.size.height - 22.0) /
+                            2.0),
+                 2.0, 22.0);
   _insertionIndicator.hidden = NO;
 }
 
@@ -1131,16 +1242,24 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 
 - (void)applyFullScreenPolicy {
   if (_destroyed || !_window) return;
-  BOOL fullScreen = (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
   if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
   [self attachAccessoryController];
   [self applyLiquidGlassTitlebarAppearance];
   [self layoutTitlebarContent];
-  if (fullScreen) {
-    _toolbar.visible = self.alwaysShowInFullScreen || self.revealLocked;
-  } else {
-    _toolbar.visible = YES;
-  }
+  // The toolbar must remain present in both modes. AppKit's presentation
+  // option detaches and rolls the complete compact toolbar in/out together
+  // with the menu bar; hiding NSToolbar here would reveal only the 32pt base
+  // titlebar and squeeze the tabs into the traffic lights.
+  _toolbar.visible = YES;
+  [self updateFullscreenToolbarPresentationPolicy];
+}
+
+- (void)updateFullscreenToolbarPresentationPolicy {
+  BOOL fullScreen = _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  BOOL autoHide = !self.alwaysShowInFullScreen && !self.revealLocked;
+  RionSetFullscreenToolbarRequest((__bridge const void *)self, fullScreen,
+                                  autoHide);
 }
 
 - (void)destroy {
@@ -1149,11 +1268,15 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   for (id observer in _windowObservers) [center removeObserver:observer];
   [_windowObservers removeAllObjects];
+  RionSetFullscreenToolbarRequest((__bridge const void *)self, NO, NO);
   [self detachAccessoryController];
   if (_window) {
     _window.toolbar = _previousToolbar;
     _window.titleVisibility = _previousTitleVisibility;
     _window.titlebarAppearsTransparent = _previousTitlebarAppearsTransparent;
+    if (@available(macOS 11.0, *)) {
+      _window.toolbarStyle = _previousToolbarStyle;
+    }
   }
   _actionHandler = nil;
 }

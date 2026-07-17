@@ -36,7 +36,7 @@ import {
   MACRO_OVERLAY_TRIGGER
 } from "../../../../shared/macroShortcuts";
 import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
-import type { Game, Macro, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import type { Game, Macro, MacroActivationMode, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
@@ -119,15 +119,22 @@ function MacroEditor({
       : undefined;
   }, [form.id, form.roleIds, form.trigger, macros, t]);
   const macroStepError = useMemo(() => {
+    const isReferenced = form.id && macros.some((macro) =>
+      macro.id !== form.id &&
+      macro.steps.some((step) => step.type === "macro" && step.macroId === form.id)
+    );
     if (
-      form.id &&
+      isReferenced &&
       form.repeat.type === "loop" &&
-      macros.some((macro) =>
-        macro.id !== form.id &&
-        macro.steps.some((step) => step.type === "macro" && step.macroId === form.id)
-      )
+      form.id
     ) {
       return t("macroForm.saveHint.referencedLoop");
+    }
+    if (
+      isReferenced &&
+      form.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")
+    ) {
+      return t("macroForm.saveHint.referencedHold");
     }
 
     const invalidStep = form.steps.find((step) => {
@@ -136,14 +143,18 @@ function MacroEditor({
     });
     return invalidStep ? t("macroForm.saveHint.invalidMacroTarget") : undefined;
   }, [form.id, form.repeat.type, form.steps, macros, t]);
+  const activationError = form.activationMode === "while_held" && !form.trigger
+    ? t("macroForm.saveHint.holdNeedsShortcut")
+    : undefined;
   const canSubmit =
     form.name.trim().length > 0 &&
     form.roleIds.length > 0 &&
     form.steps.length > 0 &&
     (form.repeat.type === "once" || isValidMacroInterval(form.repeat.intervalMs)) &&
+    !activationError &&
     !macroStepError &&
     !shortcutConflict;
-  const saveHint = shortcutConflict ?? macroStepError ?? (
+  const saveHint = shortcutConflict ?? activationError ?? macroStepError ?? (
     form.roleIds.length === 0
       ? t("macroForm.saveHint.needsRole")
       : form.steps.length === 0
@@ -314,6 +325,29 @@ function MacroForm({
             </Surface>
 
             <Surface className="p-4" padding="none" variant="inset">
+              <FormField
+                label={t("macroForm.activation")}
+                description={t("macroForm.activationDescription")}
+              >
+                <SegmentedControl<MacroActivationMode>
+                  className={cn(
+                    "w-full grid-cols-2 p-0.5 [&>button]:h-6",
+                    isSaving && "pointer-events-none opacity-45"
+                  )}
+                  aria-disabled={isSaving}
+                  items={[
+                    { value: "toggle", label: t("macroForm.activation.toggle"), icon: Check },
+                    { value: "while_held", label: t("macroForm.activation.whileHeld"), icon: Keyboard }
+                  ]}
+                  value={form.activationMode ?? "toggle"}
+                  onValueChange={(activationMode) => {
+                    if (!isSaving) update((current) => ({ ...current, activationMode }));
+                  }}
+                />
+              </FormField>
+            </Surface>
+
+            <Surface className="p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.repeat")} description={t("macroForm.repeatDescription")}>
                 <div className="grid gap-2">
                   <SegmentedControl<MacroRepeat["type"]>
@@ -372,7 +406,9 @@ function MacroForm({
               </FormField>
             </Surface>
 
-            {form.repeat.type === "loop" ? (
+            {form.repeat.type === "loop" || form.steps.some(
+              (step) => step.type === "key" && step.action === "hold_until_stop"
+            ) ? (
               <Surface
                 className="flex items-start gap-2 border border-amber-500/25 bg-amber-500/[0.06] p-4"
                 variant="inset"
@@ -880,6 +916,22 @@ function MacroStepFields({
           t={t}
           onRecord={(code) => onUpdate({ ...step, code, label: formatMacroCode(code) })}
         />
+        <Select
+          disabled={isSaving}
+          value={step.action ?? "tap"}
+          onValueChange={(action) => onUpdate({
+            ...step,
+            action: action as Extract<MacroStep, { type: "key" }>["action"]
+          })}
+        >
+          <SelectTrigger className="w-36 flex-none" aria-label={t("macroForm.keyAction")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tap">{t("macroForm.keyAction.tap")}</SelectItem>
+            <SelectItem value="hold_until_stop">{t("macroForm.keyAction.hold")}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
     );
   }
@@ -1014,6 +1066,7 @@ function createStep(
         id,
         type: "key",
         code: "Tab",
+        action: "tap",
         label: "Tab"
       };
     case "click":

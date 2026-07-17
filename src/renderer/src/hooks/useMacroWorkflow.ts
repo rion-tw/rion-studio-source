@@ -55,6 +55,7 @@ export function useMacroWorkflow({
     try {
       const input = {
         enabled: form.enabled,
+        activationMode: form.activationMode,
         name: form.name,
         roleIds: form.roleIds,
         repeat: form.repeat,
@@ -155,6 +156,7 @@ export function useMacroWorkflow({
     try {
       const copy = await window.rionStudio.createMacro({
         enabled: macro.enabled,
+        activationMode: macro.activationMode === "while_held" ? "toggle" : macro.activationMode,
         name: createCopyName(macro.name, macros.map((item) => item.name), t("copyName.suffix")),
         roleIds: [...macro.roleIds],
         repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },

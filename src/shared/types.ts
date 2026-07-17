@@ -169,6 +169,10 @@ export interface MacroTrigger {
   meta: boolean;
 }
 
+export type MacroActivationMode = "toggle" | "while_held";
+
+export type MacroKeyAction = "tap" | "hold_until_stop";
+
 export interface MacroSettings {
   startupDelayMs: number;
   keyHoldMs: number;
@@ -190,6 +194,7 @@ export type MacroStep =
       id: string;
       type: "key";
       code: string;
+      action?: MacroKeyAction;
       label?: string;
     }
   | {
@@ -212,6 +217,7 @@ export type MacroStep =
 export interface Macro {
   id: string;
   enabled: boolean;
+  activationMode?: MacroActivationMode;
   name: string;
   roleIds: string[];
   trigger?: MacroTrigger;
@@ -223,6 +229,7 @@ export interface Macro {
 
 export interface CreateMacroInput {
   enabled?: boolean;
+  activationMode?: MacroActivationMode;
   name: string;
   roleIds: string[];
   trigger?: MacroTrigger | null;
@@ -697,6 +704,7 @@ export interface PortableGame {
 export interface PortableMacro {
   id: string;
   enabled?: boolean;
+  activationMode?: MacroActivationMode;
   name: string;
   roleIds: string[];
   trigger?: MacroTrigger;
@@ -739,7 +747,23 @@ export interface RionPortableDataV3 {
   preferences?: PortablePreferences;
 }
 
-export type RionPortableData = RionPortableDataV1 | RionPortableDataV2 | RionPortableDataV3;
+export interface RionPortableDataV4 {
+  app: "Rion Studio";
+  schemaVersion: 4;
+  exportedAt: string;
+  appVersion: string;
+  games: PortableGame[];
+  roles: PortableRole[];
+  launchWorkspaces: PortableLaunchWorkspace[];
+  macros: PortableMacro[];
+  preferences?: PortablePreferences;
+}
+
+export type RionPortableData =
+  | RionPortableDataV1
+  | RionPortableDataV2
+  | RionPortableDataV3
+  | RionPortableDataV4;
 
 export interface PortableExportResult {
   filePath: string;

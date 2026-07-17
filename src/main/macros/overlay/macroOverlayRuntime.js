@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v30";
+  const hostId = "rion-studio-macro-overlay-v31";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 28 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 29 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-16.9";
+  const scriptVersion = "2026-07-17.1";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -29,36 +29,44 @@
   const binding = window[bindingName];
   const overlayTexts = {
     en: {
+      holdUntilStop: "Hold",
       noShortcut: "No shortcut",
       resourceMacroOverride: "Temporarily full speed",
       resourceSharedProcess: "Shared process / full speed",
       resourceUnavailable: "Throttling unavailable",
       triggerAria: "Open Rion Studio Macros",
-      triggerTitle: "Open Rion Studio Macros (Ctrl+Shift+M)"
+      triggerTitle: "Open Rion Studio Macros (Ctrl+Shift+M)",
+      whileHeld: "While held"
     },
     "zh-TW": {
+      holdUntilStop: "保持",
       noShortcut: "無快捷鍵",
       resourceMacroOverride: "暫時全速",
       resourceSharedProcess: "共用程序／全速",
       resourceUnavailable: "無法節流",
       triggerAria: "開啟 Rion Studio 巨集",
-      triggerTitle: "開啟 Rion Studio 巨集 (Ctrl+Shift+M)"
+      triggerTitle: "開啟 Rion Studio 巨集 (Ctrl+Shift+M)",
+      whileHeld: "按住"
     },
     "zh-CN": {
+      holdUntilStop: "保持",
       noShortcut: "无快捷键",
       resourceMacroOverride: "暂时全速",
       resourceSharedProcess: "共享进程／全速",
       resourceUnavailable: "无法限速",
       triggerAria: "打开 Rion Studio 宏",
-      triggerTitle: "打开 Rion Studio 宏 (Ctrl+Shift+M)"
+      triggerTitle: "打开 Rion Studio 宏 (Ctrl+Shift+M)",
+      whileHeld: "按住"
     },
     ja: {
+      holdUntilStop: "保持",
       noShortcut: "ショートカットなし",
       resourceMacroOverride: "一時的にフル速度",
       resourceSharedProcess: "共有プロセス／フル速度",
       resourceUnavailable: "速度制限不可",
       triggerAria: "Rion Studio マクロを開く",
-      triggerTitle: "Rion Studio マクロを開く (Ctrl+Shift+M)"
+      triggerTitle: "Rion Studio マクロを開く (Ctrl+Shift+M)",
+      whileHeld: "押している間"
     }
   };
   const triggerIconMarkup = [
@@ -75,6 +83,7 @@
     "</svg>"
   ].join("");
   let activeBadgesElement = null;
+  const activeHeldShortcuts = new Map();
   let cleanupInterval = undefined;
   let host = null;
   let isInstalled = false;
@@ -110,6 +119,8 @@
     statuses: []
   };
   const pendingMacroActions = new Set();
+  const macroActionTails = new Map();
+  let nextPressId = 1;
 
   function getText() {
     return overlayTexts[state.language] ?? overlayTexts[detectOverlayLanguage()] ?? overlayTexts.en;
@@ -183,6 +194,18 @@
     if (trigger.meta) parts.push("Meta");
     parts.push(formatCode(trigger.code));
     return parts.join("+");
+  }
+
+  function formatMacroBehavior(macro) {
+    const text = getText();
+    const parts = [];
+    if ((macro.activationMode ?? "toggle") === "while_held") {
+      parts.push(text.whileHeld);
+    }
+    if (macro.steps?.some((step) => step.type === "key" && step.action === "hold_until_stop")) {
+      parts.push(text.holdUntilStop);
+    }
+    return parts.join(" · ");
   }
 
   function matchesShortcut(event, trigger) {
@@ -344,14 +367,18 @@
     resourceElement.title = resourceLabel;
 
     activeBadgesElement.innerHTML = getRunningBadgeMacros()
-      .map((macro) => [
-        '<span class="active-badge">',
-        '<span class="active-badge-name">',
-        escapeHtml(macro.name),
-        '</span><span class="active-badge-shortcut">',
-        escapeHtml(formatShortcut(macro.trigger)),
-        "</span></span>"
-      ].join(""))
+      .map((macro) => {
+        const behavior = formatMacroBehavior(macro);
+        return [
+          '<span class="active-badge">',
+          '<span class="active-badge-name">',
+          escapeHtml(macro.name),
+          '</span><span class="active-badge-shortcut">',
+          escapeHtml(formatShortcut(macro.trigger)),
+          behavior ? " · " + escapeHtml(behavior) : "",
+          "</span></span>"
+        ].join("");
+      })
       .join("");
     activeBadgesElement.hidden = activeBadgesElement.childElementCount === 0;
   }
@@ -394,31 +421,38 @@
     }
   }
 
-  async function runAction(action, macroId) {
-    if (pendingMacroActions.has(macroId)) {
+  function runAction(action, macroId, details, queueBehindPending) {
+    if (!queueBehindPending && pendingMacroActions.has(macroId)) {
       return;
     }
 
-    const requestVersion = ++state.requestVersion;
     pendingMacroActions.add(macroId);
-    try {
-      const nextState = await binding({ type: action, macroId });
-      if (disposeIfDetached(nextState)) {
-        return;
+    const previous = macroActionTails.get(macroId) ?? Promise.resolve();
+    const actionPromise = previous.catch(() => undefined).then(async () => {
+      const requestVersion = ++state.requestVersion;
+      try {
+        const nextState = await binding({ type: action, macroId, ...details });
+        if (disposeIfDetached(nextState)) {
+          return;
+        }
+        if (requestVersion === state.requestVersion) {
+          applyState(nextState);
+          updatePresentation();
+        }
+      } catch (error) {
+        console.warn("Unable to run Rion Studio macro.", error);
       }
-      if (requestVersion === state.requestVersion) {
-        applyState(nextState);
-        updatePresentation();
+    });
+    macroActionTails.set(macroId, actionPromise);
+    void actionPromise.finally(() => {
+      if (macroActionTails.get(macroId) === actionPromise) {
+        macroActionTails.delete(macroId);
+        pendingMacroActions.delete(macroId);
+        if (pendingMacroActions.size === 0) {
+          void refresh();
+        }
       }
-    } catch (error) {
-      console.warn("Unable to run Rion Studio macro.", error);
-    } finally {
-      pendingMacroActions.delete(macroId);
-    }
-
-    if (pendingMacroActions.size === 0) {
-      void refresh();
-    }
+    });
   }
 
   function consumeShortcutEvent(event) {
@@ -493,16 +527,57 @@
     }
 
     const macro = matchingMacros[0];
-    void runAction(isRunning(macro.id) || isStopping(macro.id) ? "stop" : "start", macro.id);
+    if ((macro.activationMode ?? "toggle") === "while_held") {
+      if (activeHeldShortcuts.has(macro.id)) return;
+      const pressId = `${Date.now()}-${nextPressId++}`;
+      activeHeldShortcuts.set(macro.id, { code: event.code, pressId });
+      runAction("press", macro.id, { pressId }, true);
+      return;
+    }
+    runAction(isRunning(macro.id) || isStopping(macro.id) ? "stop" : "start", macro.id);
+  }
+
+  function handleKeyUp(event) {
+    const matches = [...activeHeldShortcuts.entries()].filter(
+      ([, active]) => active.code === event.code
+    );
+    if (matches.length === 0) return;
+    consumeShortcutEvent(event);
+    matches.forEach(([macroId, active]) => {
+      activeHeldShortcuts.delete(macroId);
+      runAction("release", macroId, { pressId: active.pressId }, true);
+    });
+  }
+
+  function releaseActiveHeldShortcuts() {
+    [...activeHeldShortcuts.entries()].forEach(([macroId, active]) => {
+      activeHeldShortcuts.delete(macroId);
+      runAction("release", macroId, { pressId: active.pressId }, true);
+    });
   }
 
   function handleFocus() {
     void refresh();
   }
 
+  function handleBlur() {
+    releaseActiveHeldShortcuts();
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState === "hidden") {
+      releaseActiveHeldShortcuts();
+    }
+  }
+
   function dispose() {
+    releaseActiveHeldShortcuts();
     window.removeEventListener("keydown", handleKeyDown, true);
+    window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("focus", handleFocus, true);
+    window.removeEventListener("blur", handleBlur, true);
+    window.removeEventListener("pagehide", handleBlur, true);
+    document.removeEventListener("visibilitychange", handleVisibilityChange, true);
 
     if (cleanupInterval !== undefined) {
       clearInterval(cleanupInterval);
@@ -526,7 +601,11 @@
     }
 
     window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
     window.addEventListener("focus", handleFocus, true);
+    window.addEventListener("blur", handleBlur, true);
+    window.addEventListener("pagehide", handleBlur, true);
+    document.addEventListener("visibilitychange", handleVisibilityChange, true);
     refreshInterval = setInterval(() => void refresh(), 1500);
     cleanupInterval = setInterval(() => {
       removeLegacyHosts();

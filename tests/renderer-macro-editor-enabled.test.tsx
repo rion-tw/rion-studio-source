@@ -72,6 +72,42 @@ describe("macro editor controls", () => {
     });
   });
 
+  it("saves while-held activation and a hold-until-stop key action", async () => {
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
+      steps: [{ id: "step-1", type: "key", code: "F2", action: "hold_until_stop" }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "While held" }));
+    expect(screen.getByRole("combobox", { name: "Key action" }).textContent).toContain("Hold until stopped");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      activationMode: "while_held",
+      steps: [expect.objectContaining({ action: "hold_until_stop" })]
+    })));
+  });
+
   it("uses the full role card as the selector without showing a checkbox", () => {
     const selectedMacro = macro();
     const router = createMemoryRouter(

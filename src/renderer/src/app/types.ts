@@ -2,6 +2,7 @@ import type {
   GameSource,
   InheritableBrowserLaunchMode,
   LaunchWorkspaceSlot,
+  MacroActivationMode,
   MacroRepeat,
   MacroStep,
   MacroTrigger,
@@ -53,6 +54,7 @@ export interface GameFormState {
 export interface MacroFormState {
   id?: string;
   enabled: boolean;
+  activationMode?: MacroActivationMode;
   name: string;
   roleIds: string[];
   repeat: MacroRepeat;

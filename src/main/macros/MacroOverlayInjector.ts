@@ -24,6 +24,7 @@ export interface ExternalMacroOverlayHost {
   evaluate: <T = unknown>(source: string) => Promise<T>;
   installMacroOverlay: (source: string, handler: (request: unknown) => Promise<unknown>) => Promise<void>;
   onDisconnect: (listener: () => void) => () => void;
+  onNavigation?: (listener: () => void) => () => void;
 }
 
 export type MacroOverlayRequest =
@@ -40,6 +41,16 @@ export type MacroOverlayRequest =
   | {
       macroId: string;
       type: "stop";
+    }
+  | {
+      macroId: string;
+      pressId: string;
+      type: "press";
+    }
+  | {
+      macroId: string;
+      pressId: string;
+      type: "release";
     };
 
 export class MacroOverlayInjector {
@@ -55,7 +66,10 @@ export class MacroOverlayInjector {
     private readonly macroManager: Pick<
       MacroManager,
       "listStatuses" | "startForRole" | "stopForRole"
-    >,
+    > & Partial<Pick<
+      MacroManager,
+      "pressForRole" | "releaseForRole" | "releaseHeldTriggersForRole"
+    >>,
     private readonly onMacroPageRequested?: (request: MacroPageRequest) => void | Promise<void>,
     private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined
   ) {}
@@ -76,7 +90,13 @@ export class MacroOverlayInjector {
   async installExternal(role: Role, host: ExternalMacroOverlayHost): Promise<void> {
     this.externalHosts.add(host);
     this.externalHostRoleIds.set(host, role.id);
-    host.onDisconnect(() => this.externalHosts.delete(host));
+    host.onDisconnect(() => {
+      this.externalHosts.delete(host);
+      void this.macroManager.releaseHeldTriggersForRole?.(role.id);
+    });
+    host.onNavigation?.(() => {
+      void this.macroManager.releaseHeldTriggersForRole?.(role.id);
+    });
     try {
       await host.installMacroOverlay(MACRO_OVERLAY_SCRIPT, async (request) => {
         if (!isMacroOverlayRequest(request)) {
@@ -151,6 +171,18 @@ export class MacroOverlayInjector {
       case "stop":
         await this.macroManager.stopForRole(request.macroId, roleId);
         break;
+      case "press":
+        if (!this.macroManager.pressForRole) {
+          throw new Error("While-held macro control is unavailable.");
+        }
+        return this.withStartSummary(
+          roleId,
+          request.macroId,
+          (await this.macroManager.pressForRole(request.macroId, roleId, request.pressId)).length
+        );
+      case "release":
+        await this.macroManager.releaseForRole?.(request.macroId, roleId, request.pressId);
+        break;
     }
 
     return this.getOverlayState(roleId);
@@ -181,8 +213,15 @@ export class MacroOverlayInjector {
       return;
     }
 
+    webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
+      if (isMainFrame) {
+        void this.macroManager.releaseHeldTriggersForRole?.(roleId);
+      }
+    });
+
     webContents.once("destroyed", () => {
       this.installedContents.delete(webContents);
+      void this.macroManager.releaseHeldTriggersForRole?.(roleId);
     });
   }
 
@@ -243,7 +282,7 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
   if (typeof value !== "object" || value === null || !("type" in value)) {
     return false;
   }
-  const request = value as { type?: unknown; macroId?: unknown };
+  const request = value as { type?: unknown; macroId?: unknown; pressId?: unknown };
   if (request.type === "list" || request.type === "open") {
     return true;
   }
@@ -251,6 +290,12 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
     (request.type === "start" || request.type === "stop") &&
     typeof request.macroId === "string" &&
     Boolean(request.macroId)
+  ) || (
+    (request.type === "press" || request.type === "release") &&
+    typeof request.macroId === "string" &&
+    Boolean(request.macroId) &&
+    typeof request.pressId === "string" &&
+    Boolean(request.pressId)
   );
 }
 

@@ -210,6 +210,164 @@ describe("MacroManager", () => {
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
 
+  it("holds a key without blocking until an explicit stop releases it", async () => {
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        steps: [{
+          id: "hold",
+          type: "key",
+          code: "KeyW",
+          action: "hold_until_stop"
+        }]
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => expect(target.holdKey).toHaveBeenCalledWith(
+      "KeyW",
+      expect.stringContaining("macro-invocation-"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    ));
+    expect(manager.listStatuses()).toMatchObject([{ state: "running" }]);
+    expect(target.releaseKey).not.toHaveBeenCalled();
+
+    await manager.stop("macro-1");
+    expect(target.releaseKey).toHaveBeenCalledWith(
+      "KeyW",
+      expect.stringContaining("macro-invocation-")
+    );
+    await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
+  });
+
+  it("starts and releases a while-held macro for one or many assigned roles", async () => {
+    const targets = {
+      "role-1": createTarget(),
+      "role-2": createTarget()
+    };
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        activationMode: "while_held",
+        trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
+        steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+      },
+      targets
+    });
+
+    await expect(manager.pressForRole("macro-1", "role-1", "press-1")).resolves.toHaveLength(2);
+    await vi.waitFor(() => {
+      expect(targets["role-1"].holdKey).toHaveBeenCalledOnce();
+      expect(targets["role-2"].holdKey).toHaveBeenCalledOnce();
+    });
+
+    await manager.releaseForRole("macro-1", "role-1", "press-1");
+    expect(targets["role-1"].releaseKey).toHaveBeenCalledOnce();
+    expect(targets["role-2"].releaseKey).toHaveBeenCalledOnce();
+  });
+
+  it("does not release a held invocation for a different source or press id", async () => {
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        activationMode: "while_held",
+        roleIds: ["role-1", "role-2"],
+        trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
+        steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.pressForRole("macro-1", "role-1", "press-1");
+    await vi.waitFor(() => expect(target.holdKey).toHaveBeenCalledOnce());
+    await manager.releaseForRole("macro-1", "role-2", "press-1");
+    await manager.releaseForRole("macro-1", "role-1", "press-2");
+    expect(target.releaseKey).not.toHaveBeenCalled();
+
+    await manager.releaseForRole("macro-1", "role-1", "press-1");
+    expect(target.releaseKey).toHaveBeenCalledOnce();
+  });
+
+  it("uses distinct owners when two macros hold the same role key", async () => {
+    const target = createTarget();
+    const owners = new Set<string>();
+    const physicalKeyDown = vi.fn();
+    const physicalKeyUp = vi.fn();
+    target.holdKey.mockImplementation(async (_code, ownerId) => {
+      if (owners.size === 0) physicalKeyDown();
+      owners.add(ownerId);
+    });
+    target.releaseKey.mockImplementation(async (_code, ownerId) => {
+      owners.delete(ownerId);
+      if (owners.size === 0) physicalKeyUp();
+    });
+    const macroById = Object.fromEntries(["macro-1", "macro-2"].map((id) => [id, {
+      ...macro,
+      id,
+      roleIds: ["role-1"],
+      steps: [{ id: `${id}-hold`, type: "key" as const, code: "KeyW", action: "hold_until_stop" as const }]
+    }]));
+    const manager = createManager({ macroById, targets: { "role-1": target } });
+
+    await manager.start("macro-1");
+    await manager.start("macro-2");
+    await vi.waitFor(() => expect(target.holdKey).toHaveBeenCalledTimes(2));
+    expect(new Set(target.holdKey.mock.calls.map(([, ownerId]) => ownerId)).size).toBe(2);
+    expect(physicalKeyDown).toHaveBeenCalledOnce();
+
+    await manager.stop("macro-1");
+    expect(physicalKeyUp).not.toHaveBeenCalled();
+    await manager.stop("macro-2");
+    expect(physicalKeyUp).toHaveBeenCalledOnce();
+  });
+
+  it("serializes a quick release behind input preparation without dispatching a held key", async () => {
+    const target = createTarget();
+    const preparation = createDeferred<boolean>();
+    target.ensureInputFocus.mockReturnValueOnce(preparation.promise);
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        activationMode: "while_held",
+        roleIds: ["role-1"],
+        trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
+        steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+      },
+      targets: { "role-1": target }
+    });
+
+    const press = manager.pressForRole("macro-1", "role-1", "quick-press");
+    await vi.waitFor(() => expect(target.ensureInputFocus).toHaveBeenCalledOnce());
+    const release = manager.releaseForRole("macro-1", "role-1", "quick-press");
+    preparation.resolve(true);
+    await Promise.all([press, release]);
+
+    expect(target.holdKey).not.toHaveBeenCalled();
+    expect(manager.listStatuses()).toEqual([]);
+  });
+
+  it("cancels a press when its matching release is received first", async () => {
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        activationMode: "while_held",
+        roleIds: ["role-1"],
+        trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.releaseForRole("macro-1", "role-1", "release-first");
+    await expect(manager.pressForRole("macro-1", "role-1", "release-first")).resolves.toEqual([]);
+    expect(target.ensureInputFocus).not.toHaveBeenCalled();
+    expect(target.dispatchKey).not.toHaveBeenCalled();
+  });
+
   it("applies the startup buffer once before the first iteration", async () => {
     vi.useFakeTimers();
     const target = createTarget();
@@ -1008,6 +1166,8 @@ function createTarget() {
   return {
     dispatchClick: vi.fn().mockResolvedValue(undefined),
     dispatchKey: vi.fn().mockResolvedValue(undefined),
+    holdKey: vi.fn().mockResolvedValue(undefined),
+    releaseKey: vi.fn().mockResolvedValue(undefined),
     ensureInputFocus: vi.fn().mockResolvedValue(true),
     evaluate: vi.fn().mockResolvedValue(undefined),
     focus: vi.fn().mockResolvedValue(undefined)

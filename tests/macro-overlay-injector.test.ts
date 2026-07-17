@@ -106,7 +106,26 @@ describe("MacroOverlayInjector", () => {
     page.handlers.didFinishLoad?.();
 
     await vi.waitFor(() => expect(page.page.executeJavaScript).toHaveBeenCalledTimes(3));
-    expect(page.page.on).toHaveBeenCalledTimes(1);
+    expect(page.page.on).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases held shortcuts only for main-frame embedded navigation", async () => {
+    const page = createPage();
+    const releaseAll = vi.fn().mockResolvedValue(undefined);
+    const injector = createInjector({
+      macroManager: {
+        listStatuses: vi.fn(() => []),
+        releaseAll,
+        start: vi.fn().mockResolvedValue([]),
+        stop: vi.fn().mockResolvedValue(undefined)
+      }
+    });
+
+    await injector.install(role, page.page as never);
+    page.handlers.didStartNavigation?.({}, "https://example.com/frame", false, false);
+    expect(releaseAll).not.toHaveBeenCalled();
+    page.handlers.didStartNavigation?.({}, "https://example.com/next", false, true);
+    expect(releaseAll).toHaveBeenCalledWith(role.id);
   });
 
   it("filters overlay state and routes start and stop requests", async () => {
@@ -164,6 +183,34 @@ describe("MacroOverlayInjector", () => {
     ).resolves.toMatchObject({ startSummary: { skippedCount: 0, startedCount: 2 } });
     expect(macroManager.start).toHaveBeenCalledWith(assignedMacro.id);
     expect(macroManager.stop).toHaveBeenCalledWith(assignedMacro.id);
+  });
+
+  it("routes matching while-held press and release ids", async () => {
+    const press = vi.fn().mockResolvedValue([runStatus("role-1", assignedMacro.id)]);
+    const release = vi.fn().mockResolvedValue(undefined);
+    const injector = createInjector({
+      macroManager: {
+        listStatuses: vi.fn(() => []),
+        press,
+        release,
+        start: vi.fn().mockResolvedValue([]),
+        stop: vi.fn().mockResolvedValue(undefined)
+      }
+    });
+
+    await expect(injector.handleRequest(role.id, {
+      type: "press",
+      macroId: assignedMacro.id,
+      pressId: "press-1"
+    })).resolves.toMatchObject({ startSummary: { startedCount: 1 } });
+    await injector.handleRequest(role.id, {
+      type: "release",
+      macroId: assignedMacro.id,
+      pressId: "press-1"
+    });
+
+    expect(press).toHaveBeenCalledWith(assignedMacro.id, role.id, "press-1");
+    expect(release).toHaveBeenCalledWith(assignedMacro.id, role.id, "press-1");
   });
 
   it("returns a detached state without side effects for every stale request", async () => {
@@ -278,8 +325,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v30"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-16.9"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v31"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-17.1"');
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
     expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "open" });');
@@ -427,6 +474,9 @@ function createInjector({
 }: {
   macroManager?: {
     listStatuses: AnyMock;
+    press?: AnyMock;
+    release?: AnyMock;
+    releaseAll?: AnyMock;
     start: AnyMock;
     stop: AnyMock;
   };
@@ -435,6 +485,9 @@ function createInjector({
 } = {}): MacroOverlayInjector {
   const roleAwareMacroManager = {
     listStatuses: macroManager.listStatuses,
+    pressForRole: macroManager.press,
+    releaseForRole: macroManager.release,
+    releaseHeldTriggersForRole: macroManager.releaseAll,
     startForRole: vi.fn((macroId: string, roleId: string) => {
       if (![assignedMacro, otherMacro].find((macro) => macro.id === macroId)?.roleIds.includes(roleId)) {
         throw new Error("This macro is not assigned to the current role.");
@@ -467,12 +520,23 @@ function runStatus(roleId: string, macroId: string): MacroRunStatus {
 }
 
 function createPage() {
-  const handlers: { didFinishLoad?: () => void } = {};
+  const handlers: {
+    didFinishLoad?: () => void;
+    didStartNavigation?: (
+      event: unknown,
+      url: string,
+      isInPlace: boolean,
+      isMainFrame: boolean
+    ) => void;
+  } = {};
   const page = {
     executeJavaScript: vi.fn().mockResolvedValue(undefined),
     isDestroyed: vi.fn(() => false),
-    on: vi.fn((event: string, handler: () => void) => {
+    on: vi.fn((event: string, handler: (...args: never[]) => void) => {
       if (event === "did-finish-load") handlers.didFinishLoad = handler;
+      if (event === "did-start-navigation") {
+        handlers.didStartNavigation = handler as typeof handlers.didStartNavigation;
+      }
     }),
     once: vi.fn()
   };

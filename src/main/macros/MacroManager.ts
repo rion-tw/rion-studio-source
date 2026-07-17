@@ -15,7 +15,10 @@ interface MacroRun {
   abortController: AbortController;
   cancelActiveOperation?: () => void;
   cancelDelay?: () => void;
+  cancelHoldWait?: () => void;
   completion: Promise<void>;
+  heldKeyCodes: Set<string>;
+  inputOwnerId: string;
   invocationId: string;
   isCancelled: boolean;
   resolveCompletion: () => void;
@@ -56,6 +59,13 @@ interface StartedMacroInvocation {
   statuses: MacroRunStatus[];
 }
 
+interface HeldTriggerLease {
+  invocationId: string;
+  macroId: string;
+  pressId: string;
+  sourceRoleId: string;
+}
+
 const MACRO_TARGET_OPERATION_TIMEOUT_MS = 10_000;
 const SIBLING_FAILURE_MESSAGE = "Cancelled because another assigned role failed.";
 const CHILD_CANCELLED_MESSAGE = "Cancelled because a called macro was stopped.";
@@ -82,11 +92,13 @@ export class MacroMutationBusyError extends Error {
 }
 
 export class MacroManager extends EventEmitter<MacroManagerEvents> {
+  private readonly heldTriggerLeases = new Map<string, HeldTriggerLease>();
   private readonly invocations = new Map<string, MacroInvocation>();
   private readonly macroMutationTails = new Map<string, Promise<void>>();
   private readonly roleInputPreparationTails = new Map<string, Promise<void>>();
   private readonly runs = new Map<string, MacroRun>();
   private readonly terminalStatuses = new Map<string, MacroRunStatus>();
+  private readonly releasedPressIds = new Set<string>();
   private nextInvocationId = 1;
 
   constructor(
@@ -122,8 +134,71 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     );
   }
 
+  pressForRole(macroId: string, roleId: string, pressId: string): Promise<MacroRunStatus[]> {
+    return this.withMacroMutationLock(macroId, async () => {
+      this.assertPressId(pressId);
+      const releasedKey = createHeldTriggerLeaseKey(roleId, macroId, pressId);
+      if (this.releasedPressIds.delete(releasedKey)) {
+        return [];
+      }
+
+      const sourceKey = createHeldTriggerSourceKey(roleId, macroId);
+      const existing = this.heldTriggerLeases.get(sourceKey);
+      if (existing) {
+        if (existing.pressId === pressId) {
+          return this.listStatuses().filter((status) => status.macroId === macroId);
+        }
+        throw new Error("Macro shortcut is already held for this role.");
+      }
+
+      const macro = await this.macroStore.getMacro(macroId);
+      this.assertMacroAssignedToRole(macro, roleId);
+      if ((macro.activationMode ?? "toggle") !== "while_held") {
+        throw new Error("This macro does not use while-held activation.");
+      }
+
+      const started = await this.startInvocationUnlocked(macroId, roleId);
+      this.heldTriggerLeases.set(sourceKey, {
+        invocationId: started.invocation.id,
+        macroId,
+        pressId,
+        sourceRoleId: roleId
+      });
+      return started.statuses;
+    });
+  }
+
+  releaseForRole(macroId: string, roleId: string, pressId: string): Promise<void> {
+    return this.withMacroMutationLock(macroId, async () => {
+      this.assertPressId(pressId);
+      const sourceKey = createHeldTriggerSourceKey(roleId, macroId);
+      const lease = this.heldTriggerLeases.get(sourceKey);
+      if (!lease || lease.pressId !== pressId) {
+        this.rememberReleasedPressId(createHeldTriggerLeaseKey(roleId, macroId, pressId));
+        return;
+      }
+      this.heldTriggerLeases.delete(sourceKey);
+      const invocation = this.invocations.get(lease.invocationId);
+      if (invocation) {
+        await this.cancelInvocationAndWait(invocation);
+      }
+    });
+  }
+
+  async releaseHeldTriggersForRole(roleId: string): Promise<void> {
+    const leases = [...this.heldTriggerLeases.values()].filter(
+      (lease) => lease.sourceRoleId === roleId
+    );
+    await Promise.all(
+      leases.map((lease) => this.releaseForRole(lease.macroId, roleId, lease.pressId))
+    );
+  }
+
   stop(macroId: string): Promise<void> {
-    return this.withMacroMutationLock(macroId, () => this.stopMacroRunsUnlocked(macroId, true));
+    return this.withMacroMutationLock(macroId, async () => {
+      this.clearHeldTriggerLeases((lease) => lease.macroId === macroId);
+      await this.stopMacroRunsUnlocked(macroId, true);
+    });
   }
 
   stopForRole(macroId: string, roleId: string): Promise<void> {
@@ -211,6 +286,12 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     if (parentAncestry.length > 0 && macro.repeat.type !== "once") {
       throw new Error(`Called macro "${macro.name}" must run once.`);
     }
+    if (
+      parentAncestry.length > 0 &&
+      macro.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")
+    ) {
+      throw new Error(`Called macro "${macro.name}" cannot hold a key until stopped.`);
+    }
     if (parentAncestry.length > 0 && this.hasActiveMacroRun(macroId)) {
       throw new Error(`Called macro "${macro.name}" is already running.`);
     }
@@ -247,6 +328,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       const run: MacroRun = {
         abortController: new AbortController(),
         completion,
+        heldKeyCodes: new Set(),
+        inputOwnerId: `${invocation.id}:${roleId}`,
         invocationId: invocation.id,
         isCancelled: false,
         resolveCompletion,
@@ -275,6 +358,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
           }
         })
         .finally(async () => {
+          await this.releaseHeldKeys(run, target);
           if (this.runs.get(key) === run) {
             this.runs.delete(key);
           }
@@ -394,6 +478,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       run.abortController.abort();
       run.cancelActiveOperation?.();
       run.cancelDelay?.();
+      run.cancelHoldWait?.();
       didChange = true;
     });
     if (didChange) this.emitChange();
@@ -469,6 +554,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private finishInvocationRun(invocation: MacroInvocation, runKey: string): void {
     invocation.remainingRunKeys.delete(runKey);
     if (invocation.remainingRunKeys.size === 0) {
+      this.clearHeldTriggerLeases((lease) => lease.invocationId === invocation.id);
       this.settleInvocation(invocation, { state: "completed" });
       this.invocations.delete(invocation.id);
     }
@@ -525,6 +611,10 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       if (macro.repeat.type !== "loop") break;
       await this.delay(run, macro.repeat.intervalMs);
     } while (!run.isCancelled && this.runs.get(runKey) === run);
+
+    if (macro.repeat.type === "once" && run.heldKeyCodes.size > 0) {
+      await this.waitForStop(run);
+    }
   }
 
   private async executeStep(
@@ -537,6 +627,23 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   ): Promise<void> {
     switch (step.type) {
       case "key":
+        if (step.action === "hold_until_stop") {
+          if (run.heldKeyCodes.has(step.code)) return;
+          run.heldKeyCodes.add(step.code);
+          try {
+            await this.executeTargetOperation(run, () =>
+              target.holdKey(step.code, run.inputOwnerId, {
+                signal: run.abortController.signal
+              })
+            );
+          } catch (error) {
+            await target.releaseKey(step.code, run.inputOwnerId).catch(() => undefined);
+            run.heldKeyCodes.delete(step.code);
+            throw error;
+          }
+          await this.delay(run, invocation.settings.postInputDelayMs);
+          return;
+        }
         await this.executeTargetOperation(run, () =>
           target.dispatchKey(step.code, {
             holdMs: invocation.settings.keyHoldMs,
@@ -669,6 +776,51 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     this.throwIfCancelled(run);
   }
 
+  private async waitForStop(run: MacroRun): Promise<void> {
+    this.throwIfCancelled(run);
+    await new Promise<void>((_resolve, reject) => {
+      run.cancelHoldWait = () => {
+        run.cancelHoldWait = undefined;
+        reject(new MacroRunCancelledError());
+      };
+    });
+  }
+
+  private async releaseHeldKeys(run: MacroRun, target: BrowserAutomationTarget): Promise<void> {
+    const codes = [...run.heldKeyCodes].reverse();
+    run.heldKeyCodes.clear();
+    await Promise.all(
+      codes.map((code) =>
+        target.releaseKey(code, run.inputOwnerId).catch((error) => {
+          console.warn(`Failed to release held macro key ${code}.`, error);
+        })
+      )
+    );
+  }
+
+  private assertPressId(pressId: string): void {
+    if (!pressId || pressId.length > 160) {
+      throw new Error("Macro shortcut press id is invalid.");
+    }
+  }
+
+  private rememberReleasedPressId(key: string): void {
+    this.releasedPressIds.add(key);
+    while (this.releasedPressIds.size > 256) {
+      const oldest = this.releasedPressIds.values().next().value as string | undefined;
+      if (!oldest) break;
+      this.releasedPressIds.delete(oldest);
+    }
+  }
+
+  private clearHeldTriggerLeases(predicate: (lease: HeldTriggerLease) => boolean): void {
+    this.heldTriggerLeases.forEach((lease, key) => {
+      if (predicate(lease)) {
+        this.heldTriggerLeases.delete(key);
+      }
+    });
+  }
+
   private throwIfCancelled(run: MacroRun): void {
     if (run.isCancelled) throw new MacroRunCancelledError();
   }
@@ -704,4 +856,12 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
 function createRunKey(roleId: string, macroId: string): string {
   return `${roleId}:${macroId}`;
+}
+
+function createHeldTriggerSourceKey(roleId: string, macroId: string): string {
+  return `${roleId}:${macroId}`;
+}
+
+function createHeldTriggerLeaseKey(roleId: string, macroId: string, pressId: string): string {
+  return `${roleId}:${macroId}:${pressId}`;
 }

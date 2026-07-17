@@ -75,6 +75,7 @@ describe("editor form state", () => {
       name: a.name,
       id: a.id,
       enabled: a.enabled,
+      activationMode: a.activationMode,
       trigger: undefined
     };
 

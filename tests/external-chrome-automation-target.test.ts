@@ -120,6 +120,53 @@ describe("ExternalChromeAutomationTarget", () => {
     );
   });
 
+  it("reference-counts held CDP keys and taps without releasing an active hold", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+
+    await target.holdKey("KeyW", "owner-1");
+    await target.holdKey("KeyW", "owner-2");
+    await target.releaseKey("KeyW", "owner-1");
+    await target.dispatchKey("KeyW");
+    await target.releaseKey("KeyW", "owner-2");
+
+    expect(harness.send.mock.calls
+      .filter(([method]) => method === "Input.dispatchKeyEvent")
+      .map(([, params]) => params)
+    ).toEqual([
+      { type: "rawKeyDown", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 },
+      { type: "rawKeyDown", autoRepeat: true, code: "KeyW", key: "w", windowsVirtualKeyCode: 87 },
+      { type: "keyUp", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 }
+    ]);
+  });
+
+  it("releases a hold whose keyDown finishes after cancellation", async () => {
+    const harness = createHarness();
+    const rawKeyDown = createDeferred<unknown>();
+    harness.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Input.dispatchKeyEvent" && params?.type === "rawKeyDown") {
+        return rawKeyDown.promise;
+      }
+      return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+    });
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    const controller = new AbortController();
+
+    const hold = target.holdKey("KeyW", "owner-1", { signal: controller.signal });
+    await vi.waitFor(() => expect(harness.send).toHaveBeenCalledWith(
+      "Input.dispatchKeyEvent",
+      expect.objectContaining({ type: "rawKeyDown" })
+    ));
+    controller.abort();
+    rawKeyDown.resolve({});
+
+    await expect(hold).rejects.toThrow();
+    expect(harness.send).toHaveBeenCalledWith(
+      "Input.dispatchKeyEvent",
+      { type: "keyUp", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 }
+    );
+  });
+
   it("releases a held CDP key when the dispatch is aborted", async () => {
     vi.useFakeTimers();
     const harness = createHarness();
@@ -177,6 +224,25 @@ describe("ExternalChromeAutomationTarget", () => {
       { name: "rionStudioWindowFocus" }
     );
     expect(harness.send.mock.calls.some(([method]) => method === "Emulation.setCPUThrottlingRate")).toBe(false);
+  });
+
+  it("reports main-frame navigation so held shortcut leases can be released", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    const listener = vi.fn();
+    target.onNavigation(listener);
+    await target.initialize();
+
+    harness.notify({
+      method: "Page.frameNavigated",
+      params: { frame: { id: "main", url: "https://example.com/next" } }
+    });
+    harness.notify({
+      method: "Page.frameNavigated",
+      params: { frame: { id: "child", parentId: "main", url: "https://example.com/frame" } }
+    });
+
+    expect(listener).toHaveBeenCalledOnce();
   });
 
   it("registers request handling before enabling CDN interception and then reloads without cache", async () => {

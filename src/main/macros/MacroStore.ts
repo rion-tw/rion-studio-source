@@ -6,6 +6,8 @@ import type {
   BulkDeleteResult,
   CreateMacroInput,
   Macro,
+  MacroActivationMode,
+  MacroKeyAction,
   MacroRepeat,
   MacroStep,
   MacroTrigger,
@@ -26,6 +28,7 @@ interface MacrosFile {
 }
 
 type StoredMacro = Macro & {
+  activationMode?: unknown;
   roleId?: unknown;
   roleIds?: unknown;
   [key: string]: unknown;
@@ -72,6 +75,7 @@ export class MacroStore {
     return this.taskQueue.run(async () => {
       const normalized = macros.map((macro) => this.normalizeStoredMacro(macro as StoredMacro));
       normalized.forEach((macro) => {
+        this.assertActivationMode(macro);
         this.assertTriggerAvailable(macro.trigger, macro.roleIds, normalized, macro.id);
       });
       this.assertDependencyGraph(normalized);
@@ -105,6 +109,7 @@ export class MacroStore {
       const macro: Macro = {
         id: randomUUID(),
         enabled: input.enabled === undefined ? true : this.normalizeEnabled(input.enabled),
+        activationMode: this.normalizeActivationMode(input.activationMode),
         name,
         roleIds: this.normalizeRoleIds(input.roleIds),
         trigger: this.normalizeTrigger(input.trigger),
@@ -114,6 +119,7 @@ export class MacroStore {
         updatedAt: now
       };
 
+      this.assertActivationMode(macro);
       this.assertTriggerAvailable(macro.trigger, macro.roleIds, file.macros);
 
       this.assertDependencyGraph([...file.macros, macro]);
@@ -140,6 +146,9 @@ export class MacroStore {
       const updated: Macro = {
         ...current,
         enabled: input.enabled === undefined ? current.enabled : this.normalizeEnabled(input.enabled),
+        activationMode: input.activationMode === undefined
+          ? current.activationMode
+          : this.normalizeActivationMode(input.activationMode),
         name,
         roleIds: input.roleIds === undefined ? current.roleIds : this.normalizeRoleIds(input.roleIds),
         trigger: input.trigger === undefined ? current.trigger : this.normalizeTrigger(input.trigger),
@@ -148,6 +157,7 @@ export class MacroStore {
         updatedAt: new Date().toISOString()
       };
 
+      this.assertActivationMode(updated);
       this.assertTriggerAvailable(updated.trigger, updated.roleIds, file.macros, id);
 
       this.assertDependencyGraph(file.macros.map((macro) => macro.id === id ? updated : macro));
@@ -277,12 +287,16 @@ export class MacroStore {
         return (
           "roleId" in storedMacro ||
           LEGACY_ROLE_ID_FIELD in storedMacro ||
-          storedMacro.enabled === undefined
+          storedMacro.enabled === undefined ||
+          storedMacro.activationMode === undefined ||
+          (Array.isArray(storedMacro.steps) &&
+            storedMacro.steps.some((step) => step.type === "key" && step.action === undefined))
         );
       });
       const file = {
         macros: parsed.macros.map((macro) => this.normalizeStoredMacro(macro as StoredMacro))
       };
+      file.macros.forEach((macro) => this.assertActivationMode(macro));
       this.assertDependencyGraph(file.macros);
 
       if (didMigrate) {
@@ -314,6 +328,7 @@ export class MacroStore {
     return {
       id: typeof macro.id === "string" && macro.id.trim() ? macro.id : randomUUID(),
       enabled: macro.enabled === undefined ? true : this.normalizeEnabled(macro.enabled),
+      activationMode: this.normalizeActivationMode(macro.activationMode),
       name: this.normalizeName(macro.name),
       roleIds: this.normalizeRoleIds(this.readMacroRoleIds(macro)),
       trigger: this.normalizeTrigger(macro.trigger),
@@ -344,6 +359,16 @@ export class MacroStore {
     }
 
     return enabled;
+  }
+
+  private normalizeActivationMode(value: unknown): MacroActivationMode {
+    if (value === undefined || value === "toggle") {
+      return "toggle";
+    }
+    if (value === "while_held") {
+      return value;
+    }
+    throw new MacroStoreError("MACRO_ACTIVATION_MODE_INVALID", "Macro activation mode is invalid.");
   }
 
   private normalizeRoleIds(roleIds: unknown): string[] {
@@ -382,6 +407,15 @@ export class MacroStore {
       shift: Boolean(trigger.shift),
       meta: Boolean(trigger.meta)
     };
+  }
+
+  private assertActivationMode(macro: Pick<Macro, "activationMode" | "trigger">): void {
+    if (macro.activationMode === "while_held" && !macro.trigger) {
+      throw new MacroStoreError(
+        "MACRO_WHILE_HELD_TRIGGER_REQUIRED",
+        "A while-held macro requires a shortcut."
+      );
+    }
   }
 
   private assertTriggerAvailable(
@@ -462,6 +496,7 @@ export class MacroStore {
             id,
             type: "key",
             code: this.normalizeCode(step.code, "Macro key step is invalid."),
+            action: this.normalizeKeyAction(step.action),
             label: this.normalizeOptionalLabel(step.label)
           };
         case "click":
@@ -499,6 +534,16 @@ export class MacroStore {
     return normalized;
   }
 
+  private normalizeKeyAction(value: unknown): MacroKeyAction {
+    if (value === undefined || value === "tap") {
+      return "tap";
+    }
+    if (value === "hold_until_stop") {
+      return value;
+    }
+    throw new MacroStoreError("MACRO_KEY_ACTION_INVALID", "Macro key action is invalid.");
+  }
+
   private normalizeMacroId(value: string | undefined): string {
     const normalized = value?.trim() ?? "";
     if (!normalized || normalized.length > MACRO_ID_MAX_LENGTH) {
@@ -517,6 +562,12 @@ export class MacroStore {
     }
     if (issue.type === "repeat") {
       throw new MacroStoreError("MACRO_STEP_TARGET_REPEATS", "Macro step target must run once.");
+    }
+    if (issue.type === "hold") {
+      throw new MacroStoreError(
+        "MACRO_STEP_TARGET_HOLDS_KEY",
+        "Macro step target cannot hold a key until stopped."
+      );
     }
     throw new MacroStoreError(
       "MACRO_DEPENDENCY_CYCLE",

@@ -10,8 +10,11 @@ import type { Macro, Role } from "../src/shared/types";
 
 const translations: Partial<Record<Parameters<Translator>[0], string>> = {
   "macro.step.delay": "Delay",
+  "macro.step.hold": "Hold",
   "macro.step.key": "Key",
   "macro.step.macro": "Run macro",
+  "macroForm.activation.toggle": "Click / toggle",
+  "macroForm.activation.whileHeld": "While held",
   "macros.noShortcut": "No shortcut",
   "macros.repeat.loop": "Every {ms} ms",
   "macros.repeat.once": "Once",
@@ -33,6 +36,19 @@ describe("renderer macro list helpers", () => {
 
     expect(listIds({ macros, roleFilterId: "role-2", roles })).toEqual(["shared"]);
     expect(listIds({ macros, query: "alt", roles })).toEqual(["shared"]);
+  });
+
+  it("searches while-held activation and held-key summaries", () => {
+    const roles = [role({ id: "role-1", name: "Main" })];
+    const held = macro({
+      id: "held",
+      activationMode: "while_held",
+      roleIds: ["role-1"],
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    });
+
+    expect(listIds({ macros: [held], query: "while held", roles })).toEqual(["held"]);
+    expect(listIds({ macros: [held], query: "hold:w", roles })).toEqual(["held"]);
   });
 
   it("defaults to role order, then name, created time, and original order", () => {

@@ -1,6 +1,7 @@
 import type { Macro, Role } from "../../../../shared/types";
 import type { Translator } from "../../i18n";
 import {
+  formatMacroActivationMode,
   formatMacroRepeat,
   formatMacroShortcut,
   summarizeMacroSteps
@@ -62,6 +63,7 @@ export function getMacroListItems({
         macro.name,
         ...roleNames,
         formatMacroShortcut(macro.trigger, t),
+        formatMacroActivationMode(macro.activationMode, t),
         formatMacroRepeat(macro.repeat, t),
         summarizeMacroSteps(macro.steps, t, macroNameById)
       ]
@@ -105,7 +107,10 @@ function compareBySortKey(
     case "roles":
       return compareMacroRoles(a, b, roles, roleById);
     case "shortcut":
-      return compareText(formatMacroShortcut(a.trigger, t), formatMacroShortcut(b.trigger, t));
+      return compareText(
+        `${formatMacroShortcut(a.trigger, t)} ${formatMacroActivationMode(a.activationMode, t)}`,
+        `${formatMacroShortcut(b.trigger, t)} ${formatMacroActivationMode(b.activationMode, t)}`
+      );
     case "repeat":
       return compareText(formatMacroRepeat(a.repeat, t), formatMacroRepeat(b.repeat, t));
     case "steps":

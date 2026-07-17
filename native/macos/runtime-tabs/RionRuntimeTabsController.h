@@ -34,6 +34,7 @@ typedef void (^RionRuntimeTabsActionHandler)(NSDictionary<NSString *, id> *actio
 - (nullable instancetype)initWithWindow:(NSWindow *)window
                            actionHandler:(RionRuntimeTabsActionHandler)actionHandler;
 - (void)destroy;
+- (void)prepareForFullscreenTransition:(BOOL)fullScreen;
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow;
 - (void)setRevealLocked:(BOOL)locked;
 - (void)updateState:(RionRuntimeTabsState *)state;

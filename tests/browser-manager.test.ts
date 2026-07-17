@@ -401,6 +401,11 @@ describe("BrowserManager game host windows", () => {
 
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
+    expect(harness.nativeChromeControllers[0].prepareFullscreenTransition)
+      .toHaveBeenCalledWith(true);
+    expect(
+      harness.nativeChromeControllers[0].prepareFullscreenTransition.mock.invocationCallOrder[0]
+    ).toBeLessThan(harness.hosts[0].setFullScreen.mock.invocationCallOrder[0]);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
@@ -425,9 +430,52 @@ describe("BrowserManager game host windows", () => {
       { type: "activate", tabId: "native-tab" }
     );
 
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.nativeChromeControllers[0].prepareFullscreenTransition)
+      .toHaveBeenLastCalledWith(false);
+    expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
+
     harness.hosts[0].emit("closed");
     expect(harness.nativeChromeControllers[0].destroy).toHaveBeenCalledOnce();
     vi.useRealTimers();
+  });
+
+  it("rolls back a failed native macOS fullscreen preflight without wedging the window", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const preflightError = new Error("preflight failed");
+    const rollbackError = new Error("rollback failed");
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      platform: "darwin",
+      useMacNativeChrome: true,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+    const prepareFullscreenTransition =
+      harness.nativeChromeControllers[0].prepareFullscreenTransition;
+    prepareFullscreenTransition
+      .mockImplementationOnce(() => {
+        throw preflightError;
+      })
+      .mockImplementationOnce(() => {
+        throw rollbackError;
+      });
+
+    expect(() => {
+      harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    }).toThrow(preflightError);
+    expect(harness.hosts[0].setFullScreen).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to roll back macOS fullscreen preflight.",
+      rollbackError
+    );
+
+    prepareFullscreenTransition.mockReset();
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(prepareFullscreenTransition).toHaveBeenCalledWith(true);
+    expect(harness.hosts[0].setFullScreen).toHaveBeenCalledWith(true);
+    consoleError.mockRestore();
   });
 
   it("falls back to secure HTML chrome when native macOS attachment fails", async () => {
@@ -3034,6 +3082,7 @@ function createHarness(options: {
   const nativeChromeControllers: Array<{
     destroy: ReturnType<typeof vi.fn>;
     emitAction: (action: Parameters<NonNullable<BrowserManagerOptions["handleRuntimeTabAction"]>>[2]) => void;
+    prepareFullscreenTransition: ReturnType<typeof vi.fn>;
     setFullscreenPolicy: ReturnType<typeof vi.fn>;
     setRevealLocked: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -3093,6 +3142,7 @@ function createHarness(options: {
     const controller = {
       destroy: vi.fn(),
       emitAction: onAction,
+      prepareFullscreenTransition: vi.fn(),
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       update: vi.fn()

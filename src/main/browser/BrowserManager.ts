@@ -1480,8 +1480,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
     displayHost.windowFullscreenTransitionTarget = fullscreen;
     try {
+      displayHost.macNativeTabs?.prepareFullscreenTransition(fullscreen);
       displayHost.window.setFullScreen(fullscreen);
     } catch (error) {
+      if (fullscreen) {
+        try {
+          displayHost.macNativeTabs?.prepareFullscreenTransition(false);
+        } catch (rollbackError) {
+          console.error("Failed to roll back macOS fullscreen preflight.", rollbackError);
+        }
+      }
       displayHost.windowFullscreenTransitionTarget = undefined;
       throw error;
     }

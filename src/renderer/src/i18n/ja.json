@@ -211,6 +211,7 @@
   "macros.column.roles": "ロール",
   "macros.column.steps": "ステップ",
   "macros.column.shortcut": "ショートカット",
+  "macros.column.activation": "起動方法",
   "macros.column.repeat": "繰り返し",
   "macros.column.enabled": "有効",
   "macros.column.status": "状態",

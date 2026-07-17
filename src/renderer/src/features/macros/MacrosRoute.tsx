@@ -263,6 +263,13 @@ function MacrosRoute({
                     onSort={handleSortChange}
                   />
                   <MacroSortHeader
+                    label={t("macros.column.activation")}
+                    sort={sort}
+                    sortKey="activation"
+                    t={t}
+                    onSort={handleSortChange}
+                  />
+                  <MacroSortHeader
                     label={t("macros.column.repeat")}
                     sort={sort}
                     sortKey="repeat"
@@ -321,9 +328,9 @@ function MacrosRoute({
                     </td>
                     <td className="px-4 py-2.5 align-baseline font-semibold text-muted-foreground">
                       <span className="block">{formatMacroShortcut(macro.trigger, t)}</span>
-                      <span className="block text-[10px] font-medium">
-                        {formatMacroActivationMode(macro.activationMode, t)}
-                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 align-baseline text-muted-foreground">
+                      {formatMacroActivationMode(macro.activationMode, t)}
                     </td>
                     <td className="px-4 py-2.5 align-baseline font-semibold text-muted-foreground">
                       {formatMacroRepeat(macro.repeat, t)}

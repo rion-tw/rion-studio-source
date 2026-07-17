@@ -211,6 +211,7 @@
   "macros.column.roles": "角色",
   "macros.column.steps": "步驟",
   "macros.column.shortcut": "快捷鍵",
+  "macros.column.activation": "啟動方式",
   "macros.column.repeat": "輪詢",
   "macros.column.enabled": "啟用",
   "macros.column.status": "狀態",

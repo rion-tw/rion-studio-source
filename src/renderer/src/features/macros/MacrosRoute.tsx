@@ -217,7 +217,7 @@ function MacrosRoute({
       ) : null}
 
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-2 text-xs font-semibold text-muted-foreground">
+        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           <Badge variant="secondary">{t("macros.count").replace("{count}", String(macros.length))}</Badge>
           <Badge variant="secondary">{t("macros.runningCount").replace("{count}", String(runningCount))}</Badge>
         </div>
@@ -238,7 +238,7 @@ function MacrosRoute({
         <Surface className="mac-list-surface overflow-hidden" variant="panel">
           <div className="overflow-auto">
             <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
-              <thead className="glass-divider border-b text-[11px] font-semibold uppercase tracking-normal text-muted-foreground">
+              <thead className="glass-divider border-b text-[11px] uppercase tracking-normal text-muted-foreground">
                 <tr>
                   <th className="w-9 px-2 py-1.5" aria-hidden="true" />
                   <MacroSortHeader
@@ -326,16 +326,16 @@ function MacrosRoute({
                         t={t}
                       />
                     </td>
-                    <td className="px-4 py-2.5 align-baseline font-semibold text-muted-foreground">
+                    <td className="px-4 py-2.5 align-baseline text-muted-foreground">
                       <span className="block">{formatMacroShortcut(macro.trigger, t)}</span>
                     </td>
                     <td className="px-4 py-2.5 align-baseline text-muted-foreground">
                       {formatMacroActivationMode(macro.activationMode, t)}
                     </td>
-                    <td className="px-4 py-2.5 align-baseline font-semibold text-muted-foreground">
+                    <td className="px-4 py-2.5 align-baseline text-muted-foreground">
                       {formatMacroRepeat(macro.repeat, t)}
                     </td>
-                    <td className="max-w-[320px] px-4 py-2.5 align-baseline font-medium text-muted-foreground">
+                    <td className="max-w-[320px] px-4 py-2.5 align-baseline text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t, macroNameById)}
                     </td>
                     <td className="relative w-20 p-0 text-center">
@@ -425,7 +425,7 @@ interface MacroRoleBadgeProps {
 
 function MacroRoleBadge({ macro, roleById, statusByRole, t }: MacroRoleBadgeProps): JSX.Element {
   if (macro.roleIds.length === 0) {
-    return <span className="font-medium leading-5 text-muted-foreground">{t("macros.noRoles")}</span>;
+    return <span className="leading-5 text-muted-foreground">{t("macros.noRoles")}</span>;
   }
 
   return (

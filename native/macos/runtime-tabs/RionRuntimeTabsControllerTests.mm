@@ -232,12 +232,18 @@ int main() {
     NSToolbar *fullscreenToolbar = [controller valueForKey:@"_toolbar"];
     Assert(fullscreenToolbar != windowedToolbar &&
                window.toolbar == fullscreenToolbar &&
-               !fullscreenToolbar.visible,
-           "Fullscreen must install Chromium's fresh, initially hidden native toolbar host.");
+               !fullscreenToolbar.visible && fullscreenToolbar.delegate == nil &&
+               fullscreenToolbar.items.count == 0,
+           "Fullscreen must install Chromium's empty, initially hidden native toolbar host.");
+    [controller applyLiquidGlassTitlebarAppearance];
+    Assert(fullscreenToolbar.delegate == nil &&
+               fullscreenToolbar.items.count == 0,
+           "Fullscreen appearance passes must not restore the windowed layout spacer.");
     [controller applyFullScreenPolicy];
     NSTitlebarAccessoryViewController *thinController =
         [controller valueForKey:@"_thinTitlebarController"];
     Assert(window.toolbar == fullscreenToolbar && !window.toolbar.visible &&
+               window.toolbar.delegate == nil && window.toolbar.items.count == 0 &&
                root.superview != window.contentView && !root.hidden &&
                window.titlebarAccessoryViewControllers.count == 2,
            "Fullscreen auto-hide must remain entirely hosted by AppKit titlebar accessories.");
@@ -274,9 +280,10 @@ int main() {
     NSArray<NSButton *> *observedFullscreenButtons =
         [controller valueForKey:@"_observedTrafficLightButtons"];
     Assert(window.toolbar.visible && !root.hidden &&
+               window.toolbar.delegate == nil && window.toolbar.items.count == 0 &&
                accessory.fullScreenMinHeight == 40.0 && thinController.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
-           "Always-show must reserve a static native 40pt titlebar above the game.");
+           "Always-show must reserve a static native 40pt titlebar above the game without a spacer row.");
     Assert(observedFullscreenButtons.count == 3 && !closeButton.hidden &&
                !minimizeButton.hidden && !zoomButton.hidden,
            "Always-show must retain all three AppKit traffic lights.");
@@ -294,8 +301,11 @@ int main() {
     [controller setValue:@NO forKey:@"fullscreenTransitionActive"];
     [controller restoreWindowedTitlebarHost];
     [controller installFreshToolbarForWindowedMode];
-    Assert(window.toolbar != fullscreenToolbar,
-           "Leaving fullscreen must replace the fullscreen toolbar host with a fresh windowed toolbar.");
+    Assert(window.toolbar != fullscreenToolbar &&
+               window.toolbar.delegate == controller &&
+               window.toolbar.items.count == 1 &&
+               window.toolbar.items.firstObject.view.frame.size.height == 28.0,
+           "Leaving fullscreen must restore a fresh windowed toolbar with its 28pt layout spacer.");
     Assert(residualFullScreenOverlay.superview == nil,
            "Leaving fullscreen must remove AppKit's residual fullscreen-exit overlay without replacing the native controls.");
     [controller applyFullScreenPolicy];
@@ -315,8 +325,10 @@ int main() {
 
     NSToolbar *firstWindowedToolbar = window.toolbar;
     [controller settleWindowedTitlebarAfterFullScreenExit];
-    Assert(window.toolbar != firstWindowedToolbar && window.toolbar.visible,
-           "The settled exit pass must replace any toolbar still owned by the fullscreen auxiliary window.");
+    Assert(window.toolbar != firstWindowedToolbar && window.toolbar.visible &&
+               window.toolbar.delegate == controller &&
+               window.toolbar.items.count == 1,
+           "The settled exit pass must replace any fullscreen toolbar with the windowed spacer host.");
     Assert(window.titlebarAccessoryViewControllers.count == 1,
            "The settled exit pass must reattach one tabs accessory to the normal window.");
     for (NSButton *button in @[ closeButton, minimizeButton, zoomButton ]) {

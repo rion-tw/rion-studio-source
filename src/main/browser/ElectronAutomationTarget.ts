@@ -6,11 +6,21 @@ import {
 } from "../../shared/macroShortcuts";
 
 export interface BrowserAutomationTarget {
-  dispatchClick: (xPercent: number, yPercent: number, signal?: AbortSignal) => Promise<void>;
-  dispatchKey: (code: string, signal?: AbortSignal) => Promise<void>;
+  dispatchClick: (
+    xPercent: number,
+    yPercent: number,
+    options?: BrowserInputDispatchOptions
+  ) => Promise<void>;
+  dispatchKey: (code: string, options?: BrowserInputDispatchOptions) => Promise<void>;
   ensureInputFocus: () => Promise<boolean>;
   evaluate: <T = unknown>(source: string) => Promise<T>;
   focus: () => Promise<void>;
+}
+
+export interface BrowserInputDispatchOptions {
+  holdMs?: number;
+  postDelayMs?: number;
+  signal?: AbortSignal;
 }
 
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
@@ -93,11 +103,12 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     );
   }
 
-  dispatchKey(code: string, signal?: AbortSignal): Promise<void> {
-    return this.enqueueInput(() => this.dispatchKeyUnlocked(code, signal));
+  dispatchKey(code: string, options: BrowserInputDispatchOptions = {}): Promise<void> {
+    return this.enqueueInput(() => this.dispatchKeyUnlocked(code, options));
   }
 
-  private async dispatchKeyUnlocked(code: string, signal?: AbortSignal): Promise<void> {
+  private async dispatchKeyUnlocked(code: string, options: BrowserInputDispatchOptions): Promise<void> {
+    const { holdMs = 0, postDelayMs = 0, signal } = options;
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
@@ -117,6 +128,8 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       signal?.throwIfAborted();
       this.webContents.sendInputEvent({ type: "rawKeyDown", keyCode });
       didSendKeyDown = true;
+      await waitForInputDelay(holdMs, signal);
+      signal?.throwIfAborted();
       this.webContents.sendInputEvent({ type: "keyUp", keyCode });
       didSendKeyUp = true;
     } finally {
@@ -134,13 +147,23 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
         )
       );
     }
+    await waitForInputDelay(postDelayMs, signal);
   }
 
-  dispatchClick(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
-    return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, signal));
+  dispatchClick(
+    xPercent: number,
+    yPercent: number,
+    options: BrowserInputDispatchOptions = {}
+  ): Promise<void> {
+    return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, options));
   }
 
-  private async dispatchClickUnlocked(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
+  private async dispatchClickUnlocked(
+    xPercent: number,
+    yPercent: number,
+    options: BrowserInputDispatchOptions
+  ): Promise<void> {
+    const { postDelayMs = 0, signal } = options;
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
@@ -168,6 +191,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       }
       this.syntheticClickDispatchDepth -= 1;
     }
+    await waitForInputDelay(postDelayMs, signal);
   }
 
   private enqueueInput(operation: () => Promise<void>): Promise<void> {
@@ -179,6 +203,29 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   async evaluate<T = unknown>(source: string): Promise<T> {
     return (await this.webContents.executeJavaScript(source)) as T;
   }
+}
+
+export function waitForInputDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", handleAbort);
+      resolve();
+    }, ms);
+    const handleAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", handleAbort);
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("Macro input cancelled."));
+    };
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    if (signal?.aborted) {
+      handleAbort();
+    }
+  });
 }
 
 function executeFrameScript(frame: WebFrameMain, source: string): Promise<unknown> {

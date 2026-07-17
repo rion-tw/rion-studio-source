@@ -23,6 +23,7 @@ import type {
   Macro,
   MacroPageRequest,
   MacroRunStatus,
+  MacroSettings,
   PendingWorkspaceLaunchRequest,
   PortableExportInput,
   PortableExportResult,
@@ -97,6 +98,8 @@ export interface RionStudioApi {
   startMacro: (macroId: string) => Promise<MacroRunStatus[]>;
   stopMacro: (macroId: string) => Promise<void>;
   listMacroStatuses: () => Promise<MacroRunStatus[]>;
+  getMacroSettings: () => Promise<MacroSettings>;
+  updateMacroSettings: (settings: MacroSettings) => Promise<MacroSettings>;
   exportPortableData: (input?: PortableExportInput) => Promise<PortableExportResult | null>;
   previewPortableImport: () => Promise<PortableImportPreview | null>;
   applyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;

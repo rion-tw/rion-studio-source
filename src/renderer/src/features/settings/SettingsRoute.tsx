@@ -42,6 +42,7 @@ import type {
   BrowserLaunchMode,
   GameBrowserSettings,
   GraphicsDiagnostics,
+  MacroSettings,
   PortableDataSelection,
   PortableExportInput,
   PortableExportResult,
@@ -61,6 +62,7 @@ import {
   applyGraphicsModeUpdate,
   getGraphicsRestartState
 } from "./graphicsRestart";
+import { MacroSettingsSection } from "./MacroSettingsSection";
 import {
   clearPortableDataSelection,
   createDefaultPortableDataSelection,
@@ -85,6 +87,7 @@ interface SettingsViewProps {
   gameBrowserSettings: GameBrowserSettings;
   hasRunningRoles: boolean;
   language: Language;
+  macroSettings: MacroSettings;
   portableDataCounts: PortableDataCounts;
   roleDefaults: RoleDefaults;
   resolvedTheme: ResolvedTheme;
@@ -97,6 +100,7 @@ interface SettingsViewProps {
   onError: (error: unknown) => void;
   onExportPortableData: (input: PortableExportInput) => Promise<PortableExportResult | null>;
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+  onMacroSettingsChange: (settings: MacroSettings) => Promise<MacroSettings>;
   onLoadGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
   onLoadSystemFonts: () => Promise<SystemFontFamily[]>;
   onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
@@ -120,6 +124,7 @@ const settingsSectionTitleKeys: Record<SettingsSectionId, TranslationKey> = {
   data: "settings.data",
   game: "settings.game",
   interface: "settings.interface",
+  macros: "settings.macros",
   updates: "settings.updates"
 };
 
@@ -128,6 +133,7 @@ const settingsSectionDescriptionKeys: Record<SettingsSectionId, TranslationKey> 
   data: "settings.dataDescription",
   game: "settings.gameDescription",
   interface: "settings.interfaceDescription",
+  macros: "settings.macrosDescription",
   updates: "settings.updatesDescription"
 };
 
@@ -150,6 +156,7 @@ function SettingsViewBase({
   gameBrowserSettings,
   hasRunningRoles,
   language,
+  macroSettings,
   portableDataCounts,
   roleDefaults,
   resolvedTheme,
@@ -162,6 +169,7 @@ function SettingsViewBase({
   onError,
   onExportPortableData,
   onGameBrowserSettingsChange,
+  onMacroSettingsChange,
   onLoadGraphicsDiagnostics,
   onLoadSystemFonts,
   onPreviewPortableImport,
@@ -327,6 +335,7 @@ function SettingsViewBase({
         preferences: {
           language,
           gameBrowserSettings,
+          macroSettings,
           roleDefaults,
           themeMode
         },
@@ -676,6 +685,15 @@ function SettingsViewBase({
               />
             </SettingsSection>
           </>
+        ) : null}
+
+        {activeSection === "macros" ? (
+          <MacroSettingsSection
+            settings={macroSettings}
+            t={t}
+            onError={onError}
+            onSave={onMacroSettingsChange}
+          />
         ) : null}
 
         {activeSection === "data" ? (
@@ -1285,7 +1303,7 @@ function SettingsSection({ children, title }: SettingsSectionProps): JSX.Element
 
 interface SettingsRowProps {
   control: ReactNode;
-  description: string;
+  description: ReactNode;
   showDivider?: boolean;
   title: string;
 }
@@ -1299,7 +1317,7 @@ function SettingsRow({ control, description, showDivider = true, title }: Settin
     >
       <div className="min-w-0">
         <p className="text-[13px] font-semibold leading-5 text-foreground">{title}</p>
-        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
+        <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</div>
       </div>
       <div className="min-w-0 shrink-0 sm:w-auto">{control}</div>
     </div>

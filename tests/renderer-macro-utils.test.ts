@@ -24,8 +24,10 @@ const t: Translator = (key) =>
       "macro.step.macro": "Run macro",
       "macroForm.intervalMilliseconds": "{value} ms",
       "macroForm.intervalSeconds": "{value} sec",
+      "macroForm.intervalNone": "0 ms · No extra wait",
       "macros.noShortcut": "No shortcut",
-      "macros.repeat.loop": "Every {ms} ms",
+      "macros.repeat.loop": "Wait {ms} ms after completion",
+      "macros.repeat.loopImmediate": "Schedule the next run after completion",
       "macros.repeat.once": "Once",
       "macros.steps.empty": "No steps",
       "macros.steps.more": "+{count} more",
@@ -80,7 +82,8 @@ describe("macroUtils", () => {
 
   it("formats repeat settings and run keys", () => {
     expect(formatMacroRepeat({ type: "once" }, t)).toBe("Once");
-    expect(formatMacroRepeat({ type: "loop", intervalMs: 500 }, t)).toBe("Every 500 ms");
+    expect(formatMacroRepeat({ type: "loop", intervalMs: 500 }, t)).toBe("Wait 500 ms after completion");
+    expect(formatMacroRepeat({ type: "loop", intervalMs: 0 }, t)).toBe("Schedule the next run after completion");
     expect(createMacroRunKey("role-1", "macro-1")).toBe("role-1:macro-1");
   });
 
@@ -108,8 +111,9 @@ describe("macroUtils", () => {
   });
 
   it("provides ordered interval presets and formats their units", () => {
-    expect(MACRO_INTERVAL_PRESETS).toEqual([250, 500, 1000, 2000, 5000, 10000]);
-    expect(MACRO_INTERVAL_OPTIONS).toEqual([250, 500, 1000, 2000, 5000, 10000, "custom"]);
+    expect(MACRO_INTERVAL_PRESETS).toEqual([0, 250, 500, 1000, 2000, 5000, 10000]);
+    expect(MACRO_INTERVAL_OPTIONS).toEqual([0, 250, 500, 1000, 2000, 5000, 10000, "custom"]);
+    expect(formatMacroIntervalPreset(0, t)).toBe("0 ms · No extra wait");
     expect(formatMacroIntervalPreset(250, t)).toBe("250 ms");
     expect(formatMacroIntervalPreset(1000, t)).toBe("1 sec");
     expect(formatMacroIntervalPreset(10000, t)).toBe("10 sec");
@@ -124,7 +128,7 @@ describe("macroUtils", () => {
     expect(isValidMacroInterval(100)).toBe(true);
     expect(isValidMacroInterval(1)).toBe(true);
     expect(isValidMacroInterval(600000)).toBe(true);
-    expect(isValidMacroInterval(0)).toBe(false);
+    expect(isValidMacroInterval(0)).toBe(true);
     expect(isValidMacroInterval(600001)).toBe(false);
     expect(isValidMacroInterval(1.5)).toBe(false);
   });

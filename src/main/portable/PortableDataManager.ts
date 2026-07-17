@@ -3,6 +3,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { normalizeGameBrowserSettings } from "../../shared/browserFonts";
+import { normalizeMacroSettings } from "../../shared/macroSettings";
 import { BUILTIN_GAME_DEFINITIONS } from "../../shared/games";
 import {
   areMacroTriggersEqual,
@@ -12,6 +13,7 @@ import {
 import { findMacroDependencyIssue, macroDependsOn } from "../../shared/macroDependencies";
 import { MacroMutationBusyError } from "../macros/MacroManager";
 import type { MacroStore } from "../macros/MacroStore";
+import type { MacroSettingsStore } from "../macros/MacroSettingsStore";
 import type { GameStore } from "../games/GameStore";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
@@ -32,6 +34,7 @@ import {
   type LaunchWorkspace,
   type Macro,
   type MacroRepeat,
+  type MacroSettings,
   type MacroStep,
   type MacroTrigger,
   type PortableDataSelection,
@@ -113,6 +116,10 @@ interface PortableDataManagerOptions {
     "listWorkspaces" | "publishWorkspacesForImport" | "replaceWorkspacesForImport"
   >;
   macroStore: Pick<MacroStore, "listMacros" | "publishMacrosForImport" | "replaceMacrosForImport">;
+  macroSettingsStore?: Pick<
+    MacroSettingsStore,
+    "getSettings" | "publishSettingsForImport" | "updateSettings"
+  >;
   withDataMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
   withStoppedMacros?: <T>(macroIds: string[], operation: () => Promise<T>) => Promise<T>;
   writeTextFile?: (path: string, data: string, encoding: BufferEncoding) => Promise<void>;
@@ -148,11 +155,13 @@ interface PortableImportJournal {
   games: Game[];
   gameBrowserSettings?: GameBrowserSettings;
   macros: Macro[];
+  macroSettings?: MacroSettings;
   phase?: "committed" | "prepared";
   roles: Role[];
   targetGames?: Game[];
   targetGameBrowserSettings?: GameBrowserSettings;
   targetMacros?: Macro[];
+  targetMacroSettings?: MacroSettings;
   targetRoles?: Role[];
   targetWorkspaces?: LaunchWorkspace[];
   workspaceFileSchemaVersion?: number;
@@ -298,7 +307,7 @@ export class PortableDataManager {
         );
       }
 
-      const commit = () => this.commitImport(plan, selectedData.preferences?.gameBrowserSettings);
+      const commit = () => this.commitImport(plan, selectedData.preferences);
       if (this.options.withStoppedMacros && plan.affectedMacroIds.length > 0) {
         try {
           await this.options.withStoppedMacros(plan.affectedMacroIds, commit);
@@ -399,25 +408,41 @@ export class PortableDataManager {
     };
   }
 
-  private async commitImport(plan: ImportPlan, gameBrowserSettings?: GameBrowserSettings): Promise<void> {
+  private async commitImport(plan: ImportPlan, preferences?: PortablePreferences): Promise<void> {
     const shouldWriteGames = hasImportChanges(plan.operations.games);
     const shouldWriteRoles = hasImportChanges(plan.operations.roles);
     const shouldWriteWorkspaces = hasImportChanges(plan.operations.launchWorkspaces);
     const shouldWriteMacros = hasImportChanges(plan.operations.macros);
-    const shouldWriteSettings = Boolean(gameBrowserSettings && this.options.gameBrowserSettingsStore);
-    if (!shouldWriteGames && !shouldWriteRoles && !shouldWriteWorkspaces && !shouldWriteMacros && !shouldWriteSettings) {
+    const shouldWriteGameSettings = Boolean(
+      preferences?.gameBrowserSettings && this.options.gameBrowserSettingsStore
+    );
+    const shouldWriteMacroSettings = Boolean(
+      preferences?.macroSettings && this.options.macroSettingsStore
+    );
+    if (
+      !shouldWriteGames &&
+      !shouldWriteRoles &&
+      !shouldWriteWorkspaces &&
+      !shouldWriteMacros &&
+      !shouldWriteGameSettings &&
+      !shouldWriteMacroSettings
+    ) {
       return;
     }
 
-    const [games, roles, workspaces, macros, currentSettings] = await Promise.all([
+    const [games, roles, workspaces, macros, currentGameSettings, currentMacroSettings] = await Promise.all([
       this.options.gameStore.listGames(),
       this.options.roleStore.listRoles(),
       this.options.workspaceStore.listWorkspaces(),
       this.options.macroStore.listMacros(),
-      shouldWriteSettings ? this.options.gameBrowserSettingsStore?.getSettings() : undefined
+      shouldWriteGameSettings ? this.options.gameBrowserSettingsStore?.getSettings() : undefined,
+      shouldWriteMacroSettings ? this.options.macroSettingsStore?.getSettings() : undefined
     ]);
-    const targetSettings = gameBrowserSettings
-      ? normalizeGameBrowserSettings(gameBrowserSettings)
+    const targetGameSettings = preferences?.gameBrowserSettings
+      ? normalizeGameBrowserSettings(preferences.gameBrowserSettings)
+      : undefined;
+    const targetMacroSettings = preferences?.macroSettings
+      ? normalizeMacroSettings(preferences.macroSettings)
       : undefined;
 
     // Pin one coherent pre-transaction snapshot in every cache. Stores with no
@@ -427,8 +452,11 @@ export class PortableDataManager {
     this.options.roleStore.publishRolesForImport(roles);
     this.options.workspaceStore.publishWorkspacesForImport(workspaces);
     this.options.macroStore.publishMacrosForImport(macros);
-    if (currentSettings) {
-      this.options.gameBrowserSettingsStore?.publishSettingsForImport(currentSettings);
+    if (currentGameSettings) {
+      this.options.gameBrowserSettingsStore?.publishSettingsForImport(currentGameSettings);
+    }
+    if (currentMacroSettings) {
+      this.options.macroSettingsStore?.publishSettingsForImport(currentMacroSettings);
     }
 
     const journal: PortableImportJournal = {
@@ -443,8 +471,10 @@ export class PortableDataManager {
       targetWorkspaces: plan.finalWorkspaces,
       targetMacros: plan.finalMacros,
       workspaceFileSchemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
-      ...(targetSettings ? { targetGameBrowserSettings: targetSettings } : {}),
-      ...(currentSettings ? { gameBrowserSettings: currentSettings } : {})
+      ...(targetGameSettings ? { targetGameBrowserSettings: targetGameSettings } : {}),
+      ...(currentGameSettings ? { gameBrowserSettings: currentGameSettings } : {}),
+      ...(targetMacroSettings ? { targetMacroSettings } : {}),
+      ...(currentMacroSettings ? { macroSettings: currentMacroSettings } : {})
     };
     const journalPath = join(this.userDataDir, PORTABLE_IMPORT_JOURNAL_FILE);
     const stageDirectory = join(this.userDataDir, PORTABLE_IMPORT_STAGE_DIRECTORY);
@@ -456,7 +486,8 @@ export class PortableDataManager {
       let committedRoles = roles;
       let committedWorkspaces = workspaces;
       let committedMacros = macros;
-      let committedSettings = currentSettings;
+      let committedGameSettings = currentGameSettings;
+      let committedMacroSettings = currentMacroSettings;
 
       if (shouldWriteGames) {
         committedGames = await this.options.gameStore.replaceGamesForImport(plan.finalGames, false);
@@ -473,8 +504,17 @@ export class PortableDataManager {
       if (shouldWriteMacros) {
         committedMacros = await this.options.macroStore.replaceMacrosForImport(plan.finalMacros, false);
       }
-      if (shouldWriteSettings && targetSettings) {
-        committedSettings = await this.options.gameBrowserSettingsStore?.updateSettings(targetSettings, false);
+      if (shouldWriteGameSettings && targetGameSettings) {
+        committedGameSettings = await this.options.gameBrowserSettingsStore?.updateSettings(
+          targetGameSettings,
+          false
+        );
+      }
+      if (shouldWriteMacroSettings && targetMacroSettings) {
+        committedMacroSettings = await this.options.macroSettingsStore?.updateSettings(
+          targetMacroSettings,
+          false
+        );
       }
 
       const committedJournal: PortableImportJournal = {
@@ -484,7 +524,8 @@ export class PortableDataManager {
         targetRoles: committedRoles,
         targetWorkspaces: committedWorkspaces,
         targetMacros: committedMacros,
-        ...(committedSettings ? { targetGameBrowserSettings: committedSettings } : {})
+        ...(committedGameSettings ? { targetGameBrowserSettings: committedGameSettings } : {}),
+        ...(committedMacroSettings ? { targetMacroSettings: committedMacroSettings } : {})
       };
       await writeJsonFileAtomically(journalPath, committedJournal);
 
@@ -492,8 +533,11 @@ export class PortableDataManager {
       this.options.roleStore.publishRolesForImport(committedRoles);
       this.options.workspaceStore.publishWorkspacesForImport(committedWorkspaces);
       this.options.macroStore.publishMacrosForImport(committedMacros);
-      if (committedSettings) {
-        this.options.gameBrowserSettingsStore?.publishSettingsForImport(committedSettings);
+      if (committedGameSettings) {
+        this.options.gameBrowserSettingsStore?.publishSettingsForImport(committedGameSettings);
+      }
+      if (committedMacroSettings) {
+        this.options.macroSettingsStore?.publishSettingsForImport(committedMacroSettings);
       }
 
       await rm(stageDirectory, { force: true, recursive: true });
@@ -508,10 +552,17 @@ export class PortableDataManager {
           false
         );
         const restoredMacros = await this.options.macroStore.replaceMacrosForImport(journal.macros, false);
-        let restoredSettings = journal.gameBrowserSettings;
+        let restoredGameSettings = journal.gameBrowserSettings;
+        let restoredMacroSettings = journal.macroSettings;
         if (journal.gameBrowserSettings) {
-          restoredSettings = await this.options.gameBrowserSettingsStore?.updateSettings(
+          restoredGameSettings = await this.options.gameBrowserSettingsStore?.updateSettings(
             journal.gameBrowserSettings,
+            false
+          );
+        }
+        if (journal.macroSettings) {
+          restoredMacroSettings = await this.options.macroSettingsStore?.updateSettings(
+            journal.macroSettings,
             false
           );
         }
@@ -520,8 +571,11 @@ export class PortableDataManager {
         this.options.roleStore.publishRolesForImport(restoredRoles);
         this.options.workspaceStore.publishWorkspacesForImport(restoredWorkspaces);
         this.options.macroStore.publishMacrosForImport(restoredMacros);
-        if (restoredSettings) {
-          this.options.gameBrowserSettingsStore?.publishSettingsForImport(restoredSettings);
+        if (restoredGameSettings) {
+          this.options.gameBrowserSettingsStore?.publishSettingsForImport(restoredGameSettings);
+        }
+        if (restoredMacroSettings) {
+          this.options.macroSettingsStore?.publishSettingsForImport(restoredMacroSettings);
         }
         await cleanupImportedRoleDirectories(this.userDataDir, journal.createdRoleIds);
         didRestore = true;
@@ -885,6 +939,14 @@ async function writePortableImportStage(
             journal.targetGameBrowserSettings
           )
         ]
+      : []),
+    ...(journal.targetMacroSettings
+      ? [
+          writeJsonFileAtomically(
+            join(stageDirectory, "macro-settings.json"),
+            journal.targetMacroSettings
+          )
+        ]
       : [])
   ]);
 }
@@ -938,6 +1000,9 @@ export async function recoverPortableImportTransaction(userDataDir: string): Pro
   const recoverySettings = isCommitted
     ? journal.targetGameBrowserSettings
     : journal.gameBrowserSettings;
+  const recoveryMacroSettings = isCommitted
+    ? journal.targetMacroSettings
+    : journal.macroSettings;
 
   await writeJsonFileAtomically(join(userDataDir, "games.json"), { games: recoveryGames });
   await writeJsonFileAtomically(join(userDataDir, "roles.json"), { roles: recoveryRoles });
@@ -948,6 +1013,9 @@ export async function recoverPortableImportTransaction(userDataDir: string): Pro
   await writeJsonFileAtomically(join(userDataDir, "macros.json"), { macros: recoveryMacros });
   if (recoverySettings) {
     await writeJsonFileAtomically(join(userDataDir, "game-browser-settings.json"), recoverySettings);
+  }
+  if (recoveryMacroSettings) {
+    await writeJsonFileAtomically(join(userDataDir, "macro-settings.json"), recoveryMacroSettings);
   }
   if (!isCommitted) {
     await cleanupImportedRoleDirectories(userDataDir, journal.createdRoleIds);
@@ -1644,6 +1712,7 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
   const language = preferences.language;
   const themeMode = preferences.themeMode;
   const gameBrowserSettings = normalizeOptionalPortableGameBrowserSettings(preferences.gameBrowserSettings);
+  const macroSettings = normalizeOptionalPortableMacroSettings(preferences.macroSettings);
   const roleDefaults = normalizeOptionalPortableRoleDefaults(preferences.roleDefaults);
   const normalized: PortablePreferences = {};
 
@@ -1663,7 +1732,15 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
     normalized.gameBrowserSettings = gameBrowserSettings;
   }
 
-  return normalized.language || normalized.themeMode || normalized.roleDefaults || normalized.gameBrowserSettings
+  if (macroSettings) {
+    normalized.macroSettings = macroSettings;
+  }
+
+  return normalized.language ||
+    normalized.themeMode ||
+    normalized.roleDefaults ||
+    normalized.gameBrowserSettings ||
+    normalized.macroSettings
     ? normalized
     : undefined;
 }
@@ -1674,6 +1751,14 @@ function normalizeOptionalPortableGameBrowserSettings(value: unknown): GameBrows
   }
 
   return normalizeGameBrowserSettings(value);
+}
+
+function normalizeOptionalPortableMacroSettings(value: unknown): MacroSettings | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  return normalizeMacroSettings(value);
 }
 
 function normalizeOptionalPortableRoleDefaults(value: unknown): RoleDefaults | undefined {
@@ -1984,7 +2069,7 @@ function normalizeMilliseconds(value: unknown): number {
 }
 
 function normalizeLoopInterval(value: unknown): number {
-  if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > MACRO_DELAY_MAX_MS) {
+  if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > MACRO_DELAY_MAX_MS) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 

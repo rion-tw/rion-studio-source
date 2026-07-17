@@ -10,7 +10,7 @@ import { macroDependsOn } from "../../../../shared/macroDependencies";
 import type { MacroFormState } from "../../app/types";
 import type { TranslationKey, Translator } from "../../i18n";
 
-export const MACRO_INTERVAL_PRESETS = [250, 500, 1000, 2000, 5000, 10000] as const;
+export const MACRO_INTERVAL_PRESETS = [0, 250, 500, 1000, 2000, 5000, 10000] as const;
 export const MACRO_INTERVAL_CUSTOM_VALUE = "custom";
 export const MACRO_INTERVAL_OPTIONS = [...MACRO_INTERVAL_PRESETS, MACRO_INTERVAL_CUSTOM_VALUE] as const;
 
@@ -40,10 +40,13 @@ export function isMacroIntervalPreset(value: number): boolean {
 }
 
 export function isValidMacroInterval(value: number): boolean {
-  return Number.isInteger(value) && value >= 1 && value <= 600000;
+  return Number.isInteger(value) && value >= 0 && value <= 600000;
 }
 
 export function formatMacroIntervalPreset(value: number, t: Translator): string {
+  if (value === 0) {
+    return t("macroForm.intervalNone");
+  }
   const translationKey = value < 1000
     ? "macroForm.intervalMilliseconds"
     : "macroForm.intervalSeconds";
@@ -213,7 +216,9 @@ export function formatMacroRepeat(repeat: MacroRepeat, t: Translator): string {
     return t("macros.repeat.once");
   }
 
-  return t("macros.repeat.loop").replace("{ms}", String(repeat.intervalMs));
+  return repeat.intervalMs === 0
+    ? t("macros.repeat.loopImmediate")
+    : t("macros.repeat.loop").replace("{ms}", String(repeat.intervalMs));
 }
 
 export function summarizeMacroSteps(

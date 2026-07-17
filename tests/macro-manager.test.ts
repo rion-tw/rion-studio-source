@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MacroManager, MacroMutationBusyError } from "../src/main/macros/MacroManager";
-import type { Macro } from "../src/shared/types";
+import { DEFAULT_MACRO_SETTINGS } from "../src/shared/macroSettings";
+import type { Macro, MacroSettings } from "../src/shared/types";
+
+const testMacroSettings: MacroSettings = { ...DEFAULT_MACRO_SETTINGS, startupDelayMs: 0 };
 
 const macro: Macro = {
   id: "macro-1",
@@ -44,8 +47,8 @@ describe("MacroManager", () => {
       expect(target.ensureInputFocus.mock.invocationCallOrder[0]).toBeLessThan(
         target.dispatchKey.mock.invocationCallOrder[0]
       );
-      expect(target.dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal));
-      expect(target.dispatchClick).toHaveBeenCalledWith(25, 75, expect.any(AbortSignal));
+      expect(target.dispatchKey).toHaveBeenCalledWith("F2", expectInputOptions());
+      expect(target.dispatchClick).toHaveBeenCalledWith(25, 75, expectInputOptions(false));
       expect(target.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
         target.dispatchClick.mock.invocationCallOrder[0]
       );
@@ -149,10 +152,12 @@ describe("MacroManager", () => {
         getAutomationSession: vi.fn(() => ({ role: macroRole, target })),
         setMacroActiveRoleIds
       } as never,
-      { getMacro: vi.fn(async () => ({ ...macro, roleIds: ["role-1"] })) } as never
+      { getMacro: vi.fn(async () => ({ ...macro, roleIds: ["role-1"] })) } as never,
+      { getSettings: vi.fn(async () => testMacroSettings) }
     );
 
     await manager.start("macro-1");
+    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalledOnce());
 
     expect(setMacroActiveRoleIds).toHaveBeenCalledWith(["role-1"]);
     expect(setMacroActiveRoleIds.mock.invocationCallOrder[0]).toBeLessThan(
@@ -205,6 +210,62 @@ describe("MacroManager", () => {
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
 
+  it("applies the startup buffer once before the first iteration", async () => {
+    vi.useFakeTimers();
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        repeat: { type: "loop", intervalMs: 50 }
+      },
+      settings: { ...DEFAULT_MACRO_SETTINGS, startupDelayMs: 100 },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.advanceTimersByTimeAsync(99);
+    expect(target.dispatchKey).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(target.dispatchKey).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(49);
+    expect(target.dispatchKey).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(target.dispatchKey).toHaveBeenCalledTimes(2);
+
+    await manager.stop("macro-1");
+  });
+
+  it("captures settings at start and applies later changes only to new runs", async () => {
+    vi.useFakeTimers();
+    const target = createTarget();
+    let settings: MacroSettings = { ...DEFAULT_MACRO_SETTINGS, startupDelayMs: 100 };
+    const getSettings = vi.fn(async () => ({ ...settings }));
+    const manager = createManager({
+      macroOverride: { ...macro, roleIds: ["role-1"] },
+      getSettings,
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    settings = { ...DEFAULT_MACRO_SETTINGS, startupDelayMs: 0, keyHoldMs: 80 };
+    await vi.advanceTimersByTimeAsync(100);
+    expect(target.dispatchKey).toHaveBeenCalledWith(
+      "F2",
+      expect.objectContaining({ holdMs: 30, postDelayMs: 30 })
+    );
+    await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
+
+    target.dispatchKey.mockClear();
+    await manager.start("macro-1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(target.dispatchKey).toHaveBeenCalledWith(
+      "F2",
+      expect.objectContaining({ holdMs: 80, postDelayMs: 30 })
+    );
+    expect(getSettings).toHaveBeenCalledTimes(2);
+  });
+
   it("starts available assigned roles and skips unavailable sessions", async () => {
     const target = createTarget();
     const manager = createManager({
@@ -214,7 +275,7 @@ describe("MacroManager", () => {
     await expect(manager.start("macro-1")).resolves.toMatchObject([
       { roleId: "role-1", macroId: "macro-1", state: "running" }
     ]);
-    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalledWith("F2", expectInputOptions()));
   });
 
   it("rejects when no assigned role has an available automation session", async () => {
@@ -259,7 +320,7 @@ describe("MacroManager", () => {
     await expect(manager.startForRole("macro-1", "role-1")).resolves.toMatchObject([
       { roleId: "role-1", macroId: "macro-1", state: "running" }
     ]);
-    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalledWith("F2", expectInputOptions()));
   });
 
   it("rejects when compatibility sessions have no automation target", async () => {
@@ -300,8 +361,8 @@ describe("MacroManager", () => {
     });
 
     await manager.start("macro-1");
-    await vi.waitFor(() => expect(targets["role-1"].dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal)));
-    await vi.waitFor(() => expect(targets["role-2"].dispatchKey).toHaveBeenCalledWith("F2", expect.any(AbortSignal)));
+    await vi.waitFor(() => expect(targets["role-1"].dispatchKey).toHaveBeenCalledWith("F2", expectInputOptions()));
+    await vi.waitFor(() => expect(targets["role-2"].dispatchKey).toHaveBeenCalledWith("F2", expectInputOptions()));
   });
 
   it("rejects when any assigned role is already running the macro", async () => {
@@ -443,7 +504,7 @@ describe("MacroManager", () => {
     const mutation = manager.stopAndRunMutation("macro-1", operation);
 
     await expect(mutation).resolves.toBe("deleted");
-    expect(target.dispatchKey.mock.calls[0]?.[1]).toMatchObject({ aborted: true });
+    expect(target.dispatchKey.mock.calls[0]?.[1]?.signal).toMatchObject({ aborted: true });
     expect(manager.listStatuses()).toEqual([]);
     deferred.resolve(undefined);
   });
@@ -464,7 +525,7 @@ describe("MacroManager", () => {
     expect(manager.listStatuses()).toEqual([
       expect.objectContaining({ state: "failed", error: "Macro input timed out after 10000 ms." })
     ]);
-    expect(target.dispatchKey.mock.calls[0]?.[1]).toMatchObject({ aborted: true });
+    expect(target.dispatchKey.mock.calls[0]?.[1]?.signal).toMatchObject({ aborted: true });
     warning.mockRestore();
   });
 
@@ -527,9 +588,9 @@ describe("MacroManager", () => {
     await manager.start("parent");
     await vi.waitFor(() => expect(parentTarget.dispatchKey).toHaveBeenCalledTimes(2));
 
-    expect(parentTarget.dispatchKey).toHaveBeenNthCalledWith(1, "KeyA", expect.any(AbortSignal));
-    expect(childTarget.dispatchKey).toHaveBeenCalledWith("KeyB", expect.any(AbortSignal));
-    expect(parentTarget.dispatchKey).toHaveBeenNthCalledWith(2, "KeyC", expect.any(AbortSignal));
+    expect(parentTarget.dispatchKey).toHaveBeenNthCalledWith(1, "KeyA", expectInputOptions());
+    expect(childTarget.dispatchKey).toHaveBeenCalledWith("KeyB", expectInputOptions());
+    expect(parentTarget.dispatchKey).toHaveBeenNthCalledWith(2, "KeyC", expectInputOptions());
     expect(parentTarget.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
       childTarget.dispatchKey.mock.invocationCallOrder[0]
     );
@@ -617,9 +678,9 @@ describe("MacroManager", () => {
     delayedChild.resolve(undefined);
     await vi.waitFor(() => expect(parentTargets.first.dispatchKey).toHaveBeenCalledWith(
       "KeyC",
-      expect.any(AbortSignal)
+      expectInputOptions()
     ));
-    expect(parentTargets.second.dispatchKey).toHaveBeenCalledWith("KeyC", expect.any(AbortSignal));
+    expect(parentTargets.second.dispatchKey).toHaveBeenCalledWith("KeyC", expectInputOptions());
   });
 
   it("fails the parent when the called macro is already active", async () => {
@@ -904,6 +965,8 @@ function createManager(options: {
   macroOverride?: Macro;
   runtimeStatuses?: Array<{ roleId: string; runtimeMode: "external"; state: "running" }>;
   targets?: Record<string, ReturnType<typeof createTarget>>;
+  settings?: MacroSettings;
+  getSettings?: () => Promise<MacroSettings>;
 } = {}): MacroManager {
   const targets =
     options.targets ??
@@ -928,8 +991,17 @@ function createManager(options: {
     } as never,
     {
       getMacro: vi.fn((macroId: string) => Promise.resolve(macroById[macroId] ?? options.macroOverride ?? macro))
-    } as never
+    } as never,
+    { getSettings: vi.fn(options.getSettings ?? (async () => options.settings ?? testMacroSettings)) }
   );
+}
+
+function expectInputOptions(includeHold = true) {
+  return expect.objectContaining({
+    ...(includeHold ? { holdMs: 30 } : {}),
+    postDelayMs: 30,
+    signal: expect.any(AbortSignal)
+  });
 }
 
 function createTarget() {

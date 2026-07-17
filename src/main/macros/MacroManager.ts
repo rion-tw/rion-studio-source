@@ -1,9 +1,11 @@
 import { EventEmitter } from "node:events";
 
-import type { Macro, MacroRunStatus, MacroStep } from "../../shared/types";
+import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
+import type { Macro, MacroRunStatus, MacroSettings, MacroStep } from "../../shared/types";
 import type { BrowserManager } from "../browser/BrowserManager";
 import type { BrowserAutomationTarget } from "../browser/ElectronAutomationTarget";
 import type { MacroStore } from "./MacroStore";
+import type { MacroSettingsStore } from "./MacroSettingsStore";
 
 export interface MacroManagerEvents {
   change: [MacroRunStatus[]];
@@ -46,6 +48,7 @@ interface MacroInvocation {
   remainingRunKeys: Set<string>;
   resolveCompletion: (outcome: MacroInvocationOutcome) => void;
   runKeys: Set<string>;
+  settings: MacroSettings;
 }
 
 interface StartedMacroInvocation {
@@ -89,7 +92,10 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   constructor(
     private readonly browserManager: Pick<BrowserManager, "getAutomationSession"> &
       Partial<Pick<BrowserManager, "setMacroActiveRoleIds">>,
-    private readonly macroStore: Pick<MacroStore, "getMacro">
+    private readonly macroStore: Pick<MacroStore, "getMacro">,
+    private readonly macroSettingsStore: Pick<MacroSettingsStore, "getSettings"> = {
+      getSettings: async () => ({ ...DEFAULT_MACRO_SETTINGS })
+    }
   ) {
     super();
   }
@@ -185,13 +191,17 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private async startInvocationUnlocked(
     macroId: string,
     requestingRoleId?: string,
-    parentAncestry: string[] = []
+    parentAncestry: string[] = [],
+    inheritedSettings?: MacroSettings
   ): Promise<StartedMacroInvocation> {
     if (parentAncestry.includes(macroId)) {
       throw new Error("Macro dependency cycle detected while running a called macro.");
     }
 
-    const macro = await this.macroStore.getMacro(macroId);
+    const [macro, settings] = await Promise.all([
+      this.macroStore.getMacro(macroId),
+      inheritedSettings ?? this.macroSettingsStore.getSettings()
+    ]);
     if (requestingRoleId) {
       this.assertMacroAssignedToRole(macro, requestingRoleId);
     }
@@ -225,7 +235,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     const invocation = this.createInvocation(
       macroId,
       sessions.map(({ key }) => key),
-      [...parentAncestry, macroId]
+      [...parentAncestry, macroId],
+      settings
     );
     const now = new Date().toISOString();
     const runItems = sessions.map(({ key, roleId, target }) => {
@@ -283,7 +294,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private createInvocation(
     macroId: string,
     runKeys: string[],
-    ancestry: string[]
+    ancestry: string[],
+    settings: MacroSettings
   ): MacroInvocation {
     let resolveCompletion: (outcome: MacroInvocationOutcome) => void = () => undefined;
     const completion = new Promise<MacroInvocationOutcome>((resolve) => {
@@ -299,7 +311,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       macroId,
       remainingRunKeys: new Set(runKeys),
       resolveCompletion,
-      runKeys: new Set(runKeys)
+      runKeys: new Set(runKeys),
+      settings: { ...settings }
     };
     this.invocations.set(invocation.id, invocation);
     return invocation;
@@ -500,6 +513,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     macro: Macro,
     target: BrowserAutomationTarget
   ): Promise<void> {
+    await this.delay(run, invocation.settings.startupDelayMs);
     let iteration = 0;
     do {
       for (const step of macro.steps) {
@@ -509,7 +523,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       iteration += 1;
 
       if (macro.repeat.type !== "loop") break;
-      await this.delay(run, Math.max(1, macro.repeat.intervalMs));
+      await this.delay(run, macro.repeat.intervalMs);
     } while (!run.isCancelled && this.runs.get(runKey) === run);
   }
 
@@ -524,12 +538,19 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     switch (step.type) {
       case "key":
         await this.executeTargetOperation(run, () =>
-          target.dispatchKey(step.code, run.abortController.signal)
+          target.dispatchKey(step.code, {
+            holdMs: invocation.settings.keyHoldMs,
+            postDelayMs: invocation.settings.postInputDelayMs,
+            signal: run.abortController.signal
+          })
         );
         return;
       case "click":
         await this.executeTargetOperation(run, () =>
-          target.dispatchClick(step.xPercent, step.yPercent, run.abortController.signal)
+          target.dispatchClick(step.xPercent, step.yPercent, {
+            postDelayMs: invocation.settings.postInputDelayMs,
+            signal: run.abortController.signal
+          })
         );
         return;
       case "delay":
@@ -586,7 +607,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     let started: StartedMacroInvocation;
     try {
       started = await this.withMacroMutationLock(macroId, () =>
-        this.startInvocationUnlocked(macroId, undefined, parent.ancestry)
+        this.startInvocationUnlocked(macroId, undefined, parent.ancestry, parent.settings)
       );
       parent.childInvocationIds.add(started.invocation.id);
     } finally {
@@ -633,7 +654,6 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
   private async delay(run: MacroRun, ms: number): Promise<void> {
     this.throwIfCancelled(run);
-    if (ms === 0) return;
 
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {

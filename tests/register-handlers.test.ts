@@ -23,6 +23,7 @@ import type {
   Game,
   LaunchWorkspace,
   Macro,
+  MacroSettings,
   Role,
   SystemFontFamily,
   WorkspaceDisplayInfo
@@ -1099,6 +1100,10 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     getSettings: AnyMock;
     updateSettings: AnyMock;
   };
+  let macroSettingsStore: {
+    getSettings: AnyMock;
+    updateSettings: AnyMock;
+  };
   let systemFontService: {
     listFonts: AnyMock;
   };
@@ -1121,6 +1126,12 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     { family: "Arial", label: "Arial" },
     { family: "Courier New", label: "Courier New" }
   ];
+  const macroSettings: MacroSettings = {
+    startupDelayMs: 100,
+    keyHoldMs: 30,
+    postInputDelayMs: 30,
+    defaultLoopDelayMs: 1000
+  };
 
   beforeEach(() => {
     handlers.clear();
@@ -1146,6 +1157,10 @@ describe("registerIpcHandlers game browser settings handlers", () => {
       getSettings: vi.fn().mockResolvedValue(settings),
       updateSettings: vi.fn().mockResolvedValue(settings)
     };
+    macroSettingsStore = {
+      getSettings: vi.fn().mockResolvedValue(macroSettings),
+      updateSettings: vi.fn().mockResolvedValue(macroSettings)
+    };
     systemFontService = {
       listFonts: vi.fn().mockResolvedValue(fonts)
     };
@@ -1159,6 +1174,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
       authManager as AuthManager,
       {
         gameBrowserSettingsStore,
+        macroSettingsStore,
         getGraphicsDiagnostics,
         restartApplication,
         systemFontService
@@ -1169,10 +1185,14 @@ describe("registerIpcHandlers game browser settings handlers", () => {
   it("exposes get, update, and font list handlers", async () => {
     await expect(handlers.get(IPC_CHANNELS.gameBrowserSettingsGet)?.({})).resolves.toEqual(settings);
     await expect(handlers.get(IPC_CHANNELS.gameBrowserSettingsUpdate)?.({}, settings)).resolves.toEqual(settings);
+    await expect(handlers.get(IPC_CHANNELS.macroSettingsGet)?.({})).resolves.toEqual(macroSettings);
+    await expect(handlers.get(IPC_CHANNELS.macroSettingsUpdate)?.({}, macroSettings)).resolves.toEqual(macroSettings);
     await expect(handlers.get(IPC_CHANNELS.systemFontsList)?.({})).resolves.toEqual(fonts);
 
     expect(gameBrowserSettingsStore.getSettings).toHaveBeenCalledTimes(1);
     expect(gameBrowserSettingsStore.updateSettings).toHaveBeenCalledWith(settings);
+    expect(macroSettingsStore.getSettings).toHaveBeenCalledTimes(1);
+    expect(macroSettingsStore.updateSettings).toHaveBeenCalledWith(macroSettings);
     expect(browserManager.setWorkspaceAppearanceSettings).toHaveBeenCalledWith(settings.workspace);
     expect(systemFontService.listFonts).toHaveBeenCalledTimes(1);
   });

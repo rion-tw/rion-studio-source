@@ -35,7 +35,8 @@ import {
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../../../shared/macroShortcuts";
-import type { Game, Macro, MacroRepeat, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import { DEFAULT_MACRO_SETTINGS } from "../../../../shared/macroSettings";
+import type { Game, Macro, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
@@ -54,6 +55,7 @@ import {
 interface MacroEditorRouteProps {
   games: Game[];
   isSaving: boolean;
+  macroSettings?: MacroSettings;
   macros: Macro[];
   roles: Role[];
   t: Translator;
@@ -88,6 +90,7 @@ function MacroEditor({
   initialForm,
   games,
   isSaving,
+  macroSettings = DEFAULT_MACRO_SETTINGS,
   macros,
   roles,
   t,
@@ -193,6 +196,7 @@ function MacroEditor({
         form={form}
         games={games}
         isSaving={isSaving}
+        macroSettings={macroSettings}
         macros={macros}
         roles={roles}
         shortcutConflict={shortcutConflict}
@@ -207,6 +211,7 @@ interface MacroFormProps {
   form: MacroFormState;
   games: Game[];
   isSaving: boolean;
+  macroSettings: MacroSettings;
   macros: Macro[];
   onChange: (form: MacroFormState | ((current: MacroFormState) => MacroFormState)) => void;
   roles: Role[];
@@ -218,6 +223,7 @@ function MacroForm({
   form,
   games,
   isSaving,
+  macroSettings,
   macros,
   onChange,
   roles,
@@ -330,7 +336,9 @@ function MacroForm({
                         repeatType === "loop"
                           ? {
                               type: "loop",
-                              intervalMs: form.repeat.type === "loop" ? form.repeat.intervalMs : 1000
+                              intervalMs: form.repeat.type === "loop"
+                                ? form.repeat.intervalMs
+                                : macroSettings.defaultLoopDelayMs
                             }
                           : { type: "once" }
                       );
@@ -636,7 +644,7 @@ function MacroIntervalControl({
           aria-label={t("macroForm.intervalCustomValue")}
           disabled={disabled}
           max={600000}
-          min={1}
+          min={0}
           step={1}
           prefix={t("macroForm.intervalMs")}
           suffix="ms"

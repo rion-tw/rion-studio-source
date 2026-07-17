@@ -169,6 +169,13 @@ export interface MacroTrigger {
   meta: boolean;
 }
 
+export interface MacroSettings {
+  startupDelayMs: number;
+  keyHoldMs: number;
+  postInputDelayMs: number;
+  defaultLoopDelayMs: number;
+}
+
 export type MacroRepeat =
   | {
       type: "once";
@@ -586,6 +593,7 @@ export interface AcceptLegalDocumentsInput {
 export interface PortablePreferences {
   gameBrowserSettings?: GameBrowserSettings;
   language?: AppLanguage;
+  macroSettings?: MacroSettings;
   roleDefaults?: RoleDefaults;
   themeMode?: AppThemeMode;
 }

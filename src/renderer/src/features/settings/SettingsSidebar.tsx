@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, FileJson, Gamepad2, Info, Palette, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Download, FileJson, Gamepad2, Info, Keyboard, Palette, type LucideIcon } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -18,6 +18,7 @@ interface SettingsSidebarProps {
 const generalSectionItems = [
   { icon: Palette, labelKey: "settings.interface", value: "interface" },
   { icon: Gamepad2, labelKey: "settings.game", value: "game" },
+  { icon: Keyboard, labelKey: "settings.macros", value: "macros" },
   { icon: FileJson, labelKey: "settings.data", value: "data" }
 ] as const satisfies ReadonlyArray<{
   icon: LucideIcon;

@@ -157,7 +157,7 @@ describe("macro editor controls", () => {
     });
   });
 
-  it("does not show the low-interval warning at 250 ms or for invalid values", () => {
+  it("does not warn at 250 ms and explains a valid zero wait", () => {
     const thresholdMacro = macro({ repeat: { type: "loop", intervalMs: 250 } });
     const router = createMemoryRouter(
       [
@@ -188,8 +188,8 @@ describe("macro editor controls", () => {
 
     renderedThreshold.unmount();
 
-    const invalidMacro = macro({ repeat: { type: "loop", intervalMs: 0 } });
-    const invalidRouter = createMemoryRouter(
+    const zeroWaitMacro = macro({ repeat: { type: "loop", intervalMs: 0 } });
+    const zeroWaitRouter = createMemoryRouter(
       [
         {
           path: "/macros/:id/edit",
@@ -197,7 +197,7 @@ describe("macro editor controls", () => {
             <MacroEditorRoute
               games={[game()]}
               isSaving={false}
-              macros={[invalidMacro]}
+              macros={[zeroWaitMacro]}
               roles={[role()]}
               t={t}
               onSave={vi.fn()}
@@ -210,11 +210,58 @@ describe("macro editor controls", () => {
 
     render(
       <ConfirmationProvider>
-        <RouterProvider router={invalidRouter} />
+        <RouterProvider router={zeroWaitRouter} />
       </ConfirmationProvider>
     );
 
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe(en["macroForm.intervalLowWarning"]);
+  });
+
+  it("uses the global default when enabling looping", async () => {
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...macro(),
+      ...form,
+      id: "macro-new",
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/macros/new",
+          element: (
+            <MacroEditorRoute
+              games={[game()]}
+              isSaving={false}
+              macroSettings={{
+                startupDelayMs: 100,
+                keyHoldMs: 30,
+                postInputDelayMs: 30,
+                defaultLoopDelayMs: 0
+              }}
+              macros={[]}
+              roles={[role()]}
+              t={t}
+              onSave={onSave}
+            />
+          )
+        },
+        { path: "/macros", element: <div>Macro list</div> }
+      ],
+      { initialEntries: ["/macros/new"] }
+    );
+
+    render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Loop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create macro" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ repeat: { type: "loop", intervalMs: 0 } })
+    ));
   });
 });
 

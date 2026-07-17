@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ElectronAutomationTarget } from "../src/main/browser/ElectronAutomationTarget";
 
 describe("ElectronAutomationTarget", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("dispatches a key without scanning or focusing the game DOM", async () => {
     const harness = createHarness();
     const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
@@ -54,6 +58,54 @@ describe("ElectronAutomationTarget", () => {
       x: 200,
       y: 450
     });
+  });
+
+  it("holds keys and keeps the post-input delay inside the shared target queue", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    const key = target.dispatchKey("F2", { holdMs: 20, postDelayMs: 10 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.webContents.sendInputEvent.mock.calls).toEqual([
+      [{ type: "rawKeyDown", keyCode: "F2" }]
+    ]);
+
+    const click = target.dispatchClick(50, 50);
+    await vi.advanceTimersByTimeAsync(19);
+    expect(harness.webContents.sendInputEvent).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.webContents.sendInputEvent).toHaveBeenNthCalledWith(2, {
+      type: "keyUp",
+      keyCode: "F2"
+    });
+    await vi.advanceTimersByTimeAsync(9);
+    expect(harness.webContents.sendInputEvent).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await Promise.all([key, click]);
+    expect(harness.webContents.sendInputEvent).toHaveBeenCalledTimes(4);
+  });
+
+  it("releases a held key when the dispatch is aborted", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const controller = new AbortController();
+
+    const dispatch = target.dispatchKey("F2", {
+      holdMs: 100,
+      postDelayMs: 10,
+      signal: controller.signal
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+
+    await expect(dispatch).rejects.toThrow();
+    expect(harness.webContents.sendInputEvent.mock.calls).toEqual([
+      [{ type: "rawKeyDown", keyCode: "F2" }],
+      [{ type: "keyUp", keyCode: "F2" }]
+    ]);
   });
 
   it("never scans or focuses the page during repeated high-frequency input", async () => {

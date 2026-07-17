@@ -1,6 +1,6 @@
 import { getEditorParentPath } from "../../app/editorNavigation";
 
-export const settingsSectionIds = ["interface", "game", "data", "updates", "aboutLegal"] as const;
+export const settingsSectionIds = ["interface", "game", "macros", "data", "updates", "aboutLegal"] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
 
@@ -16,6 +16,7 @@ export const settingsSectionQueryValues: Record<SettingsSectionId, string> = {
   data: "data",
   game: "game",
   interface: "interface",
+  macros: "macros",
   updates: "updates"
 };
 

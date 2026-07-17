@@ -275,8 +275,7 @@ export class MacroStore {
         return (
           "roleId" in storedMacro ||
           LEGACY_ROLE_ID_FIELD in storedMacro ||
-          storedMacro.enabled === undefined ||
-          (storedMacro.repeat?.type === "loop" && storedMacro.repeat.intervalMs === 0)
+          storedMacro.enabled === undefined
         );
       });
       const file = {
@@ -430,10 +429,6 @@ export class MacroStore {
   }
 
   private normalizeStoredRepeat(repeat: MacroRepeat | undefined): MacroRepeat {
-    if (repeat?.type === "loop" && repeat.intervalMs === 0) {
-      return { type: "loop", intervalMs: 1 };
-    }
-
     return this.normalizeRepeat(repeat);
   }
 
@@ -554,8 +549,8 @@ export class MacroStore {
   }
 
   private normalizeLoopInterval(value: number): number {
-    if (!Number.isInteger(value) || value < 1 || value > MACRO_DELAY_MAX_MS) {
-      throw new MacroStoreError("MACRO_TIME_INVALID", "Macro interval must be between 1 and 600000 ms.");
+    if (!Number.isInteger(value) || value < 0 || value > MACRO_DELAY_MAX_MS) {
+      throw new MacroStoreError("MACRO_TIME_INVALID", "Macro interval must be between 0 and 600000 ms.");
     }
 
     return value;

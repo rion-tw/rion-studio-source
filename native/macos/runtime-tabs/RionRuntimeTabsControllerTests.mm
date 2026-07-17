@@ -23,6 +23,7 @@
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
+- (BOOL)readToolbarAutohideHeight:(CGFloat *)height;
 - (CGFloat)trafficLightReserveWidth;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
 
@@ -251,6 +252,10 @@ int main() {
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0 &&
                root.frame.size.height == 40.0,
            "Auto-hide must use full-size game content and let AppKit reveal the 40pt tabs as an overlay.");
+    CGFloat autoHideToolbarHeight = -1;
+    Assert([controller readToolbarAutohideHeight:&autoHideToolbarHeight] &&
+               autoHideToolbarHeight == 0,
+           "Auto-hide must collapse the empty NSToolbar geometry beneath the titlebar accessory.");
     Assert(std::fabs([controller trafficLightReserveWidth] -
                          windowedTrafficReserve) < 0.5 &&
                std::fabs(scrollView.frame.origin.x - windowedLeadingInset) < 0.5,
@@ -261,6 +266,9 @@ int main() {
                accessory.fullScreenMinHeight == 40.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "A reveal lock must pin the native titlebar while preserving overlay-style full-size content.");
+    Assert([controller readToolbarAutohideHeight:&autoHideToolbarHeight] &&
+               autoHideToolbarHeight == 0,
+           "Reveal locks must not restore the empty toolbar row height.");
     [controller setRevealLocked:NO];
     Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
@@ -284,6 +292,10 @@ int main() {
                accessory.fullScreenMinHeight == 40.0 && thinController.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
            "Always-show must reserve a static native 40pt titlebar above the game without a spacer row.");
+    CGFloat alwaysToolbarHeight = 0;
+    Assert([controller readToolbarAutohideHeight:&alwaysToolbarHeight] &&
+               alwaysToolbarHeight > 0,
+           "Always-show must restore AppKit's normal fullscreen toolbar geometry.");
     Assert(observedFullscreenButtons.count == 3 && !closeButton.hidden &&
                !minimizeButton.hidden && !zoomButton.hidden,
            "Always-show must retain all three AppKit traffic lights.");
@@ -341,6 +353,9 @@ int main() {
     Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Disabling always-show must immediately restore auto-hide.");
+    Assert([controller readToolbarAutohideHeight:&autoHideToolbarHeight] &&
+               autoHideToolbarHeight == 0,
+           "Returning to auto-hide must collapse the empty toolbar row again.");
     Assert(NSApplication.sharedApplication.presentationOptions ==
                previousPresentationOptions,
            "Runtime tabs must not mutate process-wide presentation options.");

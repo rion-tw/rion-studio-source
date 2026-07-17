@@ -105,6 +105,10 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 - (void)settleWindowedTitlebarAfterFullScreenExit;
 - (void)updateTrafficLightObservation;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
+- (BOOL)readToolbarAutohideHeight:(CGFloat *)height;
+- (void)restoreToolbarAutohideHeight;
+- (void)setToolbarAutohideHeight:(CGFloat)height;
+- (nullable NSView *)toolbarHostView;
 
 @end
 
@@ -622,6 +626,8 @@ static void *RionRuntimeTrafficLightObservationContext =
   BOOL _destroyed;
   BOOL _enforcingTrafficLightVisibility;
   BOOL _fullscreenTransitionActive;
+  BOOL _hasDefaultToolbarAutohideHeight;
+  CGFloat _defaultToolbarAutohideHeight;
   CGFloat _stableTrafficLightReserveWidth;
 }
 
@@ -917,6 +923,8 @@ static void *RionRuntimeTrafficLightObservationContext =
   if (_destroyed || !_window) return;
   _toolbar.delegate = nil;
   _toolbar = [self makeFullScreenToolbar];
+  _hasDefaultToolbarAutohideHeight =
+      [self readToolbarAutohideHeight:&_defaultToolbarAutohideHeight];
   _toolbar.visible = NO;
   _window.toolbar = _toolbar;
   _toolbar.visible = NO;
@@ -924,9 +932,11 @@ static void *RionRuntimeTrafficLightObservationContext =
 
 - (void)installFreshToolbarForWindowedMode {
   if (_destroyed || !_window) return;
+  [self restoreToolbarAutohideHeight];
   [self removeTrafficLightObservationRestoringState:NO];
   _toolbar.delegate = nil;
   _toolbar = [self makeWindowedToolbar];
+  _hasDefaultToolbarAutohideHeight = NO;
   _window.toolbar = _toolbar;
   _toolbar.visible = YES;
   [self restoreWindowedTrafficLightFrames];
@@ -1137,6 +1147,50 @@ static void *RionRuntimeTrafficLightObservationContext =
   });
 }
 
+- (nullable NSView *)toolbarHostView {
+  if (!_toolbar) return nil;
+  @try {
+    id candidate = [_toolbar valueForKey:@"_toolbarView"];
+    return [candidate isKindOfClass:NSView.class] ? candidate : nil;
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
+
+- (BOOL)readToolbarAutohideHeight:(CGFloat *)height {
+  if (!_toolbar || !height) return NO;
+  SEL selector = NSSelectorFromString(@"_autohideHeight");
+  if (![_toolbar respondsToSelector:selector]) return NO;
+  NSMethodSignature *signature = [_toolbar methodSignatureForSelector:selector];
+  if (!signature || signature.methodReturnLength != sizeof(CGFloat)) return NO;
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = _toolbar;
+  invocation.selector = selector;
+  [invocation invoke];
+  [invocation getReturnValue:height];
+  return YES;
+}
+
+- (void)setToolbarAutohideHeight:(CGFloat)height {
+  if (!_toolbar) return;
+  SEL selector = NSSelectorFromString(@"_setAutohideHeight:");
+  if (![_toolbar respondsToSelector:selector]) return;
+  NSMethodSignature *signature = [_toolbar methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 3) return;
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = _toolbar;
+  invocation.selector = selector;
+  [invocation setArgument:&height atIndex:2];
+  [invocation invoke];
+}
+
+- (void)restoreToolbarAutohideHeight {
+  if (!_hasDefaultToolbarAutohideHeight) return;
+  [self setToolbarAutohideHeight:_defaultToolbarAutohideHeight];
+}
+
 - (void)revealToolbarAndOrderBelowAccessory {
   if (_destroyed || !_window || !_toolbar) return;
 
@@ -1148,12 +1202,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   // Chromium applies the same ordering correction after setting `visible`.
   // Resolve the private view dynamically so older SDKs keep compiling and so
   // failure safely falls back to re-adding the public accessory controller.
-  NSView *toolbarView = nil;
-  @try {
-    id candidate = [_toolbar valueForKey:@"_toolbarView"];
-    if ([candidate isKindOfClass:NSView.class]) toolbarView = candidate;
-  } @catch (__unused NSException *exception) {
-  }
+  NSView *toolbarView = [self toolbarHostView];
 
   if (toolbarView.superview) {
     [toolbarView.superview addSubview:toolbarView
@@ -1515,6 +1564,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     if (self.alwaysShowInFullScreen) {
       // Chrome's kAlways policy reserves the native titlebar height. The game
       // content is statically laid out below it and never covered.
+      [self restoreToolbarAutohideHeight];
       _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
       _thinTitlebarController.hidden = YES;
       _window.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
@@ -1536,10 +1586,16 @@ static void *RionRuntimeTrafficLightObservationContext =
     } else {
       _toolbar.visible = NO;
     }
+    // An empty NSToolbar is still required as AppKit's native reveal trigger,
+    // but its default fullscreen auto-hide geometry allocates a separate row.
+    // Collapse only that row; the trailing titlebar accessory keeps its own
+    // 40pt native reveal height and remains an overlay above full-size content.
+    [self setToolbarAutohideHeight:0];
     [self removeTrafficLightObservationRestoringState:NO];
     return;
   }
 
+  [self restoreToolbarAutohideHeight];
   if (_previousFullSizeContentView) {
     _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
   } else {
@@ -1690,6 +1746,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   [_windowObservers removeAllObjects];
   BOOL fullScreen = _fullscreenTransitionActive ||
       (_window && (_window.styleMask & NSWindowStyleMaskFullScreen) != 0);
+  [self restoreToolbarAutohideHeight];
   [self removeTrafficLightObservationRestoringState:fullScreen];
   [self detachThinTitlebarController];
   [self detachAccessoryController];

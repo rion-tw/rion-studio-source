@@ -83,7 +83,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro shortcut key is invalid.": "error.macroShortcutInvalid",
   "Macro repeat setting is invalid.": "error.macroRepeatInvalid",
   "Macro activation mode is invalid.": "error.macroActivationModeInvalid",
-  "A while-held macro requires a shortcut.": "error.macroHoldShortcutRequired",
+  "A tap-or-hold macro requires a shortcut.": "error.macroHoldShortcutRequired",
   [`Macro interval must be between 0 and ${MACRO_DELAY_MAX_MS} ms.`]: "error.macroIntervalInvalid",
   "Macro must contain at least one step.": "error.macroStepsRequired",
   "Macro can contain at most 100 steps.": "error.macroStepsTooMany",

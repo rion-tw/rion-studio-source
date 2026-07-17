@@ -28,8 +28,8 @@ const t: Translator = (key) =>
       "macroForm.intervalMilliseconds": "{value} ms",
       "macroForm.intervalSeconds": "{value} sec",
       "macroForm.intervalNone": "0 ms · No extra wait",
-      "macroForm.activation.toggle": "Click / toggle",
-      "macroForm.activation.whileHeld": "While held",
+      "macroForm.activation.toggle": "Tap to toggle",
+      "macroForm.activation.whileHeld": "Tap or hold",
       "macros.noShortcut": "No shortcut",
       "macros.repeat.loop": "Wait {ms} ms after completion",
       "macros.repeat.loopImmediate": "Schedule the next run after completion",
@@ -91,8 +91,8 @@ describe("macroUtils", () => {
   });
 
   it("formats repeat settings and run keys", () => {
-    expect(formatMacroActivationMode(undefined, t)).toBe("Click / toggle");
-    expect(formatMacroActivationMode("while_held", t)).toBe("While held");
+    expect(formatMacroActivationMode(undefined, t)).toBe("Tap to toggle");
+    expect(formatMacroActivationMode("while_held", t)).toBe("Tap or hold");
     expect(formatMacroRepeat({ type: "once" }, t)).toBe("Once");
     expect(formatMacroRepeat({ type: "loop", intervalMs: 500 }, t)).toBe("Wait 500 ms after completion");
     expect(formatMacroRepeat({ type: "loop", intervalMs: 0 }, t)).toBe("Schedule the next run after completion");

@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v31";
+  const hostId = "rion-studio-macro-overlay-v32";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 29 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 30 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-17.1";
+  const scriptVersion = "2026-07-18.1";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -36,7 +36,7 @@
       resourceUnavailable: "Throttling unavailable",
       triggerAria: "Open Rion Studio Macros",
       triggerTitle: "Open Rion Studio Macros (Ctrl+Shift+M)",
-      whileHeld: "While held"
+      tapOrHold: "Tap or hold"
     },
     "zh-TW": {
       holdUntilStop: "保持",
@@ -46,7 +46,7 @@
       resourceUnavailable: "無法節流",
       triggerAria: "開啟 Rion Studio 巨集",
       triggerTitle: "開啟 Rion Studio 巨集 (Ctrl+Shift+M)",
-      whileHeld: "按住"
+      tapOrHold: "點按或按住"
     },
     "zh-CN": {
       holdUntilStop: "保持",
@@ -56,7 +56,7 @@
       resourceUnavailable: "无法限速",
       triggerAria: "打开 Rion Studio 宏",
       triggerTitle: "打开 Rion Studio 宏 (Ctrl+Shift+M)",
-      whileHeld: "按住"
+      tapOrHold: "点按或按住"
     },
     ja: {
       holdUntilStop: "保持",
@@ -66,7 +66,7 @@
       resourceUnavailable: "速度制限不可",
       triggerAria: "Rion Studio マクロを開く",
       triggerTitle: "Rion Studio マクロを開く (Ctrl+Shift+M)",
-      whileHeld: "押している間"
+      tapOrHold: "短押し／長押し"
     }
   };
   const triggerIconMarkup = [
@@ -200,7 +200,7 @@
     const text = getText();
     const parts = [];
     if ((macro.activationMode ?? "toggle") === "while_held") {
-      parts.push(text.whileHeld);
+      parts.push(text.tapOrHold);
     }
     if (macro.steps?.some((step) => step.type === "key" && step.action === "hold_until_stop")) {
       parts.push(text.holdUntilStop);
@@ -545,14 +545,20 @@
     consumeShortcutEvent(event);
     matches.forEach(([macroId, active]) => {
       activeHeldShortcuts.delete(macroId);
-      runAction("release", macroId, { pressId: active.pressId }, true);
+      runAction("release", macroId, {
+        pressId: active.pressId,
+        releaseMode: "complete_first_iteration"
+      }, true);
     });
   }
 
   function releaseActiveHeldShortcuts() {
     [...activeHeldShortcuts.entries()].forEach(([macroId, active]) => {
       activeHeldShortcuts.delete(macroId);
-      runAction("release", macroId, { pressId: active.pressId }, true);
+      runAction("release", macroId, {
+        pressId: active.pressId,
+        releaseMode: "immediate"
+      }, true);
     });
   }
 

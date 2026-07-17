@@ -4,7 +4,7 @@ import macroOverlayCss from "./overlay/macroOverlay.css?raw";
 import macroOverlayRuntimeSource from "./overlay/macroOverlayRuntime.js?raw";
 
 import type { AppLanguage, Macro, MacroPageRequest, MacroRunStatus, Role, RoleStatus } from "../../shared/types";
-import type { MacroManager } from "./MacroManager";
+import type { HeldTriggerReleaseMode, MacroManager } from "./MacroManager";
 import type { MacroStore } from "./MacroStore";
 
 interface MacroOverlayState {
@@ -50,6 +50,7 @@ export type MacroOverlayRequest =
   | {
       macroId: string;
       pressId: string;
+      releaseMode?: HeldTriggerReleaseMode;
       type: "release";
     };
 
@@ -173,7 +174,7 @@ export class MacroOverlayInjector {
         break;
       case "press":
         if (!this.macroManager.pressForRole) {
-          throw new Error("While-held macro control is unavailable.");
+          throw new Error("Tap-or-hold macro control is unavailable.");
         }
         return this.withStartSummary(
           roleId,
@@ -181,7 +182,12 @@ export class MacroOverlayInjector {
           (await this.macroManager.pressForRole(request.macroId, roleId, request.pressId)).length
         );
       case "release":
-        await this.macroManager.releaseForRole?.(request.macroId, roleId, request.pressId);
+        await this.macroManager.releaseForRole?.(
+          request.macroId,
+          roleId,
+          request.pressId,
+          request.releaseMode
+        );
         break;
     }
 
@@ -282,7 +288,12 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
   if (typeof value !== "object" || value === null || !("type" in value)) {
     return false;
   }
-  const request = value as { type?: unknown; macroId?: unknown; pressId?: unknown };
+  const request = value as {
+    type?: unknown;
+    macroId?: unknown;
+    pressId?: unknown;
+    releaseMode?: unknown;
+  };
   if (request.type === "list" || request.type === "open") {
     return true;
   }
@@ -295,7 +306,13 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
     typeof request.macroId === "string" &&
     Boolean(request.macroId) &&
     typeof request.pressId === "string" &&
-    Boolean(request.pressId)
+    Boolean(request.pressId) &&
+    (
+      request.type !== "release" ||
+      request.releaseMode === undefined ||
+      request.releaseMode === "complete_first_iteration" ||
+      request.releaseMode === "immediate"
+    )
   );
 }
 

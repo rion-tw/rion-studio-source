@@ -413,7 +413,7 @@ export class MacroStore {
     if (macro.activationMode === "while_held" && !macro.trigger) {
       throw new MacroStoreError(
         "MACRO_WHILE_HELD_TRIGGER_REQUIRED",
-        "A while-held macro requires a shortcut."
+        "A tap-or-hold macro requires a shortcut."
       );
     }
   }

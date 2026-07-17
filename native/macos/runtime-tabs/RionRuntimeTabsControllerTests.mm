@@ -17,13 +17,12 @@
 - (void)captureWindowedTrafficLightFrames;
 - (void)detachAccessoryController;
 - (void)hideInsertionIndicator;
-- (void)installFreshToolbarForFullScreen;
+- (void)installPreparedToolbarForFullScreen;
 - (void)installFreshToolbarForWindowedMode;
 - (void)layoutTitlebarContent;
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
-- (BOOL)readToolbarAutohideHeight:(CGFloat *)height;
 - (CGFloat)trafficLightReserveWidth;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
 
@@ -245,8 +244,11 @@ int main() {
                backdrop.state == NSVisualEffectStateFollowsWindowActiveState,
            "The fullscreen re-host pass must restore the same blurred header material.");
     Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
-               accessory.fullScreenMinHeight == 40.0,
-           "The fullscreen re-host pass must restore the same accessory geometry.");
+               accessory.fullScreenMinHeight == 28.0,
+           "Appearance refreshes must not transiently rewrite fullscreen geometry.");
+    [controller applyFullScreenPolicy];
+    Assert(accessory.fullScreenMinHeight == 40.0,
+           "The windowed policy must restore the settled 40pt accessory geometry.");
     Assert([controller valueForKey:@"_tabSurfaces"] == originalTabSurfaces,
            "Re-hosting must preserve the existing Liquid Glass tab surfaces.");
     [controller detachAccessoryController];
@@ -290,21 +292,32 @@ int main() {
     CGFloat windowedLeadingInset = scrollView.frame.origin.x;
     CGFloat windowedTrafficReserve = [controller trafficLightReserveWidth];
     NSToolbar *windowedToolbar = window.toolbar;
-    [controller setValue:@YES forKey:@"fullscreenTransitionActive"];
-    [controller installFreshToolbarForFullScreen];
+    NSToolbar *preparedFullscreenToolbar =
+        [controller valueForKey:@"_fullscreenToolbar"];
+    NSTitlebarAccessoryViewController *thinController =
+        [controller valueForKey:@"_thinTitlebarController"];
+    [controller setAlwaysShowInFullScreen:YES];
+    [controller prepareForFullscreenTransition:YES];
     NSToolbar *fullscreenToolbar = [controller valueForKey:@"_toolbar"];
-    Assert(fullscreenToolbar != windowedToolbar &&
+    Assert(fullscreenToolbar == preparedFullscreenToolbar &&
+               fullscreenToolbar != windowedToolbar &&
                window.toolbar == fullscreenToolbar &&
                !fullscreenToolbar.visible && fullscreenToolbar.delegate == nil &&
                fullscreenToolbar.items.count == 0,
-           "Fullscreen must install Chromium's empty, initially hidden native toolbar host.");
+           "Fullscreen preflight must install the prepared empty toolbar before AppKit starts its transition.");
+    Assert(accessory.fullScreenMinHeight == 0 && !thinController.hidden &&
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
+           "Always-show preflight must preserve the existing hidden, full-size transition geometry.");
+    [controller applyFullScreenPolicy];
+    Assert(window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
+           "Did-enter policy application must restore the always-show steady state.");
+    [controller setAlwaysShowInFullScreen:NO];
     [controller applyLiquidGlassTitlebarAppearance];
     Assert(fullscreenToolbar.delegate == nil &&
                fullscreenToolbar.items.count == 0,
            "Fullscreen appearance passes must not restore the windowed layout spacer.");
     [controller applyFullScreenPolicy];
-    NSTitlebarAccessoryViewController *thinController =
-        [controller valueForKey:@"_thinTitlebarController"];
     Assert(window.toolbar == fullscreenToolbar && !window.toolbar.visible &&
                window.toolbar.delegate == nil && window.toolbar.items.count == 0 &&
                root.superview != window.contentView && !root.hidden &&
@@ -314,10 +327,6 @@ int main() {
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0 &&
                root.frame.size.height == 40.0,
            "Auto-hide must use full-size game content and let AppKit reveal the 40pt tabs as an overlay.");
-    CGFloat autoHideToolbarHeight = -1;
-    Assert([controller readToolbarAutohideHeight:&autoHideToolbarHeight] &&
-               autoHideToolbarHeight == 0,
-           "Auto-hide must collapse the empty NSToolbar geometry beneath the titlebar accessory.");
     Assert(std::fabs([controller trafficLightReserveWidth] -
                          windowedTrafficReserve) < 0.5 &&
                std::fabs(scrollView.frame.origin.x - windowedLeadingInset) < 0.5,
@@ -326,11 +335,9 @@ int main() {
     [controller setRevealLocked:YES];
     Assert(window.toolbar.visible &&
                accessory.fullScreenMinHeight == 40.0 &&
+               thinController.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "A reveal lock must pin the native titlebar while preserving overlay-style full-size content.");
-    Assert([controller readToolbarAutohideHeight:&autoHideToolbarHeight] &&
-               autoHideToolbarHeight == 0,
-           "Reveal locks must not restore the empty toolbar row height.");
     [controller setRevealLocked:NO];
     Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
@@ -354,10 +361,6 @@ int main() {
                accessory.fullScreenMinHeight == 40.0 && thinController.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
            "Always-show must reserve a static native 40pt titlebar above the game without a spacer row.");
-    CGFloat alwaysToolbarHeight = 0;
-    Assert([controller readToolbarAutohideHeight:&alwaysToolbarHeight] &&
-               alwaysToolbarHeight > 0,
-           "Always-show must restore AppKit's normal fullscreen toolbar geometry.");
     Assert(observedFullscreenButtons.count == 3 && !closeButton.hidden &&
                !minimizeButton.hidden && !zoomButton.hidden,
            "Always-show must retain all three AppKit traffic lights.");
@@ -380,6 +383,8 @@ int main() {
                window.toolbar.items.count == 1 &&
                window.toolbar.items.firstObject.view.frame.size.height == 28.0,
            "Leaving fullscreen must restore a fresh windowed toolbar with its 28pt layout spacer.");
+    Assert([controller valueForKey:@"_fullscreenToolbar"] != fullscreenToolbar,
+           "Windowed settlement must prepare a fresh empty toolbar for the next fullscreen entry.");
     Assert(residualFullScreenOverlay.superview == nil,
            "Leaving fullscreen must remove AppKit's residual fullscreen-exit overlay without replacing the native controls.");
     [controller applyFullScreenPolicy];
@@ -410,20 +415,16 @@ int main() {
              "The settled exit pass must leave all normal traffic lights visible.");
     }
 
-    [controller setValue:@YES forKey:@"fullscreenTransitionActive"];
+    [controller prepareForFullscreenTransition:YES];
     [controller setAlwaysShowInFullScreen:NO];
     Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Disabling always-show must immediately restore auto-hide.");
-    Assert([controller readToolbarAutohideHeight:&autoHideToolbarHeight] &&
-               autoHideToolbarHeight == 0,
-           "Returning to auto-hide must collapse the empty toolbar row again.");
     Assert(NSApplication.sharedApplication.presentationOptions ==
                previousPresentationOptions,
            "Runtime tabs must not mutate process-wide presentation options.");
 
-    [controller setValue:@NO forKey:@"fullscreenTransitionActive"];
-    [controller applyFullScreenPolicy];
+    [controller prepareForFullscreenTransition:NO];
 
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
     if (@available(macOS 26.0, *)) {

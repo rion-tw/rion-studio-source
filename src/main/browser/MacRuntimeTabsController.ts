@@ -14,6 +14,7 @@ export type MacRuntimeTabsFullscreenPolicy = "always" | "autoHide";
 
 export interface MacRuntimeTabsController {
   destroy(): void;
+  prepareFullscreenTransition(fullscreen: boolean): void;
   setFullscreenPolicy(policy: MacRuntimeTabsFullscreenPolicy): void;
   setRevealLocked(locked: boolean): void;
   update(state: RuntimeTabChromeState): void;
@@ -49,6 +50,7 @@ export interface MacRuntimeTabsNativeAddon {
     callback: (action: unknown) => void
   ): number;
   destroyController(controllerId: number): void;
+  prepareFullscreenTransition(controllerId: number, fullscreen: boolean): void;
   protocolVersion: number;
   setFullscreenPolicy(
     controllerId: number,
@@ -77,7 +79,7 @@ const labels: Record<AppLanguage, MacRuntimeTabsNativeState["labels"]> = {
   }
 };
 
-const NATIVE_PROTOCOL_VERSION = 1;
+const NATIVE_PROTOCOL_VERSION = 2;
 
 export function toMacRuntimeTabsNativeState(
   state: RuntimeTabChromeState
@@ -126,6 +128,11 @@ export function createMacRuntimeTabsControllerFactory(
         if (destroyed) return;
         destroyed = true;
         nativeAddon.destroyController(controllerId);
+      },
+      prepareFullscreenTransition: (fullscreen) => {
+        if (!destroyed) {
+          nativeAddon.prepareFullscreenTransition(controllerId, fullscreen);
+        }
       },
       setFullscreenPolicy: (policy) => {
         if (!destroyed) nativeAddon.setFullscreenPolicy(controllerId, policy);

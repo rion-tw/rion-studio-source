@@ -100,7 +100,8 @@ describe("MacRuntimeTabsController", () => {
         return 17;
       }),
       destroyController: vi.fn(),
-      protocolVersion: 1,
+      prepareFullscreenTransition: vi.fn(),
+      protocolVersion: 2,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()
@@ -114,6 +115,7 @@ describe("MacRuntimeTabsController", () => {
     );
 
     controller.update(state);
+    controller.prepareFullscreenTransition(true);
     controller.setFullscreenPolicy("always");
     controller.setRevealLocked(true);
     nativeCallback?.({ type: "activate", tabId: "role" });
@@ -124,6 +126,7 @@ describe("MacRuntimeTabsController", () => {
       17,
       expect.objectContaining({ displayId: 11, tabs: expect.any(Array) })
     );
+    expect(nativeAddon.prepareFullscreenTransition).toHaveBeenCalledWith(17, true);
     expect(nativeAddon.setFullscreenPolicy).toHaveBeenCalledWith(17, "always");
     expect(nativeAddon.setRevealLocked).toHaveBeenCalledWith(17, true);
     expect(onAction).toHaveBeenCalledOnce();
@@ -137,8 +140,8 @@ describe("MacRuntimeTabsController", () => {
   });
 
   it("rejects an incompatible native protocol", () => {
-    expect(() => createMacRuntimeTabsControllerFactory({ protocolVersion: 2 } as never))
-      .toThrow("Unsupported macOS runtime tabs protocol 2");
+    expect(() => createMacRuntimeTabsControllerFactory({ protocolVersion: 1 } as never))
+      .toThrow("Unsupported macOS runtime tabs protocol 1");
   });
 
   it("logs a clear warning and permits the HTML fallback when the addon is missing", () => {

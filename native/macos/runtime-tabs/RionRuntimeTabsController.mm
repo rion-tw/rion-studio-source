@@ -104,7 +104,7 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 - (nullable NSString *)tabIdentifierBeforePoint:(NSPoint)point inView:(NSView *)view;
 - (void)hideInsertionIndicator;
 - (void)hideResidualFullScreenTrafficLightOverlay;
-- (void)installFreshToolbarForFullScreen;
+- (void)installPreparedToolbarForFullScreen;
 - (void)installFreshToolbarForWindowedMode;
 - (NSToolbar *)makeFullScreenToolbar;
 - (NSToolbar *)makeToolbarHost;
@@ -117,9 +117,6 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 - (void)settleWindowedTitlebarAfterFullScreenExit;
 - (void)updateTrafficLightObservation;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
-- (BOOL)readToolbarAutohideHeight:(CGFloat *)height;
-- (void)restoreToolbarAutohideHeight;
-- (void)setToolbarAutohideHeight:(CGFloat)height;
 - (nullable NSView *)toolbarHostView;
 
 @end
@@ -675,6 +672,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   NSMutableDictionary<NSValue *, NSDictionary<NSString *, NSNumber *> *> *
       _originalTrafficLightStates;
   NSMutableDictionary<NSNumber *, NSValue *> *_windowedTrafficLightFrames;
+  NSToolbar *_fullscreenToolbar;
   NSToolbar *_toolbar;
   RionRuntimeDraggableView *_tabCanvas;
   NSMutableArray<RionRuntimeTabItemView *> *_tabItems;
@@ -693,8 +691,6 @@ static void *RionRuntimeTrafficLightObservationContext =
   BOOL _destroyed;
   BOOL _enforcingTrafficLightVisibility;
   BOOL _fullscreenTransitionActive;
-  BOOL _hasDefaultToolbarAutohideHeight;
-  CGFloat _defaultToolbarAutohideHeight;
   CGFloat _stableTrafficLightReserveWidth;
 }
 
@@ -733,6 +729,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   }
 
   _toolbar = [self makeWindowedToolbar];
+  _fullscreenToolbar = [self makeFullScreenToolbar];
   _toolbar.visible = YES;
   window.toolbar = _toolbar;
 
@@ -891,29 +888,21 @@ static void *RionRuntimeTrafficLightObservationContext =
         [strongSelf updateWindowActiveState];
       } else if ([notification.name
                      isEqualToString:NSWindowWillEnterFullScreenNotification]) {
-        strongSelf->_fullscreenTransitionActive = YES;
-        strongSelf->_window.styleMask |= NSWindowStyleMaskFullSizeContentView;
-        strongSelf->_accessoryController.fullScreenMinHeight = 0;
-        [strongSelf attachAccessoryController];
-        [strongSelf attachThinTitlebarController];
-        strongSelf->_thinTitlebarController.hidden = NO;
-        strongSelf->_toolbar.visible = NO;
-        strongSelf->_window.toolbar = strongSelf->_previousToolbar;
+        // BrowserManager normally prepares the empty toolbar before asking
+        // Electron to enter fullscreen. Keep this notification as a fallback
+        // for native traffic-light initiated transitions.
+        [strongSelf prepareForFullscreenTransition:YES];
       } else if ([notification.name
                      isEqualToString:NSWindowDidEnterFullScreenNotification]) {
         strongSelf->_fullscreenTransitionActive = YES;
-        // Match Chromium's immersive controller: install a fresh, initially
-        // hidden toolbar only after AppKit finishes the fullscreen transition.
-        // Reusing the windowed NSToolbar can leave its fullscreen host parked
-        // above the screen even after `visible` is switched back to YES.
-        [strongSelf installFreshToolbarForFullScreen];
+        // AppKit has already built NSToolbarFullScreenWindow. Never replace its
+        // toolbar here; only apply the final native visibility policy.
         [strongSelf attachAccessoryController];
         [strongSelf attachThinTitlebarController];
         [strongSelf applyFullScreenPolicy];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
       } else if ([notification.name
                      isEqualToString:NSWindowWillExitFullScreenNotification]) {
-        strongSelf->_fullscreenTransitionActive = NO;
         NSWindow *titlebarHost = strongSelf->_accessoryController.view.window;
         if ([NSStringFromClass(titlebarHost.class)
                 isEqualToString:@"NSToolbarFullScreenWindow"]) {
@@ -986,26 +975,26 @@ static void *RionRuntimeTrafficLightObservationContext =
   return [self makeToolbarHost];
 }
 
-- (void)installFreshToolbarForFullScreen {
+- (void)installPreparedToolbarForFullScreen {
   if (_destroyed || !_window) return;
-  _toolbar.delegate = nil;
-  _toolbar = [self makeFullScreenToolbar];
-  _hasDefaultToolbarAutohideHeight =
-      [self readToolbarAutohideHeight:&_defaultToolbarAutohideHeight];
-  _toolbar.visible = NO;
-  _window.toolbar = _toolbar;
+  if (!_fullscreenToolbar) _fullscreenToolbar = [self makeFullScreenToolbar];
+  _fullscreenToolbar.delegate = nil;
+  _fullscreenToolbar.visible = NO;
+  _toolbar = _fullscreenToolbar;
+  if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
   _toolbar.visible = NO;
 }
 
 - (void)installFreshToolbarForWindowedMode {
   if (_destroyed || !_window) return;
-  [self restoreToolbarAutohideHeight];
   [self removeTrafficLightObservationRestoringState:NO];
   _toolbar.delegate = nil;
   _toolbar = [self makeWindowedToolbar];
-  _hasDefaultToolbarAutohideHeight = NO;
   _window.toolbar = _toolbar;
   _toolbar.visible = YES;
+  // Prepare the next fullscreen host while the window is settled. It must
+  // already exist before AppKit starts its next fullscreen transition.
+  _fullscreenToolbar = [self makeFullScreenToolbar];
   [self restoreWindowedTrafficLightFrames];
 }
 
@@ -1117,14 +1106,10 @@ static void *RionRuntimeTrafficLightObservationContext =
 
   _toolbar.allowsUserCustomization = NO;
   _toolbar.autosavesConfiguration = NO;
-  BOOL fullScreen = _fullscreenTransitionActive ||
-      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
-  _toolbar.delegate = fullScreen ? nil : self;
   _toolbar.displayMode = NSToolbarDisplayModeIconOnly;
   _toolbar.showsBaselineSeparator = NO;
 
   _accessoryController.layoutAttribute = NSLayoutAttributeTrailing;
-  _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
   _titlebarBackdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
   _titlebarBackdrop.material = NSVisualEffectMaterialHeaderView;
   _titlebarBackdrop.state = NSVisualEffectStateFollowsWindowActiveState;
@@ -1142,7 +1127,9 @@ static void *RionRuntimeTrafficLightObservationContext =
     // after both directions so neither mode briefly inherits default metrics.
     BOOL fullScreen = strongSelf->_fullscreenTransitionActive ||
         (strongSelf->_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
-    strongSelf->_window.toolbar = strongSelf->_toolbar;
+    if (strongSelf->_window.toolbar != strongSelf->_toolbar) {
+      strongSelf->_window.toolbar = strongSelf->_toolbar;
+    }
     [strongSelf applyFullScreenPolicy];
     if (!fullScreen) {
       [strongSelf restoreWindowedTrafficLightFrames];
@@ -1222,40 +1209,6 @@ static void *RionRuntimeTrafficLightObservationContext =
   } @catch (__unused NSException *exception) {
     return nil;
   }
-}
-
-- (BOOL)readToolbarAutohideHeight:(CGFloat *)height {
-  if (!_toolbar || !height) return NO;
-  SEL selector = NSSelectorFromString(@"_autohideHeight");
-  if (![_toolbar respondsToSelector:selector]) return NO;
-  NSMethodSignature *signature = [_toolbar methodSignatureForSelector:selector];
-  if (!signature || signature.methodReturnLength != sizeof(CGFloat)) return NO;
-  NSInvocation *invocation =
-      [NSInvocation invocationWithMethodSignature:signature];
-  invocation.target = _toolbar;
-  invocation.selector = selector;
-  [invocation invoke];
-  [invocation getReturnValue:height];
-  return YES;
-}
-
-- (void)setToolbarAutohideHeight:(CGFloat)height {
-  if (!_toolbar) return;
-  SEL selector = NSSelectorFromString(@"_setAutohideHeight:");
-  if (![_toolbar respondsToSelector:selector]) return;
-  NSMethodSignature *signature = [_toolbar methodSignatureForSelector:selector];
-  if (!signature || signature.numberOfArguments != 3) return;
-  NSInvocation *invocation =
-      [NSInvocation invocationWithMethodSignature:signature];
-  invocation.target = _toolbar;
-  invocation.selector = selector;
-  [invocation setArgument:&height atIndex:2];
-  [invocation invoke];
-}
-
-- (void)restoreToolbarAutohideHeight {
-  if (!_hasDefaultToolbarAutohideHeight) return;
-  [self setToolbarAutohideHeight:_defaultToolbarAutohideHeight];
 }
 
 - (void)revealToolbarAndOrderBelowAccessory {
@@ -1606,6 +1559,47 @@ static void *RionRuntimeTrafficLightObservationContext =
   [self applyFullScreenPolicy];
 }
 
+- (void)prepareForFullscreenTransition:(BOOL)fullScreen {
+  if (_destroyed || !_window) return;
+
+  if (fullScreen) {
+    // AppKit snapshots the toolbar and titlebar accessory geometry while the
+    // fullscreen transition is starting. Install the already-created empty
+    // toolbar synchronously before Electron calls -setFullScreen: so native
+    // auto-hide owns one stable host for the entire transition.
+    _fullscreenTransitionActive = YES;
+    [self installPreparedToolbarForFullScreen];
+    [self attachAccessoryController];
+    [self attachThinTitlebarController];
+    [self applyLiquidGlassTitlebarAppearance];
+    [self layoutTitlebarContent];
+    _accessoryController.hidden = NO;
+    _accessoryController.view.hidden = NO;
+    _accessoryController.view.alphaValue = 1.0;
+
+    // Preserve the transition geometry that already works for always-show:
+    // top chrome stays hidden over full-size content until DidEnterFullscreen
+    // applies the selected steady-state policy. Auto-hide has the same final
+    // geometry, so both modes enter with one stable native toolbar host.
+    _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+    _accessoryController.fullScreenMinHeight = 0;
+    _thinTitlebarController.hidden = NO;
+    _toolbar.visible = NO;
+    [self removeTrafficLightObservationRestoringState:NO];
+    return;
+  }
+
+  // A normal fullscreen exit keeps the fullscreen toolbar installed until
+  // DidExitFullScreen. If entry failed before AppKit changed the style mask,
+  // restore the settled windowed host immediately.
+  if ((_window.styleMask & NSWindowStyleMaskFullScreen) != 0) return;
+  _fullscreenTransitionActive = NO;
+  [self restoreWindowedTitlebarHost];
+  [self installFreshToolbarForWindowedMode];
+  [self applyLiquidGlassTitlebarAppearance];
+  [self applyFullScreenPolicy];
+}
+
 - (void)setRevealLocked:(BOOL)locked {
   _revealLocked = locked;
   [self applyFullScreenPolicy];
@@ -1631,7 +1625,6 @@ static void *RionRuntimeTrafficLightObservationContext =
     if (self.alwaysShowInFullScreen) {
       // Chrome's kAlways policy reserves the native titlebar height. The game
       // content is statically laid out below it and never covered.
-      [self restoreToolbarAutohideHeight];
       _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
       _thinTitlebarController.hidden = YES;
       _window.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
@@ -1644,7 +1637,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     // clip/reveal the accessory inside NSToolbarFullScreenWindow. There is no
     // Rion animation, cursor monitor, or content overlay in this path.
     _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
-    _thinTitlebarController.hidden = NO;
+    _thinTitlebarController.hidden = self.revealLocked;
     _accessoryController.fullScreenMinHeight = self.revealLocked
         ? kRionTitlebarHeight
         : 0;
@@ -1653,16 +1646,10 @@ static void *RionRuntimeTrafficLightObservationContext =
     } else {
       _toolbar.visible = NO;
     }
-    // An empty NSToolbar is still required as AppKit's native reveal trigger,
-    // but its default fullscreen auto-hide geometry allocates a separate row.
-    // Collapse only that row; the trailing titlebar accessory keeps its own
-    // 40pt native reveal height and remains an overlay above full-size content.
-    [self setToolbarAutohideHeight:0];
     [self removeTrafficLightObservationRestoringState:NO];
     return;
   }
 
-  [self restoreToolbarAutohideHeight];
   if (_previousFullSizeContentView) {
     _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
   } else {
@@ -1670,6 +1657,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   }
   if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
   [self restoreWindowedTitlebarHost];
+  _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
   [self applyLiquidGlassTitlebarAppearance];
   [self layoutTitlebarContent];
   if (shouldShow) {
@@ -1813,7 +1801,6 @@ static void *RionRuntimeTrafficLightObservationContext =
   [_windowObservers removeAllObjects];
   BOOL fullScreen = _fullscreenTransitionActive ||
       (_window && (_window.styleMask & NSWindowStyleMaskFullScreen) != 0);
-  [self restoreToolbarAutohideHeight];
   [self removeTrafficLightObservationRestoringState:fullScreen];
   [self detachThinTitlebarController];
   [self detachAccessoryController];

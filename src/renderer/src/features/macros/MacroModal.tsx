@@ -310,21 +310,6 @@ function MacroForm({
     <>
           <aside className="grid content-start gap-4">
             <Surface className="p-4" padding="none" variant="inset">
-              <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
-                <ShortcutRecorder
-                  trigger={form.trigger}
-                  t={t}
-                  onChange={(trigger) => update((current) => ({ ...current, trigger }))}
-                />
-                {shortcutConflict ? (
-                  <p className="mt-2 text-[11px] font-semibold leading-4 text-destructive">
-                    {shortcutConflict}
-                  </p>
-                ) : null}
-              </FormField>
-            </Surface>
-
-            <Surface className="p-4" padding="none" variant="inset">
               <FormField
                 label={t("macroForm.activation")}
                 description={t("macroForm.activationDescription")}
@@ -338,12 +323,27 @@ function MacroForm({
                   items={[
                     { value: "toggle", label: t("macroForm.activation.toggle"), icon: Check },
                     { value: "while_held", label: t("macroForm.activation.whileHeld"), icon: Keyboard }
-                  ]}
-                  value={form.activationMode ?? "toggle"}
-                  onValueChange={(activationMode) => {
-                    if (!isSaving) update((current) => ({ ...current, activationMode }));
-                  }}
+                ]}
+                value={form.activationMode ?? "toggle"}
+                onValueChange={(activationMode) => {
+                  if (!isSaving) update((current) => ({ ...current, activationMode }));
+                }}
                 />
+              </FormField>
+            </Surface>
+
+            <Surface className="p-4" padding="none" variant="inset">
+              <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
+                <ShortcutRecorder
+                  trigger={form.trigger}
+                  t={t}
+                  onChange={(trigger) => update((current) => ({ ...current, trigger }))}
+                />
+                {shortcutConflict ? (
+                  <p className="mt-2 text-[11px] font-semibold leading-4 text-destructive">
+                    {shortcutConflict}
+                  </p>
+                ) : null}
               </FormField>
             </Surface>
 

@@ -316,7 +316,7 @@
   "macroForm.stepType": "步驟類型",
   "macroForm.keyAction": "按鍵動作",
   "macroForm.keyAction.tap": "點按",
-  "macroForm.keyAction.hold": "保持到停止",
+  "macroForm.keyAction.hold": "持續按住",
   "macroForm.macroTarget": "要執行的巨集",
   "macroForm.macroTargetPlaceholder": "選擇巨集",
   "macroForm.macroTargetDisabled": "已停用",

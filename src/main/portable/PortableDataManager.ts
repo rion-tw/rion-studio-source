@@ -3,7 +3,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { normalizeGameBrowserSettings } from "../../shared/browserFonts";
-import { normalizeMacroSettings } from "../../shared/macroSettings";
+import { MACRO_DELAY_MAX_MS, normalizeMacroSettings } from "../../shared/macroSettings";
 import { BUILTIN_GAME_DEFINITIONS } from "../../shared/games";
 import {
   areMacroTriggersEqual,
@@ -178,7 +178,6 @@ const MAX_GAME_IMAGE_DATA_URL_LENGTH = 2_000_128;
 const MAX_LAUNCH_URL_LENGTH = 2_048;
 const MAX_NAME_LENGTH = 80;
 const MACRO_STEPS_MAX_LENGTH = 100;
-const MACRO_DELAY_MAX_MS = 600_000;
 const MACRO_CODE_MAX_LENGTH = 48;
 const MACRO_LABEL_MAX_LENGTH = 48;
 const COVER_IMAGE_DATA_URL_PATTERN = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;

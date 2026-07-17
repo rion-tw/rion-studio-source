@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MacroSettingsSection } from "../src/renderer/src/features/settings/MacroSettingsSection";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
-import { DEFAULT_MACRO_SETTINGS } from "../src/shared/macroSettings";
+import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
 
 const t: Translator = (key) => en[key] ?? key;
 
@@ -67,5 +67,31 @@ describe("MacroSettingsSection", () => {
     expect((screen.getByRole("spinbutton", { name: "Key hold time" }) as HTMLInputElement).value).toBe("30");
     expect((screen.getByRole("spinbutton", { name: "Post-input delay" }) as HTMLInputElement).value).toBe("30");
     expect((screen.getByRole("spinbutton", { name: "Default wait after each loop" }) as HTMLInputElement).value).toBe("1000");
+  });
+
+  it("accepts a 24-hour default loop wait and blocks larger values", async () => {
+    const onSave = vi.fn(async (settings) => settings);
+    render(
+      <MacroSettingsSection
+        settings={DEFAULT_MACRO_SETTINGS}
+        t={t}
+        onError={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const loopDelay = screen.getByRole("spinbutton", { name: "Default wait after each loop" }) as HTMLInputElement;
+    expect(loopDelay.max).toBe(String(MACRO_DELAY_MAX_MS));
+
+    fireEvent.change(loopDelay, { target: { value: String(MACRO_DELAY_MAX_MS + 1) } });
+    expect(screen.getByText(`Enter a whole number from 0 to ${MACRO_DELAY_MAX_MS} ms.`)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(loopDelay, { target: { value: String(MACRO_DELAY_MAX_MS) } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+      ...DEFAULT_MACRO_SETTINGS,
+      defaultLoopDelayMs: MACRO_DELAY_MAX_MS
+    }));
   });
 });

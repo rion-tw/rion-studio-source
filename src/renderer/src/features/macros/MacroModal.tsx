@@ -35,7 +35,7 @@ import {
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../../../shared/macroShortcuts";
-import { DEFAULT_MACRO_SETTINGS } from "../../../../shared/macroSettings";
+import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 import type { Game, Macro, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
@@ -643,7 +643,7 @@ function MacroIntervalControl({
         <AffixedInput
           aria-label={t("macroForm.intervalCustomValue")}
           disabled={disabled}
-          max={600000}
+          max={MACRO_DELAY_MAX_MS}
           min={0}
           step={1}
           prefix={t("macroForm.intervalMs")}
@@ -944,7 +944,7 @@ function MacroStepFields({
     <AffixedInput
       aria-label={t("macroForm.delayMs")}
       disabled={isSaving}
-      max={600000}
+      max={MACRO_DELAY_MAX_MS}
       min={0}
       suffix="ms"
       value={step.ms}

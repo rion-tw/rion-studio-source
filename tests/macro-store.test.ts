@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { MacroStore, MacroStoreError } from "../src/main/macros/MacroStore";
+import { MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
 
 const legacyRoleIdField = "profile" + "Id";
 
@@ -97,7 +98,7 @@ describe("MacroStore", () => {
     });
   });
 
-  it("allows duplicate names and rejects invalid step timing", async () => {
+  it("allows duplicate names and validates the 24-hour timing boundary", async () => {
     const first = await store.createMacro({
       name: "Auto heal",
       roleIds: ["role-1"],
@@ -118,16 +119,36 @@ describe("MacroStore", () => {
 
     await expect(
       store.createMacro({
+        name: "Daily loop",
+        roleIds: ["role-1"],
+        repeat: { type: "loop", intervalMs: MACRO_DELAY_MAX_MS },
+        steps: [{ id: "step-1", type: "delay", ms: MACRO_DELAY_MAX_MS }]
+      })
+    ).resolves.toMatchObject({
+      repeat: { type: "loop", intervalMs: MACRO_DELAY_MAX_MS },
+      steps: [{ type: "delay", ms: MACRO_DELAY_MAX_MS }]
+    });
+
+    await expect(
+      store.createMacro({
         name: "Bad delay",
         roleIds: ["role-1"],
-        steps: [{ id: "step-1", type: "delay", ms: 600_001 }]
+        steps: [{ id: "step-1", type: "delay", ms: MACRO_DELAY_MAX_MS + 1 }]
       })
     ).rejects.toBeInstanceOf(MacroStoreError);
     await expect(
       store.createMacro({
         name: "Bad delay",
         roleIds: ["role-1"],
-        steps: [{ id: "step-1", type: "delay", ms: 600_001 }]
+        steps: [{ id: "step-1", type: "delay", ms: MACRO_DELAY_MAX_MS + 1 }]
+      })
+    ).rejects.toMatchObject({ code: "MACRO_TIME_INVALID" });
+    await expect(
+      store.createMacro({
+        name: "Bad loop",
+        roleIds: ["role-1"],
+        repeat: { type: "loop", intervalMs: MACRO_DELAY_MAX_MS + 1 },
+        steps: [{ id: "step-1", type: "key", code: "F2" }]
       })
     ).rejects.toMatchObject({ code: "MACRO_TIME_INVALID" });
   });

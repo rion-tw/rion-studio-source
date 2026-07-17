@@ -1,3 +1,4 @@
+import { MACRO_DELAY_MAX_MS } from "../../shared/macroSettings";
 import type { AppLanguage } from "../../shared/types";
 import en from "./i18n/en.json";
 
@@ -81,13 +82,13 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro role assignment is invalid.": "error.macroRoleIdInvalid",
   "Macro shortcut key is invalid.": "error.macroShortcutInvalid",
   "Macro repeat setting is invalid.": "error.macroRepeatInvalid",
-  "Macro interval must be between 1 and 600000 ms.": "error.macroIntervalInvalid",
+  [`Macro interval must be between 0 and ${MACRO_DELAY_MAX_MS} ms.`]: "error.macroIntervalInvalid",
   "Macro must contain at least one step.": "error.macroStepsRequired",
   "Macro can contain at most 100 steps.": "error.macroStepsTooMany",
   "Macro key step is invalid.": "error.macroKeyStepInvalid",
   "Macro click X must be between 0 and 100.": "error.macroClickXInvalid",
   "Macro click Y must be between 0 and 100.": "error.macroClickYInvalid",
-  "Macro delay must be between 0 and 600000 ms.": "error.macroDelayInvalid",
+  [`Macro delay must be between 0 and ${MACRO_DELAY_MAX_MS} ms.`]: "error.macroDelayInvalid",
   "Macro step is invalid.": "error.macroStepInvalid",
   "Macro step target is invalid.": "error.macroStepTargetInvalid",
   "Macro step target was not found.": "error.macroStepTargetNotFound",

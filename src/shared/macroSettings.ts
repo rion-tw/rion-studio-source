@@ -1,10 +1,12 @@
 import type { MacroSettings } from "./types";
 
+export const MACRO_DELAY_MAX_MS = 86_400_000;
+
 export const MACRO_SETTINGS_CONSTRAINTS = {
   startupDelayMs: { min: 0, max: 10_000, recommendedMin: 100 },
   keyHoldMs: { min: 20, max: 1_000, recommendedMin: 30 },
   postInputDelayMs: { min: 10, max: 1_000, recommendedMin: 30 },
-  defaultLoopDelayMs: { min: 0, max: 600_000, recommendedMin: 250 }
+  defaultLoopDelayMs: { min: 0, max: MACRO_DELAY_MAX_MS, recommendedMin: 250 }
 } as const;
 
 export const DEFAULT_MACRO_SETTINGS: MacroSettings = {

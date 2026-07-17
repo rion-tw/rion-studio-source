@@ -7,7 +7,7 @@ import {
   summarizeMacroSteps
 } from "./macroUtils";
 
-export type MacroListSortKey = "name" | "roles" | "shortcut" | "repeat" | "steps";
+export type MacroListSortKey = "name" | "roles" | "shortcut" | "activation" | "repeat" | "steps";
 export type MacroListSortDirection = "asc" | "desc";
 
 export interface MacroListSortState {
@@ -107,10 +107,9 @@ function compareBySortKey(
     case "roles":
       return compareMacroRoles(a, b, roles, roleById);
     case "shortcut":
-      return compareText(
-        `${formatMacroShortcut(a.trigger, t)} ${formatMacroActivationMode(a.activationMode, t)}`,
-        `${formatMacroShortcut(b.trigger, t)} ${formatMacroActivationMode(b.activationMode, t)}`
-      );
+      return compareText(formatMacroShortcut(a.trigger, t), formatMacroShortcut(b.trigger, t));
+    case "activation":
+      return compareText(formatMacroActivationMode(a.activationMode, t), formatMacroActivationMode(b.activationMode, t));
     case "repeat":
       return compareText(formatMacroRepeat(a.repeat, t), formatMacroRepeat(b.repeat, t));
     case "steps":

@@ -211,6 +211,7 @@
   "macros.column.roles": "Roles",
   "macros.column.steps": "Steps",
   "macros.column.shortcut": "Shortcut",
+  "macros.column.activation": "Activation",
   "macros.column.repeat": "Repeat",
   "macros.column.enabled": "Enabled",
   "macros.column.status": "Status",

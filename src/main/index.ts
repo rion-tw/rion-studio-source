@@ -57,6 +57,7 @@ import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
 import { MacroManager } from "./macros/MacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
+import { MacroSettingsStore } from "./macros/MacroSettingsStore";
 import {
   PortableDataManager,
   recoverPortableImportTransaction
@@ -367,6 +368,7 @@ async function initializeApplication(): Promise<void> {
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
   await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
   const macroStore = new MacroStore(userDataDir);
+  const macroSettingsStore = new MacroSettingsStore(userDataDir);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir);
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir);
   const runtimeWindowPreferencesStore = new RuntimeWindowPreferencesStore(userDataDir);
@@ -494,12 +496,13 @@ async function initializeApplication(): Promise<void> {
   ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {
     browserManager?.handleDividerPointer(event.sender.id, payload);
   });
-  const macroManager = new MacroManager(browserManager, macroStore);
+  const macroManager = new MacroManager(browserManager, macroStore, macroSettingsStore);
   const portableDataManager = new PortableDataManager({
     gameBrowserSettingsStore,
     gameStore,
     getAppVersion: () => app.getVersion(),
     macroStore,
+    macroSettingsStore,
     roleStore,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
@@ -622,6 +625,7 @@ async function initializeApplication(): Promise<void> {
     getGraphicsDiagnostics: (sender) => graphicsDiagnosticsService.collect(sender),
     macroManager,
     macroStore,
+    macroSettingsStore,
     portableDataManager,
     systemFontService,
     updateManager,

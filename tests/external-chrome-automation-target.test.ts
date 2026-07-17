@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   connectExternalChromeAutomation,
@@ -15,6 +15,10 @@ import type {
 } from "../src/main/system-browser/SystemChromeLauncher";
 
 describe("ExternalChromeAutomationTarget", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("gives page discovery a full timeout after a slow DevTools port startup", async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), "rion-external-chrome-automation-"));
     const harness = createHarness();
@@ -76,6 +80,66 @@ describe("ExternalChromeAutomationTarget", () => {
       key: "q",
       windowsVirtualKeyCode: 81
     });
+  });
+
+  it("holds keys and keeps the post-input delay inside the shared CDP queue", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+
+    const key = target.dispatchKey("F2", { holdMs: 20, postDelayMs: 10 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      harness.send.mock.calls
+        .filter(([method]) => method === "Input.dispatchKeyEvent")
+        .map(([, params]) => params?.type)
+    ).toEqual(["rawKeyDown"]);
+
+    const click = target.dispatchClick(50, 50);
+    await vi.advanceTimersByTimeAsync(19);
+    expect(harness.send).not.toHaveBeenCalledWith(
+      "Input.dispatchMouseEvent",
+      expect.objectContaining({ type: "mousePressed" })
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.send).toHaveBeenCalledWith(
+      "Input.dispatchKeyEvent",
+      expect.objectContaining({ type: "keyUp" })
+    );
+    await vi.advanceTimersByTimeAsync(9);
+    expect(harness.send).not.toHaveBeenCalledWith(
+      "Input.dispatchMouseEvent",
+      expect.objectContaining({ type: "mousePressed" })
+    );
+    await vi.advanceTimersByTimeAsync(1);
+
+    await Promise.all([key, click]);
+    expect(harness.send).toHaveBeenCalledWith(
+      "Input.dispatchMouseEvent",
+      expect.objectContaining({ type: "mousePressed" })
+    );
+  });
+
+  it("releases a held CDP key when the dispatch is aborted", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    const controller = new AbortController();
+
+    const dispatch = target.dispatchKey("F2", {
+      holdMs: 100,
+      postDelayMs: 10,
+      signal: controller.signal
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+
+    await expect(dispatch).rejects.toThrow();
+    expect(
+      harness.send.mock.calls
+        .filter(([method]) => method === "Input.dispatchKeyEvent")
+        .map(([, params]) => params?.type)
+    ).toEqual(["rawKeyDown", "keyUp"]);
   });
 
   it("never scans or focuses the page during repeated high-frequency input", async () => {

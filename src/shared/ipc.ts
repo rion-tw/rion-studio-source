@@ -64,6 +64,8 @@ export const IPC_CHANNELS = {
   macrosPageRequested: "macros:page-requested",
   macrosConsumePageRequest: "macros:consume-page-request",
   macrosOverlayRequest: "macros:overlay-request",
+  macroSettingsGet: "macro-settings:get",
+  macroSettingsUpdate: "macro-settings:update",
   portableExport: "portable:export",
   portableImportPreview: "portable:import-preview",
   portableImportApply: "portable:import-apply",

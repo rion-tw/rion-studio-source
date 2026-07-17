@@ -24,9 +24,11 @@ import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
 import { localizeErrorMessage, type Language, type Translator } from "./i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
+import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type {
   GameBrowserSettings,
   GraphicsDiagnostics,
+  MacroSettings,
   PortableExportInput,
   PortableExportResult,
   PortableImportInput,
@@ -55,6 +57,7 @@ export function App(): JSX.Element {
   const hasBridge = Boolean(window.rionStudio);
   const legal = useLegalAcceptance(hasBridge);
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
+  const [macroSettings, setMacroSettings] = useState<MacroSettings>(DEFAULT_MACRO_SETTINGS);
   const [notice, setNotice] = useState<string | null>(null);
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
@@ -90,6 +93,15 @@ export function App(): JSX.Element {
 
     const nextSettings = await window.rionStudio.updateGameBrowserSettings(settings);
     setGameBrowserSettings(nextSettings);
+    return nextSettings;
+  }, []);
+  const updateMacroSettings = useCallback(async (settings: MacroSettings): Promise<MacroSettings> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+
+    const nextSettings = await window.rionStudio.updateMacroSettings(settings);
+    setMacroSettings(nextSettings);
     return nextSettings;
   }, []);
   const loadSystemFonts = useCallback(async (): Promise<SystemFontFamily[]> => {
@@ -162,6 +174,10 @@ export function App(): JSX.Element {
         setGameBrowserSettings(result.preferences.gameBrowserSettings);
       }
 
+      if (result.preferences?.macroSettings) {
+        setMacroSettings(result.preferences.macroSettings);
+      }
+
       await data.loadData();
       return result;
     },
@@ -174,11 +190,14 @@ export function App(): JSX.Element {
     }
 
     let isDisposed = false;
-    void window.rionStudio
-      .getGameBrowserSettings()
-      .then((nextSettings) => {
+    void Promise.all([
+      window.rionStudio.getGameBrowserSettings(),
+      window.rionStudio.getMacroSettings()
+    ])
+      .then(([nextGameBrowserSettings, nextMacroSettings]) => {
         if (!isDisposed) {
-          setGameBrowserSettings(nextSettings);
+          setGameBrowserSettings(nextGameBrowserSettings);
+          setMacroSettings(nextMacroSettings);
         }
       })
       .catch(data.setError);
@@ -439,6 +458,7 @@ export function App(): JSX.Element {
       games={data.games}
       isSaving={macroWorkflow.isSavingMacro}
       macros={data.macros}
+      macroSettings={macroSettings}
       roles={data.roles}
       t={preferences.t}
       onSave={macroWorkflow.saveMacro}
@@ -669,6 +689,7 @@ export function App(): JSX.Element {
                     (status) => status.state === "launching" || status.state === "running"
                   )}
                   language={preferences.language}
+                  macroSettings={macroSettings}
                   portableDataCounts={{
                     gameCount: data.games.length,
                     macroCount: data.macros.length,
@@ -686,6 +707,7 @@ export function App(): JSX.Element {
                   onError={data.setError}
                   onExportPortableData={exportPortableData}
                   onGameBrowserSettingsChange={updateGameBrowserSettings}
+                  onMacroSettingsChange={updateMacroSettings}
                   onLoadGraphicsDiagnostics={loadGraphicsDiagnostics}
                   onLoadSystemFonts={loadSystemFonts}
                   onPreviewPortableImport={previewPortableImport}

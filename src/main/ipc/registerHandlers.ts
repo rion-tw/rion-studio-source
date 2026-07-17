@@ -20,6 +20,7 @@ import type {
   Macro,
   MacroPageRequest,
   MacroRunStatus,
+  MacroSettings,
   PendingWorkspaceLaunchRequest,
   PortableExportInput,
   PortableImportInput,
@@ -53,6 +54,7 @@ import {
   type MacroOverlayRequest
 } from "../macros/MacroOverlayInjector";
 import type { MacroStore } from "../macros/MacroStore";
+import type { MacroSettingsStore } from "../macros/MacroSettingsStore";
 import type { PortableDataManager } from "../portable/PortableDataManager";
 import { RoleStore } from "../roles/RoleStore";
 import type { AppUpdateManager } from "../updates/AppUpdateManager";
@@ -64,6 +66,7 @@ interface RegisterIpcHandlersOptions {
   legalAcceptanceStore?: Pick<LegalAcceptanceStore, "accept" | "getStatus">;
   macroManager?: MacroManager;
   macroStore?: MacroStore;
+  macroSettingsStore?: Pick<MacroSettingsStore, "getSettings" | "updateSettings">;
   gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings" | "updateSettings">;
   gameStore?: Pick<GameStore, "createGame" | "deleteGame" | "getGame" | "listGames" | "resetBuiltinGame" | "updateGame">;
   gameCompatibilityManager?: Pick<
@@ -366,6 +369,24 @@ export function registerIpcHandlers(
       browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
       await broadcastGameCompatibilityChange(options);
       return savedSettings;
+    })
+  );
+
+  ipcMain.handle(IPC_CHANNELS.macroSettingsGet, () => {
+    if (!options.macroSettingsStore) {
+      throw new Error("Macro settings are not available.");
+    }
+
+    return options.macroSettingsStore.getSettings();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.macroSettingsUpdate, (_event, settings: MacroSettings) =>
+    runDataMutation(options, async () => {
+      if (!options.macroSettingsStore) {
+        throw new Error("Macro settings are not available.");
+      }
+
+      return options.macroSettingsStore.updateSettings(settings);
     })
   );
 

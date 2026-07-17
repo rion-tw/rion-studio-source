@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MacroStore } from "../src/main/macros/MacroStore";
+import { MacroSettingsStore } from "../src/main/macros/MacroSettingsStore";
 import { MacroMutationBusyError } from "../src/main/macros/MacroManager";
 import { GameStore } from "../src/main/games/GameStore";
 import {
@@ -206,6 +207,58 @@ describe("PortableDataManager", () => {
     await expect(macroStore.getMacro(parent.id)).resolves.toMatchObject({
       steps: [{ id: "call", type: "macro", macroId: child.id }]
     });
+  });
+
+  it("round-trips macro settings as portable preferences without changing schema version", async () => {
+    const filePath = join(baseDir, "macro-settings-export.json");
+    const macroSettingsStore = new MacroSettingsStore(baseDir);
+    const manager = createManager({
+      exportPath: filePath,
+      importPath: filePath,
+      macroSettingsStore,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+    const selection: PortableDataSelection = {
+      games: false,
+      roles: false,
+      launchWorkspaces: false,
+      macros: false,
+      preferences: true
+    };
+
+    await manager.exportData({
+      preferences: {
+        macroSettings: {
+          startupDelayMs: 0,
+          keyHoldMs: 20,
+          postInputDelayMs: 10,
+          defaultLoopDelayMs: 0
+        }
+      },
+      selection
+    });
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV3;
+    expect(exported.schemaVersion).toBe(3);
+    expect(exported.preferences?.macroSettings).toEqual({
+      startupDelayMs: 0,
+      keyHoldMs: 20,
+      postInputDelayMs: 10,
+      defaultLoopDelayMs: 0
+    });
+
+    await macroSettingsStore.updateSettings({
+      startupDelayMs: 500,
+      keyHoldMs: 50,
+      postInputDelayMs: 50,
+      defaultLoopDelayMs: 500
+    });
+    const preview = await manager.previewImport();
+    const result = await manager.applyImport({ importId: preview!.importId, selection });
+
+    expect(result.preferences?.macroSettings).toEqual(exported.preferences?.macroSettings);
+    await expect(macroSettingsStore.getSettings()).resolves.toEqual(exported.preferences?.macroSettings);
   });
 
   it("exports selected categories and automatically includes roles required by macros", async () => {
@@ -1393,6 +1446,7 @@ function createManager({
   exportPath,
   importId = "import-id",
   importPath,
+  macroSettingsStore,
   macroStore,
   roleStore,
   workspaceStore
@@ -1400,6 +1454,7 @@ function createManager({
   exportPath?: string;
   importId?: string;
   importPath?: string;
+  macroSettingsStore?: MacroSettingsStore;
   macroStore: MacroStore;
   roleStore: RoleStore;
   workspaceStore: LaunchWorkspaceStore;
@@ -1409,6 +1464,7 @@ function createManager({
     getAppVersion: () => "1.2.3",
     gameStore,
     macroStore,
+    macroSettingsStore,
     now: () => new Date("2026-07-13T10:00:00.000Z"),
     roleStore,
     showOpenDialog: vi.fn(async () => ({

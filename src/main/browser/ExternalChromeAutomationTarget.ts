@@ -1,4 +1,8 @@
-import type { BrowserAutomationTarget } from "./ElectronAutomationTarget";
+import {
+  waitForInputDelay,
+  type BrowserAutomationTarget,
+  type BrowserInputDispatchOptions
+} from "./ElectronAutomationTarget";
 import {
   createMacroShortcutSuppressionClearSource,
   createMacroShortcutSuppressionSource
@@ -186,11 +190,12 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     signal?.throwIfAborted();
   }
 
-  dispatchKey(code: string, signal?: AbortSignal): Promise<void> {
-    return this.enqueueInput(() => this.dispatchKeyUnlocked(code, signal));
+  dispatchKey(code: string, options: BrowserInputDispatchOptions = {}): Promise<void> {
+    return this.enqueueInput(() => this.dispatchKeyUnlocked(code, options));
   }
 
-  private async dispatchKeyUnlocked(code: string, signal?: AbortSignal): Promise<void> {
+  private async dispatchKeyUnlocked(code: string, options: BrowserInputDispatchOptions): Promise<void> {
+    const { holdMs = 0, postDelayMs = 0, signal } = options;
     signal?.throwIfAborted();
     await this.suppressNextShortcut(code);
     const descriptor = getCdpKeyDescriptor(code);
@@ -200,6 +205,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       signal?.throwIfAborted();
       await this.client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...descriptor });
       didSendKeyDown = true;
+      await waitForInputDelay(holdMs, signal);
       signal?.throwIfAborted();
       await this.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor });
       didSendKeyUp = true;
@@ -209,6 +215,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       }
       await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
     }
+    await waitForInputDelay(postDelayMs, signal);
   }
 
   private async suppressNextShortcut(code: string): Promise<void> {
@@ -234,11 +241,20 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     );
   }
 
-  dispatchClick(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
-    return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, signal));
+  dispatchClick(
+    xPercent: number,
+    yPercent: number,
+    options: BrowserInputDispatchOptions = {}
+  ): Promise<void> {
+    return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, options));
   }
 
-  private async dispatchClickUnlocked(xPercent: number, yPercent: number, signal?: AbortSignal): Promise<void> {
+  private async dispatchClickUnlocked(
+    xPercent: number,
+    yPercent: number,
+    options: BrowserInputDispatchOptions
+  ): Promise<void> {
+    const { postDelayMs = 0, signal } = options;
     signal?.throwIfAborted();
     const metrics = await this.client.send<{
       cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
@@ -268,6 +284,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         await this.evaluateInExecutionContexts(createPointerFocusSuppressionSource(false));
       }
     }
+    await waitForInputDelay(postDelayMs, signal);
   }
 
   private enqueueInput(operation: () => Promise<void>): Promise<void> {

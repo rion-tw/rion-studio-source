@@ -319,15 +319,15 @@ describe("MacroStore", () => {
     await expect(store.getMacro(macro.id)).resolves.toMatchObject({ roleIds: ["role-3"] });
   });
 
-  it("rejects zero loop intervals and migrates stored zero intervals to one millisecond", async () => {
+  it("accepts and preserves zero loop waits", async () => {
     await expect(
       store.createMacro({
-        name: "Unsafe loop",
+        name: "Immediate loop",
         roleIds: ["role-1"],
         repeat: { type: "loop", intervalMs: 0 },
         steps: [{ id: "step-1", type: "delay", ms: 0 }]
       })
-    ).rejects.toMatchObject({ code: "MACRO_TIME_INVALID" });
+    ).resolves.toMatchObject({ repeat: { type: "loop", intervalMs: 0 } });
 
     await writeFile(
       join(baseDir, "macros.json"),
@@ -345,8 +345,9 @@ describe("MacroStore", () => {
       "utf8"
     );
 
-    await expect(store.getMacro("legacy-loop")).resolves.toMatchObject({
-      repeat: { type: "loop", intervalMs: 1 }
+    const reloadedStore = new MacroStore(baseDir);
+    await expect(reloadedStore.getMacro("legacy-loop")).resolves.toMatchObject({
+      repeat: { type: "loop", intervalMs: 0 }
     });
   });
 

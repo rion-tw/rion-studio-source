@@ -13,6 +13,7 @@ import type {
   Macro,
   MacroPageRequest,
   MacroRunStatus,
+  MacroSettings,
   PendingWorkspaceLaunchRequest,
   RoleStatus,
   WorkspaceDisplayInfo
@@ -73,6 +74,9 @@ const api: RionStudioApi = {
   startMacro: (macroId) => ipcRenderer.invoke(IPC_CHANNELS.macrosStart, macroId),
   stopMacro: (macroId) => ipcRenderer.invoke(IPC_CHANNELS.macrosStop, macroId),
   listMacroStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.macrosStatuses),
+  getMacroSettings: () => ipcRenderer.invoke(IPC_CHANNELS.macroSettingsGet),
+  updateMacroSettings: (settings: MacroSettings) =>
+    ipcRenderer.invoke(IPC_CHANNELS.macroSettingsUpdate, settings),
   exportPortableData: (input) => ipcRenderer.invoke(IPC_CHANNELS.portableExport, input),
   previewPortableImport: () => ipcRenderer.invoke(IPC_CHANNELS.portableImportPreview),
   applyPortableImport: (input) => ipcRenderer.invoke(IPC_CHANNELS.portableImportApply, input),

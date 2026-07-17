@@ -189,7 +189,7 @@ describe("macro overlay interactions", () => {
       pressId: expect.any(String)
     })));
     expect(getOverlayRoot(document).querySelector(".active-badge-shortcut")?.textContent)
-      .toContain("While held · Hold");
+      .toContain("Tap or hold · Hold");
     expect(binding.mock.calls.filter(([request]) => isRecord(request) && request.type === "press")).toHaveLength(1);
 
     const pressRequest = binding.mock.calls
@@ -205,7 +205,8 @@ describe("macro overlay interactions", () => {
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "release",
       macroId: heldMacro.id,
-      pressId: pressRequest.pressId
+      pressId: pressRequest.pressId,
+      releaseMode: "complete_first_iteration"
     }));
   });
 
@@ -221,7 +222,8 @@ describe("macro overlay interactions", () => {
     window.dispatchEvent(new window.Event("blur"));
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "release",
-      macroId: heldMacro.id
+      macroId: heldMacro.id,
+      releaseMode: "immediate"
     })));
   });
 
@@ -254,7 +256,8 @@ describe("macro overlay interactions", () => {
 
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "release",
-      macroId: heldMacro.id
+      macroId: heldMacro.id,
+      releaseMode: "complete_first_iteration"
     })));
   });
 
@@ -269,7 +272,10 @@ describe("macro overlay interactions", () => {
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "press" })));
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     document.dispatchEvent(new window.Event("visibilitychange"));
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "release" })));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      releaseMode: "immediate"
+    })));
 
     dispatchShortcut(window, "F2", "F2");
     await vi.waitFor(() => expect(binding.mock.calls.filter(
@@ -279,6 +285,9 @@ describe("macro overlay interactions", () => {
     await vi.waitFor(() => expect(binding.mock.calls.filter(
       ([request]) => isRecord(request) && request.type === "release"
     )).toHaveLength(2));
+    expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "release"
+    ).every(([request]) => (request as Record<string, unknown>).releaseMode === "immediate")).toBe(true);
   });
 
   it("starts a macro even when the game already prevented the shortcut event", async () => {
@@ -378,7 +387,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v31")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v32")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -444,7 +453,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v31")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v32")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

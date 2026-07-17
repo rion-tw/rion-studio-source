@@ -45,13 +45,18 @@ interface MacroInvocation {
   childStartCompletions: Set<Promise<void>>;
   childInvocationIds: Set<string>;
   completion: Promise<MacroInvocationOutcome>;
+  firstIterationCompleted: boolean;
+  firstIterationCompletion: Promise<void>;
+  firstIterationRunKeys: Set<string>;
   id: string;
   macroId: string;
   outcome?: MacroInvocationOutcome;
   remainingRunKeys: Set<string>;
   resolveCompletion: (outcome: MacroInvocationOutcome) => void;
+  resolveFirstIterationCompletion: () => void;
   runKeys: Set<string>;
   settings: MacroSettings;
+  stopAfterFirstIteration: boolean;
 }
 
 interface StartedMacroInvocation {
@@ -65,6 +70,8 @@ interface HeldTriggerLease {
   pressId: string;
   sourceRoleId: string;
 }
+
+export type HeldTriggerReleaseMode = "complete_first_iteration" | "immediate";
 
 const MACRO_TARGET_OPERATION_TIMEOUT_MS = 10_000;
 const SIBLING_FAILURE_MESSAGE = "Cancelled because another assigned role failed.";
@@ -98,7 +105,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private readonly roleInputPreparationTails = new Map<string, Promise<void>>();
   private readonly runs = new Map<string, MacroRun>();
   private readonly terminalStatuses = new Map<string, MacroRunStatus>();
-  private readonly releasedPressIds = new Set<string>();
+  private readonly releasedPressIds = new Map<string, HeldTriggerReleaseMode>();
   private nextInvocationId = 1;
 
   constructor(
@@ -138,7 +145,9 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     return this.withMacroMutationLock(macroId, async () => {
       this.assertPressId(pressId);
       const releasedKey = createHeldTriggerLeaseKey(roleId, macroId, pressId);
-      if (this.releasedPressIds.delete(releasedKey)) {
+      const earlyReleaseMode = this.releasedPressIds.get(releasedKey);
+      this.releasedPressIds.delete(releasedKey);
+      if (earlyReleaseMode === "immediate") {
         return [];
       }
 
@@ -154,7 +163,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       const macro = await this.macroStore.getMacro(macroId);
       this.assertMacroAssignedToRole(macro, roleId);
       if ((macro.activationMode ?? "toggle") !== "while_held") {
-        throw new Error("This macro does not use while-held activation.");
+        throw new Error("This macro does not use tap-or-hold activation.");
       }
 
       const started = await this.startInvocationUnlocked(macroId, roleId);
@@ -164,25 +173,49 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         pressId,
         sourceRoleId: roleId
       });
+      if (earlyReleaseMode === "complete_first_iteration") {
+        started.invocation.stopAfterFirstIteration = true;
+      }
       return started.statuses;
     });
   }
 
-  releaseForRole(macroId: string, roleId: string, pressId: string): Promise<void> {
-    return this.withMacroMutationLock(macroId, async () => {
+  async releaseForRole(
+    macroId: string,
+    roleId: string,
+    pressId: string,
+    mode: HeldTriggerReleaseMode = "complete_first_iteration"
+  ): Promise<void> {
+    let completion: Promise<MacroInvocationOutcome> | undefined;
+    await this.withMacroMutationLock(macroId, async () => {
       this.assertPressId(pressId);
       const sourceKey = createHeldTriggerSourceKey(roleId, macroId);
       const lease = this.heldTriggerLeases.get(sourceKey);
       if (!lease || lease.pressId !== pressId) {
-        this.rememberReleasedPressId(createHeldTriggerLeaseKey(roleId, macroId, pressId));
+        this.rememberReleasedPressId(
+          createHeldTriggerLeaseKey(roleId, macroId, pressId),
+          mode
+        );
         return;
       }
-      this.heldTriggerLeases.delete(sourceKey);
+
       const invocation = this.invocations.get(lease.invocationId);
-      if (invocation) {
-        await this.cancelInvocationAndWait(invocation);
+      if (!invocation) {
+        this.heldTriggerLeases.delete(sourceKey);
+        return;
       }
+
+      if (mode === "immediate" || invocation.firstIterationCompleted) {
+        this.heldTriggerLeases.delete(sourceKey);
+        await this.cancelInvocationAndWait(invocation);
+        return;
+      }
+
+      invocation.stopAfterFirstIteration = true;
+      completion = invocation.completion;
     });
+
+    await completion;
   }
 
   async releaseHeldTriggersForRole(roleId: string): Promise<void> {
@@ -190,7 +223,9 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       (lease) => lease.sourceRoleId === roleId
     );
     await Promise.all(
-      leases.map((lease) => this.releaseForRole(lease.macroId, roleId, lease.pressId))
+      leases.map((lease) =>
+        this.releaseForRole(lease.macroId, roleId, lease.pressId, "immediate")
+      )
     );
   }
 
@@ -385,18 +420,27 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     const completion = new Promise<MacroInvocationOutcome>((resolve) => {
       resolveCompletion = resolve;
     });
+    let resolveFirstIterationCompletion: () => void = () => undefined;
+    const firstIterationCompletion = new Promise<void>((resolve) => {
+      resolveFirstIterationCompletion = resolve;
+    });
     const invocation: MacroInvocation = {
       ancestry,
       barriers: new Map(),
       childStartCompletions: new Set(),
       childInvocationIds: new Set(),
       completion,
+      firstIterationCompleted: false,
+      firstIterationCompletion,
+      firstIterationRunKeys: new Set(),
       id: `macro-invocation-${this.nextInvocationId++}`,
       macroId,
       remainingRunKeys: new Set(runKeys),
       resolveCompletion,
+      resolveFirstIterationCompletion,
       runKeys: new Set(runKeys),
-      settings: { ...settings }
+      settings: { ...settings },
+      stopAfterFirstIteration: false
     };
     this.invocations.set(invocation.id, invocation);
     return invocation;
@@ -548,6 +592,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private settleInvocation(invocation: MacroInvocation, outcome: MacroInvocationOutcome): void {
     if (invocation.outcome) return;
     invocation.outcome = outcome;
+    invocation.resolveFirstIterationCompletion();
     invocation.resolveCompletion(outcome);
   }
 
@@ -608,12 +653,32 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       }
       iteration += 1;
 
+      if (iteration === 1) {
+        this.completeFirstIteration(invocation, runKey);
+        await invocation.firstIterationCompletion;
+        this.throwIfCancelled(run);
+        if (invocation.stopAfterFirstIteration) break;
+      }
+
       if (macro.repeat.type !== "loop") break;
       await this.delay(run, macro.repeat.intervalMs);
     } while (!run.isCancelled && this.runs.get(runKey) === run);
 
-    if (macro.repeat.type === "once" && run.heldKeyCodes.size > 0) {
+    if (
+      macro.repeat.type === "once" &&
+      run.heldKeyCodes.size > 0 &&
+      !invocation.stopAfterFirstIteration
+    ) {
       await this.waitForStop(run);
+    }
+  }
+
+  private completeFirstIteration(invocation: MacroInvocation, runKey: string): void {
+    if (invocation.firstIterationCompleted) return;
+    invocation.firstIterationRunKeys.add(runKey);
+    if (invocation.firstIterationRunKeys.size === invocation.runKeys.size) {
+      invocation.firstIterationCompleted = true;
+      invocation.resolveFirstIterationCompletion();
     }
   }
 
@@ -804,10 +869,14 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     }
   }
 
-  private rememberReleasedPressId(key: string): void {
-    this.releasedPressIds.add(key);
+  private rememberReleasedPressId(key: string, mode: HeldTriggerReleaseMode): void {
+    const currentMode = this.releasedPressIds.get(key);
+    this.releasedPressIds.set(
+      key,
+      currentMode === "immediate" || mode === "immediate" ? "immediate" : mode
+    );
     while (this.releasedPressIds.size > 256) {
-      const oldest = this.releasedPressIds.values().next().value as string | undefined;
+      const oldest = this.releasedPressIds.keys().next().value as string | undefined;
       if (!oldest) break;
       this.releasedPressIds.delete(oldest);
     }

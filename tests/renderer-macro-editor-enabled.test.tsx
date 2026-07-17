@@ -98,7 +98,7 @@ describe("macro editor controls", () => {
     ], { initialEntries: ["/macros/macro-1/edit"] });
 
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "While held" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tap or hold" }));
     expect(screen.getByRole("combobox", { name: "Key action" }).textContent).toContain("Hold until stopped");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 

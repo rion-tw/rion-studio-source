@@ -88,6 +88,12 @@ describe("MacroOverlayInjector", () => {
     });
     await requestHandler?.({ type: "open" });
     await expect(requestHandler?.({ type: "unknown" })).rejects.toThrow("Invalid macro overlay request");
+    await expect(requestHandler?.({
+      type: "release",
+      macroId: assignedMacro.id,
+      pressId: "press-1",
+      releaseMode: "later"
+    })).rejects.toThrow("Invalid macro overlay request");
     expect(macroManager.start).toHaveBeenCalledWith(assignedMacro.id);
     expect(onMacroPageRequested).toHaveBeenCalledWith({ roleId: role.id });
 
@@ -206,11 +212,17 @@ describe("MacroOverlayInjector", () => {
     await injector.handleRequest(role.id, {
       type: "release",
       macroId: assignedMacro.id,
-      pressId: "press-1"
+      pressId: "press-1",
+      releaseMode: "complete_first_iteration"
     });
 
     expect(press).toHaveBeenCalledWith(assignedMacro.id, role.id, "press-1");
-    expect(release).toHaveBeenCalledWith(assignedMacro.id, role.id, "press-1");
+    expect(release).toHaveBeenCalledWith(
+      assignedMacro.id,
+      role.id,
+      "press-1",
+      "complete_first_iteration"
+    );
   });
 
   it("returns a detached state without side effects for every stale request", async () => {
@@ -325,8 +337,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v31"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-17.1"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v32"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-18.1"');
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
     expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "open" });');

@@ -94,7 +94,9 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 - (void)hideResidualFullScreenTrafficLightOverlay;
 - (void)installFreshToolbarForFullScreen;
 - (void)installFreshToolbarForWindowedMode;
-- (NSToolbar *)makeToolbar;
+- (NSToolbar *)makeFullScreenToolbar;
+- (NSToolbar *)makeToolbarHost;
+- (NSToolbar *)makeWindowedToolbar;
 - (void)removeTrafficLightObservationRestoringState:(BOOL)restoreState;
 - (void)revealToolbarAndOrderBelowAccessory;
 - (void)restoreWindowedTrafficLightFrames;
@@ -657,7 +659,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
   }
 
-  _toolbar = [self makeToolbar];
+  _toolbar = [self makeWindowedToolbar];
   _toolbar.visible = YES;
   window.toolbar = _toolbar;
 
@@ -886,23 +888,35 @@ static void *RionRuntimeTrafficLightObservationContext =
   [_windowObservers addObject:accessibilityObserver];
 }
 
-- (NSToolbar *)makeToolbar {
+- (NSToolbar *)makeToolbarHost {
   NSToolbar *toolbar = [[NSToolbar alloc]
       initWithIdentifier:[NSString
           stringWithFormat:@"rion-runtime-tabs-%p-%@", self,
                            NSUUID.UUID.UUIDString]];
   toolbar.allowsUserCustomization = NO;
   toolbar.autosavesConfiguration = NO;
-  toolbar.delegate = self;
   toolbar.displayMode = NSToolbarDisplayModeIconOnly;
   toolbar.showsBaselineSeparator = NO;
   return toolbar;
 }
 
+- (NSToolbar *)makeWindowedToolbar {
+  NSToolbar *toolbar = [self makeToolbarHost];
+  toolbar.delegate = self;
+  return toolbar;
+}
+
+- (NSToolbar *)makeFullScreenToolbar {
+  // NSToolbarFullScreenWindow only needs an empty native host. Reusing the
+  // windowed delegate inserts its 28pt layout spacer as a second visible row
+  // underneath the accessory during AppKit's auto-hide reveal.
+  return [self makeToolbarHost];
+}
+
 - (void)installFreshToolbarForFullScreen {
   if (_destroyed || !_window) return;
   _toolbar.delegate = nil;
-  _toolbar = [self makeToolbar];
+  _toolbar = [self makeFullScreenToolbar];
   _toolbar.visible = NO;
   _window.toolbar = _toolbar;
   _toolbar.visible = NO;
@@ -912,7 +926,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   if (_destroyed || !_window) return;
   [self removeTrafficLightObservationRestoringState:NO];
   _toolbar.delegate = nil;
-  _toolbar = [self makeToolbar];
+  _toolbar = [self makeWindowedToolbar];
   _window.toolbar = _toolbar;
   _toolbar.visible = YES;
   [self restoreWindowedTrafficLightFrames];
@@ -1026,7 +1040,9 @@ static void *RionRuntimeTrafficLightObservationContext =
 
   _toolbar.allowsUserCustomization = NO;
   _toolbar.autosavesConfiguration = NO;
-  _toolbar.delegate = self;
+  BOOL fullScreen = _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  _toolbar.delegate = fullScreen ? nil : self;
   _toolbar.displayMode = NSToolbarDisplayModeIconOnly;
   _toolbar.showsBaselineSeparator = NO;
 

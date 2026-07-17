@@ -36,6 +36,7 @@ import {
 } from "./macroListUtils";
 import {
   createMacroRunKey,
+  formatMacroActivationMode,
   formatMacroRepeat,
   formatMacroShortcut,
   summarizeMacroSteps
@@ -319,7 +320,10 @@ function MacrosRoute({
                       />
                     </td>
                     <td className="px-4 py-2.5 align-baseline font-semibold text-muted-foreground">
-                      {formatMacroShortcut(macro.trigger, t)}
+                      <span className="block">{formatMacroShortcut(macro.trigger, t)}</span>
+                      <span className="block text-[10px] font-medium">
+                        {formatMacroActivationMode(macro.activationMode, t)}
+                      </span>
                     </td>
                     <td className="px-4 py-2.5 align-baseline font-semibold text-muted-foreground">
                       {formatMacroRepeat(macro.repeat, t)}

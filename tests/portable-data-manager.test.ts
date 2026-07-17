@@ -23,7 +23,8 @@ import type {
   PortableDataSelection,
   RionPortableDataV1,
   RionPortableDataV2,
-  RionPortableDataV3
+  RionPortableDataV3,
+  RionPortableDataV4
 } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
@@ -114,7 +115,7 @@ describe("PortableDataManager", () => {
         themeMode: "dark"
       }
     });
-    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV3;
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV4;
 
     expect(result).toMatchObject({
       gameCount: 2,
@@ -126,7 +127,7 @@ describe("PortableDataManager", () => {
     });
     expect(parsed).toMatchObject({
       app: "Rion Studio",
-      schemaVersion: 3,
+      schemaVersion: 4,
       appVersion: "1.2.3",
       preferences: {
         gameBrowserSettings: {
@@ -172,7 +173,7 @@ describe("PortableDataManager", () => {
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplay");
   });
 
-  it("round-trips portable v3 macro dependency ids", async () => {
+  it("round-trips portable v4 macro dependency ids", async () => {
     const filePath = join(baseDir, "macro-flow-export.json");
     const role = await roleStore.createRole({
       gameId: "builtin-flyff-universe",
@@ -197,8 +198,8 @@ describe("PortableDataManager", () => {
     });
 
     await manager.exportData({ selection: ALL_PORTABLE_DATA });
-    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV3;
-    expect(exported.schemaVersion).toBe(3);
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV4;
+    expect(exported.schemaVersion).toBe(4);
     expect(exported.macros.find((macro) => macro.id === parent.id)?.steps).toEqual([
       { id: "call", type: "macro", macroId: child.id }
     ]);
@@ -240,8 +241,8 @@ describe("PortableDataManager", () => {
       },
       selection
     });
-    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV3;
-    expect(exported.schemaVersion).toBe(3);
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV4;
+    expect(exported.schemaVersion).toBe(4);
     expect(exported.preferences?.macroSettings).toEqual({
       startupDelayMs: 0,
       keyHoldMs: 20,
@@ -260,6 +261,36 @@ describe("PortableDataManager", () => {
 
     expect(result.preferences?.macroSettings).toEqual(exported.preferences?.macroSettings);
     await expect(macroSettingsStore.getSettings()).resolves.toEqual(exported.preferences?.macroSettings);
+  });
+
+  it("imports portable v4 while-held activation and held key actions", async () => {
+    const importPath = join(baseDir, "macro-hold-v4.json");
+    const base = createPortableV2Fixture();
+    const fixture: RionPortableDataV4 = {
+      ...base,
+      schemaVersion: 4,
+      macros: [{
+        id: "source-hold",
+        enabled: true,
+        activationMode: "while_held",
+        name: "Hold movement",
+        roleIds: ["old-role"],
+        trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
+        repeat: { type: "once" },
+        steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+      }]
+    };
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+
+    await expect(macroStore.listMacros()).resolves.toMatchObject([{
+      activationMode: "while_held",
+      trigger: { code: "F6" },
+      steps: [{ action: "hold_until_stop", code: "KeyW" }]
+    }]);
   });
 
   it("exports selected categories and automatically includes roles required by macros", async () => {
@@ -283,7 +314,7 @@ describe("PortableDataManager", () => {
         preferences: false
       }
     });
-    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV3;
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV4;
 
     expect(result).toMatchObject({
       roleCount: 1,
@@ -427,6 +458,7 @@ describe("PortableDataManager", () => {
     const imported = await macroStore.listMacros();
     const parent = imported.find((item) => item.name === "Parent flow")!;
     const child = imported.find((item) => item.name === "Child flow")!;
+    expect(child).toMatchObject({ activationMode: "toggle", steps: [{ action: "tap" }] });
     expect(parent.id).not.toBe("source-parent");
     expect(child.id).not.toBe("source-child");
     expect(parent.steps).toEqual([{ id: "call", type: "macro", macroId: child.id }]);
@@ -914,6 +946,39 @@ describe("PortableDataManager", () => {
     await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
+  it("rejects invalid v4 activation and key hold semantics", async () => {
+    const importPath = join(baseDir, "invalid-macro-hold-v4.json");
+    const base = createPortableV2Fixture();
+    const baseMacro = {
+      id: "invalid-hold",
+      enabled: true,
+      name: "Invalid hold",
+      roleIds: ["old-role"],
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
+      repeat: { type: "once" },
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    };
+    const invalidMacros = [
+      { ...baseMacro, activationMode: "invalid" },
+      { ...baseMacro, steps: [{ ...baseMacro.steps[0], action: "key_down" }] },
+      { ...baseMacro, activationMode: "while_held", trigger: undefined }
+    ];
+
+    for (const invalidMacro of invalidMacros) {
+      await writeFile(importPath, `${JSON.stringify({
+        ...base,
+        schemaVersion: 4,
+        macros: [invalidMacro]
+      }, null, 2)}\n`, "utf8");
+      const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+      await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+    }
+
+    await writeFile(importPath, JSON.stringify({ ...base, schemaVersion: "4" }), "utf8");
+    const stringVersionManager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    await expect(stringVersionManager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
+  });
+
   it("accepts 24-hour macro waits in portable data and rejects values above the boundary", async () => {
     const importPath = join(baseDir, "daily-macro.json");
     const fixture = createPortableFixture();
@@ -1239,7 +1304,7 @@ describe("PortableDataManager", () => {
       resolutions: [{ conflictId: preview!.conflicts[0].id, action: "update", targetMacroId: first.id }]
     });
     expect((await macroStore.getMacro(first.id)).steps).toEqual([
-      { id: "imported", type: "key", code: "F3" }
+      { id: "imported", type: "key", code: "F3", action: "tap", label: undefined }
     ]);
     expect(await macroStore.listMacros()).toHaveLength(2);
   });

@@ -33,6 +33,7 @@ export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget
   close: () => void;
   installMacroOverlay: (source: string, handler: ExternalMacroOverlayHandler) => Promise<void>;
   onDisconnect: (listener: () => void) => () => void;
+  onNavigation: (listener: () => void) => () => void;
   setWindowBounds: (bounds: PixelBounds) => Promise<void>;
 }
 
@@ -93,8 +94,10 @@ export async function connectExternalChromeAutomation(
 
 export class ExternalChromeAutomationTarget implements ExternalBrowserAutomationTarget {
   private readonly executionContextIds = new Set<number>();
+  private readonly heldKeyOwners = new Map<string, Set<string>>();
   private inputDispatchTail: Promise<void> = Promise.resolve();
   private mainFrameId?: string;
+  private readonly navigationListeners = new Set<() => void>();
   private overlayHandler?: ExternalMacroOverlayHandler;
   private pointerFocusTrackingInstalled = false;
   private removeNotificationListener?: () => void;
@@ -125,6 +128,20 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         case "Runtime.executionContextsCleared":
           this.executionContextIds.clear();
           break;
+        case "Page.frameNavigated": {
+          const frame = notification.params?.frame;
+          if (
+            typeof frame === "object" &&
+            frame !== null &&
+            "id" in frame &&
+            typeof frame.id === "string" &&
+            (!("parentId" in frame) || frame.parentId === undefined)
+          ) {
+            this.mainFrameId = frame.id;
+            this.navigationListeners.forEach((listener) => listener());
+          }
+          break;
+        }
       }
     });
     try {
@@ -143,9 +160,15 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     return this.client.onDisconnect(listener);
   }
 
+  onNavigation(listener: () => void): () => void {
+    this.navigationListeners.add(listener);
+    return () => this.navigationListeners.delete(listener);
+  }
+
   close(): void {
     this.removeNotificationListener?.();
     this.removeNotificationListener = undefined;
+    this.navigationListeners.clear();
     this.client.close();
   }
 
@@ -194,11 +217,42 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     return this.enqueueInput(() => this.dispatchKeyUnlocked(code, options));
   }
 
+  holdKey(
+    code: string,
+    ownerId: string,
+    options: BrowserInputDispatchOptions = {}
+  ): Promise<void> {
+    return this.enqueueInput(() => this.holdKeyUnlocked(code, ownerId, options));
+  }
+
+  releaseKey(code: string, ownerId: string): Promise<void> {
+    // Safety releases must not wait behind a stalled CDP input operation.
+    // Owner tracking keeps concurrent releases and new holds paired.
+    return this.releaseKeyUnlocked(code, ownerId);
+  }
+
   private async dispatchKeyUnlocked(code: string, options: BrowserInputDispatchOptions): Promise<void> {
     const { holdMs = 0, postDelayMs = 0, signal } = options;
     signal?.throwIfAborted();
     await this.suppressNextShortcut(code);
     const descriptor = getCdpKeyDescriptor(code);
+
+    if ((this.heldKeyOwners.get(code)?.size ?? 0) > 0) {
+      try {
+        signal?.throwIfAborted();
+        await this.client.send("Input.dispatchKeyEvent", {
+          type: "rawKeyDown",
+          autoRepeat: true,
+          ...descriptor
+        });
+        await waitForInputDelay(holdMs, signal);
+      } finally {
+        await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
+      }
+      await waitForInputDelay(postDelayMs, signal);
+      return;
+    }
+
     let didSendKeyDown = false;
     let didSendKeyUp = false;
     try {
@@ -216,6 +270,81 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
     }
     await waitForInputDelay(postDelayMs, signal);
+  }
+
+  private async holdKeyUnlocked(
+    code: string,
+    ownerId: string,
+    options: BrowserInputDispatchOptions
+  ): Promise<void> {
+    const { postDelayMs = 0, signal } = options;
+    signal?.throwIfAborted();
+    const existingOwners = this.heldKeyOwners.get(code);
+    if (existingOwners?.has(ownerId)) return;
+    if (existingOwners && existingOwners.size > 0) {
+      existingOwners.add(ownerId);
+      return;
+    }
+
+    const owners = existingOwners ?? new Set<string>();
+    owners.add(ownerId);
+    this.heldKeyOwners.set(code, owners);
+    let didStartKeyDown = false;
+    try {
+      await this.suppressNextShortcut(code);
+      signal?.throwIfAborted();
+      if (this.heldKeyOwners.get(code) !== owners || !owners.has(ownerId)) return;
+      didStartKeyDown = true;
+      await this.client.send("Input.dispatchKeyEvent", {
+        type: "rawKeyDown",
+        ...getCdpKeyDescriptor(code)
+      });
+      if (this.heldKeyOwners.get(code) !== owners || !owners.has(ownerId)) return;
+      signal?.throwIfAborted();
+    } catch (error) {
+      if (owners.has(ownerId)) {
+        if (didStartKeyDown) {
+          await this.releaseKeyUnlocked(code, ownerId).catch(() => undefined);
+        } else {
+          owners.delete(ownerId);
+          if (owners.size === 0 && this.heldKeyOwners.get(code) === owners) {
+            this.heldKeyOwners.delete(code);
+          }
+        }
+      }
+      throw error;
+    } finally {
+      await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
+    }
+    await waitForInputDelay(postDelayMs, signal);
+  }
+
+  private async releaseKeyUnlocked(code: string, ownerId: string): Promise<void> {
+    const owners = this.heldKeyOwners.get(code);
+    if (!owners?.has(ownerId)) return;
+    owners.delete(ownerId);
+    if (owners.size > 0) return;
+    this.heldKeyOwners.delete(code);
+
+    const event = { type: "keyUp", ...getCdpKeyDescriptor(code) };
+    try {
+      await this.client.send("Input.dispatchKeyEvent", event);
+    } catch (error) {
+      if ((this.heldKeyOwners.get(code)?.size ?? 0) > 0) return;
+      try {
+        await this.client.send("Input.dispatchKeyEvent", event);
+        return;
+      } catch {
+        const currentOwners = this.heldKeyOwners.get(code);
+        if (currentOwners) {
+          currentOwners.add(ownerId);
+        } else {
+          owners.add(ownerId);
+          this.heldKeyOwners.set(code, owners);
+        }
+      }
+      throw error;
+    }
   }
 
   private async suppressNextShortcut(code: string): Promise<void> {

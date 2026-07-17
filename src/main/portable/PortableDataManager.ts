@@ -53,7 +53,7 @@ import {
   type PortableMacroConflict,
   type PortableMacroConflictResolution,
   type PortableRole,
-  type RionPortableDataV3,
+  type RionPortableDataV4,
   type Role,
   type RoleDefaults,
   type WorkspaceResourcePolicy
@@ -146,7 +146,7 @@ interface PlannedPortableMacro {
 }
 
 interface PendingImport {
-  data: RionPortableDataV3;
+  data: RionPortableDataV4;
   filePath: string;
 }
 
@@ -169,7 +169,7 @@ interface PortableImportJournal {
 }
 
 const PORTABLE_APP_NAME = "Rion Studio";
-const PORTABLE_SCHEMA_VERSION = 3;
+const PORTABLE_SCHEMA_VERSION = 4;
 const PORTABLE_IMPORT_JOURNAL_FILE = "portable-import-transaction.json";
 const PORTABLE_IMPORT_STAGE_DIRECTORY = "portable-import-transaction.stage";
 const MAX_COVER_IMAGE_DATA_URL_LENGTH = 1_500_000;
@@ -354,7 +354,7 @@ export class PortableDataManager {
   private async createPortableData(
     preferences: PortablePreferences | undefined,
     selection: PortableDataSelection
-  ): Promise<RionPortableDataV3> {
+  ): Promise<RionPortableDataV4> {
     const [games, roles, launchWorkspaces, macros] = await Promise.all([
       this.options.gameStore.listGames(),
       this.options.roleStore.listRoles(),
@@ -397,6 +397,7 @@ export class PortableDataManager {
       macros: selection.macros ? macros.map((macro) => ({
         id: macro.id,
         enabled: macro.enabled,
+        activationMode: macro.activationMode,
         name: macro.name,
         roleIds: [...macro.roleIds],
         ...(macro.trigger ? { trigger: { ...macro.trigger } } : {}),
@@ -589,7 +590,7 @@ export class PortableDataManager {
   }
 
   private async buildImportPlan(
-    data: RionPortableDataV3,
+    data: RionPortableDataV4,
     resolutions: PortableMacroConflictResolution[]
   ): Promise<ImportPlan> {
     const [existingGames, existingRoles, existingWorkspaces, existingMacros] = await Promise.all([
@@ -856,6 +857,7 @@ export class PortableDataManager {
 
       const remappedMacro: PortableMacro = {
         ...item.macro,
+        activationMode: trigger ? item.macro.activationMode : "toggle",
         steps: item.macro.steps.map((step) =>
           step.type === "macro"
             ? { ...step, macroId: macroIdMap.get(step.macroId)! }
@@ -1274,6 +1276,7 @@ function createImportedMacro(
   return {
     id: destinationId,
     enabled: source.enabled ?? true,
+    activationMode: source.activationMode ?? "toggle",
     name,
     roleIds: [...roleIds],
     ...(trigger ? { trigger: { ...trigger } } : {}),
@@ -1292,6 +1295,7 @@ function toPortableMacro(macro: Macro): PortableMacro {
   return {
     id: macro.id,
     enabled: macro.enabled,
+    activationMode: macro.activationMode,
     name: macro.name,
     roleIds: [...macro.roleIds].sort(),
     ...(macro.trigger ? { trigger: { ...macro.trigger } } : {}),
@@ -1383,9 +1387,9 @@ function normalizePortableMacroConflictResolutions(value: unknown): PortableMacr
 }
 
 function selectPortableData(
-  data: RionPortableDataV3,
+  data: RionPortableDataV4,
   selection: PortableDataSelection
-): RionPortableDataV3 {
+): RionPortableDataV4 {
   return {
     app: data.app,
     schemaVersion: data.schemaVersion,
@@ -1399,7 +1403,7 @@ function selectPortableData(
   };
 }
 
-function getEffectivePortableDataSelection(data: RionPortableDataV3): PortableDataSelection {
+function getEffectivePortableDataSelection(data: RionPortableDataV4): PortableDataSelection {
   return {
     games: data.games.length > 0,
     roles: data.roles.length > 0,
@@ -1409,7 +1413,7 @@ function getEffectivePortableDataSelection(data: RionPortableDataV3): PortableDa
   };
 }
 
-function ensurePortableContentSelected(data: RionPortableDataV3): void {
+function ensurePortableContentSelected(data: RionPortableDataV4): void {
   const selection = getEffectivePortableDataSelection(data);
   if (!selection.games && !selection.roles && !selection.launchWorkspaces && !selection.macros && !selection.preferences) {
     throw new PortableDataError("PORTABLE_SELECTION_EMPTY", "Select at least one available data category.");
@@ -1431,14 +1435,19 @@ function toPortableGame(game: Game): PortableGame {
   };
 }
 
-function parsePortableData(raw: string): RionPortableDataV3 {
+function parsePortableData(raw: string): RionPortableDataV4 {
   try {
     const parsed = JSON.parse(raw) as unknown;
     const data = toRecord(parsed);
 
     if (
       data.app !== PORTABLE_APP_NAME ||
-      (data.schemaVersion !== 1 && data.schemaVersion !== 2 && data.schemaVersion !== PORTABLE_SCHEMA_VERSION) ||
+      (
+        data.schemaVersion !== 1 &&
+        data.schemaVersion !== 2 &&
+        data.schemaVersion !== 3 &&
+        data.schemaVersion !== PORTABLE_SCHEMA_VERSION
+      ) ||
       !Array.isArray(data.roles) ||
       !Array.isArray(data.launchWorkspaces) ||
       !Array.isArray(data.macros)
@@ -1447,7 +1456,7 @@ function parsePortableData(raw: string): RionPortableDataV3 {
     }
 
     let roles = data.roles.map(normalizePortableRole);
-    const games = (data.schemaVersion === 2 || data.schemaVersion === PORTABLE_SCHEMA_VERSION) && Array.isArray(data.games)
+    const games = (data.schemaVersion === 2 || data.schemaVersion === 3 || data.schemaVersion === PORTABLE_SCHEMA_VERSION) && Array.isArray(data.games)
       ? data.games.map(normalizePortableGame)
       : [];
     const normalizedGames = recoverPortableGames(games, roles);
@@ -1691,12 +1700,21 @@ function normalizePortableMacro(value: unknown): PortableMacro {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 
+  const activationMode = normalizeActivationMode(macro.activationMode);
+  const trigger = macro.trigger === undefined
+    ? undefined
+    : normalizeOptionalTriggerProperty(macro.trigger).trigger;
+  if (activationMode === "while_held" && !trigger) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+
   return {
     id: normalizeRequiredString(macro.id),
     enabled: macro.enabled ?? true,
+    activationMode,
     name: normalizeName(macro.name),
     roleIds: macro.roleIds.map(normalizeRequiredString),
-    ...(macro.trigger === undefined ? {} : normalizeOptionalTriggerProperty(macro.trigger)),
+    ...(trigger ? { trigger } : {}),
     repeat: normalizeRepeat(macro.repeat),
     steps: normalizeSteps(macro.steps)
   };
@@ -1824,6 +1842,26 @@ function normalizeRepeat(value: unknown): MacroRepeat {
   };
 }
 
+function normalizeActivationMode(value: unknown): Macro["activationMode"] {
+  if (value === undefined || value === "toggle") {
+    return "toggle";
+  }
+  if (value === "while_held") {
+    return value;
+  }
+  throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+}
+
+function normalizeKeyAction(value: unknown): Extract<MacroStep, { type: "key" }>["action"] {
+  if (value === undefined || value === "tap") {
+    return "tap";
+  }
+  if (value === "hold_until_stop") {
+    return value;
+  }
+  throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+}
+
 function normalizeSteps(value: unknown): MacroStep[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > MACRO_STEPS_MAX_LENGTH) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
@@ -1845,6 +1883,7 @@ function normalizeSteps(value: unknown): MacroStep[] {
           id,
           type: "key",
           code: normalizeKeyCode(step.code),
+          action: normalizeKeyAction(step.action),
           ...(normalizeOptionalLabel(step.label) ? { label: normalizeOptionalLabel(step.label) } : {})
         };
       case "click":

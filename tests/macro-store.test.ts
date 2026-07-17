@@ -92,10 +92,48 @@ describe("MacroStore", () => {
       }]
     }), "utf8");
 
-    await expect(new MacroStore(legacyDir).getMacro("legacy")).resolves.toMatchObject({ enabled: true });
-    expect(JSON.parse(await readFile(join(legacyDir, "macros.json"), "utf8"))).toMatchObject({
-      macros: [{ enabled: true }]
+    await expect(new MacroStore(legacyDir).getMacro("legacy")).resolves.toMatchObject({
+      enabled: true,
+      activationMode: "toggle",
+      steps: [{ action: "tap" }]
     });
+    expect(JSON.parse(await readFile(join(legacyDir, "macros.json"), "utf8"))).toMatchObject({
+      macros: [{ enabled: true, activationMode: "toggle", steps: [{ action: "tap" }] }]
+    });
+  });
+
+  it("validates while-held activation and persists hold key actions", async () => {
+    await expect(store.createMacro({
+      activationMode: "while_held",
+      name: "Missing shortcut",
+      roleIds: ["role-1"],
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    })).rejects.toMatchObject({ code: "MACRO_WHILE_HELD_TRIGGER_REQUIRED" });
+
+    await expect(store.createMacro({
+      activationMode: "while_held",
+      name: "Hold movement",
+      roleIds: ["role-1"],
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    })).resolves.toMatchObject({
+      activationMode: "while_held",
+      steps: [{ action: "hold_until_stop" }]
+    });
+  });
+
+  it("does not allow a called macro to hold a key until stopped", async () => {
+    const child = await store.createMacro({
+      name: "Held child",
+      roleIds: ["role-1"],
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    });
+
+    await expect(store.createMacro({
+      name: "Parent",
+      roleIds: ["role-1"],
+      steps: [{ id: "call", type: "macro", macroId: child.id }]
+    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_HOLDS_KEY" });
   });
 
   it("allows duplicate names and validates the 24-hour timing boundary", async () => {
@@ -479,6 +517,23 @@ describe("MacroStore", () => {
     await expect(store.updateMacro(target.id, {
       repeat: { type: "loop", intervalMs: 100 }
     })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_REPEATS" });
+  });
+
+  it("prevents a referenced target from adding a held key", async () => {
+    const target = await store.createMacro({
+      name: "Target",
+      roleIds: ["role-2"],
+      steps: [{ id: "key", type: "key", code: "F2" }]
+    });
+    await store.createMacro({
+      name: "Parent",
+      roleIds: ["role-1"],
+      steps: [{ id: "call", type: "macro", macroId: target.id }]
+    });
+
+    await expect(store.updateMacro(target.id, {
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_HOLDS_KEY" });
   });
 
   it("blocks deleting a referenced macro and reports every direct referrer", async () => {

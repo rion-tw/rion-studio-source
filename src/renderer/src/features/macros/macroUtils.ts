@@ -1,5 +1,6 @@
 import type {
   Macro,
+  MacroActivationMode,
   MacroRepeat,
   MacroRunStatus,
   MacroStep,
@@ -24,6 +25,7 @@ export function isCallableMacroTarget(
   return Boolean(
     target &&
     target.repeat.type === "once" &&
+    !target.steps.some((step) => step.type === "key" && step.action === "hold_until_stop") &&
     target.id !== currentMacroId &&
     !(currentMacroId && macroDependsOn(macros, target.id, currentMacroId))
   );
@@ -146,6 +148,7 @@ export function createEmptyMacroForm(
 
   return {
     enabled: true,
+    activationMode: "toggle",
     name: createEmptyMacroFormName(macros, t),
     roleIds: roleId ? [roleId] : [],
     repeat: { type: "once" },
@@ -154,6 +157,7 @@ export function createEmptyMacroForm(
         id: createClientId(),
         type: "key",
         code: "Tab",
+        action: "tap",
         label: "Tab"
       }
     ]
@@ -164,6 +168,7 @@ export function createMacroFormState(macro: Macro): MacroFormState {
   return {
     id: macro.id,
     enabled: macro.enabled,
+    activationMode: macro.activationMode ?? "toggle",
     name: macro.name,
     roleIds: [...macro.roleIds],
     repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
@@ -212,6 +217,12 @@ export function formatMacroShortcut(trigger: MacroTrigger | undefined, t: Transl
   return parts.join("+");
 }
 
+export function formatMacroActivationMode(mode: MacroActivationMode | undefined, t: Translator): string {
+  return t(mode === "while_held"
+    ? "macroForm.activation.whileHeld"
+    : "macroForm.activation.toggle");
+}
+
 export function formatMacroRepeat(repeat: MacroRepeat, t: Translator): string {
   if (repeat.type === "once") {
     return t("macros.repeat.once");
@@ -247,7 +258,9 @@ export function formatMacroStep(
 ): string {
   switch (step.type) {
     case "key":
-      return `${t(macroStepLabelKeys.key)}:${formatMacroCode(step.code)}`;
+      return step.action === "hold_until_stop"
+        ? `${t("macro.step.hold")}:${formatMacroCode(step.code)}`
+        : `${t(macroStepLabelKeys.key)}:${formatMacroCode(step.code)}`;
     case "click":
       return `${t(macroStepLabelKeys.click)}:X ${step.xPercent}%, Y ${step.yPercent}%`;
     case "delay":

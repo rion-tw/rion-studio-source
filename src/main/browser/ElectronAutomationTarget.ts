@@ -12,6 +12,12 @@ export interface BrowserAutomationTarget {
     options?: BrowserInputDispatchOptions
   ) => Promise<void>;
   dispatchKey: (code: string, options?: BrowserInputDispatchOptions) => Promise<void>;
+  holdKey: (
+    code: string,
+    ownerId: string,
+    options?: BrowserInputDispatchOptions
+  ) => Promise<void>;
+  releaseKey: (code: string, ownerId: string) => Promise<void>;
   ensureInputFocus: () => Promise<boolean>;
   evaluate: <T = unknown>(source: string) => Promise<T>;
   focus: () => Promise<void>;
@@ -24,6 +30,7 @@ export interface BrowserInputDispatchOptions {
 }
 
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
+  private readonly heldKeyOwners = new Map<string, Set<string>>();
   private inputDispatchTail: Promise<void> = Promise.resolve();
   private syntheticClickDispatchDepth = 0;
 
@@ -107,6 +114,20 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     return this.enqueueInput(() => this.dispatchKeyUnlocked(code, options));
   }
 
+  holdKey(
+    code: string,
+    ownerId: string,
+    options: BrowserInputDispatchOptions = {}
+  ): Promise<void> {
+    return this.enqueueInput(() => this.holdKeyUnlocked(code, ownerId, options));
+  }
+
+  releaseKey(code: string, ownerId: string): Promise<void> {
+    // Safety releases must not wait behind a stalled click/key operation. The
+    // ownership map still makes an overlapping release deterministic.
+    return this.releaseKeyUnlocked(code, ownerId);
+  }
+
   private async dispatchKeyUnlocked(code: string, options: BrowserInputDispatchOptions): Promise<void> {
     const { holdMs = 0, postDelayMs = 0, signal } = options;
     signal?.throwIfAborted();
@@ -114,12 +135,26 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       return;
     }
 
+    if ((this.heldKeyOwners.get(code)?.size ?? 0) > 0) {
+      const suppressionSource = createMacroShortcutSuppressionSource(code);
+      await this.evaluateInFrames(suppressionSource);
+      try {
+        signal?.throwIfAborted();
+        this.webContents.sendInputEvent({
+          type: "rawKeyDown",
+          keyCode: getElectronKeyCode(code),
+          isAutoRepeat: true
+        } as unknown as Electron.KeyboardInputEvent);
+        await waitForInputDelay(holdMs, signal);
+      } finally {
+        await this.evaluateInFrames(createMacroShortcutSuppressionClearSource(code));
+      }
+      await waitForInputDelay(postDelayMs, signal);
+      return;
+    }
+
     const suppressionSource = createMacroShortcutSuppressionSource(code);
-    await Promise.all(
-      [...this.webContents.mainFrame.framesInSubtree].map((frame) =>
-        executeFrameScript(frame, suppressionSource).catch(() => undefined)
-      )
-    );
+    await this.evaluateInFrames(suppressionSource);
 
     const keyCode = getElectronKeyCode(code);
     let didSendKeyDown = false;
@@ -141,13 +176,89 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
         }
       }
       const clearSource = createMacroShortcutSuppressionClearSource(code);
-      await Promise.all(
-        [...this.webContents.mainFrame.framesInSubtree].map((frame) =>
-          executeFrameScript(frame, clearSource).catch(() => undefined)
-        )
-      );
+      await this.evaluateInFrames(clearSource);
     }
     await waitForInputDelay(postDelayMs, signal);
+  }
+
+  private async holdKeyUnlocked(
+    code: string,
+    ownerId: string,
+    options: BrowserInputDispatchOptions
+  ): Promise<void> {
+    const { postDelayMs = 0, signal } = options;
+    signal?.throwIfAborted();
+    if (this.webContents.isDestroyed()) return;
+
+    const existingOwners = this.heldKeyOwners.get(code);
+    if (existingOwners?.has(ownerId)) return;
+    if (existingOwners && existingOwners.size > 0) {
+      existingOwners.add(ownerId);
+      return;
+    }
+
+    const owners = existingOwners ?? new Set<string>();
+    owners.add(ownerId);
+    this.heldKeyOwners.set(code, owners);
+    let didStartKeyDown = false;
+    try {
+      await this.evaluateInFrames(createMacroShortcutSuppressionSource(code));
+      signal?.throwIfAborted();
+      if (this.heldKeyOwners.get(code) !== owners || !owners.has(ownerId)) return;
+      didStartKeyDown = true;
+      this.webContents.sendInputEvent({ type: "rawKeyDown", keyCode: getElectronKeyCode(code) });
+      signal?.throwIfAborted();
+    } catch (error) {
+      if (owners.has(ownerId)) {
+        if (didStartKeyDown) {
+          await this.releaseKeyUnlocked(code, ownerId).catch(() => undefined);
+        } else {
+          owners.delete(ownerId);
+          if (owners.size === 0 && this.heldKeyOwners.get(code) === owners) {
+            this.heldKeyOwners.delete(code);
+          }
+        }
+      }
+      throw error;
+    } finally {
+      await this.evaluateInFrames(createMacroShortcutSuppressionClearSource(code));
+    }
+    await waitForInputDelay(postDelayMs, signal);
+  }
+
+  private async releaseKeyUnlocked(code: string, ownerId: string): Promise<void> {
+    const owners = this.heldKeyOwners.get(code);
+    if (!owners?.has(ownerId)) return;
+    owners.delete(ownerId);
+    if (owners.size > 0) return;
+    this.heldKeyOwners.delete(code);
+    if (this.webContents.isDestroyed()) return;
+
+    try {
+      this.webContents.sendInputEvent({ type: "keyUp", keyCode: getElectronKeyCode(code) });
+    } catch (error) {
+      try {
+        this.webContents.sendInputEvent({ type: "keyUp", keyCode: getElectronKeyCode(code) });
+        return;
+      } catch {
+        const currentOwners = this.heldKeyOwners.get(code);
+        if (currentOwners) {
+          currentOwners.add(ownerId);
+        } else {
+          owners.add(ownerId);
+          this.heldKeyOwners.set(code, owners);
+        }
+      }
+      throw error;
+    }
+  }
+
+  private evaluateInFrames(source: string): Promise<unknown[]> {
+    return Promise.all(
+      [...this.webContents.mainFrame.framesInSubtree].map((frame) =>
+        executeFrameScript(frame, source).catch(() => undefined)
+      )
+    );
   }
 
   dispatchClick(

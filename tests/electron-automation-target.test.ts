@@ -162,6 +162,23 @@ describe("ElectronAutomationTarget", () => {
     ]);
   });
 
+  it("reference-counts held keys and preserves the hold when the same key is tapped", async () => {
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    await target.holdKey("KeyW", "owner-1");
+    await target.holdKey("KeyW", "owner-2");
+    await target.releaseKey("KeyW", "owner-1");
+    await target.dispatchKey("KeyW");
+    await target.releaseKey("KeyW", "owner-2");
+
+    expect(harness.webContents.sendInputEvent.mock.calls).toEqual([
+      [{ type: "rawKeyDown", keyCode: "W" }],
+      [{ type: "rawKeyDown", keyCode: "W", isAutoRepeat: true }],
+      [{ type: "keyUp", keyCode: "W" }]
+    ]);
+  });
+
   it("serializes key and click input through the same target queue", async () => {
     const harness = createHarness();
     let releaseSuppression!: () => void;

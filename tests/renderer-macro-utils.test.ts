@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createMacroRunKey,
+  formatMacroActivationMode,
   formatMacroIntervalPreset,
   formatMacroRepeat,
   formatMacroShortcut,
@@ -21,11 +22,14 @@ const t: Translator = (key) =>
     {
       "macro.step.click": "Click",
       "macro.step.delay": "Delay",
+      "macro.step.hold": "Hold",
       "macro.step.key": "Key",
       "macro.step.macro": "Run macro",
       "macroForm.intervalMilliseconds": "{value} ms",
       "macroForm.intervalSeconds": "{value} sec",
       "macroForm.intervalNone": "0 ms · No extra wait",
+      "macroForm.activation.toggle": "Click / toggle",
+      "macroForm.activation.whileHeld": "While held",
       "macros.noShortcut": "No shortcut",
       "macros.repeat.loop": "Wait {ms} ms after completion",
       "macros.repeat.loopImmediate": "Schedule the next run after completion",
@@ -79,9 +83,16 @@ describe("macroUtils", () => {
         new Map([["child", "After thunder"]])
       )
     ).toBe("Run macro:After thunder");
+
+    expect(summarizeMacroSteps(
+      [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }],
+      t
+    )).toBe("Hold:W");
   });
 
   it("formats repeat settings and run keys", () => {
+    expect(formatMacroActivationMode(undefined, t)).toBe("Click / toggle");
+    expect(formatMacroActivationMode("while_held", t)).toBe("While held");
     expect(formatMacroRepeat({ type: "once" }, t)).toBe("Once");
     expect(formatMacroRepeat({ type: "loop", intervalMs: 500 }, t)).toBe("Wait 500 ms after completion");
     expect(formatMacroRepeat({ type: "loop", intervalMs: 0 }, t)).toBe("Schedule the next run after completion");
@@ -157,6 +168,17 @@ describe("macroUtils", () => {
         name: "Loop",
         repeat: { type: "loop" as const, intervalMs: 100 },
         steps: [{ id: "wait", type: "delay" as const, ms: 1 }]
+      },
+      {
+        ...base,
+        id: "held",
+        name: "Held",
+        steps: [{
+          id: "held-key",
+          type: "key" as const,
+          code: "KeyW",
+          action: "hold_until_stop" as const
+        }]
       },
       { ...base, id: "c", name: "C", steps: [{ id: "key-c", type: "key" as const, code: "F3" }] }
     ];

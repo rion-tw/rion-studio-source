@@ -155,6 +155,132 @@ describe("macro overlay interactions", () => {
     await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull());
   });
 
+  it("pairs while-held shortcuts with one press and release while consuming auto-repeat", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = {
+      ...assignedMacro,
+      activationMode: "while_held",
+      steps: [{ id: "step-1", type: "key", code: "F3", action: "hold_until_stop" }]
+    };
+    let isHeld = false;
+    const binding = vi.fn(async (request: unknown) => {
+      if (isRecord(request) && request.type === "press") isHeld = true;
+      if (isRecord(request) && request.type === "release") isHeld = false;
+      return {
+        macros: [heldMacro],
+        statuses: isHeld ? [runningStatus()] : []
+      };
+    });
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    const repeated = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2",
+      repeat: true
+    });
+    expect(document.dispatchEvent(repeated)).toBe(false);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: heldMacro.id,
+      pressId: expect.any(String)
+    })));
+    expect(getOverlayRoot(document).querySelector(".active-badge-shortcut")?.textContent)
+      .toContain("While held · Hold");
+    expect(binding.mock.calls.filter(([request]) => isRecord(request) && request.type === "press")).toHaveLength(1);
+
+    const pressRequest = binding.mock.calls
+      .map(([request]) => request)
+      .find((request) => isRecord(request) && request.type === "press") as Record<string, unknown>;
+    const keyUp = new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+    expect(document.dispatchEvent(keyUp)).toBe(false);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "release",
+      macroId: heldMacro.id,
+      pressId: pressRequest.pressId
+    }));
+  });
+
+  it("releases a while-held shortcut when the source window loses focus", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "press" })));
+    window.dispatchEvent(new window.Event("blur"));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      macroId: heldMacro.id
+    })));
+  });
+
+  it("matches release by physical code after modifiers are released", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = {
+      ...assignedMacro,
+      activationMode: "while_held",
+      trigger: { ...assignedMacro.trigger!, ctrl: true }
+    };
+    const binding = vi.fn(async () => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    document.dispatchEvent(new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2",
+      ctrlKey: true
+    }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "press" })));
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2",
+      ctrlKey: false
+    }));
+
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      macroId: heldMacro.id
+    })));
+  });
+
+  it("releases a while-held shortcut when the page becomes hidden or the overlay is disposed", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "press" })));
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    document.dispatchEvent(new window.Event("visibilitychange"));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({ type: "release" })));
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "press"
+    )).toHaveLength(2));
+    controller.dispose();
+    await vi.waitFor(() => expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "release"
+    )).toHaveLength(2));
+  });
+
   it("starts a macro even when the game already prevented the shortcut event", async () => {
     createGameSurface(document);
     const binding = vi.fn(async (request: unknown) => ({
@@ -252,7 +378,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v30")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v31")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -318,7 +444,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v30")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v31")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

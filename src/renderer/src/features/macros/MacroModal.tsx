@@ -934,7 +934,9 @@ function MacroStepFields({
     const modifiers = step.modifiers ?? [];
     const mainKeyIsModifier = isPureModifierCode(step.code);
     const modifierSummary = modifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ");
-    const modifierTriggerLabel = t("macroForm.modifiers");
+    const modifierTriggerLabel = modifiers.length > 0
+      ? `${t("macroForm.modifiers")}: ${modifierSummary}`
+      : t("macroForm.modifiers");
 
     const updateKeyInput = (code: string, nextModifiers: MacroKeyModifier[]): void => {
       const normalizedModifiers = canonicalizeMacroKeyModifiers(nextModifiers);

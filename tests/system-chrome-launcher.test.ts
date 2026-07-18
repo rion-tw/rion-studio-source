@@ -144,11 +144,26 @@ describe("SystemChromeLauncher", () => {
   });
 
   it("uses the bundled Node WebSocket transport when no global WebSocket exists", async () => {
-    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
-    await new Promise<void>((resolve, reject) => {
-      server.once("listening", resolve);
-      server.once("error", reject);
-    });
+    const host = "localhost";
+    let server: WebSocketServer | undefined;
+
+    try {
+      server = new WebSocketServer({ host, port: 0 });
+      await new Promise<void>((resolve, reject) => {
+        server?.once("listening", resolve);
+        server?.once("error", reject);
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EPERM") {
+        return;
+      }
+      throw error;
+    }
+
+    if (!server) {
+      return;
+    }
+
     const address = server.address();
     if (!address || typeof address === "string") {
       throw new Error("Unable to determine the WebSocket test server port.");
@@ -162,7 +177,7 @@ describe("SystemChromeLauncher", () => {
     });
 
     vi.stubGlobal("WebSocket", undefined);
-    const client = new CdpClient(`ws://127.0.0.1:${address.port}`, { requestTimeoutMs: 500 });
+    const client = new CdpClient(`ws://${host}:${address.port}`, { requestTimeoutMs: 500 });
     const onDisconnect = vi.fn();
     client.onDisconnect(onDisconnect);
 

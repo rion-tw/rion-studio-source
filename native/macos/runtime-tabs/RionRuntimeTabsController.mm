@@ -32,6 +32,21 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 @class RionRuntimeTabsController;
 @class RionRuntimeSurfaceView;
 
+// AppKit drives this private value while revealing and hiding
+// NSToolbarFullScreenWindow. Chromium observes the same selector so its
+// tabbed fullscreen chrome can follow the native reveal without polling.
+@interface NSTitlebarAccessoryViewController (RionRuntimeRevealAmount)
+- (double)revealAmount;
+- (void)setRevealAmount:(double)revealAmount;
+@end
+
+@interface RionRuntimeTitlebarAccessoryViewController
+    : NSTitlebarAccessoryViewController
+
+@property(nonatomic, weak) RionRuntimeTabsController *tabsController;
+
+@end
+
 @interface RionRuntimeDraggableView : NSView
 @end
 
@@ -109,6 +124,8 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 - (NSToolbar *)makeFullScreenToolbar;
 - (NSToolbar *)makeToolbarHost;
 - (NSToolbar *)makeWindowedToolbar;
+- (void)nativeToolbarRevealAmountDidChange:(double)revealAmount;
+- (BOOL)orderToolbarBelowAccessory;
 - (void)removeTrafficLightObservationRestoringState:(BOOL)restoreState;
 - (void)revealToolbarAndOrderBelowAccessory;
 - (void)restoreWindowedTrafficLightFrames;
@@ -118,6 +135,15 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 - (void)updateTrafficLightObservation;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
 - (nullable NSView *)toolbarHostView;
+
+@end
+
+@implementation RionRuntimeTitlebarAccessoryViewController
+
+- (void)setRevealAmount:(double)revealAmount {
+  [super setRevealAmount:revealAmount];
+  [self.tabsController nativeToolbarRevealAmountDidChange:revealAmount];
+}
 
 @end
 
@@ -691,6 +717,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   BOOL _destroyed;
   BOOL _enforcingTrafficLightVisibility;
   BOOL _fullscreenTransitionActive;
+  double _nativeToolbarRevealAmount;
   CGFloat _stableTrafficLightReserveWidth;
 }
 
@@ -796,7 +823,10 @@ static void *RionRuntimeTrafficLightObservationContext =
   _insertionIndicator.hidden = YES;
   [root addSubview:_insertionIndicator];
 
-  _accessoryController = [[NSTitlebarAccessoryViewController alloc] init];
+  RionRuntimeTitlebarAccessoryViewController *accessoryController =
+      [[RionRuntimeTitlebarAccessoryViewController alloc] init];
+  accessoryController.tabsController = self;
+  _accessoryController = accessoryController;
   _accessoryController.layoutAttribute = NSLayoutAttributeTrailing;
   _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
   _accessoryController.view = root;
@@ -915,6 +945,7 @@ static void *RionRuntimeTrafficLightObservationContext =
       } else if ([notification.name
                      isEqualToString:NSWindowDidExitFullScreenNotification]) {
         strongSelf->_fullscreenTransitionActive = NO;
+        strongSelf->_nativeToolbarRevealAmount = 0;
         if (!strongSelf->_previousFullSizeContentView) {
           strongSelf->_window.styleMask &=
               ~NSWindowStyleMaskFullSizeContentView;
@@ -1211,24 +1242,37 @@ static void *RionRuntimeTrafficLightObservationContext =
   }
 }
 
+- (BOOL)orderToolbarBelowAccessory {
+  if (_destroyed || !_window || !_toolbar) return NO;
+  // NSToolbar's host view and titlebar accessories are siblings. AppKit puts
+  // the toolbar host back above the accessory whenever it is revealed; on
+  // macOS 26 that covers the Liquid Glass tabs with the fullscreen-exit pill.
+  // Resolve the private view dynamically so older SDKs keep compiling.
+  NSView *toolbarView = [self toolbarHostView];
+  if (!toolbarView.superview) return NO;
+  [toolbarView.superview addSubview:toolbarView
+                         positioned:NSWindowBelow
+                         relativeTo:nil];
+  return YES;
+}
+
+- (void)nativeToolbarRevealAmountDidChange:(double)revealAmount {
+  if (_destroyed || !_window) return;
+  _nativeToolbarRevealAmount = revealAmount;
+  BOOL fullScreen = _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  if (!fullScreen || self.alwaysShowInFullScreen || self.revealLocked) return;
+
+  BOOL revealed = revealAmount > 0;
+  _thinTitlebarController.hidden = revealed;
+  if (revealed) [self orderToolbarBelowAccessory];
+}
+
 - (void)revealToolbarAndOrderBelowAccessory {
   if (_destroyed || !_window || !_toolbar) return;
 
   _toolbar.visible = YES;
-
-  // NSToolbar's host view and titlebar accessories are siblings. AppKit puts
-  // the toolbar host back above the accessory whenever it is revealed; on
-  // macOS 26 that covers the Liquid Glass tabs with the fullscreen-exit pill.
-  // Chromium applies the same ordering correction after setting `visible`.
-  // Resolve the private view dynamically so older SDKs keep compiling and so
-  // failure safely falls back to re-adding the public accessory controller.
-  NSView *toolbarView = [self toolbarHostView];
-
-  if (toolbarView.superview) {
-    [toolbarView.superview addSubview:toolbarView
-                           positioned:NSWindowBelow
-                           relativeTo:nil];
-  } else {
+  if (![self orderToolbarBelowAccessory]) {
     // AppKit has changed this private accessor before. Re-adding the public
     // controller is Chromium's fallback and restores the intended z-order.
     [self detachAccessoryController];
@@ -1568,6 +1612,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     // toolbar synchronously before Electron calls -setFullScreen: so native
     // auto-hide owns one stable host for the entire transition.
     _fullscreenTransitionActive = YES;
+    _nativeToolbarRevealAmount = 0;
     [self installPreparedToolbarForFullScreen];
     [self attachAccessoryController];
     [self attachThinTitlebarController];
@@ -1579,10 +1624,13 @@ static void *RionRuntimeTrafficLightObservationContext =
 
     // Preserve the transition geometry that already works for always-show:
     // top chrome stays hidden over full-size content until DidEnterFullscreen
-    // applies the selected steady-state policy. Auto-hide has the same final
-    // geometry, so both modes enter with one stable native toolbar host.
+    // applies its steady state. Auto-hide establishes the tab accessory's
+    // final 40pt row before AppKit snapshots NSToolbarFullScreenWindow; the
+    // hidden toolbar still keeps that row offscreen during the transition.
     _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
-    _accessoryController.fullScreenMinHeight = 0;
+    _accessoryController.fullScreenMinHeight = self.alwaysShowInFullScreen
+        ? 0
+        : kRionTitlebarHeight;
     _thinTitlebarController.hidden = NO;
     _toolbar.visible = NO;
     [self removeTrafficLightObservationRestoringState:NO];
@@ -1594,6 +1642,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   // restore the settled windowed host immediately.
   if ((_window.styleMask & NSWindowStyleMaskFullScreen) != 0) return;
   _fullscreenTransitionActive = NO;
+  _nativeToolbarRevealAmount = 0;
   [self restoreWindowedTitlebarHost];
   [self installFreshToolbarForWindowedMode];
   [self applyLiquidGlassTitlebarAppearance];
@@ -1633,14 +1682,15 @@ static void *RionRuntimeTrafficLightObservationContext =
       return;
     }
 
-    // Chrome's kAutohide policy keeps the content full-size and lets AppKit
-    // clip/reveal the accessory inside NSToolbarFullScreenWindow. There is no
-    // Rion animation, cursor monitor, or content overlay in this path.
+    // Chrome's tabbed kAutohide policy keeps the trailing tab accessory at its
+    // final row height and uses only the empty NSToolbar's visibility to let
+    // AppKit clip/reveal the complete titlebar group. Keeping this geometry
+    // stable prevents AppKit from laying out the empty toolbar as a second row
+    // on the first native reveal. Full-size content keeps the group overlaid.
     _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
-    _thinTitlebarController.hidden = self.revealLocked;
-    _accessoryController.fullScreenMinHeight = self.revealLocked
-        ? kRionTitlebarHeight
-        : 0;
+    _thinTitlebarController.hidden = self.revealLocked ||
+        _nativeToolbarRevealAmount > 0;
+    _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
     if (self.revealLocked) {
       [self revealToolbarAndOrderBelowAccessory];
     } else {

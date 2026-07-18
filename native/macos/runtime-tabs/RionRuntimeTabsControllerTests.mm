@@ -20,6 +20,7 @@
 - (void)installPreparedToolbarForFullScreen;
 - (void)installFreshToolbarForWindowedMode;
 - (void)layoutTitlebarContent;
+- (void)nativeToolbarRevealAmountDidChange:(double)revealAmount;
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
@@ -313,6 +314,11 @@ int main() {
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
            "Did-enter policy application must restore the always-show steady state.");
     [controller setAlwaysShowInFullScreen:NO];
+    [controller prepareForFullscreenTransition:YES];
+    Assert(window.toolbar == fullscreenToolbar && !window.toolbar.visible &&
+               accessory.fullScreenMinHeight == 40.0 &&
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
+           "Auto-hide preflight must establish the final tab row before AppKit snapshots fullscreen geometry.");
     [controller applyLiquidGlassTitlebarAppearance];
     Assert(fullscreenToolbar.delegate == nil &&
                fullscreenToolbar.items.count == 0,
@@ -323,15 +329,18 @@ int main() {
                root.superview != window.contentView && !root.hidden &&
                window.titlebarAccessoryViewControllers.count == 2,
            "Fullscreen auto-hide must remain entirely hosted by AppKit titlebar accessories.");
-    Assert(accessory.fullScreenMinHeight == 0 && !thinController.hidden &&
+    Assert(accessory.fullScreenMinHeight == 40.0 && !thinController.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0 &&
                root.frame.size.height == 40.0,
-           "Auto-hide must use full-size game content and let AppKit reveal the 40pt tabs as an overlay.");
+           "Auto-hide must keep one stable 40pt tab row over full-size game content.");
     Assert(std::fabs([controller trafficLightReserveWidth] -
                          windowedTrafficReserve) < 0.5 &&
                std::fabs(scrollView.frame.origin.x - windowedLeadingInset) < 0.5,
            "Fullscreen tabs must retain the windowed traffic-light reserve.");
 
+    [controller nativeToolbarRevealAmountDidChange:0.5];
+    Assert(!window.toolbar.visible && thinController.hidden,
+           "A native hover reveal must hide the thin trigger without pinning the toolbar.");
     [controller setRevealLocked:YES];
     Assert(window.toolbar.visible &&
                accessory.fullScreenMinHeight == 40.0 &&
@@ -339,9 +348,13 @@ int main() {
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "A reveal lock must pin the native titlebar while preserving overlay-style full-size content.");
     [controller setRevealLocked:NO];
-    Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 0 &&
+    Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
+               thinController.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
-           "Releasing the final reveal lock must restore AppKit auto-hide.");
+           "Releasing a reveal lock under the cursor must preserve native reveal geometry.");
+    [controller nativeToolbarRevealAmountDidChange:0];
+    Assert(!thinController.hidden,
+           "The thin native trigger must return after AppKit finishes hiding the toolbar.");
 
     NSButton *closeButton = [window standardWindowButton:NSWindowCloseButton];
     NSButton *minimizeButton =
@@ -417,7 +430,7 @@ int main() {
 
     [controller prepareForFullscreenTransition:YES];
     [controller setAlwaysShowInFullScreen:NO];
-    Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 0 &&
+    Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Disabling always-show must immediately restore auto-hide.");
     Assert(NSApplication.sharedApplication.presentationOptions ==

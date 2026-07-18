@@ -269,6 +269,17 @@ function MacroForm({
     () => getCallableMacroTargets(macros, form.id),
     [form.id, macros]
   );
+  const addStepOptions: Array<{
+    action?: MacroKeyAction;
+    label: string;
+    type: MacroStep["type"];
+  }> = [
+    { type: "key", action: "tap", label: t("macroForm.addKey") },
+    { type: "key", action: "hold_until_stop", label: t("macroForm.addHold") },
+    { type: "click", label: t("macroForm.addClick") },
+    { type: "delay", label: t("macroForm.addDelay") },
+    { type: "macro", label: t("macroForm.addMacro") }
+  ];
   const [draggedStepId, setDraggedStepId] = useState<string | null>(null);
   const [dropTargetStepId, setDropTargetStepId] = useState<string | null>(null);
 
@@ -603,13 +614,7 @@ function MacroForm({
                   )}
 
                   <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/50 pt-3">
-                    {[
-                      { type: "key", action: "tap", label: t("macroForm.addKey") },
-                      { type: "key", action: "hold_until_stop", label: t("macroForm.addHold") },
-                      { type: "click", label: t("macroForm.addClick") },
-                      { type: "delay", label: t("macroForm.addDelay") },
-                      { type: "macro", label: t("macroForm.addMacro") }
-                    ].map((option) => (
+                    {addStepOptions.map((option) => (
                       <Button
                         key={`${option.type}-${option.label}-${option.action ?? "default"}`}
                         type="button"

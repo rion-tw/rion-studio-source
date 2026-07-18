@@ -143,19 +143,18 @@ describe("macro editor controls", () => {
       shiftKey: true
     });
     openModifierMenu();
-    expect(getModifierMenuItem("Ctrl").getAttribute("aria-checked")).toBe("true");
-    expect(getModifierMenuItem("Shift").getAttribute("aria-checked")).toBe("true");
+    expect(getModifierOption("Ctrl + Shift").getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
     fireEvent.keyDown(window, { code: "KeyK", key: "K", metaKey: true });
     openModifierMenu();
-    expect(getModifierMenuItem("Win").getAttribute("aria-checked")).toBe("true");
-    expect(getModifierMenuItem("Primary (Ctrl)").getAttribute("aria-checked")).toBe("false");
+    expect(getModifierOption("Win").getAttribute("aria-selected")).toBe("true");
+    expect(getModifierOption("Primary (Ctrl)").getAttribute("aria-selected")).toBe("false");
 
     openModifierMenu();
-    fireEvent.click(getModifierMenuItem("Win"));
+    fireEvent.click(getModifierOption("Win"));
     openModifierMenu();
-    fireEvent.click(getModifierMenuItem("Primary (Ctrl)"));
+    fireEvent.click(getModifierOption("Primary (Ctrl)"));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
@@ -188,9 +187,9 @@ describe("macro editor controls", () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
 
     expect(screen.getByText("Choose a non-modifier main key before adding modifiers.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Modifiers" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Modifiers" })).toBeDisabled();
     for (const name of ["Primary (Ctrl)", "Ctrl", "Alt", "Shift", "Meta"]) {
-      expect(screen.queryByRole("menuitemcheckbox", { name })).toBeNull();
+      expect(screen.queryByRole("option", { name })).toBeNull();
     }
   });
 
@@ -219,8 +218,7 @@ describe("macro editor controls", () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
 
     openModifierMenu();
-    fireEvent.click(getModifierMenuItem("Ctrl"));
-    fireEvent.click(getModifierMenuItem("Shift"));
+    fireEvent.click(getModifierOption("Ctrl + Shift"));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
@@ -476,14 +474,14 @@ describe("macro editor controls", () => {
 const t: Translator = (key) => en[key];
 
 function openModifierMenu(): void {
-  const trigger = screen.getByRole("button", { name: /^Modifiers/ });
+  const trigger = screen.getByRole("combobox", { name: /^Modifiers/i });
   if (trigger.getAttribute("aria-expanded") !== "true") {
     fireEvent.click(trigger);
   }
 }
 
-function getModifierMenuItem(name: string): HTMLElement {
-  return screen.getByRole("menuitemcheckbox", { name });
+function getModifierOption(name: string): HTMLElement {
+  return screen.getByRole("option", { name });
 }
 
 function game(): Game {

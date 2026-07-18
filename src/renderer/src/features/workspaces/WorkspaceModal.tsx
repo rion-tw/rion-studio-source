@@ -381,7 +381,7 @@ function WorkspaceLayoutFormEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Surface className="p-4" padding="none" variant="inset">
           <FormField htmlFor="workspace-browser-mode" label={t("workspaces.browserMode")} description={t("workspaces.browserModeDescription")}>
             <Select value={form.browserLaunchMode} disabled={isSaving} onValueChange={(value) => onChange({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}>
@@ -498,30 +498,30 @@ function WorkspaceLayoutFormEditor({
             </Select>
           </FormField>
         </Surface>
-      </div>
 
-      <Surface className="p-4" padding="none" variant="inset">
-        <FormField
-          htmlFor="workspace-resource-mode"
-          label={t("workspaces.resourceMode")}
-          description={t("workspaces.resourceModeDescription")}
-        >
-          <Select
-            value={form.resourcePolicy.mode}
-            disabled={isSaving}
-            onValueChange={(value) => onChange({
-              ...form,
-              resourcePolicy: { mode: value as WorkspaceResourceMode }
-            })}
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField
+            htmlFor="workspace-resource-mode"
+            label={t("workspaces.resourceMode")}
+            description={t("workspaces.resourceModeDescription")}
           >
-            <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="adaptive">{t("workspaces.resourceModeAdaptive")}</SelectItem>
-              <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </FormField>
-      </Surface>
+            <Select
+              value={form.resourcePolicy.mode}
+              disabled={isSaving}
+              onValueChange={(value) => onChange({
+                ...form,
+                resourcePolicy: { mode: value as WorkspaceResourceMode }
+              })}
+            >
+              <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="adaptive">{t("workspaces.resourceModeAdaptive")}</SelectItem>
+                <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        </Surface>
+      </div>
 
       <Surface
         className="grid overflow-hidden min-[1180px]:grid-cols-[minmax(0,1fr)_270px]"

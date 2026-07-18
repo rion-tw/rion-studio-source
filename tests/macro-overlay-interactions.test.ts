@@ -157,6 +157,52 @@ describe("macro overlay interactions", () => {
     await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull());
   });
 
+  it("lets unmatched physical key events pass through without macro actions", async () => {
+    const { canvas } = createGameSurface(document);
+    const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const pageKeyDown = vi.fn();
+    const pageKeyUp = vi.fn();
+    document.addEventListener("keydown", pageKeyDown);
+    document.addEventListener("keyup", pageKeyUp);
+
+    const keyDown = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "KeyQ",
+      key: "q"
+    });
+    const repeatedKeyDown = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "KeyQ",
+      key: "q",
+      repeat: true
+    });
+    const keyUp = new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "KeyQ",
+      key: "q"
+    });
+
+    expect(canvas.dispatchEvent(keyDown)).toBe(true);
+    expect(canvas.dispatchEvent(repeatedKeyDown)).toBe(true);
+    expect(canvas.dispatchEvent(keyUp)).toBe(true);
+
+    document.removeEventListener("keydown", pageKeyDown);
+    document.removeEventListener("keyup", pageKeyUp);
+    expect(keyDown.defaultPrevented).toBe(false);
+    expect(repeatedKeyDown.defaultPrevented).toBe(false);
+    expect(keyUp.defaultPrevented).toBe(false);
+    expect(pageKeyDown).toHaveBeenCalledTimes(2);
+    expect(pageKeyUp).toHaveBeenCalledOnce();
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: expect.stringMatching(/^(?:start|stop|press|release)$/)
+    }));
+  });
+
   it("pairs while-held shortcuts with one press and release while consuming auto-repeat", async () => {
     createGameSurface(document);
     const heldMacro: Macro = {

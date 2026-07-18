@@ -11,6 +11,7 @@ const macro: Macro = {
   enabled: true,
   name: "Auto heal",
   roleIds: ["role-1", "role-2"],
+  trigger: { code: "F4", ctrl: false, alt: false, shift: false, meta: false },
   repeat: { type: "once" },
   steps: [{ id: "step-1", type: "key", code: "F2" }],
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -628,6 +629,80 @@ describe("MacroManager", () => {
     expect(getSettings).toHaveBeenCalledTimes(2);
   });
 
+  it("omits configured input timing for a macro without a shortcut", async () => {
+    vi.useFakeTimers();
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        trigger: undefined,
+        steps: [
+          { id: "key", type: "key", code: "KeyQ" },
+          { id: "click", type: "click", xPercent: 25, yPercent: 75 },
+          { id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }
+        ]
+      },
+      settings: {
+        ...DEFAULT_MACRO_SETTINGS,
+        startupDelayMs: 100,
+        keyHoldMs: 80,
+        postInputDelayMs: 70
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(target.dispatchKey).toHaveBeenCalledWith("KeyQ", expectNoTimingInputOptions());
+    expect(target.dispatchClick).toHaveBeenCalledWith(25, 75, expectNoTimingInputOptions());
+    expect(target.holdKey).toHaveBeenCalledWith(
+      "KeyW",
+      expect.any(String),
+      expectNoTimingInputOptions()
+    );
+
+    await manager.stop("macro-1");
+  });
+
+  it("keeps explicit step and loop delays for a macro without a shortcut", async () => {
+    vi.useFakeTimers();
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        trigger: undefined,
+        repeat: { type: "loop", intervalMs: 50 },
+        steps: [
+          { id: "before", type: "key", code: "KeyA" },
+          { id: "wait", type: "delay", ms: 100 },
+          { id: "after", type: "key", code: "KeyB" }
+        ]
+      },
+      settings: { ...DEFAULT_MACRO_SETTINGS, startupDelayMs: 100 },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(target.dispatchKey).toHaveBeenCalledTimes(1);
+    expect(target.dispatchKey).toHaveBeenNthCalledWith(1, "KeyA", expectNoTimingInputOptions());
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(target.dispatchKey).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(target.dispatchKey).toHaveBeenNthCalledWith(2, "KeyB", expectNoTimingInputOptions());
+
+    await vi.advanceTimersByTimeAsync(49);
+    expect(target.dispatchKey).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(target.dispatchKey).toHaveBeenNthCalledWith(3, "KeyA", expectNoTimingInputOptions());
+
+    await manager.stop("macro-1");
+  });
+
   it("starts available assigned roles and skips unavailable sessions", async () => {
     const target = createTarget();
     const manager = createManager({
@@ -959,6 +1034,54 @@ describe("MacroManager", () => {
     expect(childTarget.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
       parentTarget.dispatchKey.mock.invocationCallOrder[1]
     );
+  });
+
+  it("decides called-macro timing from each macro's own shortcut", async () => {
+    const parentTarget = createTarget();
+    const childTarget = createTarget();
+    const grandchildTarget = createTarget();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["role-parent"],
+      steps: [
+        { id: "parent-key", type: "key", code: "KeyA" },
+        { id: "call-child", type: "macro", macroId: "child" }
+      ]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Child",
+      roleIds: ["role-child"],
+      trigger: undefined,
+      steps: [
+        { id: "child-key", type: "key", code: "KeyB" },
+        { id: "call-grandchild", type: "macro", macroId: "grandchild" }
+      ]
+    };
+    const grandchild: Macro = {
+      ...macro,
+      id: "grandchild",
+      name: "Grandchild",
+      roleIds: ["role-grandchild"],
+      steps: [{ id: "grandchild-key", type: "key", code: "KeyC" }]
+    };
+    const manager = createManager({
+      macroById: { parent, child, grandchild },
+      targets: {
+        "role-parent": parentTarget,
+        "role-child": childTarget,
+        "role-grandchild": grandchildTarget
+      }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(grandchildTarget.dispatchKey).toHaveBeenCalledOnce());
+
+    expect(parentTarget.dispatchKey).toHaveBeenCalledWith("KeyA", expectInputOptions());
+    expect(childTarget.dispatchKey).toHaveBeenCalledWith("KeyB", expectNoTimingInputOptions());
+    expect(grandchildTarget.dispatchKey).toHaveBeenCalledWith("KeyC", expectInputOptions());
   });
 
   it("waits at a multi-role barrier and creates only one child invocation", async () => {
@@ -1364,6 +1487,12 @@ function expectInputOptions(includeHold = true) {
     postDelayMs: 30,
     signal: expect.any(AbortSignal)
   });
+}
+
+function expectNoTimingInputOptions() {
+  return {
+    signal: expect.any(AbortSignal)
+  };
 }
 
 function createTarget() {

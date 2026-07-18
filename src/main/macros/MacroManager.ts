@@ -41,6 +41,7 @@ interface MacroStepBarrier {
 }
 
 interface MacroInvocation {
+  appliesConfiguredTiming: boolean;
   ancestry: string[];
   barriers: Map<string, MacroStepBarrier>;
   childStartCompletions: Set<Promise<void>>;
@@ -353,7 +354,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       macroId,
       sessions.map(({ key }) => key),
       [...parentAncestry, macroId],
-      settings
+      settings,
+      Boolean(macro.trigger)
     );
     const now = new Date().toISOString();
     const runItems = sessions.map(({ key, roleId, target }) => {
@@ -415,7 +417,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     macroId: string,
     runKeys: string[],
     ancestry: string[],
-    settings: MacroSettings
+    settings: MacroSettings,
+    appliesConfiguredTiming: boolean
   ): MacroInvocation {
     let resolveCompletion: (outcome: MacroInvocationOutcome) => void = () => undefined;
     const completion = new Promise<MacroInvocationOutcome>((resolve) => {
@@ -426,6 +429,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       resolveFirstIterationCompletion = resolve;
     });
     const invocation: MacroInvocation = {
+      appliesConfiguredTiming,
       ancestry,
       barriers: new Map(),
       childStartCompletions: new Set(),
@@ -645,7 +649,9 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     macro: Macro,
     target: BrowserAutomationTarget
   ): Promise<void> {
-    await this.delay(run, invocation.settings.startupDelayMs);
+    if (invocation.appliesConfiguredTiming) {
+      await this.delay(run, invocation.settings.startupDelayMs);
+    }
     let iteration = 0;
     do {
       for (const step of macro.steps) {
@@ -703,7 +709,9 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
           try {
             await this.executeTargetOperation(run, () =>
               target.holdKey(input, ownerId, {
-                postDelayMs: invocation.settings.postInputDelayMs,
+                ...(invocation.appliesConfiguredTiming
+                  ? { postDelayMs: invocation.settings.postInputDelayMs }
+                  : {}),
                 signal: run.abortController.signal
               })
             );
@@ -716,8 +724,12 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         }
         await this.executeTargetOperation(run, () =>
           target.dispatchKey(input, {
-            holdMs: invocation.settings.keyHoldMs,
-            postDelayMs: invocation.settings.postInputDelayMs,
+            ...(invocation.appliesConfiguredTiming
+              ? {
+                  holdMs: invocation.settings.keyHoldMs,
+                  postDelayMs: invocation.settings.postInputDelayMs
+                }
+              : {}),
             signal: run.abortController.signal
           })
         );
@@ -726,7 +738,9 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       case "click":
         await this.executeTargetOperation(run, () =>
           target.dispatchClick(step.xPercent, step.yPercent, {
-            postDelayMs: invocation.settings.postInputDelayMs,
+            ...(invocation.appliesConfiguredTiming
+              ? { postDelayMs: invocation.settings.postInputDelayMs }
+              : {}),
             signal: run.abortController.signal
           })
         );

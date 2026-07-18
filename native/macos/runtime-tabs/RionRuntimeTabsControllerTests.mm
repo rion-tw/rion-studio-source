@@ -20,7 +20,6 @@
 - (void)installPreparedToolbarForFullScreen;
 - (void)installFreshToolbarForWindowedMode;
 - (void)layoutTitlebarContent;
-- (void)nativeToolbarRevealAmountDidChange:(double)revealAmount;
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
@@ -214,9 +213,10 @@ int main() {
            "The full titlebar must use a soft system header blur material.");
     NSTitlebarAccessoryViewController *accessory =
         [controller valueForKey:@"_accessoryController"];
-    Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+    Assert([accessory isMemberOfClass:NSTitlebarAccessoryViewController.class] &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
                accessory.fullScreenMinHeight == 40.0,
-           "Windowed and fullscreen tabs must share the same 40pt titlebar layout.");
+           "Runtime tabs must use one standard 40pt titlebar accessory.");
 
     // AppKit may mutate titlebar properties while re-hosting the accessory for
     // fullscreen. The shared appearance pass must restore the exact windowed
@@ -295,8 +295,6 @@ int main() {
     NSToolbar *windowedToolbar = window.toolbar;
     NSToolbar *preparedFullscreenToolbar =
         [controller valueForKey:@"_fullscreenToolbar"];
-    NSTitlebarAccessoryViewController *thinController =
-        [controller valueForKey:@"_thinTitlebarController"];
     [controller setAlwaysShowInFullScreen:YES];
     [controller prepareForFullscreenTransition:YES];
     NSToolbar *fullscreenToolbar = [controller valueForKey:@"_toolbar"];
@@ -306,9 +304,10 @@ int main() {
                !fullscreenToolbar.visible && fullscreenToolbar.delegate == nil &&
                fullscreenToolbar.items.count == 0,
            "Fullscreen preflight must install the prepared empty toolbar before AppKit starts its transition.");
-    Assert(accessory.fullScreenMinHeight == 0 && !thinController.hidden &&
+    Assert(accessory.fullScreenMinHeight == 40.0 &&
+               window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
-           "Always-show preflight must preserve the existing hidden, full-size transition geometry.");
+           "Fullscreen preflight must preserve one stable 40pt native accessory.");
     [controller applyFullScreenPolicy];
     Assert(window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
@@ -327,9 +326,9 @@ int main() {
     Assert(window.toolbar == fullscreenToolbar && !window.toolbar.visible &&
                window.toolbar.delegate == nil && window.toolbar.items.count == 0 &&
                root.superview != window.contentView && !root.hidden &&
-               window.titlebarAccessoryViewControllers.count == 2,
-           "Fullscreen auto-hide must remain entirely hosted by AppKit titlebar accessories.");
-    Assert(accessory.fullScreenMinHeight == 40.0 && !thinController.hidden &&
+               window.titlebarAccessoryViewControllers.count == 1,
+           "Fullscreen auto-hide must use exactly one AppKit titlebar accessory.");
+    Assert(accessory.fullScreenMinHeight == 40.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0 &&
                root.frame.size.height == 40.0,
            "Auto-hide must keep one stable 40pt tab row over full-size game content.");
@@ -338,23 +337,17 @@ int main() {
                std::fabs(scrollView.frame.origin.x - windowedLeadingInset) < 0.5,
            "Fullscreen tabs must retain the windowed traffic-light reserve.");
 
-    [controller nativeToolbarRevealAmountDidChange:0.5];
-    Assert(!window.toolbar.visible && thinController.hidden,
-           "A native hover reveal must hide the thin trigger without pinning the toolbar.");
     [controller setRevealLocked:YES];
     Assert(window.toolbar.visible &&
                accessory.fullScreenMinHeight == 40.0 &&
-               thinController.hidden &&
+               window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "A reveal lock must pin the native titlebar while preserving overlay-style full-size content.");
     [controller setRevealLocked:NO];
     Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
-               thinController.hidden &&
+               window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
-           "Releasing a reveal lock under the cursor must preserve native reveal geometry.");
-    [controller nativeToolbarRevealAmountDidChange:0];
-    Assert(!thinController.hidden,
-           "The thin native trigger must return after AppKit finishes hiding the toolbar.");
+           "Releasing a reveal lock must return the single native host to AppKit auto-hide.");
 
     NSButton *closeButton = [window standardWindowButton:NSWindowCloseButton];
     NSButton *minimizeButton =
@@ -371,7 +364,8 @@ int main() {
         [controller valueForKey:@"_observedTrafficLightButtons"];
     Assert(window.toolbar.visible && !root.hidden &&
                window.toolbar.delegate == nil && window.toolbar.items.count == 0 &&
-               accessory.fullScreenMinHeight == 40.0 && thinController.hidden &&
+               accessory.fullScreenMinHeight == 40.0 &&
+               window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
            "Always-show must reserve a static native 40pt titlebar above the game without a spacer row.");
     Assert(observedFullscreenButtons.count == 3 && !closeButton.hidden &&

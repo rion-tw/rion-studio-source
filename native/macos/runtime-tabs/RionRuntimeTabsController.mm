@@ -2074,10 +2074,11 @@ static void *RionRuntimeTrafficLightObservationContext =
     _accessoryController.view.alphaValue = 1.0;
 
     if (self.alwaysShowInFullScreen) {
-      // Chrome's kAlways policy reserves the native titlebar height. The game
-      // content is statically laid out below it and never covered.
+      // Keep Electron's root content full-size for both fullscreen policies.
+      // BrowserManager reserves this 40pt row in its child View layout for
+      // always-show, avoiding AppKit's stale fullscreen content-rect cache.
       _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
-      _window.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
+      _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
       [self revealToolbarAndOrderBelowAccessory];
       [self synchronizeFullScreenTitlebarGeometry];
       [self updateTrafficLightObservation];
@@ -2087,8 +2088,8 @@ static void *RionRuntimeTrafficLightObservationContext =
     // Keep one trailing tab accessory at its final row height and let AppKit's
     // empty fullscreen NSToolbar host own top-edge tracking, clipping, and the
     // reveal animation. Full-size content keeps the native group overlaid.
-    _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
     _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
+    _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
     if (self.revealLocked) {
       [self revealToolbarAndOrderBelowAccessory];
     } else {

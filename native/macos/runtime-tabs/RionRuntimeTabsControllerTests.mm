@@ -347,6 +347,8 @@ int main() {
     NSWindowToolbarStyle previousToolbarStyle = window.toolbarStyle;
     NSTitlebarSeparatorStyle previousTitlebarSeparatorStyle =
         window.titlebarSeparatorStyle;
+    BOOL previousFullSizeContentView =
+        (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0;
     NSApplicationPresentationOptions previousPresentationOptions =
         NSApplication.sharedApplication.presentationOptions;
     NSView *originalTitlebarFrameView = window.contentView.superview;
@@ -698,9 +700,12 @@ int main() {
            "Fullscreen preflight must preserve one stable 40pt native accessory.");
     [controller applyFullScreenPolicy];
     Assert(window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
-               (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
-           "Did-enter policy application must restore the always-show steady state.");
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
+           "Did-enter always-show must keep Electron's fullscreen root content full-size.");
     [controller setAlwaysShowInFullScreen:NO];
+    Assert(!accessory.hidden &&
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
+           "Always-to-auto-hide must keep the single accessory over the same full-size root content.");
     [controller prepareForFullscreenTransition:YES];
     Assert(window.toolbar == fullscreenToolbar && !window.toolbar.visible &&
                accessory.fullScreenMinHeight == 40.0 &&
@@ -714,6 +719,7 @@ int main() {
     Assert(window.toolbar == fullscreenToolbar && !window.toolbar.visible &&
                window.toolbar.delegate == nil && window.toolbar.items.count == 0 &&
                root.superview != window.contentView && !root.hidden &&
+               !accessory.hidden &&
                window.titlebarAccessoryViewControllers.count == 1,
            "Fullscreen auto-hide must use exactly one AppKit titlebar accessory.");
     AssertTitlebarHeight(
@@ -761,10 +767,10 @@ int main() {
         [controller valueForKey:@"_observedTrafficLightButtons"];
     Assert(window.toolbar.visible && !root.hidden &&
                window.toolbar.delegate == nil && window.toolbar.items.count == 0 &&
-               accessory.fullScreenMinHeight == 40.0 &&
+               accessory.fullScreenMinHeight == 40.0 && !accessory.hidden &&
                window.titlebarAccessoryViewControllers.count == 1 &&
-               (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
-           "Always-show must reserve a static native 40pt titlebar above the game without a spacer row.");
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
+           "Always-show must reveal one 40pt native row over the unchanged full-size root content.");
     AssertTitlebarHeight(
         titlebarFrameView, 40.0,
         "Switching to always-show must preserve the fullscreen frame metric.");
@@ -773,6 +779,24 @@ int main() {
            "Always-show must retain all three AppKit traffic lights.");
     Assert(zoomButton.target == zoomTarget && zoomButton.action == zoomAction,
            "Always-show must retain the native fullscreen traffic-light action.");
+
+    [controller setAlwaysShowInFullScreen:YES];
+    Assert(window.titlebarAccessoryViewControllers.count == 1 &&
+               fullscreenToolbar.items.count == 0,
+           "Repeating the same policy must not rebuild native toolbar state.");
+    [controller setRevealLocked:YES];
+    [controller setAlwaysShowInFullScreen:NO];
+    Assert(window.toolbar.visible && !accessory.hidden &&
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
+           "Switching to auto-hide under a reveal lock must use overlay layout while keeping the toolbar pinned.");
+    [controller setRevealLocked:NO];
+    Assert(!window.toolbar.visible,
+           "Releasing the lock after a policy switch must hide natively.");
+    [controller setAlwaysShowInFullScreen:YES];
+    Assert(window.toolbar.visible && !accessory.hidden &&
+               window.titlebarAccessoryViewControllers.count == 1 &&
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
+           "Repeated bidirectional policy switches must preserve one visible native accessory.");
 
     closeButton.frame = NSMakeRect(0, 0, closeFrame.size.width,
                                    closeFrame.size.height);
@@ -825,6 +849,7 @@ int main() {
     [controller prepareForFullscreenTransition:YES];
     [controller setAlwaysShowInFullScreen:NO];
     Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
+               !accessory.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Disabling always-show must immediately restore auto-hide.");
     AssertTitlebarHeight(
@@ -964,6 +989,9 @@ int main() {
            "Destroying the controller must detach its accessory.");
     Assert(window.toolbar == nil,
            "Destroying runtime tabs must restore the previous toolbar.");
+    Assert(((window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0) ==
+               previousFullSizeContentView,
+           "Destroying runtime tabs must restore the window's original content-view style.");
     if (@available(macOS 11.0, *)) {
       Assert(window.toolbarStyle == previousToolbarStyle,
              "Destroying runtime tabs must restore the previous toolbar style.");

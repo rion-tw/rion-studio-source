@@ -417,7 +417,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.displayHosts.forEach((host) => {
       if (host.macNativeTabs) {
         host.macNativeTabs.setFullscreenPolicy(value ? "always" : "autoHide");
-        this.sendRuntimeChromeState(host);
+        // Native fullscreen keeps Electron's root content full-size for both
+        // policies. Re-layout every child View so Always reserves the 40pt row
+        // and Auto-hide immediately returns to overlay geometry.
+        this.layoutDisplayHost(host);
         return;
       }
       if (value) this.clearRuntimeToolbarCursorMonitor(host);
@@ -1573,6 +1576,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private getRuntimeContentTopInset(displayHost: EmbeddedDisplayHost): number {
+    if (displayHost.macNativeTabs) {
+      return displayHost.windowFullscreen &&
+        this.alwaysShowToolbarInFullScreen
+        ? RUNTIME_TAB_CHROME_HEIGHT
+        : 0;
+    }
     if (displayHost.chromeView) {
       if (!this.isDisplayHostFullscreen(displayHost)) return RUNTIME_TAB_CHROME_HEIGHT;
       return this.alwaysShowToolbarInFullScreen

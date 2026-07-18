@@ -400,15 +400,7 @@ function WorkspaceCard({
       </div>
 
       <div className="glass-divider border-t p-3.5">
-        <CardTitle className="min-w-0 truncate">
-          <button
-            className="block max-w-full truncate rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            type="button"
-            onClick={onEdit}
-          >
-            {workspace.name}
-          </button>
-        </CardTitle>
+        <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
 
         <div className="mt-2 flex min-w-0 items-center gap-1.5">
           <Badge

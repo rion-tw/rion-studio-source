@@ -926,7 +926,25 @@ function getModifierComboOptions(t: Translator): Array<{ value: string; label: s
     combinations.push({ value, label });
   }
 
-  return combinations;
+  return combinations.sort((left, right) => {
+    const leftModifiers = left.value ? left.value.split(",") : [];
+    const rightModifiers = right.value ? right.value.split(",") : [];
+
+    if (leftModifiers.length !== rightModifiers.length) {
+      return leftModifiers.length - rightModifiers.length;
+    }
+
+    const leftOrder = leftModifiers.map((item) => macroKeyModifiers.indexOf(item as MacroKeyModifier));
+    const rightOrder = rightModifiers.map((item) => macroKeyModifiers.indexOf(item as MacroKeyModifier));
+
+    for (let index = 0; index < leftOrder.length; index += 1) {
+      if (leftOrder[index] !== rightOrder[index]) {
+        return leftOrder[index] - rightOrder[index];
+      }
+    }
+
+    return 0;
+  });
 }
 
 function parseModifierComboValue(value: string): MacroKeyModifier[] {

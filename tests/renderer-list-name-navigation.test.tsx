@@ -11,8 +11,8 @@ import type { LaunchWorkspace, Role } from "../src/shared/types";
 
 afterEach(cleanup);
 
-describe("list name navigation", () => {
-  it("opens a role editor when its name is clicked", async () => {
+describe("list editor navigation", () => {
+  it("opens a role editor from its action menu", async () => {
     const user = userEvent.setup();
     const item = role();
     const onEdit = vi.fn();
@@ -47,13 +47,14 @@ describe("list name navigation", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: item.name }));
+    await user.click(screen.getByRole("button", { name: "role.actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "role.edit" }));
 
     expect(onEdit).toHaveBeenCalledOnce();
     expect(onEdit).toHaveBeenCalledWith(item);
   });
 
-  it("opens a workspace editor when its name is clicked", async () => {
+  it("opens a workspace editor from its action menu", async () => {
     const user = userEvent.setup();
     const item = workspace();
     const onEditWorkspace = vi.fn();
@@ -82,7 +83,8 @@ describe("list name navigation", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: item.name }));
+    await user.click(screen.getByRole("button", { name: "workspaces.actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "workspaces.edit" }));
 
     expect(onEditWorkspace).toHaveBeenCalledOnce();
     expect(onEditWorkspace).toHaveBeenCalledWith(item);

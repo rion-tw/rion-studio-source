@@ -24,6 +24,10 @@
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (BOOL)attachTitlebarHeightOverrideToFrameView:(nullable NSView *)frameView;
+- (BOOL)attachTitlebarWidgetInsetOverride:(CGFloat)inset
+                              toFrameView:(nullable NSView *)frameView;
+- (void)detachTitlebarWidgetInsetOverrideFromFrameView:
+    (nullable NSView *)frameView;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
 - (BOOL)synchronizeTitlebarGeometryForFrameView:(nullable NSView *)frameView;
 - (CGFloat)trafficLightReserveWidth;
@@ -31,17 +35,69 @@
 
 @end
 
-@interface RionTitlebarGeometryProbeView : NSView
+@interface RionTitlebarGeometryProbeView : NSView {
+ @private
+  CGFloat _customTitlebarHeight;
+}
 
 @property(nonatomic) NSUInteger buttonPositionUpdateCount;
 @property(nonatomic) CGFloat customTitlebarHeight;
+@property(nonatomic) NSUInteger layoutPassCount;
+@property(nonatomic, strong) NSMutableArray<NSString *> *geometryEvents;
 
 @end
 
 @implementation RionTitlebarGeometryProbeView
 
+- (instancetype)initWithFrame:(NSRect)frameRect {
+  self = [super initWithFrame:frameRect];
+  if (self) _geometryEvents = [NSMutableArray array];
+  return self;
+}
+
+- (CGFloat)customTitlebarHeight {
+  return _customTitlebarHeight;
+}
+
+- (void)setCustomTitlebarHeight:(CGFloat)height {
+  _customTitlebarHeight = height;
+  [self.geometryEvents addObject:@"height"];
+}
+
 - (void)_updateButtonPositions {
   self.buttonPositionUpdateCount += 1;
+  [self.geometryEvents addObject:@"buttons"];
+}
+
+- (void)layout {
+  self.layoutPassCount += 1;
+  [self.geometryEvents addObject:@"layout"];
+  [super layout];
+}
+
+@end
+
+@interface RionTitlebarWidgetInsetProbeView : NSView
+
+@property(nonatomic) CGFloat nativeTitlebarWidgetInset;
+
+@end
+
+@implementation RionTitlebarWidgetInsetProbeView
+
+- (CGFloat)_minXTitlebarWidgetInset {
+  return self.nativeTitlebarWidgetInset;
+}
+
+@end
+
+@interface RionInvalidTitlebarWidgetInsetProbeView : NSView
+@end
+
+@implementation RionInvalidTitlebarWidgetInsetProbeView
+
+- (id)_minXTitlebarWidgetInset {
+  return nil;
 }
 
 @end
@@ -96,6 +152,28 @@ static void AssertTitlebarHeight(NSView *frameView, CGFloat expected,
   Assert(ReadTitlebarHeight(frameView, &height) &&
              std::fabs(height - expected) < 0.01,
          message);
+}
+
+static BOOL ReadTitlebarWidgetInset(NSView *frameView, CGFloat *inset) {
+  if (!frameView || !inset) return NO;
+  SEL selector = NSSelectorFromString(@"_minXTitlebarWidgetInset");
+  if (![frameView respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != sizeof(CGFloat) ||
+      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
+    return NO;
+  }
+
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = frameView;
+  invocation.selector = selector;
+  [invocation invoke];
+  [invocation getReturnValue:inset];
+  return YES;
 }
 
 static BOOL ReadCustomTitlebarHeightIfSupported(NSView *frameView,
@@ -280,6 +358,10 @@ int main() {
     BOOL supportsCustomTitlebarHeight =
         ReadCustomTitlebarHeightIfSupported(originalTitlebarFrameView,
                                             &originalCustomTitlebarHeight);
+    CGFloat originalTitlebarWidgetInset = -1;
+    BOOL supportsTitlebarWidgetInset =
+        ReadTitlebarWidgetInset(originalTitlebarFrameView,
+                                &originalTitlebarWidgetInset);
 
     // The hook is installed per frame class, but its 40pt result must be
     // scoped by an associated marker to only the Rion-managed window.
@@ -299,6 +381,10 @@ int main() {
     BOOL controlSupportsCustomTitlebarHeight =
         ReadCustomTitlebarHeightIfSupported(controlTitlebarFrameView,
                                             &controlCustomTitlebarHeight);
+    CGFloat controlTitlebarWidgetInset = -1;
+    BOOL controlSupportsTitlebarWidgetInset =
+        ReadTitlebarWidgetInset(controlTitlebarFrameView,
+                                &controlTitlebarWidgetInset);
 
     __block NSDictionary<NSString *, id> *lastAction = nil;
     RionRuntimeTabsController *controller = [[RionRuntimeTabsController alloc]
@@ -314,6 +400,62 @@ int main() {
     AssertTitlebarHeight(
         controlTitlebarFrameView, controlTitlebarHeight,
         "Installing the frame hook must not change unmarked windows of the same AppKit class.");
+    CGFloat expectedFullscreenWidgetInset = supportsTitlebarWidgetInset
+        ? originalTitlebarWidgetInset
+        : 13.0;
+    CGFloat managedWindowedInset = -1;
+    BOOL managedSupportsTitlebarWidgetInset =
+        ReadTitlebarWidgetInset(titlebarFrameView, &managedWindowedInset);
+    if (supportsTitlebarWidgetInset) {
+      NSNumber *capturedInset =
+          [controller valueForKey:@"stableTitlebarWidgetInset"];
+      NSNumber *hasCapturedInset =
+          [controller valueForKey:@"hasStableTitlebarWidgetInset"];
+      Assert(hasCapturedInset.boolValue &&
+                 std::fabs(capturedInset.doubleValue -
+                           originalTitlebarWidgetInset) < 0.01,
+             "The controller must capture Chromium's windowed horizontal inset before changing the toolbar host.");
+    }
+    if (controlSupportsTitlebarWidgetInset) {
+      CGFloat controlWindowedInset = -1;
+      Assert(ReadTitlebarWidgetInset(controlTitlebarFrameView,
+                                     &controlWindowedInset) &&
+                 std::fabs(controlWindowedInset -
+                           controlTitlebarWidgetInset) < 0.01,
+             "Creating runtime tabs must not change an unmanaged window's native horizontal inset.");
+    }
+    if (managedSupportsTitlebarWidgetInset &&
+        controlSupportsTitlebarWidgetInset) {
+      Assert([controller
+                 attachTitlebarWidgetInsetOverride:expectedFullscreenWidgetInset
+                                        toFrameView:titlebarFrameView],
+             "The managed frame must accept the captured fullscreen horizontal inset.");
+      CGFloat overriddenManagedInset = -1;
+      CGFloat unchangedControlInset = -1;
+      Assert(ReadTitlebarWidgetInset(titlebarFrameView,
+                                     &overriddenManagedInset) &&
+                 std::fabs(overriddenManagedInset -
+                           expectedFullscreenWidgetInset) < 0.01 &&
+                 ReadTitlebarWidgetInset(controlTitlebarFrameView,
+                                         &unchangedControlInset) &&
+                 std::fabs(unchangedControlInset -
+                           controlTitlebarWidgetInset) < 0.01,
+             "A per-instance fullscreen inset marker must not affect an unmarked frame of the same AppKit class.");
+      [controller
+          detachTitlebarWidgetInsetOverrideFromFrameView:titlebarFrameView];
+      CGFloat restoredManagedInset = -1;
+      CGFloat restoredControlInset = -1;
+      Assert(ReadTitlebarWidgetInset(titlebarFrameView,
+                                     &restoredManagedInset) &&
+                 std::fabs(restoredManagedInset - managedWindowedInset) <
+                     0.01 &&
+                 ReadTitlebarWidgetInset(controlTitlebarFrameView,
+                                         &restoredControlInset) &&
+                 std::fabs(restoredControlInset -
+                           controlTitlebarWidgetInset) < 0.01,
+             "Removing the fullscreen marker must restore both windowed frames to their native horizontal insets.");
+    }
+    BOOL toolbarVisibleBeforeGeometrySync = window.toolbar.visible;
     if (supportsCustomTitlebarHeight &&
         SetCustomTitlebarHeightIfSupported(titlebarFrameView, -1.0)) {
       AssertTitlebarHeight(
@@ -331,15 +473,65 @@ int main() {
     RionTitlebarGeometryProbeView *geometryProbe =
         [[RionTitlebarGeometryProbeView alloc] initWithFrame:NSZeroRect];
     geometryProbe.customTitlebarHeight = -1.0;
+    [geometryProbe.geometryEvents removeAllObjects];
     Assert([controller synchronizeTitlebarGeometryForFrameView:geometryProbe] &&
                std::fabs(geometryProbe.customTitlebarHeight - 40.0) < 0.01 &&
-               geometryProbe.buttonPositionUpdateCount == 1,
-          "Geometry sync must update the metric and request one explicit button-position pass.");
+               geometryProbe.buttonPositionUpdateCount == 1 &&
+               geometryProbe.layoutPassCount == 1 &&
+               [geometryProbe.geometryEvents isEqualToArray:
+                   @[ @"height", @"buttons", @"layout" ]],
+          "Geometry sync must update the 40pt metric, button positions and layout without driving reveal state.");
     RionInvalidTitlebarGeometryProbeView *invalidGeometryProbe =
         [[RionInvalidTitlebarGeometryProbeView alloc] initWithFrame:NSZeroRect];
     Assert(![controller
                synchronizeTitlebarGeometryForFrameView:invalidGeometryProbe],
            "Invalid private selector signatures must fail safely.");
+    RionTitlebarWidgetInsetProbeView *firstInsetHost =
+        [[RionTitlebarWidgetInsetProbeView alloc] initWithFrame:NSZeroRect];
+    firstInsetHost.nativeTitlebarWidgetInset = 5.0;
+    RionTitlebarWidgetInsetProbeView *secondInsetHost =
+        [[RionTitlebarWidgetInsetProbeView alloc] initWithFrame:NSZeroRect];
+    secondInsetHost.nativeTitlebarWidgetInset = 7.0;
+    RionTitlebarWidgetInsetProbeView *unmarkedInsetHost =
+        [[RionTitlebarWidgetInsetProbeView alloc] initWithFrame:NSZeroRect];
+    unmarkedInsetHost.nativeTitlebarWidgetInset = 9.0;
+    Assert([controller
+               attachTitlebarWidgetInsetOverride:expectedFullscreenWidgetInset
+                                      toFrameView:firstInsetHost],
+           "A fullscreen host with a valid inset getter must accept the per-instance override.");
+    CGFloat firstOverriddenInset = -1;
+    CGFloat unmarkedNativeInset = -1;
+    Assert(ReadTitlebarWidgetInset(firstInsetHost, &firstOverriddenInset) &&
+               std::fabs(firstOverriddenInset -
+                         expectedFullscreenWidgetInset) < 0.01 &&
+               ReadTitlebarWidgetInset(unmarkedInsetHost,
+                                       &unmarkedNativeInset) &&
+               std::fabs(unmarkedNativeInset - 9.0) < 0.01,
+           "The fullscreen inset marker must not affect an unmarked host of the same class.");
+    [controller
+        detachTitlebarWidgetInsetOverrideFromFrameView:firstInsetHost];
+    Assert([controller
+               attachTitlebarWidgetInsetOverride:expectedFullscreenWidgetInset
+                                      toFrameView:secondInsetHost],
+           "Rehosting must transfer the horizontal inset marker to the new frame.");
+    CGFloat restoredFirstInset = -1;
+    CGFloat secondOverriddenInset = -1;
+    Assert(ReadTitlebarWidgetInset(firstInsetHost, &restoredFirstInset) &&
+               std::fabs(restoredFirstInset - 5.0) < 0.01 &&
+               ReadTitlebarWidgetInset(secondInsetHost,
+                                       &secondOverriddenInset) &&
+               std::fabs(secondOverriddenInset -
+                         expectedFullscreenWidgetInset) < 0.01,
+           "Replacing the fullscreen host must restore the old frame and mark only the new frame.");
+    RionInvalidTitlebarWidgetInsetProbeView *invalidInsetHost =
+        [[RionInvalidTitlebarWidgetInsetProbeView alloc]
+            initWithFrame:NSZeroRect];
+    Assert(![controller
+               attachTitlebarWidgetInsetOverride:expectedFullscreenWidgetInset
+                                      toFrameView:invalidInsetHost],
+           "An invalid horizontal inset selector signature must fail safely.");
+    Assert(window.toolbar.visible == toolbarVisibleBeforeGeometrySync,
+           "Geometry sync must not reveal, hide or pin the toolbar.");
     if (controlSupportsCustomTitlebarHeight) {
       CGFloat unchangedControlCustomTitlebarHeight = -1;
       Assert(ReadCustomTitlebarHeightIfSupported(
@@ -361,6 +553,10 @@ int main() {
     Assert(![controller
                attachTitlebarHeightOverrideToFrameView:unsupportedFrameView],
            "A frame without AppKit's private titlebar metric must fail safely.");
+    Assert(![controller
+               attachTitlebarWidgetInsetOverride:expectedFullscreenWidgetInset
+                                      toFrameView:unsupportedFrameView],
+           "A frame without AppKit's private widget inset must fail safely.");
     Assert(![controller
                synchronizeTitlebarGeometryForFrameView:unsupportedFrameView],
            "A frame without fullscreen geometry selectors must fail safely.");
@@ -722,6 +918,10 @@ int main() {
            "Expected the always-show fullscreen policy.");
     [controller setRevealLocked:YES];
     Assert(controller.revealLocked, "Expected the native reveal lock.");
+    Assert([controller
+               attachTitlebarWidgetInsetOverride:expectedFullscreenWidgetInset
+                                      toFrameView:secondInsetHost],
+           "The destroy path must be exercised with an active fullscreen inset marker.");
 
     [controller destroy];
     if (supportsCustomTitlebarHeight) {
@@ -739,6 +939,27 @@ int main() {
     AssertTitlebarHeight(
         controlTitlebarFrameView, controlTitlebarHeight,
         "Destroying runtime tabs must leave other windows on AppKit's original metric.");
+    CGFloat restoredSecondInset = -1;
+    CGFloat finalUnmarkedInset = -1;
+    Assert(ReadTitlebarWidgetInset(secondInsetHost, &restoredSecondInset) &&
+               std::fabs(restoredSecondInset - 7.0) < 0.01 &&
+               ReadTitlebarWidgetInset(unmarkedInsetHost,
+                                       &finalUnmarkedInset) &&
+               std::fabs(finalUnmarkedInset - 9.0) < 0.01,
+           "Destroying runtime tabs must remove fullscreen inset markers without changing unmarked hosts.");
+    if (supportsTitlebarWidgetInset && controlSupportsTitlebarWidgetInset) {
+      CGFloat restoredManagedInset = -1;
+      CGFloat restoredControlInset = -1;
+      Assert(ReadTitlebarWidgetInset(originalTitlebarFrameView,
+                                     &restoredManagedInset) &&
+                 std::fabs(restoredManagedInset -
+                           originalTitlebarWidgetInset) < 0.01 &&
+                 ReadTitlebarWidgetInset(controlTitlebarFrameView,
+                                         &restoredControlInset) &&
+                 std::fabs(restoredControlInset -
+                           controlTitlebarWidgetInset) < 0.01,
+             "Destroying runtime tabs must preserve the original horizontal metrics of managed and control windows.");
+    }
     Assert(window.titlebarAccessoryViewControllers.count == 0,
            "Destroying the controller must detach its accessory.");
     Assert(window.toolbar == nil,

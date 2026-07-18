@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, type WebContents } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc";
-import { DEFAULT_ROLE_WINDOW_HEIGHT, DEFAULT_ROLE_WINDOW_WIDTH } from "../../shared/types";
+import { DEFAULT_ROLE_WINDOW_HEIGHT, DEFAULT_ROLE_WINDOW_WIDTH, LOG_LEVELS } from "../../shared/types";
 import type {
   AcceptLegalDocumentsInput,
   AppLanguage,
@@ -32,7 +32,10 @@ import type {
   UpdateMacroInput,
   UpdateRoleInput,
   WorkspaceDisplayInfo,
-  WorkspaceLaunchInput
+  WorkspaceLaunchInput,
+  LogLevel,
+  LogQuery,
+  RendererLogEvent
 } from "../../shared/types";
 import {
   createWorkspaceDisplayTarget,
@@ -95,6 +98,17 @@ interface RegisterIpcHandlersOptions {
   getGraphicsDiagnostics?: (sender: Electron.WebContents) => Promise<unknown>;
   quitApplication?: () => void;
   restartApplication?: () => void;
+  logService?: {
+    clear: () => Promise<void>;
+    getStatus: () => Promise<unknown>;
+    query: (query?: LogQuery) => Promise<unknown>;
+    setLevel: (level: LogLevel) => void;
+    info: (source: "ipc", event: string, message: string, context?: Record<string, unknown>) => void;
+    warn: (source: "renderer", event: string, message: string, context?: Record<string, unknown>, error?: unknown) => void;
+    error: (source: "renderer" | "ipc", event: string, message: string, error?: unknown, context?: Record<string, unknown>) => void;
+  };
+  revealLogs?: () => Promise<void>;
+  exportDiagnostics?: () => Promise<unknown>;
 }
 
 export function registerIpcHandlers(
@@ -398,6 +412,45 @@ export function registerIpcHandlers(
     return options.getGraphicsDiagnostics(event.sender);
   });
 
+  ipcMain.handle(IPC_CHANNELS.logsStatus, () => {
+    if (!options.logService) throw new Error("Application logs are not available.");
+    return options.logService.getStatus();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.logsQuery, (_event, query?: LogQuery) => {
+    if (!options.logService) throw new Error("Application logs are not available.");
+    return options.logService.query(query);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.logsSetLevel, async (_event, level: LogLevel) => {
+    if (!options.logService || !LOG_LEVELS.includes(level)) throw new Error("Invalid log level.");
+    options.logService.setLevel(level);
+    return options.logService.getStatus();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.logsClear, async () => {
+    if (!options.logService) throw new Error("Application logs are not available.");
+    await options.logService.clear();
+    return options.logService.getStatus();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.logsReveal, () => {
+    if (!options.revealLogs) throw new Error("Application logs are not available.");
+    return options.revealLogs();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.logsExport, () => {
+    if (!options.exportDiagnostics) throw new Error("Diagnostic export is not available.");
+    return options.exportDiagnostics();
+  });
+
+  ipcMain.on(IPC_CHANNELS.logsRendererEvent, (_event, value: unknown) => {
+    if (!options.logService || !isRendererLogEvent(value)) return;
+    const error = value.stack ? Object.assign(new Error(value.message), { stack: value.stack }) : undefined;
+    if (value.event === "renderer_error") options.logService.error("renderer", value.event, value.message, error);
+    else options.logService.warn("renderer", value.event, value.message, undefined, error);
+  });
+
   ipcMain.handle(IPC_CHANNELS.systemFontsList, () => {
     if (!options.systemFontService) {
       throw new Error("System font list is not available.");
@@ -675,11 +728,30 @@ export function registerIpcHandlers(
   }
 }
 
+function isRendererLogEvent(value: unknown): value is RendererLogEvent {
+  return Boolean(value && typeof value === "object" &&
+    "event" in value && (value.event === "renderer_error" || value.event === "unhandled_rejection") &&
+    "message" in value && typeof value.message === "string" && value.message.length > 0 && value.message.length <= 4_000 &&
+    (!("stack" in value) || value.stack === undefined || (typeof value.stack === "string" && value.stack.length <= 20_000)));
+}
+
 function runDataMutation<T>(
   options: RegisterIpcHandlersOptions,
   operation: () => Promise<T>
 ): Promise<T> {
-  return options.withDataMutation?.(operation) ?? operation();
+  const startedAt = Date.now();
+  const result = options.withDataMutation?.(operation) ?? operation();
+  return result.then((value) => {
+    options.logService?.info("ipc", "data_mutation_completed", "An IPC data mutation completed.", {
+      durationMs: Date.now() - startedAt
+    });
+    return value;
+  }).catch((error) => {
+    options.logService?.error("ipc", "data_mutation_failed", "An IPC data mutation failed.", error, {
+      durationMs: Date.now() - startedAt
+    });
+    throw error;
+  });
 }
 
 async function deleteGameRecord(options: RegisterIpcHandlersOptions, id: string): Promise<void> {

@@ -10,6 +10,7 @@ import type {
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
   EmbeddedRuntimeState,
+  LogEntry,
   Macro,
   MacroPageRequest,
   MacroRunStatus,
@@ -84,6 +85,13 @@ const api: RionStudioApi = {
   getGameBrowserSettings: () => ipcRenderer.invoke(IPC_CHANNELS.gameBrowserSettingsGet),
   updateGameBrowserSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.gameBrowserSettingsUpdate, settings),
   getGraphicsDiagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.graphicsDiagnosticsGet),
+  getLogStatus: () => ipcRenderer.invoke(IPC_CHANNELS.logsStatus),
+  queryLogs: (query) => ipcRenderer.invoke(IPC_CHANNELS.logsQuery, query),
+  setLogLevel: (level) => ipcRenderer.invoke(IPC_CHANNELS.logsSetLevel, level),
+  clearLogs: () => ipcRenderer.invoke(IPC_CHANNELS.logsClear),
+  revealLogs: () => ipcRenderer.invoke(IPC_CHANNELS.logsReveal),
+  exportDiagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.logsExport),
+  reportRendererLog: (event) => ipcRenderer.send(IPC_CHANNELS.logsRendererEvent, event),
   listSystemFonts: () => ipcRenderer.invoke(IPC_CHANNELS.systemFontsList),
   consumePendingMacroPageRequest: () => ipcRenderer.invoke(IPC_CHANNELS.macrosConsumePageRequest),
   setOverlayLanguage: (language) => ipcRenderer.invoke(IPC_CHANNELS.preferencesSetOverlayLanguage, language),
@@ -197,6 +205,11 @@ const api: RionStudioApi = {
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.updatesStatusChanged, listener);
     };
+  },
+  onLogEntryAdded: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, entry: LogEntry) => callback(entry);
+    ipcRenderer.on(IPC_CHANNELS.logsEntryAdded, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.logsEntryAdded, listener);
   }
 };
 

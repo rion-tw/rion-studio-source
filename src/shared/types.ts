@@ -863,3 +863,75 @@ export interface AppUpdateStatus {
   error?: string;
   checkedAt?: string;
 }
+
+export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
+export const LOG_SOURCES = [
+  "main",
+  "preload",
+  "renderer",
+  "ipc",
+  "browser",
+  "auth",
+  "macro",
+  "persistence",
+  "update"
+] as const;
+export type LogSource = (typeof LOG_SOURCES)[number];
+
+export interface LogErrorDetails {
+  name: string;
+  message: string;
+  stack?: string;
+  cause?: LogErrorDetails;
+}
+
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  level: LogLevel;
+  source: LogSource;
+  event: string;
+  message: string;
+  sessionId: string;
+  context?: Record<string, unknown>;
+  error?: LogErrorDetails;
+}
+
+export interface LogQuery {
+  levels?: LogLevel[];
+  sources?: LogSource[];
+  search?: string;
+  from?: string;
+  to?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface LogPage {
+  entries: LogEntry[];
+  nextCursor?: string;
+}
+
+export interface LogStorageStatus {
+  currentLevel: LogLevel;
+  fileCount: number;
+  totalBytes: number;
+  oldestTimestamp?: string;
+  newestTimestamp?: string;
+  retentionDays: number;
+  maxBytes: number;
+  directory: string;
+}
+
+export interface RendererLogEvent {
+  event: "renderer_error" | "unhandled_rejection";
+  message: string;
+  stack?: string;
+}
+
+export interface DiagnosticExportResult {
+  filePath: string;
+  logFileCount: number;
+}

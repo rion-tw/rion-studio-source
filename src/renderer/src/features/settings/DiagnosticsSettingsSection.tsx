@@ -113,7 +113,10 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
       <section className="grid gap-2">
         <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
           <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="whitespace-nowrap text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsViewer")}</p>
+            <div>
+              <p className="whitespace-nowrap text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsViewer")}</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.logsViewerDescription")}</p>
+            </div>
             <div className="flex w-full flex-wrap justify-end gap-2">
               <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void refresh()}>
                 <RefreshCw className={busy ? "animate-spin" : ""} size={14} />

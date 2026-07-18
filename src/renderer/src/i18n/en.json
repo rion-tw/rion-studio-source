@@ -926,6 +926,7 @@
   "settings.logsViewer": "Log viewer",
   "settings.logsRefresh": "Refresh",
   "settings.logsSearch": "Search messages and context",
+  "settings.logsViewerDescription": "Use the filters and controls above to search and monitor recent logs.",
   "settings.logsAllLevels": "All levels",
   "settings.logsAllSources": "All sources",
   "settings.logsLiveOn": "Live",

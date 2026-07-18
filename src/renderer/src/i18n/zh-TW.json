@@ -807,6 +807,7 @@
   "settings.logsViewer": "日誌檢視器",
   "settings.logsRefresh": "重新整理",
   "settings.logsSearch": "搜尋訊息與內容",
+  "settings.logsViewerDescription": "使用上方篩選與控制項來搜尋與監看最近日誌。",
   "settings.logsAllLevels": "所有等級",
   "settings.logsAllSources": "所有來源",
   "settings.logsLiveOn": "即時",

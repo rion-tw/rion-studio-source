@@ -710,6 +710,7 @@ interface ShortcutRecorderProps {
 
 function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.Element {
   const [isRecording, setIsRecording] = useState(false);
+  const selectedCode = trigger?.code ?? "";
 
   useEffect(() => {
     if (!isRecording) {
@@ -742,7 +743,32 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
   }, [isRecording, onChange]);
 
   return (
-    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+      <Select
+        value={selectedCode}
+        onValueChange={(code) => {
+          setIsRecording(false);
+          onChange({
+            code,
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false
+          });
+        }}
+        disabled={isRecording}
+      >
+        <SelectTrigger className="w-full min-w-0" aria-label={t("macro.step.key")}>
+          <SelectValue placeholder={t("macroForm.shortcut")} />
+        </SelectTrigger>
+        <SelectContent>
+          {commonMacroKeyCodes.map((code) => (
+            <SelectItem key={code} value={code}>
+              {formatMacroCode(code)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <Button
         className={cn("w-full min-w-0 justify-start px-2.5", isRecording && "glass-focus")}
         type="button"
@@ -754,7 +780,15 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
           {isRecording ? t("macroForm.shortcutRecording") : formatMacroShortcut(trigger, t)}
         </span>
       </Button>
-      <Button type="button" variant="ghost" onClick={() => onChange(undefined)} disabled={!trigger}>
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => {
+          setIsRecording(false);
+          onChange(undefined);
+        }}
+        disabled={!trigger}
+      >
         <X size={14} />
         {t("macroForm.clearShortcut")}
       </Button>

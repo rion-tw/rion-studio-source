@@ -294,7 +294,7 @@
   "macroForm.addClick": "點擊",
   "macroForm.addDelay": "延遲",
   "macroForm.stepsEmpty": "儲存前至少新增一個步驟。",
-  "macroForm.stepsEmptyHint": "使用上方選單選擇步驟類型後新增。",
+  "macroForm.stepsEmptyHint": "使用下方選單選擇步驟類型後新增。",
   "macroForm.saveHint.needsRole": "至少選擇一個角色後才能儲存。",
   "macroForm.saveHint.needsStep": "新增至少一個步驟後才能儲存。",
   "macroForm.saveHint.invalidInterval": "請輸入 0 至 600,000 毫秒的整數等待時間。",

@@ -287,15 +287,7 @@ export function createEmptyMacroForm(
     name: createEmptyMacroFormName(macros, t),
     roleIds: roleId ? [roleId] : [],
     repeat: { type: "once" },
-    steps: [
-      {
-        id: createClientId(),
-        type: "key",
-        code: "Tab",
-        action: "tap",
-        label: "Tab"
-      }
-    ]
+    steps: []
   };
 }
 

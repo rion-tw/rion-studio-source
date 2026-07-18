@@ -1028,12 +1028,12 @@ function MacroStepFields({
             disabled={isSaving || mainKeyIsModifier}
           >
             <SelectTrigger
-              className="w-28 flex-none"
+              className="w-24 flex-none"
               aria-label={t("macroForm.modifiers")}
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="w-44">
+            <SelectContent>
               {modifierComboOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
@@ -1046,7 +1046,7 @@ function MacroStepFields({
             onValueChange={(value) => updateKeyInput(value, canonicalModifiers)}
             disabled={isSaving}
           >
-            <SelectTrigger className="w-28 flex-none" aria-label={t("macro.step.key")}>
+            <SelectTrigger className="w-24 flex-none" aria-label={t("macro.step.key")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1076,7 +1076,7 @@ function MacroStepFields({
               action: action as Extract<MacroStep, { type: "key" }>["action"]
             })}
           >
-            <SelectTrigger className="w-36 flex-none" aria-label={t("macroForm.keyAction")}>
+            <SelectTrigger className="w-24 flex-none" aria-label={t("macroForm.keyAction")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

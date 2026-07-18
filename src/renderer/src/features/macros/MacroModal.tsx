@@ -17,12 +17,6 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { Button } from "../../components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger
-} from "../../components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Switch } from "../../components/ui/switch";
 import {
@@ -904,6 +898,54 @@ function MacroStepEditor({
 const macroStepTypeOrder: Array<MacroStep["type"]> = ["key", "click", "delay", "macro"];
 const macroKeyModifiers: MacroKeyModifier[] = ["primary", "ctrl", "alt", "shift", "meta"];
 
+function getModifierComboOptions(t: Translator): Array<{ value: string; label: string }> {
+  const combinations: Array<{ value: string; label: string }> = [];
+
+  for (let mask = 0; mask < (1 << macroKeyModifiers.length); mask += 1) {
+    const selectedModifiers: MacroKeyModifier[] = [];
+
+    for (let index = 0; index < macroKeyModifiers.length; index += 1) {
+      if (mask & (1 << index)) {
+        selectedModifiers.push(macroKeyModifiers[index]);
+      }
+    }
+
+    if (
+      selectedModifiers.includes("primary") &&
+      (selectedModifiers.includes("ctrl") || selectedModifiers.includes("meta"))
+    ) {
+      continue;
+    }
+
+    const normalizedModifiers = canonicalizeMacroKeyModifiers(selectedModifiers);
+    const value = normalizedModifiers.join(",");
+    const label = normalizedModifiers.length > 0
+      ? normalizedModifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ")
+      : t("macroForm.modifiers");
+
+    combinations.push({ value, label });
+  }
+
+  return combinations;
+}
+
+function parseModifierComboValue(value: string): MacroKeyModifier[] {
+  if (!value) {
+    return [];
+  }
+
+  const parsed = value
+    .split(",")
+    .map((rawModifier) => (
+      macroKeyModifiers.includes(rawModifier as MacroKeyModifier)
+        ? rawModifier as MacroKeyModifier
+        : undefined
+    ))
+    .filter((modifier): modifier is MacroKeyModifier => modifier !== undefined);
+
+  return canonicalizeMacroKeyModifiers(parsed);
+}
+
 function getMacroStepTypeLabel(type: MacroStep["type"], t: Translator): string {
   switch (type) {
     case "key":
@@ -932,12 +974,14 @@ function MacroStepFields({
 }): JSX.Element {
   if (step.type === "key") {
     const modifiers = step.modifiers ?? [];
+    const canonicalModifiers = canonicalizeMacroKeyModifiers(modifiers);
     const mainKeyIsModifier = isPureModifierCode(step.code);
-    const modifierSummary = modifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ");
-    const modifierTriggerLabel = modifiers.length > 0
+    const modifierSummary = canonicalModifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ");
+    const modifierTriggerLabel = canonicalModifiers.length > 0
       ? `${t("macroForm.modifiers")}: ${modifierSummary}`
       : t("macroForm.modifiers");
-
+    const modifierComboOptions = getModifierComboOptions(t);
+    const selectedModifierValue = canonicalModifiers.join(",");
     const updateKeyInput = (code: string, nextModifiers: MacroKeyModifier[]): void => {
       const normalizedModifiers = canonicalizeMacroKeyModifiers(nextModifiers);
       onUpdate({
@@ -953,7 +997,7 @@ function MacroStepFields({
         <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
           <Select
             value={step.code}
-            onValueChange={(value) => updateKeyInput(value, modifiers)}
+            onValueChange={(value) => updateKeyInput(value, canonicalModifiers)}
             disabled={isSaving}
           >
             <SelectTrigger className="w-28 flex-none" aria-label={t("macro.step.key")}>
@@ -964,7 +1008,7 @@ function MacroStepFields({
                 <SelectItem
                   key={code}
                   value={code}
-                  disabled={modifiers.length > 0 && isPureModifierCode(code)}
+                  disabled={canonicalModifiers.length > 0 && isPureModifierCode(code)}
                 >
                   {formatMacroCode(code)}
                 </SelectItem>
@@ -992,7 +1036,7 @@ function MacroStepFields({
             <SelectContent>
               <SelectItem value="tap">{t("macroForm.keyAction.tap")}</SelectItem>
               <SelectItem value="hold_until_stop">
-                {modifiers.length > 0
+                {canonicalModifiers.length > 0
                   ? t("macroForm.keyAction.holdCombination")
                   : t("macroForm.keyAction.hold")}
               </SelectItem>
@@ -1000,53 +1044,26 @@ function MacroStepFields({
           </Select>
         </div>
         <div className="flex flex-wrap items-center gap-1.5" aria-label={t("macroForm.modifiers")}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full min-w-44 justify-between gap-2 pr-2"
-                aria-label={t("macroForm.modifiers")}
-                disabled={isSaving || mainKeyIsModifier}
-                title={modifierSummary}
-              >
-                <span className="truncate">{modifierTriggerLabel}</span>
-                <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-44" align="start">
-              {macroKeyModifiers.map((modifier) => {
-                const selected = modifiers.includes(modifier);
-                const conflictsWithPrimary = modifier === "primary"
-                  ? modifiers.includes("ctrl") || modifiers.includes("meta")
-                  : (modifier === "ctrl" || modifier === "meta") && modifiers.includes("primary");
-                const itemDisabled = isSaving || (!selected && conflictsWithPrimary);
-                return (
-                  <DropdownMenuCheckboxItem
-                    key={modifier}
-                    checked={selected}
-                    disabled={itemDisabled}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      if (itemDisabled) {
-                        return;
-                      }
-
-                      updateKeyInput(
-                        step.code,
-                        selected
-                          ? modifiers.filter((item) => item !== modifier)
-                          : [...modifiers, modifier]
-                      );
-                    }}
-                  >
-                    {formatMacroModifierLabel(modifier, t)}
-                  </DropdownMenuCheckboxItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Select
+            value={selectedModifierValue}
+            onValueChange={(value) => updateKeyInput(step.code, parseModifierComboValue(value))}
+            disabled={isSaving || mainKeyIsModifier}
+          >
+            <SelectTrigger
+              className="w-full min-w-44 justify-between gap-2 pr-2"
+              aria-label={t("macroForm.modifiers")}
+              title={modifierSummary}
+            >
+              <SelectValue>{modifierTriggerLabel}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="w-44">
+              {modifierComboOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         {mainKeyIsModifier ? (
           <p className="text-[11px] leading-4 text-muted-foreground">

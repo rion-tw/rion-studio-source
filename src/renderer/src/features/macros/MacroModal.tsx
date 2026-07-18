@@ -17,6 +17,12 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { Button } from "../../components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger
+} from "../../components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Switch } from "../../components/ui/switch";
 import {
@@ -927,6 +933,9 @@ function MacroStepFields({
   if (step.type === "key") {
     const modifiers = step.modifiers ?? [];
     const mainKeyIsModifier = isPureModifierCode(step.code);
+    const modifierSummary = modifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ");
+    const modifierTriggerLabel = t("macroForm.modifiers");
+
     const updateKeyInput = (code: string, nextModifiers: MacroKeyModifier[]): void => {
       const normalizedModifiers = canonicalizeMacroKeyModifiers(nextModifiers);
       onUpdate({
@@ -989,30 +998,53 @@ function MacroStepFields({
           </Select>
         </div>
         <div className="flex flex-wrap items-center gap-1.5" aria-label={t("macroForm.modifiers")}>
-          {macroKeyModifiers.map((modifier) => {
-            const selected = modifiers.includes(modifier);
-            const conflictsWithPrimary = modifier === "primary"
-              ? modifiers.includes("ctrl") || modifiers.includes("meta")
-              : (modifier === "ctrl" || modifier === "meta") && modifiers.includes("primary");
-            return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button
-                key={modifier}
                 type="button"
+                variant="outline"
                 size="sm"
-                variant={selected ? "secondary" : "outline"}
-                aria-pressed={selected}
-                disabled={isSaving || mainKeyIsModifier || (!selected && conflictsWithPrimary)}
-                onClick={() => updateKeyInput(
-                  step.code,
-                  selected
-                    ? modifiers.filter((item) => item !== modifier)
-                    : [...modifiers, modifier]
-                )}
+                className="w-full min-w-44 justify-between gap-2 pr-2"
+                aria-label={t("macroForm.modifiers")}
+                disabled={isSaving || mainKeyIsModifier}
+                title={modifierSummary}
               >
-                {formatMacroModifierLabel(modifier, t)}
+                <span className="truncate">{modifierTriggerLabel}</span>
+                <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
               </Button>
-            );
-          })}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-44" align="start">
+              {macroKeyModifiers.map((modifier) => {
+                const selected = modifiers.includes(modifier);
+                const conflictsWithPrimary = modifier === "primary"
+                  ? modifiers.includes("ctrl") || modifiers.includes("meta")
+                  : (modifier === "ctrl" || modifier === "meta") && modifiers.includes("primary");
+                const itemDisabled = isSaving || (!selected && conflictsWithPrimary);
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={modifier}
+                    checked={selected}
+                    disabled={itemDisabled}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      if (itemDisabled) {
+                        return;
+                      }
+
+                      updateKeyInput(
+                        step.code,
+                        selected
+                          ? modifiers.filter((item) => item !== modifier)
+                          : [...modifiers, modifier]
+                      );
+                    }}
+                  >
+                    {formatMacroModifierLabel(modifier, t)}
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         {mainKeyIsModifier ? (
           <p className="text-[11px] leading-4 text-muted-foreground">

@@ -33,7 +33,7 @@ describe("ExternalChromeManager", () => {
         y: -120,
         width: 1280,
         height: 720
-      })
+      }, undefined, "automatic", "linux")
     ).toEqual([
       "--user-data-dir=/tmp/rion/role-1/browser",
       "--app=https://example.com/play",
@@ -46,10 +46,31 @@ describe("ExternalChromeManager", () => {
       "--metrics-recording-only",
       "--no-service-autorun",
       "--disable-search-engine-choice-screen",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
       "--disable-features=MediaRouter,OptimizationHints,Translate",
       "--remote-debugging-address=127.0.0.1",
       "--remote-debugging-port=0"
     ]);
+  });
+
+  it.each([
+    ["win32", true],
+    ["darwin", false],
+    ["linux", false]
+  ] as const)("uses platform-scoped background switches on %s", (platform, hasOcclusionSwitch) => {
+    const args = buildExternalChromeArgs(
+      role,
+      "/tmp/profile",
+      { x: 0, y: 0, width: 1280, height: 720 },
+      undefined,
+      "automatic",
+      platform
+    );
+
+    expect(args).toContain("--disable-background-timer-throttling");
+    expect(args).toContain("--disable-renderer-backgrounding");
+    expect(args.includes("--disable-backgrounding-occluded-windows")).toBe(hasOcclusionSwitch);
   });
 
   it("adds only the graphics switches selected by the applied startup mode", () => {
@@ -138,7 +159,11 @@ describe("ExternalChromeManager", () => {
     expect(harness.connectAutomation).toHaveBeenCalledWith(
       "/profiles/role-1/browser",
       role.launchUrl,
-      { cdnCompatibilityEnabled: true, platform: "linux" }
+      expect.objectContaining({
+        cdnCompatibilityEnabled: true,
+        onDiagnostic: expect.any(Function),
+        platform: "linux"
+      })
     );
     expect(harness.spawnChrome).toHaveBeenCalledWith(
       expect.any(String),

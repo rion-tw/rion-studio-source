@@ -42,6 +42,7 @@ describe("macro overlay interactions", () => {
     delete overlayWindow.rionStudioMacroOverlay;
     document.body.innerHTML = "";
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("leaves game pointer events and focus untouched", () => {
@@ -133,6 +134,24 @@ describe("macro overlay interactions", () => {
     expect(root.querySelector(".trigger")).toBe(trigger);
     expect(trigger?.isConnected).toBe(true);
     expect(root.querySelector(".active-badge-name")?.textContent).toBe(assignedMacro.name);
+  });
+
+  it("coalesces delayed polling refreshes and runs only one trailing request", async () => {
+    vi.useFakeTimers();
+    createGameSurface(document);
+    const firstResponse = createDeferred<unknown>();
+    const binding = vi.fn()
+      .mockImplementationOnce(() => firstResponse.promise)
+      .mockResolvedValue({ macros: [assignedMacro], statuses: [] });
+
+    installOverlay(window, binding);
+    expect(binding).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(binding).toHaveBeenCalledTimes(1);
+
+    firstResponse.resolve({ macros: [assignedMacro], statuses: [] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(binding).toHaveBeenCalledTimes(2);
   });
 
   it("starts and stops macros from their in-game shortcuts while updating the badge", async () => {
@@ -543,4 +562,12 @@ function getOverlayRoot(ownerDocument: Document): ShadowRoot {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }

@@ -29,6 +29,7 @@ import {
 import {
   connectExternalChromeAutomation,
   type ConnectExternalChromeAutomationOptions,
+  type ExternalChromeDiagnosticEvent,
   type ExternalBrowserAutomationTarget
 } from "./ExternalChromeAutomationTarget";
 import type { ExternalChromeWindowBoundsAdapter } from "./WindowsExternalChromeWindowBoundsAdapter";
@@ -63,13 +64,17 @@ export interface ExternalChromeManagerOptions {
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
   graphicsMode?: BrowserGraphicsMode;
+  onDiagnostic?: (event: ExternalChromeDiagnosticEvent & { roleId: string }) => void;
   platform?: NodeJS.Platform;
   windowBoundsAdapter?: ExternalChromeWindowBoundsAdapter;
   spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
   connectAutomation?: (
     browserUserDataDir: string,
     launchUrl: string,
-    options?: Pick<ConnectExternalChromeAutomationOptions, "cdnCompatibilityEnabled" | "platform">
+    options?: Pick<
+      ConnectExternalChromeAutomationOptions,
+      "cdnCompatibilityEnabled" | "onDiagnostic" | "platform"
+    >
   ) => Promise<ExternalBrowserAutomationTarget>;
 }
 
@@ -312,7 +317,14 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     }
     const child = (this.options.spawnChrome ?? spawnChrome)(
       executablePath,
-      buildExternalChromeArgs(role, browserUserDataDir, bounds, proxyServer, this.options.graphicsMode)
+      buildExternalChromeArgs(
+        role,
+        browserUserDataDir,
+        bounds,
+        proxyServer,
+        this.options.graphicsMode,
+        this.options.platform ?? process.platform
+      )
     );
     const session: ExternalChromeSession = {
       cdnCompatibilityActive: false,
@@ -343,6 +355,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         role.launchUrl,
         {
           cdnCompatibilityEnabled: cdnCompatibilityRequested,
+          onDiagnostic: (event) => this.options.onDiagnostic?.({ ...event, roleId: role.id }),
           platform: this.options.platform ?? process.platform
         }
       );
@@ -355,7 +368,6 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       if (session.cdnCompatibilityActive) {
         session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_EXTERNAL_NOTICE);
       }
-      target.onDisconnect(() => this.handleAutomationDisconnect(role.id, session, target));
       try {
         await target.setWindowBounds(bounds);
       } catch (error) {
@@ -364,6 +376,9 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       await this.macroOverlayInstaller?.(role, target).catch((error) => {
         console.warn("Failed to install the macro overlay in external Chrome.", error);
       });
+      // Register the manager listener after overlay installation so the overlay
+      // scheduler removes this host before role-status listeners can request a refresh.
+      target.onDisconnect(() => this.handleAutomationDisconnect(role.id, session, target));
     } catch (error) {
       if (this.sessions.get(role.id) !== session) {
         throw error;
@@ -483,7 +498,8 @@ export function buildExternalChromeArgs(
   browserUserDataDir: string,
   bounds: PixelBounds,
   proxyServer?: string,
-  graphicsMode: BrowserGraphicsMode = "automatic"
+  graphicsMode: BrowserGraphicsMode = "automatic",
+  platform: NodeJS.Platform = process.platform
 ): string[] {
   return [
     `--user-data-dir=${browserUserDataDir}`,
@@ -491,11 +507,20 @@ export function buildExternalChromeArgs(
     `--window-position=${bounds.x},${bounds.y}`,
     `--window-size=${bounds.width},${bounds.height}`,
     ...BROWSER_BASE_SWITCHES.map((name) => `--${name}`),
+    ...getExternalChromeBackgroundSwitches(platform).map((name) => `--${name}`),
     `--disable-features=${BROWSER_BACKGROUND_FEATURES_TO_DISABLE.join(",")}`,
     ...getGraphicsModeSwitches(graphicsMode).map((name) => `--${name}`),
     "--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0",
     ...(proxyServer ? [`--proxy-server=${proxyServer}`] : [])
+  ];
+}
+
+export function getExternalChromeBackgroundSwitches(platform: NodeJS.Platform): string[] {
+  return [
+    "disable-background-timer-throttling",
+    "disable-renderer-backgrounding",
+    ...(platform === "win32" ? ["disable-backgrounding-occluded-windows"] : [])
   ];
 }
 

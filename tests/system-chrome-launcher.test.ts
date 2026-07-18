@@ -234,6 +234,21 @@ describe("SystemChromeLauncher", () => {
     await expect(response).rejects.toThrow("Chrome DevTools WebSocket closed.");
   });
 
+  it("rejects new CDP requests immediately after disconnect without sending or scheduling a timeout", async () => {
+    FakeWebSocket.reset();
+    const client = new CdpClient("ws://devtools/page-1", {
+      WebSocket: FakeWebSocket as unknown as CdpWebSocketConstructor,
+      requestTimeoutMs: 5_000
+    });
+    const socket = FakeWebSocket.last();
+    socket.open();
+    socket.close();
+
+    await expect(client.send("Runtime.evaluate", { expression: "1 + 1" }))
+      .rejects.toThrow("Chrome DevTools WebSocket closed.");
+    expect(socket.sent).toHaveLength(0);
+  });
+
   it("times out CDP requests without a response", async () => {
     FakeWebSocket.reset();
     const client = new CdpClient("ws://devtools/page-1", {

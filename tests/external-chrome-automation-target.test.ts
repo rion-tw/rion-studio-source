@@ -82,6 +82,51 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("records browser, lifecycle, CDP health, and disconnect diagnostics", async () => {
+    const harness = createHarness();
+    const onDiagnostic = vi.fn();
+    const target = new ExternalChromeAutomationTarget(harness.client, "win32", onDiagnostic);
+    await target.initialize();
+
+    expect(onDiagnostic).toHaveBeenCalledWith({
+      type: "browser_version",
+      details: expect.objectContaining({ product: "Chrome/596.36" })
+    });
+    harness.notify({
+      method: "Runtime.bindingCalled",
+      params: {
+        name: "rionStudioExternalDiagnostics",
+        payload: JSON.stringify({
+          event: "visibilitychange",
+          hidden: true,
+          visibilityState: "hidden",
+          wasDiscarded: false,
+          webglRenderer: "ANGLE (NVIDIA)"
+        })
+      }
+    });
+    expect(onDiagnostic).toHaveBeenCalledWith({
+      type: "page_lifecycle",
+      details: expect.objectContaining({
+        event: "visibilitychange",
+        hidden: true,
+        webglRenderer: "ANGLE (NVIDIA)"
+      })
+    });
+
+    harness.send.mockRejectedValueOnce(new Error("Chrome DevTools request timed out: Runtime.evaluate"));
+    await expect(target.evaluate("1 + 1")).rejects.toThrow("timed out");
+    expect(onDiagnostic).toHaveBeenCalledWith({
+      type: "cdp_evaluate_failed",
+      details: expect.objectContaining({ consecutiveFailures: 1 })
+    });
+    harness.disconnect();
+    expect(onDiagnostic).toHaveBeenCalledWith({
+      type: "disconnect",
+      details: expect.objectContaining({ consecutiveEvaluateFailures: 1 })
+    });
+  });
+
   it("dispatches a key combination atomically with CDP modifier state", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client, "win32");
@@ -720,6 +765,7 @@ describe("ExternalChromeAutomationTarget", () => {
 
 function createHarness() {
   const notificationListeners = new Set<(notification: CdpNotification) => void>();
+  const disconnectListeners = new Set<() => void>();
   let zoomScriptCount = 0;
   const send = vi.fn(async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
     if (method === "Page.getFrameTree") {
@@ -729,6 +775,9 @@ function createHarness() {
       zoomScriptCount += 1;
       return { identifier: `zoom-script-${zoomScriptCount}` };
     }
+    if (method === "Browser.getVersion") {
+      return { product: "Chrome/596.36", protocolVersion: "1.3" };
+    }
     return method === "Runtime.evaluate" ? { result: { value: true } } : {};
   });
   const onNotification = vi.fn((listener: (notification: CdpNotification) => void) => {
@@ -737,12 +786,16 @@ function createHarness() {
   });
   const client: CdpEventClientLike = {
     close: vi.fn(),
-    onDisconnect: vi.fn(() => () => undefined),
+    onDisconnect: vi.fn((listener: () => void) => {
+      disconnectListeners.add(listener);
+      return () => disconnectListeners.delete(listener);
+    }),
     onNotification,
     send: send as CdpEventClientLike["send"]
   };
   return {
     client,
+    disconnect: () => disconnectListeners.forEach((listener) => listener()),
     notify: (notification: CdpNotification) => notificationListeners.forEach((listener) => listener(notification)),
     onNotification,
     send

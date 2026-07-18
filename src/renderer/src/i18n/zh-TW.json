@@ -332,6 +332,7 @@
   "macroForm.clickX": "X",
   "macroForm.clickY": "Y",
   "macroForm.delayMs": "延遲",
+  "macroForm.dragStep": "拖曳調整順序",
   "macroForm.moveUp": "上移",
   "macroForm.moveDown": "下移",
   "macroForm.removeStep": "移除步驟",

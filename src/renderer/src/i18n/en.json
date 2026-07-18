@@ -332,6 +332,7 @@
   "macroForm.clickX": "X",
   "macroForm.clickY": "Y",
   "macroForm.delayMs": "Delay",
+  "macroForm.dragStep": "Drag to reorder",
   "macroForm.moveUp": "Move up",
   "macroForm.moveDown": "Move down",
   "macroForm.removeStep": "Remove step",

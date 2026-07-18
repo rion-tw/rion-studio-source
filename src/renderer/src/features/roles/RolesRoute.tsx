@@ -491,18 +491,10 @@ function RoleCard({
                 />
               ) : null}
               <div className="grid min-w-0 gap-1">
-                <CardTitle className="role-cover-title min-w-0 truncate text-white">
-                  <button
-                    className="block max-w-full truncate rounded-sm text-left transition-colors hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black/40"
-                    type="button"
-                    onClick={onEdit}
-                  >
-                    {role.name}
-                  </button>
-                </CardTitle>
-              <p className="min-w-0 truncate text-[10px] font-medium leading-3 text-white/78">
-                {game?.name ?? role.launchUrl}
-              </p>
+                <CardTitle className="role-cover-title min-w-0 truncate text-white">{role.name}</CardTitle>
+                <p className="min-w-0 truncate text-[10px] font-medium leading-3 text-white/78">
+                  {game?.name ?? role.launchUrl}
+                </p>
               </div>
             </div>
             {isAuthFlowRunning && authStatus ? (

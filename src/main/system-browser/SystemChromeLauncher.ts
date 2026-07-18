@@ -129,6 +129,7 @@ const DEFAULT_STORAGE_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const CDP_REQUEST_TIMEOUT_MS = 5_000;
 const CLOSE_TIMEOUT_MS = 5_000;
+const WEB_SOCKET_OPEN_STATE = 1;
 
 export class CdpClient implements CdpEventClientLike {
   private readonly socket: CdpWebSocketLike;
@@ -210,9 +211,16 @@ export class CdpClient implements CdpEventClientLike {
     sessionId?: string
   ): Promise<T> {
     await this.ready;
+    if (this.didDisconnect || this.socket.readyState !== WEB_SOCKET_OPEN_STATE) {
+      throw createCdpDisconnectedError();
+    }
     const id = this.nextId++;
 
     return new Promise<T>((resolve, reject) => {
+      if (this.didDisconnect || this.socket.readyState !== WEB_SOCKET_OPEN_STATE) {
+        reject(createCdpDisconnectedError());
+        return;
+      }
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new SystemChromeLauncherError("DEVTOOLS_REQUEST_TIMEOUT", `Chrome DevTools request timed out: ${method}`));
@@ -237,6 +245,8 @@ export class CdpClient implements CdpEventClientLike {
   }
 
   close(): void {
+    this.rejectPending(createCdpDisconnectedError());
+    this.emitDisconnect();
     this.socket.close();
   }
 
@@ -283,6 +293,13 @@ export class CdpClient implements CdpEventClientLike {
     this.didDisconnect = true;
     this.disconnectListeners.forEach((listener) => listener());
   }
+}
+
+function createCdpDisconnectedError(): SystemChromeLauncherError {
+  return new SystemChromeLauncherError(
+    "DEVTOOLS_WEBSOCKET_CLOSED",
+    "Chrome DevTools WebSocket closed."
+  );
 }
 
 export interface SystemChromeLauncherOptions {

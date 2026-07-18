@@ -5,7 +5,7 @@
     ...Array.from({ length: 31 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-18.2";
+  const scriptVersion = "2026-07-19.1";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -86,9 +86,12 @@
   const activeHeldShortcuts = new Map();
   let cleanupInterval = undefined;
   let host = null;
+  let isDisposed = false;
   let isInstalled = false;
   let isOpenRequestPending = false;
+  let refreshInFlight = null;
   let refreshInterval = undefined;
+  let refreshQueued = false;
   let resourceElement = null;
   let root = null;
   let suppressedShortcutEvents = [];
@@ -383,22 +386,46 @@
     activeBadgesElement.hidden = activeBadgesElement.childElementCount === 0;
   }
 
-  async function refresh() {
+  function refresh() {
+    if (isDisposed) {
+      return Promise.resolve();
+    }
     if (pendingMacroActions.size > 0) {
-      return;
+      refreshQueued = true;
+      return refreshInFlight ?? Promise.resolve();
+    }
+    if (refreshInFlight) {
+      refreshQueued = true;
+      const currentRefresh = refreshInFlight;
+      return currentRefresh.then(() => refreshInFlight ?? undefined);
     }
 
-    const requestVersion = ++state.requestVersion;
-    try {
-      const nextState = await binding({ type: "list" });
-      if (requestVersion !== state.requestVersion || disposeIfDetached(nextState)) {
+    refreshQueued = false;
+    const operation = (async () => {
+      const requestVersion = ++state.requestVersion;
+      try {
+        const nextState = await binding({ type: "list" });
+        if (requestVersion !== state.requestVersion || disposeIfDetached(nextState)) {
+          return;
+        }
+        applyState(nextState);
+        updatePresentation();
+      } catch (error) {
+        console.warn("Unable to refresh Rion Studio macro shortcuts.", error);
+      }
+    })();
+    refreshInFlight = operation;
+    void operation.finally(() => {
+      if (refreshInFlight !== operation) {
         return;
       }
-      applyState(nextState);
-      updatePresentation();
-    } catch (error) {
-      console.warn("Unable to refresh Rion Studio macro shortcuts.", error);
-    }
+      refreshInFlight = null;
+      if (refreshQueued && !isDisposed) {
+        refreshQueued = false;
+        void refresh();
+      }
+    });
+    return operation;
   }
 
   async function requestOpenMacroPage() {
@@ -584,6 +611,8 @@
   }
 
   function dispose() {
+    isDisposed = true;
+    refreshQueued = false;
     releaseActiveHeldShortcuts();
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
@@ -613,6 +642,7 @@
       return;
     }
 
+    isDisposed = false;
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keyup", handleKeyUp, true);
     window.addEventListener("focus", handleFocus, true);

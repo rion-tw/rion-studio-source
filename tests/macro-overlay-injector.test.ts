@@ -81,7 +81,7 @@ describe("MacroOverlayInjector", () => {
     const onMacroPageRequested = vi.fn();
     const injector = createInjector({ macroManager, onMacroPageRequested });
 
-    await injector.installExternal(role, host);
+    await injector.installExternal(role, host as never);
     expect(host.installMacroOverlay).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT, expect.any(Function));
     await expect(requestHandler?.({ type: "start", macroId: assignedMacro.id })).resolves.toMatchObject({
       macros: [{ id: assignedMacro.id }]
@@ -99,8 +99,81 @@ describe("MacroOverlayInjector", () => {
 
     injector.refreshInstalledOverlays(role.id);
     await vi.waitFor(() =>
-      expect(host.evaluate).toHaveBeenCalledWith("window.__rionStudioMacroOverlay?.refresh?.()")
+      expect(host.evaluate).toHaveBeenCalledWith("void window.__rionStudioMacroOverlay?.refresh?.()")
     );
+  });
+
+  it("coalesces a dense external refresh burst to one in-flight and one trailing request", async () => {
+    const firstRefresh = createDeferred<void>();
+    const host = {
+      evaluate: vi.fn()
+        .mockImplementationOnce(() => firstRefresh.promise)
+        .mockResolvedValue(undefined),
+      installMacroOverlay: vi.fn().mockResolvedValue(undefined),
+      onDisconnect: vi.fn(() => () => undefined)
+    };
+    const injector = createInjector();
+    await injector.installExternal(role, host);
+
+    for (let index = 0; index < 50; index += 1) {
+      injector.refreshInstalledOverlays(role.id, "burst_test");
+    }
+    expect(host.evaluate).toHaveBeenCalledTimes(1);
+
+    firstRefresh.resolve();
+    await vi.waitFor(() => expect(host.evaluate).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(host.evaluate).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a queued external refresh when the host disconnects", async () => {
+    const firstRefresh = createDeferred<void>();
+    let disconnect: (() => void) | undefined;
+    const host = {
+      evaluate: vi.fn(() => firstRefresh.promise),
+      installMacroOverlay: vi.fn().mockResolvedValue(undefined),
+      onDisconnect: vi.fn((listener: () => void) => {
+        disconnect = listener;
+        return () => undefined;
+      })
+    };
+    const injector = createInjector();
+    await injector.installExternal(role, host as never);
+
+    injector.refreshInstalledOverlays(role.id, "first");
+    injector.refreshInstalledOverlays(role.id, "trailing");
+    disconnect?.();
+    firstRefresh.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(host.evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes only roles whose macro presentation changed", async () => {
+    const secondRole = { ...role, id: "role-2", name: "Second" };
+    const firstHost = createExternalHost();
+    const secondHost = createExternalHost();
+    const injector = createInjector();
+    await injector.installExternal(role, firstHost.host);
+    await injector.installExternal(secondRole, secondHost.host);
+
+    const firstStatus = runStatus(role.id, assignedMacro.id);
+    const secondStatus = runStatus(secondRole.id, assignedMacro.id);
+    injector.refreshChangedMacroStatuses([firstStatus, secondStatus]);
+    await vi.waitFor(() => {
+      expect(firstHost.host.evaluate).toHaveBeenCalledTimes(1);
+      expect(secondHost.host.evaluate).toHaveBeenCalledTimes(1);
+    });
+    firstHost.host.evaluate.mockClear();
+    secondHost.host.evaluate.mockClear();
+
+    injector.refreshChangedMacroStatuses([
+      { ...firstStatus, state: "stopping" },
+      secondStatus
+    ]);
+    await vi.waitFor(() => expect(firstHost.host.evaluate).toHaveBeenCalledTimes(1));
+    expect(secondHost.host.evaluate).not.toHaveBeenCalled();
   });
 
   it("reinstalls after navigation and keeps event setup idempotent", async () => {
@@ -338,7 +411,8 @@ describe("MacroOverlayInjector", () => {
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v33"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-18.2"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.1"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
     expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "open" });');
@@ -553,6 +627,15 @@ function createPage() {
     once: vi.fn()
   };
   return { handlers, page };
+}
+
+function createExternalHost() {
+  const host = {
+    evaluate: vi.fn().mockResolvedValue(undefined),
+    installMacroOverlay: vi.fn().mockResolvedValue(undefined),
+    onDisconnect: vi.fn(() => () => undefined)
+  };
+  return { host };
 }
 
 function createDeferred<T>() {

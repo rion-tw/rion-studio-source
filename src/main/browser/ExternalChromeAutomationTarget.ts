@@ -31,8 +31,15 @@ const ATTACH_POLL_INTERVAL_MS = 500;
 const OVERLAY_BINDING_NAME = "rionStudioMacroOverlay";
 const OVERLAY_BRIDGE_KEY = "__rionStudioExternalMacroBridge";
 const POINTER_FOCUS_STATE_KEY = "__rionStudioPointerFocusState";
+const DIAGNOSTICS_BINDING_NAME = "rionStudioExternalDiagnostics";
+const DIAGNOSTICS_STATE_KEY = "__rionStudioExternalDiagnosticsV1";
 
 export type ExternalMacroOverlayHandler = (request: unknown) => Promise<unknown>;
+
+export interface ExternalChromeDiagnosticEvent {
+  details: Record<string, unknown>;
+  type: "browser_version" | "cdp_evaluate_failed" | "cdp_recovered" | "disconnect" | "page_lifecycle";
+}
 
 export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget {
   close: () => void;
@@ -47,6 +54,7 @@ export interface ConnectExternalChromeAutomationOptions {
   createClient?: (target: DevToolsTarget) => CdpEventClientLike;
   fetch?: DevToolsFetch;
   now?: () => number;
+  onDiagnostic?: (event: ExternalChromeDiagnosticEvent) => void;
   platform?: NodeJS.Platform;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -79,7 +87,11 @@ export async function connectExternalChromeAutomation(
       const target = selectPageTarget(targets, launchUrl);
       if (target?.webSocketDebuggerUrl) {
         const client = (options.createClient ?? createClient)(target);
-        const automationTarget = new ExternalChromeAutomationTarget(client, options.platform ?? "linux");
+        const automationTarget = new ExternalChromeAutomationTarget(
+          client,
+          options.platform ?? "linux",
+          options.onDiagnostic
+        );
         try {
           await automationTarget.initialize({ cdnCompatibilityEnabled: options.cdnCompatibilityEnabled });
           return automationTarget;
@@ -107,10 +119,14 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   private overlayHandler?: ExternalMacroOverlayHandler;
   private pointerFocusTrackingInstalled = false;
   private removeNotificationListener?: () => void;
+  private removeDiagnosticDisconnectListener?: () => void;
+  private consecutiveEvaluateFailures = 0;
+  private lastSuccessfulCdpReplyAt?: string;
 
   constructor(
     private readonly client: CdpEventClientLike,
-    private readonly platform: NodeJS.Platform = "linux"
+    private readonly platform: NodeJS.Platform = "linux",
+    private readonly onDiagnostic?: (event: ExternalChromeDiagnosticEvent) => void
   ) {}
 
   async initialize(options: { cdnCompatibilityEnabled?: boolean } = {}): Promise<void> {
@@ -120,7 +136,11 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
           void this.handleCdnRequestPaused(notification.params);
           break;
         case "Runtime.bindingCalled":
-          void this.handleBindingCalled(notification.params);
+          if (notification.params?.name === DIAGNOSTICS_BINDING_NAME) {
+            this.handleDiagnosticBindingCalled(notification.params);
+          } else {
+            void this.handleBindingCalled(notification.params);
+          }
           break;
         case "Runtime.executionContextCreated": {
           const context = notification.params?.context;
@@ -151,16 +171,36 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
           }
           break;
         }
+        case "Page.lifecycleEvent":
+          if (notification.params?.name === "frozen" || notification.params?.name === "resumed") {
+            this.emitDiagnostic("page_lifecycle", {
+              event: notification.params.name,
+              source: "cdp"
+            });
+          }
+          break;
       }
+    });
+    this.removeDiagnosticDisconnectListener = this.client.onDisconnect(() => {
+      this.emitDiagnostic("disconnect", {
+        consecutiveEvaluateFailures: this.consecutiveEvaluateFailures,
+        lastSuccessfulCdpReplyAt: this.lastSuccessfulCdpReplyAt,
+        reason: "devtools_websocket_disconnected"
+      });
     });
     try {
       await Promise.all([this.client.send("Page.enable"), this.client.send("Runtime.enable")]);
+      await this.client.send("Page.setLifecycleEventsEnabled", { enabled: true }).catch(() => undefined);
+      await this.installPageDiagnostics().catch(() => undefined);
+      await this.recordBrowserVersion().catch(() => undefined);
       if (options.cdnCompatibilityEnabled) {
         await this.enableCdnCompatibility();
       }
     } catch (error) {
       this.removeNotificationListener?.();
       this.removeNotificationListener = undefined;
+      this.removeDiagnosticDisconnectListener?.();
+      this.removeDiagnosticDisconnectListener = undefined;
       throw error;
     }
   }
@@ -177,6 +217,8 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   close(): void {
     this.removeNotificationListener?.();
     this.removeNotificationListener = undefined;
+    this.removeDiagnosticDisconnectListener?.();
+    this.removeDiagnosticDisconnectListener = undefined;
     this.navigationListeners.clear();
     this.client.close();
   }
@@ -490,14 +532,34 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   }
 
   async evaluate<T = unknown>(source: string): Promise<T> {
-    const response = await this.client.send<{
-      exceptionDetails?: { text?: string };
-      result?: { value?: T };
-    }>("Runtime.evaluate", { expression: source, awaitPromise: true, returnByValue: true });
-    if (response.exceptionDetails) {
-      throw new Error(response.exceptionDetails.text ?? "External Chrome script failed.");
+    try {
+      const response = await this.client.send<{
+        exceptionDetails?: { text?: string };
+        result?: { value?: T };
+      }>("Runtime.evaluate", { expression: source, awaitPromise: true, returnByValue: true });
+      if (response.exceptionDetails) {
+        throw new Error(response.exceptionDetails.text ?? "External Chrome script failed.");
+      }
+      const recoveredFailureCount = this.consecutiveEvaluateFailures;
+      this.consecutiveEvaluateFailures = 0;
+      this.lastSuccessfulCdpReplyAt = new Date().toISOString();
+      if (recoveredFailureCount > 0) {
+        this.emitDiagnostic("cdp_recovered", {
+          failureCount: recoveredFailureCount,
+          lastSuccessfulCdpReplyAt: this.lastSuccessfulCdpReplyAt
+        });
+      }
+      return response.result?.value as T;
+    } catch (error) {
+      this.consecutiveEvaluateFailures += 1;
+      this.emitDiagnostic("cdp_evaluate_failed", {
+        code: isRecord(error) && typeof error.code === "string" ? error.code : undefined,
+        consecutiveFailures: this.consecutiveEvaluateFailures,
+        lastSuccessfulCdpReplyAt: this.lastSuccessfulCdpReplyAt,
+        message: error instanceof Error ? error.message : "External Chrome evaluation failed."
+      });
+      throw error;
     }
-    return response.result?.value as T;
   }
 
   async installMacroOverlay(source: string, handler: ExternalMacroOverlayHandler): Promise<void> {
@@ -578,6 +640,52 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     }
   }
 
+  private async installPageDiagnostics(): Promise<void> {
+    const source = createExternalPageDiagnosticsSource();
+    await this.client.send("Runtime.addBinding", { name: DIAGNOSTICS_BINDING_NAME });
+    await this.client.send("Page.addScriptToEvaluateOnNewDocument", { source });
+    await this.evaluate(source);
+  }
+
+  private async recordBrowserVersion(): Promise<void> {
+    const version = await this.client.send<Record<string, unknown>>("Browser.getVersion");
+    this.emitDiagnostic("browser_version", {
+      jsVersion: version.jsVersion,
+      product: version.product,
+      protocolVersion: version.protocolVersion,
+      revision: version.revision,
+      userAgent: version.userAgent
+    });
+  }
+
+  private handleDiagnosticBindingCalled(params: Record<string, unknown>): void {
+    if (typeof params.payload !== "string") {
+      return;
+    }
+    try {
+      const payload = JSON.parse(params.payload) as unknown;
+      if (!isRecord(payload) || typeof payload.event !== "string") {
+        return;
+      }
+      this.emitDiagnostic("page_lifecycle", {
+        event: payload.event,
+        hasFocus: typeof payload.hasFocus === "boolean" ? payload.hasFocus : undefined,
+        hidden: typeof payload.hidden === "boolean" ? payload.hidden : undefined,
+        source: "page",
+        visibilityState: typeof payload.visibilityState === "string" ? payload.visibilityState : undefined,
+        wasDiscarded: typeof payload.wasDiscarded === "boolean" ? payload.wasDiscarded : undefined,
+        webglRenderer: typeof payload.webglRenderer === "string" ? payload.webglRenderer : undefined,
+        webglVendor: typeof payload.webglVendor === "string" ? payload.webglVendor : undefined
+      });
+    } catch {
+      // Ignore malformed diagnostics from the inspected page.
+    }
+  }
+
+  private emitDiagnostic(type: ExternalChromeDiagnosticEvent["type"], details: Record<string, unknown>): void {
+    this.onDiagnostic?.({ details, type });
+  }
+
   private async resolveOverlayRequest(id: number, ok: boolean, value: unknown, contextId?: number): Promise<void> {
     const expression = `window[${JSON.stringify(OVERLAY_BRIDGE_KEY)}]?.resolve(${JSON.stringify(id)}, ${JSON.stringify(ok)}, ${JSON.stringify(value)})`;
     await this.client.send("Runtime.evaluate", {
@@ -636,6 +744,51 @@ function createOverlayBridgeBootstrap(): string {
       pending.set(id, { resolve, reject });
       nativeBinding(JSON.stringify({ id, request }));
     });
+  })()`;
+}
+
+function createExternalPageDiagnosticsSource(): string {
+  return `(() => {
+    const bindingName = ${JSON.stringify(DIAGNOSTICS_BINDING_NAME)};
+    const stateKey = ${JSON.stringify(DIAGNOSTICS_STATE_KEY)};
+    if (window.top !== window || typeof window[bindingName] !== "function") return;
+    if (window[stateKey]?.version === 1) {
+      window[stateKey].report("reinstall");
+      return;
+    }
+    const binding = window[bindingName];
+    const graphics = (() => {
+      try {
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("webgl2") || canvas.getContext("webgl");
+        const extension = context?.getExtension("WEBGL_debug_renderer_info");
+        return extension ? {
+          webglRenderer: String(context.getParameter(extension.UNMASKED_RENDERER_WEBGL) || ""),
+          webglVendor: String(context.getParameter(extension.UNMASKED_VENDOR_WEBGL) || "")
+        } : {};
+      } catch { return {}; }
+    })();
+    const report = (event) => {
+      try {
+        binding(JSON.stringify({
+          event,
+          hasFocus: document.hasFocus(),
+          hidden: document.hidden,
+          visibilityState: document.visibilityState,
+          wasDiscarded: Boolean(document.wasDiscarded),
+          ...(event === "install" || event === "reinstall" ? graphics : {})
+        }));
+      } catch {}
+    };
+    window[stateKey] = { report, version: 1 };
+    ["focus", "blur", "pageshow", "pagehide"].forEach((event) => {
+      window.addEventListener(event, () => report(event), true);
+    });
+    ["freeze", "resume"].forEach((event) => {
+      document.addEventListener(event, () => report(event), true);
+    });
+    document.addEventListener("visibilitychange", () => report("visibilitychange"), true);
+    report("install");
   })()`;
 }
 

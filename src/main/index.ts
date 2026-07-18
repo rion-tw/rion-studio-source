@@ -533,6 +533,14 @@ async function initializeApplication(): Promise<void> {
     },
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
     graphicsMode: appliedBrowserGraphicsMode,
+    onDiagnostic: ({ details, roleId, type }) => {
+      const context = { roleId, ...details };
+      if (type === "cdp_evaluate_failed" || type === "disconnect") {
+        logService.warn("browser", `external_chrome_${type}`, "External Chrome automation diagnostic.", context);
+      } else {
+        logService.info("browser", `external_chrome_${type}`, "External Chrome automation diagnostic.", context);
+      }
+    },
     ...(externalChromeWindowBoundsAdapter
       ? { windowBoundsAdapter: externalChromeWindowBoundsAdapter }
       : {})
@@ -629,20 +637,26 @@ async function initializeApplication(): Promise<void> {
     macroStore,
     macroManager,
     requestMacroPageFromOverlay,
-    (roleId) => browserManager?.listStatuses().find((status) => status.roleId === roleId)
+    (roleId) => browserManager?.listStatuses().find((status) => status.roleId === roleId),
+    (details) => {
+      logService.info(
+        "browser",
+        "external_overlay_refresh_requested",
+        "External Chrome overlay refresh requested.",
+        details
+      );
+    }
   );
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
   browserManager.setExternalMacroOverlayInstaller((role, target) => macroOverlayInjector.installExternal(role, target));
-  macroManager.on("change", () => {
-    macroOverlayInjector.refreshInstalledOverlays();
-  });
   macroManager.on("change", (statuses) => {
+    macroOverlayInjector.refreshChangedMacroStatuses(statuses);
     logService.info("macro", "macro_status_changed", "Macro runtime status changed.", {
       statuses: statuses.map((status) => ({ macroId: status.macroId, state: status.state }))
     });
   });
   browserManager.on("change", (statuses) => {
-    macroOverlayInjector.refreshInstalledOverlays();
+    macroOverlayInjector.refreshChangedRoleStatuses(statuses);
     logService.info("browser", "role_status_changed", "Browser role status changed.", {
       statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state, runtimeMode: status.runtimeMode }))
     });
@@ -752,7 +766,7 @@ async function initializeApplication(): Promise<void> {
     updateManager,
     withDataMutation,
     onMacrosChanged: () => {
-      macroOverlayInjector.refreshInstalledOverlays();
+      macroOverlayInjector.refreshInstalledOverlays(undefined, "macro_definition");
       void macroStore.listMacros().then(broadcastMacrosChanged);
     },
     onLegalAccepted: () => {

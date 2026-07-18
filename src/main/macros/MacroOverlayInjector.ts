@@ -20,6 +20,13 @@ interface MacroOverlayState {
   statuses: MacroRunStatus[];
 }
 
+interface ExternalOverlayRefreshState {
+  disconnected: boolean;
+  inFlight: boolean;
+  source: string;
+  trailing: boolean;
+}
+
 export interface ExternalMacroOverlayHost {
   evaluate: <T = unknown>(source: string) => Promise<T>;
   installMacroOverlay: (source: string, handler: (request: unknown) => Promise<unknown>) => Promise<void>;
@@ -57,9 +64,12 @@ export type MacroOverlayRequest =
 export class MacroOverlayInjector {
   private readonly externalHosts = new Set<ExternalMacroOverlayHost>();
   private readonly externalHostRoleIds = new WeakMap<ExternalMacroOverlayHost, string>();
+  private readonly externalRefreshStates = new WeakMap<ExternalMacroOverlayHost, ExternalOverlayRefreshState>();
   private readonly installedContents = new Set<WebContents>();
   private readonly initializedContents = new WeakSet<WebContents>();
   private readonly contentRoleIds = new WeakMap<WebContents, string>();
+  private previousMacroStatuses = new Map<string, { roleId: string; state: MacroRunStatus["state"] }>();
+  private previousRolePresentation = new Map<string, string>();
   private language: AppLanguage | undefined;
 
   constructor(
@@ -72,7 +82,12 @@ export class MacroOverlayInjector {
       "pressForRole" | "releaseForRole" | "releaseHeldTriggersForRole"
     >>,
     private readonly onMacroPageRequested?: (request: MacroPageRequest) => void | Promise<void>,
-    private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined
+    private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined,
+    private readonly onExternalRefresh?: (details: {
+      roleId: string | undefined;
+      source: string;
+      trailing: boolean;
+    }) => void
   ) {}
 
   async install(role: Role, webContents: WebContents): Promise<void> {
@@ -91,8 +106,17 @@ export class MacroOverlayInjector {
   async installExternal(role: Role, host: ExternalMacroOverlayHost): Promise<void> {
     this.externalHosts.add(host);
     this.externalHostRoleIds.set(host, role.id);
+    const refreshState: ExternalOverlayRefreshState = {
+      disconnected: false,
+      inFlight: false,
+      source: "install",
+      trailing: false
+    };
+    this.externalRefreshStates.set(host, refreshState);
     host.onDisconnect(() => {
       this.externalHosts.delete(host);
+      refreshState.disconnected = true;
+      refreshState.trailing = false;
       void this.macroManager.releaseHeldTriggersForRole?.(role.id);
     });
     host.onNavigation?.(() => {
@@ -107,11 +131,12 @@ export class MacroOverlayInjector {
       });
     } catch (error) {
       this.externalHosts.delete(host);
+      refreshState.disconnected = true;
       throw error;
     }
   }
 
-  refreshInstalledOverlays(roleId?: string): void {
+  refreshInstalledOverlays(roleId?: string, source = "manual"): void {
     this.installedContents.forEach((webContents) => {
       if (roleId && this.contentRoleIds.get(webContents) !== roleId) {
         return;
@@ -123,13 +148,45 @@ export class MacroOverlayInjector {
       if (roleId && this.externalHostRoleIds.get(host) !== roleId) {
         return;
       }
-      void this.refreshExternalOverlay(host);
+      this.scheduleExternalRefresh(host, source);
     });
+  }
+
+  refreshChangedMacroStatuses(statuses: MacroRunStatus[]): void {
+    const next = new Map(
+      statuses.map((status) => [
+        `${status.roleId}:${status.macroId}`,
+        { roleId: status.roleId, state: status.state }
+      ])
+    );
+    const changedRoleIds = new Set<string>();
+    new Set([...this.previousMacroStatuses.keys(), ...next.keys()]).forEach((key) => {
+      const previous = this.previousMacroStatuses.get(key);
+      const current = next.get(key);
+      if (previous?.state !== current?.state) {
+        changedRoleIds.add(current?.roleId ?? previous!.roleId);
+      }
+    });
+    this.previousMacroStatuses = next;
+    changedRoleIds.forEach((roleId) => this.refreshInstalledOverlays(roleId, "macro_status"));
+  }
+
+  refreshChangedRoleStatuses(statuses: RoleStatus[]): void {
+    const next = new Map(
+      statuses.map((status) => [status.roleId, rolePresentationKey(status)])
+    );
+    const changedRoleIds = new Set([...this.previousRolePresentation.keys(), ...next.keys()]);
+    changedRoleIds.forEach((roleId) => {
+      if (this.previousRolePresentation.get(roleId) !== next.get(roleId)) {
+        this.refreshInstalledOverlays(roleId, "role_status");
+      }
+    });
+    this.previousRolePresentation = next;
   }
 
   setLanguage(language: AppLanguage): void {
     this.language = language;
-    this.refreshInstalledOverlays();
+    this.refreshInstalledOverlays(undefined, "language");
   }
 
   async handleEmbeddedRequest(
@@ -243,12 +300,50 @@ export class MacroOverlayInjector {
     }
   }
 
-  private async refreshExternalOverlay(host: ExternalMacroOverlayHost): Promise<void> {
+  private scheduleExternalRefresh(
+    host: ExternalMacroOverlayHost,
+    source: string,
+    trailing = false
+  ): void {
+    const state = this.externalRefreshStates.get(host);
+    if (!state || state.disconnected || !this.externalHosts.has(host)) {
+      return;
+    }
+    if (state.inFlight) {
+      state.trailing = true;
+      state.source = source;
+      return;
+    }
+
+    state.inFlight = true;
+    state.source = source;
+    this.onExternalRefresh?.({
+      roleId: this.externalHostRoleIds.get(host),
+      source,
+      trailing
+    });
+    void this.refreshExternalOverlay(host, source).finally(() => {
+      state.inFlight = false;
+      if (!state.trailing || state.disconnected || !this.externalHosts.has(host)) {
+        state.trailing = false;
+        return;
+      }
+      const trailingSource = state.source;
+      state.trailing = false;
+      this.scheduleExternalRefresh(host, trailingSource, true);
+    });
+  }
+
+  private async refreshExternalOverlay(host: ExternalMacroOverlayHost, source: string): Promise<void> {
     try {
-      await host.evaluate("window.__rionStudioMacroOverlay?.refresh?.()");
+      await host.evaluate("void window.__rionStudioMacroOverlay?.refresh?.()");
     } catch (error) {
       if (!isBenignFrameInstallError(error)) {
-        console.warn("Failed to refresh the external Chrome macro overlay.", error);
+        console.warn("Failed to refresh the external Chrome macro overlay.", {
+          error,
+          roleId: this.externalHostRoleIds.get(host),
+          source
+        });
       }
     }
   }
@@ -282,6 +377,15 @@ export class MacroOverlayInjector {
       statuses: statuses.filter((status) => assignedMacroIds.has(status.macroId))
     };
   }
+}
+
+function rolePresentationKey(status: RoleStatus): string {
+  return JSON.stringify({
+    automationState: status.automationState,
+    cpuThrottleRate: status.cpuThrottleRate,
+    resourceState: status.resourceState,
+    state: status.state
+  });
 }
 
 export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequest {

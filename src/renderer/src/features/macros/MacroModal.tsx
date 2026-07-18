@@ -963,10 +963,10 @@ function MacroStepEditor({
   t
 }: MacroStepEditorProps): JSX.Element {
   return (
-    <div
+      <div
       data-testid={`macro-step-${step.id}`}
       className={cn(
-        "glass-divider grid gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200 md:grid-cols-[auto_128px_minmax(0,1fr)_auto] md:items-center",
+        "glass-divider flex flex-wrap items-start gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200 md:items-start",
         isDragging && "opacity-50",
         isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
       )}
@@ -984,7 +984,7 @@ function MacroStepEditor({
         }
         disabled={isSaving}
       >
-        <SelectTrigger aria-label={t("macroForm.stepType")}>
+        <SelectTrigger className="w-fit shrink-0" aria-label={t("macroForm.stepType")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -997,6 +997,7 @@ function MacroStepEditor({
       </Select>
 
       <MacroStepFields
+        className="ml-0 flex-1"
         isSaving={isSaving}
         macroTargets={macroTargets}
         step={step}
@@ -1004,7 +1005,7 @@ function MacroStepEditor({
         onUpdate={onUpdate}
       />
 
-      <div className="flex justify-end gap-1">
+      <div className="ml-auto flex shrink-0 justify-end gap-1">
         <Button
           type="button"
           variant="ghost"
@@ -1159,10 +1160,12 @@ function getMacroStepTypeLabel(type: MacroStep["type"], t: Translator): string {
 function MacroStepFields({
   isSaving,
   macroTargets,
+  className,
   onUpdate,
   step,
   t
 }: {
+  className?: string;
   isSaving: boolean;
   macroTargets: Macro[];
   onUpdate: (step: MacroStep) => void;
@@ -1197,7 +1200,7 @@ function MacroStepFields({
     };
 
     return (
-      <div className="grid min-w-0 gap-2">
+      <div className={cn("grid min-w-0 gap-2", className)}>
         <div className="flex min-w-0 items-center gap-2">
           <Select
             value={selectedModifierValue}
@@ -1205,7 +1208,7 @@ function MacroStepFields({
             disabled={isSaving || isRecording || mainKeyIsModifier}
           >
             <SelectTrigger
-              className="w-24 flex-none"
+              className="w-fit shrink-0"
               aria-label={t("macroForm.modifiers")}
             >
               <SelectValue />
@@ -1223,7 +1226,7 @@ function MacroStepFields({
             onValueChange={(value) => updateKeyInput(value, canonicalModifiers)}
             disabled={isSaving || isRecording}
           >
-            <SelectTrigger className="w-24 flex-none" aria-label={t("macro.step.key")}>
+            <SelectTrigger className="w-fit shrink-0" aria-label={t("macro.step.key")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1255,7 +1258,7 @@ function MacroStepFields({
               action: action as Extract<MacroStep, { type: "key" }>["action"]
             })}
           >
-            <SelectTrigger className="w-24 flex-none" aria-label={t("macroForm.keyAction")}>
+            <SelectTrigger className="w-fit shrink-0" aria-label={t("macroForm.keyAction")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1288,7 +1291,7 @@ function MacroStepFields({
           prefix={t("macroForm.clickX")}
           suffix="%"
           value={step.xPercent}
-          widthClassName="w-24 flex-none"
+          widthClassName="w-fit shrink-0"
           onChange={(xPercent) => onUpdate({ ...step, xPercent })}
         />
         <AffixedInput
@@ -1299,7 +1302,7 @@ function MacroStepFields({
           prefix={t("macroForm.clickY")}
           suffix="%"
           value={step.yPercent}
-          widthClassName="w-24 flex-none"
+          widthClassName="w-fit shrink-0"
           onChange={(yPercent) => onUpdate({ ...step, yPercent })}
         />
       </div>
@@ -1314,7 +1317,7 @@ function MacroStepFields({
         value={step.macroId || undefined}
         onValueChange={(macroId) => onUpdate({ ...step, macroId })}
       >
-        <SelectTrigger className="w-full min-w-44" aria-label={t("macroForm.macroTarget")}>
+        <SelectTrigger className="w-fit max-w-full" aria-label={t("macroForm.macroTarget")}>
           <SelectValue placeholder={t("macroForm.macroTargetPlaceholder")} />
         </SelectTrigger>
         <SelectContent>
@@ -1341,7 +1344,7 @@ function MacroStepFields({
       min={0}
       suffix="ms"
       value={step.ms}
-      widthClassName="w-32 flex-none"
+      widthClassName="w-fit shrink-0"
       onChange={(ms) => onUpdate({ ...step, ms })}
     />
   );

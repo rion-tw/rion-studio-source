@@ -962,18 +962,32 @@ function MacroStepEditor({
   step,
   t
 }: MacroStepEditorProps): JSX.Element {
-  return (
+    return (
       <div
       data-testid={`macro-step-${step.id}`}
       className={cn(
-        "glass-divider flex flex-wrap items-start gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200 md:items-start",
+        "glass-divider flex flex-wrap items-center gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200",
         isDragging && "opacity-50",
         isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
       )}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <span className="grid size-7 shrink-0 place-items-center rounded-md bg-background/35 text-[11px] font-bold text-muted-foreground">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        draggable
+        aria-label={t("macroForm.dragStep")}
+        title={t("macroForm.dragStep")}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        disabled={isSaving}
+      >
+        <GripVertical size={14} />
+      </Button>
+
+      <span className="mr-2 shrink-0 text-[11px] text-muted-foreground">
         {index + 1}
       </span>
 
@@ -1006,19 +1020,6 @@ function MacroStepEditor({
       />
 
       <div className="ml-auto flex shrink-0 justify-end gap-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          draggable
-          aria-label={t("macroForm.dragStep")}
-          title={t("macroForm.dragStep")}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          disabled={isSaving}
-        >
-          <GripVertical size={14} />
-        </Button>
         <Button
           type="button"
           variant="ghost"

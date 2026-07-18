@@ -921,7 +921,7 @@ function getModifierComboOptions(t: Translator): Array<{ value: string; label: s
     const value = normalizedModifiers.join(",");
     const label = normalizedModifiers.length > 0
       ? normalizedModifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ")
-      : t("macroForm.modifiers");
+      : t("macroForm.modifiersNone");
 
     combinations.push({ value, label });
   }
@@ -997,7 +997,7 @@ function MacroStepFields({
     const modifierSummary = canonicalModifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ");
     const modifierTriggerLabel = canonicalModifiers.length > 0
       ? `${t("macroForm.modifiers")}: ${modifierSummary}`
-      : t("macroForm.modifiers");
+      : t("macroForm.modifiersNone");
     const modifierComboOptions = getModifierComboOptions(t);
     const selectedModifierValue = canonicalModifiers.join(",");
     const updateKeyInput = (code: string, nextModifiers: MacroKeyModifier[]): void => {

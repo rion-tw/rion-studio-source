@@ -322,6 +322,7 @@
   "macroForm.keyAction.hold": "Hold until stopped",
   "macroForm.keyAction.holdCombination": "Hold combination until stopped",
   "macroForm.modifiers": "Modifiers",
+  "macroForm.modifiersNone": "No modifiers",
   "macroForm.modifier.primary": "Primary ({value})",
   "macroForm.modifiersNeedMainKey": "Choose a non-modifier main key before adding modifiers.",
   "macroForm.macroTarget": "Macro to run",

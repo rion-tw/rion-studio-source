@@ -322,6 +322,7 @@
   "macroForm.keyAction.hold": "持續按住",
   "macroForm.keyAction.holdCombination": "持續按住整組",
   "macroForm.modifiers": "修飾鍵",
+  "macroForm.modifiersNone": "無修飾鍵",
   "macroForm.modifier.primary": "主要鍵（{value}）",
   "macroForm.modifiersNeedMainKey": "請先選擇非修飾主鍵，再加入修飾鍵。",
   "macroForm.macroTarget": "要執行的巨集",

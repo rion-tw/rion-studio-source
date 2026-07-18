@@ -1,6 +1,7 @@
 #import "RionRuntimeTabsController.h"
 
 #include <cmath>
+#include <cstring>
 
 // Unified compact is AppKit's 40pt titlebar host on macOS 12 and newer. Keep
 // the accessory at the exact host height so the blur covers the whole row and
@@ -28,6 +29,14 @@ static NSToolbarItemIdentifier const RionRuntimeToolbarSpacerIdentifier =
     @"com.rionstudio.runtime-tabs.layout-spacer";
 static NSPasteboardType const RionRuntimeTabPasteboardType =
     @"com.rionstudio.runtime-tab";
+
+static void RionLogToolbarAutohideHeightUnavailable(void) {
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    NSLog(@"Rion Studio could not configure the native fullscreen toolbar "
+          "auto-hide height; AppKit's default metric will be used.");
+  });
+}
 
 @class RionRuntimeTabsController;
 @class RionRuntimeSurfaceView;
@@ -113,6 +122,10 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)scheduleLiquidGlassTitlebarRehost;
+- (BOOL)readToolbarAutohideHeight:(CGFloat *)height
+                       forToolbar:(NSToolbar *)toolbar;
+- (BOOL)setToolbarAutohideHeight:(CGFloat)height
+                      forToolbar:(NSToolbar *)toolbar;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
 - (void)updateTrafficLightObservation;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
@@ -966,6 +979,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   _fullscreenToolbar.visible = NO;
   _toolbar = _fullscreenToolbar;
   if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
+  [self setToolbarAutohideHeight:kRionTitlebarHeight forToolbar:_toolbar];
   _toolbar.visible = NO;
 }
 
@@ -1182,6 +1196,57 @@ static void *RionRuntimeTrafficLightObservationContext =
     [strongSelf restoreWindowedTitlebarHost];
     [strongSelf restoreWindowedTrafficLightFrames];
   });
+}
+
+- (BOOL)readToolbarAutohideHeight:(CGFloat *)height
+                       forToolbar:(NSToolbar *)toolbar {
+  if (!toolbar || !height) return NO;
+  SEL selector = NSSelectorFromString(@"_autohideHeight");
+  if (![toolbar respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature = [toolbar methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != sizeof(CGFloat) ||
+      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
+    return NO;
+  }
+
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = toolbar;
+  invocation.selector = selector;
+  [invocation invoke];
+  [invocation getReturnValue:height];
+  return YES;
+}
+
+- (BOOL)setToolbarAutohideHeight:(CGFloat)height
+                      forToolbar:(NSToolbar *)toolbar {
+  if (!toolbar) return NO;
+  SEL selector = NSSelectorFromString(@"_setAutohideHeight:");
+  if (![toolbar respondsToSelector:selector]) {
+    RionLogToolbarAutohideHeightUnavailable();
+    return NO;
+  }
+
+  NSMethodSignature *signature = [toolbar methodSignatureForSelector:selector];
+  const char *argumentType = signature && signature.numberOfArguments == 3
+      ? [signature getArgumentTypeAtIndex:2]
+      : nullptr;
+  if (!signature || signature.numberOfArguments != 3 ||
+      signature.methodReturnLength != 0 || !argumentType ||
+      std::strcmp(argumentType, @encode(CGFloat)) != 0) {
+    RionLogToolbarAutohideHeightUnavailable();
+    return NO;
+  }
+
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = toolbar;
+  invocation.selector = selector;
+  [invocation setArgument:&height atIndex:2];
+  [invocation invoke];
+  return YES;
 }
 
 - (nullable NSView *)toolbarHostView {
@@ -1578,6 +1643,10 @@ static void *RionRuntimeTrafficLightObservationContext =
 
   if (fullScreen) {
     if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
+    // A trailing titlebar accessory shares the native row with the traffic
+    // lights, so fullScreenMinHeight does not control AppKit's auto-hide host.
+    // Fix only that host metric; AppKit still owns hover tracking and reveal.
+    [self setToolbarAutohideHeight:kRionTitlebarHeight forToolbar:_toolbar];
     [self attachAccessoryController];
     [self applyLiquidGlassTitlebarAppearance];
     [self layoutTitlebarContent];

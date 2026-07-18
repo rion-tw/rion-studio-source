@@ -147,6 +147,10 @@ describe("create controls at the end of lists", () => {
     );
 
     const createButton = screen.getAllByRole("button", { name: "New macro" }).at(-1)!;
+    expect(createButton.className).toContain("h-[38px]");
+    expect(createButton.className).toContain("items-center");
+    expect(createButton.className).toContain("py-1");
+    expect(createButton.closest("td")?.colSpan).toBe(9);
     expect(createButton.closest("tr")).toBe(document.querySelector("tbody")?.lastElementChild);
     await user.click(createButton);
     expect(onNewMacro).toHaveBeenCalledOnce();

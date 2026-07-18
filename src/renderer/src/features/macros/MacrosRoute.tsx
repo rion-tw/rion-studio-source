@@ -240,7 +240,7 @@ function MacrosRoute({
             <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
               <thead className="glass-divider border-b text-[11px] uppercase tracking-normal text-muted-foreground">
                 <tr>
-                  <th className="w-9 px-2 py-1.5" aria-hidden="true" />
+                  <th className="w-9 px-2 py-1" aria-hidden="true" />
                   <MacroSortHeader
                     label={t("macros.column.name")}
                     sort={sort}
@@ -283,8 +283,8 @@ function MacrosRoute({
                     t={t}
                     onSort={handleSortChange}
                   />
-                  <th className="w-20 px-4 py-1.5 text-center">{t("macros.column.enabled")}</th>
-                  <th className="w-20 px-4 py-1.5" aria-label={t("macros.actions")} />
+                  <th className="w-20 px-4 py-1 text-center">{t("macros.column.enabled")}</th>
+                  <th className="w-20 px-4 py-1" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/45 text-[13px] leading-5">
@@ -292,7 +292,7 @@ function MacrosRoute({
                   <tr
                     key={macro.id}
                     ref={selection.registerItem(macro.id)}
-                    className={cn("group align-baseline transition-colors", selection.isSelected(macro.id) && "bg-blue-500/10")}
+                    className={cn("group align-middle transition-colors", selection.isSelected(macro.id) && "bg-blue-500/10")}
                     data-selection-id={macro.id}
                     onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
                   >
@@ -307,7 +307,7 @@ function MacrosRoute({
                         />
                       </div>
                     </td>
-                    <td className="max-w-[240px] px-4 py-2.5 align-baseline">
+                    <td className="max-w-[240px] px-4 py-1 align-middle">
                       <button
                         className="-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                         type="button"
@@ -318,7 +318,7 @@ function MacrosRoute({
                         <span className="block truncate">{macro.name}</span>
                       </button>
                     </td>
-                    <td className="max-w-[240px] px-4 py-2.5 align-baseline">
+                    <td className="max-w-[240px] px-4 py-1 align-middle">
                       <MacroRoleBadge
                         macro={macro}
                         roleById={roleById}
@@ -326,16 +326,16 @@ function MacrosRoute({
                         t={t}
                       />
                     </td>
-                    <td className="px-4 py-2.5 align-baseline text-muted-foreground">
+                    <td className="px-4 py-1 align-middle text-muted-foreground">
                       <span className="block">{formatMacroShortcut(macro.trigger, t)}</span>
                     </td>
-                    <td className="px-4 py-2.5 align-baseline text-muted-foreground">
+                    <td className="px-4 py-1 align-middle text-muted-foreground">
                       {formatMacroActivationMode(macro.activationMode, t)}
                     </td>
-                    <td className="px-4 py-2.5 align-baseline text-muted-foreground">
+                    <td className="px-4 py-1 align-middle text-muted-foreground">
                       {formatMacroRepeat(macro.repeat, t)}
                     </td>
-                    <td className="max-w-[320px] px-4 py-2.5 align-baseline text-muted-foreground">
+                    <td className="max-w-[320px] px-4 py-1 align-middle text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t, macroNameById)}
                     </td>
                     <td className="relative w-20 p-0 text-center">
@@ -395,11 +395,11 @@ function MacroSortHeader({ label, onSort, sort, sortKey, t }: MacroSortHeaderPro
 
   return (
     <th
-      className="px-4 py-1.5"
+      className="px-4 py-1"
       aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <button
-        className="-mx-1 inline-flex h-6 max-w-full items-center gap-1 rounded-sm px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+        className="-mx-1 inline-flex h-[30px] max-w-full items-center gap-1 rounded-sm px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
         type="button"
         title={t("macros.sortBy").replace("{column}", label)}
         onClick={() => onSort(sortKey)}

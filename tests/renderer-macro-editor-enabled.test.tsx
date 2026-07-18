@@ -193,6 +193,43 @@ describe("macro editor controls", () => {
     }
   });
 
+  it("shows modifier combination options in readable sorted order", () => {
+    const selectedMacro = macro();
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={vi.fn()}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    openModifierMenu();
+    const optionLabels = screen.getAllByRole("option").map((option) => option.textContent?.trim() ?? "");
+
+    expect(optionLabels[0]).toBe("Modifiers");
+    expect(optionLabels[1]).toBe("Primary (Ctrl)");
+    expect(optionLabels[2]).toBe("Ctrl");
+    expect(optionLabels[3]).toBe("Alt");
+    expect(optionLabels[4]).toBe("Shift");
+    expect(optionLabels[5]).toBe("Meta");
+    expect(optionLabels[6]).toBe("Primary (Ctrl) + Alt");
+    expect(optionLabels[7]).toBe("Primary (Ctrl) + Shift");
+    expect(optionLabels[8]).toBe("Ctrl + Alt");
+  });
+
   it("stores multiple selected modifiers from the modifier menu in canonical order", async () => {
     const selectedMacro = macro();
     const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({

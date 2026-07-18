@@ -22,6 +22,10 @@
 - (void)layoutTitlebarContent;
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
+- (BOOL)readToolbarAutohideHeight:(CGFloat *)height
+                       forToolbar:(NSToolbar *)toolbar;
+- (BOOL)setToolbarAutohideHeight:(CGFloat)height
+                      forToolbar:(NSToolbar *)toolbar;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
 - (CGFloat)trafficLightReserveWidth;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
@@ -33,6 +37,18 @@ static void Assert(bool condition, const char *message) {
     std::cerr << message << std::endl;
     std::exit(1);
   }
+}
+
+static void AssertToolbarAutohideHeightIfSupported(
+    RionRuntimeTabsController *controller, NSToolbar *toolbar,
+    const char *message) {
+  if (![toolbar respondsToSelector:NSSelectorFromString(@"_autohideHeight")]) {
+    return;
+  }
+  CGFloat height = -1;
+  Assert([controller readToolbarAutohideHeight:&height forToolbar:toolbar] &&
+             std::fabs(height - 40.0) < 0.01,
+         message);
 }
 
 static RionRuntimeTabModel *MakeTab(NSString *identifier, NSString *name,
@@ -175,6 +191,10 @@ int main() {
            "Expected one titlebar accessory controller.");
     Assert(window.toolbar != nil && window.toolbar.visible,
            "Normal windows must use a visible compact toolbar for titlebar height and material.");
+    NSObject *unsupportedToolbar = [[NSObject alloc] init];
+    Assert(![controller setToolbarAutohideHeight:40.0
+                                      forToolbar:(NSToolbar *)(id)unsupportedToolbar],
+           "An unavailable private auto-hide selector must fail safely.");
     Assert(window.toolbar.items.count == 1 &&
                window.toolbar.items.firstObject.view.frame.size.height == 28.0 &&
                window.toolbar.items.firstObject.visibilityPriority ==
@@ -304,6 +324,9 @@ int main() {
                !fullscreenToolbar.visible && fullscreenToolbar.delegate == nil &&
                fullscreenToolbar.items.count == 0,
            "Fullscreen preflight must install the prepared empty toolbar before AppKit starts its transition.");
+    AssertToolbarAutohideHeightIfSupported(
+        controller, fullscreenToolbar,
+        "Fullscreen preflight must configure AppKit's native auto-hide host to 40pt.");
     Assert(accessory.fullScreenMinHeight == 40.0 &&
                window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
@@ -328,6 +351,9 @@ int main() {
                root.superview != window.contentView && !root.hidden &&
                window.titlebarAccessoryViewControllers.count == 1,
            "Fullscreen auto-hide must use exactly one AppKit titlebar accessory.");
+    AssertToolbarAutohideHeightIfSupported(
+        controller, fullscreenToolbar,
+        "Fullscreen auto-hide must retain the 40pt native host metric.");
     Assert(accessory.fullScreenMinHeight == 40.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0 &&
                root.frame.size.height == 40.0,
@@ -343,11 +369,17 @@ int main() {
                window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "A reveal lock must pin the native titlebar while preserving overlay-style full-size content.");
+    AssertToolbarAutohideHeightIfSupported(
+        controller, fullscreenToolbar,
+        "A reveal lock must not change the fullscreen toolbar height.");
     [controller setRevealLocked:NO];
     Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
                window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Releasing a reveal lock must return the single native host to AppKit auto-hide.");
+    AssertToolbarAutohideHeightIfSupported(
+        controller, fullscreenToolbar,
+        "Releasing a reveal lock must restore auto-hide at the same 40pt height.");
 
     NSButton *closeButton = [window standardWindowButton:NSWindowCloseButton];
     NSButton *minimizeButton =
@@ -368,6 +400,9 @@ int main() {
                window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) == 0,
            "Always-show must reserve a static native 40pt titlebar above the game without a spacer row.");
+    AssertToolbarAutohideHeightIfSupported(
+        controller, fullscreenToolbar,
+        "Switching to always-show must preserve the fullscreen toolbar metric.");
     Assert(observedFullscreenButtons.count == 3 && !closeButton.hidden &&
                !minimizeButton.hidden && !zoomButton.hidden,
            "Always-show must retain all three AppKit traffic lights.");
@@ -427,6 +462,9 @@ int main() {
     Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Disabling always-show must immediately restore auto-hide.");
+    AssertToolbarAutohideHeightIfSupported(
+        controller, window.toolbar,
+        "Returning to auto-hide must reapply the 40pt native host metric.");
     Assert(NSApplication.sharedApplication.presentationOptions ==
                previousPresentationOptions,
            "Runtime tabs must not mutate process-wide presentation options.");

@@ -219,6 +219,7 @@
   "macros.unknownRole": "未知角色",
   "macros.noRoles": "未选择角色",
   "macros.noShortcut": "无快捷键",
+  "macros.noShortcutShort": "无",
   "macros.repeat.once": "执行一次",
   "macros.repeat.loop": "完成后等待 {ms} ms",
   "macros.repeat.loopImmediate": "完成后安排下一轮",

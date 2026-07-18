@@ -327,7 +327,9 @@ function MacrosRoute({
                       />
                     </td>
                     <td className="px-4 py-1 align-middle text-muted-foreground">
-                      <span className="block">{formatMacroShortcut(macro.trigger, t)}</span>
+                      <span className="block">
+                        {macro.trigger ? formatMacroShortcut(macro.trigger, t) : t("macros.noShortcutShort")}
+                      </span>
                     </td>
                     <td className="px-4 py-1 align-middle text-muted-foreground">
                       {formatMacroActivationMode(macro.activationMode, t)}

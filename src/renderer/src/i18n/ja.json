@@ -219,6 +219,7 @@
   "macros.unknownRole": "Unknown role",
   "macros.noRoles": "No role",
   "macros.noShortcut": "No shortcut",
+  "macros.noShortcutShort": "なし",
   "macros.repeat.once": "Once",
   "macros.repeat.loop": "完了後 {ms} ms 待機",
   "macros.repeat.loopImmediate": "完了後に次の実行を予約",

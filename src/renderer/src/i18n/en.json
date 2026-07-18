@@ -219,6 +219,7 @@
   "macros.unknownRole": "Unknown role",
   "macros.noRoles": "No role",
   "macros.noShortcut": "No shortcut",
+  "macros.noShortcutShort": "None",
   "macros.repeat.once": "Once",
   "macros.repeat.loop": "Wait {ms} ms after completion",
   "macros.repeat.loopImmediate": "Schedule the next run after completion",

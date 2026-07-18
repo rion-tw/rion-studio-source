@@ -216,6 +216,8 @@ describe("macro editor controls", () => {
       </ConfirmationProvider>
     );
 
+    expect(screen.getByRole("combobox", { name: /^Modifiers/i })).toHaveTextContent("No modifiers");
+
     openModifierMenu();
     const optionLabels = screen.getAllByRole("option").map((option) => option.textContent?.trim() ?? "");
 

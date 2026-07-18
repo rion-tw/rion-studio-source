@@ -46,10 +46,10 @@ export function CreateItemRow({ className, label, ...props }: CreateItemButtonPr
 export function CreateItemTableRow({ className, label, ...props }: CreateItemButtonProps): JSX.Element {
   return (
     <tr className="group">
-      <td className="p-0" colSpan={7}>
+      <td className="p-0" colSpan={9}>
         <button
           className={cn(
-            "flex w-full items-center gap-2.5 px-2 py-2.5 text-left text-muted-foreground transition-[background-color,color] hover:bg-accent/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30",
+            "flex h-[38px] w-full items-center gap-2.5 px-2 py-1 text-left text-muted-foreground transition-[background-color,color] hover:bg-accent/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30",
             className
           )}
           type="button"

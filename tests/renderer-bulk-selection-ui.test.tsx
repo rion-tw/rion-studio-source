@@ -232,6 +232,10 @@ describe("bulk selection UI", () => {
     expect(checkboxLayout?.className).toContain("place-items-center");
     expect(checkboxLayout?.parentElement?.className).toContain("relative");
     expect(checkboxLayout?.parentElement?.className).toContain("p-0");
+    const macroRow = checkbox.closest("tr");
+    expect(macroRow?.className).toContain("align-middle");
+    expect(macroRow?.querySelector("td:nth-child(2)")?.className).toContain("py-1");
+    expect(macroRow?.querySelector("td:nth-child(2)")?.className).toContain("align-middle");
 
     const actionLayout = screen.getByRole("button", { name: "Start" }).closest("[data-macro-actions-control]");
     expect(actionLayout?.className).toContain("absolute");

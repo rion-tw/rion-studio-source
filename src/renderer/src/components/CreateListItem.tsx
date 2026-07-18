@@ -42,25 +42,3 @@ export function CreateItemRow({ className, label, ...props }: CreateItemButtonPr
     </button>
   );
 }
-
-export function CreateItemTableRow({ className, label, ...props }: CreateItemButtonProps): JSX.Element {
-  return (
-    <tr className="group">
-      <td className="p-0" colSpan={9}>
-        <button
-          className={cn(
-            "flex h-[38px] w-full items-center gap-2.5 px-2 py-1 text-left text-muted-foreground transition-[background-color,color] hover:bg-accent/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30",
-            className
-          )}
-          type="button"
-          {...props}
-        >
-          <span className="grid size-6 shrink-0 place-items-center rounded-full border border-dashed border-current/45 bg-background/20 transition-transform group-hover:scale-105">
-            <Plus aria-hidden="true" size={14} strokeWidth={1.75} />
-          </span>
-          <span className="text-[13px] font-semibold leading-5">{label}</span>
-        </button>
-      </td>
-    </tr>
-  );
-}

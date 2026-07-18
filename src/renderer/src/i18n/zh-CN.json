@@ -336,6 +336,7 @@
   "macroForm.removeStep": "移除步骤",
   "macroForm.recording": "按下按键",
   "macroForm.recordKey": "录制",
+  "macroForm.stopRecording": "停止录制",
   "settings.general": "常规",
   "settings.system": "系统",
   "settings.backToApp": "返回应用程序",

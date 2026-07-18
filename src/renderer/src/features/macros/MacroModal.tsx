@@ -3,11 +3,13 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  CircleDot,
   Keyboard,
   ListChecks,
   Plus,
   Repeat,
   Save,
+  Square,
   Trash2,
   X
 } from "lucide-react";
@@ -762,7 +764,11 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
         disabled={isRecording}
       >
         <SelectTrigger className="w-full min-w-0" aria-label={t("macro.step.key")}>
-          <SelectValue placeholder={t("macroForm.shortcut")} />
+          <SelectValue
+            placeholder={isRecording ? t("macroForm.shortcutRecording") : t("macroForm.shortcut")}
+          >
+            {isRecording ? t("macroForm.shortcutRecording") : formatMacroShortcut(trigger, t)}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {commonMacroKeyCodes.map((code) => (
@@ -772,17 +778,11 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
           ))}
         </SelectContent>
       </Select>
-      <Button
-        className={cn("w-full min-w-0 justify-start px-2.5", isRecording && "glass-focus")}
-        type="button"
-        variant="outline"
-        onClick={() => setIsRecording(true)}
-      >
-        <Keyboard size={15} />
-        <span className="min-w-0 truncate text-left">
-          {isRecording ? t("macroForm.shortcutRecording") : formatMacroShortcut(trigger, t)}
-        </span>
-      </Button>
+      <RecordingButton
+        isRecording={isRecording}
+        t={t}
+        onRecordingChange={setIsRecording}
+      />
       <Button
         type="button"
         variant="ghost"
@@ -796,6 +796,45 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
         {t("macroForm.clearShortcut")}
       </Button>
     </div>
+  );
+}
+
+interface RecordingButtonProps {
+  disabled?: boolean;
+  isRecording: boolean;
+  onRecordingChange: (isRecording: boolean) => void;
+  t: Translator;
+}
+
+function RecordingButton({
+  disabled = false,
+  isRecording,
+  onRecordingChange,
+  t
+}: RecordingButtonProps): JSX.Element {
+  const label = t(isRecording ? "macroForm.stopRecording" : "macroForm.recordKey");
+
+  return (
+    <Button
+      aria-label={label}
+      aria-pressed={isRecording}
+      className={cn(
+        isRecording &&
+          "border-destructive/50 bg-destructive/10 text-destructive shadow-sm shadow-destructive/10 hover:border-destructive/60 hover:bg-destructive/15 hover:text-destructive"
+      )}
+      disabled={disabled}
+      size="icon"
+      title={label}
+      type="button"
+      variant="outline"
+      onClick={() => onRecordingChange(!isRecording)}
+    >
+      {isRecording ? (
+        <Square className="fill-current" size={11} aria-hidden="true" />
+      ) : (
+        <CircleDot size={15} aria-hidden="true" />
+      )}
+    </Button>
   );
 }
 
@@ -1212,16 +1251,12 @@ function KeyRecorder({
   }, [isRecording, onRecord]);
 
   return (
-    <Button
-      className={cn("w-auto min-w-[88px] shrink-0 px-2.5", isRecording && "glass-focus")}
-      type="button"
-      variant="outline"
-      onClick={() => setIsRecording(true)}
+    <RecordingButton
       disabled={disabled}
-    >
-      <Keyboard size={14} />
-      {isRecording ? t("macroForm.recording") : t("macroForm.recordKey")}
-    </Button>
+      isRecording={isRecording}
+      t={t}
+      onRecordingChange={setIsRecording}
+    />
   );
 }
 

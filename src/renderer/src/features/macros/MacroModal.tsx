@@ -800,6 +800,7 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
 }
 
 interface RecordingButtonProps {
+  className?: string;
   disabled?: boolean;
   isRecording: boolean;
   onRecordingChange: (isRecording: boolean) => void;
@@ -807,6 +808,7 @@ interface RecordingButtonProps {
 }
 
 function RecordingButton({
+  className,
   disabled = false,
   isRecording,
   onRecordingChange,
@@ -819,6 +821,7 @@ function RecordingButton({
       aria-label={label}
       aria-pressed={isRecording}
       className={cn(
+        className,
         isRecording &&
           "border-destructive/50 bg-destructive/10 text-destructive shadow-sm shadow-destructive/10 hover:border-destructive/60 hover:bg-destructive/15 hover:text-destructive"
       )}
@@ -1070,54 +1073,60 @@ function MacroStepFields({
     return (
       <div className="grid min-w-0 gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Select
-            value={selectedModifierValue}
-            onValueChange={(value) => updateKeyInput(step.code, parseModifierComboValue(value))}
-            disabled={isSaving || isRecording || mainKeyIsModifier}
-          >
-            <SelectTrigger
-              className="w-24 flex-none"
-              aria-label={t("macroForm.modifiers")}
+          <div className="isolate flex min-w-0 items-center">
+            <Select
+              value={selectedModifierValue}
+              onValueChange={(value) => updateKeyInput(step.code, parseModifierComboValue(value))}
+              disabled={isSaving || isRecording || mainKeyIsModifier}
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {modifierComboOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={step.code}
-            onValueChange={(value) => updateKeyInput(value, canonicalModifiers)}
-            disabled={isSaving || isRecording}
-          >
-            <SelectTrigger className="w-24 flex-none" aria-label={t("macro.step.key")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {commonMacroKeyCodes.map((code) => (
-                <SelectItem
-                  key={code}
-                  value={code}
-                  disabled={canonicalModifiers.length > 0 && isPureModifierCode(code)}
-                >
-                  {formatMacroCode(code)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <KeyRecorder
-            disabled={isSaving}
-            isRecording={isRecording}
-            t={t}
-            onRecordingChange={setIsRecording}
-            onRecord={({ code, modifiers: recordedModifiers }) =>
-              updateKeyInput(code, recordedModifiers)
-            }
-          />
+              <SelectTrigger
+                className="w-24 flex-none rounded-r-none focus-visible:z-10"
+                aria-label={t("macroForm.modifiers")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {modifierComboOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={step.code}
+              onValueChange={(value) => updateKeyInput(value, canonicalModifiers)}
+              disabled={isSaving || isRecording}
+            >
+              <SelectTrigger
+                className="-ml-px w-24 flex-none rounded-none focus-visible:z-10"
+                aria-label={t("macro.step.key")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {commonMacroKeyCodes.map((code) => (
+                  <SelectItem
+                    key={code}
+                    value={code}
+                    disabled={canonicalModifiers.length > 0 && isPureModifierCode(code)}
+                  >
+                    {formatMacroCode(code)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <KeyRecorder
+              className="-ml-px h-[30px] w-[30px] rounded-l-none focus-visible:z-10"
+              disabled={isSaving}
+              isRecording={isRecording}
+              t={t}
+              onRecordingChange={setIsRecording}
+              onRecord={({ code, modifiers: recordedModifiers }) =>
+                updateKeyInput(code, recordedModifiers)
+              }
+            />
+          </div>
           <Select
             disabled={isSaving}
             value={step.action ?? "tap"}
@@ -1219,12 +1228,14 @@ function MacroStepFields({
 }
 
 function KeyRecorder({
+  className,
   disabled,
   isRecording,
   onRecord,
   onRecordingChange,
   t
 }: {
+  className?: string;
   disabled: boolean;
   isRecording: boolean;
   onRecord: (input: { code: string; modifiers: MacroKeyModifier[] }) => void;
@@ -1265,6 +1276,7 @@ function KeyRecorder({
 
   return (
     <RecordingButton
+      className={className}
       disabled={disabled}
       isRecording={isRecording}
       t={t}

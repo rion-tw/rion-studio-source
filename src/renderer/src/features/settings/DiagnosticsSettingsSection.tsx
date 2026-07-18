@@ -6,6 +6,7 @@ import { useConfirmation } from "../../components/confirmation";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 
 const ALL = "all";
@@ -77,12 +78,12 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
 
   return (
     <div className="grid gap-5">
-      <section className="glass-panel overflow-hidden rounded-xl border border-border/60">
-        <div className="grid gap-4 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+      <section className="grid gap-2">
+        <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
+          <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-sm font-semibold">{t("settings.logsStorage")}</h2>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsStorage")}</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                 {status ? t("settings.logsStorageSummary")
                   .replace("{files}", String(status.fileCount))
                   .replace("{size}", formatBytes(status.totalBytes))
@@ -90,23 +91,23 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
                   .replace("{limit}", formatBytes(status.maxBytes)) : t("settings.logsLoading")}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" disabled={busy} onClick={() => void window.rionStudio.revealLogs().catch(onError)}><ExternalLink size={14} />{t("settings.logsOpenFolder")}</Button>
               <Button variant="outline" disabled={busy} onClick={() => void run(() => window.rionStudio.exportDiagnostics())}><Download size={14} />{t("settings.logsExport")}</Button>
               <Button variant="outline" disabled={busy} onClick={() => void clearLogs()}><Trash2 size={14} />{t("settings.logsClear")}</Button>
             </div>
           </div>
-          <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-3">
+          <div className="settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-medium">{t("settings.logsLevel")}</p>
-              <p className="text-xs text-muted-foreground">{t("settings.logsLevelDescription")}</p>
+              <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsLevel")}</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.logsLevelDescription")}</p>
             </div>
             <Select value={status?.currentLevel ?? "info"} onValueChange={(value) => void run(() => window.rionStudio.setLogLevel(value as LogLevel))}>
-              <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-32 settings-menu-control"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="info">Info</SelectItem><SelectItem value="debug">Debug</SelectItem></SelectContent>
             </Select>
           </div>
-        </div>
+        </Surface>
       </section>
 
       <section className="glass-panel overflow-hidden rounded-xl border border-border/60">

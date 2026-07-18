@@ -286,7 +286,7 @@ export function SegmentedControl<T extends string>({
             aria-pressed={isActive}
             disabled={disabled}
             className={cn(
-              "flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-[5px] border border-transparent px-3 text-[11px] font-semibold leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-45",
+              "flex h-[30px] min-h-[var(--control-min-size)] min-w-[var(--control-min-size)] items-center justify-center gap-1.5 rounded-[5px] border border-transparent px-3 text-[11px] font-semibold leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-45",
               isActive
                 ? "glass-control-selected border-[hsl(var(--glass-border))] text-foreground"
                 : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"

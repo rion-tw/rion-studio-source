@@ -16,7 +16,7 @@ import type { Macro, Role } from "../src/shared/types";
 afterEach(cleanup);
 
 describe("renderer status indicators", () => {
-  it("uses a compact system-blue shared checkbox", () => {
+  it("uses a 30px checkbox target around the compact system-blue visual", () => {
     const onCheckedChange = vi.fn();
     render(
       <Checkbox
@@ -27,16 +27,18 @@ describe("renderer status indicators", () => {
     );
 
     const checkbox = screen.getByRole("checkbox", { name: "Selected" });
-    expect(checkbox.className).toContain("size-3.5");
-    expect(checkbox.className).toContain("data-[state=checked]:bg-blue-500");
-    expect(checkbox.className).toContain("data-[state=checked]:border-blue-500");
+    expect(checkbox.className).toContain("size-[var(--control-min-size)]");
     expect(checkbox.getAttribute("data-state")).toBe("checked");
+    const visual = checkbox.querySelector<HTMLElement>('[data-slot="checkbox-visual"]');
+    expect(visual?.className).toContain("size-3.5");
+    expect(visual?.className).toContain("group-data-[state=checked]/checkbox:bg-blue-500");
+    expect(visual?.className).toContain("group-data-[state=checked]/checkbox:border-blue-500");
 
     fireEvent.click(checkbox);
     expect(onCheckedChange).toHaveBeenCalledWith(false);
   });
 
-  it("uses a symmetrical system-blue shared switch without changing its size", () => {
+  it("uses a 30px switch target without changing its compact visual size", () => {
     const onCheckedChange = vi.fn();
     render(
       <Switch
@@ -47,12 +49,15 @@ describe("renderer status indicators", () => {
     );
 
     const toggle = screen.getByRole("switch", { name: "Enabled" });
-    expect(toggle.className).toContain("h-5");
-    expect(toggle.className).toContain("w-9");
-    expect(toggle.className).toContain("bg-blue-500");
-    expect(toggle.className).toContain("border-blue-500/70");
-    expect(toggle.firstElementChild?.className).toContain("size-3.5");
-    expect(toggle.firstElementChild?.className).toContain("translate-x-4");
+    expect(toggle.className).toContain("h-[var(--control-min-size)]");
+    expect(toggle.className).toContain("min-w-9");
+    const track = toggle.firstElementChild;
+    expect(track?.className).toContain("h-5");
+    expect(track?.className).toContain("w-9");
+    expect(track?.className).toContain("bg-blue-500");
+    expect(track?.className).toContain("border-blue-500/70");
+    expect(track?.firstElementChild?.className).toContain("size-3.5");
+    expect(track?.firstElementChild?.className).toContain("translate-x-4");
 
     fireEvent.click(toggle);
     expect(onCheckedChange).toHaveBeenCalledWith(false);

@@ -220,8 +220,10 @@ describe("bulk selection UI", () => {
     );
 
     const checkbox = screen.getByRole("checkbox", { name: "Select Auto heal" });
-    expect(checkbox.className).toContain("size-3.5");
-    expect(checkbox.className).toContain("data-[state=checked]:bg-blue-500");
+    expect(checkbox.className).toContain("size-[var(--control-min-size)]");
+    const checkboxVisual = checkbox.querySelector<HTMLElement>('[data-slot="checkbox-visual"]');
+    expect(checkboxVisual?.className).toContain("size-3.5");
+    expect(checkboxVisual?.className).toContain("group-data-[state=checked]/checkbox:bg-blue-500");
     expect(checkbox.className).toContain("opacity-100");
     expect(checkbox.className).not.toContain("shadow-sm");
     const checkboxLayout = checkbox.closest("[data-macro-selection-control]");

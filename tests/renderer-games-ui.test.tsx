@@ -249,7 +249,11 @@ describe("games cover UI", () => {
 
   it("uploads and removes a custom game cover in the editor", async () => {
     const user = userEvent.setup();
-    const customGame = game({ id: "game-1", name: "Custom game" });
+    const customGame = game({
+      id: "game-1",
+      name: "Custom game",
+      iconImageDataUrl: "data:image/png;base64,SUNPTg=="
+    });
     const router = createMemoryRouter([{
       path: "/games/:id/edit",
       element: <ConfirmationProvider><GameEditorRoute
@@ -274,7 +278,12 @@ describe("games cover UI", () => {
     await user.upload(screen.getByLabelText("Choose cover"), file);
     expect(container.querySelector(`img[src="${processedCover}"]`)).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Remove cover" }));
+    const removeCoverButton = screen.getByRole("button", { name: "Remove cover" });
+    const removeIconButton = screen.getByRole("button", { name: "Remove icon" });
+    expect(removeCoverButton.className).toContain("size-[var(--control-min-size)]");
+    expect(removeIconButton.className).toContain("size-[var(--control-min-size)]");
+
+    await user.click(removeCoverButton);
     expect(container.querySelector(`img[src="${processedCover}"]`)).toBeNull();
   });
 

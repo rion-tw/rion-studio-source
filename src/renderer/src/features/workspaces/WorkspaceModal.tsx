@@ -880,7 +880,7 @@ function WorkspaceResizeHandles({
         return (
           <button
             key={`vertical-${handle.splitIndex}`}
-            className="group/resize absolute z-20 grid h-12 w-6 -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
+            className="group/resize absolute z-20 grid h-12 w-[30px] -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
             type="button"
             aria-label={t("workspaces.resizeColumns").replace("{index}", String(handle.splitIndex + 1))}
             style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%` }}
@@ -904,7 +904,7 @@ function WorkspaceResizeHandles({
         return (
           <button
             key={`horizontal-${handle.splitIndex}-${handleIndex}`}
-            className="group/resize absolute z-20 grid h-6 w-12 -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
+            className="group/resize absolute z-20 grid h-[30px] w-12 -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
             type="button"
             aria-label={t("workspaces.resizeRows").replace("{index}", String(handle.splitIndex + 1))}
             style={{

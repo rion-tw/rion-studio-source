@@ -816,6 +816,7 @@
   "games.form.iconDescription": "Images are center-cropped to a square.",
   "games.form.iconBuiltin": "The packaged icon is used for this built-in game.",
   "games.form.chooseIcon": "Choose image",
+  "games.form.removeIcon": "Remove icon",
   "games.form.cover": "Game cover",
   "games.form.coverDescription": "Images are center-cropped to a 16:9 cover.",
   "games.form.coverBuiltin": "The packaged cover is used for this built-in game.",

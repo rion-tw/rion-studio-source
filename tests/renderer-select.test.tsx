@@ -67,7 +67,12 @@ describe("select width constraints", () => {
     );
 
     const trigger = screen.getByRole("combobox", { name: "Target display" });
-    expect([...trigger.classList]).toEqual(expect.arrayContaining(["min-w-0", "max-w-full", "overflow-hidden"]));
+    expect([...trigger.classList]).toEqual(expect.arrayContaining([
+      "min-h-[var(--control-min-size)]",
+      "min-w-[var(--control-min-size)]",
+      "max-w-full",
+      "overflow-hidden"
+    ]));
     expect([...trigger.classList]).toEqual(expect.arrayContaining([
       "[&_[data-slot=select-value]]:block",
       "[&_[data-slot=select-value]]:min-w-0",
@@ -87,6 +92,7 @@ describe("select width constraints", () => {
 
     const option = screen.getByRole("option", { name: /Two columns/ });
     expect([...option.classList]).toEqual(expect.arrayContaining(["max-w-full", "overflow-hidden"]));
+    expect([...option.classList]).toContain("min-h-[var(--control-min-size)]");
     expect([...option.classList]).toContain("[&>span:last-child]:overflow-hidden");
 
     await user.click(screen.getByRole("option", { name: /Studio Display/ }));

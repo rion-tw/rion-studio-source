@@ -988,7 +988,7 @@ function MacroStepEditor({
       </Button>
 
       <span className="mr-2 shrink-0 text-[11px] text-muted-foreground">
-        {index + 1}
+        {String(index + 1).padStart(2, "0")}
       </span>
 
       <Select

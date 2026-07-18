@@ -52,6 +52,14 @@ static void RionLogTitlebarHeightOverrideUnavailable(void) {
   });
 }
 
+static void RionLogFullscreenTitlebarGeometrySyncUnavailable(void) {
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    NSLog(@"Rion Studio could not synchronize the fullscreen titlebar "
+          "geometry; AppKit's window-button layout will be used.");
+  });
+}
+
 static IMP RionOriginalTitlebarHeightIMPForObject(id object) {
   std::lock_guard<std::mutex> lock(RionRuntimeTitlebarHeightHookMutex);
   for (Class candidate = object_getClass(object); candidate;
@@ -224,12 +232,19 @@ static BOOL RionInstallTitlebarHeightHook(NSView *frameView) {
 - (BOOL)orderToolbarBelowAccessory;
 - (void)removeTrafficLightObservationRestoringState:(BOOL)restoreState;
 - (void)revealToolbarAndOrderBelowAccessory;
+- (BOOL)readCustomTitlebarHeight:(CGFloat *)height
+                   fromFrameView:(nullable NSView *)frameView;
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)scheduleLiquidGlassTitlebarRehost;
+- (BOOL)setCustomTitlebarHeight:(CGFloat)height
+                    onFrameView:(nullable NSView *)frameView;
 - (BOOL)attachTitlebarHeightOverrideToFrameView:(nullable NSView *)frameView;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
+- (void)synchronizeFullScreenTitlebarGeometry;
+- (BOOL)synchronizeTitlebarGeometryForFrameView:(nullable NSView *)frameView;
 - (void)updateTrafficLightObservation;
+- (BOOL)updateTitlebarButtonPositionsForFrameView:(nullable NSView *)frameView;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
 - (nullable NSView *)toolbarHostView;
 
@@ -800,6 +815,8 @@ static void *RionRuntimeTrafficLightObservationContext =
   NSWindowToolbarStyle _previousToolbarStyle;
   NSToolbar *_previousToolbar;
   BOOL _previousFullSizeContentView;
+  CGFloat _previousCustomTitlebarHeight;
+  BOOL _hasPreviousCustomTitlebarHeight;
   __weak NSWindow *_window;
   NSMutableArray<id> *_windowObservers;
   BOOL _destroyed;
@@ -815,6 +832,9 @@ static void *RionRuntimeTrafficLightObservationContext =
   if (!self) return nil;
 
   _window = window;
+  _hasPreviousCustomTitlebarHeight =
+      [self readCustomTitlebarHeight:&_previousCustomTitlebarHeight
+                       fromFrameView:window.contentView.superview];
   [self ensureTitlebarHeightOverride];
   _actionHandler = [actionHandler copy];
   _observedTrafficLightButtons = [NSMutableArray array];
@@ -958,6 +978,108 @@ static void *RionRuntimeTrafficLightObservationContext =
   }
 }
 
+- (BOOL)readCustomTitlebarHeight:(CGFloat *)height
+                   fromFrameView:(nullable NSView *)frameView {
+  if (!frameView || !height) return NO;
+  SEL selector = NSSelectorFromString(@"customTitlebarHeight");
+  if (![frameView respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != sizeof(CGFloat) ||
+      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
+    return NO;
+  }
+
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = frameView;
+  invocation.selector = selector;
+  [invocation invoke];
+  [invocation getReturnValue:height];
+  return YES;
+}
+
+- (BOOL)setCustomTitlebarHeight:(CGFloat)height
+                    onFrameView:(nullable NSView *)frameView {
+  if (!frameView) return NO;
+  SEL selector = NSSelectorFromString(@"setCustomTitlebarHeight:");
+  if (![frameView respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  const char *argumentType = signature && signature.numberOfArguments == 3
+      ? [signature getArgumentTypeAtIndex:2]
+      : nullptr;
+  if (!signature || signature.numberOfArguments != 3 ||
+      signature.methodReturnLength != 0 ||
+      std::strcmp(signature.methodReturnType, @encode(void)) != 0 ||
+      !argumentType ||
+      std::strcmp(argumentType, @encode(CGFloat)) != 0) {
+    return NO;
+  }
+
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = frameView;
+  invocation.selector = selector;
+  [invocation setArgument:&height atIndex:2];
+  [invocation invoke];
+  return YES;
+}
+
+- (BOOL)updateTitlebarButtonPositionsForFrameView:
+    (nullable NSView *)frameView {
+  if (!frameView) return NO;
+  SEL selector = NSSelectorFromString(@"_updateButtonPositions");
+  if (![frameView respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != 0 ||
+      std::strcmp(signature.methodReturnType, @encode(void)) != 0) {
+    return NO;
+  }
+
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = frameView;
+  invocation.selector = selector;
+  [invocation invoke];
+  return YES;
+}
+
+- (BOOL)synchronizeTitlebarGeometryForFrameView:
+    (nullable NSView *)frameView {
+  if (!frameView) return NO;
+  // AppKit resets customTitlebarHeight while entering fullscreen, then caches
+  // the standard window-button origins against its 32pt fallback. Keep that
+  // internal metric aligned with the marker-backed 40pt getter before native
+  // top-edge reveal runs. This is a settled transition layout pass, never a
+  // hover or reveal callback.
+  BOOL updatedHeight =
+      [self setCustomTitlebarHeight:kRionTitlebarHeight onFrameView:frameView];
+  BOOL updatedButtons =
+      [self updateTitlebarButtonPositionsForFrameView:frameView];
+  frameView.needsLayout = YES;
+  [frameView layoutSubtreeIfNeeded];
+  if (!updatedHeight || !updatedButtons) {
+    RionLogFullscreenTitlebarGeometrySyncUnavailable();
+  }
+  return updatedHeight && updatedButtons;
+}
+
+- (void)synchronizeFullScreenTitlebarGeometry {
+  if (_destroyed || !_window ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
+    return;
+  }
+  [self ensureTitlebarHeightOverride];
+  [self synchronizeTitlebarGeometryForFrameView:_titlebarFrameView];
+}
+
 - (NSUInteger)renderedTabCount {
   return _tabItems.count;
 }
@@ -1034,7 +1156,7 @@ static void *RionRuntimeTrafficLightObservationContext =
                      isEqualToString:NSWindowDidEnterFullScreenNotification]) {
         strongSelf->_fullscreenTransitionActive = YES;
         // AppKit has already built NSToolbarFullScreenWindow. Never replace its
-        // toolbar here; only apply the final native visibility policy.
+        // toolbar here; apply the final native visibility and frame geometry.
         [strongSelf attachAccessoryController];
         [strongSelf applyFullScreenPolicy];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
@@ -1745,6 +1867,7 @@ static void *RionRuntimeTrafficLightObservationContext =
       _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
       _window.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
       [self revealToolbarAndOrderBelowAccessory];
+      [self synchronizeFullScreenTitlebarGeometry];
       [self updateTrafficLightObservation];
       return;
     }
@@ -1759,6 +1882,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     } else {
       _toolbar.visible = NO;
     }
+    [self synchronizeFullScreenTitlebarGeometry];
     [self removeTrafficLightObservationRestoringState:NO];
     return;
   }
@@ -1930,6 +2054,15 @@ static void *RionRuntimeTrafficLightObservationContext =
     if (@available(macOS 11.0, *)) {
       _window.toolbarStyle = _previousToolbarStyle;
       _window.titlebarSeparatorStyle = _previousTitlebarSeparatorStyle;
+    }
+    if (_hasPreviousCustomTitlebarHeight) {
+      NSView *frameView = _window.contentView.superview;
+      if ([self setCustomTitlebarHeight:_previousCustomTitlebarHeight
+                            onFrameView:frameView]) {
+        [self updateTitlebarButtonPositionsForFrameView:frameView];
+        frameView.needsLayout = YES;
+        [frameView layoutSubtreeIfNeeded];
+      }
     }
   }
   _actionHandler = nil;

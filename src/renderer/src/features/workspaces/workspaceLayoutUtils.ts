@@ -116,25 +116,6 @@ export function createWorkspaceFormState(
   };
 }
 
-export function reconcileWorkspaceResourcePolicy(
-  policy: WorkspaceFormState["resourcePolicy"],
-  slots: LaunchWorkspaceSlot[]
-): WorkspaceFormState["resourcePolicy"] {
-  if (policy.mode === "unrestricted") {
-    return { mode: policy.mode };
-  }
-
-  const roleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
-  const primaryRoleId = policy.primaryRoleId && roleIds.includes(policy.primaryRoleId)
-    ? policy.primaryRoleId
-    : roleIds[0];
-
-  return {
-    mode: policy.mode,
-    ...(primaryRoleId ? { primaryRoleId } : {})
-  };
-}
-
 export function createWorkspaceSlotBackground(role: Role | undefined): CSSProperties | undefined {
   if (!role) {
     return undefined;

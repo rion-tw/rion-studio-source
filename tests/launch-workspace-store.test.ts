@@ -28,10 +28,10 @@ describe("LaunchWorkspaceStore", () => {
     const workspace = await store.createWorkspace({ name: "Party" });
     const listed = await store.listWorkspaces();
     listed[0].slots[0].rect.width = 0.75;
-    listed[0].resourcePolicy.primaryRoleId = "mutated";
+    listed[0].resourcePolicy.mode = "unrestricted";
 
     expect((await store.getWorkspace(workspace.id)).slots[0].rect.width).toBe(0.5);
-    expect((await store.getWorkspace(workspace.id)).resourcePolicy.primaryRoleId).toBeUndefined();
+    expect((await store.getWorkspace(workspace.id)).resourcePolicy.mode).toBe("adaptive");
   });
 
   it("creates a launch workspace with default layout slots", async () => {
@@ -62,26 +62,17 @@ describe("LaunchWorkspaceStore", () => {
     const updated = await store.updateWorkspace(workspace.id, {
       slots: [{ roleId: "role-1" }, {}]
     });
-    expect(updated.resourcePolicy).toEqual({
-      mode: "adaptive",
-      primaryRoleId: "role-1"
-    });
+    expect(updated.resourcePolicy).toEqual({ mode: "adaptive" });
   });
 
-  it("normalizes and persists an adaptive resource policy", async () => {
+  it("normalizes and persists an adaptive resource policy without role priority", async () => {
     const workspace = await store.createWorkspace({
       name: "Priority party",
-      resourcePolicy: {
-        mode: "adaptive",
-        primaryRoleId: "missing-role"
-      },
+      resourcePolicy: { mode: "adaptive" },
       slots: [{ roleId: "role-1" }, { roleId: "role-2" }]
     });
 
-    expect(workspace.resourcePolicy).toEqual({
-      mode: "adaptive",
-      primaryRoleId: "role-1"
-    });
+    expect(workspace.resourcePolicy).toEqual({ mode: "adaptive" });
     await expect(new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id)).resolves.toMatchObject({
       resourcePolicy: workspace.resourcePolicy
     });
@@ -582,10 +573,7 @@ describe("LaunchWorkspaceStore", () => {
     expect(unchanged).toContain('"browserZoomMode": "adaptive"');
     expect(unchanged).toContain('"browserZoomPercent": 100');
     expect(unchanged).toContain(`"schemaVersion": ${LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION}`);
-    expect(workspace.resourcePolicy).toEqual({
-      mode: "adaptive",
-      primaryRoleId: "role-1"
-    });
+    expect(workspace.resourcePolicy).toEqual({ mode: "adaptive" });
     expect(workspace.slots).toMatchObject([
       { id: "a", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 0.5 } },
       { id: "b", rect: { x: 0.5, y: 0, width: 0.5, height: 0.5 } },
@@ -600,6 +588,7 @@ describe("LaunchWorkspaceStore", () => {
     await writeFile(
       path,
       JSON.stringify({
+        schemaVersion: 5,
         workspaces: [
           {
             id: "workspace-unrestricted",
@@ -638,13 +627,13 @@ describe("LaunchWorkspaceStore", () => {
       updatedAt: timestamp,
       resourcePolicy: { mode: "unrestricted" }
     });
-    expect(migrated[1].resourcePolicy).toEqual({
-      mode: "adaptive",
-      primaryRoleId: "role-2"
-    });
-    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+    expect(migrated[1].resourcePolicy).toEqual({ mode: "adaptive" });
+    const persisted = JSON.parse(await readFile(path, "utf8"));
+    expect(persisted).toMatchObject({
       schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
     });
+    expect(persisted.workspaces[1].resourcePolicy).toEqual({ mode: "adaptive" });
+    expect(persisted.workspaces[1].resourcePolicy).not.toHaveProperty("primaryRoleId");
 
     await store.updateWorkspace("workspace-unrestricted", {
       resourcePolicy: { mode: "unrestricted" }
@@ -770,29 +759,22 @@ describe("LaunchWorkspaceStore", () => {
     expect(updated.slots[1]).toMatchObject({ roleId: "role-2" });
   });
 
-  it("selects the next adaptive primary and preserves the policy after the last role is removed", async () => {
+  it("preserves the adaptive policy while assigned roles are removed", async () => {
     const workspace = await store.createWorkspace({
       name: "Priority party",
-      resourcePolicy: {
-        mode: "adaptive",
-        primaryRoleId: "role-1"
-      },
+      resourcePolicy: { mode: "adaptive" },
       slots: [{ roleId: "role-1" }, { roleId: "role-2" }]
     });
 
     await store.clearRole("role-1");
     await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
-      resourcePolicy: {
-        mode: "adaptive",
-        primaryRoleId: "role-2"
-      }
+      resourcePolicy: { mode: "adaptive" }
     });
 
     await store.clearRole("role-2");
     await expect(store.getWorkspace(workspace.id)).resolves.toMatchObject({
       resourcePolicy: { mode: "adaptive" }
     });
-    expect((await store.getWorkspace(workspace.id)).resourcePolicy).not.toHaveProperty("primaryRoleId");
   });
 });
 

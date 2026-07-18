@@ -1970,7 +1970,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async launchExternalWorkspace(
-    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "resourcePolicy">,
+    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id">,
     items: ExternalChromeLaunchItem[],
     notice?: string,
     target?: BrowserWorkspaceLaunchTarget

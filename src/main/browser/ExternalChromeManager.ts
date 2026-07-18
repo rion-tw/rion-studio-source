@@ -20,8 +20,7 @@ import type {
   PixelBounds,
   Role,
   RoleStatus,
-  WorkspaceBrowserZoomMode,
-  WorkspaceResourcePolicy
+  WorkspaceBrowserZoomMode
 } from "../../shared/types";
 import {
   getAdaptiveWorkspaceBrowserZoomPercent,
@@ -196,7 +195,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   }
 
   async launchWorkspace(
-    workspace: { id: string; resourcePolicy?: WorkspaceResourcePolicy },
+    workspace: { id: string },
     items: ExternalChromeLaunchItem[],
     options: ExternalChromeLaunchOptions = {}
   ): Promise<RoleStatus[]> {
@@ -222,7 +221,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     const sessions: Array<{ roleId: string; session: ExternalChromeSession }> = [];
 
     try {
-      const primaryRoleId = workspace.resourcePolicy?.primaryRoleId ?? items[0]?.role.id;
+      const initialFocusRoleId = items[0]?.role.id;
       const launchResults = await Promise.allSettled(
         items.map((item, index) =>
           this.launchSession(
@@ -248,8 +247,8 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       if (failedLaunch) throw failedLaunch.reason;
 
       const sessionByRoleId = new Map(sessions.map(({ roleId, session }) => [roleId, session]));
-      await sessionByRoleId.get(primaryRoleId ?? "")?.automationTarget?.focus().catch((error) => {
-        console.warn("Failed to restore initial focus to the primary external Chrome role.", error);
+      await sessionByRoleId.get(initialFocusRoleId ?? "")?.automationTarget?.focus().catch((error) => {
+        console.warn("Failed to restore initial focus to the first external Chrome role.", error);
       });
       return items.map(({ role }) => this.toStatus(role.id, sessionByRoleId.get(role.id)!));
     } catch (error) {

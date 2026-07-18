@@ -1570,10 +1570,7 @@ describe("BrowserManager game host windows", () => {
     const harness = createHarness({ externalChromeManager });
     const priorityWorkspace: LaunchWorkspace = {
       ...workspace,
-      resourcePolicy: {
-        mode: "adaptive",
-        primaryRoleId: role.id
-      }
+      resourcePolicy: { mode: "adaptive" }
     };
 
     const result = await harness.manager.launchWorkspace(
@@ -1822,10 +1819,7 @@ describe("BrowserManager game host windows", () => {
     const secondRole = createRole("role-2", "Alt");
     const priorityWorkspace: LaunchWorkspace = {
       ...workspace,
-      resourcePolicy: {
-        mode: "adaptive",
-        primaryRoleId: role.id
-      }
+      resourcePolicy: { mode: "adaptive" }
     };
 
     const statuses = await harness.manager.launchWorkspace(priorityWorkspace, [
@@ -1838,6 +1832,8 @@ describe("BrowserManager game host windows", () => {
       expect.objectContaining({ roleId: secondRole.id })
     ]));
     expect(statuses.every((status) => status.resourceState === undefined)).toBe(true);
+    expect(harness.views[0].webContents.focus).toHaveBeenCalledOnce();
+    expect(harness.views[1].webContents.focus).not.toHaveBeenCalled();
     expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
       expect.anything()
@@ -1862,13 +1858,13 @@ describe("BrowserManager game host windows", () => {
     const firstWorkspace: LaunchWorkspace = {
       ...workspace,
       id: "adaptive-tab-1",
-      resourcePolicy: { mode: "adaptive", primaryRoleId: role.id }
+      resourcePolicy: { mode: "adaptive" }
     };
     const secondRole = createRole("role-2", "Alt");
     const secondWorkspace: LaunchWorkspace = {
       ...workspace,
       id: "adaptive-tab-2",
-      resourcePolicy: { mode: "adaptive", primaryRoleId: secondRole.id }
+      resourcePolicy: { mode: "adaptive" }
     };
 
     await harness.manager.launchWorkspace(firstWorkspace, [
@@ -1945,7 +1941,7 @@ describe("BrowserManager game host windows", () => {
     const thirdWorkspace: LaunchWorkspace = {
       ...workspace,
       id: "adaptive-tab-3",
-      resourcePolicy: { mode: "adaptive", primaryRoleId: thirdRole.id }
+      resourcePolicy: { mode: "adaptive" }
     };
     await harness.manager.launchWorkspace(thirdWorkspace, [
       { role: thirdRole, rect: { x: 0, y: 0, width: 1, height: 1 } }
@@ -1978,7 +1974,7 @@ describe("BrowserManager game host windows", () => {
     },
     {
       name: "an adaptive workspace under constrained system pressure",
-      resourcePolicy: { mode: "adaptive" as const, primaryRoleId: "role-3" },
+      resourcePolicy: { mode: "adaptive" as const },
       pressureLevel: "constrained" as const
     }
   ])("launches every role concurrently for $name", async ({ resourcePolicy, pressureLevel }) => {

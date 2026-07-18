@@ -116,7 +116,7 @@ describe("create controls at the end of lists", () => {
     expect(onCreateWorkspace).toHaveBeenCalledOnce();
   });
 
-  it("appends a create row after macro rows", async () => {
+  it("places a dashed create button below the macro table", async () => {
     const user = userEvent.setup();
     const onNewMacro = vi.fn();
     render(
@@ -146,12 +146,19 @@ describe("create controls at the end of lists", () => {
       />
     );
 
-    const createButton = screen.getAllByRole("button", { name: "New macro" }).at(-1)!;
-    expect(createButton.className).toContain("h-[38px]");
-    expect(createButton.className).toContain("items-center");
-    expect(createButton.className).toContain("py-1");
-    expect(createButton.closest("td")?.colSpan).toBe(9);
-    expect(createButton.closest("tr")).toBe(document.querySelector("tbody")?.lastElementChild);
+    const createButtons = screen.getAllByRole("button", { name: "New macro" });
+    const headerCreateButton = createButtons.at(0)!;
+    const createButton = createButtons.at(-1)!;
+    expect(createButton.className).toContain("h-[30px]");
+    expect(createButton.className).toContain("border-dashed");
+    expect(createButton.className).toContain("gap-1.5");
+    expect(createButton.className).toContain("px-2.5");
+    expect(createButton.className).not.toContain("w-full");
+    expect(createButton.querySelector("svg")?.getAttribute("width")).toBe("14");
+    expect(headerCreateButton.querySelector("svg")?.getAttribute("width")).toBe("14");
+    expect(createButton.closest("table")).toBeNull();
+    expect(createButton.closest(".mac-list-surface")).toBeNull();
+    expect(createButton.previousElementSibling?.className).toContain("mac-list-surface");
     await user.click(createButton);
     expect(onNewMacro).toHaveBeenCalledOnce();
   });

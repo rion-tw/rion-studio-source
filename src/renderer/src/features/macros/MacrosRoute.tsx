@@ -16,7 +16,6 @@ import { type CSSProperties, type JSX, type MutableRefObject, useEffect, useLayo
 import { createPortal } from "react-dom";
 
 import { EmptyState } from "../../components/EmptyState";
-import { CreateItemTableRow } from "../../components/CreateListItem";
 import { SelectionActionBar, SelectionMarquee, SelectionToggle } from "../../components/ListSelection";
 import { RoleRunDot } from "../../components/RoleRunDot";
 import { SearchField } from "../../components/SearchField";
@@ -235,9 +234,10 @@ function MacrosRoute({
           }}
         />
       ) : (
-        <Surface className="mac-list-surface overflow-hidden" variant="panel">
-          <div className="overflow-auto">
-            <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
+        <div className="grid justify-items-start gap-2">
+          <Surface className="mac-list-surface w-full overflow-hidden" variant="panel">
+            <div className="overflow-auto">
+              <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
               <thead className="glass-divider border-b text-[11px] uppercase tracking-normal text-muted-foreground">
                 <tr>
                   <th className="w-9 px-2 py-1" aria-hidden="true" />
@@ -369,11 +369,20 @@ function MacrosRoute({
                     </td>
                   </tr>
                 ))}
-                <CreateItemTableRow label={t("macros.newMacro")} onClick={onNewMacro} />
-              </tbody>
-            </table>
-          </div>
-        </Surface>
+                </tbody>
+              </table>
+            </div>
+          </Surface>
+          <Button
+            className="gap-1.5 border-dashed bg-transparent px-2.5 text-muted-foreground shadow-none hover:text-foreground"
+            type="button"
+            variant="outline"
+            onClick={onNewMacro}
+          >
+            <Plus aria-hidden="true" size={14} />
+            <span>{t("macros.newMacro")}</span>
+          </Button>
+        </div>
       )}
       <SelectionMarquee rect={selection.selectionRect} />
     </PageFrame>

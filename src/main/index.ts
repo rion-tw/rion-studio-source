@@ -21,6 +21,7 @@ import {
 } from "electron";
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
+import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
@@ -88,6 +89,7 @@ import { bindAppWindowStateBroadcast } from "./window/appWindowState";
 import { RuntimeWindowPreferencesStore } from "./window/RuntimeWindowPreferencesStore";
 import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecycle";
 import { IPC_CHANNELS } from "../shared/ipc";
+import { EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL } from "../shared/embeddedRuntimeDiagnostics";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import {
   RUNTIME_TABS_ACTION_CHANNEL,
@@ -108,6 +110,7 @@ app.on("gpu-info-update", () => {
 let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
+let embeddedRuntimeDiagnostics: EmbeddedRuntimeDiagnostics | null = null;
 let appQuickMenu: AppQuickMenu | null = null;
 let applicationMenu: ApplicationMenuController | null = null;
 let runtimeTabMenu: RuntimeTabMenuController | null = null;
@@ -127,6 +130,10 @@ const logService = new LogService({
   appVersion: app.getVersion(),
   platform: process.platform,
   userDataPath: app.getPath("userData")
+});
+
+ipcMain.on(EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL, (event, payload: unknown) => {
+  embeddedRuntimeDiagnostics?.handlePageEvent(event.sender, payload);
 });
 const loggingReady = logService.initialize();
 logService.on("entry", (entry) => {
@@ -548,6 +555,10 @@ async function initializeApplication(): Promise<void> {
   const macRuntimeTabsControllerFactory = process.platform === "darwin"
     ? loadMacRuntimeTabsControllerFactory(getMacRuntimeTabsAddonPath())
     : undefined;
+  embeddedRuntimeDiagnostics?.stop();
+  embeddedRuntimeDiagnostics = new EmbeddedRuntimeDiagnostics(logService);
+  powerMonitor.on("suspend", () => embeddedRuntimeDiagnostics?.handleSuspend());
+  powerMonitor.on("resume", () => embeddedRuntimeDiagnostics?.handleResume());
   browserManager = new BrowserManager(transactionalRoleAuthStore, {
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
@@ -598,6 +609,9 @@ async function initializeApplication(): Promise<void> {
     getWorkspaceDisplays: () => getWorkspaceDisplayInfos(),
     getWorkspaceAppearanceSettings: async () =>
       (await gameBrowserSettingsStore.getSettings()).workspace,
+    onEmbeddedWebContentsCreated: (context, contents) => {
+      embeddedRuntimeDiagnostics?.attach(context, contents);
+    },
     handleRuntimeTabAction: (runtimeWindow, displayId, action) => {
       dispatchRuntimeTabAction(runtimeWindow, displayId, action);
     },
@@ -643,6 +657,14 @@ async function initializeApplication(): Promise<void> {
         "browser",
         "external_overlay_refresh_requested",
         "External Chrome overlay refresh requested.",
+        details
+      );
+    },
+    (details) => {
+      logService.info(
+        "browser",
+        "embedded_overlay_refresh_requested",
+        "Embedded game overlay refresh requested.",
         details
       );
     }
@@ -997,10 +1019,12 @@ if (isPrimaryAppInstance) {
 }
 
 app.on("render-process-gone", (_event, webContents, details) => {
+  const embeddedContext = embeddedRuntimeDiagnostics?.getRenderProcessGoneContext(webContents);
   logService.error("browser", "render_process_gone", "A renderer process exited unexpectedly.", undefined, {
     webContentsId: webContents.id,
     reason: details.reason,
-    exitCode: details.exitCode
+    exitCode: details.exitCode,
+    ...embeddedContext
   });
 });
 
@@ -1122,6 +1146,8 @@ app.on("before-quit", (event) => {
     } catch (error) {
       logService.error("browser", "quit_stop_sessions_failed", "Failed to stop all browser sessions while quitting.", error);
     } finally {
+      embeddedRuntimeDiagnostics?.stop();
+      embeddedRuntimeDiagnostics = null;
       logService.info("main", "app_quitting", "Application is quitting.");
       await Promise.race([logService.flush(), new Promise((resolve) => setTimeout(resolve, 2_000))]);
       isApplicationQuitting = true;

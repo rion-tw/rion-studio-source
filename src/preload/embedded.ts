@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+import {
+  EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL,
+  type EmbeddedRuntimeDiagnosticPayload,
+  type EmbeddedRuntimeLifecycleEvent
+} from "../shared/embeddedRuntimeDiagnostics";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../shared/internalIpc";
 import {
   isWorkspaceResizeIndicatorPayload,
@@ -7,6 +12,79 @@ import {
 } from "../shared/workspaceResize";
 
 const MACRO_OVERLAY_REQUEST_CHANNEL = "macros:overlay-request";
+const DIAGNOSTIC_HEARTBEAT_INTERVAL_MS = 15_000;
+
+let diagnosticSequence = 0;
+
+function diagnosticPageState() {
+  return {
+    hasFocus: document.hasFocus(),
+    hidden: document.hidden,
+    monotonicMs: performance.now(),
+    sequence: diagnosticSequence++,
+    visibilityState: document.visibilityState,
+    wasDiscarded: Boolean((document as Document & { wasDiscarded?: boolean }).wasDiscarded)
+  };
+}
+
+function sendEmbeddedDiagnostic(payload: EmbeddedRuntimeDiagnosticPayload): void {
+  ipcRenderer.send(EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL, payload);
+}
+
+function reportLifecycle(
+  event: EmbeddedRuntimeLifecycleEvent,
+  graphics: { webglRenderer?: string; webglVendor?: string } = {}
+): void {
+  sendEmbeddedDiagnostic({
+    type: "lifecycle",
+    event,
+    ...diagnosticPageState(),
+    ...graphics
+  });
+}
+
+function readWebGlGraphics(): { webglRenderer?: string; webglVendor?: string } {
+  try {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+    const extension = context?.getExtension("WEBGL_debug_renderer_info");
+    if (!context || !extension) return {};
+    return {
+      webglRenderer: String(context.getParameter(extension.UNMASKED_RENDERER_WEBGL) ?? "").slice(0, 512),
+      webglVendor: String(context.getParameter(extension.UNMASKED_VENDOR_WEBGL) ?? "").slice(0, 512)
+    };
+  } catch {
+    return {};
+  }
+}
+
+(["focus", "blur", "pageshow", "pagehide"] as const).forEach((event) => {
+  window.addEventListener(event, () => reportLifecycle(event), true);
+});
+(["freeze", "resume"] as const).forEach((event) => {
+  document.addEventListener(event, () => reportLifecycle(event), true);
+});
+document.addEventListener("visibilitychange", () => reportLifecycle("visibilitychange"), true);
+document.addEventListener("webglcontextlost", () => {
+  sendEmbeddedDiagnostic({ type: "webgl", event: "context_lost", ...diagnosticPageState() });
+}, true);
+document.addEventListener("webglcontextrestored", () => {
+  sendEmbeddedDiagnostic({ type: "webgl", event: "context_restored", ...diagnosticPageState() });
+}, true);
+
+window.setInterval(() => {
+  sendEmbeddedDiagnostic({ type: "heartbeat", ...diagnosticPageState() });
+}, DIAGNOSTIC_HEARTBEAT_INTERVAL_MS);
+
+const installDiagnostics = (): void => {
+  reportLifecycle("install", readWebGlGraphics());
+  sendEmbeddedDiagnostic({ type: "heartbeat", ...diagnosticPageState() });
+};
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", installDiagnostics, { once: true });
+} else {
+  installDiagnostics();
+}
 
 contextBridge.exposeInMainWorld("rionStudioMacroOverlay", (request: unknown) =>
   ipcRenderer.invoke(MACRO_OVERLAY_REQUEST_CHANNEL, request)

@@ -897,6 +897,7 @@ function MacroStepEditor({
 
 const macroStepTypeOrder: Array<MacroStep["type"]> = ["key", "click", "delay", "macro"];
 const macroKeyModifiers: MacroKeyModifier[] = ["primary", "ctrl", "alt", "shift", "meta"];
+const MODIFIERS_NONE_VALUE = "__no_modifiers__";
 
 function getModifierComboOptions(t: Translator): Array<{ value: string; label: string }> {
   const combinations: Array<{ value: string; label: string }> = [];
@@ -918,7 +919,9 @@ function getModifierComboOptions(t: Translator): Array<{ value: string; label: s
     }
 
     const normalizedModifiers = canonicalizeMacroKeyModifiers(selectedModifiers);
-    const value = normalizedModifiers.join(",");
+    const value = normalizedModifiers.length > 0
+      ? normalizedModifiers.join(",")
+      : MODIFIERS_NONE_VALUE;
     const label = normalizedModifiers.length > 0
       ? normalizedModifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ")
       : t("macroForm.modifiersNone");
@@ -927,8 +930,8 @@ function getModifierComboOptions(t: Translator): Array<{ value: string; label: s
   }
 
   return combinations.sort((left, right) => {
-    const leftModifiers = left.value ? left.value.split(",") : [];
-    const rightModifiers = right.value ? right.value.split(",") : [];
+    const leftModifiers = getSortModifiers(left.value);
+    const rightModifiers = getSortModifiers(right.value);
 
     if (leftModifiers.length !== rightModifiers.length) {
       return leftModifiers.length - rightModifiers.length;
@@ -947,7 +950,18 @@ function getModifierComboOptions(t: Translator): Array<{ value: string; label: s
   });
 }
 
+function getSortModifiers(value: string): MacroKeyModifier[] {
+  if (value === MODIFIERS_NONE_VALUE) {
+    return [];
+  }
+  return value ? value.split(",") as MacroKeyModifier[] : [];
+}
+
 function parseModifierComboValue(value: string): MacroKeyModifier[] {
+  if (value === MODIFIERS_NONE_VALUE) {
+    return [];
+  }
+
   if (!value) {
     return [];
   }
@@ -999,7 +1013,9 @@ function MacroStepFields({
       ? `${t("macroForm.modifiers")}: ${modifierSummary}`
       : t("macroForm.modifiersNone");
     const modifierComboOptions = getModifierComboOptions(t);
-    const selectedModifierValue = canonicalModifiers.join(",");
+    const selectedModifierValue = canonicalModifiers.length > 0
+      ? canonicalModifiers.join(",")
+      : MODIFIERS_NONE_VALUE;
     const updateKeyInput = (code: string, nextModifiers: MacroKeyModifier[]): void => {
       const normalizedModifiers = canonicalizeMacroKeyModifiers(nextModifiers);
       onUpdate({

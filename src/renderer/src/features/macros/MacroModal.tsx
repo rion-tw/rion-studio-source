@@ -1040,7 +1040,16 @@ function MacroStepFields({
   step: MacroStep;
   t: Translator;
 }): JSX.Element {
-  if (step.type === "key") {
+  const [isRecording, setIsRecording] = useState(false);
+  const isKeyStep = step.type === "key";
+
+  useEffect(() => {
+    if (!isKeyStep) {
+      setIsRecording(false);
+    }
+  }, [isKeyStep]);
+
+  if (isKeyStep) {
     const modifiers = step.modifiers ?? [];
     const canonicalModifiers = canonicalizeMacroKeyModifiers(modifiers);
     const mainKeyIsModifier = isPureModifierCode(step.code);
@@ -1064,7 +1073,7 @@ function MacroStepFields({
           <Select
             value={selectedModifierValue}
             onValueChange={(value) => updateKeyInput(step.code, parseModifierComboValue(value))}
-            disabled={isSaving || mainKeyIsModifier}
+            disabled={isSaving || isRecording || mainKeyIsModifier}
           >
             <SelectTrigger
               className="w-24 flex-none"
@@ -1083,7 +1092,7 @@ function MacroStepFields({
           <Select
             value={step.code}
             onValueChange={(value) => updateKeyInput(value, canonicalModifiers)}
-            disabled={isSaving}
+            disabled={isSaving || isRecording}
           >
             <SelectTrigger className="w-24 flex-none" aria-label={t("macro.step.key")}>
               <SelectValue />
@@ -1102,7 +1111,9 @@ function MacroStepFields({
           </Select>
           <KeyRecorder
             disabled={isSaving}
+            isRecording={isRecording}
             t={t}
+            onRecordingChange={setIsRecording}
             onRecord={({ code, modifiers: recordedModifiers }) =>
               updateKeyInput(code, recordedModifiers)
             }
@@ -1209,15 +1220,17 @@ function MacroStepFields({
 
 function KeyRecorder({
   disabled,
+  isRecording,
   onRecord,
+  onRecordingChange,
   t
 }: {
   disabled: boolean;
+  isRecording: boolean;
   onRecord: (input: { code: string; modifiers: MacroKeyModifier[] }) => void;
+  onRecordingChange: (isRecording: boolean) => void;
   t: Translator;
 }): JSX.Element {
-  const [isRecording, setIsRecording] = useState(false);
-
   useEffect(() => {
     if (!isRecording) {
       return;
@@ -1240,7 +1253,7 @@ function KeyRecorder({
           ...(event.metaKey ? ["meta" as const] : [])
         ])
       });
-      setIsRecording(false);
+      onRecordingChange(false);
     }
 
     window.addEventListener("keydown", handleKeyDown, true);
@@ -1248,14 +1261,14 @@ function KeyRecorder({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [isRecording, onRecord]);
+  }, [isRecording, onRecord, onRecordingChange]);
 
   return (
     <RecordingButton
       disabled={disabled}
       isRecording={isRecording}
       t={t}
-      onRecordingChange={setIsRecording}
+      onRecordingChange={onRecordingChange}
     />
   );
 }

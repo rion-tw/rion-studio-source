@@ -1,7 +1,11 @@
 #import "RionRuntimeTabsController.h"
+#import <objc/runtime.h>
 
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <unordered_map>
 
 // Unified compact is AppKit's 40pt titlebar host on macOS 12 and newer. Keep
 // the accessory at the exact host height so the blur covers the whole row and
@@ -30,12 +34,111 @@ static NSToolbarItemIdentifier const RionRuntimeToolbarSpacerIdentifier =
 static NSPasteboardType const RionRuntimeTabPasteboardType =
     @"com.rionstudio.runtime-tab";
 
-static void RionLogToolbarAutohideHeightUnavailable(void) {
+static char RionRuntimeTitlebarHeightAssociationKey;
+static std::mutex RionRuntimeTitlebarHeightHookMutex;
+static std::unordered_map<Class, IMP> RionRuntimeOriginalTitlebarHeightIMPs;
+
+// Electron's BrowserWindowFrame deliberately falls back to AppKit's 32pt
+// fullscreen metric unless Chromium's tabbed immersive-mode controller is
+// present. Rion uses AppKit's native fullscreen host without that Chromium
+// controller, so wrap the frame getter and opt in only marked Rion windows.
+// The class-level hook remains safe for every other instance by forwarding to
+// the exact original implementation saved for that frame class.
+static void RionLogTitlebarHeightOverrideUnavailable(void) {
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
-    NSLog(@"Rion Studio could not configure the native fullscreen toolbar "
-          "auto-hide height; AppKit's default metric will be used.");
+    NSLog(@"Rion Studio could not configure the native titlebar height; "
+          "AppKit's default metric will be used.");
   });
+}
+
+static IMP RionOriginalTitlebarHeightIMPForObject(id object) {
+  std::lock_guard<std::mutex> lock(RionRuntimeTitlebarHeightHookMutex);
+  for (Class candidate = object_getClass(object); candidate;
+       candidate = class_getSuperclass(candidate)) {
+    auto found = RionRuntimeOriginalTitlebarHeightIMPs.find(candidate);
+    if (found != RionRuntimeOriginalTitlebarHeightIMPs.end()) {
+      return found->second;
+    }
+  }
+  return nullptr;
+}
+
+static CGFloat RionRuntimeTitlebarHeight(id frameView, SEL selector) {
+  NSNumber *overrideHeight = objc_getAssociatedObject(
+      frameView, &RionRuntimeTitlebarHeightAssociationKey);
+  if (overrideHeight) return overrideHeight.doubleValue;
+
+  IMP original = RionOriginalTitlebarHeightIMPForObject(frameView);
+  if (!original) return 0;
+  using TitlebarHeightFunction = CGFloat (*)(id, SEL);
+  return reinterpret_cast<TitlebarHeightFunction>(original)(frameView, selector);
+}
+
+static Method RionDirectInstanceMethod(Class targetClass, SEL selector) {
+  unsigned int count = 0;
+  Method *methods = class_copyMethodList(targetClass, &count);
+  Method result = nullptr;
+  for (unsigned int index = 0; index < count; ++index) {
+    if (method_getName(methods[index]) == selector) {
+      result = methods[index];
+      break;
+    }
+  }
+  std::free(methods);
+  return result;
+}
+
+static BOOL RionInstallTitlebarHeightHook(NSView *frameView) {
+  if (!frameView) return NO;
+  SEL selector = NSSelectorFromString(@"_titlebarHeight");
+  if (![frameView respondsToSelector:selector]) {
+    RionLogTitlebarHeightOverrideUnavailable();
+    return NO;
+  }
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != sizeof(CGFloat) ||
+      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
+    RionLogTitlebarHeightOverrideUnavailable();
+    return NO;
+  }
+
+  Class targetClass = object_getClass(frameView);
+  std::lock_guard<std::mutex> lock(RionRuntimeTitlebarHeightHookMutex);
+  if (RionRuntimeOriginalTitlebarHeightIMPs.find(targetClass) !=
+      RionRuntimeOriginalTitlebarHeightIMPs.end()) {
+    return YES;
+  }
+
+  Method inheritedMethod = class_getInstanceMethod(targetClass, selector);
+  if (!inheritedMethod) {
+    RionLogTitlebarHeightOverrideUnavailable();
+    return NO;
+  }
+  IMP original = method_getImplementation(inheritedMethod);
+  // A superclass may already carry the wrapper. In that case this exact
+  // class inherits the marker-aware behavior and must not save the wrapper as
+  // its "original" implementation, which would recurse for unmarked views.
+  if (original == (IMP)RionRuntimeTitlebarHeight) return YES;
+  const char *types = method_getTypeEncoding(inheritedMethod);
+  RionRuntimeOriginalTitlebarHeightIMPs.emplace(targetClass, original);
+
+  Method directMethod = RionDirectInstanceMethod(targetClass, selector);
+  if (directMethod) {
+    method_setImplementation(directMethod, (IMP)RionRuntimeTitlebarHeight);
+    return YES;
+  }
+  if (class_addMethod(targetClass, selector,
+                      (IMP)RionRuntimeTitlebarHeight, types)) {
+    return YES;
+  }
+
+  RionRuntimeOriginalTitlebarHeightIMPs.erase(targetClass);
+  RionLogTitlebarHeightOverrideUnavailable();
+  return NO;
 }
 
 @class RionRuntimeTabsController;
@@ -104,6 +207,8 @@ static void RionLogToolbarAutohideHeightUnavailable(void) {
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event;
 - (void)captureWindowedTrafficLightFrames;
 - (void)detachAccessoryController;
+- (void)detachTitlebarHeightOverrideFromFrameView:(nullable NSView *)frameView;
+- (void)ensureTitlebarHeightOverride;
 - (void)enforceTrafficLightVisibility;
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
                     sourceDisplayID:(NSInteger)sourceDisplayID
@@ -122,10 +227,7 @@ static void RionLogToolbarAutohideHeightUnavailable(void) {
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)scheduleLiquidGlassTitlebarRehost;
-- (BOOL)readToolbarAutohideHeight:(CGFloat *)height
-                       forToolbar:(NSToolbar *)toolbar;
-- (BOOL)setToolbarAutohideHeight:(CGFloat)height
-                      forToolbar:(NSToolbar *)toolbar;
+- (BOOL)attachTitlebarHeightOverrideToFrameView:(nullable NSView *)frameView;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
 - (void)updateTrafficLightObservation;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
@@ -690,6 +792,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   NSScrollView *_tabScrollView;
   NSMutableArray<RionRuntimeSurfaceView *> *_tabSurfaces;
   RionRuntimeBackdropView *_titlebarBackdrop;
+  __weak NSView *_titlebarFrameView;
   __weak NSWindow *_fullscreenTitlebarHostWindow;
   NSWindowTitleVisibility _previousTitleVisibility;
   BOOL _previousTitlebarAppearsTransparent;
@@ -712,6 +815,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   if (!self) return nil;
 
   _window = window;
+  [self ensureTitlebarHeightOverride];
   _actionHandler = [actionHandler copy];
   _observedTrafficLightButtons = [NSMutableArray array];
   _originalTrafficLightStates = [NSMutableDictionary dictionary];
@@ -743,6 +847,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   _fullscreenToolbar = [self makeFullScreenToolbar];
   _toolbar.visible = YES;
   window.toolbar = _toolbar;
+  [self ensureTitlebarHeightOverride];
 
   RionRuntimeTabsRootView *root = [[RionRuntimeTabsRootView alloc]
       initWithFrame:NSMakeRect(0, 0, MAX(1.0, window.frame.size.width),
@@ -817,6 +922,40 @@ static void *RionRuntimeTrafficLightObservationContext =
   [self captureWindowedTrafficLightFrames];
   [self installWindowObservers];
   return self;
+}
+
+- (BOOL)attachTitlebarHeightOverrideToFrameView:(nullable NSView *)frameView {
+  if (!frameView || !RionInstallTitlebarHeightHook(frameView)) return NO;
+  objc_setAssociatedObject(frameView,
+                           &RionRuntimeTitlebarHeightAssociationKey,
+                           @(kRionTitlebarHeight),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  frameView.needsLayout = YES;
+  return YES;
+}
+
+- (void)detachTitlebarHeightOverrideFromFrameView:(nullable NSView *)frameView {
+  if (!frameView) return;
+  objc_setAssociatedObject(frameView,
+                           &RionRuntimeTitlebarHeightAssociationKey,
+                           nil,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  frameView.needsLayout = YES;
+}
+
+- (void)ensureTitlebarHeightOverride {
+  if (_destroyed || !_window) return;
+  NSView *currentFrameView = _window.contentView.superview;
+  if (currentFrameView == _titlebarFrameView) {
+    [self attachTitlebarHeightOverrideToFrameView:currentFrameView];
+    return;
+  }
+
+  [self detachTitlebarHeightOverrideFromFrameView:_titlebarFrameView];
+  _titlebarFrameView = nil;
+  if ([self attachTitlebarHeightOverrideToFrameView:currentFrameView]) {
+    _titlebarFrameView = currentFrameView;
+  }
 }
 
 - (NSUInteger)renderedTabCount {
@@ -979,7 +1118,6 @@ static void *RionRuntimeTrafficLightObservationContext =
   _fullscreenToolbar.visible = NO;
   _toolbar = _fullscreenToolbar;
   if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
-  [self setToolbarAutohideHeight:kRionTitlebarHeight forToolbar:_toolbar];
   _toolbar.visible = NO;
 }
 
@@ -1196,57 +1334,6 @@ static void *RionRuntimeTrafficLightObservationContext =
     [strongSelf restoreWindowedTitlebarHost];
     [strongSelf restoreWindowedTrafficLightFrames];
   });
-}
-
-- (BOOL)readToolbarAutohideHeight:(CGFloat *)height
-                       forToolbar:(NSToolbar *)toolbar {
-  if (!toolbar || !height) return NO;
-  SEL selector = NSSelectorFromString(@"_autohideHeight");
-  if (![toolbar respondsToSelector:selector]) return NO;
-
-  NSMethodSignature *signature = [toolbar methodSignatureForSelector:selector];
-  if (!signature || signature.numberOfArguments != 2 ||
-      signature.methodReturnLength != sizeof(CGFloat) ||
-      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
-    return NO;
-  }
-
-  NSInvocation *invocation =
-      [NSInvocation invocationWithMethodSignature:signature];
-  invocation.target = toolbar;
-  invocation.selector = selector;
-  [invocation invoke];
-  [invocation getReturnValue:height];
-  return YES;
-}
-
-- (BOOL)setToolbarAutohideHeight:(CGFloat)height
-                      forToolbar:(NSToolbar *)toolbar {
-  if (!toolbar) return NO;
-  SEL selector = NSSelectorFromString(@"_setAutohideHeight:");
-  if (![toolbar respondsToSelector:selector]) {
-    RionLogToolbarAutohideHeightUnavailable();
-    return NO;
-  }
-
-  NSMethodSignature *signature = [toolbar methodSignatureForSelector:selector];
-  const char *argumentType = signature && signature.numberOfArguments == 3
-      ? [signature getArgumentTypeAtIndex:2]
-      : nullptr;
-  if (!signature || signature.numberOfArguments != 3 ||
-      signature.methodReturnLength != 0 || !argumentType ||
-      std::strcmp(argumentType, @encode(CGFloat)) != 0) {
-    RionLogToolbarAutohideHeightUnavailable();
-    return NO;
-  }
-
-  NSInvocation *invocation =
-      [NSInvocation invocationWithMethodSignature:signature];
-  invocation.target = toolbar;
-  invocation.selector = selector;
-  [invocation setArgument:&height atIndex:2];
-  [invocation invoke];
-  return YES;
 }
 
 - (nullable NSView *)toolbarHostView {
@@ -1591,6 +1678,7 @@ static void *RionRuntimeTrafficLightObservationContext =
 
 - (void)prepareForFullscreenTransition:(BOOL)fullScreen {
   if (_destroyed || !_window) return;
+  [self ensureTitlebarHeightOverride];
 
   if (fullScreen) {
     // AppKit snapshots the toolbar and titlebar accessory geometry while the
@@ -1636,6 +1724,7 @@ static void *RionRuntimeTrafficLightObservationContext =
 
 - (void)applyFullScreenPolicy {
   if (_destroyed || !_window) return;
+  [self ensureTitlebarHeightOverride];
   BOOL fullScreen = _fullscreenTransitionActive ||
       (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
   BOOL shouldShow = !fullScreen || self.alwaysShowInFullScreen ||
@@ -1643,10 +1732,6 @@ static void *RionRuntimeTrafficLightObservationContext =
 
   if (fullScreen) {
     if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
-    // A trailing titlebar accessory shares the native row with the traffic
-    // lights, so fullScreenMinHeight does not control AppKit's auto-hide host.
-    // Fix only that host metric; AppKit still owns hover tracking and reveal.
-    [self setToolbarAutohideHeight:kRionTitlebarHeight forToolbar:_toolbar];
     [self attachAccessoryController];
     [self applyLiquidGlassTitlebarAppearance];
     [self layoutTitlebarContent];
@@ -1831,6 +1916,8 @@ static void *RionRuntimeTrafficLightObservationContext =
       (_window && (_window.styleMask & NSWindowStyleMaskFullScreen) != 0);
   [self removeTrafficLightObservationRestoringState:fullScreen];
   [self detachAccessoryController];
+  [self detachTitlebarHeightOverrideFromFrameView:_titlebarFrameView];
+  _titlebarFrameView = nil;
   if (_window) {
     _window.toolbar = _previousToolbar;
     _window.titleVisibility = _previousTitleVisibility;

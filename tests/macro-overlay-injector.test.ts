@@ -337,8 +337,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v32"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-18.1"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v33"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-18.2"');
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
     expect(MACRO_OVERLAY_SCRIPT).toContain('await binding({ type: "open" });');

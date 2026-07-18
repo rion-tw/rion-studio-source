@@ -4,9 +4,14 @@ import type {
   MacroRepeat,
   MacroRunStatus,
   MacroStep,
+  MacroKeyModifier,
   MacroTrigger,
   Role
 } from "../../../../shared/types";
+import {
+  canonicalizeMacroKeyModifiers,
+  isMacroModifierCode
+} from "../../../../shared/macroKeys";
 import { macroDependsOn } from "../../../../shared/macroDependencies";
 import { MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 import type { MacroFormState } from "../../app/types";
@@ -299,7 +304,10 @@ export function createMacroFormState(macro: Macro): MacroFormState {
     name: macro.name,
     roleIds: [...macro.roleIds],
     repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
-    steps: macro.steps.map((step) => ({ ...step })),
+    steps: macro.steps.map((step) => ({
+      ...step,
+      ...(step.type === "key" && step.modifiers ? { modifiers: [...step.modifiers] } : {})
+    })),
     trigger: macro.trigger ? { ...macro.trigger } : undefined
   };
 }
@@ -326,6 +334,39 @@ export function formatMacroCode(code: string): string {
   }
 
   return code;
+}
+
+export function formatMacroKeyCombination(
+  code: string,
+  modifiers: readonly MacroKeyModifier[] | undefined,
+  t: Translator,
+  platform: "linux" | "mac" | "windows" = getMacroDisplayPlatform()
+): string {
+  const modifierLabels = canonicalizeMacroKeyModifiers(modifiers ?? []).map((modifier) =>
+    formatMacroModifierLabel(modifier, t, platform)
+  );
+  return [...modifierLabels, formatMacroCode(code)].join(" + ");
+}
+
+export function formatMacroModifierLabel(
+  modifier: MacroKeyModifier,
+  t: Translator,
+  platform: "linux" | "mac" | "windows" = getMacroDisplayPlatform()
+): string {
+  switch (modifier) {
+    case "primary": {
+      const resolved = platform === "mac" ? "⌘" : "Ctrl";
+      return t("macroForm.modifier.primary").replace("{value}", resolved);
+    }
+    case "ctrl":
+      return "Ctrl";
+    case "alt":
+      return platform === "mac" ? "⌥" : "Alt";
+    case "shift":
+      return platform === "mac" ? "⇧" : "Shift";
+    case "meta":
+      return platform === "mac" ? "⌘" : platform === "windows" ? "Win" : "Meta";
+  }
 }
 
 export function formatMacroShortcut(trigger: MacroTrigger | undefined, t: Translator): string {
@@ -386,8 +427,8 @@ export function formatMacroStep(
   switch (step.type) {
     case "key":
       return step.action === "hold_until_stop"
-        ? `${t("macro.step.hold")}:${formatMacroCode(step.code)}`
-        : `${t(macroStepLabelKeys.key)}:${formatMacroCode(step.code)}`;
+        ? `${t("macro.step.hold")}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`
+        : `${t(macroStepLabelKeys.key)}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`;
     case "click":
       return `${t(macroStepLabelKeys.click)}:X ${step.xPercent}%, Y ${step.yPercent}%`;
     case "delay":
@@ -418,14 +459,11 @@ export function createClientId(): string {
 }
 
 export function isPureModifierCode(code: string): boolean {
-  return [
-    "AltLeft",
-    "AltRight",
-    "ControlLeft",
-    "ControlRight",
-    "MetaLeft",
-    "MetaRight",
-    "ShiftLeft",
-    "ShiftRight"
-  ].includes(code);
+  return isMacroModifierCode(code);
+}
+
+function getMacroDisplayPlatform(): "linux" | "mac" | "windows" {
+  if (typeof document === "undefined") return "linux";
+  const platform = document.documentElement.dataset.platform;
+  return platform === "mac" || platform === "windows" ? platform : "linux";
 }

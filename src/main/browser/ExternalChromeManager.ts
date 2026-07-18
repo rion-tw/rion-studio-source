@@ -70,7 +70,7 @@ export interface ExternalChromeManagerOptions {
   connectAutomation?: (
     browserUserDataDir: string,
     launchUrl: string,
-    options?: Pick<ConnectExternalChromeAutomationOptions, "cdnCompatibilityEnabled">
+    options?: Pick<ConnectExternalChromeAutomationOptions, "cdnCompatibilityEnabled" | "platform">
   ) => Promise<ExternalBrowserAutomationTarget>;
 }
 
@@ -342,7 +342,10 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       const target = await (this.options.connectAutomation ?? connectExternalChromeAutomation)(
         browserUserDataDir,
         role.launchUrl,
-        { cdnCompatibilityEnabled: cdnCompatibilityRequested }
+        {
+          cdnCompatibilityEnabled: cdnCompatibilityRequested,
+          platform: this.options.platform ?? process.platform
+        }
       );
       if (this.sessions.get(role.id) !== session) {
         target.close();

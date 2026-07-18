@@ -6,8 +6,10 @@ import { MACRO_OVERLAY_SCRIPT } from "../src/main/macros/MacroOverlayInjector";
 import type { Macro } from "../src/shared/types";
 
 interface OverlayController {
+  clearSuppressedShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
   dispose: () => void;
   refresh: () => Promise<void>;
+  suppressNextShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
 }
 
 interface OverlayTestWindow extends Window {
@@ -210,6 +212,41 @@ describe("macro overlay interactions", () => {
     }));
   });
 
+  it("does not release a physical held shortcut for a suppressed synthetic keyup", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const binding = vi.fn(async () => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: heldMacro.id
+    })));
+
+    controller.suppressNextShortcut?.("F2", "keyup");
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
+    await Promise.resolve();
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "release" }));
+
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      macroId: heldMacro.id
+    })));
+  });
+
   it("releases a while-held shortcut when the source window loses focus", async () => {
     createGameSurface(document);
     const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
@@ -387,7 +424,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v32")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v33")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -453,7 +490,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v32")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v33")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

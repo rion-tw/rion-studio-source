@@ -4,9 +4,14 @@ import {
   type BrowserInputDispatchOptions
 } from "./ElectronAutomationTarget";
 import {
-  createMacroShortcutSuppressionClearSource,
-  createMacroShortcutSuppressionSource
+  createMacroShortcutPhaseSuppressionClearSource,
+  createMacroShortcutPhaseSuppressionSource
 } from "../../shared/macroShortcuts";
+import {
+  getMacroModifierForCode,
+  resolveMacroKeyInput,
+  type MacroKeyInput
+} from "../../shared/macroKeys";
 import type { PixelBounds } from "../../shared/types";
 import {
   createCdnCompatibilityRequestPatterns,
@@ -42,6 +47,7 @@ export interface ConnectExternalChromeAutomationOptions {
   createClient?: (target: DevToolsTarget) => CdpEventClientLike;
   fetch?: DevToolsFetch;
   now?: () => number;
+  platform?: NodeJS.Platform;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -73,7 +79,7 @@ export async function connectExternalChromeAutomation(
       const target = selectPageTarget(targets, launchUrl);
       if (target?.webSocketDebuggerUrl) {
         const client = (options.createClient ?? createClient)(target);
-        const automationTarget = new ExternalChromeAutomationTarget(client);
+        const automationTarget = new ExternalChromeAutomationTarget(client, options.platform ?? "linux");
         try {
           await automationTarget.initialize({ cdnCompatibilityEnabled: options.cdnCompatibilityEnabled });
           return automationTarget;
@@ -102,7 +108,10 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   private pointerFocusTrackingInstalled = false;
   private removeNotificationListener?: () => void;
 
-  constructor(private readonly client: CdpEventClientLike) {}
+  constructor(
+    private readonly client: CdpEventClientLike,
+    private readonly platform: NodeJS.Platform = "linux"
+  ) {}
 
   async initialize(options: { cdnCompatibilityEnabled?: boolean } = {}): Promise<void> {
     this.removeNotificationListener = this.client.onNotification((notification) => {
@@ -213,126 +222,149 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     signal?.throwIfAborted();
   }
 
-  dispatchKey(code: string, options: BrowserInputDispatchOptions = {}): Promise<void> {
-    return this.enqueueInput(() => this.dispatchKeyUnlocked(code, options));
+  dispatchKey(input: MacroKeyInput | string, options: BrowserInputDispatchOptions = {}): Promise<void> {
+    return this.enqueueInput(() => this.dispatchKeyUnlocked(toMacroKeyInput(input), options));
   }
 
   holdKey(
-    code: string,
+    input: MacroKeyInput | string,
     ownerId: string,
     options: BrowserInputDispatchOptions = {}
   ): Promise<void> {
-    return this.enqueueInput(() => this.holdKeyUnlocked(code, ownerId, options));
+    return this.enqueueInput(() => this.holdKeyUnlocked(toMacroKeyInput(input), ownerId, options));
   }
 
-  releaseKey(code: string, ownerId: string): Promise<void> {
-    // Safety releases must not wait behind a stalled CDP input operation.
-    // Owner tracking keeps concurrent releases and new holds paired.
-    return this.releaseKeyUnlocked(code, ownerId);
+  releaseKey(input: MacroKeyInput | string, ownerId: string): Promise<void> {
+    return this.enqueueInput(() => this.releaseKeyUnlocked(toMacroKeyInput(input), ownerId));
   }
 
-  private async dispatchKeyUnlocked(code: string, options: BrowserInputDispatchOptions): Promise<void> {
+  private async dispatchKeyUnlocked(input: MacroKeyInput, options: BrowserInputDispatchOptions): Promise<void> {
     const { holdMs = 0, postDelayMs = 0, signal } = options;
     signal?.throwIfAborted();
-    await this.suppressNextShortcut(code);
-    const descriptor = getCdpKeyDescriptor(code);
-
-    if ((this.heldKeyOwners.get(code)?.size ?? 0) > 0) {
-      try {
-        signal?.throwIfAborted();
-        await this.client.send("Input.dispatchKeyEvent", {
-          type: "rawKeyDown",
-          autoRepeat: true,
-          ...descriptor
-        });
-        await waitForInputDelay(holdMs, signal);
-      } finally {
-        await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
-      }
-      await waitForInputDelay(postDelayMs, signal);
-      return;
-    }
-
-    let didSendKeyDown = false;
-    let didSendKeyUp = false;
+    const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
+    const activeCodes = new Set(this.heldKeyOwners.keys());
+    const pressedCodes: string[] = [];
     try {
-      signal?.throwIfAborted();
-      await this.client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...descriptor });
-      didSendKeyDown = true;
-      await waitForInputDelay(holdMs, signal);
-      signal?.throwIfAborted();
-      await this.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor });
-      didSendKeyUp = true;
-    } finally {
-      if (didSendKeyDown && !didSendKeyUp) {
-        await this.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor }).catch(() => undefined);
+      for (const modifierCode of modifierCodes) {
+        signal?.throwIfAborted();
+        if (activeCodes.has(modifierCode)) continue;
+        activeCodes.add(modifierCode);
+        await this.sendKeyDown(modifierCode, activeCodes);
+        pressedCodes.push(modifierCode);
       }
-      await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
+
+      await this.suppressShortcutPhase(code, "keydown");
+      signal?.throwIfAborted();
+      if (activeCodes.has(code)) {
+        await this.sendKeyDown(code, activeCodes, true);
+      } else {
+        activeCodes.add(code);
+        await this.sendKeyDown(code, activeCodes);
+        pressedCodes.push(code);
+      }
+      await this.clearShortcutPhase(code, "keydown");
+      await waitForInputDelay(holdMs, signal);
+
+      if (pressedCodes.at(-1) === code) {
+        signal?.throwIfAborted();
+        await this.suppressShortcutPhase(code, "keyup");
+        activeCodes.delete(code);
+        await this.sendKeyUp(code, activeCodes);
+        pressedCodes.pop();
+        await this.clearShortcutPhase(code, "keyup");
+      }
+
+      for (const modifierCode of [...modifierCodes].reverse()) {
+        const index = pressedCodes.lastIndexOf(modifierCode);
+        if (index === -1) continue;
+        activeCodes.delete(modifierCode);
+        await this.sendKeyUp(modifierCode, activeCodes);
+        pressedCodes.splice(index, 1);
+      }
+    } finally {
+      for (const pressedCode of [...pressedCodes].reverse()) {
+        if (pressedCode === code) {
+          await this.suppressShortcutPhase(code, "keyup").catch(() => undefined);
+        }
+        activeCodes.delete(pressedCode);
+        await this.sendKeyUp(pressedCode, activeCodes).catch(() => undefined);
+      }
+      await Promise.all([
+        this.clearShortcutPhase(code, "keydown"),
+        this.clearShortcutPhase(code, "keyup")
+      ]);
     }
     await waitForInputDelay(postDelayMs, signal);
   }
 
   private async holdKeyUnlocked(
-    code: string,
+    input: MacroKeyInput,
     ownerId: string,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
     const { postDelayMs = 0, signal } = options;
     signal?.throwIfAborted();
-    const existingOwners = this.heldKeyOwners.get(code);
-    if (existingOwners?.has(ownerId)) return;
-    if (existingOwners && existingOwners.size > 0) {
-      existingOwners.add(ownerId);
-      return;
-    }
-
-    const owners = existingOwners ?? new Set<string>();
-    owners.add(ownerId);
-    this.heldKeyOwners.set(code, owners);
-    let didStartKeyDown = false;
+    const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
+    const codes = [...modifierCodes, code];
+    const acquiredCodes: string[] = [];
     try {
-      await this.suppressNextShortcut(code);
-      signal?.throwIfAborted();
-      if (this.heldKeyOwners.get(code) !== owners || !owners.has(ownerId)) return;
-      didStartKeyDown = true;
-      await this.client.send("Input.dispatchKeyEvent", {
-        type: "rawKeyDown",
-        ...getCdpKeyDescriptor(code)
-      });
-      if (this.heldKeyOwners.get(code) !== owners || !owners.has(ownerId)) return;
-      signal?.throwIfAborted();
-    } catch (error) {
-      if (owners.has(ownerId)) {
-        if (didStartKeyDown) {
-          await this.releaseKeyUnlocked(code, ownerId).catch(() => undefined);
-        } else {
-          owners.delete(ownerId);
-          if (owners.size === 0 && this.heldKeyOwners.get(code) === owners) {
-            this.heldKeyOwners.delete(code);
-          }
+      for (const currentCode of codes) {
+        signal?.throwIfAborted();
+        const existingOwners = this.heldKeyOwners.get(currentCode);
+        if (existingOwners?.has(ownerId)) continue;
+        const owners = existingOwners ?? new Set<string>();
+        owners.add(ownerId);
+        this.heldKeyOwners.set(currentCode, owners);
+        acquiredCodes.push(currentCode);
+        if (existingOwners && existingOwners.size > 0) continue;
+
+        if (currentCode === code) {
+          await this.suppressShortcutPhase(code, "keydown");
         }
+        await this.sendKeyDown(currentCode, new Set(this.heldKeyOwners.keys()));
+        signal?.throwIfAborted();
+        if (currentCode === code) {
+          await this.clearShortcutPhase(code, "keydown");
+        }
+      }
+      await waitForInputDelay(postDelayMs, signal);
+    } catch (error) {
+      for (const acquiredCode of [...acquiredCodes].reverse()) {
+        await this.releaseOwnedKey(
+          acquiredCode,
+          ownerId,
+          acquiredCode === code
+        ).catch(() => undefined);
       }
       throw error;
     } finally {
-      await this.evaluateInExecutionContexts(createMacroShortcutSuppressionClearSource(code));
+      await this.clearShortcutPhase(code, "keydown");
     }
-    await waitForInputDelay(postDelayMs, signal);
   }
 
-  private async releaseKeyUnlocked(code: string, ownerId: string): Promise<void> {
+  private async releaseKeyUnlocked(input: MacroKeyInput, ownerId: string): Promise<void> {
+    const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
+    for (const currentCode of [code, ...modifierCodes.slice().reverse()]) {
+      await this.releaseOwnedKey(currentCode, ownerId, currentCode === code);
+    }
+  }
+
+  private async releaseOwnedKey(code: string, ownerId: string, suppressShortcut: boolean): Promise<void> {
     const owners = this.heldKeyOwners.get(code);
     if (!owners?.has(ownerId)) return;
     owners.delete(ownerId);
     if (owners.size > 0) return;
     this.heldKeyOwners.delete(code);
 
-    const event = { type: "keyUp", ...getCdpKeyDescriptor(code) };
+    if (suppressShortcut) {
+      await this.suppressShortcutPhase(code, "keyup").catch(() => undefined);
+    }
     try {
-      await this.client.send("Input.dispatchKeyEvent", event);
+      await this.sendKeyUp(code, new Set(this.heldKeyOwners.keys()));
     } catch (error) {
       if ((this.heldKeyOwners.get(code)?.size ?? 0) > 0) return;
       try {
-        await this.client.send("Input.dispatchKeyEvent", event);
+        await this.sendKeyUp(code, new Set(this.heldKeyOwners.keys()));
         return;
       } catch {
         const currentOwners = this.heldKeyOwners.get(code);
@@ -344,11 +376,46 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         }
       }
       throw error;
+    } finally {
+      if (suppressShortcut) {
+        await this.clearShortcutPhase(code, "keyup");
+      }
     }
   }
 
-  private async suppressNextShortcut(code: string): Promise<void> {
-    await this.evaluateInExecutionContexts(createMacroShortcutSuppressionSource(code));
+  private sendKeyDown(
+    code: string,
+    activeCodes: ReadonlySet<string>,
+    autoRepeat = false
+  ): Promise<unknown> {
+    const modifiers = getCdpModifierMask(activeCodes);
+    return this.client.send("Input.dispatchKeyEvent", {
+      type: "rawKeyDown",
+      ...(autoRepeat ? { autoRepeat: true } : {}),
+      ...getCdpKeyDescriptor(code, modifiers),
+      ...(modifiers > 0 ? { modifiers } : {})
+    });
+  }
+
+  private sendKeyUp(code: string, activeCodes: ReadonlySet<string>): Promise<unknown> {
+    const modifiers = getCdpModifierMask(activeCodes);
+    return this.client.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      ...getCdpKeyDescriptor(code, modifiers),
+      ...(modifiers > 0 ? { modifiers } : {})
+    });
+  }
+
+  private suppressShortcutPhase(code: string, phase: "keydown" | "keyup"): Promise<void> {
+    return this.evaluateInExecutionContexts(
+      createMacroShortcutPhaseSuppressionSource(code, phase)
+    );
+  }
+
+  private clearShortcutPhase(code: string, phase: "keydown" | "keyup"): Promise<void> {
+    return this.evaluateInExecutionContexts(
+      createMacroShortcutPhaseSuppressionClearSource(code, phase)
+    );
   }
 
   private async evaluateInExecutionContexts(expression: string): Promise<void> {
@@ -618,14 +685,24 @@ function createPointerFocusSuppressionSource(suppressed: boolean): string {
   return `window[${JSON.stringify(POINTER_FOCUS_STATE_KEY)}]?.setSuppressed?.(${JSON.stringify(suppressed)})`;
 }
 
-export function getCdpKeyDescriptor(code: string): Record<string, string | number> {
+export function getCdpKeyDescriptor(
+  code: string,
+  modifiers = 0
+): Record<string, string | number> {
+  const shift = (modifiers & 8) !== 0;
   const key = code.startsWith("Key") && code.length === 4
-    ? code.slice(3).toLowerCase()
+    ? shift ? code.slice(3) : code.slice(3).toLowerCase()
     : code.startsWith("Digit") && code.length === 6
-      ? code.slice(5)
-      : cdpKeys[code] ?? code;
+      ? shift ? shiftedDigitKeys[code] ?? code.slice(5) : code.slice(5)
+      : shift ? shiftedCdpKeys[code] ?? cdpKeys[code] ?? code : cdpKeys[code] ?? code;
   const windowsVirtualKeyCode = getWindowsVirtualKeyCode(code, key);
-  return { code, key, ...(windowsVirtualKeyCode === undefined ? {} : { windowsVirtualKeyCode }) };
+  const location = getCdpKeyLocation(code);
+  return {
+    code,
+    key,
+    ...(windowsVirtualKeyCode === undefined ? {} : { windowsVirtualKeyCode }),
+    ...(location === undefined ? {} : { location })
+  };
 }
 
 function getWindowsVirtualKeyCode(code: string, key: string): number | undefined {
@@ -639,15 +716,65 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function toMacroKeyInput(input: MacroKeyInput | string): MacroKeyInput {
+  return typeof input === "string" ? { code: input } : input;
+}
+
+function getCdpModifierMask(activeCodes: ReadonlySet<string>): number {
+  let mask = 0;
+  for (const code of activeCodes) {
+    switch (getMacroModifierForCode(code)) {
+      case "alt":
+        mask |= 1;
+        break;
+      case "ctrl":
+        mask |= 2;
+        break;
+      case "meta":
+        mask |= 4;
+        break;
+      case "shift":
+        mask |= 8;
+        break;
+    }
+  }
+  return mask;
+}
+
+function getCdpKeyLocation(code: string): number | undefined {
+  if (/^(?:Alt|Control|Meta|Shift)Left$/.test(code)) return 1;
+  if (/^(?:Alt|Control|Meta|Shift)Right$/.test(code)) return 2;
+  if (code.startsWith("Numpad")) return 3;
+  return undefined;
+}
+
 const cdpKeys: Record<string, string> = {
+  AltLeft: "Alt", AltRight: "Alt", ControlLeft: "Control", ControlRight: "Control",
+  MetaLeft: "Meta", MetaRight: "Meta", ShiftLeft: "Shift", ShiftRight: "Shift",
   ArrowDown: "ArrowDown", ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", ArrowUp: "ArrowUp",
-  Backspace: "Backspace", Enter: "Enter", Equal: "=", Escape: "Escape", Minus: "-", Space: " ", Tab: "Tab",
+  Backquote: "`", Backslash: "\\", Backspace: "Backspace", BracketLeft: "[", BracketRight: "]",
+  Comma: ",", Enter: "Enter", Equal: "=", Escape: "Escape", Minus: "-", Period: ".",
+  Quote: "'", Semicolon: ";", Slash: "/", Space: " ", Tab: "Tab",
   NumpadAdd: "+", NumpadDecimal: ".", NumpadDivide: "/", NumpadMultiply: "*", NumpadSubtract: "-"
 };
 
+const shiftedDigitKeys: Record<string, string> = {
+  Digit0: ")", Digit1: "!", Digit2: "@", Digit3: "#", Digit4: "$",
+  Digit5: "%", Digit6: "^", Digit7: "&", Digit8: "*", Digit9: "("
+};
+
+const shiftedCdpKeys: Record<string, string> = {
+  Backquote: "~", Backslash: "|", BracketLeft: "{", BracketRight: "}",
+  Comma: "<", Equal: "+", Minus: "_", Period: ">", Quote: "\"",
+  Semicolon: ":", Slash: "?"
+};
+
 const virtualKeyCodes: Record<string, number> = {
+  AltLeft: 18, AltRight: 18, ControlLeft: 17, ControlRight: 17,
+  MetaLeft: 91, MetaRight: 92, ShiftLeft: 16, ShiftRight: 16,
   Backspace: 8, Tab: 9, Enter: 13, Escape: 27, Space: 32,
   ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40,
-  Equal: 187, Minus: 189,
+  Semicolon: 186, Equal: 187, Comma: 188, Minus: 189, Period: 190, Slash: 191,
+  Backquote: 192, BracketLeft: 219, Backslash: 220, BracketRight: 221, Quote: 222,
   NumpadMultiply: 106, NumpadAdd: 107, NumpadSubtract: 109, NumpadDecimal: 110, NumpadDivide: 111
 };

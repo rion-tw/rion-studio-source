@@ -20,7 +20,10 @@ beforeAll(() => {
   });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  delete document.documentElement.dataset.platform;
+});
 afterAll(() => vi.unstubAllGlobals());
 
 describe("macro editor controls", () => {
@@ -106,6 +109,84 @@ describe("macro editor controls", () => {
       activationMode: "while_held",
       steps: [expect.objectContaining({ action: "hold_until_stop" })]
     })));
+  });
+
+  it("records physical modifiers and lets Primary be selected explicitly", async () => {
+    document.documentElement.dataset.platform = "windows";
+    const selectedMacro = macro();
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.keyDown(window, {
+      code: "KeyK",
+      key: "K",
+      ctrlKey: true,
+      shiftKey: true
+    });
+    expect(screen.getByRole("button", { name: "Ctrl" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Shift" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.keyDown(window, { code: "KeyK", key: "K", metaKey: true });
+    expect(screen.getByRole("button", { name: "Win" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Primary (Ctrl)" }).getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Win" }));
+    fireEvent.click(screen.getByRole("button", { name: "Primary (Ctrl)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [expect.objectContaining({
+        code: "KeyK",
+        modifiers: ["primary"]
+      })]
+    })));
+  });
+
+  it("disables modifier chips when the main key is itself a modifier", () => {
+    const selectedMacro = macro({
+      steps: [{ id: "step-1", type: "key", code: "ControlLeft" }]
+    });
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={vi.fn()}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    expect(screen.getByText("Choose a non-modifier main key before adding modifiers.")).toBeTruthy();
+    for (const name of ["Primary (Ctrl)", "Ctrl", "Alt", "Shift", "Meta"]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
   });
 
   it("uses the full role card as the selector without showing a checkbox", () => {
@@ -294,6 +375,7 @@ describe("macro editor controls", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Loop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add step" }));
     fireEvent.click(screen.getByRole("button", { name: "Create macro" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(

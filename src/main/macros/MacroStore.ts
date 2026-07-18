@@ -8,11 +8,18 @@ import type {
   Macro,
   MacroActivationMode,
   MacroKeyAction,
+  MacroKeyModifier,
   MacroRepeat,
   MacroStep,
   MacroTrigger,
   UpdateMacroInput
 } from "../../shared/types";
+import {
+  canonicalizeMacroKeyModifiers,
+  hasPrimaryModifierConflict,
+  isMacroKeyModifier,
+  isMacroModifierCode
+} from "../../shared/macroKeys";
 import { findMacroDependencyIssue, getMacroReferrers } from "../../shared/macroDependencies";
 import { MACRO_DELAY_MAX_MS } from "../../shared/macroSettings";
 import {
@@ -492,13 +499,18 @@ export class MacroStore {
 
       switch (step.type) {
         case "key":
+          {
+            const code = this.normalizeCode(step.code, "Macro key step is invalid.");
+            const modifiers = this.normalizeKeyModifiers(step.modifiers, code);
           return {
             id,
             type: "key",
-            code: this.normalizeCode(step.code, "Macro key step is invalid."),
+            code,
+            ...(modifiers ? { modifiers } : {}),
             action: this.normalizeKeyAction(step.action),
             label: this.normalizeOptionalLabel(step.label)
           };
+          }
         case "click":
           return {
             id,
@@ -542,6 +554,34 @@ export class MacroStore {
       return value;
     }
     throw new MacroStoreError("MACRO_KEY_ACTION_INVALID", "Macro key action is invalid.");
+  }
+
+  private normalizeKeyModifiers(value: unknown, code: string): MacroKeyModifier[] | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (!Array.isArray(value) || value.some((modifier) => !isMacroKeyModifier(modifier))) {
+      throw new MacroStoreError(
+        "MACRO_KEY_MODIFIERS_INVALID",
+        "Macro key modifiers are invalid."
+      );
+    }
+
+    const modifiers = canonicalizeMacroKeyModifiers(value);
+    if (hasPrimaryModifierConflict(modifiers)) {
+      throw new MacroStoreError(
+        "MACRO_KEY_PRIMARY_CONFLICT",
+        "Primary cannot be combined with Ctrl or Meta."
+      );
+    }
+    if (modifiers.length > 0 && isMacroModifierCode(code)) {
+      throw new MacroStoreError(
+        "MACRO_KEY_COMBINATION_INVALID",
+        "A key combination requires a non-modifier main key."
+      );
+    }
+
+    return modifiers.length > 0 ? modifiers : undefined;
   }
 
   private normalizeMacroId(value: string | undefined): string {
@@ -617,7 +657,10 @@ function cloneMacrosFile(file: MacrosFile): MacrosFile {
       roleIds: [...macro.roleIds],
       ...(macro.trigger ? { trigger: { ...macro.trigger } } : {}),
       repeat: { ...macro.repeat },
-      steps: macro.steps.map((step) => ({ ...step }))
+      steps: macro.steps.map((step) => ({
+        ...step,
+        ...(step.type === "key" && step.modifiers ? { modifiers: [...step.modifiers] } : {})
+      }))
     }))
   };
 }

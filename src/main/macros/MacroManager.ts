@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type { Macro, MacroRunStatus, MacroSettings, MacroStep } from "../../shared/types";
+import type { MacroKeyInput } from "../../shared/macroKeys";
 import type { BrowserManager } from "../browser/BrowserManager";
 import type { BrowserAutomationTarget } from "../browser/ElectronAutomationTarget";
 import type { MacroStore } from "./MacroStore";
@@ -17,7 +18,7 @@ interface MacroRun {
   cancelDelay?: () => void;
   cancelHoldWait?: () => void;
   completion: Promise<void>;
-  heldKeyCodes: Set<string>;
+  heldKeySteps: Map<string, { input: MacroKeyInput | string; ownerId: string }>;
   inputOwnerId: string;
   invocationId: string;
   isCancelled: boolean;
@@ -363,7 +364,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       const run: MacroRun = {
         abortController: new AbortController(),
         completion,
-        heldKeyCodes: new Set(),
+        heldKeySteps: new Map(),
         inputOwnerId: `${invocation.id}:${roleId}`,
         invocationId: invocation.id,
         isCancelled: false,
@@ -666,7 +667,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
     if (
       macro.repeat.type === "once" &&
-      run.heldKeyCodes.size > 0 &&
+      run.heldKeySteps.size > 0 &&
       !invocation.stopAfterFirstIteration
     ) {
       await this.waitForStop(run);
@@ -691,32 +692,37 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     step: MacroStep
   ): Promise<void> {
     switch (step.type) {
-      case "key":
+      case "key": {
+        const input: MacroKeyInput | string = step.modifiers?.length
+          ? { code: step.code, modifiers: [...step.modifiers] }
+          : step.code;
         if (step.action === "hold_until_stop") {
-          if (run.heldKeyCodes.has(step.code)) return;
-          run.heldKeyCodes.add(step.code);
+          if (run.heldKeySteps.has(step.id)) return;
+          const ownerId = `${run.inputOwnerId}:${step.id}`;
+          run.heldKeySteps.set(step.id, { input, ownerId });
           try {
             await this.executeTargetOperation(run, () =>
-              target.holdKey(step.code, run.inputOwnerId, {
+              target.holdKey(input, ownerId, {
+                postDelayMs: invocation.settings.postInputDelayMs,
                 signal: run.abortController.signal
               })
             );
           } catch (error) {
-            await target.releaseKey(step.code, run.inputOwnerId).catch(() => undefined);
-            run.heldKeyCodes.delete(step.code);
+            await target.releaseKey(input, ownerId).catch(() => undefined);
+            run.heldKeySteps.delete(step.id);
             throw error;
           }
-          await this.delay(run, invocation.settings.postInputDelayMs);
           return;
         }
         await this.executeTargetOperation(run, () =>
-          target.dispatchKey(step.code, {
+          target.dispatchKey(input, {
             holdMs: invocation.settings.keyHoldMs,
             postDelayMs: invocation.settings.postInputDelayMs,
             signal: run.abortController.signal
           })
         );
         return;
+      }
       case "click":
         await this.executeTargetOperation(run, () =>
           target.dispatchClick(step.xPercent, step.yPercent, {
@@ -852,15 +858,14 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   }
 
   private async releaseHeldKeys(run: MacroRun, target: BrowserAutomationTarget): Promise<void> {
-    const codes = [...run.heldKeyCodes].reverse();
-    run.heldKeyCodes.clear();
-    await Promise.all(
-      codes.map((code) =>
-        target.releaseKey(code, run.inputOwnerId).catch((error) => {
-          console.warn(`Failed to release held macro key ${code}.`, error);
-        })
-      )
-    );
+    const heldKeys = [...run.heldKeySteps.values()].reverse();
+    run.heldKeySteps.clear();
+    for (const { input, ownerId } of heldKeys) {
+      await target.releaseKey(input, ownerId).catch((error) => {
+        const code = typeof input === "string" ? input : input.code;
+        console.warn(`Failed to release held macro key ${code}.`, error);
+      });
+    }
   }
 
   private assertPressId(pressId: string): void {

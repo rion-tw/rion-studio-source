@@ -631,13 +631,13 @@ function createDataTransfer(): DataTransfer {
       store[type] = value;
     },
     clearData: (): void => {},
-    dropEffect: "",
-    effectAllowed: "",
+    dropEffect: "move",
+    effectAllowed: "all",
     files: [],
     items: [],
     types: [],
     setDragImage: vi.fn()
-  } as DataTransfer;
+  } as unknown as DataTransfer;
 }
 
 function game(): Game {

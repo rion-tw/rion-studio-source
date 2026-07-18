@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -583,7 +583,15 @@ describe("macro editor controls", () => {
       </ConfirmationProvider>
     );
 
-    const stepTypeSelectors = screen.getAllByRole("combobox", { name: "Step type" });
+    const getStepTypeSelectors = (): HTMLElement[] => (
+      screen.getAllByTestId(/^macro-step-/).map((stepRow) =>
+        within(stepRow).getByRole("combobox", { name: "Step type" })
+      )
+    );
+    const stepTypeSelectors = getStepTypeSelectors();
+    if (stepTypeSelectors.length !== 3) {
+      throw new Error(`Unexpected number of step rows: ${stepTypeSelectors.length}`);
+    }
     expect(stepTypeSelectors.map((select) => select.textContent?.trim())).toEqual(["Key", "Delay", "Click"]);
 
     const dragHandle = screen.getAllByRole("button", { name: "Drag to reorder" })[2];
@@ -593,8 +601,7 @@ describe("macro editor controls", () => {
     fireEvent.dragStart(dragHandle, { dataTransfer });
     fireEvent.dragOver(targetRow, { dataTransfer });
     fireEvent.drop(targetRow, { dataTransfer });
-
-    expect(screen.getAllByRole("combobox", { name: "Step type" }).map((select) =>
+    expect(getStepTypeSelectors().map((select) =>
       select.textContent?.trim()
     )).toEqual(["Click", "Key", "Delay"]);
   });
@@ -624,18 +631,31 @@ function getKeyStepRecordButton(): HTMLElement {
 
 function createDataTransfer(): DataTransfer {
   const store: Record<string, string> = {};
+  const types: string[] = [];
+  const items: DataTransferItem[] = [];
 
   return {
     getData: (type: string): string => store[type] ?? "",
     setData: (type: string, value: string): void => {
       store[type] = value;
+      if (!types.includes(type)) {
+        types.push(type);
+      }
+      if (!items.some((item) => item.type === type)) {
+        items.push({
+          kind: "string",
+          type,
+          getAsFile: vi.fn().mockReturnValue(null),
+          getAsString: (callback: (value: string) => void) => callback(store[type])
+        } as unknown as DataTransferItem);
+      }
     },
     clearData: (): void => {},
-    dropEffect: "move",
+    dropEffect: "none",
     effectAllowed: "all",
     files: [],
-    items: [],
-    types: [],
+    items,
+    types,
     setDragImage: vi.fn()
   } as unknown as DataTransfer;
 }

@@ -930,8 +930,12 @@ function getModifierComboOptions(t: Translator): Array<{ value: string; label: s
   }
 
   return combinations.sort((left, right) => {
-    const leftModifiers = getSortModifiers(left.value);
-    const rightModifiers = getSortModifiers(right.value);
+    const leftModifiers = left.value === MODIFIERS_NONE_VALUE
+      ? []
+      : left.value.split(",");
+    const rightModifiers = right.value === MODIFIERS_NONE_VALUE
+      ? []
+      : right.value.split(",");
 
     if (leftModifiers.length !== rightModifiers.length) {
       return leftModifiers.length - rightModifiers.length;
@@ -948,13 +952,6 @@ function getModifierComboOptions(t: Translator): Array<{ value: string; label: s
 
     return 0;
   });
-}
-
-function getSortModifiers(value: string): MacroKeyModifier[] {
-  if (value === MODIFIERS_NONE_VALUE) {
-    return [];
-  }
-  return value ? value.split(",") as MacroKeyModifier[] : [];
 }
 
 function parseModifierComboValue(value: string): MacroKeyModifier[] {
@@ -1008,10 +1005,6 @@ function MacroStepFields({
     const modifiers = step.modifiers ?? [];
     const canonicalModifiers = canonicalizeMacroKeyModifiers(modifiers);
     const mainKeyIsModifier = isPureModifierCode(step.code);
-    const modifierSummary = canonicalModifiers.map((modifier) => formatMacroModifierLabel(modifier, t)).join(" + ");
-    const modifierTriggerLabel = canonicalModifiers.length > 0
-      ? `${t("macroForm.modifiers")}: ${modifierSummary}`
-      : t("macroForm.modifiersNone");
     const modifierComboOptions = getModifierComboOptions(t);
     const selectedModifierValue = canonicalModifiers.length > 0
       ? canonicalModifiers.join(",")
@@ -1086,9 +1079,8 @@ function MacroStepFields({
             <SelectTrigger
               className="w-full min-w-44 justify-between gap-2 pr-2"
               aria-label={t("macroForm.modifiers")}
-              title={modifierSummary}
             >
-              <SelectValue>{modifierTriggerLabel}</SelectValue>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent className="w-44">
               {modifierComboOptions.map((option) => (

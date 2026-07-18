@@ -213,13 +213,15 @@ function DashboardRoute({
         />
       </div>
 
-      <AttentionPanel
-        items={visiblePendingItems}
-        totalCount={pendingItems.length}
-        t={t}
-        onLoginRole={onLoginRole}
-        onViewAll={() => onNavigateRoles("needsLogin")}
-      />
+      {pendingItems.length > 0 ? (
+        <AttentionPanel
+          items={visiblePendingItems}
+          totalCount={pendingItems.length}
+          t={t}
+          onLoginRole={onLoginRole}
+          onViewAll={() => onNavigateRoles("needsLogin")}
+        />
+      ) : null}
 
       <div className="grid min-w-0 items-start gap-4 md:grid-cols-3">
         <div className="grid min-w-0 gap-4">

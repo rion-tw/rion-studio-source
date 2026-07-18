@@ -494,7 +494,7 @@ describe("macro editor controls", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Loop" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Key" }));
     fireEvent.click(screen.getByRole("button", { name: "Create macro" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(

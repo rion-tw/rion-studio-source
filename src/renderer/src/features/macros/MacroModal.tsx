@@ -1021,7 +1021,26 @@ function MacroStepFields({
 
     return (
       <div className="grid min-w-0 gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
+        <div className="flex min-w-0 items-center gap-2">
+          <Select
+            value={selectedModifierValue}
+            onValueChange={(value) => updateKeyInput(step.code, parseModifierComboValue(value))}
+            disabled={isSaving || mainKeyIsModifier}
+          >
+            <SelectTrigger
+              className="w-28 flex-none"
+              aria-label={t("macroForm.modifiers")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="w-44">
+              {modifierComboOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select
             value={step.code}
             onValueChange={(value) => updateKeyInput(value, canonicalModifiers)}
@@ -1067,27 +1086,6 @@ function MacroStepFields({
                   ? t("macroForm.keyAction.holdCombination")
                   : t("macroForm.keyAction.hold")}
               </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5" aria-label={t("macroForm.modifiers")}>
-          <Select
-            value={selectedModifierValue}
-            onValueChange={(value) => updateKeyInput(step.code, parseModifierComboValue(value))}
-            disabled={isSaving || mainKeyIsModifier}
-          >
-            <SelectTrigger
-              className="w-full min-w-44 justify-between gap-2 pr-2"
-              aria-label={t("macroForm.modifiers")}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="w-44">
-              {modifierComboOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
             </SelectContent>
           </Select>
         </div>

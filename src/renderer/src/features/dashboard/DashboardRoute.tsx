@@ -221,7 +221,7 @@ function DashboardRoute({
         onViewAll={() => onNavigateRoles("needsLogin")}
       />
 
-      <div className="grid min-w-0 items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.78fr)]">
+      <div className="grid min-w-0 items-start gap-4 md:grid-cols-3">
         <div className="grid min-w-0 gap-4">
           <Panel
             title={t("dashboard.quickRoles.title")}
@@ -255,67 +255,65 @@ function DashboardRoute({
           </Panel>
         </div>
 
-        <div className="grid min-w-0 content-start gap-4">
-          <Panel
-            title={t("dashboard.workspaces.title")}
-            count={workspaces.length}
-            actionLabel={t("dashboard.viewWorkspaces")}
-            onAction={onNavigateWorkspaces}
-          >
-            {workspaceItems.length === 0 ? (
-              <PanelEmpty
-                icon={LayoutDashboard}
-                title={t("dashboard.workspaces.emptyTitle")}
-                description={t("dashboard.workspaces.emptyDescription")}
-                actionLabel={t("workspaces.empty.action")}
-                onAction={onCreateWorkspace}
-              />
-            ) : (
-              <div className="grid gap-2">
-                {workspaceItems.map((item) => (
-                  <WorkspaceLaunchRow
-                    key={item.workspace.id}
-                    item={item}
-                    t={t}
-                    onLaunch={() => onLaunchWorkspace(item.workspace)}
-                    onStop={() => onStopWorkspace(item.workspace)}
-                  />
-                ))}
-                <CreateItemRow label={t("workspaces.newWorkspace")} onClick={onCreateWorkspace} />
-              </div>
-            )}
-          </Panel>
+        <Panel
+          title={t("dashboard.workspaces.title")}
+          count={workspaces.length}
+          actionLabel={t("dashboard.viewWorkspaces")}
+          onAction={onNavigateWorkspaces}
+        >
+          {workspaceItems.length === 0 ? (
+            <PanelEmpty
+              icon={LayoutDashboard}
+              title={t("dashboard.workspaces.emptyTitle")}
+              description={t("dashboard.workspaces.emptyDescription")}
+              actionLabel={t("workspaces.empty.action")}
+              onAction={onCreateWorkspace}
+            />
+          ) : (
+            <div className="grid gap-2">
+              {workspaceItems.map((item) => (
+                <WorkspaceLaunchRow
+                  key={item.workspace.id}
+                  item={item}
+                  t={t}
+                  onLaunch={() => onLaunchWorkspace(item.workspace)}
+                  onStop={() => onStopWorkspace(item.workspace)}
+                />
+              ))}
+              <CreateItemRow label={t("workspaces.newWorkspace")} onClick={onCreateWorkspace} />
+            </div>
+          )}
+        </Panel>
 
-          <Panel
-            title={t("dashboard.macros.title")}
-            count={macros.length}
-            actionLabel={t("dashboard.viewMacros")}
-            onAction={onNavigateMacros}
-          >
-            {macroItems.length === 0 ? (
-              <PanelEmpty
-                icon={Keyboard}
-                title={t("dashboard.macros.emptyTitle")}
-                description={t("dashboard.macros.emptyDescription")}
-                actionLabel={t("macros.empty.action")}
-                onAction={onNewMacro}
-              />
-            ) : (
-              <div className="grid gap-2">
-                {macroItems.map((item) => (
-                  <MacroRunRow
-                    key={item.macro.id}
-                    item={item}
-                    t={t}
-                    onStart={() => onStartMacro(item.macro.id)}
-                    onStop={() => onStopMacro(item.macro.id)}
-                  />
-                ))}
-                <CreateItemRow label={t("macros.newMacro")} onClick={onNewMacro} />
-              </div>
-            )}
-          </Panel>
-        </div>
+        <Panel
+          title={t("dashboard.macros.title")}
+          count={macros.length}
+          actionLabel={t("dashboard.viewMacros")}
+          onAction={onNavigateMacros}
+        >
+          {macroItems.length === 0 ? (
+            <PanelEmpty
+              icon={Keyboard}
+              title={t("dashboard.macros.emptyTitle")}
+              description={t("dashboard.macros.emptyDescription")}
+              actionLabel={t("macros.empty.action")}
+              onAction={onNewMacro}
+            />
+          ) : (
+            <div className="grid gap-2">
+              {macroItems.map((item) => (
+                <MacroRunRow
+                  key={item.macro.id}
+                  item={item}
+                  t={t}
+                  onStart={() => onStartMacro(item.macro.id)}
+                  onStop={() => onStopMacro(item.macro.id)}
+                />
+              ))}
+              <CreateItemRow label={t("macros.newMacro")} onClick={onNewMacro} />
+            </div>
+          )}
+        </Panel>
       </div>
     </PageFrame>
   );

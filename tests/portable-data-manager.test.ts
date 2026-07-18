@@ -66,10 +66,7 @@ describe("PortableDataManager", () => {
     await workspaceStore.createWorkspace({
       name: "Party",
       browserZoomPercent: 75,
-      resourcePolicy: {
-        mode: "adaptive",
-        primaryRoleId: role.id
-      },
+      resourcePolicy: { mode: "adaptive" },
       targetDisplay: { id: 42 },
       slots: [
         {
@@ -165,11 +162,9 @@ describe("PortableDataManager", () => {
     expect(parsed.launchWorkspaces[0]).toMatchObject({
       browserZoomMode: "adaptive",
       browserZoomPercent: 75,
-      resourcePolicy: {
-        mode: "adaptive",
-        primaryRoleId: role.id
-      }
+      resourcePolicy: { mode: "adaptive" }
     });
+    expect(parsed.launchWorkspaces[0].resourcePolicy).not.toHaveProperty("primaryRoleId");
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplay");
   });
@@ -722,11 +717,9 @@ describe("PortableDataManager", () => {
       id: existingWorkspace.id,
       browserZoomMode: "adaptive",
       targetDisplay: { id: 42 },
-      resourcePolicy: {
-        mode: "adaptive",
-        primaryRoleId: importedRole?.id
-      }
+      resourcePolicy: { mode: "adaptive" }
     });
+    expect(importedWorkspace?.resourcePolicy).not.toHaveProperty("primaryRoleId");
     expect(importedWorkspace?.slots[0]).toMatchObject({ roleId: importedRole?.id });
     expect(importedWorkspace?.slots[1]).not.toHaveProperty("roleId");
 

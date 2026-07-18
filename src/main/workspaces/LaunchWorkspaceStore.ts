@@ -70,7 +70,7 @@ const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
 ];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
-export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 5;
+export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 6;
 
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
@@ -196,7 +196,7 @@ export class LaunchWorkspaceStore {
         browserLaunchMode: this.normalizeBrowserLaunchMode(input.browserLaunchMode),
         browserZoomMode: this.normalizeBrowserZoomMode(input.browserZoomMode),
         browserZoomPercent,
-        resourcePolicy: this.normalizeResourcePolicy(input.resourcePolicy, slots),
+        resourcePolicy: this.normalizeResourcePolicy(input.resourcePolicy),
         ...(targetDisplay === undefined ? {} : { targetDisplay }),
         slots,
         createdAt: now,
@@ -241,10 +241,7 @@ export class LaunchWorkspaceStore {
           : current.slots.slice(0, getWorkspaceTemplateSlotCount(template))
       );
       const slots = this.normalizeSlots(template, sourceSlots);
-      const resourcePolicy = this.normalizeResourcePolicy(
-        input.resourcePolicy ?? current.resourcePolicy,
-        slots
-      );
+      const resourcePolicy = this.normalizeResourcePolicy(input.resourcePolicy ?? current.resourcePolicy);
 
       this.ensureUniqueName(file.workspaces, name, id);
 
@@ -323,7 +320,7 @@ export class LaunchWorkspaceStore {
         return workspaceChanged
           ? {
               ...workspace,
-              resourcePolicy: this.normalizeResourcePolicy(workspace.resourcePolicy, slots),
+              resourcePolicy: this.normalizeResourcePolicy(workspace.resourcePolicy),
               slots,
               updatedAt: now
             }
@@ -377,9 +374,7 @@ export class LaunchWorkspaceStore {
       );
       const file = {
         schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
-        workspaces: storedSchemaVersion < LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
-          ? normalizedWorkspaces.map(migrateWorkspaceResourcePolicyToAdaptive)
-          : normalizedWorkspaces
+        workspaces: normalizedWorkspaces
       };
 
       if (didMigrate) {
@@ -436,7 +431,7 @@ export class LaunchWorkspaceStore {
         workspace.browserZoomPercent,
         DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT
       ),
-      resourcePolicy: this.normalizeResourcePolicy(workspace.resourcePolicy, normalizedSlots),
+      resourcePolicy: this.normalizeResourcePolicy(workspace.resourcePolicy),
       ...(targetDisplay === undefined ? {} : { targetDisplay }),
       slots: normalizedSlots,
       createdAt: typeof workspace.createdAt === "string" ? workspace.createdAt : new Date().toISOString(),
@@ -537,10 +532,7 @@ export class LaunchWorkspaceStore {
     );
   }
 
-  private normalizeResourcePolicy(
-    value: unknown,
-    slots: LaunchWorkspaceSlot[]
-  ): WorkspaceResourcePolicy {
+  private normalizeResourcePolicy(value: unknown): WorkspaceResourcePolicy {
     const normalizedValue = value === undefined || value === null
       ? DEFAULT_WORKSPACE_RESOURCE_POLICY
       : value;
@@ -562,21 +554,7 @@ export class LaunchWorkspaceStore {
       );
     }
 
-    if (mode === "unrestricted") {
-      return { mode };
-    }
-
-    const assignedRoleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
-    const requestedPrimaryRoleId = typeof input.primaryRoleId === "string"
-      ? input.primaryRoleId.trim()
-      : undefined;
-    const primaryRoleId = requestedPrimaryRoleId && assignedRoleIds.includes(requestedPrimaryRoleId)
-      ? requestedPrimaryRoleId
-      : assignedRoleIds[0];
-
-    return primaryRoleId
-      ? { mode: "adaptive", primaryRoleId }
-      : { mode: "adaptive" };
+    return { mode: mode === "unrestricted" ? mode : "adaptive" };
   }
 
   private normalizeTargetDisplay(value: unknown): WorkspaceDisplayTarget | undefined {
@@ -831,24 +809,6 @@ function cloneWorkspacesFile(file: LaunchWorkspacesFile): LaunchWorkspacesFile {
         rect: { ...slot.rect }
       }))
     }))
-  };
-}
-
-export function migrateWorkspaceResourcePolicyToAdaptive(
-  workspace: LaunchWorkspace
-): LaunchWorkspace {
-  if (workspace.resourcePolicy.mode === "unrestricted") {
-    return workspace;
-  }
-
-  const primaryRoleId = workspace.resourcePolicy.primaryRoleId ??
-    workspace.slots.find((slot) => slot.roleId)?.roleId;
-  return {
-    ...workspace,
-    resourcePolicy: {
-      mode: "adaptive",
-      ...(primaryRoleId ? { primaryRoleId } : {})
-    }
   };
 }
 

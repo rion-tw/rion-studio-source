@@ -79,17 +79,12 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     }
 
     const targetByRoleId = new Map(targets.map((target) => [target.roleId, target]));
-    const primaryRoleId = policy.primaryRoleId && targetByRoleId.has(policy.primaryRoleId)
-      ? policy.primaryRoleId
-      : targets[0]?.roleId;
-    if (!primaryRoleId) {
-      return;
-    }
+    const initialFocusTarget = targets[0];
 
     const managed: ManagedWorkspace = {
       id: workspaceId,
       macroRoleIds: new Set([...this.macroRoleIds].filter((roleId) => targetByRoleId.has(roleId))),
-      policy: { ...policy, primaryRoleId },
+      policy: { ...policy },
       removeListeners: [],
       tail: Promise.resolve(),
       targets: targetByRoleId,
@@ -105,7 +100,7 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     });
 
     await this.enqueue(managed, () => this.applyWorkspace(managed));
-    await targetByRoleId.get(primaryRoleId)?.focus?.().catch(() => undefined);
+    await initialFocusTarget.focus?.().catch(() => undefined);
   }
 
   async deactivateWorkspace(workspaceId: string): Promise<void> {

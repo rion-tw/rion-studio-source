@@ -1,4 +1,4 @@
-import { Check, Crown, Eraser, GripHorizontal, GripVertical, Plus, Save } from "lucide-react";
+import { Check, Eraser, GripHorizontal, GripVertical, Plus, Save } from "lucide-react";
 import {
   type DragEvent as ReactDragEvent,
   type FormEvent,
@@ -59,7 +59,6 @@ import {
   getWorkspaceVerticalResizeHandles,
   readRoleDragId,
   readWorkspaceSlotDragIndex,
-  reconcileWorkspaceResourcePolicy,
   rectToPreviewStyle,
   swapWorkspaceSlotRoles,
   type WorkspaceSplitAxis
@@ -233,7 +232,6 @@ function WorkspaceLayoutFormEditor({
   function updateSlots(nextSlots: LaunchWorkspaceSlot[]): void {
     onChange({
       ...form,
-      resourcePolicy: reconcileWorkspaceResourcePolicy(form.resourcePolicy, nextSlots),
       slots: nextSlots
     });
   }
@@ -244,7 +242,6 @@ function WorkspaceLayoutFormEditor({
     onChange({
       ...form,
       template,
-      resourcePolicy: reconcileWorkspaceResourcePolicy(form.resourcePolicy, nextSlots),
       slots: nextSlots
     });
     setSelectedSlotIndex((current) => Math.min(current, Math.max(nextSlots.length - 1, 0)));
@@ -503,74 +500,28 @@ function WorkspaceLayoutFormEditor({
         </Surface>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField
-            htmlFor="workspace-resource-mode"
-            label={t("workspaces.resourceMode")}
-            description={t("workspaces.resourceModeDescription")}
+      <Surface className="p-4" padding="none" variant="inset">
+        <FormField
+          htmlFor="workspace-resource-mode"
+          label={t("workspaces.resourceMode")}
+          description={t("workspaces.resourceModeDescription")}
+        >
+          <Select
+            value={form.resourcePolicy.mode}
+            disabled={isSaving}
+            onValueChange={(value) => onChange({
+              ...form,
+              resourcePolicy: { mode: value as WorkspaceResourceMode }
+            })}
           >
-            <Select
-              value={form.resourcePolicy.mode}
-              disabled={isSaving}
-              onValueChange={(value) => {
-                const mode = value as WorkspaceResourceMode;
-                onChange({
-                  ...form,
-                  resourcePolicy: reconcileWorkspaceResourcePolicy(
-                    {
-                      mode
-                    },
-                    form.slots
-                  )
-                });
-              }}
-            >
-              <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="adaptive">{t("workspaces.resourceModeAdaptive")}</SelectItem>
-                <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
-
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField
-            htmlFor="workspace-primary-role"
-            label={t("workspaces.primaryRole")}
-            description={t("workspaces.primaryRoleDescription")}
-          >
-            <Select
-              value={form.resourcePolicy.primaryRoleId ?? ""}
-              disabled={
-                isSaving ||
-                form.resourcePolicy.mode === "unrestricted" ||
-                !form.slots.some((slot) => slot.roleId)
-              }
-              onValueChange={(primaryRoleId) => onChange({
-                ...form,
-                resourcePolicy: { ...form.resourcePolicy, primaryRoleId }
-              })}
-            >
-              <SelectTrigger id="workspace-primary-role">
-                <SelectValue placeholder={t("workspaces.primaryRoleUnassigned")} />
-              </SelectTrigger>
-              <SelectContent>
-                {form.slots.flatMap((slot) => {
-                  const role = slot.roleId ? roleById.get(slot.roleId) : undefined;
-                  const gameName = role ? gameNameById.get(role.gameId) ?? role.launchUrl : undefined;
-                  return role ? [
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name} - {gameName}
-                    </SelectItem>
-                  ] : [];
-                })}
-              </SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
-      </div>
+            <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="adaptive">{t("workspaces.resourceModeAdaptive")}</SelectItem>
+              <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </FormField>
+      </Surface>
 
       <Surface
         className="grid overflow-hidden min-[1180px]:grid-cols-[minmax(0,1fr)_270px]"
@@ -590,7 +541,6 @@ function WorkspaceLayoutFormEditor({
                   key={slot.id}
                   index={index}
                   isDropTarget={index === dropTargetSlotIndex}
-                  isPrimary={role?.id === form.resourcePolicy.primaryRoleId && form.resourcePolicy.mode !== "unrestricted"}
                   isSelected={index === selectedSlotIndex}
                   isSaving={isSaving}
                   launchGameName={role ? gameNameById.get(role.gameId) : undefined}
@@ -715,7 +665,6 @@ function WorkspaceLayoutFormEditor({
 interface WorkspaceSlotDropZoneProps {
   index: number;
   isDropTarget: boolean;
-  isPrimary: boolean;
   isSelected: boolean;
   isSaving: boolean;
   launchGameName?: string;
@@ -734,7 +683,6 @@ interface WorkspaceSlotDropZoneProps {
 function WorkspaceSlotDropZone({
   index,
   isDropTarget,
-  isPrimary,
   isSelected,
   isSaving,
   launchGameName,
@@ -798,12 +746,6 @@ function WorkspaceSlotDropZone({
           <p className="rounded-md border border-border/35 bg-background/45 px-2 py-1 text-[11px] font-semibold leading-none text-muted-foreground backdrop-blur-md">
             {t("workspaces.slot").replace("{index}", String(index + 1))}
           </p>
-          {isPrimary ? (
-            <span className="glass-popover inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold leading-none">
-              <Crown size={11} />
-              {t("workspaces.primaryBadge")}
-            </span>
-          ) : null}
         </div>
 
         {role ? (

@@ -18,7 +18,7 @@ describe("WorkspaceResourceCoordinator", () => {
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-1" },
+      { mode: "adaptive" },
       [first.target, second.target]
     );
 
@@ -35,20 +35,19 @@ describe("WorkspaceResourceCoordinator", () => {
     expect(second.setRate).not.toHaveBeenCalled();
   });
 
-  it("uses the initial primary only for the first focus", async () => {
+  it("focuses the first target when a workspace is activated", async () => {
     const coordinator = new WorkspaceResourceCoordinator();
     const first = createTarget("role-1");
     const second = createTarget("role-2");
 
     await coordinator.activateWorkspace(
       "workspace-1",
-      { mode: "adaptive", primaryRoleId: "role-2" },
+      { mode: "adaptive" },
       [first.target, second.target]
     );
-    await first.target.focus?.();
 
-    expect(second.focus).toHaveBeenCalledOnce();
     expect(first.focus).toHaveBeenCalledOnce();
+    expect(second.focus).not.toHaveBeenCalled();
     expect(first.setRate).not.toHaveBeenCalled();
     expect(second.setRate).not.toHaveBeenCalled();
   });

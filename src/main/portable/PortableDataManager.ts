@@ -27,7 +27,6 @@ import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import type { RoleStore } from "../roles/RoleStore";
 import {
   LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
-  migrateWorkspaceResourcePolicyToAdaptive,
   type LaunchWorkspaceStore
 } from "../workspaces/LaunchWorkspaceStore";
 import {
@@ -1001,9 +1000,10 @@ export async function recoverPortableImportTransaction(userDataDir: string): Pro
   const journalWorkspaces = isCommitted
     ? journal.targetWorkspaces as LaunchWorkspace[]
     : journal.workspaces;
-  const recoveryWorkspaces = (journal.workspaceFileSchemaVersion ?? 0) < LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION
-    ? journalWorkspaces.map(migrateWorkspaceResourcePolicyToAdaptive)
-    : journalWorkspaces;
+  const recoveryWorkspaces = journalWorkspaces.map((workspace) => ({
+    ...workspace,
+    resourcePolicy: remapWorkspaceResourcePolicy(workspace.resourcePolicy)
+  }));
   const recoveryMacros = isCommitted ? journal.targetMacros as Macro[] : journal.macros;
   const recoverySettings = isCommitted
     ? journal.targetGameBrowserSettings
@@ -1212,7 +1212,7 @@ function createImportedWorkspace(
     browserLaunchMode: source.browserLaunchMode ?? "inherit",
     browserZoomMode: source.browserZoomMode ?? DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
     browserZoomPercent: source.browserZoomPercent,
-    resourcePolicy: remapWorkspaceResourcePolicy(source.resourcePolicy, roleIdMap, slots),
+    resourcePolicy: remapWorkspaceResourcePolicy(source.resourcePolicy),
     ...(existing?.targetDisplay === undefined
       ? {}
       : { targetDisplay: cloneWorkspaceDisplayTarget(existing.targetDisplay) }),
@@ -1648,15 +1648,12 @@ function normalizePortableLaunchWorkspace(value: unknown): PortableLaunchWorkspa
     browserLaunchMode: normalizeInheritableBrowserLaunchMode(workspace.browserLaunchMode),
     browserZoomMode: browserZoomMode ?? DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
     browserZoomPercent,
-    resourcePolicy: normalizePortableWorkspaceResourcePolicy(workspace.resourcePolicy, normalizedSlots),
+    resourcePolicy: normalizePortableWorkspaceResourcePolicy(workspace.resourcePolicy),
     slots: normalizedSlots
   };
 }
 
-function normalizePortableWorkspaceResourcePolicy(
-  value: unknown,
-  slots: PortableLaunchWorkspace["slots"]
-): WorkspaceResourcePolicy {
+function normalizePortableWorkspaceResourcePolicy(value: unknown): WorkspaceResourcePolicy {
   const input = toRecord(
     value === undefined || value === null ? DEFAULT_WORKSPACE_RESOURCE_POLICY : value
   );
@@ -1664,39 +1661,14 @@ function normalizePortableWorkspaceResourcePolicy(
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 
-  if (input.mode === "unrestricted") {
-    return { mode: input.mode };
-  }
-
-  const roleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
-  const primaryRoleId = typeof input.primaryRoleId === "string" && roleIds.includes(input.primaryRoleId)
-    ? input.primaryRoleId
-    : roleIds[0];
-  return {
-    mode: "adaptive",
-    ...(primaryRoleId ? { primaryRoleId } : {})
-  };
+  return { mode: input.mode === "unrestricted" ? input.mode : "adaptive" };
 }
 
 function remapWorkspaceResourcePolicy(
-  policy: WorkspaceResourcePolicy | undefined,
-  roleIdMap: Map<string, string>,
-  slots: LaunchWorkspace["slots"]
+  policy: WorkspaceResourcePolicy | undefined
 ): WorkspaceResourcePolicy {
   const source = policy ?? DEFAULT_WORKSPACE_RESOURCE_POLICY;
-  if (source.mode === "unrestricted") {
-    return { mode: source.mode };
-  }
-
-  const assignedRoleIds = slots.flatMap((slot) => slot.roleId ? [slot.roleId] : []);
-  const mappedPrimaryRoleId = source.primaryRoleId ? roleIdMap.get(source.primaryRoleId) : undefined;
-  const primaryRoleId = mappedPrimaryRoleId && assignedRoleIds.includes(mappedPrimaryRoleId)
-    ? mappedPrimaryRoleId
-    : assignedRoleIds[0];
-  return {
-    mode: source.mode,
-    ...(primaryRoleId ? { primaryRoleId } : {})
-  };
+  return { mode: source.mode === "unrestricted" ? source.mode : "adaptive" };
 }
 
 function normalizePortableWorkspaceSlot(value: unknown, index: number): PortableLaunchWorkspace["slots"][number] {

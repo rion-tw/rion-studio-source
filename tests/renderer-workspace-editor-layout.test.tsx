@@ -61,6 +61,8 @@ describe("workspace editor role picker layout", () => {
     expect(screen.getByRole("combobox", { name: "Browser zoom" }).textContent).toContain(
       "Adaptive (recommended)"
     );
+    expect(screen.queryByRole("combobox", { name: "Initial primary" })).toBeNull();
+    expect(screen.queryByText("Primary")).toBeNull();
     expect(rolePanel?.className).toContain("flex-col");
     expect(rolePanel?.className).toContain("min-[1180px]:overflow-hidden");
     expect(rolePanel?.className).toContain("min-[1180px]:[contain:size]");
@@ -122,7 +124,7 @@ function workspace(): LaunchWorkspace {
     browserLaunchMode: "inherit",
     browserZoomMode: "adaptive",
     browserZoomPercent: 100,
-    resourcePolicy: { mode: "adaptive", primaryRoleId: "role-1" },
+    resourcePolicy: { mode: "adaptive" },
     slots: [
       { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
       { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }

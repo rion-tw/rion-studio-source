@@ -302,7 +302,6 @@ export type WorkspaceResourceState =
 
 export interface WorkspaceResourcePolicy {
   mode: WorkspaceResourceMode;
-  primaryRoleId?: string;
 }
 
 export interface PixelBounds {

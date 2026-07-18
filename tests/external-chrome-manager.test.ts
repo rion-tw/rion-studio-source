@@ -330,13 +330,7 @@ describe("ExternalChromeManager", () => {
     const secondRole = { ...role, id: "role-2", name: "Alt" };
 
     const launchPromise = harness.manager.launchWorkspace(
-      {
-        id: "workspace-1",
-        resourcePolicy: {
-          mode: "adaptive",
-          primaryRoleId: secondRole.id
-        }
-      },
+      { id: "workspace-1" },
       [
         { role, rect: { x: 0, y: 0, width: 0.5, height: 1 } },
         { role: secondRole, rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
@@ -363,23 +357,23 @@ describe("ExternalChromeManager", () => {
       expect.arrayContaining(["--window-position=2800,40", "--window-size=800,900"])
     );
     const firstTarget = harness.automationTargetsByRoleId.get(role.id)!;
-    const primaryTarget = harness.automationTargetsByRoleId.get(secondRole.id)!;
+    const secondTarget = harness.automationTargetsByRoleId.get(secondRole.id)!;
     expect(firstTarget.setWindowBounds).toHaveBeenCalledWith({
       x: 2000,
       y: 40,
       width: 800,
       height: 900
     });
-    expect(primaryTarget.setWindowBounds).toHaveBeenCalledWith({
+    expect(secondTarget.setWindowBounds).toHaveBeenCalledWith({
       x: 2800,
       y: 40,
       width: 800,
       height: 900
     });
-    expect(firstTarget.focus).not.toHaveBeenCalled();
-    expect(primaryTarget.focus).toHaveBeenCalledOnce();
-    expect(primaryTarget.focus.mock.invocationCallOrder[0]).toBeGreaterThan(
-      firstTarget.setWindowBounds.mock.invocationCallOrder[0]
+    expect(firstTarget.focus).toHaveBeenCalledOnce();
+    expect(secondTarget.focus).not.toHaveBeenCalled();
+    expect(firstTarget.focus.mock.invocationCallOrder[0]).toBeGreaterThan(
+      secondTarget.setWindowBounds.mock.invocationCallOrder[0]
     );
     expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.75);
     expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-2/browser", 0.75);

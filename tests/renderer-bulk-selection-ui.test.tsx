@@ -236,6 +236,7 @@ describe("bulk selection UI", () => {
     expect(macroRow?.className).toContain("align-middle");
     expect(macroRow?.querySelector("td:nth-child(2)")?.className).toContain("py-1");
     expect(macroRow?.querySelector("td:nth-child(2)")?.className).toContain("align-middle");
+    expect(screen.getByText("None")).toBeTruthy();
 
     const actionLayout = screen.getByRole("button", { name: "Start" }).closest("[data-macro-actions-control]");
     expect(actionLayout?.className).toContain("absolute");

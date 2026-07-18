@@ -283,8 +283,7 @@ function MacrosRoute({
                     t={t}
                     onSort={handleSortChange}
                   />
-                  <th className="w-20 px-4 py-1 text-center">{t("macros.column.enabled")}</th>
-                  <th className="w-20 px-4 py-1" aria-label={t("macros.actions")} />
+                  <th className="w-32 px-4 py-1" aria-label={t("macros.actions")} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/45 text-[13px] leading-5">
@@ -340,20 +339,20 @@ function MacrosRoute({
                     <td className="max-w-[320px] px-4 py-1 align-middle text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t, macroNameById)}
                     </td>
-                    <td className="relative w-20 p-0 text-center">
-                      <div className="absolute inset-0 grid place-items-center" data-macro-enabled-control>
-                        <Switch
-                          checked={macro.enabled}
-                          disabled={busyMacroIds.has(macro.id)}
-                          title={t(macro.enabled ? "macros.disable" : "macros.enable")}
-                          aria-label={t(macro.enabled ? "macros.disableNamed" : "macros.enableNamed")
-                            .replace("{name}", macro.name)}
-                          onCheckedChange={(enabled) => onSetMacroEnabled?.(macro, enabled)}
-                        />
-                      </div>
-                    </td>
-                    <td className="relative w-20 p-0">
-                      <div className="absolute inset-0 flex items-center justify-end px-3" data-macro-actions-control>
+                    <td className="relative w-32 p-0">
+                      <div className="absolute inset-0 flex items-center justify-end gap-2 px-3" data-macro-actions-control>
+                        {onSetMacroEnabled ? (
+                          <div className="grid place-items-center" data-macro-enabled-control>
+                            <Switch
+                              checked={macro.enabled}
+                              disabled={busyMacroIds.has(macro.id)}
+                              title={t(macro.enabled ? "macros.disable" : "macros.enable")}
+                              aria-label={t(macro.enabled ? "macros.disableNamed" : "macros.enableNamed")
+                                .replace("{name}", macro.name)}
+                              onCheckedChange={(enabled) => onSetMacroEnabled?.(macro, enabled)}
+                            />
+                          </div>
+                        ) : null}
                         <MacroActionMenu
                           busyMacroIds={busyMacroIds}
                           busyRunKeys={busyRunKeys}

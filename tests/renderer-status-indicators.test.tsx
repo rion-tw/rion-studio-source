@@ -148,11 +148,9 @@ describe("renderer status indicators", () => {
     const toggle = screen.getByRole("switch", { name: "Enable Auto heal" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     const layout = toggle.closest("[data-macro-enabled-control]");
-    expect(layout?.className).toContain("absolute");
-    expect(layout?.className).toContain("inset-0");
     expect(layout?.className).toContain("place-items-center");
-    expect(layout?.parentElement?.className).toContain("relative");
-    expect(layout?.parentElement?.className).toContain("p-0");
+    expect(layout?.parentElement?.className).toContain("absolute");
+    expect(layout?.parentElement?.className).toContain("inset-0");
     fireEvent.click(toggle);
     expect(onSetMacroEnabled).toHaveBeenCalledWith(disabledMacro, true);
     expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);

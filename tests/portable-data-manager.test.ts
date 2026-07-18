@@ -24,7 +24,8 @@ import type {
   RionPortableDataV1,
   RionPortableDataV2,
   RionPortableDataV3,
-  RionPortableDataV4
+  RionPortableDataV4,
+  RionPortableDataV5
 } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
@@ -115,7 +116,7 @@ describe("PortableDataManager", () => {
         themeMode: "dark"
       }
     });
-    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV4;
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV5;
 
     expect(result).toMatchObject({
       gameCount: 2,
@@ -127,7 +128,7 @@ describe("PortableDataManager", () => {
     });
     expect(parsed).toMatchObject({
       app: "Rion Studio",
-      schemaVersion: 4,
+      schemaVersion: 5,
       appVersion: "1.2.3",
       preferences: {
         gameBrowserSettings: {
@@ -173,7 +174,7 @@ describe("PortableDataManager", () => {
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplay");
   });
 
-  it("round-trips portable v4 macro dependency ids", async () => {
+  it("round-trips macro dependency ids with the current portable schema", async () => {
     const filePath = join(baseDir, "macro-flow-export.json");
     const role = await roleStore.createRole({
       gameId: "builtin-flyff-universe",
@@ -198,8 +199,8 @@ describe("PortableDataManager", () => {
     });
 
     await manager.exportData({ selection: ALL_PORTABLE_DATA });
-    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV4;
-    expect(exported.schemaVersion).toBe(4);
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV5;
+    expect(exported.schemaVersion).toBe(5);
     expect(exported.macros.find((macro) => macro.id === parent.id)?.steps).toEqual([
       { id: "call", type: "macro", macroId: child.id }
     ]);
@@ -209,6 +210,57 @@ describe("PortableDataManager", () => {
     await expect(macroStore.getMacro(parent.id)).resolves.toMatchObject({
       steps: [{ id: "call", type: "macro", macroId: child.id }]
     });
+  });
+
+  it("round-trips v5 key modifiers and ignores them in legacy schemas", async () => {
+    const filePath = join(baseDir, "macro-modifiers-export.json");
+    const role = await roleStore.createRole({
+      gameId: "builtin-flyff-universe",
+      name: "Combo role",
+      launchUrl: "https://example.com/play",
+      windowWidth: 1280,
+      windowHeight: 720,
+      notes: ""
+    });
+    const combo = await macroStore.createMacro({
+      name: "Combo",
+      roleIds: [role.id],
+      steps: [{
+        id: "combo-key",
+        type: "key",
+        code: "KeyK",
+        modifiers: ["ctrl", "shift"]
+      }]
+    });
+    const manager = createManager({
+      exportPath: filePath,
+      importPath: filePath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await manager.exportData({ selection: ALL_PORTABLE_DATA });
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV5;
+    expect(exported.schemaVersion).toBe(5);
+    expect(exported.macros.find((macro) => macro.id === combo.id)?.steps).toEqual([
+      expect.objectContaining({ modifiers: ["ctrl", "shift"] })
+    ]);
+
+    await macroStore.deleteMacro(combo.id);
+    let preview = await manager.previewImport();
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+    const imported = (await macroStore.listMacros()).find((macro) => macro.name === combo.name)!;
+    expect(imported).toMatchObject({
+      steps: [expect.objectContaining({ modifiers: ["ctrl", "shift"] })]
+    });
+
+    await macroStore.deleteMacro(imported.id);
+    await writeFile(filePath, JSON.stringify({ ...exported, schemaVersion: 4 }), "utf8");
+    preview = await manager.previewImport();
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+    const legacyImported = (await macroStore.listMacros()).find((macro) => macro.name === combo.name)!;
+    expect(legacyImported.steps[0]).not.toHaveProperty("modifiers");
   });
 
   it("round-trips macro settings as portable preferences without changing schema version", async () => {
@@ -241,8 +293,8 @@ describe("PortableDataManager", () => {
       },
       selection
     });
-    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV4;
-    expect(exported.schemaVersion).toBe(4);
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV5;
+    expect(exported.schemaVersion).toBe(5);
     expect(exported.preferences?.macroSettings).toEqual({
       startupDelayMs: 0,
       keyHoldMs: 20,
@@ -314,7 +366,7 @@ describe("PortableDataManager", () => {
         preferences: false
       }
     });
-    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV4;
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV5;
 
     expect(result).toMatchObject({
       roleCount: 1,

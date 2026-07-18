@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v32";
+  const hostId = "rion-studio-macro-overlay-v33";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 30 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 31 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-18.1";
+  const scriptVersion = "2026-07-18.2";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -461,20 +461,24 @@
     event.stopImmediatePropagation?.();
   }
 
-  function suppressNextShortcut(code) {
+  function suppressNextShortcut(code, phase = "keydown") {
     const now = Date.now();
     suppressedShortcutEvents = suppressedShortcutEvents.filter((item) => item.expiresAt > now);
-    suppressedShortcutEvents.push({ code: String(code), expiresAt: now + 1000 });
+    suppressedShortcutEvents.push({ code: String(code), expiresAt: now + 1000, phase });
   }
 
-  function clearSuppressedShortcut(code) {
-    suppressedShortcutEvents = suppressedShortcutEvents.filter((item) => item.code !== code);
+  function clearSuppressedShortcut(code, phase = "keydown") {
+    suppressedShortcutEvents = suppressedShortcutEvents.filter(
+      (item) => item.code !== code || item.phase !== phase
+    );
   }
 
-  function consumeSuppressedShortcut(code) {
+  function consumeSuppressedShortcut(code, phase) {
     const now = Date.now();
     suppressedShortcutEvents = suppressedShortcutEvents.filter((item) => item.expiresAt > now);
-    const index = suppressedShortcutEvents.findIndex((item) => item.code === code);
+    const index = suppressedShortcutEvents.findIndex(
+      (item) => item.code === code && item.phase === phase
+    );
     if (index === -1) {
       return false;
     }
@@ -489,7 +493,7 @@
   }
 
   function handleKeyDown(event) {
-    if (consumeSuppressedShortcut(event.code)) {
+    if (consumeSuppressedShortcut(event.code, "keydown")) {
       return;
     }
     if (shouldIgnoreShortcutEvent(event, undefined, document.designMode)) {
@@ -538,6 +542,9 @@
   }
 
   function handleKeyUp(event) {
+    if (consumeSuppressedShortcut(event.code, "keyup")) {
+      return;
+    }
     const matches = [...activeHeldShortcuts.entries()].filter(
       ([, active]) => active.code === event.code
     );

@@ -55,6 +55,29 @@ describe("MacroManager", () => {
     }
   });
 
+  it("dispatches key combinations as one target operation", async () => {
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        steps: [{
+          id: "combo",
+          type: "key",
+          code: "KeyK",
+          modifiers: ["ctrl", "shift"]
+        }]
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => expect(target.dispatchKey).toHaveBeenCalledWith(
+      { code: "KeyK", modifiers: ["ctrl", "shift"] },
+      expectInputOptions()
+    ));
+  });
+
   it("checks every target before publishing running state or dispatching the first step", async () => {
     const targets = {
       "role-1": createTarget(),
@@ -241,6 +264,41 @@ describe("MacroManager", () => {
       expect.stringContaining("macro-invocation-")
     );
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
+  });
+
+  it("gives held combination steps distinct owners and releases them in reverse order", async () => {
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        steps: [
+          { id: "first", type: "key", code: "KeyK", modifiers: ["ctrl"], action: "hold_until_stop" },
+          { id: "second", type: "key", code: "KeyL", modifiers: ["ctrl"], action: "hold_until_stop" }
+        ]
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => expect(target.holdKey).toHaveBeenCalledTimes(2));
+    const firstOwner = target.holdKey.mock.calls[0]?.[1];
+    const secondOwner = target.holdKey.mock.calls[1]?.[1];
+    expect(firstOwner).not.toBe(secondOwner);
+    expect(firstOwner).toContain(":first");
+    expect(secondOwner).toContain(":second");
+
+    await manager.stop("macro-1");
+    expect(target.releaseKey).toHaveBeenNthCalledWith(
+      1,
+      { code: "KeyL", modifiers: ["ctrl"] },
+      secondOwner
+    );
+    expect(target.releaseKey).toHaveBeenNthCalledWith(
+      2,
+      { code: "KeyK", modifiers: ["ctrl"] },
+      firstOwner
+    );
   });
 
   it("starts and releases a while-held macro for one or many assigned roles", async () => {

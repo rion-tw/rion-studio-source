@@ -173,6 +173,8 @@ export type MacroActivationMode = "toggle" | "while_held";
 
 export type MacroKeyAction = "tap" | "hold_until_stop";
 
+export type MacroKeyModifier = "primary" | "ctrl" | "alt" | "shift" | "meta";
+
 export interface MacroSettings {
   startupDelayMs: number;
   keyHoldMs: number;
@@ -194,6 +196,7 @@ export type MacroStep =
       id: string;
       type: "key";
       code: string;
+      modifiers?: MacroKeyModifier[];
       action?: MacroKeyAction;
       label?: string;
     }
@@ -759,11 +762,24 @@ export interface RionPortableDataV4 {
   preferences?: PortablePreferences;
 }
 
+export interface RionPortableDataV5 {
+  app: "Rion Studio";
+  schemaVersion: 5;
+  exportedAt: string;
+  appVersion: string;
+  games: PortableGame[];
+  roles: PortableRole[];
+  launchWorkspaces: PortableLaunchWorkspace[];
+  macros: PortableMacro[];
+  preferences?: PortablePreferences;
+}
+
 export type RionPortableData =
   | RionPortableDataV1
   | RionPortableDataV2
   | RionPortableDataV3
-  | RionPortableDataV4;
+  | RionPortableDataV4
+  | RionPortableDataV5;
 
 export interface PortableExportResult {
   filePath: string;

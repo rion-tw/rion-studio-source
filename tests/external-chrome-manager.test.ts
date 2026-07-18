@@ -138,7 +138,7 @@ describe("ExternalChromeManager", () => {
     expect(harness.connectAutomation).toHaveBeenCalledWith(
       "/profiles/role-1/browser",
       role.launchUrl,
-      { cdnCompatibilityEnabled: true }
+      { cdnCompatibilityEnabled: true, platform: "linux" }
     );
     expect(harness.spawnChrome).toHaveBeenCalledWith(
       expect.any(String),

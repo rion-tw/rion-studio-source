@@ -36,12 +36,15 @@ import {
   MACRO_OVERLAY_TRIGGER
 } from "../../../../shared/macroShortcuts";
 import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
-import type { Game, Macro, MacroActivationMode, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
+import type { Game, Macro, MacroActivationMode, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
   formatMacroCode,
+  formatMacroKeyCombination,
   formatMacroIntervalPreset,
+  formatMacroModifierLabel,
   formatMacroShortcut,
   getCallableMacroTargets,
   isCallableMacroTarget,
@@ -893,6 +896,7 @@ function MacroStepEditor({
 }
 
 const macroStepTypeOrder: Array<MacroStep["type"]> = ["key", "click", "delay", "macro"];
+const macroKeyModifiers: MacroKeyModifier[] = ["primary", "ctrl", "alt", "shift", "meta"];
 
 function getMacroStepTypeLabel(type: MacroStep["type"], t: Translator): string {
   switch (type) {
@@ -921,51 +925,100 @@ function MacroStepFields({
   t: Translator;
 }): JSX.Element {
   if (step.type === "key") {
+    const modifiers = step.modifiers ?? [];
+    const mainKeyIsModifier = isPureModifierCode(step.code);
+    const updateKeyInput = (code: string, nextModifiers: MacroKeyModifier[]): void => {
+      const normalizedModifiers = canonicalizeMacroKeyModifiers(nextModifiers);
+      onUpdate({
+        ...step,
+        code,
+        ...(normalizedModifiers.length > 0 ? { modifiers: normalizedModifiers } : { modifiers: undefined }),
+        label: formatMacroKeyCombination(code, normalizedModifiers, t)
+      });
+    };
+
     return (
-      <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
-        <Select
-          value={step.code}
-          onValueChange={(value) =>
-            onUpdate({
+      <div className="grid min-w-0 gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
+          <Select
+            value={step.code}
+            onValueChange={(value) => updateKeyInput(value, modifiers)}
+            disabled={isSaving}
+          >
+            <SelectTrigger className="w-28 flex-none" aria-label={t("macro.step.key")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {commonMacroKeyCodes.map((code) => (
+                <SelectItem
+                  key={code}
+                  value={code}
+                  disabled={modifiers.length > 0 && isPureModifierCode(code)}
+                >
+                  {formatMacroCode(code)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <KeyRecorder
+            disabled={isSaving}
+            t={t}
+            onRecord={({ code, modifiers: recordedModifiers }) =>
+              updateKeyInput(code, recordedModifiers)
+            }
+          />
+          <Select
+            disabled={isSaving}
+            value={step.action ?? "tap"}
+            onValueChange={(action) => onUpdate({
               ...step,
-              code: value,
-              label: formatMacroCode(value)
-            })
-          }
-          disabled={isSaving}
-        >
-          <SelectTrigger className="w-28 flex-none" aria-label={t("macro.step.key")}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {commonMacroKeyCodes.map((code) => (
-              <SelectItem key={code} value={code}>
-                {formatMacroCode(code)}
+              action: action as Extract<MacroStep, { type: "key" }>["action"]
+            })}
+          >
+            <SelectTrigger className="w-36 flex-none" aria-label={t("macroForm.keyAction")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tap">{t("macroForm.keyAction.tap")}</SelectItem>
+              <SelectItem value="hold_until_stop">
+                {modifiers.length > 0
+                  ? t("macroForm.keyAction.holdCombination")
+                  : t("macroForm.keyAction.hold")}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <KeyRecorder
-          disabled={isSaving}
-          t={t}
-          onRecord={(code) => onUpdate({ ...step, code, label: formatMacroCode(code) })}
-        />
-        <Select
-          disabled={isSaving}
-          value={step.action ?? "tap"}
-          onValueChange={(action) => onUpdate({
-            ...step,
-            action: action as Extract<MacroStep, { type: "key" }>["action"]
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5" aria-label={t("macroForm.modifiers")}>
+          {macroKeyModifiers.map((modifier) => {
+            const selected = modifiers.includes(modifier);
+            const conflictsWithPrimary = modifier === "primary"
+              ? modifiers.includes("ctrl") || modifiers.includes("meta")
+              : (modifier === "ctrl" || modifier === "meta") && modifiers.includes("primary");
+            return (
+              <Button
+                key={modifier}
+                type="button"
+                size="sm"
+                variant={selected ? "secondary" : "outline"}
+                aria-pressed={selected}
+                disabled={isSaving || mainKeyIsModifier || (!selected && conflictsWithPrimary)}
+                onClick={() => updateKeyInput(
+                  step.code,
+                  selected
+                    ? modifiers.filter((item) => item !== modifier)
+                    : [...modifiers, modifier]
+                )}
+              >
+                {formatMacroModifierLabel(modifier, t)}
+              </Button>
+            );
           })}
-        >
-          <SelectTrigger className="w-36 flex-none" aria-label={t("macroForm.keyAction")}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="tap">{t("macroForm.keyAction.tap")}</SelectItem>
-            <SelectItem value="hold_until_stop">{t("macroForm.keyAction.hold")}</SelectItem>
-          </SelectContent>
-        </Select>
+        </div>
+        {mainKeyIsModifier ? (
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            {t("macroForm.modifiersNeedMainKey")}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -1046,7 +1099,7 @@ function KeyRecorder({
   t
 }: {
   disabled: boolean;
-  onRecord: (code: string) => void;
+  onRecord: (input: { code: string; modifiers: MacroKeyModifier[] }) => void;
   t: Translator;
 }): JSX.Element {
   const [isRecording, setIsRecording] = useState(false);
@@ -1064,7 +1117,15 @@ function KeyRecorder({
         return;
       }
 
-      onRecord(event.code);
+      onRecord({
+        code: event.code,
+        modifiers: canonicalizeMacroKeyModifiers([
+          ...(event.ctrlKey ? ["ctrl" as const] : []),
+          ...(event.altKey ? ["alt" as const] : []),
+          ...(event.shiftKey ? ["shift" as const] : []),
+          ...(event.metaKey ? ["meta" as const] : [])
+        ])
+      });
       setIsRecording(false);
     }
 

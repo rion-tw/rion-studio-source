@@ -1839,7 +1839,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       rect,
       role,
       state: "launching",
-      target: new ElectronAutomationTarget(view, view.webContents),
+      target: new ElectronAutomationTarget(
+        view,
+        view.webContents,
+        this.options.platform ?? process.platform
+      ),
       view,
       zoomFactor: initialZoomFactor,
       zoomMode

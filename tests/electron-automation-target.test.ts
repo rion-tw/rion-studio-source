@@ -23,7 +23,7 @@ describe("ElectronAutomationTarget", () => {
       ])
     );
     expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('suppressNextShortcut?.("F2")')
+      expect.stringContaining('suppressNextShortcut?.("F2", "keydown")')
     );
     expect(harness.webContents.sendInputEvent).toHaveBeenNthCalledWith(1, {
       type: "rawKeyDown",
@@ -33,6 +33,93 @@ describe("ElectronAutomationTarget", () => {
       type: "keyUp",
       keyCode: "F2"
     });
+  });
+
+  it("dispatches a key combination atomically with modifier state", async () => {
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(
+      harness.view as never,
+      harness.webContents as never,
+      "win32"
+    );
+
+    await target.dispatchKey({ code: "KeyK", modifiers: ["shift", "ctrl"] });
+
+    expect(harness.webContents.sendInputEvent.mock.calls).toEqual([
+      [{ type: "rawKeyDown", keyCode: "Control", modifiers: ["control"] }],
+      [{ type: "rawKeyDown", keyCode: "Shift", modifiers: ["control", "shift"] }],
+      [{ type: "rawKeyDown", keyCode: "K", modifiers: ["control", "shift"] }],
+      [{ type: "keyUp", keyCode: "K", modifiers: ["control", "shift"] }],
+      [{ type: "keyUp", keyCode: "Shift", modifiers: ["control"] }],
+      [{ type: "keyUp", keyCode: "Control" }]
+    ]);
+  });
+
+  it.each([
+    ["darwin", "Meta"],
+    ["win32", "Control"]
+  ] as const)("resolves Primary explicitly on %s", async (platform, keyCode) => {
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(
+      harness.view as never,
+      harness.webContents as never,
+      platform
+    );
+
+    await target.dispatchKey({ code: "KeyA", modifiers: ["primary"] });
+
+    expect(harness.webContents.sendInputEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      type: "rawKeyDown",
+      keyCode
+    }));
+  });
+
+  it("reference-counts modifiers shared by held combinations", async () => {
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(
+      harness.view as never,
+      harness.webContents as never,
+      "win32"
+    );
+    const first = { code: "KeyK", modifiers: ["ctrl" as const] };
+    const second = { code: "KeyL", modifiers: ["ctrl" as const] };
+
+    await target.holdKey(first, "owner-1");
+    await target.holdKey(second, "owner-2");
+    await target.releaseKey(first, "owner-1");
+    await target.releaseKey(second, "owner-2");
+
+    expect(harness.webContents.sendInputEvent.mock.calls.map(([event]) => event)).toEqual([
+      { type: "rawKeyDown", keyCode: "Control", modifiers: ["control"] },
+      { type: "rawKeyDown", keyCode: "K", modifiers: ["control"] },
+      { type: "rawKeyDown", keyCode: "L", modifiers: ["control"] },
+      { type: "keyUp", keyCode: "K", modifiers: ["control"] },
+      { type: "keyUp", keyCode: "L", modifiers: ["control"] },
+      { type: "keyUp", keyCode: "Control" }
+    ]);
+  });
+
+  it("rolls back an entire held combination when its post-input delay is cancelled", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const controller = new AbortController();
+
+    const hold = target.holdKey(
+      { code: "KeyW", modifiers: ["shift"] },
+      "owner",
+      { postDelayMs: 100, signal: controller.signal }
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+
+    await expect(hold).rejects.toThrow();
+    expect(harness.webContents.sendInputEvent.mock.calls.map(([event]) => event)).toEqual([
+      { type: "rawKeyDown", keyCode: "Shift", modifiers: ["shift"] },
+      { type: "rawKeyDown", keyCode: "W", modifiers: ["shift"] },
+      { type: "keyUp", keyCode: "W", modifiers: ["shift"] },
+      { type: "keyUp", keyCode: "Shift" }
+    ]);
   });
 
   it("converts percentage clicks using the current embedded view bounds", async () => {
@@ -133,7 +220,7 @@ describe("ElectronAutomationTarget", () => {
       releaseFirstSuppression = resolve;
     });
     harness.frame.executeJavaScript.mockImplementation((source: string) => {
-      if (source.includes('suppressNextShortcut?.("F2")')) {
+      if (source.includes('suppressNextShortcut?.("F2", "keydown")')) {
         return firstSuppression;
       }
       return Promise.resolve(source.includes('largest("canvas")') ? "canvas" : undefined);
@@ -143,13 +230,13 @@ describe("ElectronAutomationTarget", () => {
     const first = target.dispatchKey("F2");
     await vi.waitFor(() => {
       expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
-        expect.stringContaining('suppressNextShortcut?.("F2")')
+        expect.stringContaining('suppressNextShortcut?.("F2", "keydown")')
       );
     });
     const second = target.dispatchKey("F3");
     await Promise.resolve();
     expect(harness.frame.executeJavaScript).not.toHaveBeenCalledWith(
-      expect.stringContaining('suppressNextShortcut?.("F3")')
+      expect.stringContaining('suppressNextShortcut?.("F3", "keydown")')
     );
 
     releaseFirstSuppression();
@@ -186,7 +273,7 @@ describe("ElectronAutomationTarget", () => {
       releaseSuppression = resolve;
     });
     harness.frame.executeJavaScript.mockImplementation((source: string) =>
-      source.includes('suppressNextShortcut?.("F2")')
+      source.includes('suppressNextShortcut?.("F2", "keydown")')
         ? suppression
         : Promise.resolve(source.includes('largest("canvas")') ? "canvas" : undefined)
     );
@@ -194,7 +281,7 @@ describe("ElectronAutomationTarget", () => {
 
     const key = target.dispatchKey("F2");
     await vi.waitFor(() => expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('suppressNextShortcut?.("F2")')
+      expect.stringContaining('suppressNextShortcut?.("F2", "keydown")')
     ));
     const click = target.dispatchClick(20, 30);
     await Promise.resolve();
@@ -207,6 +294,40 @@ describe("ElectronAutomationTarget", () => {
       [{ type: "keyUp", keyCode: "F2" }],
       [{ type: "mouseDown", button: "left", clickCount: 1, x: 256, y: 216 }],
       [{ type: "mouseUp", button: "left", clickCount: 1, x: 256, y: 216 }]
+    ]);
+  });
+
+  it("keeps held-key release inside the target input queue", async () => {
+    const harness = createHarness();
+    let releaseSuppression!: () => void;
+    const suppression = new Promise<void>((resolve) => {
+      releaseSuppression = resolve;
+    });
+    harness.frame.executeJavaScript.mockImplementation((source: string) =>
+      source.includes('suppressNextShortcut?.("F2", "keydown")')
+        ? suppression
+        : Promise.resolve(undefined)
+    );
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    await target.holdKey("KeyW", "owner");
+    const key = target.dispatchKey("F2");
+    await vi.waitFor(() => expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('suppressNextShortcut?.("F2", "keydown")')
+    ));
+    const release = target.releaseKey("KeyW", "owner");
+    await Promise.resolve();
+    expect(harness.webContents.sendInputEvent.mock.calls).toEqual([
+      [{ type: "rawKeyDown", keyCode: "W" }]
+    ]);
+
+    releaseSuppression();
+    await Promise.all([key, release]);
+    expect(harness.webContents.sendInputEvent.mock.calls).toEqual([
+      [{ type: "rawKeyDown", keyCode: "W" }],
+      [{ type: "rawKeyDown", keyCode: "F2" }],
+      [{ type: "keyUp", keyCode: "F2" }],
+      [{ type: "keyUp", keyCode: "W" }]
     ]);
   });
 

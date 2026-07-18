@@ -160,7 +160,10 @@ export function useMacroWorkflow({
         name: createCopyName(macro.name, macros.map((item) => item.name), t("copyName.suffix")),
         roleIds: [...macro.roleIds],
         repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
-        steps: macro.steps.map((step) => ({ ...step })),
+        steps: macro.steps.map((step) => ({
+          ...step,
+          ...(step.type === "key" && step.modifiers ? { modifiers: [...step.modifiers] } : {})
+        })),
         trigger: null
       });
       setMacros((current) => [...current, copy]);

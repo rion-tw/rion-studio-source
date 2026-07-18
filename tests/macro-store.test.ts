@@ -122,6 +122,54 @@ describe("MacroStore", () => {
     });
   });
 
+  it("normalizes key modifiers and rejects ambiguous combinations", async () => {
+    await expect(store.createMacro({
+      name: "Combo",
+      roleIds: ["role-1"],
+      steps: [{
+        id: "combo",
+        type: "key",
+        code: "KeyK",
+        modifiers: ["shift", "ctrl", "shift"]
+      }]
+    })).resolves.toMatchObject({
+      steps: [{ code: "KeyK", modifiers: ["ctrl", "shift"] }]
+    });
+
+    await expect(store.createMacro({
+      name: "Primary conflict",
+      roleIds: ["role-1"],
+      steps: [{
+        id: "combo",
+        type: "key",
+        code: "KeyK",
+        modifiers: ["primary", "ctrl"]
+      }]
+    })).rejects.toMatchObject({ code: "MACRO_KEY_PRIMARY_CONFLICT" });
+
+    await expect(store.createMacro({
+      name: "Modifier main key",
+      roleIds: ["role-1"],
+      steps: [{
+        id: "combo",
+        type: "key",
+        code: "ControlLeft",
+        modifiers: ["shift"]
+      }]
+    })).rejects.toMatchObject({ code: "MACRO_KEY_COMBINATION_INVALID" });
+
+    await expect(store.createMacro({
+      name: "Unknown modifier",
+      roleIds: ["role-1"],
+      steps: [{
+        id: "combo",
+        type: "key",
+        code: "KeyK",
+        modifiers: ["hyper" as never]
+      }]
+    })).rejects.toMatchObject({ code: "MACRO_KEY_MODIFIERS_INVALID" });
+  });
+
   it("does not allow a called macro to hold a key until stopped", async () => {
     const child = await store.createMacro({
       name: "Held child",

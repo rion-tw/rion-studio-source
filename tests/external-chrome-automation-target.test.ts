@@ -82,6 +82,91 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("dispatches a key combination atomically with CDP modifier state", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client, "win32");
+
+    await target.dispatchKey({ code: "KeyK", modifiers: ["shift", "ctrl"] });
+
+    expect(harness.send.mock.calls
+      .filter(([method]) => method === "Input.dispatchKeyEvent")
+      .map(([, params]) => params)
+    ).toEqual([
+      { type: "rawKeyDown", code: "ControlLeft", key: "Control", windowsVirtualKeyCode: 17, location: 1, modifiers: 2 },
+      { type: "rawKeyDown", code: "ShiftLeft", key: "Shift", windowsVirtualKeyCode: 16, location: 1, modifiers: 10 },
+      { type: "rawKeyDown", code: "KeyK", key: "K", windowsVirtualKeyCode: 75, modifiers: 10 },
+      { type: "keyUp", code: "KeyK", key: "K", windowsVirtualKeyCode: 75, modifiers: 10 },
+      { type: "keyUp", code: "ShiftLeft", key: "Shift", windowsVirtualKeyCode: 16, location: 1, modifiers: 2 },
+      { type: "keyUp", code: "ControlLeft", key: "Control", windowsVirtualKeyCode: 17, location: 1 }
+    ]);
+  });
+
+  it.each([
+    ["darwin", "MetaLeft", 4],
+    ["win32", "ControlLeft", 2]
+  ] as const)("resolves Primary explicitly on %s", async (platform, code, modifiers) => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client, platform);
+
+    await target.dispatchKey({ code: "KeyA", modifiers: ["primary"] });
+
+    expect(harness.send).toHaveBeenCalledWith("Input.dispatchKeyEvent", expect.objectContaining({
+      type: "rawKeyDown",
+      code,
+      modifiers
+    }));
+  });
+
+  it("reference-counts modifiers shared by held combinations", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client, "win32");
+    const first = { code: "KeyK", modifiers: ["ctrl" as const] };
+    const second = { code: "KeyL", modifiers: ["ctrl" as const] };
+
+    await target.holdKey(first, "owner-1");
+    await target.holdKey(second, "owner-2");
+    await target.releaseKey(first, "owner-1");
+    await target.releaseKey(second, "owner-2");
+
+    expect(harness.send.mock.calls
+      .filter(([method]) => method === "Input.dispatchKeyEvent")
+      .map(([, params]) => [params?.type, params?.code])
+    ).toEqual([
+      ["rawKeyDown", "ControlLeft"],
+      ["rawKeyDown", "KeyK"],
+      ["rawKeyDown", "KeyL"],
+      ["keyUp", "KeyK"],
+      ["keyUp", "KeyL"],
+      ["keyUp", "ControlLeft"]
+    ]);
+  });
+
+  it("rolls back an entire held combination when its post-input delay is cancelled", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    const controller = new AbortController();
+
+    const hold = target.holdKey(
+      { code: "KeyW", modifiers: ["shift"] },
+      "owner",
+      { postDelayMs: 100, signal: controller.signal }
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+
+    await expect(hold).rejects.toThrow();
+    expect(harness.send.mock.calls
+      .filter(([method]) => method === "Input.dispatchKeyEvent")
+      .map(([, params]) => [params?.type, params?.code])
+    ).toEqual([
+      ["rawKeyDown", "ShiftLeft"],
+      ["rawKeyDown", "KeyW"],
+      ["keyUp", "KeyW"],
+      ["keyUp", "ShiftLeft"]
+    ]);
+  });
+
   it("holds keys and keeps the post-input delay inside the shared CDP queue", async () => {
     vi.useFakeTimers();
     const harness = createHarness();
@@ -422,6 +507,47 @@ describe("ExternalChromeAutomationTarget", () => {
     ]);
   });
 
+  it("keeps held-key release inside the CDP input queue", async () => {
+    const harness = createHarness();
+    const f2KeyDown = createDeferred<void>();
+    harness.send.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (
+        method === "Input.dispatchKeyEvent" &&
+        params?.type === "rawKeyDown" &&
+        params.code === "F2"
+      ) {
+        await f2KeyDown.promise;
+      }
+      return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+    });
+    const target = new ExternalChromeAutomationTarget(harness.client);
+
+    await target.holdKey("KeyW", "owner");
+    const key = target.dispatchKey("F2");
+    await vi.waitFor(() => expect(harness.send).toHaveBeenCalledWith(
+      "Input.dispatchKeyEvent",
+      expect.objectContaining({ type: "rawKeyDown", code: "F2" })
+    ));
+    const release = target.releaseKey("KeyW", "owner");
+    await Promise.resolve();
+    expect(harness.send).not.toHaveBeenCalledWith(
+      "Input.dispatchKeyEvent",
+      expect.objectContaining({ type: "keyUp", code: "KeyW" })
+    );
+
+    f2KeyDown.resolve(undefined);
+    await Promise.all([key, release]);
+    expect(harness.send.mock.calls
+      .filter(([method]) => method === "Input.dispatchKeyEvent")
+      .map(([, params]) => [params?.type, params?.code])
+    ).toEqual([
+      ["rawKeyDown", "KeyW"],
+      ["rawKeyDown", "F2"],
+      ["keyUp", "F2"],
+      ["keyUp", "KeyW"]
+    ]);
+  });
+
   it("retries key release when the first keyUp request fails", async () => {
     const harness = createHarness();
     let keyUpCalls = 0;
@@ -452,7 +578,7 @@ describe("ExternalChromeAutomationTarget", () => {
     for (const contextId of [7, 8]) {
       expect(harness.send).toHaveBeenCalledWith("Runtime.evaluate", {
         contextId,
-        expression: expect.stringContaining('suppressNextShortcut?.("F2")')
+        expression: expect.stringContaining('suppressNextShortcut?.("F2", "keydown")')
       });
     }
   });
@@ -587,6 +713,7 @@ describe("ExternalChromeAutomationTarget", () => {
   it("maps function and unknown physical codes safely", () => {
     expect(getCdpKeyDescriptor("F2")).toMatchObject({ code: "F2", key: "F2", windowsVirtualKeyCode: 113 });
     expect(getCdpKeyDescriptor("Minus")).toMatchObject({ code: "Minus", key: "-", windowsVirtualKeyCode: 189 });
+    expect(getCdpKeyDescriptor("Slash", 8)).toMatchObject({ code: "Slash", key: "?", windowsVirtualKeyCode: 191 });
     expect(getCdpKeyDescriptor("Custom1")).toMatchObject({ code: "Custom1", key: "Custom1" });
   });
 });

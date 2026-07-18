@@ -4,6 +4,7 @@ import {
   createMacroRunKey,
   createEmptyMacroForm,
   formatMacroActivationMode,
+  formatMacroKeyCombination,
   formatMacroIntervalPreset,
   formatMacroRepeat,
   formatMacroShortcut,
@@ -32,6 +33,7 @@ const t: Translator = (key) =>
       "macroForm.intervalNone": "0 ms · No extra wait",
       "macroForm.activation.toggle": "Tap to toggle",
       "macroForm.activation.whileHeld": "Tap or hold",
+      "macroForm.modifier.primary": "Primary ({value})",
       "macros.noShortcut": "No shortcut",
       "macros.repeat.loop": "Wait {ms} ms after completion",
       "macros.repeat.loopImmediate": "Schedule the next run after completion",
@@ -90,6 +92,17 @@ describe("macroUtils", () => {
       [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }],
       t
     )).toBe("Hold:W");
+
+    expect(summarizeMacroSteps(
+      [{ id: "combo", type: "key", code: "KeyK", modifiers: ["ctrl", "shift"] }],
+      t
+    )).toBe("Key:Ctrl + Shift + K");
+  });
+
+  it("formats Primary and physical Meta for each display platform", () => {
+    expect(formatMacroKeyCombination("KeyA", ["primary"], t, "mac")).toBe("Primary (⌘) + A");
+    expect(formatMacroKeyCombination("KeyA", ["primary"], t, "windows")).toBe("Primary (Ctrl) + A");
+    expect(formatMacroKeyCombination("KeyA", ["meta"], t, "windows")).toBe("Win + A");
   });
 
   it("creates a new macro form without default steps", () => {

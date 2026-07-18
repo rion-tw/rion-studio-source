@@ -142,16 +142,20 @@ describe("macro editor controls", () => {
       ctrlKey: true,
       shiftKey: true
     });
-    expect(screen.getByRole("button", { name: "Ctrl" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("button", { name: "Shift" }).getAttribute("aria-pressed")).toBe("true");
+    openModifierMenu();
+    expect(getModifierMenuItem("Ctrl").getAttribute("aria-checked")).toBe("true");
+    expect(getModifierMenuItem("Shift").getAttribute("aria-checked")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
     fireEvent.keyDown(window, { code: "KeyK", key: "K", metaKey: true });
-    expect(screen.getByRole("button", { name: "Win" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("button", { name: "Primary (Ctrl)" }).getAttribute("aria-pressed")).toBe("false");
+    openModifierMenu();
+    expect(getModifierMenuItem("Win").getAttribute("aria-checked")).toBe("true");
+    expect(getModifierMenuItem("Primary (Ctrl)").getAttribute("aria-checked")).toBe("false");
 
-    fireEvent.click(screen.getByRole("button", { name: "Win" }));
-    fireEvent.click(screen.getByRole("button", { name: "Primary (Ctrl)" }));
+    openModifierMenu();
+    fireEvent.click(getModifierMenuItem("Win"));
+    openModifierMenu();
+    fireEvent.click(getModifierMenuItem("Primary (Ctrl)"));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
@@ -184,9 +188,44 @@ describe("macro editor controls", () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
 
     expect(screen.getByText("Choose a non-modifier main key before adding modifiers.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Modifiers" })).toBeDisabled();
     for (const name of ["Primary (Ctrl)", "Ctrl", "Alt", "Shift", "Meta"]) {
-      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.queryByRole("menuitemcheckbox", { name })).toBeNull();
     }
+  });
+
+  it("stores multiple selected modifiers from the modifier menu in canonical order", async () => {
+    const selectedMacro = macro();
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    openModifierMenu();
+    fireEvent.click(getModifierMenuItem("Ctrl"));
+    fireEvent.click(getModifierMenuItem("Shift"));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [expect.objectContaining({ modifiers: ["ctrl", "shift"] })]
+    })));
   });
 
   it("uses the full role card as the selector without showing a checkbox", () => {
@@ -435,6 +474,17 @@ describe("macro editor controls", () => {
 });
 
 const t: Translator = (key) => en[key];
+
+function openModifierMenu(): void {
+  const trigger = screen.getByRole("button", { name: /^Modifiers/ });
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(trigger);
+  }
+}
+
+function getModifierMenuItem(name: string): HTMLElement {
+  return screen.getByRole("menuitemcheckbox", { name });
+}
 
 function game(): Game {
   return {

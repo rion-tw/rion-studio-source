@@ -58,6 +58,7 @@ import {
   type WorkspaceResizeIndicatorPayload
 } from "../../shared/workspaceResize";
 import type { ExternalChromeLaunchItem, ExternalChromeManager } from "./ExternalChromeManager";
+import type { EmbeddedRuntimeDiagnosticContext } from "./EmbeddedRuntimeDiagnostics";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import { ElectronWorkspaceResourceTarget } from "./ElectronWorkspaceResourceTarget";
 import type {
@@ -136,6 +137,10 @@ export interface BrowserManagerOptions {
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
+  onEmbeddedWebContentsCreated?: (
+    context: EmbeddedRuntimeDiagnosticContext,
+    webContents: WebContents
+  ) => void;
   resourcePressureMonitor?: SystemPressureSource;
 }
 
@@ -1861,6 +1866,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.sessions.set(role.id, session);
     host.roleIds.add(role.id);
     host.window.contentView.addChildView(view);
+    this.options.onEmbeddedWebContentsCreated?.({
+      hostId: host.id,
+      kind: "game",
+      roleId: role.id,
+      ...(host.workspaceId ? { workspaceId: host.workspaceId } : {})
+    }, view.webContents);
     this.layoutDisplayHost(this.getDisplayHost(host));
     this.configureZoomPersistence(session, view.webContents);
     this.configureWindowOpenHandler(session, view.webContents);
@@ -2125,6 +2136,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     host.window.contentView.addChildView(popupView);
     this.bringRuntimeChromeToFront(this.getDisplayHost(host));
     session.popupViews.add(popupView);
+    this.options.onEmbeddedWebContentsCreated?.({
+      hostId: host.id,
+      kind: "popup",
+      roleId: session.role.id,
+      ...(host.workspaceId ? { workspaceId: host.workspaceId } : {})
+    }, popupView.webContents);
     this.configureZoomPersistence(session, popupView.webContents);
     this.configureWindowOpenHandler(session, popupView.webContents);
     this.configureCloseShortcut(host, popupView.webContents);

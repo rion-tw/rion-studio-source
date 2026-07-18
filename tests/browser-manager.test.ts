@@ -187,7 +187,8 @@ describe("BrowserManager game host windows", () => {
   ] as const)(
     "opens a single role in the shared display host without a legacy inner control offset on %s",
     async (platform, materialOptions) => {
-      const harness = createHarness({ platform });
+      const onEmbeddedWebContentsCreated = vi.fn();
+      const harness = createHarness({ platform, onEmbeddedWebContentsCreated });
       const overlayInstaller = vi.fn().mockResolvedValue(undefined);
       harness.manager.setMacroOverlayInstaller(overlayInstaller);
 
@@ -236,6 +237,11 @@ describe("BrowserManager game host windows", () => {
       expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
       expect(harness.hosts[0].show).toHaveBeenCalledTimes(1);
       expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
+      expect(onEmbeddedWebContentsCreated).toHaveBeenCalledWith({
+        hostId: expect.any(String),
+        kind: "game",
+        roleId: role.id
+      }, harness.views[0].webContents);
     }
   );
 
@@ -3005,7 +3011,8 @@ describe("BrowserManager game host windows", () => {
   });
 
   it("hosts OAuth popups over the matching role cell", async () => {
-    const harness = createHarness();
+    const onEmbeddedWebContentsCreated = vi.fn();
+    const harness = createHarness({ onEmbeddedWebContentsCreated });
     await harness.manager.launch(role);
 
     const popup = createOAuthPopup(harness.views[0], harness.views);
@@ -3021,6 +3028,11 @@ describe("BrowserManager game host windows", () => {
       })
     );
     expect(harness.hosts[0].contentView.addChildView).toHaveBeenLastCalledWith(popup.view);
+    expect(onEmbeddedWebContentsCreated).toHaveBeenLastCalledWith({
+      hostId: expect.any(String),
+      kind: "popup",
+      roleId: role.id
+    }, popup.webContents);
   });
 
   it("keeps a login host open until authentication evidence appears", async () => {
@@ -3169,6 +3181,7 @@ function createHarness(options: {
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   macNativeChromeError?: Error;
   handleRuntimeTabAction?: BrowserManagerOptions["handleRuntimeTabAction"];
+  onEmbeddedWebContentsCreated?: BrowserManagerOptions["onEmbeddedWebContentsCreated"];
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   resourcePressureMonitor?: BrowserManagerOptions["resourcePressureMonitor"];
@@ -3283,6 +3296,9 @@ function createHarness(options: {
       : {}),
     ...(options.handleRuntimeTabAction
       ? { handleRuntimeTabAction: options.handleRuntimeTabAction }
+      : {}),
+    ...(options.onEmbeddedWebContentsCreated
+      ? { onEmbeddedWebContentsCreated: options.onEmbeddedWebContentsCreated }
       : {}),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     ...(options.defaultLaunchTarget ? { getDefaultLaunchTarget: () => options.defaultLaunchTarget! } : {}),

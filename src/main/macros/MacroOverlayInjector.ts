@@ -20,7 +20,7 @@ interface MacroOverlayState {
   statuses: MacroRunStatus[];
 }
 
-interface ExternalOverlayRefreshState {
+interface OverlayRefreshState {
   disconnected: boolean;
   inFlight: boolean;
   source: string;
@@ -64,10 +64,11 @@ export type MacroOverlayRequest =
 export class MacroOverlayInjector {
   private readonly externalHosts = new Set<ExternalMacroOverlayHost>();
   private readonly externalHostRoleIds = new WeakMap<ExternalMacroOverlayHost, string>();
-  private readonly externalRefreshStates = new WeakMap<ExternalMacroOverlayHost, ExternalOverlayRefreshState>();
+  private readonly externalRefreshStates = new WeakMap<ExternalMacroOverlayHost, OverlayRefreshState>();
   private readonly installedContents = new Set<WebContents>();
   private readonly initializedContents = new WeakSet<WebContents>();
   private readonly contentRoleIds = new WeakMap<WebContents, string>();
+  private readonly contentRefreshStates = new WeakMap<WebContents, OverlayRefreshState>();
   private previousMacroStatuses = new Map<string, { roleId: string; state: MacroRunStatus["state"] }>();
   private previousRolePresentation = new Map<string, string>();
   private language: AppLanguage | undefined;
@@ -84,6 +85,11 @@ export class MacroOverlayInjector {
     private readonly onMacroPageRequested?: (request: MacroPageRequest) => void | Promise<void>,
     private readonly getRoleStatus?: (roleId: string) => RoleStatus | undefined,
     private readonly onExternalRefresh?: (details: {
+      roleId: string | undefined;
+      source: string;
+      trailing: boolean;
+    }) => void,
+    private readonly onEmbeddedRefresh?: (details: {
       roleId: string | undefined;
       source: string;
       trailing: boolean;
@@ -106,7 +112,7 @@ export class MacroOverlayInjector {
   async installExternal(role: Role, host: ExternalMacroOverlayHost): Promise<void> {
     this.externalHosts.add(host);
     this.externalHostRoleIds.set(host, role.id);
-    const refreshState: ExternalOverlayRefreshState = {
+    const refreshState: OverlayRefreshState = {
       disconnected: false,
       inFlight: false,
       source: "install",
@@ -142,7 +148,7 @@ export class MacroOverlayInjector {
         return;
       }
 
-      void this.refreshContentsOverlay(webContents);
+      this.scheduleContentsRefresh(webContents, source);
     });
     this.externalHosts.forEach((host) => {
       if (roleId && this.externalHostRoleIds.get(host) !== roleId) {
@@ -276,27 +282,96 @@ export class MacroOverlayInjector {
       return;
     }
 
+    const refreshState: OverlayRefreshState = {
+      disconnected: false,
+      inFlight: false,
+      source: "install",
+      trailing: false
+    };
+    this.contentRefreshStates.set(webContents, refreshState);
+
     webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
       if (isMainFrame) {
+        refreshState.trailing = false;
         void this.macroManager.releaseHeldTriggersForRole?.(roleId);
+      }
+    });
+    webContents.on("did-fail-load", (_event, _code, _description, _url, isMainFrame) => {
+      if (isMainFrame) {
+        refreshState.trailing = false;
       }
     });
 
     webContents.once("destroyed", () => {
+      refreshState.disconnected = true;
+      refreshState.trailing = false;
       this.installedContents.delete(webContents);
       void this.macroManager.releaseHeldTriggersForRole?.(roleId);
     });
   }
 
-  private async refreshContentsOverlay(webContents: WebContents): Promise<void> {
+  private scheduleContentsRefresh(
+    webContents: WebContents,
+    source: string,
+    trailing = false
+  ): void {
+    const state = this.contentRefreshStates.get(webContents);
+    if (
+      !state ||
+      state.disconnected ||
+      webContents.isDestroyed() ||
+      !this.installedContents.has(webContents)
+    ) {
+      return;
+    }
+    if (state.inFlight) {
+      state.trailing = true;
+      state.source = source;
+      return;
+    }
+
+    state.inFlight = true;
+    state.source = source;
+    this.onEmbeddedRefresh?.({
+      roleId: this.contentRoleIds.get(webContents),
+      source,
+      trailing
+    });
+    void this.refreshContentsOverlay(webContents, source).finally(() => {
+      state.inFlight = false;
+      if (
+        !state.trailing ||
+        state.disconnected ||
+        webContents.isDestroyed() ||
+        !this.installedContents.has(webContents)
+      ) {
+        state.trailing = false;
+        return;
+      }
+      const trailingSource = state.source;
+      state.trailing = false;
+      this.scheduleContentsRefresh(webContents, trailingSource, true);
+    });
+  }
+
+  private async refreshContentsOverlay(webContents: WebContents, source: string): Promise<void> {
     try {
-      await webContents.executeJavaScript("window.__rionStudioMacroOverlay?.refresh?.()");
+      await webContents.executeJavaScript("void window.__rionStudioMacroOverlay?.refresh?.()");
     } catch (error) {
       if (!isBenignFrameInstallError(error)) {
-        console.warn("Failed to refresh Rion Studio macro overlay.", error);
+        console.warn("Failed to refresh Rion Studio macro overlay.", {
+          error,
+          roleId: this.contentRoleIds.get(webContents),
+          source
+        });
       }
 
       this.installedContents.delete(webContents);
+      const state = this.contentRefreshStates.get(webContents);
+      if (state) {
+        state.disconnected = webContents.isDestroyed();
+        state.trailing = false;
+      }
     }
   }
 

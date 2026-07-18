@@ -185,7 +185,7 @@ describe("MacroOverlayInjector", () => {
     page.handlers.didFinishLoad?.();
 
     await vi.waitFor(() => expect(page.page.executeJavaScript).toHaveBeenCalledTimes(3));
-    expect(page.page.on).toHaveBeenCalledTimes(2);
+    expect(page.page.on).toHaveBeenCalledTimes(3);
   });
 
   it("releases held shortcuts only for main-frame embedded navigation", async () => {
@@ -404,9 +404,72 @@ describe("MacroOverlayInjector", () => {
 
     await vi.waitFor(() =>
       expect(page.page.executeJavaScript).toHaveBeenCalledWith(
-        "window.__rionStudioMacroOverlay?.refresh?.()"
+        "void window.__rionStudioMacroOverlay?.refresh?.()"
       )
     );
+  });
+
+  it("coalesces a dense embedded refresh burst to one in-flight and one trailing request", async () => {
+    const firstRefresh = createDeferred<void>();
+    const page = createPage();
+    const onEmbeddedRefresh = vi.fn();
+    const injector = createInjector({ onEmbeddedRefresh });
+    await injector.install(role, page.page as never);
+    page.page.executeJavaScript.mockReset()
+      .mockImplementationOnce(() => firstRefresh.promise)
+      .mockResolvedValue(undefined);
+
+    for (let index = 0; index < 50; index += 1) {
+      injector.refreshInstalledOverlays(role.id, "burst_test");
+    }
+    expect(page.page.executeJavaScript).toHaveBeenCalledTimes(1);
+
+    firstRefresh.resolve();
+    await vi.waitFor(() => expect(page.page.executeJavaScript).toHaveBeenCalledTimes(2));
+    expect(onEmbeddedRefresh).toHaveBeenNthCalledWith(1, {
+      roleId: role.id,
+      source: "burst_test",
+      trailing: false
+    });
+    expect(onEmbeddedRefresh).toHaveBeenNthCalledWith(2, {
+      roleId: role.id,
+      source: "burst_test",
+      trailing: true
+    });
+  });
+
+  it("drops a queued embedded refresh when the web contents is destroyed", async () => {
+    const firstRefresh = createDeferred<void>();
+    const page = createPage();
+    const injector = createInjector();
+    await injector.install(role, page.page as never);
+    page.page.executeJavaScript.mockReset().mockImplementation(() => firstRefresh.promise);
+
+    injector.refreshInstalledOverlays(role.id, "first");
+    injector.refreshInstalledOverlays(role.id, "trailing");
+    page.destroy();
+    firstRefresh.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(page.page.executeJavaScript).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a queued embedded refresh after a main-frame navigation failure", async () => {
+    const firstRefresh = createDeferred<void>();
+    const page = createPage();
+    const injector = createInjector();
+    await injector.install(role, page.page as never);
+    page.page.executeJavaScript.mockReset().mockImplementation(() => firstRefresh.promise);
+
+    injector.refreshInstalledOverlays(role.id, "first");
+    injector.refreshInstalledOverlays(role.id, "trailing");
+    page.handlers.didFailLoad?.({}, -2, "failed", "https://example.com/play", true);
+    firstRefresh.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(page.page.executeJavaScript).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
@@ -556,7 +619,8 @@ function createInjector({
     start: vi.fn().mockResolvedValue([]),
     stop: vi.fn().mockResolvedValue(undefined)
   },
-  onMacroPageRequested
+  onMacroPageRequested,
+  onEmbeddedRefresh
 }: {
   macroManager?: {
     listStatuses: AnyMock;
@@ -568,6 +632,7 @@ function createInjector({
   };
   getRoleStatus?: (roleId: string) => RoleStatus | undefined;
   onMacroPageRequested?: AnyMock;
+  onEmbeddedRefresh?: AnyMock;
 } = {}): MacroOverlayInjector {
   const roleAwareMacroManager = {
     listStatuses: macroManager.listStatuses,
@@ -591,7 +656,9 @@ function createInjector({
     { listMacros: vi.fn().mockResolvedValue([assignedMacro, otherMacro]) },
     roleAwareMacroManager,
     onMacroPageRequested,
-    getRoleStatus
+    getRoleStatus,
+    undefined,
+    onEmbeddedRefresh
   );
 }
 
@@ -608,25 +675,46 @@ function runStatus(roleId: string, macroId: string): MacroRunStatus {
 function createPage() {
   const handlers: {
     didFinishLoad?: () => void;
+    didFailLoad?: (
+      event: unknown,
+      code: number,
+      description: string,
+      url: string,
+      isMainFrame: boolean
+    ) => void;
     didStartNavigation?: (
       event: unknown,
       url: string,
       isInPlace: boolean,
       isMainFrame: boolean
     ) => void;
+    destroyed?: () => void;
   } = {};
+  let destroyed = false;
   const page = {
     executeJavaScript: vi.fn().mockResolvedValue(undefined),
-    isDestroyed: vi.fn(() => false),
+    isDestroyed: vi.fn(() => destroyed),
     on: vi.fn((event: string, handler: (...args: never[]) => void) => {
       if (event === "did-finish-load") handlers.didFinishLoad = handler;
+      if (event === "did-fail-load") {
+        handlers.didFailLoad = handler as typeof handlers.didFailLoad;
+      }
       if (event === "did-start-navigation") {
         handlers.didStartNavigation = handler as typeof handlers.didStartNavigation;
       }
     }),
-    once: vi.fn()
+    once: vi.fn((event: string, handler: () => void) => {
+      if (event === "destroyed") handlers.destroyed = handler;
+    })
   };
-  return { handlers, page };
+  return {
+    destroy: () => {
+      destroyed = true;
+      handlers.destroyed?.();
+    },
+    handlers,
+    page
+  };
 }
 
 function createExternalHost() {

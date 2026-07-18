@@ -399,6 +399,15 @@ describe("BrowserManager game host windows", () => {
       })
     );
 
+    harness.manager.setAlwaysShowToolbarInFullScreen(true);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 776
+    });
+    harness.manager.setAlwaysShowToolbarInFullScreen(false);
+
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
     expect(harness.nativeChromeControllers[0].prepareFullscreenTransition)
@@ -420,9 +429,50 @@ describe("BrowserManager game host windows", () => {
     release();
     expect(harness.nativeChromeControllers[0].setRevealLocked).toHaveBeenLastCalledWith(false);
 
+    const popup = createOAuthPopup(harness.views[0], harness.views);
+    const nativePolicy = harness.nativeChromeControllers[0].setFullscreenPolicy;
+    harness.views[0].setBounds.mockClear();
+    popup.setBounds.mockClear();
+    // Native fullscreen keeps one fixed full-size Electron root. Policy
+    // changes only add or remove the 40pt inset from child View layout.
+    const fixedContentBounds = { ...harness.hosts[0].contentBounds };
     harness.manager.setAlwaysShowToolbarInFullScreen(true);
-    expect(harness.nativeChromeControllers[0].setFullscreenPolicy)
-      .toHaveBeenLastCalledWith("always");
+    expect(nativePolicy).toHaveBeenLastCalledWith("always");
+    expect(harness.hosts[0].contentBounds).toEqual(fixedContentBounds);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 40,
+      width: 1200,
+      height: 736
+    });
+    expect(popup.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 40,
+      width: 1200,
+      height: 736
+    });
+    expect(nativePolicy.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(harness.views[0].setBounds.mock.invocationCallOrder.at(-1)!);
+
+    harness.manager.setAlwaysShowToolbarInFullScreen(false);
+    expect(nativePolicy).toHaveBeenLastCalledWith("autoHide");
+    expect(harness.hosts[0].contentBounds).toEqual(fixedContentBounds);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 776
+    });
+    expect(popup.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 776
+    });
+    expect(nativePolicy.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(harness.views[0].setBounds.mock.invocationCallOrder.at(-1)!);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(getCursorScreenPoint).not.toHaveBeenCalled();
     harness.nativeChromeControllers[0].emitAction({ type: "activate", tabId: "native-tab" });
     expect(handleRuntimeTabAction).toHaveBeenCalledWith(
       harness.hosts[0],
@@ -438,6 +488,61 @@ describe("BrowserManager game host windows", () => {
     harness.hosts[0].emit("closed");
     expect(harness.nativeChromeControllers[0].destroy).toHaveBeenCalledOnce();
     vi.useRealTimers();
+  });
+
+  it("insets native fullscreen workspace Views without resizing the Electron root", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      platform: "darwin",
+      useMacNativeChrome: true,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+    const popup = createOAuthPopup(harness.views[0], harness.views);
+    const divider = harness.views[2];
+    const fixedRootBounds = { ...harness.hosts[0].contentBounds };
+
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.hosts[0].contentBounds).toEqual(fixedRootBounds);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+    expect(popup.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+    expect(divider.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+
+    harness.manager.setAlwaysShowToolbarInFullScreen(true);
+    expect(harness.hosts[0].contentBounds).toEqual(fixedRootBounds);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 40, height: 736 })
+    );
+    expect(popup.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 40, height: 736 })
+    );
+    expect(divider.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 40, height: 736 })
+    );
+
+    harness.manager.setAlwaysShowToolbarInFullScreen(false);
+    expect(harness.hosts[0].contentBounds.height).toBe(776);
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+    expect(popup.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+    expect(divider.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
   });
 
   it("rolls back a failed native macOS fullscreen preflight without wedging the window", async () => {

@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Check,
+  Copy,
   ChevronDown,
   ChevronUp,
   CircleDot,
@@ -9,15 +10,26 @@ import {
   Plus,
   Repeat,
   Save,
+  GripVertical,
   Square,
   Trash2,
   X
 } from "lucide-react";
-import { type FormEvent, type JSX, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type DragEvent,
+  type FormEvent,
+  type JSX,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
+import { moveItemById } from "../../app/reorderItems";
 import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Switch } from "../../components/ui/switch";
@@ -56,6 +68,8 @@ import {
   MACRO_INTERVAL_OPTIONS,
   isPureModifierCode
 } from "./macroUtils";
+
+const MACRO_STEP_DRAG_MIME = "application/x-rion-macro-step";
 
 interface MacroEditorRouteProps {
   games: Game[];
@@ -257,6 +271,8 @@ function MacroForm({
     () => getCallableMacroTargets(macros, form.id),
     [form.id, macros]
   );
+  const [draggedStepId, setDraggedStepId] = useState<string | null>(null);
+  const [dropTargetStepId, setDropTargetStepId] = useState<string | null>(null);
 
   function update(updater: (current: MacroFormState) => MacroFormState): void {
     onChange(updater);
@@ -307,8 +323,68 @@ function MacroForm({
     });
   }
 
+  function moveStepById(stepId: string, targetStepId: string): void {
+    update((current) => {
+      const nextSteps = moveItemById(current.steps, stepId, targetStepId);
+      return nextSteps === current.steps ? current : { ...current, steps: nextSteps };
+    });
+  }
+
+  function duplicateStep(stepId: string): void {
+    update((current) => {
+      const index = current.steps.findIndex((step) => step.id === stepId);
+      if (index === -1) {
+        return current;
+      }
+
+      const step = current.steps[index];
+      const copy = duplicateStepState(step);
+      const steps = [...current.steps];
+      steps.splice(index + 1, 0, copy);
+      return { ...current, steps };
+    });
+  }
+
   function removeStep(stepId: string): void {
     update((current) => ({ ...current, steps: current.steps.filter((step) => step.id !== stepId) }));
+  }
+
+  function handleStepDragStart(event: DragEvent<HTMLButtonElement>, stepId: string): void {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(MACRO_STEP_DRAG_MIME, stepId);
+    event.dataTransfer.setData("text/plain", stepId);
+    setDraggedStepId(stepId);
+    setDropTargetStepId(null);
+  }
+
+  function clearStepDragState(): void {
+    setDraggedStepId(null);
+    setDropTargetStepId(null);
+  }
+
+  function handleStepDragOver(event: DragEvent<HTMLDivElement>, targetStepId: string): void {
+    if (!draggedStepId || draggedStepId === targetStepId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetStepId(targetStepId);
+  }
+
+  function handleStepDrop(event: DragEvent<HTMLDivElement>, targetStepId: string): void {
+    event.preventDefault();
+    const sourceStepId = event.dataTransfer.getData(MACRO_STEP_DRAG_MIME) || event.dataTransfer.getData("text/plain");
+
+    if (sourceStepId && sourceStepId !== targetStepId) {
+      moveStepById(sourceStepId, targetStepId);
+    }
+
+    clearStepDragState();
+  }
+
+  function handleStepDragEnd(): void {
+    clearStepDragState();
   }
 
   return (
@@ -506,14 +582,21 @@ function MacroForm({
                         <MacroStepEditor
                           key={step.id}
                           index={index}
+                          isDragging={draggedStepId === step.id}
+                          isDropTarget={dropTargetStepId === step.id}
                           isFirst={index === 0}
                           isLast={index === form.steps.length - 1}
                           isSaving={isSaving}
                           macroTargets={macroTargets}
                           step={step}
                           t={t}
+                          onDragEnd={handleStepDragEnd}
+                          onDragOver={(event) => handleStepDragOver(event, step.id)}
+                          onDragStart={(event) => handleStepDragStart(event, step.id)}
+                          onDrop={(event) => handleStepDrop(event, step.id)}
                           onMoveDown={() => moveStep(step.id, 1)}
                           onMoveUp={() => moveStep(step.id, -1)}
+                          onDuplicate={() => duplicateStep(step.id)}
                           onRemove={() => removeStep(step.id)}
                           onUpdate={(nextStep) => updateStep(step.id, nextStep)}
                         />
@@ -840,13 +923,20 @@ function RecordingButton({
 
 interface MacroStepEditorProps {
   index: number;
+  isDragging: boolean;
+  isDropTarget: boolean;
   isFirst: boolean;
   isLast: boolean;
   isSaving: boolean;
   macroTargets: Macro[];
+  onDragEnd: () => void;
   onMoveDown: () => void;
   onMoveUp: () => void;
   onRemove: () => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onDuplicate: () => void;
   onUpdate: (step: MacroStep) => void;
   step: MacroStep;
   t: Translator;
@@ -854,19 +944,35 @@ interface MacroStepEditorProps {
 
 function MacroStepEditor({
   index,
+  isDragging,
+  isDropTarget,
   isFirst,
   isLast,
   isSaving,
   macroTargets,
+  onDragEnd,
   onMoveDown,
   onMoveUp,
+  onDuplicate,
   onRemove,
+  onDragOver,
+  onDragStart,
+  onDrop,
   onUpdate,
   step,
   t
 }: MacroStepEditorProps): JSX.Element {
   return (
-    <div className="glass-divider grid gap-2 border-b p-2.5 md:grid-cols-[auto_128px_minmax(0,1fr)_auto] md:items-center">
+    <div
+      data-testid={`macro-step-${step.id}`}
+      className={cn(
+        "glass-divider grid gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200 md:grid-cols-[auto_128px_minmax(0,1fr)_auto] md:items-center",
+        isDragging && "opacity-50",
+        isDropTarget && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background"
+      )}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       <span className="grid size-7 shrink-0 place-items-center rounded-md bg-background/35 text-[11px] font-bold text-muted-foreground">
         {index + 1}
       </span>
@@ -903,6 +1009,19 @@ function MacroStepEditor({
           type="button"
           variant="ghost"
           size="icon"
+          draggable
+          aria-label={t("macroForm.dragStep")}
+          title={t("macroForm.dragStep")}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          disabled={isSaving}
+        >
+          <GripVertical size={14} />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
           title={t("macroForm.moveUp")}
           onClick={onMoveUp}
           disabled={isSaving || isFirst}
@@ -918,6 +1037,16 @@ function MacroStepEditor({
           disabled={isSaving || isLast}
         >
           <ChevronDown size={14} />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title={t("macros.copy")}
+          onClick={onDuplicate}
+          disabled={isSaving}
+        >
+          <Copy size={14} />
         </Button>
         <Button
           type="button"
@@ -1308,6 +1437,13 @@ function createStep(
         macroId
       };
   }
+}
+
+function duplicateStepState(step: MacroStep): MacroStep {
+  return {
+    ...step,
+    id: createClientId()
+  };
 }
 
 export default MacroEditorRoute;

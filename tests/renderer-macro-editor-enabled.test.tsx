@@ -551,6 +551,53 @@ describe("macro editor controls", () => {
       steps: [{ id: "daily-delay", type: "delay", ms: MACRO_DELAY_MAX_MS }]
     })));
   });
+
+  it("reorders steps by dragging", () => {
+    const selectedMacro = macro({
+      steps: [
+        { id: "step-1", type: "key", code: "F2" },
+        { id: "step-2", type: "delay", ms: 500 },
+        { id: "step-3", type: "click", xPercent: 33, yPercent: 66 }
+      ]
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/macros/:id/edit",
+          element: <MacroEditorRoute
+            games={[game()]}
+            isSaving={false}
+            macros={[selectedMacro]}
+            roles={[role()]}
+            t={t}
+            onSave={vi.fn()}
+          />
+        }
+      ],
+      { initialEntries: ["/macros/macro-1/edit"] }
+    );
+
+    render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    const stepTypeSelectors = screen.getAllByRole("combobox", { name: "Step type" });
+    expect(stepTypeSelectors.map((select) => select.textContent?.trim())).toEqual(["Key", "Delay", "Click"]);
+
+    const dragHandle = screen.getAllByRole("button", { name: "Drag to reorder" })[2];
+    const targetRow = screen.getByTestId("macro-step-step-1");
+    const dataTransfer = createDataTransfer();
+
+    fireEvent.dragStart(dragHandle, { dataTransfer });
+    fireEvent.dragOver(targetRow, { dataTransfer });
+    fireEvent.drop(targetRow, { dataTransfer });
+
+    expect(screen.getAllByRole("combobox", { name: "Step type" }).map((select) =>
+      select.textContent?.trim()
+    )).toEqual(["Click", "Key", "Delay"]);
+  });
 });
 
 const t: Translator = (key) => en[key];
@@ -573,6 +620,24 @@ function getKeyStepRecordButton(): HTMLElement {
     throw new Error("Key-step record button was not found.");
   }
   return button;
+}
+
+function createDataTransfer(): DataTransfer {
+  const store: Record<string, string> = {};
+
+  return {
+    getData: (type: string): string => store[type] ?? "",
+    setData: (type: string, value: string): void => {
+      store[type] = value;
+    },
+    clearData: (): void => {},
+    dropEffect: "",
+    effectAllowed: "",
+    files: [],
+    items: [],
+    types: [],
+    setDragImage: vi.fn()
+  } as DataTransfer;
 }
 
 function game(): Game {

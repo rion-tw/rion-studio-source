@@ -11,14 +11,20 @@ export const Checkbox = forwardRef<
   <CheckboxPrimitive.Root
     ref={ref}
     className={cn(
-      "peer inline-flex size-3.5 shrink-0 items-center justify-center rounded-[4px] border border-input bg-background/70 text-white transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-45 data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500",
+      "group/checkbox peer inline-grid size-[var(--control-min-size)] shrink-0 place-items-center rounded-md text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-45",
       className
     )}
     {...props}
   >
-    <CheckboxPrimitive.Indicator className="grid place-items-center">
-      <Check className="size-2.5 stroke-[3]" aria-hidden="true" />
-    </CheckboxPrimitive.Indicator>
+    <span
+      aria-hidden="true"
+      className="inline-flex size-3.5 items-center justify-center rounded-[4px] border border-input bg-background/70 transition-[background-color,border-color,box-shadow] group-data-[state=checked]/checkbox:border-blue-500 group-data-[state=checked]/checkbox:bg-blue-500"
+      data-slot="checkbox-visual"
+    >
+      <CheckboxPrimitive.Indicator className="grid place-items-center">
+        <Check className="size-2.5 stroke-[3]" />
+      </CheckboxPrimitive.Indicator>
+    </span>
   </CheckboxPrimitive.Root>
 ));
 

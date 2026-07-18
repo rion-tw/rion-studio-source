@@ -41,6 +41,7 @@
     "src/renderer/src/components/ui/patterns.tsx",
     "src/renderer/src/components/ui/select.tsx",
     "src/renderer/src/components/ui/switch.tsx",
+    "src/renderer/src/components/ui/textarea.tsx",
     "src/renderer/src/features/dashboard/dashboardUtils.ts",
     "src/renderer/src/features/games/GameCompatibilityPanel.tsx",
     "src/renderer/src/features/games/GameModal.tsx",

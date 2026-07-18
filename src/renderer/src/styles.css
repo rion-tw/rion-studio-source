@@ -43,6 +43,8 @@
   }
   :root,
   :root[data-theme="light"] {
+    --control-min-size: 30px;
+    --icon-button-icon-size: 14px;
     --background: 216 24% 94%;
     --foreground: 222 16% 11%;
     --card: 0 0% 99%;
@@ -241,6 +243,20 @@
     background: hsl(var(--muted-foreground) / 0.52);
     background-clip: content-box;
   }
+}
+
+:where(
+  button,
+  input:not([type="hidden"]):not(.sr-only),
+  select,
+  textarea,
+  [role="button"],
+  [role="checkbox"],
+  [role="switch"],
+  [contenteditable]:not([contenteditable="false"])
+) {
+  min-width: var(--control-min-size);
+  min-height: var(--control-min-size);
 }
 
 @layer utilities {

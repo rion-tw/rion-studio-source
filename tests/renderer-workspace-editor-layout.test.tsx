@@ -56,6 +56,7 @@ describe("workspace editor role picker layout", () => {
     const scrollRegion = container.querySelector<HTMLElement>("[data-workspace-role-scroll]");
     const roleList = container.querySelector<HTMLElement>("[data-workspace-role-list]");
     const roleButtons = container.querySelectorAll<HTMLElement>("[data-workspace-role-id]");
+    const verticalResizeHandle = container.querySelector<HTMLElement>("button.cursor-col-resize");
 
     expect(screen.getByRole("combobox", { name: "Browser zoom" }).textContent).toContain(
       "Adaptive (recommended)"
@@ -71,6 +72,7 @@ describe("workspace editor role picker layout", () => {
     expect(scrollRegion?.className).toContain("min-[1180px]:flex-1");
     expect(roleList?.className).toContain("auto-rows-max");
     expect(roleList?.className).toContain("content-start");
+    expect(verticalResizeHandle?.className).toContain("w-[30px]");
     expect(roleButtons).toHaveLength(7);
     roleButtons.forEach((button) => {
       expect(button.className).toContain("h-[52px]");

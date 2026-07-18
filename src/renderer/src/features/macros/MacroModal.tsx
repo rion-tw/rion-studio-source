@@ -19,7 +19,6 @@ import {
   type DragEvent,
   type FormEvent,
   type JSX,
-  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -51,7 +50,7 @@ import {
 } from "../../../../shared/macroShortcuts";
 import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
-import type { Game, Macro, MacroActivationMode, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import type { Game, Macro, MacroActivationMode, MacroKeyAction, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
@@ -260,7 +259,6 @@ function MacroForm({
   shortcutConflict,
   t
 }: MacroFormProps): JSX.Element {
-  const [newStepType, setNewStepType] = useState<MacroStep["type"]>("key");
   const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
   const roleIds = useMemo(() => new Set(form.roleIds), [form.roleIds]);
   const missingRoleIds = useMemo(
@@ -295,8 +293,8 @@ function MacroForm({
     update((current) => ({ ...current, repeat }));
   }
 
-  function addStep(type: MacroStep["type"]): void {
-    const step = createStep(type, undefined, macroTargets[0]?.id, form.activationMode);
+  function addStep(type: MacroStep["type"], keyAction?: MacroKeyAction): void {
+    const step = createStep(type, undefined, macroTargets[0]?.id, form.activationMode, keyAction);
     update((current) => ({ ...current, steps: [...current.steps, step] }));
   }
 
@@ -605,62 +603,30 @@ function MacroForm({
                   )}
 
                   <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/50 pt-3">
-                    <InlineControl label={t("macroForm.stepType")} controlClassName="w-28 flex-none">
-                      <Select
-                        value={newStepType}
-                        onValueChange={(value) => setNewStepType(value as MacroStep["type"])}
+                    {[
+                      { type: "key", action: "tap", label: t("macroForm.addKey") },
+                      { type: "key", action: "hold_until_stop", label: t("macroForm.addHold") },
+                      { type: "click", label: t("macroForm.addClick") },
+                      { type: "delay", label: t("macroForm.addDelay") },
+                      { type: "macro", label: t("macroForm.addMacro") }
+                    ].map((option) => (
+                      <Button
+                        key={`${option.type}-${option.label}-${option.action ?? "default"}`}
+                        type="button"
+                        variant="outline"
+                        onClick={() => addStep(option.type, option.action)}
                         disabled={isSaving}
                       >
-                        <SelectTrigger aria-label={t("macroForm.stepType")}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {macroStepTypeOrder.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {getMacroStepTypeLabel(type, t)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </InlineControl>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => addStep(newStepType)}
-                      disabled={isSaving}
-                    >
-                      <Plus size={14} />
-                      {t("macroForm.addStep")}
-                    </Button>
+                        <Plus size={14} />
+                        {option.label}
+                      </Button>
+                    ))}
                   </div>
                 </div>
               </FormField>
             </Surface>
           </div>
     </>
-  );
-}
-
-interface InlineControlProps {
-  children: ReactNode;
-  className?: string;
-  controlClassName?: string;
-  label: string;
-  suffix?: string;
-}
-
-function InlineControl({ children, className, controlClassName, label, suffix }: InlineControlProps): JSX.Element {
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 items-center gap-2 text-[12px] font-semibold leading-none text-foreground",
-        className
-      )}
-      >
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className={cn("min-w-0 flex-1", controlClassName)}>{children}</span>
-      {suffix ? <span className="shrink-0 font-normal text-muted-foreground">{suffix}</span> : null}
-    </div>
   );
 }
 
@@ -1410,7 +1376,8 @@ function createStep(
   type: MacroStep["type"],
   id = createClientId(),
   macroId = "",
-  activationMode: MacroActivationMode = "toggle"
+  activationMode: MacroActivationMode = "toggle",
+  keyAction?: MacroKeyAction
 ): MacroStep {
   switch (type) {
     case "key":
@@ -1418,7 +1385,7 @@ function createStep(
         id,
         type: "key",
         code: "Tab",
-        action: activationMode === "while_held" ? "hold_until_stop" : "tap",
+        action: keyAction ?? (activationMode === "while_held" ? "hold_until_stop" : "tap"),
         label: "Tab"
       };
     case "click":

@@ -37,6 +37,10 @@ static NSPasteboardType const RionRuntimeTabPasteboardType =
 static char RionRuntimeTitlebarHeightAssociationKey;
 static std::mutex RionRuntimeTitlebarHeightHookMutex;
 static std::unordered_map<Class, IMP> RionRuntimeOriginalTitlebarHeightIMPs;
+static char RionRuntimeTitlebarWidgetInsetAssociationKey;
+static std::mutex RionRuntimeTitlebarWidgetInsetHookMutex;
+static std::unordered_map<Class, IMP>
+    RionRuntimeOriginalTitlebarWidgetInsetIMPs;
 
 // Electron's BrowserWindowFrame deliberately falls back to AppKit's 32pt
 // fullscreen metric unless Chromium's tabbed immersive-mode controller is
@@ -44,6 +48,11 @@ static std::unordered_map<Class, IMP> RionRuntimeOriginalTitlebarHeightIMPs;
 // controller, so wrap the frame getter and opt in only marked Rion windows.
 // The class-level hook remains safe for every other instance by forwarding to
 // the exact original implementation saved for that frame class.
+//
+// Chromium also overrides _minXTitlebarWidgetInset on BrowserWindowFrame for
+// macOS 26, but AppKit's auxiliary fullscreen toolbar window has its own frame
+// class and misses that metric. Mirror the windowed value onto only the active
+// Rion frame instances so AppKit can lay out its own controls at the same inset.
 static void RionLogTitlebarHeightOverrideUnavailable(void) {
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
@@ -57,6 +66,14 @@ static void RionLogFullscreenTitlebarGeometrySyncUnavailable(void) {
   dispatch_once(&onceToken, ^{
     NSLog(@"Rion Studio could not synchronize the fullscreen titlebar "
           "geometry; AppKit's window-button layout will be used.");
+  });
+}
+
+static void RionLogTitlebarWidgetInsetOverrideUnavailable(void) {
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    NSLog(@"Rion Studio could not align the fullscreen window controls; "
+          "AppKit's native horizontal inset will be used.");
   });
 }
 
@@ -81,6 +98,30 @@ static CGFloat RionRuntimeTitlebarHeight(id frameView, SEL selector) {
   if (!original) return 0;
   using TitlebarHeightFunction = CGFloat (*)(id, SEL);
   return reinterpret_cast<TitlebarHeightFunction>(original)(frameView, selector);
+}
+
+static IMP RionOriginalTitlebarWidgetInsetIMPForObject(id object) {
+  std::lock_guard<std::mutex> lock(RionRuntimeTitlebarWidgetInsetHookMutex);
+  for (Class candidate = object_getClass(object); candidate;
+       candidate = class_getSuperclass(candidate)) {
+    auto found = RionRuntimeOriginalTitlebarWidgetInsetIMPs.find(candidate);
+    if (found != RionRuntimeOriginalTitlebarWidgetInsetIMPs.end()) {
+      return found->second;
+    }
+  }
+  return nullptr;
+}
+
+static CGFloat RionRuntimeTitlebarWidgetInset(id frameView, SEL selector) {
+  NSNumber *overrideInset = objc_getAssociatedObject(
+      frameView, &RionRuntimeTitlebarWidgetInsetAssociationKey);
+  if (overrideInset) return overrideInset.doubleValue;
+
+  IMP original = RionOriginalTitlebarWidgetInsetIMPForObject(frameView);
+  if (!original) return 0;
+  using TitlebarWidgetInsetFunction = CGFloat (*)(id, SEL);
+  return reinterpret_cast<TitlebarWidgetInsetFunction>(original)(frameView,
+                                                                  selector);
 }
 
 static Method RionDirectInstanceMethod(Class targetClass, SEL selector) {
@@ -146,6 +187,56 @@ static BOOL RionInstallTitlebarHeightHook(NSView *frameView) {
 
   RionRuntimeOriginalTitlebarHeightIMPs.erase(targetClass);
   RionLogTitlebarHeightOverrideUnavailable();
+  return NO;
+}
+
+static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
+  if (!frameView) return NO;
+  SEL selector = NSSelectorFromString(@"_minXTitlebarWidgetInset");
+  if (![frameView respondsToSelector:selector]) {
+    RionLogTitlebarWidgetInsetOverrideUnavailable();
+    return NO;
+  }
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != sizeof(CGFloat) ||
+      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
+    RionLogTitlebarWidgetInsetOverrideUnavailable();
+    return NO;
+  }
+
+  Class targetClass = object_getClass(frameView);
+  std::lock_guard<std::mutex> lock(RionRuntimeTitlebarWidgetInsetHookMutex);
+  if (RionRuntimeOriginalTitlebarWidgetInsetIMPs.find(targetClass) !=
+      RionRuntimeOriginalTitlebarWidgetInsetIMPs.end()) {
+    return YES;
+  }
+
+  Method inheritedMethod = class_getInstanceMethod(targetClass, selector);
+  if (!inheritedMethod) {
+    RionLogTitlebarWidgetInsetOverrideUnavailable();
+    return NO;
+  }
+  IMP original = method_getImplementation(inheritedMethod);
+  if (original == (IMP)RionRuntimeTitlebarWidgetInset) return YES;
+  const char *types = method_getTypeEncoding(inheritedMethod);
+  RionRuntimeOriginalTitlebarWidgetInsetIMPs.emplace(targetClass, original);
+
+  Method directMethod = RionDirectInstanceMethod(targetClass, selector);
+  if (directMethod) {
+    method_setImplementation(directMethod,
+                             (IMP)RionRuntimeTitlebarWidgetInset);
+    return YES;
+  }
+  if (class_addMethod(targetClass, selector,
+                      (IMP)RionRuntimeTitlebarWidgetInset, types)) {
+    return YES;
+  }
+
+  RionRuntimeOriginalTitlebarWidgetInsetIMPs.erase(targetClass);
+  RionLogTitlebarWidgetInsetOverrideUnavailable();
   return NO;
 }
 
@@ -216,7 +307,11 @@ static BOOL RionInstallTitlebarHeightHook(NSView *frameView) {
 - (void)captureWindowedTrafficLightFrames;
 - (void)detachAccessoryController;
 - (void)detachTitlebarHeightOverrideFromFrameView:(nullable NSView *)frameView;
+- (void)detachTitlebarWidgetInsetOverrideFromFrameView:
+    (nullable NSView *)frameView;
+- (void)detachTitlebarWidgetInsetOverrides;
 - (void)ensureTitlebarHeightOverride;
+- (void)ensureFullScreenTitlebarWidgetInsetOverrides;
 - (void)enforceTrafficLightVisibility;
 - (void)handleDropWithTabIdentifier:(NSString *)tabIdentifier
                     sourceDisplayID:(NSInteger)sourceDisplayID
@@ -234,12 +329,16 @@ static BOOL RionInstallTitlebarHeightHook(NSView *frameView) {
 - (void)revealToolbarAndOrderBelowAccessory;
 - (BOOL)readCustomTitlebarHeight:(CGFloat *)height
                    fromFrameView:(nullable NSView *)frameView;
+- (BOOL)readTitlebarWidgetInset:(CGFloat *)inset
+                  fromFrameView:(nullable NSView *)frameView;
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)scheduleLiquidGlassTitlebarRehost;
 - (BOOL)setCustomTitlebarHeight:(CGFloat)height
                     onFrameView:(nullable NSView *)frameView;
 - (BOOL)attachTitlebarHeightOverrideToFrameView:(nullable NSView *)frameView;
+- (BOOL)attachTitlebarWidgetInsetOverride:(CGFloat)inset
+                              toFrameView:(nullable NSView *)frameView;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
 - (void)synchronizeFullScreenTitlebarGeometry;
 - (BOOL)synchronizeTitlebarGeometryForFrameView:(nullable NSView *)frameView;
@@ -808,6 +907,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   NSMutableArray<RionRuntimeSurfaceView *> *_tabSurfaces;
   RionRuntimeBackdropView *_titlebarBackdrop;
   __weak NSView *_titlebarFrameView;
+  NSHashTable<NSView *> *_titlebarWidgetInsetFrameViews;
   __weak NSWindow *_fullscreenTitlebarHostWindow;
   NSWindowTitleVisibility _previousTitleVisibility;
   BOOL _previousTitlebarAppearsTransparent;
@@ -817,6 +917,8 @@ static void *RionRuntimeTrafficLightObservationContext =
   BOOL _previousFullSizeContentView;
   CGFloat _previousCustomTitlebarHeight;
   BOOL _hasPreviousCustomTitlebarHeight;
+  CGFloat _stableTitlebarWidgetInset;
+  BOOL _hasStableTitlebarWidgetInset;
   __weak NSWindow *_window;
   NSMutableArray<id> *_windowObservers;
   BOOL _destroyed;
@@ -835,6 +937,14 @@ static void *RionRuntimeTrafficLightObservationContext =
   _hasPreviousCustomTitlebarHeight =
       [self readCustomTitlebarHeight:&_previousCustomTitlebarHeight
                        fromFrameView:window.contentView.superview];
+  _hasStableTitlebarWidgetInset =
+      [self readTitlebarWidgetInset:&_stableTitlebarWidgetInset
+                      fromFrameView:window.contentView.superview];
+  if (@available(macOS 26.0, *)) {
+    if (!_hasStableTitlebarWidgetInset) {
+      RionLogTitlebarWidgetInsetOverrideUnavailable();
+    }
+  }
   [self ensureTitlebarHeightOverride];
   _actionHandler = [actionHandler copy];
   _observedTrafficLightButtons = [NSMutableArray array];
@@ -842,6 +952,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   _windowedTrafficLightFrames = [NSMutableDictionary dictionary];
   _tabItems = [NSMutableArray array];
   _tabSurfaces = [NSMutableArray array];
+  _titlebarWidgetInsetFrameViews = [NSHashTable weakObjectsHashTable];
   _windowObservers = [NSMutableArray array];
   _previousTitleVisibility = window.titleVisibility;
   _previousTitlebarAppearsTransparent = window.titlebarAppearsTransparent;
@@ -978,6 +1089,97 @@ static void *RionRuntimeTrafficLightObservationContext =
   }
 }
 
+- (BOOL)readTitlebarWidgetInset:(CGFloat *)inset
+                  fromFrameView:(nullable NSView *)frameView {
+  if (!frameView || !inset) return NO;
+  SEL selector = NSSelectorFromString(@"_minXTitlebarWidgetInset");
+  if (![frameView respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != sizeof(CGFloat) ||
+      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
+    return NO;
+  }
+
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = frameView;
+  invocation.selector = selector;
+  [invocation invoke];
+  [invocation getReturnValue:inset];
+  return YES;
+}
+
+- (BOOL)attachTitlebarWidgetInsetOverride:(CGFloat)inset
+                              toFrameView:(nullable NSView *)frameView {
+  if (!frameView || !RionInstallTitlebarWidgetInsetHook(frameView)) return NO;
+  objc_setAssociatedObject(frameView,
+                           &RionRuntimeTitlebarWidgetInsetAssociationKey,
+                           @(inset),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  [_titlebarWidgetInsetFrameViews addObject:frameView];
+  frameView.needsLayout = YES;
+  return YES;
+}
+
+- (void)detachTitlebarWidgetInsetOverrideFromFrameView:
+    (nullable NSView *)frameView {
+  if (!frameView) return;
+  objc_setAssociatedObject(frameView,
+                           &RionRuntimeTitlebarWidgetInsetAssociationKey,
+                           nil,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  [_titlebarWidgetInsetFrameViews removeObject:frameView];
+  frameView.needsLayout = YES;
+}
+
+- (void)detachTitlebarWidgetInsetOverrides {
+  for (NSView *frameView in _titlebarWidgetInsetFrameViews.allObjects) {
+    objc_setAssociatedObject(frameView,
+                             &RionRuntimeTitlebarWidgetInsetAssociationKey,
+                             nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    frameView.needsLayout = YES;
+  }
+  [_titlebarWidgetInsetFrameViews removeAllObjects];
+}
+
+- (void)ensureFullScreenTitlebarWidgetInsetOverrides {
+  if (_destroyed || !_window || !_hasStableTitlebarWidgetInset ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
+    [self detachTitlebarWidgetInsetOverrides];
+    return;
+  }
+  if (@available(macOS 26.0, *)) {
+    NSMutableOrderedSet<NSView *> *frameViews = [NSMutableOrderedSet orderedSet];
+    void (^addFrameForWindow)(NSWindow *_Nullable) =
+        ^(NSWindow *_Nullable candidateWindow) {
+      NSView *frameView = candidateWindow.contentView.superview;
+      if (frameView) [frameViews addObject:frameView];
+    };
+
+    addFrameForWindow(_window);
+    addFrameForWindow(_accessoryController.view.window);
+    NSButton *closeButton = [_window standardWindowButton:NSWindowCloseButton];
+    addFrameForWindow(closeButton.window);
+
+    for (NSView *trackedFrameView in
+             _titlebarWidgetInsetFrameViews.allObjects) {
+      if (![frameViews containsObject:trackedFrameView]) {
+        [self detachTitlebarWidgetInsetOverrideFromFrameView:trackedFrameView];
+      }
+    }
+    for (NSView *frameView in frameViews) {
+      [self attachTitlebarWidgetInsetOverride:_stableTitlebarWidgetInset
+                                  toFrameView:frameView];
+    }
+  } else {
+    [self detachTitlebarWidgetInsetOverrides];
+  }
+}
+
 - (BOOL)readCustomTitlebarHeight:(CGFloat *)height
                    fromFrameView:(nullable NSView *)frameView {
   if (!frameView || !height) return NO;
@@ -1077,7 +1279,14 @@ static void *RionRuntimeTrafficLightObservationContext =
     return;
   }
   [self ensureTitlebarHeightOverride];
+  [self ensureFullScreenTitlebarWidgetInsetOverrides];
   [self synchronizeTitlebarGeometryForFrameView:_titlebarFrameView];
+  for (NSView *frameView in _titlebarWidgetInsetFrameViews.allObjects) {
+    if (frameView == _titlebarFrameView) continue;
+    [self updateTitlebarButtonPositionsForFrameView:frameView];
+    frameView.needsLayout = YES;
+    [frameView layoutSubtreeIfNeeded];
+  }
 }
 
 - (NSUInteger)renderedTabCount {
@@ -1167,12 +1376,14 @@ static void *RionRuntimeTrafficLightObservationContext =
                 isEqualToString:@"NSToolbarFullScreenWindow"]) {
           strongSelf->_fullscreenTitlebarHostWindow = titlebarHost;
         }
+        [strongSelf detachTitlebarWidgetInsetOverrides];
         [strongSelf updateTrafficLightObservation];
         strongSelf->_toolbar.visible = NO;
         [strongSelf detachAccessoryController];
       } else if ([notification.name
                      isEqualToString:NSWindowDidExitFullScreenNotification]) {
         strongSelf->_fullscreenTransitionActive = NO;
+        [strongSelf detachTitlebarWidgetInsetOverrides];
         if (!strongSelf->_previousFullSizeContentView) {
           strongSelf->_window.styleMask &=
               ~NSWindowStyleMaskFullSizeContentView;
@@ -1833,6 +2044,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   // restore the settled windowed host immediately.
   if ((_window.styleMask & NSWindowStyleMaskFullScreen) != 0) return;
   _fullscreenTransitionActive = NO;
+  [self detachTitlebarWidgetInsetOverrides];
   [self restoreWindowedTitlebarHost];
   [self installFreshToolbarForWindowedMode];
   [self applyLiquidGlassTitlebarAppearance];
@@ -2040,6 +2252,7 @@ static void *RionRuntimeTrafficLightObservationContext =
       (_window && (_window.styleMask & NSWindowStyleMaskFullScreen) != 0);
   [self removeTrafficLightObservationRestoringState:fullScreen];
   [self detachAccessoryController];
+  [self detachTitlebarWidgetInsetOverrides];
   [self detachTitlebarHeightOverrideFromFrameView:_titlebarFrameView];
   _titlebarFrameView = nil;
   if (_window) {

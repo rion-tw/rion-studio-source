@@ -18,6 +18,10 @@ beforeAll(() => {
     observe(): void {}
     unobserve(): void {}
   });
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: () => undefined
+  });
 });
 
 afterEach(() => {
@@ -135,7 +139,7 @@ describe("macro editor controls", () => {
     ], { initialEntries: ["/macros/macro-1/edit"] });
 
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(getKeyStepRecordButton());
     fireEvent.keyDown(window, {
       code: "KeyK",
       key: "K",
@@ -144,14 +148,14 @@ describe("macro editor controls", () => {
     });
     openModifierMenu();
     expect(getModifierOption("Ctrl + Shift").getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(getModifierOption("Ctrl + Shift"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(getKeyStepRecordButton());
     fireEvent.keyDown(window, { code: "KeyK", key: "K", metaKey: true });
     openModifierMenu();
     expect(getModifierOption("Win").getAttribute("aria-selected")).toBe("true");
     expect(getModifierOption("Primary (Ctrl)").getAttribute("aria-selected")).toBe("false");
 
-    openModifierMenu();
     fireEvent.click(getModifierOption("Win"));
     openModifierMenu();
     fireEvent.click(getModifierOption("Primary (Ctrl)"));
@@ -163,6 +167,45 @@ describe("macro editor controls", () => {
         modifiers: ["primary"]
       })]
     })));
+  });
+
+  it("uses the same icon-only record control and switches its active state", () => {
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={vi.fn()}
+        />
+      }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    const recordButtons = screen.getAllByRole("button", { name: "Record" });
+    expect(recordButtons).toHaveLength(2);
+    for (const button of recordButtons) {
+      expect(button.getAttribute("aria-pressed")).toBe("false");
+      expect(button.querySelector(".lucide-circle-dot")).toBeTruthy();
+      expect(button.textContent).toBe("");
+    }
+
+    fireEvent.click(recordButtons[0]);
+
+    const stopButton = screen.getByRole("button", { name: "Stop recording" });
+    expect(stopButton.getAttribute("aria-pressed")).toBe("true");
+    expect(stopButton.querySelector(".lucide-square")).toBeTruthy();
+    expect(screen.getAllByRole("combobox", { name: "Key" })[0].textContent).toContain("Press shortcut");
+
+    fireEvent.click(stopButton);
+    expect(screen.getAllByRole("button", { name: "Record" })).toHaveLength(2);
   });
 
   it("disables modifier chips when the main key is itself a modifier", () => {
@@ -187,7 +230,7 @@ describe("macro editor controls", () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
 
     expect(screen.getByText("Choose a non-modifier main key before adding modifiers.")).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "Modifiers" })).toBeDisabled();
+    expect((screen.getByRole("combobox", { name: "Modifiers" }) as HTMLButtonElement).disabled).toBe(true);
     for (const name of ["Primary (Ctrl)", "Ctrl", "Alt", "Shift", "Meta"]) {
       expect(screen.queryByRole("option", { name })).toBeNull();
     }
@@ -216,7 +259,7 @@ describe("macro editor controls", () => {
       </ConfirmationProvider>
     );
 
-    expect(screen.getByRole("combobox", { name: /^Modifiers/i })).toHaveTextContent("No modifiers");
+    expect(screen.getByRole("combobox", { name: /^Modifiers/i }).textContent).toContain("No modifiers");
 
     openModifierMenu();
     const optionLabels = screen.getAllByRole("option").map((option) => option.textContent?.trim() ?? "");
@@ -521,6 +564,15 @@ function openModifierMenu(): void {
 
 function getModifierOption(name: string): HTMLElement {
   return screen.getByRole("option", { name });
+}
+
+function getKeyStepRecordButton(): HTMLElement {
+  const recordButtons = screen.getAllByRole("button", { name: "Record" });
+  const button = recordButtons.at(-1);
+  if (!button) {
+    throw new Error("Key-step record button was not found.");
+  }
+  return button;
 }
 
 function game(): Game {

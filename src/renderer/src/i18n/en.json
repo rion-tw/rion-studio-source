@@ -337,6 +337,7 @@
   "macroForm.removeStep": "Remove step",
   "macroForm.recording": "Press key",
   "macroForm.recordKey": "Record",
+  "macroForm.stopRecording": "Stop recording",
   "settings.general": "General",
   "settings.system": "System",
   "settings.backToApp": "Back to app",

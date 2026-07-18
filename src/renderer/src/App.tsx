@@ -64,6 +64,23 @@ export function App(): JSX.Element {
     enabled: hasBridge,
     onError: data.setError
   });
+  useEffect(() => {
+    if (!hasBridge) return;
+    const onError = (event: ErrorEvent) => window.rionStudio.reportRendererLog({
+      event: "renderer_error", message: event.message || "Renderer error", ...(event.error?.stack ? { stack: String(event.error.stack) } : {})
+    });
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      window.rionStudio.reportRendererLog({
+        event: "unhandled_rejection",
+        message: reason instanceof Error ? reason.message : String(reason),
+        ...(reason instanceof Error && reason.stack ? { stack: reason.stack } : {})
+      });
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => { window.removeEventListener("error", onError); window.removeEventListener("unhandledrejection", onRejection); };
+  }, [hasBridge]);
   const navigateToMacros = useCallback(() => navigate("/macros"), [navigate]);
   const navigateToNewGame = useCallback(() => navigate(createNewEditorPath("games")), [navigate]);
   const navigateToEditGame = useCallback((gameId: string) => navigate(createEditEditorPath("games", gameId)), [navigate]);

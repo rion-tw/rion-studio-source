@@ -63,6 +63,7 @@ import {
   getGraphicsRestartState
 } from "./graphicsRestart";
 import { MacroSettingsSection } from "./MacroSettingsSection";
+import { DiagnosticsSettingsSection } from "./DiagnosticsSettingsSection";
 import {
   clearPortableDataSelection,
   createDefaultPortableDataSelection,
@@ -125,7 +126,8 @@ const settingsSectionTitleKeys: Record<SettingsSectionId, TranslationKey> = {
   game: "settings.game",
   interface: "settings.interface",
   macros: "settings.macros",
-  updates: "settings.updates"
+  updates: "settings.updates",
+  diagnostics: "settings.diagnostics"
 };
 
 const settingsSectionDescriptionKeys: Record<SettingsSectionId, TranslationKey> = {
@@ -134,7 +136,8 @@ const settingsSectionDescriptionKeys: Record<SettingsSectionId, TranslationKey> 
   game: "settings.gameDescription",
   interface: "settings.interfaceDescription",
   macros: "settings.macrosDescription",
-  updates: "settings.updatesDescription"
+  updates: "settings.updatesDescription",
+  diagnostics: "settings.diagnosticsDescription"
 };
 
 const browserFontRoleLabelKeys: Record<BrowserFontFamilyRole, TranslationKey> = {
@@ -769,6 +772,8 @@ function SettingsViewBase({
             />
           </SettingsSection>
         ) : null}
+
+        {activeSection === "diagnostics" ? <DiagnosticsSettingsSection t={t} onError={onError} /> : null}
 
         {activeSection === "aboutLegal" ? (
           <>

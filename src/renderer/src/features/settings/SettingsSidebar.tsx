@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, FileJson, Gamepad2, Info, Keyboard, Palette, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Download, FileJson, Gamepad2, Info, Keyboard, Palette, ScrollText, type LucideIcon } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -28,6 +28,7 @@ const generalSectionItems = [
 
 const systemSectionItems = [
   { icon: Download, labelKey: "settings.updates", value: "updates" },
+  { icon: ScrollText, labelKey: "settings.diagnostics", value: "diagnostics" },
   { icon: Info, labelKey: "settings.aboutLegal", value: "aboutLegal" }
 ] as const satisfies ReadonlyArray<{
   icon: LucideIcon;

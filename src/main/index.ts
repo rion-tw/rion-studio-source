@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
+import { rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { cpus, freemem, totalmem } from "node:os";
 
 import {
   app,
@@ -54,6 +56,8 @@ import {
   registerIpcHandlers
 } from "./ipc/registerHandlers";
 import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
+import { LogService } from "./logging/LogService";
+import { writeZip } from "./logging/zipWriter";
 import { MacroManager } from "./macros/MacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
@@ -116,8 +120,41 @@ let mainWindowReady = false;
 let startupPromise: Promise<void> | null = null;
 let isApplicationQuitting = false;
 let quitCleanupPromise: Promise<void> | null = null;
+let getDiagnosticDataCounts = async () => ({ games: 0, roles: 0, workspaces: 0, macros: 0 });
 const rendererReadyGate = new RendererReadyGate();
 const RENDERER_READY_TIMEOUT_MS = 15_000;
+const logService = new LogService({
+  appVersion: app.getVersion(),
+  platform: process.platform,
+  userDataPath: app.getPath("userData")
+});
+const loggingReady = logService.initialize();
+logService.on("entry", (entry) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_CHANNELS.logsEntryAdded, entry);
+});
+
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  logService.error("main", "uncaught_exception", `Uncaught exception (${origin}).`, error);
+});
+process.on("unhandledRejection", (reason) => {
+  logService.error("main", "unhandled_rejection", "Unhandled promise rejection.", reason);
+});
+const originalConsoleWarn = console.warn.bind(console);
+const originalConsoleError = console.error.bind(console);
+console.warn = (...values: unknown[]) => {
+  originalConsoleWarn(...values);
+  const error = values.find((value) => value instanceof Error);
+  logService.warn("main", "console_warn", typeof values[0] === "string" ? values[0] : "Console warning.", {
+    details: values.filter((value) => value !== error).slice(1)
+  }, error);
+};
+console.error = (...values: unknown[]) => {
+  originalConsoleError(...values);
+  const error = values.find((value) => value instanceof Error);
+  logService.error("main", "console_error", typeof values[0] === "string" ? values[0] : "Console error.", error, {
+    details: values.filter((value) => value !== error).slice(1)
+  });
+};
 
 function getAppIconPath(): string {
   if (app.isPackaged) {
@@ -142,6 +179,61 @@ function getWindowsTrayIconPath(): string {
   }
 
   return join(__dirname, "../../build/icon.ico");
+}
+
+async function revealLogDirectory(): Promise<void> {
+  const result = await shell.openPath(logService.directory);
+  if (result) throw new Error(result);
+}
+
+async function exportDiagnostics() {
+  const date = new Date().toISOString().slice(0, 10);
+  const result = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showSaveDialog(mainWindow, {
+        defaultPath: `Rion-Studio-Diagnostics-${date}.zip`,
+        filters: [{ name: "ZIP archive", extensions: ["zip"] }]
+      })
+    : await dialog.showSaveDialog({
+        defaultPath: `Rion-Studio-Diagnostics-${date}.zip`,
+        filters: [{ name: "ZIP archive", extensions: ["zip"] }]
+      });
+  if (result.canceled || !result.filePath) return null;
+  const filePath = result.filePath.toLowerCase().endsWith(".zip") ? result.filePath : `${result.filePath}.zip`;
+  const temporaryPath = `${filePath}.tmp`;
+  const logFiles = await logService.getFiles();
+  const logStatus = await logService.getStatus();
+  const cpu = cpus()[0];
+  const diagnostics = {
+    generatedAt: new Date().toISOString(),
+    application: { name: app.getName(), version: app.getVersion(), packaged: app.isPackaged },
+    runtime: { electron: process.versions.electron, chromium: process.versions.chrome, node: process.versions.node },
+    system: {
+      platform: process.platform,
+      release: process.getSystemVersion(),
+      arch: process.arch,
+      locale: app.getLocale(),
+      cpu: cpu ? { model: cpu.model, cores: cpus().length } : undefined,
+      memory: { totalBytes: totalmem(), freeBytes: freemem() },
+      displayCount: screen.getAllDisplays().length,
+      gpuFeatureStatus: app.getGPUFeatureStatus()
+    },
+    dataCounts: await getDiagnosticDataCounts(),
+    logging: { ...logStatus, directory: "<USER_DATA>/logs" }
+  };
+  try {
+    await writeZip(temporaryPath, [
+      { name: "diagnostics.json", data: Buffer.from(JSON.stringify(diagnostics, null, 2)) },
+      ...logFiles.map((file) => ({ name: `logs/${file.name}`, data: file.data }))
+    ]);
+    await unlink(filePath).catch(() => undefined);
+    await rename(temporaryPath, filePath);
+    logService.info("main", "diagnostics_exported", "A diagnostic bundle was exported.", { logFileCount: logFiles.length });
+    return { filePath, logFileCount: logFiles.length };
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    logService.error("main", "diagnostics_export_failed", "Failed to export diagnostic bundle.", error);
+    throw error;
+  }
 }
 
 function loadAppIcon() {
@@ -198,7 +290,7 @@ function createWindow({
   bindAppWindowStateBroadcast(window);
 
   window.webContents.on("preload-error", (_event, preloadPath, error) => {
-    console.error(`Failed to load preload script: ${preloadPath}`, error);
+    logService.error("preload", "preload_error", `Failed to load preload script: ${preloadPath}`, error);
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -368,6 +460,12 @@ async function initializeApplication(): Promise<void> {
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
   await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
   const macroStore = new MacroStore(userDataDir);
+  getDiagnosticDataCounts = async () => {
+    const [games, roles, workspaces, macros] = await Promise.all([
+      gameStore.listGames(), roleStore.listRoles(), workspaceStore.listWorkspaces(), macroStore.listMacros()
+    ]);
+    return { games: games.length, roles: roles.length, workspaces: workspaces.length, macros: macros.length };
+  };
   const macroSettingsStore = new MacroSettingsStore(userDataDir);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir);
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir);
@@ -392,6 +490,13 @@ async function initializeApplication(): Promise<void> {
     manualUpdateRepository:
       process.env.RION_STUDIO_RELEASE_REPOSITORY ?? DEFAULT_UPDATE_REPOSITORY,
     openExternal: (url) => shell.openExternal(url)
+  });
+  updateManager.on("change", (status) => {
+    logService.info("update", "update_status_changed", "Application update status changed.", {
+      state: status.state,
+      availableVersion: status.availableVersion,
+      installMode: status.installMode
+    });
   });
   let updateCheckStarted = false;
   const startUpdateCheck = (): void => {
@@ -531,10 +636,23 @@ async function initializeApplication(): Promise<void> {
   macroManager.on("change", () => {
     macroOverlayInjector.refreshInstalledOverlays();
   });
-  browserManager.on("change", () => {
+  macroManager.on("change", (statuses) => {
+    logService.info("macro", "macro_status_changed", "Macro runtime status changed.", {
+      statuses: statuses.map((status) => ({ macroId: status.macroId, state: status.state }))
+    });
+  });
+  browserManager.on("change", (statuses) => {
     macroOverlayInjector.refreshInstalledOverlays();
+    logService.info("browser", "role_status_changed", "Browser role status changed.", {
+      statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state, runtimeMode: status.runtimeMode }))
+    });
   });
   const authManager = new AuthManager(transactionalRoleAuthStore, browserManager);
+  authManager.on("change", (statuses) => {
+    logService.info("auth", "auth_status_changed", "Authentication status changed.", {
+      statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state }))
+    });
+  });
   const gameCompatibilityManager = new GameCompatibilityManager({
     applyCdnCompatibility: async (session) => {
       await cdnCompatibilityManager.applyToSession(session);
@@ -620,6 +738,9 @@ async function initializeApplication(): Promise<void> {
     gameStore,
     gameBrowserSettingsStore,
     legalAcceptanceStore,
+    logService,
+    revealLogs: revealLogDirectory,
+    exportDiagnostics,
     getDefaultWorkspaceDisplayId: () => getMainWindowDisplay().id,
     getWorkspaceDisplays: () => getWorkspaceDisplayInfos(),
     getGraphicsDiagnostics: (sender) => graphicsDiagnosticsService.collect(sender),
@@ -784,6 +905,7 @@ async function prepareRendererWindow(loadingWindow: BrowserWindow): Promise<void
 }
 
 async function startApplication(): Promise<void> {
+  await loggingReady;
   const loadingWindow = createStartupWindow();
 
   try {
@@ -813,11 +935,11 @@ async function startApplication(): Promise<void> {
 
     await prepareRendererWindow(loadingWindow);
   } catch (error) {
-    console.error("Rion Studio startup failed.", error);
+    logService.error("main", "startup_failed", "Rion Studio startup failed.", error);
 
     if (!loadingWindow.isDestroyed()) {
       await showStartupFailure(loadingWindow).catch((failureError) => {
-        console.error("Failed to show the startup failure page.", failureError);
+        logService.error("main", "startup_failure_page_failed", "Failed to show the startup failure page.", failureError);
       });
     }
   }
@@ -844,6 +966,7 @@ const isPrimaryAppInstance = configureSingleInstanceLifecycle({
 
 if (isPrimaryAppInstance) {
   app.whenReady().then(() => {
+    logService.info("main", "electron_ready", "Electron app is ready.");
     createWindowsTray();
 
     ensureApplicationStarted();
@@ -858,6 +981,36 @@ if (isPrimaryAppInstance) {
     });
   });
 }
+
+app.on("render-process-gone", (_event, webContents, details) => {
+  logService.error("browser", "render_process_gone", "A renderer process exited unexpectedly.", undefined, {
+    webContentsId: webContents.id,
+    reason: details.reason,
+    exitCode: details.exitCode
+  });
+});
+
+app.on("child-process-gone", (_event, details) => {
+  logService.error("main", "child_process_gone", "An Electron child process exited unexpectedly.", undefined, {
+    type: details.type,
+    reason: details.reason,
+    exitCode: details.exitCode,
+    serviceName: details.serviceName
+  });
+});
+
+app.on("web-contents-created", (_event, contents) => {
+  const details = { type: contents.getType(), webContentsId: contents.id };
+  contents.on("did-start-navigation", (_navigationEvent, url, _isInPlace, isMainFrame) => {
+    if (isMainFrame) logService.info("browser", "navigation_started", "Main-frame navigation started.", { ...details, url });
+  });
+  contents.on("did-fail-load", (_loadEvent, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+    if (isMainFrame) logService.warn("browser", "navigation_failed", "Main-frame navigation failed.", {
+      ...details, errorCode, errorDescription, url: validatedUrl
+    });
+  });
+  contents.once("destroyed", () => logService.info("browser", "web_contents_destroyed", "Web contents was destroyed.", details));
+});
 
 function getMainWindowDisplay(): Electron.Display {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -953,8 +1106,10 @@ app.on("before-quit", (event) => {
     try {
       await manager?.stopAll();
     } catch (error) {
-      console.error("Failed to stop all browser sessions while quitting.", error);
+      logService.error("browser", "quit_stop_sessions_failed", "Failed to stop all browser sessions while quitting.", error);
     } finally {
+      logService.info("main", "app_quitting", "Application is quitting.");
+      await Promise.race([logService.flush(), new Promise((resolve) => setTimeout(resolve, 2_000))]);
       isApplicationQuitting = true;
       app.quit();
       isApplicationQuitting = false;

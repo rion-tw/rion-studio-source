@@ -17,8 +17,15 @@ import type {
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
   GraphicsDiagnostics,
+  DiagnosticExportResult,
   EmbeddedRuntimeState,
   LaunchWorkspace,
+  LogEntry,
+  LogLevel,
+  LogPage,
+  LogQuery,
+  LogStorageStatus,
+  RendererLogEvent,
   LegalAcceptanceStatus,
   Macro,
   MacroPageRequest,
@@ -107,6 +114,13 @@ export interface RionStudioApi {
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
+  getLogStatus: () => Promise<LogStorageStatus>;
+  queryLogs: (query?: LogQuery) => Promise<LogPage>;
+  setLogLevel: (level: LogLevel) => Promise<LogStorageStatus>;
+  clearLogs: () => Promise<LogStorageStatus>;
+  revealLogs: () => Promise<void>;
+  exportDiagnostics: () => Promise<DiagnosticExportResult | null>;
+  reportRendererLog: (event: RendererLogEvent) => void;
   listSystemFonts: () => Promise<SystemFontFamily[]>;
   consumePendingMacroPageRequest: () => Promise<MacroPageRequest | null>;
   setOverlayLanguage: (language: AppLanguage) => Promise<void>;
@@ -129,4 +143,5 @@ export interface RionStudioApi {
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
+  onLogEntryAdded: (callback: (entry: LogEntry) => void) => () => void;
 }

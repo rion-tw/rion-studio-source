@@ -25,8 +25,39 @@
 - (void)restoreWindowedTitlebarHost;
 - (BOOL)attachTitlebarHeightOverrideToFrameView:(nullable NSView *)frameView;
 - (void)settleWindowedTitlebarAfterFullScreenExit;
+- (BOOL)synchronizeTitlebarGeometryForFrameView:(nullable NSView *)frameView;
 - (CGFloat)trafficLightReserveWidth;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
+
+@end
+
+@interface RionTitlebarGeometryProbeView : NSView
+
+@property(nonatomic) NSUInteger buttonPositionUpdateCount;
+@property(nonatomic) CGFloat customTitlebarHeight;
+
+@end
+
+@implementation RionTitlebarGeometryProbeView
+
+- (void)_updateButtonPositions {
+  self.buttonPositionUpdateCount += 1;
+}
+
+@end
+
+@interface RionInvalidTitlebarGeometryProbeView : NSView
+@end
+
+@implementation RionInvalidTitlebarGeometryProbeView
+
+- (void)setCustomTitlebarHeight:(id)value {
+  (void)value;
+}
+
+- (NSInteger)_updateButtonPositions {
+  return 0;
+}
 
 @end
 
@@ -65,6 +96,29 @@ static void AssertTitlebarHeight(NSView *frameView, CGFloat expected,
   Assert(ReadTitlebarHeight(frameView, &height) &&
              std::fabs(height - expected) < 0.01,
          message);
+}
+
+static BOOL ReadCustomTitlebarHeightIfSupported(NSView *frameView,
+                                                 CGFloat *height) {
+  if (!frameView || !height) return NO;
+  SEL selector = NSSelectorFromString(@"customTitlebarHeight");
+  if (![frameView respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != sizeof(CGFloat) ||
+      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
+    return NO;
+  }
+
+  NSInvocation *invocation =
+      [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = frameView;
+  invocation.selector = selector;
+  [invocation invoke];
+  [invocation getReturnValue:height];
+  return YES;
 }
 
 static BOOL SetCustomTitlebarHeightIfSupported(NSView *frameView,
@@ -222,6 +276,10 @@ int main() {
     Assert(ReadTitlebarHeight(originalTitlebarFrameView,
                               &originalTitlebarHeight),
            "Expected AppKit's titlebar frame to expose its native height.");
+    CGFloat originalCustomTitlebarHeight = -1;
+    BOOL supportsCustomTitlebarHeight =
+        ReadCustomTitlebarHeightIfSupported(originalTitlebarFrameView,
+                                            &originalCustomTitlebarHeight);
 
     // The hook is installed per frame class, but its 40pt result must be
     // scoped by an associated marker to only the Rion-managed window.
@@ -237,6 +295,10 @@ int main() {
     Assert(ReadTitlebarHeight(controlTitlebarFrameView,
                               &controlTitlebarHeight),
            "Expected the control window to expose its native titlebar height.");
+    CGFloat controlCustomTitlebarHeight = -1;
+    BOOL controlSupportsCustomTitlebarHeight =
+        ReadCustomTitlebarHeightIfSupported(controlTitlebarFrameView,
+                                            &controlCustomTitlebarHeight);
 
     __block NSDictionary<NSString *, id> *lastAction = nil;
     RionRuntimeTabsController *controller = [[RionRuntimeTabsController alloc]
@@ -252,10 +314,40 @@ int main() {
     AssertTitlebarHeight(
         controlTitlebarFrameView, controlTitlebarHeight,
         "Installing the frame hook must not change unmarked windows of the same AppKit class.");
-    if (SetCustomTitlebarHeightIfSupported(titlebarFrameView, -1.0)) {
+    if (supportsCustomTitlebarHeight &&
+        SetCustomTitlebarHeightIfSupported(titlebarFrameView, -1.0)) {
       AssertTitlebarHeight(
           titlebarFrameView, 40.0,
           "AppKit resetting customTitlebarHeight during fullscreen entry must not collapse the marked frame to 32pt.");
+      Assert([controller
+                 synchronizeTitlebarGeometryForFrameView:titlebarFrameView],
+             "Fullscreen geometry sync must restore AppKit's internal titlebar metric and update its window buttons.");
+      CGFloat synchronizedCustomTitlebarHeight = -1;
+      Assert(ReadCustomTitlebarHeightIfSupported(
+                 titlebarFrameView, &synchronizedCustomTitlebarHeight) &&
+                 std::fabs(synchronizedCustomTitlebarHeight - 40.0) < 0.01,
+             "Fullscreen geometry sync must restore customTitlebarHeight to 40pt after AppKit resets it.");
+    }
+    RionTitlebarGeometryProbeView *geometryProbe =
+        [[RionTitlebarGeometryProbeView alloc] initWithFrame:NSZeroRect];
+    geometryProbe.customTitlebarHeight = -1.0;
+    Assert([controller synchronizeTitlebarGeometryForFrameView:geometryProbe] &&
+               std::fabs(geometryProbe.customTitlebarHeight - 40.0) < 0.01 &&
+               geometryProbe.buttonPositionUpdateCount == 1,
+          "Geometry sync must update the metric and request one explicit button-position pass.");
+    RionInvalidTitlebarGeometryProbeView *invalidGeometryProbe =
+        [[RionInvalidTitlebarGeometryProbeView alloc] initWithFrame:NSZeroRect];
+    Assert(![controller
+               synchronizeTitlebarGeometryForFrameView:invalidGeometryProbe],
+           "Invalid private selector signatures must fail safely.");
+    if (controlSupportsCustomTitlebarHeight) {
+      CGFloat unchangedControlCustomTitlebarHeight = -1;
+      Assert(ReadCustomTitlebarHeightIfSupported(
+                 controlTitlebarFrameView,
+                 &unchangedControlCustomTitlebarHeight) &&
+                 std::fabs(unchangedControlCustomTitlebarHeight -
+                           controlCustomTitlebarHeight) < 0.01,
+             "Fullscreen geometry sync must not change an unmarked control window.");
     }
     Assert(window.titleVisibility == NSWindowTitleHidden,
            "Expected the native title to be hidden.");
@@ -269,6 +361,9 @@ int main() {
     Assert(![controller
                attachTitlebarHeightOverrideToFrameView:unsupportedFrameView],
            "A frame without AppKit's private titlebar metric must fail safely.");
+    Assert(![controller
+               synchronizeTitlebarGeometryForFrameView:unsupportedFrameView],
+           "A frame without fullscreen geometry selectors must fail safely.");
     Assert(window.toolbar.items.count == 1 &&
                window.toolbar.items.firstObject.view.frame.size.height == 28.0 &&
                window.toolbar.items.firstObject.visibilityPriority ==
@@ -629,6 +724,15 @@ int main() {
     Assert(controller.revealLocked, "Expected the native reveal lock.");
 
     [controller destroy];
+    if (supportsCustomTitlebarHeight) {
+      CGFloat restoredCustomTitlebarHeight = -1;
+      Assert(ReadCustomTitlebarHeightIfSupported(
+                 originalTitlebarFrameView,
+                 &restoredCustomTitlebarHeight) &&
+                 std::fabs(restoredCustomTitlebarHeight -
+                           originalCustomTitlebarHeight) < 0.01,
+             "Destroying runtime tabs must restore the original custom titlebar metric.");
+    }
     AssertTitlebarHeight(
         originalTitlebarFrameView, originalTitlebarHeight,
         "Destroying runtime tabs must remove the per-window titlebar height marker.");

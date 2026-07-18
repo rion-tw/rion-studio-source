@@ -219,7 +219,7 @@ describe("macro editor controls", () => {
     openModifierMenu();
     const optionLabels = screen.getAllByRole("option").map((option) => option.textContent?.trim() ?? "");
 
-    expect(optionLabels[0]).toBe("Modifiers");
+    expect(optionLabels[0]).toBe("No modifiers");
     expect(optionLabels[1]).toBe("Primary (Ctrl)");
     expect(optionLabels[2]).toBe("Ctrl");
     expect(optionLabels[3]).toBe("Alt");

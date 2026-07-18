@@ -143,7 +143,7 @@ export function MacroSettingsSection({
                       setDraft((current) => ({ ...current, [key]: event.target.value }));
                     }}
                   />
-                  <span className="w-5 text-xs font-semibold text-muted-foreground">ms</span>
+                  <span className="w-5 text-[12px] font-normal text-muted-foreground">ms</span>
                 </label>
               }
             />

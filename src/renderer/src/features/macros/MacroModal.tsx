@@ -571,10 +571,10 @@ function InlineControl({ children, className, controlClassName, label, suffix }:
         "flex min-w-0 items-center gap-2 text-[12px] font-semibold leading-none text-foreground",
         className
       )}
-    >
+      >
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className={cn("min-w-0 flex-1", controlClassName)}>{children}</span>
-      {suffix ? <span className="shrink-0 text-muted-foreground">{suffix}</span> : null}
+      {suffix ? <span className="shrink-0 font-normal text-muted-foreground">{suffix}</span> : null}
     </div>
   );
 }
@@ -612,7 +612,7 @@ function AffixedInput({
       )}
     >
       {prefix ? (
-        <span className="pointer-events-none shrink-0 pl-2.5 text-[11px] font-semibold text-muted-foreground">
+        <span className="pointer-events-none shrink-0 pl-2.5 text-[13px] font-normal text-muted-foreground">
           {prefix}
         </span>
       ) : null}
@@ -628,7 +628,7 @@ function AffixedInput({
         disabled={disabled}
       />
       {suffix ? (
-        <span className="pointer-events-none shrink-0 pr-2.5 text-[11px] font-semibold text-muted-foreground">
+        <span className="pointer-events-none shrink-0 pr-2.5 text-[13px] font-normal text-muted-foreground">
           {suffix}
         </span>
       ) : null}

@@ -113,20 +113,26 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
       <section className="grid gap-2">
         <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
           <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsViewer")}</p>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void refresh()}>
-              <RefreshCw className={busy ? "animate-spin" : ""} size={14} />
-              {t("settings.logsRefresh")}
-            </Button>
-          </div>
-          <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,1fr)_130px_140px_auto] sm:items-center">
-            <Input value={search} placeholder={t("settings.logsSearch")} onChange={(event) => setSearch(event.target.value)} />
-            <Select value={level} onValueChange={(value) => setLevel(value as LogLevel | typeof ALL)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value={ALL}>{t("settings.logsAllLevels")}</SelectItem>{(["debug", "info", "warn", "error"] as const).map((item) => <SelectItem key={item} value={item}>{item.toUpperCase()}</SelectItem>)}</SelectContent></Select>
-            <Select value={source} onValueChange={(value) => setSource(value as LogSource | typeof ALL)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value={ALL}>{t("settings.logsAllSources")}</SelectItem>{(["main", "preload", "renderer", "ipc", "browser", "auth", "macro", "persistence", "update"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
-            <Button variant={live ? "default" : "outline"} onClick={() => setLive((value) => !value)}>{t(live ? "settings.logsLiveOn" : "settings.logsLiveOff")}</Button>
+            <p className="whitespace-nowrap text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsViewer")}</p>
+            <div className="flex w-full flex-wrap justify-end gap-2">
+              <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void refresh()}>
+                <RefreshCw className={busy ? "animate-spin" : ""} size={14} />
+                {t("settings.logsRefresh")}
+              </Button>
+              <Input className="min-w-44 w-auto" value={search} placeholder={t("settings.logsSearch")} onChange={(event) => setSearch(event.target.value)} />
+              <Select value={level} onValueChange={(value) => setLevel(value as LogLevel | typeof ALL)}>
+                <SelectTrigger className="w-28 settings-menu-control"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value={ALL}>{t("settings.logsAllLevels")}</SelectItem>{(["debug", "info", "warn", "error"] as const).map((item) => <SelectItem key={item} value={item}>{item.toUpperCase()}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={source} onValueChange={(value) => setSource(value as LogSource | typeof ALL)}>
+                <SelectTrigger className="w-36 settings-menu-control"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value={ALL}>{t("settings.logsAllSources")}</SelectItem>{(["main", "preload", "renderer", "ipc", "browser", "auth", "macro", "persistence", "update"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+              </Select>
+              <Button type="button" variant={live ? "default" : "outline"} onClick={() => setLive((value) => !value)}>{t(live ? "settings.logsLiveOn" : "settings.logsLiveOff")}</Button>
+            </div>
           </div>
           <div className="max-h-[430px] overflow-auto bg-black/5 font-mono text-[11px] dark:bg-black/20">
-          {entries.length ? entries.map((entry) => <LogEntryRow key={entry.id} entry={entry} />) : <p className="p-6 text-center text-muted-foreground">{t("settings.logsEmpty")}</p>}
+            {entries.length ? entries.map((entry) => <LogEntryRow key={entry.id} entry={entry} />) : <p className="p-6 text-center text-muted-foreground">{t("settings.logsEmpty")}</p>}
           </div>
           {cursor ? <div className="border-t border-border/50 p-3 text-center"><Button variant="outline" disabled={busy} onClick={() => void loadMore()}>{t("settings.logsLoadMore")}</Button></div> : null}
         </Surface>

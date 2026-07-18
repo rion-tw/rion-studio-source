@@ -275,7 +275,7 @@ function MacroForm({
   }
 
   function addStep(type: MacroStep["type"]): void {
-    const step = createStep(type, undefined, macroTargets[0]?.id);
+    const step = createStep(type, undefined, macroTargets[0]?.id, form.activationMode);
     update((current) => ({ ...current, steps: [...current.steps, step] }));
   }
 
@@ -1092,7 +1092,8 @@ function KeyRecorder({
 function createStep(
   type: MacroStep["type"],
   id = createClientId(),
-  macroId = ""
+  macroId = "",
+  activationMode: MacroActivationMode = "toggle"
 ): MacroStep {
   switch (type) {
     case "key":
@@ -1100,7 +1101,7 @@ function createStep(
         id,
         type: "key",
         code: "Tab",
-        action: "tap",
+        action: activationMode === "while_held" ? "hold_until_stop" : "tap",
         label: "Tab"
       };
     case "click":

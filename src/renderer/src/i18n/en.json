@@ -294,7 +294,7 @@
   "macroForm.addClick": "Click",
   "macroForm.addDelay": "Delay",
   "macroForm.stepsEmpty": "Add at least one step before saving.",
-  "macroForm.stepsEmptyHint": "Choose a step type above, then add it.",
+  "macroForm.stepsEmptyHint": "Choose a step type below, then add it.",
   "macroForm.saveHint.needsRole": "Select at least one role to enable saving.",
   "macroForm.saveHint.needsStep": "Add a step to enable saving.",
   "macroForm.saveHint.invalidInterval": "Enter a whole-number wait from 0 to 600,000 ms.",

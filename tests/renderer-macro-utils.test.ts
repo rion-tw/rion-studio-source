@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createMacroRunKey,
+  createEmptyMacroForm,
   formatMacroActivationMode,
   formatMacroIntervalPreset,
   formatMacroRepeat,
@@ -15,6 +16,7 @@ import {
   summarizeMacroSteps
 } from "../src/renderer/src/features/macros/macroUtils";
 import type { Translator } from "../src/renderer/src/i18n";
+import type { Role } from "../src/shared/types";
 import { MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
 
 const t: Translator = (key) =>
@@ -88,6 +90,12 @@ describe("macroUtils", () => {
       [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }],
       t
     )).toBe("Hold:W");
+  });
+
+  it("creates a new macro form without default steps", () => {
+    const result = createEmptyMacroForm([], [] as Role[], t);
+    expect(result.steps).toEqual([]);
+    expect(result.activationMode).toBe("toggle");
   });
 
   it("formats repeat settings and run keys", () => {

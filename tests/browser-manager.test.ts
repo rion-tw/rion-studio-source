@@ -10,6 +10,7 @@ import {
   BrowserWorkspaceDisplayOccupiedError,
   classifyNativeZoomShortcut,
   createRoleSessionPartition,
+  isExpectedNativeZoomResult,
   normalizedRectToPixelBounds
 } from "../src/main/browser/BrowserManager";
 import { LOGIN_STORAGE_EXPRESSION } from "../src/main/auth/loginEvidence";
@@ -2263,6 +2264,22 @@ describe("BrowserManager game host windows", () => {
     }
   });
 
+  it.each([
+    ["in", 90, 100, true],
+    ["in", 90, 90, false],
+    ["in", 300, 300, true],
+    ["out", 90, 80, true],
+    ["out", 90, 100, false],
+    ["out", 50, 50, true],
+    ["reset", 90, 100, true],
+    ["reset", 90, 90, false]
+  ] as const)(
+    "validates native zoom result %s from %s to %s",
+    (action, previousPercent, nextPercent, expected) => {
+      expect(isExpectedNativeZoomResult(action, previousPercent, nextPercent)).toBe(expected);
+    }
+  );
+
   it("uses a workspace role zoom override instead of adaptive zoom", async () => {
     const harness = createHarness();
     const adaptiveWorkspace = { ...workspace, browserZoomMode: "adaptive" as const };
@@ -2280,12 +2297,13 @@ describe("BrowserManager game host windows", () => {
   });
 
   it.each(["darwin", "win32"] as const)(
-    "temporarily enables native zoom and debounces workspace persistence on %s",
+    "targets native role zoom and debounces workspace persistence on %s",
     async (platform) => {
       vi.useFakeTimers();
       try {
         const persistWorkspaceRoleZoom = vi.fn().mockResolvedValue(undefined);
-        const harness = createHarness({ platform, persistWorkspaceRoleZoom });
+        const performNativeZoom = createMockNativeZoomPerformer();
+        const harness = createHarness({ platform, performNativeZoom, persistWorkspaceRoleZoom });
         const adaptiveWorkspace = { ...workspace, browserZoomMode: "adaptive" as const };
         await harness.manager.launchWorkspace(adaptiveWorkspace, [{
           role,
@@ -2304,14 +2322,28 @@ describe("BrowserManager game host windows", () => {
           shift: true,
           type: "keyDown"
         };
+        const initialZoomFactor = webContents.getZoomFactor();
 
         const nativeEvent = { preventDefault: vi.fn() };
         webContents.emit("before-input-event", nativeEvent, input);
-        webContents.setZoomFactor(1.1);
         await vi.advanceTimersByTimeAsync(0);
+        const firstZoomFactor = getMockNativeZoomFactor("in", initialZoomFactor);
 
         expect(nativeEvent.preventDefault).not.toHaveBeenCalled();
-        expect(webContents.setIgnoreMenuShortcuts.mock.calls.slice(-2)).toEqual([[false], [true]]);
+        expect(webContents.getZoomFactor()).toBe(firstZoomFactor);
+        expect(webContents.setIgnoreMenuShortcuts.mock.calls.slice(-2)).toEqual([[true], [true]]);
+        expect(performNativeZoom).toHaveBeenLastCalledWith(
+          "in",
+          harness.hosts[0],
+          webContents,
+          {
+            altKey: false,
+            ctrlKey: platform === "win32",
+            metaKey: platform === "darwin",
+            shiftKey: true,
+            triggeredByAccelerator: true
+          }
+        );
         expect(persistWorkspaceRoleZoom).not.toHaveBeenCalled();
 
         const repeatEvent = { preventDefault: vi.fn() };
@@ -2319,32 +2351,143 @@ describe("BrowserManager game host windows", () => {
           ...input,
           isAutoRepeat: true
         });
-        webContents.setZoomFactor(1.2);
         await vi.advanceTimersByTimeAsync(0);
+        const secondZoomFactor = getMockNativeZoomFactor("in", firstZoomFactor);
         expect(repeatEvent.preventDefault).not.toHaveBeenCalled();
+        expect(webContents.getZoomFactor()).toBe(secondZoomFactor);
         await vi.advanceTimersByTimeAsync(199);
         expect(persistWorkspaceRoleZoom).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(1);
 
         expect(persistWorkspaceRoleZoom).toHaveBeenCalledOnce();
-        expect(persistWorkspaceRoleZoom).toHaveBeenCalledWith(workspace.id, role.id, 120);
+        expect(persistWorkspaceRoleZoom).toHaveBeenCalledWith(
+          workspace.id,
+          role.id,
+          Math.round(secondZoomFactor * 100)
+        );
         harness.hosts[0].contentBounds.width = 700;
         harness.hosts[0].emit("resize");
-        expect(webContents.getZoomFactor()).toBe(1.2);
+        expect(webContents.getZoomFactor()).toBe(secondZoomFactor);
       } finally {
         vi.useRealTimers();
       }
     }
   );
 
+  it("zooms only the role view that emitted the shortcut", async () => {
+    vi.useFakeTimers();
+    try {
+      const secondRole = createRole("role-2", "Alt");
+      const performNativeZoom = createMockNativeZoomPerformer();
+      const persistWorkspaceRoleZoom = vi.fn().mockResolvedValue(undefined);
+      const harness = createHarness({
+        performNativeZoom,
+        persistWorkspaceRoleZoom,
+        platform: "win32"
+      });
+      await harness.manager.launchWorkspace(workspace, [
+        { role, rect: workspace.slots[0].rect },
+        { role: secondRole, rect: workspace.slots[1].rect }
+      ]);
+      const firstWebContents = harness.views[0].webContents;
+      const secondWebContents = harness.views[1].webContents;
+      const firstZoomFactor = firstWebContents.getZoomFactor();
+      const secondZoomFactor = secondWebContents.getZoomFactor();
+      harness.manager.setGameInputContext(secondWebContents.id, true);
+
+      secondWebContents.emit("before-input-event", { preventDefault: vi.fn() }, {
+        alt: false,
+        code: "Minus",
+        control: true,
+        isAutoRepeat: false,
+        isComposing: false,
+        key: "-",
+        meta: false,
+        shift: false,
+        type: "keyDown"
+      });
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(performNativeZoom).toHaveBeenCalledWith(
+        "out",
+        harness.hosts[0],
+        secondWebContents,
+        expect.objectContaining({ ctrlKey: true, triggeredByAccelerator: true })
+      );
+      expect(firstWebContents.getZoomFactor()).toBe(firstZoomFactor);
+      expect(secondWebContents.getZoomFactor()).toBe(
+        getMockNativeZoomFactor("out", secondZoomFactor)
+      );
+      expect(persistWorkspaceRoleZoom).toHaveBeenCalledWith(
+        workspace.id,
+        secondRole.id,
+        Math.round(getMockNativeZoomFactor("out", secondZoomFactor) * 100)
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("targets a role popup and synchronizes its native zoom with the main game view", async () => {
+    vi.useFakeTimers();
+    try {
+      const performNativeZoom = createMockNativeZoomPerformer();
+      const persistWorkspaceRoleZoom = vi.fn().mockResolvedValue(undefined);
+      const harness = createHarness({
+        performNativeZoom,
+        persistWorkspaceRoleZoom,
+        platform: "win32"
+      });
+      await harness.manager.launchWorkspace(workspace, [{ role, rect: workspace.slots[0].rect }]);
+      const mainWebContents = harness.views[0].webContents;
+      const popup = createOAuthPopup(harness.views[0], harness.views);
+      const initialZoomFactor = popup.webContents.getZoomFactor();
+      const event = { preventDefault: vi.fn() };
+
+      popup.webContents.emit("before-input-event", event, {
+        alt: false,
+        code: "Equal",
+        control: true,
+        isAutoRepeat: false,
+        isComposing: false,
+        key: "+",
+        meta: false,
+        shift: true,
+        type: "keyDown"
+      });
+      await vi.advanceTimersByTimeAsync(200);
+      const nextZoomFactor = getMockNativeZoomFactor("in", initialZoomFactor);
+
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(performNativeZoom).toHaveBeenCalledWith(
+        "in",
+        harness.hosts[0],
+        popup.webContents,
+        expect.objectContaining({ ctrlKey: true, triggeredByAccelerator: true })
+      );
+      expect(popup.webContents.setIgnoreMenuShortcuts.mock.calls.slice(-2)).toEqual([[true], [false]]);
+      expect(mainWebContents.getZoomFactor()).toBe(nextZoomFactor);
+      expect(popup.webContents.getZoomFactor()).toBe(nextZoomFactor);
+      expect(persistWorkspaceRoleZoom).toHaveBeenCalledWith(
+        workspace.id,
+        role.id,
+        Math.round(nextZoomFactor * 100)
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the current native zoom when workspace persistence fails", async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       const persistWorkspaceRoleZoom = vi.fn().mockRejectedValue(new Error("disk full"));
-      const harness = createHarness({ platform: "win32", persistWorkspaceRoleZoom });
+      const performNativeZoom = createMockNativeZoomPerformer();
+      const harness = createHarness({ platform: "win32", performNativeZoom, persistWorkspaceRoleZoom });
       await harness.manager.launchWorkspace(workspace, [{ role, rect: workspace.slots[0].rect }]);
       const webContents = harness.views[0].webContents;
+      const initialZoomFactor = webContents.getZoomFactor();
       harness.manager.setGameInputContext(webContents.id, true);
 
       webContents.emit("before-input-event", { preventDefault: vi.fn() }, {
@@ -2358,18 +2501,72 @@ describe("BrowserManager game host windows", () => {
         shift: true,
         type: "keyDown"
       });
-      webContents.setZoomFactor(1.1);
       await vi.advanceTimersByTimeAsync(200);
+      const nextZoomFactor = getMockNativeZoomFactor("in", initialZoomFactor);
 
-      expect(persistWorkspaceRoleZoom).toHaveBeenCalledWith(workspace.id, role.id, 110);
-      expect(webContents.getZoomFactor()).toBe(1.1);
+      expect(persistWorkspaceRoleZoom).toHaveBeenCalledWith(
+        workspace.id,
+        role.id,
+        Math.round(nextZoomFactor * 100)
+      );
+      expect(webContents.getZoomFactor()).toBe(nextZoomFactor);
       harness.hosts[0].contentBounds.width = 700;
       harness.hosts[0].emit("resize");
-      expect(webContents.getZoomFactor()).toBe(1.1);
+      expect(webContents.getZoomFactor()).toBe(nextZoomFactor);
       expect(warning).toHaveBeenCalledWith(
         "Failed to persist workspace role browser zoom.",
         expect.any(Error)
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not persist or stop adaptive zoom when the targeted native role does not change", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const performNativeZoom = vi.fn<NonNullable<BrowserManagerOptions["performNativeZoom"]>>(
+        () => true
+      );
+      const persistWorkspaceRoleZoom = vi.fn().mockResolvedValue(undefined);
+      const harness = createHarness({
+        performNativeZoom,
+        persistWorkspaceRoleZoom,
+        platform: "win32"
+      });
+      const adaptiveWorkspace = { ...workspace, browserZoomMode: "adaptive" as const };
+      await harness.manager.launchWorkspace(adaptiveWorkspace, [{
+        role,
+        rect: adaptiveWorkspace.slots[0].rect
+      }]);
+      const webContents = harness.views[0].webContents;
+      const initialZoomFactor = webContents.getZoomFactor();
+      harness.manager.setGameInputContext(webContents.id, true);
+
+      webContents.emit("before-input-event", { preventDefault: vi.fn() }, {
+        alt: false,
+        code: "Equal",
+        control: true,
+        isAutoRepeat: false,
+        isComposing: false,
+        key: "+",
+        meta: false,
+        shift: true,
+        type: "keyDown"
+      });
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(webContents.getZoomFactor()).toBe(initialZoomFactor);
+      expect(persistWorkspaceRoleZoom).not.toHaveBeenCalled();
+      expect(warning).toHaveBeenCalledWith(
+        "Native browser zoom did not change the targeted game role as expected.",
+        expect.objectContaining({ roleId: role.id, zoomAction: "in" })
+      );
+
+      harness.hosts[0].contentBounds.width = 1600;
+      harness.hosts[0].emit("resize");
+      expect(webContents.getZoomFactor()).not.toBe(initialZoomFactor);
     } finally {
       vi.useRealTimers();
     }
@@ -3778,6 +3975,7 @@ function createHarness(options: {
   macNativeChromeError?: Error;
   handleRuntimeTabAction?: BrowserManagerOptions["handleRuntimeTabAction"];
   onEmbeddedWebContentsCreated?: BrowserManagerOptions["onEmbeddedWebContentsCreated"];
+  performNativeZoom?: BrowserManagerOptions["performNativeZoom"];
   persistWorkspaceRoleZoom?: BrowserManagerOptions["persistWorkspaceRoleZoom"];
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
@@ -3908,6 +4106,9 @@ function createHarness(options: {
       : {}),
     ...(options.onEmbeddedWebContentsCreated
       ? { onEmbeddedWebContentsCreated: options.onEmbeddedWebContentsCreated }
+      : {}),
+    ...(options.performNativeZoom
+      ? { performNativeZoom: options.performNativeZoom }
       : {}),
     ...(options.persistWorkspaceRoleZoom
       ? { persistWorkspaceRoleZoom: options.persistWorkspaceRoleZoom }
@@ -4061,6 +4262,31 @@ function createMockBrowserHost(deferFullscreenTransitions = false) {
     }),
     webContents
   });
+}
+
+function createMockNativeZoomPerformer() {
+  const perform: NonNullable<BrowserManagerOptions["performNativeZoom"]> = (
+    action,
+    _window,
+    targetWebContents
+  ) => {
+    targetWebContents.setZoomFactor(
+      getMockNativeZoomFactor(action, targetWebContents.getZoomFactor())
+    );
+    return true;
+  };
+  return vi.fn(perform);
+}
+
+function getMockNativeZoomFactor(
+  action: "in" | "out" | "reset",
+  currentZoomFactor: number
+): number {
+  if (action === "reset") {
+    return 1;
+  }
+  const delta = action === "in" ? 0.1 : -0.1;
+  return Number(Math.min(3, Math.max(0.5, currentZoomFactor + delta)).toFixed(2));
 }
 
 function createMockView(

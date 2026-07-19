@@ -618,6 +618,8 @@ async function initializeApplication(): Promise<void> {
     onEmbeddedWebContentsCreated: (context, contents) => {
       embeddedRuntimeDiagnostics?.attach(context, contents);
     },
+    performNativeZoom: (action, runtimeWindow, targetWebContents, event) =>
+      applicationMenu?.performZoom(action, event, runtimeWindow, targetWebContents) ?? false,
     persistWorkspaceRoleZoom: async (workspaceId, roleId, browserZoomPercent) => {
       const updated = await withDataMutation(() =>
         workspaceStore.updateRoleBrowserZoom(workspaceId, roleId, browserZoomPercent)

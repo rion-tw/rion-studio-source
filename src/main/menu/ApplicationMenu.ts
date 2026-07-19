@@ -1,8 +1,22 @@
-import { Menu, type MenuItemConstructorOptions } from "electron";
+import {
+  Menu,
+  type BaseWindow,
+  type KeyboardEvent as ElectronKeyboardEvent,
+  type MenuItemConstructorOptions,
+  type WebContents
+} from "electron";
 
 import type { AppLanguage } from "../../shared/types";
 
 type MenuLabelKey = "app" | "edit" | "view" | "window" | "alwaysShow" | "toggleFullScreen";
+
+export type ApplicationMenuZoomAction = "in" | "out" | "reset";
+
+export const APPLICATION_MENU_ZOOM_ITEM_IDS: Record<ApplicationMenuZoomAction, string> = {
+  in: "rion-browser-zoom-in",
+  out: "rion-browser-zoom-out",
+  reset: "rion-browser-reset-zoom"
+};
 
 const labels: Record<AppLanguage, Record<MenuLabelKey, string>> = {
   en: {
@@ -54,6 +68,7 @@ export class ApplicationMenuController {
   private alwaysShowToolbarInFullScreen: boolean;
   private language: AppLanguage;
   private readonly logger: Pick<Console, "error">;
+  private menu?: Menu;
 
   constructor(private readonly options: ApplicationMenuOptions) {
     this.alwaysShowToolbarInFullScreen = options.alwaysShowToolbarInFullScreen;
@@ -71,6 +86,21 @@ export class ApplicationMenuController {
     this.rebuild();
   }
 
+  performZoom(
+    action: ApplicationMenuZoomAction,
+    event: ElectronKeyboardEvent,
+    focusedWindow: BaseWindow,
+    focusedWebContents: WebContents
+  ): boolean {
+    const item = this.menu?.getMenuItemById(APPLICATION_MENU_ZOOM_ITEM_IDS[action]);
+    if (!item) {
+      return false;
+    }
+
+    item.click(event, focusedWindow, focusedWebContents);
+    return true;
+  }
+
   private rebuild(): void {
     const menu = Menu.buildFromTemplate(buildApplicationMenuTemplate({
       alwaysShowToolbarInFullScreen: this.alwaysShowToolbarInFullScreen,
@@ -79,6 +109,7 @@ export class ApplicationMenuController {
       onToggleFullScreen: this.options.toggleFullScreen ?? (() => undefined),
       platform: this.options.platform ?? process.platform
     }));
+    this.menu = menu;
     (this.options.setApplicationMenu ?? Menu.setApplicationMenu)(menu);
   }
 
@@ -155,9 +186,9 @@ export function buildApplicationMenuTemplate({
           type: "checkbox"
         },
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
+        { id: APPLICATION_MENU_ZOOM_ITEM_IDS.reset, role: "resetZoom" },
+        { id: APPLICATION_MENU_ZOOM_ITEM_IDS.in, role: "zoomIn" },
+        { id: APPLICATION_MENU_ZOOM_ITEM_IDS.out, role: "zoomOut" },
         { type: "separator" },
         ...(platform === "darwin"
           ? [{

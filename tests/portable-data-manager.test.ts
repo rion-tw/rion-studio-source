@@ -106,8 +106,8 @@ describe("PortableDataManager", () => {
           launchMode: "external",
           macroBadgePosition: {
             horizontalAlign: "right",
-            horizontalMarginPercent: 10,
-            topPercent: 35
+            horizontalMarginPx: 80,
+            topPx: 280
           },
           network: DEFAULT_BROWSER_NETWORK_SETTINGS,
           workspace: { background: "black", gap: 1 }
@@ -142,8 +142,8 @@ describe("PortableDataManager", () => {
           },
           macroBadgePosition: {
             horizontalAlign: "right",
-            horizontalMarginPercent: 10,
-            topPercent: 35
+            horizontalMarginPx: 80,
+            topPx: 280
           },
           workspace: { background: "black", gap: 1 }
         },

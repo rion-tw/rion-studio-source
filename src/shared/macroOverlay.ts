@@ -1,12 +1,12 @@
 import type { MacroBadgeHorizontalAlign, MacroBadgePositionSettings } from "./types";
 
-export const macroBadgeVerticalPositions = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80] as const;
-export const macroBadgeHorizontalMargins = [0, 5, 10, 15, 20] as const;
+export const macroBadgeTopPositionsPx = Array.from({ length: 41 }, (_value, index) => index * 8);
+export const macroBadgeHorizontalMarginsPx = Array.from({ length: 17 }, (_value, index) => index * 8);
 
 export const DEFAULT_MACRO_BADGE_POSITION: MacroBadgePositionSettings = {
   horizontalAlign: "center",
-  horizontalMarginPercent: 0,
-  topPercent: 20
+  horizontalMarginPx: 8,
+  topPx: 128
 };
 
 export function normalizeMacroBadgePositionSettings(
@@ -17,11 +17,12 @@ export function normalizeMacroBadgePositionSettings(
 
   return {
     horizontalAlign: normalizeHorizontalAlign(input.horizontalAlign, fallback.horizontalAlign),
-    horizontalMarginPercent: normalizeHorizontalMargin(
-      input.horizontalMarginPercent,
-      fallback.horizontalMarginPercent
+    horizontalMarginPx: normalizePx(
+      input.horizontalMarginPx,
+      macroBadgeHorizontalMarginsPx,
+      fallback.horizontalMarginPx
     ),
-    topPercent: normalizeVerticalPosition(input.topPercent, fallback.topPercent)
+    topPx: normalizePx(input.topPx, macroBadgeTopPositionsPx, fallback.topPx)
   };
 }
 
@@ -32,19 +33,12 @@ function normalizeHorizontalAlign(
   return value === "left" || value === "center" || value === "right" ? value : fallback;
 }
 
-function normalizeHorizontalMargin(value: unknown, fallback: number): number {
-  return isAllowedPercent(value, macroBadgeHorizontalMargins) ? value : fallback;
-}
-
-function normalizeVerticalPosition(value: unknown, fallback: number): number {
-  return isAllowedPercent(value, macroBadgeVerticalPositions) ? value : fallback;
-}
-
-function isAllowedPercent<const T extends readonly number[]>(
+function normalizePx<const T extends readonly number[]>(
   value: unknown,
-  options: T
-): value is T[number] {
-  return typeof value === "number" && Number.isInteger(value) && options.includes(value);
+  options: T,
+  fallback: number
+): number {
+  return typeof value === "number" && Number.isInteger(value) && options.includes(value) ? value : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

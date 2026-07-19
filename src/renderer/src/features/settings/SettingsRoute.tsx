@@ -1,5 +1,5 @@
 import { ChevronDown, Download, FileJson, FileText, Laptop, Moon, RefreshCw, RotateCcw, Sun, Upload } from "lucide-react";
-import { type JSX, type ReactNode, useEffect, useState } from "react";
+import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "../../components/ui/button";
@@ -9,6 +9,7 @@ import { LegalDocumentDialog } from "../legal/LegalDocumentDialog";
 import type { LegalDocumentKind } from "../legal/legalDocuments";
 import { Input } from "../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Slider } from "../../components/ui/slider";
 import { PageFrame, SegmentedControl, Surface } from "../../components/ui/patterns";
 import {
   languageLabelKeys,
@@ -26,8 +27,8 @@ import {
   workspaceGapSizes
 } from "../../../../shared/browserFonts";
 import {
-  macroBadgeHorizontalMargins,
-  macroBadgeVerticalPositions
+  macroBadgeHorizontalMarginsPx,
+  macroBadgeTopPositionsPx
 } from "../../../../shared/macroOverlay";
 import { CURRENT_LEGAL_RELEASE, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
@@ -217,24 +218,6 @@ function SettingsViewBase({
       ...normalizedSettings,
       workspace: {
         ...normalizedSettings.workspace,
-        ...update
-      }
-    })
-      .catch(onError)
-      .finally(() => setIsWorkspaceAppearanceSaving(false));
-  }
-
-  function updateMacroBadgePosition(update: Partial<MacroBadgePositionSettings>): void {
-    if (isWorkspaceAppearanceSaving) {
-      return;
-    }
-
-    const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
-    setIsWorkspaceAppearanceSaving(true);
-    void onGameBrowserSettingsChange({
-      ...normalizedSettings,
-      macroBadgePosition: {
-        ...normalizedSettings.macroBadgePosition,
         ...update
       }
     })
@@ -528,77 +511,11 @@ function SettingsViewBase({
             </SettingsSection>
 
             <SettingsSection title={t("settings.macroBadges")}>
-              <SettingsRow
-                title={t("settings.macroBadgeHorizontalAlign")}
-                description={t("settings.macroBadgeHorizontalAlignDescription")}
-                control={
-                  <SegmentedControl<MacroBadgeHorizontalAlign>
-                    className="settings-menu-control settings-segmented-menu grid-cols-3"
-                    disabled={isWorkspaceAppearanceSaving}
-                    items={[
-                      { value: "left", label: t("settings.macroBadgeHorizontalAlignLeft") },
-                      { value: "center", label: t("settings.macroBadgeHorizontalAlignCenter") },
-                      { value: "right", label: t("settings.macroBadgeHorizontalAlignRight") }
-                    ]}
-                    value={normalizeGameBrowserSettings(gameBrowserSettings).macroBadgePosition.horizontalAlign}
-                    onValueChange={(horizontalAlign) => updateMacroBadgePosition({ horizontalAlign })}
-                  />
-                }
-              />
-              <SettingsRow
-                title={t("settings.macroBadgeTop")}
-                description={t("settings.macroBadgeTopDescription")}
-                control={
-                  <Select
-                    disabled={isWorkspaceAppearanceSaving}
-                    value={String(normalizeGameBrowserSettings(gameBrowserSettings).macroBadgePosition.topPercent)}
-                    onValueChange={(value) => updateMacroBadgePosition({ topPercent: Number(value) })}
-                  >
-                    <SelectTrigger
-                      aria-label={t("settings.macroBadgeTop")}
-                      className="settings-menu-control"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {macroBadgeVerticalPositions.map((position) => (
-                        <SelectItem key={position} value={String(position)}>
-                          {position}%
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                }
-              />
-              <SettingsRow
-                showDivider={false}
-                title={t("settings.macroBadgeHorizontalMargin")}
-                description={t("settings.macroBadgeHorizontalMarginDescription")}
-                control={
-                  <Select
-                    disabled={isWorkspaceAppearanceSaving}
-                    value={String(
-                      normalizeGameBrowserSettings(gameBrowserSettings).macroBadgePosition.horizontalMarginPercent
-                    )}
-                    onValueChange={(value) =>
-                      updateMacroBadgePosition({ horizontalMarginPercent: Number(value) })
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label={t("settings.macroBadgeHorizontalMargin")}
-                      className="settings-menu-control"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {macroBadgeHorizontalMargins.map((margin) => (
-                        <SelectItem key={margin} value={String(margin)}>
-                          {margin}%
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                }
+              <MacroBadgePositionSettingsRows
+                settings={gameBrowserSettings}
+                t={t}
+                onError={onError}
+                onSave={onGameBrowserSettingsChange}
               />
             </SettingsSection>
           </>
@@ -1261,6 +1178,188 @@ interface SettingsRowProps {
   description: ReactNode;
   showDivider?: boolean;
   title: string;
+}
+
+interface MacroBadgePositionSettingsRowsProps {
+  settings: GameBrowserSettings;
+  t: Translator;
+  onError: (error: unknown) => void;
+  onSave: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
+}
+
+function MacroBadgePositionSettingsRows({
+  settings,
+  t,
+  onError,
+  onSave
+}: MacroBadgePositionSettingsRowsProps): JSX.Element {
+  const normalizedSettings = normalizeGameBrowserSettings(settings);
+  const [draft, setDraft] = useState<MacroBadgePositionSettings>(normalizedSettings.macroBadgePosition);
+  const draftRef = useRef(draft);
+  const settingsRef = useRef(settings);
+  const pendingRef = useRef<MacroBadgePositionSettings | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveInFlightRef = useRef(false);
+
+  settingsRef.current = settings;
+  draftRef.current = draft;
+
+  useEffect(() => {
+    if (pendingRef.current || saveInFlightRef.current) {
+      return;
+    }
+
+    const nextDraft = normalizeGameBrowserSettings(settings).macroBadgePosition;
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+  }, [settings]);
+
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    },
+    []
+  );
+
+  function scheduleSave(): void {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void flushSave();
+    }, 250);
+  }
+
+  async function flushSave(): Promise<void> {
+    if (saveInFlightRef.current) {
+      return;
+    }
+
+    const nextPosition = pendingRef.current;
+    if (!nextPosition) {
+      return;
+    }
+
+    pendingRef.current = null;
+    saveInFlightRef.current = true;
+
+    try {
+      const savedSettings = await onSave({
+        ...normalizeGameBrowserSettings(settingsRef.current),
+        macroBadgePosition: nextPosition
+      });
+      settingsRef.current = savedSettings;
+      if (!pendingRef.current) {
+        draftRef.current = savedSettings.macroBadgePosition;
+        setDraft(savedSettings.macroBadgePosition);
+      }
+    } catch (error) {
+      if (!pendingRef.current) {
+        const persistedPosition = normalizeGameBrowserSettings(settingsRef.current).macroBadgePosition;
+        draftRef.current = persistedPosition;
+        setDraft(persistedPosition);
+      }
+      onError(error);
+    } finally {
+      saveInFlightRef.current = false;
+      if (pendingRef.current) {
+        scheduleSave();
+      }
+    }
+  }
+
+  function updateDraft(update: Partial<MacroBadgePositionSettings>): void {
+    const nextDraft = {
+      ...draftRef.current,
+      ...update
+    };
+    draftRef.current = nextDraft;
+    pendingRef.current = nextDraft;
+    setDraft(nextDraft);
+    scheduleSave();
+  }
+
+  const topMin = macroBadgeTopPositionsPx[0] ?? 0;
+  const topMax = macroBadgeTopPositionsPx[macroBadgeTopPositionsPx.length - 1] ?? 320;
+  const horizontalMarginMin = macroBadgeHorizontalMarginsPx[0] ?? 0;
+  const horizontalMarginMax =
+    macroBadgeHorizontalMarginsPx[macroBadgeHorizontalMarginsPx.length - 1] ?? 128;
+
+  return (
+    <>
+      <SettingsRow
+        title={t("settings.macroBadgeHorizontalAlign")}
+        description={t("settings.macroBadgeHorizontalAlignDescription")}
+        control={
+          <SegmentedControl<MacroBadgeHorizontalAlign>
+            className="settings-menu-control settings-segmented-menu grid-cols-3"
+            items={[
+              { value: "left", label: t("settings.macroBadgeHorizontalAlignLeft") },
+              { value: "center", label: t("settings.macroBadgeHorizontalAlignCenter") },
+              { value: "right", label: t("settings.macroBadgeHorizontalAlignRight") }
+            ]}
+            value={draft.horizontalAlign}
+            onValueChange={(horizontalAlign) => updateDraft({ horizontalAlign })}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.macroBadgeTop")}
+        description={t("settings.macroBadgeTopDescription")}
+        control={
+          <div className="grid w-full min-w-[240px] gap-1.5 sm:w-[320px]">
+            <div className="flex items-center gap-3">
+              <Slider
+                aria-label={t("settings.macroBadgeTop")}
+                max={topMax}
+                min={topMin}
+                step={8}
+                value={[draft.topPx]}
+                onValueChange={([topPx]) => {
+                  if (typeof topPx === "number") {
+                    updateDraft({ topPx });
+                  }
+                }}
+              />
+              <output className="w-14 shrink-0 text-right text-xs font-semibold tabular-nums text-muted-foreground">
+                {draft.topPx} px
+              </output>
+            </div>
+          </div>
+        }
+      />
+      <SettingsRow
+        showDivider={false}
+        title={t("settings.macroBadgeHorizontalMargin")}
+        description={t("settings.macroBadgeHorizontalMarginDescription")}
+        control={
+          <div className="grid w-full min-w-[240px] gap-1.5 sm:w-[320px]">
+            <div className="flex items-center gap-3">
+              <Slider
+                aria-label={t("settings.macroBadgeHorizontalMargin")}
+                max={horizontalMarginMax}
+                min={horizontalMarginMin}
+                step={8}
+                value={[draft.horizontalMarginPx]}
+                onValueChange={([horizontalMarginPx]) => {
+                  if (typeof horizontalMarginPx === "number") {
+                    updateDraft({ horizontalMarginPx });
+                  }
+                }}
+              />
+              <output className="w-14 shrink-0 text-right text-xs font-semibold tabular-nums text-muted-foreground">
+                {draft.horizontalMarginPx} px
+              </output>
+            </div>
+          </div>
+        }
+      />
+    </>
+  );
 }
 
 function SettingsRow({ control, description, showDivider = true, title }: SettingsRowProps): JSX.Element {

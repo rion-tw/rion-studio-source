@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
@@ -13,12 +13,26 @@ import type { Translator } from "../src/renderer/src/i18n";
 
 const t: Translator = (key) => en[key] ?? key;
 
+beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class ResizeObserver {
+    disconnect(): void {}
+    observe(): void {}
+    unobserve(): void {}
+  });
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("macro badge interface settings", () => {
-  it("renders position controls and saves the selected alignment", async () => {
+  it("renders shadcn sliders and saves the latest position after the debounce", async () => {
+    vi.useFakeTimers();
     const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
 
     render(
@@ -64,20 +78,32 @@ describe("macro badge interface settings", () => {
     expect(screen.getByText("Macro badges")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Left" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Center" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("combobox", { name: "Distance from top" }).textContent).toContain("20%");
-    expect(screen.getByRole("combobox", { name: "Horizontal margin" }).textContent).toContain("0%");
+    const topSlider = screen.getByRole("slider", { name: "Distance from top" });
+    const horizontalMarginSlider = screen.getByRole("slider", { name: "Horizontal margin" });
+    expect(topSlider.getAttribute("aria-valuemin")).toBe("0");
+    expect(topSlider.getAttribute("aria-valuemax")).toBe("320");
+    expect(topSlider.getAttribute("aria-valuenow")).toBe("128");
+    expect(horizontalMarginSlider.getAttribute("aria-valuemin")).toBe("0");
+    expect(horizontalMarginSlider.getAttribute("aria-valuemax")).toBe("128");
+    expect(horizontalMarginSlider.getAttribute("aria-valuenow")).toBe("8");
+    expect(screen.getByText("128 px")).toBeTruthy();
+    expect(screen.getByText("8 px")).toBeTruthy();
+
+    fireEvent.keyDown(topSlider, { key: "ArrowRight" });
+    expect(topSlider.getAttribute("aria-valuenow")).toBe("136");
 
     fireEvent.click(screen.getByRole("button", { name: "Right" }));
 
-    await waitFor(() => {
-      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith({
-        ...DEFAULT_GAME_BROWSER_SETTINGS,
-        macroBadgePosition: {
-          horizontalAlign: "right",
-          horizontalMarginPercent: 0,
-          topPercent: 20
-        }
-      });
+    expect(onGameBrowserSettingsChange).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(onGameBrowserSettingsChange).toHaveBeenCalledWith({
+      ...DEFAULT_GAME_BROWSER_SETTINGS,
+      macroBadgePosition: {
+        horizontalAlign: "right",
+        horizontalMarginPx: 8,
+        topPx: 136
+      }
     });
   });
 });

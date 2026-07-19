@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createMacroRunKey,
   createEmptyMacroForm,
+  commonMacroKeyCodes,
   formatMacroActivationMode,
   formatMacroKeyCombination,
   formatMacroIntervalPreset,
@@ -46,6 +47,49 @@ const t: Translator = (key) =>
   )[key] ?? key;
 
 describe("macroUtils", () => {
+  it("omits system, browser, media, numpad, and standalone modifier keys from key choices", () => {
+    const removedCodes = [
+      "CapsLock",
+      "ShiftLeft",
+      "ControlLeft",
+      "AltLeft",
+      "MetaLeft",
+      "ContextMenu",
+      "ShiftRight",
+      "AltRight",
+      "ControlRight",
+      "MetaRight",
+      "PrintScreen",
+      "ScrollLock",
+      "Pause",
+      "NumLock",
+      "Numpad1",
+      "NumpadAdd",
+      "AudioVolumeUp",
+      "MediaPlayPause",
+      "LaunchMail",
+      "BrowserRefresh",
+      "IntlYen",
+      "KanaMode",
+      "Lang1",
+      "Convert",
+      "Help",
+      "Undo",
+      "Cut",
+      "Copy",
+      "Paste",
+      "Back",
+      "Forward",
+      "Power",
+      "Sleep",
+      "WakeUp"
+    ];
+
+    expect(removedCodes.some((code) => commonMacroKeyCodes.includes(code as typeof commonMacroKeyCodes[number]))).toBe(false);
+    expect(commonMacroKeyCodes).toContain("KeyA");
+    expect(commonMacroKeyCodes).toContain("F2");
+  });
+
   it("formats shortcut labels from physical codes", () => {
     expect(formatMacroShortcut(undefined, t)).toBe("No shortcut");
     expect(formatMacroShortcut({ code: "KeyA", ctrl: true, alt: false, shift: true, meta: false }, t)).toBe(

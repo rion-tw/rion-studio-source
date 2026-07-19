@@ -100,14 +100,6 @@ static void RionLogFullscreenTitlebarGeometrySyncUnavailable(void) {
   });
 }
 
-static void RionLogTitlebarWidgetInsetOverrideUnavailable(void) {
-  static dispatch_once_t onceToken;
-  dispatch_once(&onceToken, ^{
-    NSLog(@"Rion Studio could not align the fullscreen window controls; "
-          "AppKit's native horizontal inset will be used.");
-  });
-}
-
 static IMP RionOriginalTitlebarHeightIMPForObject(id object) {
   std::lock_guard<std::mutex> lock(RionRuntimeTitlebarHeightHookMutex);
   for (Class candidate = object_getClass(object); candidate;
@@ -223,18 +215,17 @@ static BOOL RionInstallTitlebarHeightHook(NSView *frameView) {
 
 static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
   if (!frameView) return NO;
+  // AppKit's auxiliary fullscreen windows do not consistently expose this
+  // private metric. Their native inset is the supported fallback, so skip an
+  // incompatible frame without treating it as a runtime failure.
   SEL selector = NSSelectorFromString(@"_minXTitlebarWidgetInset");
-  if (![frameView respondsToSelector:selector]) {
-    RionLogTitlebarWidgetInsetOverrideUnavailable();
-    return NO;
-  }
+  if (![frameView respondsToSelector:selector]) return NO;
 
   NSMethodSignature *signature =
       [frameView methodSignatureForSelector:selector];
   if (!signature || signature.numberOfArguments != 2 ||
       signature.methodReturnLength != sizeof(CGFloat) ||
       std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
-    RionLogTitlebarWidgetInsetOverrideUnavailable();
     return NO;
   }
 
@@ -247,7 +238,6 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 
   Method inheritedMethod = class_getInstanceMethod(targetClass, selector);
   if (!inheritedMethod) {
-    RionLogTitlebarWidgetInsetOverrideUnavailable();
     return NO;
   }
   IMP original = method_getImplementation(inheritedMethod);
@@ -267,7 +257,6 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
   }
 
   RionRuntimeOriginalTitlebarWidgetInsetIMPs.erase(targetClass);
-  RionLogTitlebarWidgetInsetOverrideUnavailable();
   return NO;
 }
 
@@ -981,11 +970,6 @@ static void *RionRuntimeContentLayoutObservationContext =
   _hasStableTitlebarWidgetInset =
       [self readTitlebarWidgetInset:&_stableTitlebarWidgetInset
                       fromFrameView:window.contentView.superview];
-  if (@available(macOS 26.0, *)) {
-    if (!_hasStableTitlebarWidgetInset) {
-      RionLogTitlebarWidgetInsetOverrideUnavailable();
-    }
-  }
   [self ensureTitlebarHeightOverride];
   _actionHandler = [actionHandler copy];
   _contentLayoutHandler = [contentLayoutHandler copy];

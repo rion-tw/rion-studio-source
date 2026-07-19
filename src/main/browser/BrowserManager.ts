@@ -1643,6 +1643,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       const htmlFullscreen = displayHost.tabIds.some(
         (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
       );
+      if (
+        displayHost.windowFullscreenTransitionTarget === true &&
+        !this.alwaysShowToolbarInFullScreen
+      ) {
+        return { heightInset: 0, yOffset: 0 };
+      }
       if (!transitioning) {
         if (htmlFullscreen && !displayHost.windowFullscreen) {
           return { heightInset: 0, yOffset: 0 };
@@ -1703,7 +1709,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private shouldApplyMacNativeContentLayout(displayHost: EmbeddedDisplayHost): boolean {
-    if (displayHost.windowFullscreenTransitionTarget !== undefined) return true;
+    if (displayHost.windowFullscreenTransitionTarget !== undefined) {
+      return displayHost.windowFullscreenTransitionTarget === false ||
+        this.alwaysShowToolbarInFullScreen;
+    }
     if (displayHost.windowFullscreen) return this.alwaysShowToolbarInFullScreen;
     return !displayHost.tabIds.some(
       (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0

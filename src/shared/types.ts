@@ -463,8 +463,8 @@ export type MacroBadgeHorizontalAlign = "left" | "center" | "right";
 
 export interface MacroBadgePositionSettings {
   horizontalAlign: MacroBadgeHorizontalAlign;
-  horizontalMarginPercent: number;
-  topPercent: number;
+  horizontalMarginPx: number;
+  topPx: number;
 }
 
 export interface GameBrowserSettings {

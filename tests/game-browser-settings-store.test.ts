@@ -56,8 +56,8 @@ describe("GameBrowserSettingsStore", () => {
         launchMode: "external",
         macroBadgePosition: {
           horizontalAlign: "right",
-          horizontalMarginPercent: 10,
-          topPercent: 35
+          horizontalMarginPx: 80,
+          topPx: 280
         },
         network: {
           cdnCompatibility: { mode: "on" },
@@ -80,8 +80,8 @@ describe("GameBrowserSettingsStore", () => {
       launchMode: "external",
       macroBadgePosition: {
         horizontalAlign: "right",
-        horizontalMarginPercent: 10,
-        topPercent: 35
+        horizontalMarginPx: 80,
+        topPx: 280
       },
       network: {
         cdnCompatibility: { mode: "on" },
@@ -109,8 +109,8 @@ describe("GameBrowserSettingsStore", () => {
       launchMode: "external",
       macroBadgePosition: {
         horizontalAlign: "right",
-        horizontalMarginPercent: 10,
-        topPercent: 35
+        horizontalMarginPx: 80,
+        topPx: 280
       },
       network: {
         cdnCompatibility: { mode: "on" },

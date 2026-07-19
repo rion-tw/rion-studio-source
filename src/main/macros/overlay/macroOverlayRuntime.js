@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v43";
+  const hostId = "rion-studio-macro-overlay-v44";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 41 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 42 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-20.1";
+  const scriptVersion = "2026-07-20.2";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -95,11 +95,12 @@
     "End",
     "Backspace"
   ]);
-  const macroBadgeVerticalPositions = new Set([
-    5, 10, 15, 20, 25, 30, 35, 40,
-    45, 50, 55, 60, 65, 70, 75, 80
-  ]);
-  const macroBadgeHorizontalMargins = new Set([0, 5, 10, 15, 20]);
+  const macroBadgeTopPositionsPx = new Set(
+    Array.from({ length: 41 }, (_value, index) => index * 8)
+  );
+  const macroBadgeHorizontalMarginsPx = new Set(
+    Array.from({ length: 17 }, (_value, index) => index * 8)
+  );
   let activeBadgesElement = null;
   const activeHeldShortcuts = new Map();
   const macroIterationTimings = new Map();
@@ -139,8 +140,8 @@
     lastRefreshAt: 0,
     macroBadgePosition: {
       horizontalAlign: "center",
-      horizontalMarginPercent: 0,
-      topPercent: 20
+      horizontalMarginPx: 8,
+      topPx: 128
     },
     macros: [],
     requestVersion: 0,
@@ -286,15 +287,15 @@
         input.horizontalAlign === "left" || input.horizontalAlign === "center" || input.horizontalAlign === "right"
           ? input.horizontalAlign
           : fallback.horizontalAlign,
-      horizontalMarginPercent:
-        Number.isInteger(input.horizontalMarginPercent) &&
-        macroBadgeHorizontalMargins.has(input.horizontalMarginPercent)
-          ? input.horizontalMarginPercent
-          : fallback.horizontalMarginPercent,
-      topPercent:
-        Number.isInteger(input.topPercent) && macroBadgeVerticalPositions.has(input.topPercent)
-          ? input.topPercent
-          : fallback.topPercent
+      horizontalMarginPx:
+        Number.isInteger(input.horizontalMarginPx) &&
+        macroBadgeHorizontalMarginsPx.has(input.horizontalMarginPx)
+          ? input.horizontalMarginPx
+          : fallback.horizontalMarginPx,
+      topPx:
+        Number.isInteger(input.topPx) && macroBadgeTopPositionsPx.has(input.topPx)
+          ? input.topPx
+          : fallback.topPx
     };
   }
 
@@ -547,24 +548,28 @@
     if (!activeBadgesElement) return;
 
     const position = state.macroBadgePosition;
-    activeBadgesElement.style.top = String(position.topPercent) + "%";
-    activeBadgesElement.style.right = "auto";
+    activeBadgesElement.style.top = String(position.topPx) + "px";
+    activeBadgesElement.style.left = "0px";
+    activeBadgesElement.style.right = "0px";
+    activeBadgesElement.style.width = "100vw";
+    activeBadgesElement.style.justifyContent = "center";
+    activeBadgesElement.style.transform = "none";
 
     if (position.horizontalAlign === "left") {
-      activeBadgesElement.style.left = String(position.horizontalMarginPercent) + "%";
-      activeBadgesElement.style.transform = "none";
+      activeBadgesElement.style.left = String(position.horizontalMarginPx) + "px";
+      activeBadgesElement.style.right = "auto";
+      activeBadgesElement.style.width = "max-content";
+      activeBadgesElement.style.justifyContent = "flex-start";
       return;
     }
 
     if (position.horizontalAlign === "right") {
       activeBadgesElement.style.left = "auto";
-      activeBadgesElement.style.right = String(position.horizontalMarginPercent) + "%";
-      activeBadgesElement.style.transform = "none";
+      activeBadgesElement.style.right = String(position.horizontalMarginPx) + "px";
+      activeBadgesElement.style.width = "max-content";
+      activeBadgesElement.style.justifyContent = "flex-end";
       return;
     }
-
-    activeBadgesElement.style.left = "50%";
-    activeBadgesElement.style.transform = "translateX(-50%)";
   }
 
   function updatePresentation() {

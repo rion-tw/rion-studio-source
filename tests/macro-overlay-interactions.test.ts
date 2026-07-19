@@ -105,8 +105,8 @@ describe("macro overlay interactions", () => {
     const binding = vi.fn(async () => ({
       macroBadgePosition: {
         horizontalAlign: "right",
-        horizontalMarginPercent: 10,
-        topPercent: 35
+        horizontalMarginPx: 80,
+        topPx: 280
       },
       macros: [assignedMacro],
       statuses: [runningStatus()]
@@ -120,10 +120,58 @@ describe("macro overlay interactions", () => {
     expect(badges).toMatchObject({
       hidden: false
     });
-    expect(badges?.style.top).toBe("35%");
+    expect(badges?.style.top).toBe("280px");
     expect(badges?.style.left).toBe("auto");
-    expect(badges?.style.right).toBe("10%");
+    expect(badges?.style.right).toBe("80px");
+    expect(badges?.style.width).toBe("max-content");
+    expect(badges?.style.justifyContent).toBe("flex-end");
     expect(badges?.style.transform).toBe("none");
+  });
+
+  it("positions active badges on the left with a px margin", async () => {
+    createGameSurface(document);
+    const binding = vi.fn(async () => ({
+      macroBadgePosition: {
+        horizontalAlign: "left",
+        horizontalMarginPx: 24,
+        topPx: 64
+      },
+      macros: [assignedMacro],
+      statuses: [runningStatus()]
+    }));
+    const controller = installOverlay(window, binding);
+
+    await controller.refresh();
+
+    const badges = getOverlayRoot(document).querySelector<HTMLElement>(".active-badges");
+    expect(badges?.style.top).toBe("64px");
+    expect(badges?.style.left).toBe("24px");
+    expect(badges?.style.right).toBe("auto");
+    expect(badges?.style.width).toBe("max-content");
+    expect(badges?.style.justifyContent).toBe("flex-start");
+  });
+
+  it("centers active badges in the full viewport and ignores the margin", async () => {
+    createGameSurface(document);
+    const binding = vi.fn(async () => ({
+      macroBadgePosition: {
+        horizontalAlign: "center",
+        horizontalMarginPx: 128,
+        topPx: 192
+      },
+      macros: [assignedMacro],
+      statuses: [runningStatus()]
+    }));
+    const controller = installOverlay(window, binding);
+
+    await controller.refresh();
+
+    const badges = getOverlayRoot(document).querySelector<HTMLElement>(".active-badges");
+    expect(badges?.style.top).toBe("192px");
+    expect(badges?.style.left).toBe("0px");
+    expect(badges?.style.right).toBe("0px");
+    expect(badges?.style.width).toBe("100vw");
+    expect(badges?.style.justifyContent).toBe("center");
   });
 
   it("opens the app from Ctrl+Shift+M and consumes the shortcut", async () => {
@@ -817,7 +865,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v43")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v44")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -883,7 +931,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v43")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v44")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

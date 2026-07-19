@@ -73,24 +73,39 @@ describe("browser font settings normalization", () => {
       normalizeGameBrowserSettings({
         macroBadgePosition: {
           horizontalAlign: "right",
-          horizontalMarginPercent: 15,
-          topPercent: 65
+          horizontalMarginPx: 120,
+          topPx: 240
         }
       }).macroBadgePosition
     ).toEqual({
       horizontalAlign: "right",
-      horizontalMarginPercent: 15,
-      topPercent: 65
+      horizontalMarginPx: 120,
+      topPx: 240
     });
     expect(
       normalizeGameBrowserSettings({
         macroBadgePosition: {
           horizontalAlign: "diagonal",
-          horizontalMarginPercent: 3,
-          topPercent: 81
+          horizontalMarginPx: 3,
+          topPx: 81
         }
       }).macroBadgePosition
     ).toEqual(DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition);
+  });
+
+  it("ignores legacy percentage position fields and uses the px defaults", () => {
+    expect(
+      normalizeGameBrowserSettings({
+        macroBadgePosition: {
+          horizontalAlign: "left",
+          horizontalMarginPercent: 20,
+          topPercent: 80
+        }
+      }).macroBadgePosition
+    ).toEqual({
+      ...DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
+      horizontalAlign: "left"
+    });
   });
 
   it("defaults legacy graphics settings and validates acceleration modes", () => {

@@ -116,8 +116,8 @@ describe("MacroOverlayInjector", () => {
   it("includes the current macro badge position in overlay state", async () => {
     const macroBadgePosition: MacroBadgePositionSettings = {
       horizontalAlign: "right",
-      horizontalMarginPercent: 10,
-      topPercent: 35
+      horizontalMarginPx: 80,
+      topPx: 280
     };
     const injector = createInjector({
       getMacroBadgePosition: vi.fn().mockResolvedValue(macroBadgePosition)
@@ -525,8 +525,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v43"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.1"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v44"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.2"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -575,8 +575,8 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('font-size:8px');
     expect(MACRO_OVERLAY_SCRIPT).toContain('height:16px');
     expect(MACRO_OVERLAY_SCRIPT).toContain('padding:4px 8px 4px 4px');
-    expect(MACRO_OVERLAY_SCRIPT).toContain("left:50%");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("top:20%");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("left:0");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("top:128px");
     expect(MACRO_OVERLAY_SCRIPT).toContain("pointer-events:none;position:fixed");
   });
 });

@@ -877,7 +877,7 @@ describe("registerIpcHandlers macro handlers", () => {
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let macroStore: Pick<
     MacroStore,
-    "createMacro" | "deleteMacro" | "deleteMacros" | "deleteRoleMacros" | "listMacros" | "updateMacro"
+    "clearRoleAssignment" | "createMacro" | "deleteMacro" | "deleteMacros" | "listMacros" | "updateMacro"
   >;
   let macroManager: Pick<
     MacroManager,
@@ -915,7 +915,7 @@ describe("registerIpcHandlers macro handlers", () => {
       createMacro: vi.fn().mockResolvedValue(macro),
       deleteMacro: vi.fn().mockResolvedValue(undefined),
       deleteMacros: vi.fn(async (ids: string[]) => ({ deletedIds: ids, skipped: [] })),
-      deleteRoleMacros: vi.fn().mockResolvedValue(undefined),
+      clearRoleAssignment: vi.fn().mockResolvedValue(undefined),
       listMacros: vi.fn().mockResolvedValue([macro]),
       updateMacro: vi.fn().mockResolvedValue({ ...macro, name: "Updated" })
     };
@@ -1080,11 +1080,11 @@ describe("registerIpcHandlers macro handlers", () => {
     ]);
   });
 
-  it("deletes stored macros after the browser manager stops a deleted role", async () => {
+  it("clears stored macro assignments after the browser manager stops a deleted role", async () => {
     await handlers.get(IPC_CHANNELS.rolesDelete)?.({}, "role-1");
 
     expect(browserManager.stop).toHaveBeenCalledWith("role-1");
-    expect(macroStore.deleteRoleMacros).toHaveBeenCalledWith("role-1");
+    expect(macroStore.clearRoleAssignment).toHaveBeenCalledWith("role-1");
   });
 });
 

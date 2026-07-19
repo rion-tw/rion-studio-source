@@ -166,7 +166,7 @@ function MacroEditor({
     : undefined;
   const canSubmit =
     form.name.trim().length > 0 &&
-    form.roleIds.length > 0 &&
+    (form.roleIds.length > 0 || Boolean(form.id)) &&
     form.steps.length > 0 &&
     (form.repeat.type === "once" || isValidMacroInterval(form.repeat.intervalMs)) &&
     !activationError &&
@@ -174,7 +174,7 @@ function MacroEditor({
     !shortcutConflict;
   const saveHint = shortcutConflict ?? activationError ?? macroStepError ?? (
     form.roleIds.length === 0
-      ? t("macroForm.saveHint.needsRole")
+      ? t(form.id ? "macroForm.saveHint.unassigned" : "macroForm.saveHint.needsRole")
       : form.steps.length === 0
         ? t("macroForm.saveHint.needsStep")
         : form.repeat.type === "loop" && !isValidMacroInterval(form.repeat.intervalMs)

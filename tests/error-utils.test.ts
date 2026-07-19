@@ -76,6 +76,21 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes the unassigned macro workflow error", async () => {
+    const message = "Assign a role to this macro and every called macro before running it.";
+    await Promise.all([loadTranslations("zh-TW"), loadTranslations("zh-CN"), loadTranslations("ja")]);
+
+    expect(localizeErrorMessage(message, "zh-TW")).toBe(
+      "請先為此巨集與所有呼叫的巨集指派角色，再執行巨集。"
+    );
+    expect(localizeErrorMessage(message, "zh-CN")).toBe(
+      "请先为此宏及所有调用的宏指定角色，再运行宏。"
+    );
+    expect(localizeErrorMessage(message, "ja")).toBe(
+      "このマクロと呼び出されるすべてのマクロにロールを割り当ててから実行してください。"
+    );
+  });
+
   it("localizes external Chrome zoom failures alone and inside fallback notices", async () => {
     const fallback =
       "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";

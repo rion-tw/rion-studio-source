@@ -176,7 +176,10 @@ describe("MacroManager", () => {
         getAutomationSession: vi.fn(() => ({ role: macroRole, target })),
         setMacroActiveRoleIds
       } as never,
-      { getMacro: vi.fn(async () => ({ ...macro, roleIds: ["role-1"] })) } as never,
+      {
+        getMacro: vi.fn(async () => ({ ...macro, roleIds: ["role-1"] })),
+        listMacros: vi.fn(async () => [{ ...macro, roleIds: ["role-1"] }])
+      } as never,
       { getSettings: vi.fn(async () => testMacroSettings) }
     );
 
@@ -722,6 +725,47 @@ describe("MacroManager", () => {
       "Launch at least one assigned role before running a macro."
     );
     expect(manager.listStatuses()).toEqual([]);
+  });
+
+  it("rejects an unassigned macro before preparing or dispatching input", async () => {
+    const target = createTarget();
+    const unassigned = { ...macro, roleIds: [] };
+    const manager = createManager({
+      macroById: { [unassigned.id]: unassigned },
+      targets: { "role-1": target }
+    });
+
+    await expect(manager.start(unassigned.id)).rejects.toThrow(
+      "Assign a role to this macro and every called macro before running it."
+    );
+    expect(target.ensureInputFocus).not.toHaveBeenCalled();
+    expect(target.dispatchKey).not.toHaveBeenCalled();
+  });
+
+  it("rejects a parent with a transitively unassigned macro before preparing input", async () => {
+    const parentTarget = createTarget();
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      roleIds: [],
+      steps: [{ id: "child-key", type: "key", code: "KeyC" }]
+    };
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["parent-role"],
+      steps: [{ id: "call-child", type: "macro", macroId: child.id }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "parent-role": parentTarget }
+    });
+
+    await expect(manager.start(parent.id)).rejects.toThrow(
+      "Assign a role to this macro and every called macro before running it."
+    );
+    expect(parentTarget.ensureInputFocus).not.toHaveBeenCalled();
+    expect(parentTarget.dispatchKey).not.toHaveBeenCalled();
   });
 
   it("does not start a disabled macro", async () => {
@@ -1475,7 +1519,8 @@ function createManager(options: {
       )
     } as never,
     {
-      getMacro: vi.fn((macroId: string) => Promise.resolve(macroById[macroId] ?? options.macroOverride ?? macro))
+      getMacro: vi.fn((macroId: string) => Promise.resolve(macroById[macroId] ?? options.macroOverride ?? macro)),
+      listMacros: vi.fn(() => Promise.resolve(Object.values(macroById)))
     } as never,
     { getSettings: vi.fn(options.getSettings ?? (async () => options.settings ?? testMacroSettings)) }
   );

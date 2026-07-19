@@ -207,6 +207,43 @@ describe("PortableDataManager", () => {
     });
   });
 
+  it("round-trips an intentionally unassigned macro and its dependent parent", async () => {
+    const filePath = join(baseDir, "unassigned-macro-export.json");
+    const role = await roleStore.createRole({
+      gameId: "builtin-flyff-universe",
+      name: "Parent role"
+    });
+    const child = await macroStore.createMacro({
+      name: "Unassigned child",
+      roleIds: [],
+      steps: [{ id: "child-key", type: "key", code: "F2" }]
+    });
+    const parent = await macroStore.createMacro({
+      name: "Blocked parent",
+      roleIds: [role.id],
+      steps: [{ id: "call-child", type: "macro", macroId: child.id }]
+    });
+    const manager = createManager({
+      exportPath: filePath,
+      importPath: filePath,
+      macroStore,
+      roleStore,
+      workspaceStore
+    });
+
+    await manager.exportData({ selection: ALL_PORTABLE_DATA });
+    const preview = await manager.previewImport();
+
+    expect(preview?.warnings).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "MACRO_SKIPPED_NO_ROLES", itemName: child.name })
+    ]));
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+    await expect(macroStore.getMacro(child.id)).resolves.toMatchObject({ roleIds: [] });
+    await expect(macroStore.getMacro(parent.id)).resolves.toMatchObject({
+      steps: [{ type: "macro", macroId: child.id }]
+    });
+  });
+
   it("round-trips v5 key modifiers and ignores them in legacy schemas", async () => {
     const filePath = join(baseDir, "macro-modifiers-export.json");
     const role = await roleStore.createRole({

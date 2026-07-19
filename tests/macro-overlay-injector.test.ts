@@ -395,6 +395,33 @@ describe("MacroOverlayInjector", () => {
     await expect(state).resolves.toMatchObject({ statuses: [{ state: "running" }] });
   });
 
+  it("hides assigned macros whose workflow contains an unassigned macro", async () => {
+    const unassignedChild: Macro = {
+      ...assignedMacro,
+      id: "unassigned-child",
+      roleIds: [],
+      trigger: undefined
+    };
+    const blockedParent: Macro = {
+      ...assignedMacro,
+      id: "blocked-parent",
+      roleIds: [role.id],
+      steps: [{ id: "call-child", type: "macro", macroId: unassignedChild.id }]
+    };
+    const injector = new MacroOverlayInjector(
+      { listMacros: vi.fn().mockResolvedValue([assignedMacro, blockedParent, unassignedChild]) },
+      {
+        listStatuses: vi.fn(() => []),
+        startForRole: vi.fn(),
+        stopForRole: vi.fn()
+      }
+    );
+
+    await expect(injector.handleRequest(role.id, { type: "list" })).resolves.toMatchObject({
+      macros: [{ id: assignedMacro.id }]
+    });
+  });
+
   it("can proactively refresh installed overlay pages", async () => {
     const page = createPage();
     const injector = createInjector();

@@ -16,6 +16,7 @@ const translations: Partial<Record<Parameters<Translator>[0], string>> = {
   "macroForm.activation.toggle": "Tap to toggle",
   "macroForm.activation.whileHeld": "Tap or hold",
   "macros.noShortcut": "No shortcut",
+  "macros.noRoles": "Unassigned role",
   "macros.repeat.loop": "Every {ms} ms",
   "macros.repeat.once": "Once",
   "macros.steps.more": "+{count} more",
@@ -49,6 +50,17 @@ describe("renderer macro list helpers", () => {
 
     expect(listIds({ macros: [held], query: "tap or hold", roles })).toEqual(["held"]);
     expect(listIds({ macros: [held], query: "hold:w", roles })).toEqual(["held"]);
+  });
+
+  it("searches unassigned macros by their displayed role label and sorts them last", () => {
+    const roles = [role({ id: "role-1", name: "Main" })];
+    const assigned = macro({ id: "assigned", roleIds: ["role-1"] });
+    const unassigned = macro({ id: "unassigned", roleIds: [] });
+
+    expect(listIds({ macros: [unassigned, assigned], query: "unassigned role", roles })).toEqual([
+      "unassigned"
+    ]);
+    expect(listIds({ macros: [unassigned, assigned], roles })).toEqual(["assigned", "unassigned"]);
   });
 
   it("defaults to role order, then name, created time, and original order", () => {

@@ -758,7 +758,7 @@ export class PortableDataManager {
       if (missingRoleCount > 0) {
         warnings.push({ code: "MACRO_ROLE_MISSING", count: missingRoleCount, itemName: macro.name });
       }
-      if (roleIds.length === 0) {
+      if (macro.roleIds.length > 0 && roleIds.length === 0) {
         warnings.push({ code: "MACRO_SKIPPED_NO_ROLES", itemName: macro.name });
         incrementOperation(operations.macros, "skip");
         continue;

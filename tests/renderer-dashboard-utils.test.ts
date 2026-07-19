@@ -150,6 +150,28 @@ describe("renderer dashboard helpers", () => {
       kind: "start"
     });
 
+    const unassignedChild = macro({ id: "child", roleIds: [] });
+    const dependentParent = macro({
+      id: "parent",
+      roleIds: ["r1"],
+      steps: [{ id: "call-child", type: "macro", macroId: unassignedChild.id }]
+    });
+    const dependent = getDashboardMacroItems({
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
+      macroStatusByRun: new Map(),
+      macros: [dependentParent, unassignedChild],
+      roles,
+      statusByRole: new Map([["r1", { roleId: "r1", state: "running" }]])
+    });
+    const dependentById = new Map(dependent.map((item) => [item.macro.id, item]));
+
+    expect(dependentById.get("parent")?.action).toMatchObject({
+      disabled: true,
+      disabledReason: "unassignedDependency",
+      kind: "start"
+    });
+
     const partiallyReady = getDashboardMacroItems({
       busyMacroIds: new Set(),
       busyRunKeys: new Set(),

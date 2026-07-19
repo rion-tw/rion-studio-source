@@ -214,6 +214,30 @@ static void Assert(bool condition, const char *message) {
   }
 }
 
+static CGFloat ColorComponent(CGColorRef color, NSUInteger index) {
+  if (!color) return -1.0;
+  size_t count = CGColorGetNumberOfComponents(color);
+  const CGFloat *components = CGColorGetComponents(color);
+  if (count == 2) return index < 3 ? components[0] : components[1];
+  return index < count ? components[index] : -1.0;
+}
+
+static BOOL IsNeutralColor(CGColorRef color) {
+  CGFloat red = ColorComponent(color, 0);
+  CGFloat green = ColorComponent(color, 1);
+  CGFloat blue = ColorComponent(color, 2);
+  return red >= 0 && green >= 0 && blue >= 0 &&
+      std::fabs(red - green) < 0.015 && std::fabs(green - blue) < 0.015;
+}
+
+static BOOL IsTintedColor(CGColorRef color) {
+  CGFloat red = ColorComponent(color, 0);
+  CGFloat green = ColorComponent(color, 1);
+  CGFloat blue = ColorComponent(color, 2);
+  return red >= 0 && green >= 0 && blue >= 0 &&
+      (std::fabs(red - green) >= 0.02 || std::fabs(green - blue) >= 0.02);
+}
+
 static void DrainMainQueue(void) {
   [NSRunLoop.mainRunLoop
       runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
@@ -736,6 +760,34 @@ int main() {
 
     NSArray<NSView *> *tabItems = [controller valueForKey:@"_tabItems"];
     NSArray<NSView *> *tabSurfaces = [controller valueForKey:@"_tabSurfaces"];
+    window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    [controller updateState:state];
+    tabItems = [controller valueForKey:@"_tabItems"];
+    tabSurfaces = [controller valueForKey:@"_tabSurfaces"];
+    CGColorRef lightActiveFill = tabSurfaces[0].layer.backgroundColor;
+    NSView *lightBadge = [tabItems[1] valueForKey:@"_badgeView"];
+    CGColorRef lightBadgeFill = lightBadge.layer.backgroundColor;
+    Assert(IsNeutralColor(lightActiveFill),
+           "Light active tab fill must remain neutral instead of system blue.");
+    Assert(IsTintedColor(lightBadgeFill),
+           "Light workspace badges must use a tinted fill instead of gray.");
+    window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    [controller updateState:state];
+    tabItems = [controller valueForKey:@"_tabItems"];
+    tabSurfaces = [controller valueForKey:@"_tabSurfaces"];
+    CGColorRef darkActiveFill = tabSurfaces[0].layer.backgroundColor;
+    NSView *darkBadge = [tabItems[1] valueForKey:@"_badgeView"];
+    CGColorRef darkBadgeFill = darkBadge.layer.backgroundColor;
+    Assert(IsNeutralColor(darkActiveFill) &&
+               std::fabs(ColorComponent(lightActiveFill, 0) -
+                         ColorComponent(darkActiveFill, 0)) > 0.5,
+           "Dark active tab fill must use a distinct neutral appearance variant.");
+    Assert(IsTintedColor(darkBadgeFill),
+           "Dark workspace badges must use a tinted fill instead of gray.");
+    window.appearance = nil;
+    [controller updateState:state];
+    tabItems = [controller valueForKey:@"_tabItems"];
+    tabSurfaces = [controller valueForKey:@"_tabSurfaces"];
     NSView *root = [controller valueForKeyPath:@"_accessoryController.view"];
     NSView *addSurface = [controller valueForKey:@"_addSurface"];
     NSScrollView *scrollView = [controller valueForKey:@"_tabScrollView"];

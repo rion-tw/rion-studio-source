@@ -59,7 +59,6 @@ import {
   formatMacroKeyCombination,
   formatMacroIntervalPreset,
   formatMacroModifierLabel,
-  formatMacroShortcut,
   getMacroTargetOptions,
   isCallableMacroTarget,
   isMacroIntervalPreset,
@@ -771,6 +770,22 @@ interface ShortcutRecorderProps {
 function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.Element {
   const [isRecording, setIsRecording] = useState(false);
   const selectedCode = trigger?.code ?? "";
+  const selectedModifiers = getMacroTriggerModifiers(trigger);
+  const selectedModifierValue = selectedModifiers.length > 0
+    ? selectedModifiers.join(",")
+    : MODIFIERS_NONE_VALUE;
+  const mainKeyIsModifier = isPureModifierCode(selectedCode);
+
+  function updateShortcut(code: string, modifiers: MacroKeyModifier[]): void {
+    if (!code) {
+      return;
+    }
+
+    onChange({
+      code,
+      ...getMacroTriggerModifierFlags(modifiers)
+    });
+  }
 
   useEffect(() => {
     if (!isRecording) {
@@ -787,10 +802,12 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
 
       onChange({
         code: event.code,
-        ctrl: event.ctrlKey,
-        alt: event.altKey,
-        shift: event.shiftKey,
-        meta: event.metaKey
+        ...getMacroTriggerModifierFlags([
+          ...(event.ctrlKey ? ["ctrl" as const] : []),
+          ...(event.altKey ? ["alt" as const] : []),
+          ...(event.shiftKey ? ["shift" as const] : []),
+          ...(event.metaKey ? ["meta" as const] : [])
+        ])
       });
       setIsRecording(false);
     }
@@ -803,26 +820,33 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
   }, [isRecording, onChange]);
 
   return (
-    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
+      <Select
+        value={selectedModifierValue}
+        onValueChange={(value) => updateShortcut(selectedCode, parseModifierComboValue(value))}
+        disabled={isRecording || !selectedCode || mainKeyIsModifier}
+      >
+        <SelectTrigger className="w-full min-w-0" aria-label={t("macroForm.modifiers")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {getModifierComboOptions(t).map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <Select
         value={selectedCode}
-        onValueChange={(code) => {
-          setIsRecording(false);
-          onChange({
-            code,
-            ctrl: false,
-            alt: false,
-            shift: false,
-            meta: false
-          });
-        }}
+        onValueChange={(code) => updateShortcut(code, selectedModifiers)}
         disabled={isRecording}
       >
         <SelectTrigger className="w-full min-w-0" aria-label={t("macro.step.key")}>
           <SelectValue
             placeholder={isRecording ? t("macroForm.shortcutRecording") : t("macroForm.shortcut")}
           >
-            {isRecording ? t("macroForm.shortcutRecording") : formatMacroShortcut(trigger, t)}
+            {isRecording || selectedCode ? (isRecording ? t("macroForm.shortcutRecording") : formatMacroCode(selectedCode)) : undefined}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -852,6 +876,27 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
       </Button>
     </div>
   );
+}
+
+function getMacroTriggerModifiers(trigger: MacroTrigger | undefined): MacroKeyModifier[] {
+  return canonicalizeMacroKeyModifiers([
+    ...(trigger?.ctrl ? ["ctrl" as const] : []),
+    ...(trigger?.alt ? ["alt" as const] : []),
+    ...(trigger?.shift ? ["shift" as const] : []),
+    ...(trigger?.meta ? ["meta" as const] : [])
+  ]);
+}
+
+function getMacroTriggerModifierFlags(
+  modifiers: readonly MacroKeyModifier[]
+): Pick<MacroTrigger, "ctrl" | "alt" | "shift" | "meta"> {
+  const primaryModifier = document.documentElement.dataset.platform === "mac" ? "meta" : "ctrl";
+  return {
+    ctrl: modifiers.includes("ctrl") || (modifiers.includes("primary") && primaryModifier === "ctrl"),
+    alt: modifiers.includes("alt"),
+    shift: modifiers.includes("shift"),
+    meta: modifiers.includes("meta") || (modifiers.includes("primary") && primaryModifier === "meta")
+  };
 }
 
 interface RecordingButtonProps {

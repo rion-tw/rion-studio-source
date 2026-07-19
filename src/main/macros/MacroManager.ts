@@ -385,6 +385,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
           roleId,
           macroId,
           state: "running",
+          iteration: 0,
           startedAt: now,
           updatedAt: now
         }
@@ -670,6 +671,12 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         await this.executeStep(runKey, run, invocation, iteration, target, step);
       }
       iteration += 1;
+      run.status = {
+        ...run.status,
+        iteration,
+        updatedAt: new Date().toISOString()
+      };
+      this.emitChange();
 
       if (iteration === 1) {
         this.completeFirstIteration(invocation, runKey);

@@ -506,8 +506,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v38"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.6"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v42"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.10"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -544,6 +544,12 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge-name"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge-shortcut"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge-behavior"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge is-iteration-flash"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("getMacroIteration(macro.id)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("--active-badge-flash-duration:");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(
+      "animation:active-badge-border-flash var(--active-badge-flash-duration,120ms) ease-out"
+    );
     expect(MACRO_OVERLAY_SCRIPT).toContain('background:rgba(0,0,0,.22)');
     expect(MACRO_OVERLAY_SCRIPT).toContain('font-size:10px');
     expect(MACRO_OVERLAY_SCRIPT).toContain('font-size:8px');

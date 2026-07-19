@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v38";
+  const hostId = "rion-studio-macro-overlay-v42";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 36 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 40 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-19.6";
+  const scriptVersion = "2026-07-19.10";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -97,6 +97,8 @@
   ]);
   let activeBadgesElement = null;
   const activeHeldShortcuts = new Map();
+  const macroIterationTimings = new Map();
+  let renderedActiveBadgesMarkup = null;
   let cleanupInterval = undefined;
   let gameInputContextActive = false;
   let host = null;
@@ -269,6 +271,33 @@
     return state.macros.filter((macro) => macro.enabled !== false && isRunning(macro.id));
   }
 
+  function getMacroIteration(macroId) {
+    const status = state.statuses
+      .filter((status) => status.macroId === macroId && status.state === "running")
+      .sort((left, right) => (right.iteration ?? 0) - (left.iteration ?? 0))[0];
+    const iteration = status?.iteration ?? 0;
+    const timestamp = Date.parse(status?.updatedAt ?? "") || Date.now();
+    const previous = macroIterationTimings.get(macroId);
+    let duration = 120;
+    if (
+      previous &&
+      previous.startedAt === status?.startedAt &&
+      iteration > previous.iteration
+    ) {
+      const period = timestamp - previous.timestamp;
+      if (period > 0) {
+        duration = Math.min(220, Math.max(70, Math.round(period * 0.32)));
+      }
+    }
+    macroIterationTimings.set(macroId, {
+      duration,
+      iteration,
+      startedAt: status?.startedAt,
+      timestamp
+    });
+    return { duration, iteration };
+  }
+
   function formatCode(code) {
     return String(code)
       .replace(/^Key/, "")
@@ -376,6 +405,7 @@
     if (host?.id === id) {
       activeBadgesElement = null;
       host = null;
+      renderedActiveBadgesMarkup = null;
       resourceElement = null;
       root = null;
       triggerElement = null;
@@ -462,11 +492,16 @@
     resourceElement.textContent = resourceLabel;
     resourceElement.title = resourceLabel;
 
-    activeBadgesElement.innerHTML = getRunningBadgeMacros()
+    const nextMarkup = getRunningBadgeMacros()
       .map((macro) => {
         const behavior = formatMacroBehavior(macro);
+        const { duration, iteration } = getMacroIteration(macro.id);
         return [
-          '<span class="active-badge">',
+          '<span class="active-badge is-iteration-flash" data-iteration="',
+          String(iteration),
+          '" style="--active-badge-flash-duration:',
+          String(duration),
+          'ms">',
           '<span class="active-badge-shortcut">',
           escapeHtml(formatShortcut(macro.trigger)),
           "</span>",
@@ -480,7 +515,11 @@
         ].join("");
       })
       .join("");
-    activeBadgesElement.hidden = activeBadgesElement.childElementCount === 0;
+    if (nextMarkup !== renderedActiveBadgesMarkup) {
+      activeBadgesElement.innerHTML = nextMarkup;
+      renderedActiveBadgesMarkup = nextMarkup;
+    }
+    activeBadgesElement.hidden = nextMarkup.length === 0;
   }
 
   function refresh() {

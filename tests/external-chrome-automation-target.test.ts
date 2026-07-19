@@ -82,6 +82,27 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("keeps a toggle-style CDP hold independent from external Chrome focus", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    await target.holdKey("Digit1", "owner");
+    await target.dispatchKey("Digit1");
+    await target.releaseKey("Digit1", "owner");
+
+    expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
+    expect(
+      harness.send.mock.calls
+        .filter(([method]) => method === "Input.dispatchKeyEvent")
+        .map(([, params]) => params)
+    ).toEqual([
+      { type: "rawKeyDown", code: "Digit1", key: "1", windowsVirtualKeyCode: 49 },
+      { type: "rawKeyDown", autoRepeat: true, code: "Digit1", key: "1", windowsVirtualKeyCode: 49 },
+      { type: "keyUp", code: "Digit1", key: "1", windowsVirtualKeyCode: 49 }
+    ]);
+  });
+
   it("records browser, lifecycle, CDP health, and disconnect diagnostics", async () => {
     const harness = createHarness();
     const onDiagnostic = vi.fn();

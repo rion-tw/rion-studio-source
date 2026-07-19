@@ -67,6 +67,18 @@ describe("ElectronWorkspaceResourceTarget", () => {
     expect(harness.attach).not.toHaveBeenCalled();
   });
 
+  it("shares an existing debugger attachment without detaching the owner", async () => {
+    const harness = createHarness();
+    harness.attach();
+    const target = new ElectronWorkspaceResourceTarget("role-1", harness.webContents);
+
+    await target.setCpuThrottleRate(2);
+    await target.releaseThrottle();
+
+    expect(harness.attach).toHaveBeenCalledOnce();
+    expect(harness.detach).not.toHaveBeenCalled();
+  });
+
   it("invalidates on reload and debugger detach so the coordinator can reapply", async () => {
     const harness = createHarness();
     const target = new ElectronWorkspaceResourceTarget("role-1", harness.webContents);

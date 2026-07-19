@@ -178,6 +178,7 @@ describe("PortableDataManager", () => {
     const child = await macroStore.createMacro({
       name: "Child flow",
       roleIds: [role.id],
+      repeat: { type: "loop", intervalMs: 100 },
       steps: [{ id: "child-key", type: "key", code: "F2" }]
     });
     const parent = await macroStore.createMacro({
@@ -204,6 +205,9 @@ describe("PortableDataManager", () => {
     await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
     await expect(macroStore.getMacro(parent.id)).resolves.toMatchObject({
       steps: [{ id: "call", type: "macro", macroId: child.id }]
+    });
+    await expect(macroStore.getMacro(child.id)).resolves.toMatchObject({
+      repeat: { type: "loop", intervalMs: 100 }
     });
   });
 

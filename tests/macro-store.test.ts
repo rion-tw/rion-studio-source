@@ -533,24 +533,29 @@ describe("MacroStore", () => {
     });
   });
 
-  it("rejects missing, repeating, direct-cycle, and indirect-cycle macro dependencies", async () => {
-    await expect(store.createMacro({
-      name: "Missing target",
-      roleIds: ["role-1"],
-      steps: [{ id: "call", type: "macro", macroId: "missing" }]
-    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_NOT_FOUND" });
-
+  it("allows calling a looping macro", async () => {
     const repeating = await store.createMacro({
       name: "Repeating",
       roleIds: ["role-2"],
       repeat: { type: "loop", intervalMs: 100 },
       steps: [{ id: "wait", type: "delay", ms: 1 }]
     });
+
     await expect(store.createMacro({
       name: "Calls repeating",
       roleIds: ["role-1"],
       steps: [{ id: "call", type: "macro", macroId: repeating.id }]
-    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_REPEATS" });
+    })).resolves.toMatchObject({
+      steps: [{ id: "call", type: "macro", macroId: repeating.id }]
+    });
+  });
+
+  it("rejects missing, direct-cycle, and indirect-cycle macro dependencies", async () => {
+    await expect(store.createMacro({
+      name: "Missing target",
+      roleIds: ["role-1"],
+      steps: [{ id: "call", type: "macro", macroId: "missing" }]
+    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_NOT_FOUND" });
 
     const first = await store.createMacro({
       name: "First",
@@ -571,7 +576,7 @@ describe("MacroStore", () => {
     })).rejects.toMatchObject({ code: "MACRO_DEPENDENCY_CYCLE" });
   });
 
-  it("prevents a referenced target from becoming a looping macro", async () => {
+  it("allows a referenced target to become a looping macro", async () => {
     const target = await store.createMacro({
       name: "Target",
       roleIds: ["role-2"],
@@ -585,7 +590,7 @@ describe("MacroStore", () => {
 
     await expect(store.updateMacro(target.id, {
       repeat: { type: "loop", intervalMs: 100 }
-    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_REPEATS" });
+    })).resolves.toMatchObject({ repeat: { type: "loop", intervalMs: 100 } });
   });
 
   it("prevents a referenced target from adding a held key", async () => {

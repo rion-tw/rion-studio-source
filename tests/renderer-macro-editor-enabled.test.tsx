@@ -111,6 +111,69 @@ describe("macro editor controls", () => {
     });
   });
 
+  it("shows every macro target with one-iteration and unavailable reasons", () => {
+    const loopingTarget = macro({
+      id: "macro-loop",
+      name: "Loop target",
+      repeat: { type: "loop", intervalMs: 100 }
+    });
+    const selectedMacro = macro({
+      steps: [{ id: "call-loop", type: "macro", macroId: loopingTarget.id }]
+    });
+    const heldTarget = macro({
+      id: "macro-held",
+      name: "Held target",
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    });
+    const cycleTarget = macro({
+      id: "macro-cycle",
+      name: "Cycle target",
+      steps: [{ id: "call-current", type: "macro", macroId: selectedMacro.id }]
+    });
+    const disabledTarget = macro({
+      id: "macro-disabled",
+      enabled: false,
+      name: "Disabled target"
+    });
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro, loopingTarget, heldTarget, cycleTarget, disabledTarget]}
+          roles={[role()]}
+          t={t}
+          onSave={vi.fn()}
+        />
+      }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    const trigger = screen.getByRole("combobox", { name: "Macro to run" });
+    expect(trigger.textContent).toContain("Loop target (runs one iteration when called)");
+    fireEvent.click(trigger);
+
+    const loopOption = screen.getByRole("option", {
+      name: "Loop target (runs one iteration when called)"
+    });
+    const selfOption = screen.getByRole("option", { name: "Auto heal (current macro)" });
+    const heldOption = screen.getByRole("option", {
+      name: "Held target (holds a key until stopped)"
+    });
+    const cycleOption = screen.getByRole("option", {
+      name: "Cycle target (would create a dependency cycle)"
+    });
+    const disabledOption = screen.getByRole("option", { name: "Disabled target (disabled)" });
+
+    expect(loopOption.hasAttribute("data-disabled")).toBe(false);
+    expect(selfOption.hasAttribute("data-disabled")).toBe(true);
+    expect(heldOption.hasAttribute("data-disabled")).toBe(true);
+    expect(cycleOption.hasAttribute("data-disabled")).toBe(true);
+    expect(disabledOption.hasAttribute("data-disabled")).toBe(false);
+  });
+
   it("saves while-held activation and a hold-until-stop key action", async () => {
     const selectedMacro = macro({
       trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },

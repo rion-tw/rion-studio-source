@@ -33,6 +33,8 @@ type MacroInvocationOutcome =
   | { state: "failed"; error: Error }
   | { state: "cancelled"; error: Error };
 
+type MacroInvocationMode = "configured" | "single_iteration";
+
 interface MacroStepBarrier {
   arrivedRunKeys: Set<string>;
   promise: Promise<void>;
@@ -307,7 +309,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     macroId: string,
     requestingRoleId?: string,
     parentAncestry: string[] = [],
-    inheritedSettings?: MacroSettings
+    inheritedSettings?: MacroSettings,
+    invocationMode: MacroInvocationMode = "configured"
   ): Promise<StartedMacroInvocation> {
     if (parentAncestry.includes(macroId)) {
       throw new Error("Macro dependency cycle detected while running a called macro.");
@@ -328,9 +331,6 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       if (findUnassignedMacroDependency(macros, macroId)) {
         throw new Error(UNASSIGNED_WORKFLOW_MESSAGE);
       }
-    }
-    if (parentAncestry.length > 0 && macro.repeat.type !== "once") {
-      throw new Error(`Called macro "${macro.name}" must run once.`);
     }
     if (
       parentAncestry.length > 0 &&
@@ -364,7 +364,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       sessions.map(({ key }) => key),
       [...parentAncestry, macroId],
       settings,
-      Boolean(macro.trigger)
+      Boolean(macro.trigger),
+      invocationMode
     );
     const now = new Date().toISOString();
     const runItems = sessions.map(({ key, roleId, target }) => {
@@ -427,7 +428,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     runKeys: string[],
     ancestry: string[],
     settings: MacroSettings,
-    appliesConfiguredTiming: boolean
+    appliesConfiguredTiming: boolean,
+    mode: MacroInvocationMode
   ): MacroInvocation {
     let resolveCompletion: (outcome: MacroInvocationOutcome) => void = () => undefined;
     const completion = new Promise<MacroInvocationOutcome>((resolve) => {
@@ -454,7 +456,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
       resolveFirstIterationCompletion,
       runKeys: new Set(runKeys),
       settings: { ...settings },
-      stopAfterFirstIteration: false
+      stopAfterFirstIteration: mode === "single_iteration"
     };
     this.invocations.set(invocation.id, invocation);
     return invocation;
@@ -808,7 +810,13 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     let started: StartedMacroInvocation;
     try {
       started = await this.withMacroMutationLock(macroId, () =>
-        this.startInvocationUnlocked(macroId, undefined, parent.ancestry, parent.settings)
+        this.startInvocationUnlocked(
+          macroId,
+          undefined,
+          parent.ancestry,
+          parent.settings,
+          "single_iteration"
+        )
       );
       parent.childInvocationIds.add(started.invocation.id);
     } finally {

@@ -591,9 +591,6 @@ export class MacroStore {
     if (issue.type === "missing") {
       throw new MacroStoreError("MACRO_STEP_TARGET_NOT_FOUND", "Macro step target was not found.");
     }
-    if (issue.type === "repeat") {
-      throw new MacroStoreError("MACRO_STEP_TARGET_REPEATS", "Macro step target must run once.");
-    }
     if (issue.type === "hold") {
       throw new MacroStoreError(
         "MACRO_STEP_TARGET_HOLDS_KEY",

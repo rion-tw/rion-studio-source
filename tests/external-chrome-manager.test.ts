@@ -17,8 +17,6 @@ const role: Role = {
   gameId: "game-1",
   name: "Main",
   launchUrl: "https://example.com/play",
-  windowWidth: 1280,
-  windowHeight: 720,
   notes: "",
   authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -87,8 +85,10 @@ describe("ExternalChromeManager", () => {
       ]));
   });
 
-  it("launches a single role with its isolated browser directory and work-area bounds", async () => {
-    const harness = createHarness();
+  it.each(["darwin", "win32"] as const)(
+    "launches a single role with its isolated browser directory and work-area bounds on %s",
+    async (platform) => {
+    const harness = createHarness({ platform });
 
     const launchPromise = harness.manager.launch(role);
     await waitForChild(harness.children, 0);
@@ -101,18 +101,19 @@ describe("ExternalChromeManager", () => {
       expect.arrayContaining([
         "--user-data-dir=/profiles/role-1/browser",
         "--window-position=100,50",
-        "--window-size=1200,720"
+        "--window-size=1200,800"
       ])
     );
     expect(harness.automationTargets[0].setWindowBounds).toHaveBeenCalledWith({
       x: 100,
       y: 50,
       width: 1200,
-      height: 720
+      height: 800
     });
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
     expect(status.automationState).toBe("ready");
-  });
+    }
+  );
 
   it("aligns a single Windows Chrome visible frame after CDP positioning", async () => {
     const windowBoundsAdapter = createWindowBoundsAdapter((bounds) => ({
@@ -121,7 +122,7 @@ describe("ExternalChromeManager", () => {
       width: bounds.width * 2,
       height: bounds.height * 2
     }));
-    const harness = createHarness({ childPid: 4321, windowBoundsAdapter });
+    const harness = createHarness({ childPid: 4321, platform: "win32", windowBoundsAdapter });
 
     const launchPromise = harness.manager.launch(role);
     await waitForChild(harness.children, 0);
@@ -132,11 +133,11 @@ describe("ExternalChromeManager", () => {
       x: 100,
       y: 50,
       width: 1200,
-      height: 720
+      height: 800
     });
     expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalledWith({
       browserProcessId: 4321,
-      physicalBounds: { x: 200, y: 100, width: 2400, height: 1440 }
+      physicalBounds: { x: 200, y: 100, width: 2400, height: 1600 }
     });
     expect(harness.automationTargets[0].setWindowBounds.mock.invocationCallOrder[0])
       .toBeLessThan(windowBoundsAdapter.alignVisibleBounds.mock.invocationCallOrder[0]);
@@ -675,7 +676,7 @@ describe("ExternalChromeManager", () => {
 
     expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalledWith({
       browserProcessId: 6100,
-      physicalBounds: { x: 100, y: 50, width: 1200, height: 720 }
+      physicalBounds: { x: 100, y: 50, width: 1200, height: 800 }
     });
     expect(status).toMatchObject({ state: "running", automationState: "unavailable" });
     expect(harness.children[0].kill).not.toHaveBeenCalled();
@@ -750,7 +751,7 @@ describe("ExternalChromeManager", () => {
     expect(harness.manager.getAutomationSession(role.id)?.target).toBe(automationTarget);
     expect(windowBoundsAdapter.alignVisibleBounds).toHaveBeenCalledWith({
       browserProcessId: 6300,
-      physicalBounds: { x: 100, y: 50, width: 1200, height: 720 }
+      physicalBounds: { x: 100, y: 50, width: 1200, height: 800 }
     });
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });

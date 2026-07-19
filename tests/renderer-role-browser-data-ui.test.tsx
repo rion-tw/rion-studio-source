@@ -111,7 +111,6 @@ function roleEditor(
       busyRoleIds={busyRoleIds}
       games={[game]}
       isSaving={false}
-      roleDefaults={{ windowWidth: 1440, windowHeight: 900 }}
       roles={roles}
       t={t}
       onClearBrowserData={onClearBrowserData}
@@ -138,8 +137,6 @@ function role(): Role {
     gameId: game.id,
     name: "Main",
     launchUrl: game.defaultLaunchUrl,
-    windowWidth: 1280,
-    windowHeight: 720,
     notes: "",
     authState: "authenticated",
     createdAt: "2026-01-01T00:00:00.000Z",

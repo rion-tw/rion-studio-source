@@ -721,7 +721,7 @@ export class LaunchWorkspaceStore {
     const defaultSlots = createDefaultWorkspaceSlots(template);
 
     if (inputSlots && inputSlots.length > MAX_WORKSPACE_SLOTS) {
-      throw new LaunchWorkspaceStoreError("WORKSPACE_TOO_MANY_SLOTS", "Launch workspace can contain at most 8 slots.");
+      throw new LaunchWorkspaceStoreError("WORKSPACE_TOO_MANY_SLOTS", "Launch workspace can contain at most 9 slots.");
     }
 
     const sourceSlots = inputSlots ?? [];

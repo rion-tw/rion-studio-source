@@ -33,8 +33,6 @@ const role: Role = {
   gameId: "game-1",
   name: "Main",
   launchUrl: "https://example.com/play",
-  windowWidth: 1280,
-  windowHeight: 720,
   notes: "",
   authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -1901,6 +1899,7 @@ describe("BrowserManager game host windows", () => {
     expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
       notice:
         "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
+      workArea: { x: 100, y: 50, width: 1200, height: 800 },
       zoomFactor: 1
     });
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
@@ -1981,9 +1980,31 @@ describe("BrowserManager game host windows", () => {
     expect(harness.createView).not.toHaveBeenCalled();
     expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
       notice: undefined,
+      workArea: { x: 100, y: 50, width: 1200, height: 800 },
       zoomFactor: 1
     });
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external" });
+  });
+
+  it("uses an explicitly selected display work area for a direct external launch", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const target = {
+      displayId: 22,
+      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
+    };
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      externalChromeManager,
+      getBrowserLaunchMode: vi.fn().mockResolvedValue("external")
+    });
+
+    await harness.manager.launch(role, { target });
+
+    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
+      notice: undefined,
+      workArea: target.workArea,
+      zoomFactor: 1
+    });
   });
 
   it("ignores the embedded workspace gap in explicit external mode on every platform", async () => {

@@ -89,8 +89,6 @@ export function useRoleWorkflow({
         gameId: form.gameId,
         name: form.name,
         launchUrl: form.launchUrl,
-        windowWidth: Number(form.windowWidth),
-        windowHeight: Number(form.windowHeight),
         notes: form.notes,
         coverImageDataUrl: form.coverImageDataUrl ?? null,
         coverImageDominantColor: form.coverImageDominantColor ?? null
@@ -344,8 +342,6 @@ export function useRoleWorkflow({
         gameId: role.gameId,
         name: createCopyName(role.name, roles.map((item) => item.name), t("copyName.suffix")),
         launchUrl: role.launchUrl,
-        windowWidth: role.windowWidth,
-        windowHeight: role.windowHeight,
         notes: role.notes,
         coverImageDataUrl: role.coverImageDataUrl ?? null,
         coverImageDominantColor: role.coverImageDominantColor ?? null

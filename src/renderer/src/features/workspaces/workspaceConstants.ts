@@ -19,7 +19,8 @@ export const workspaceTemplateLabelKeys: Record<WorkspaceLayoutTemplate, Transla
   quad: "workspace.layout.quad",
   four_columns: "workspace.layout.fourColumns",
   six_grid: "workspace.layout.sixGrid",
-  eight_grid: "workspace.layout.eightGrid"
+  eight_grid: "workspace.layout.eightGrid",
+  nine_grid: "workspace.layout.nineGrid"
 };
 
 export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon> = {
@@ -49,5 +50,6 @@ export const workspaceTemplateIcons: Record<WorkspaceLayoutTemplate, LucideIcon>
   quad: createLucideIcon("WorkspaceQuad", workspaceLayoutIconNodes.quad),
   four_columns: createLucideIcon("WorkspaceFourColumns", workspaceLayoutIconNodes.four_columns),
   six_grid: createLucideIcon("WorkspaceSixGrid", workspaceLayoutIconNodes.six_grid),
-  eight_grid: createLucideIcon("WorkspaceEightGrid", workspaceLayoutIconNodes.eight_grid)
+  eight_grid: createLucideIcon("WorkspaceEightGrid", workspaceLayoutIconNodes.eight_grid),
+  nine_grid: createLucideIcon("WorkspaceNineGrid", workspaceLayoutIconNodes.nine_grid)
 };

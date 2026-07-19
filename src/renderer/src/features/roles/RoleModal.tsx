@@ -13,7 +13,7 @@ import type { RoleFormState } from "../../app/types";
 import { areEditorFormsEqual, createNewRoleForm, createRoleFormState } from "../../app/editorFormState";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
-import type { AuthFlowStatus, Game, Role, RoleDefaults } from "../../../../shared/types";
+import type { AuthFlowStatus, Game, Role } from "../../../../shared/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { createCoverImageDataUrl } from "./roleCover";
 import { LoginSessionGuide } from "./LoginSessionGuide";
@@ -23,7 +23,6 @@ interface RoleEditorRouteProps {
   busyRoleIds: ReadonlySet<string>;
   games: Game[];
   isSaving: boolean;
-  roleDefaults: RoleDefaults;
   roles: Role[];
   t: Translator;
   onError: (error: unknown | null) => void;
@@ -37,7 +36,6 @@ interface RoleFormProps {
   form: RoleFormState;
   games: Game[];
   isGameLocked: boolean;
-  roleDefaults: RoleDefaults;
   isLoginBusy: boolean;
   isSaving: boolean;
   selectedRole?: Role;
@@ -67,7 +65,7 @@ function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
 
   const requestedGameId = new URLSearchParams(location.search).get("gameId") ?? undefined;
   const requestedGame = props.games.find((game) => game.id === requestedGameId) ?? props.games[0];
-  const initialForm = selectedRole ? createRoleFormState(selectedRole) : createNewRoleForm(props.roleDefaults, requestedGame);
+  const initialForm = selectedRole ? createRoleFormState(selectedRole) : createNewRoleForm(requestedGame);
   return <RoleEditor key={`${id ?? "new"}:${requestedGameId ?? ""}`} {...props} initialForm={initialForm} isGameLocked={!id && Boolean(requestedGameId && requestedGame)} selectedRole={selectedRole} />;
 }
 
@@ -78,7 +76,6 @@ function RoleEditor({
   initialForm,
   isGameLocked,
   isSaving,
-  roleDefaults,
   selectedRole,
   t,
   onError,
@@ -142,7 +139,6 @@ function RoleEditor({
         isLoginBusy={isLoginBusy}
         isSaving={isSaving}
         selectedRole={selectedRole}
-        roleDefaults={roleDefaults}
         t={t}
         onChange={setForm}
         onClearBrowserData={onClearBrowserData}
@@ -161,7 +157,6 @@ function RoleForm({
   isLoginBusy,
   isSaving,
   selectedRole,
-  roleDefaults,
   t,
   onChange,
   onClearBrowserData,
@@ -219,13 +214,10 @@ function RoleForm({
                     onValueChange={(gameId) => {
                       const game = games.find((item) => item.id === gameId);
                       if (!game) return;
-                      const defaults = game.roleDefaults ?? roleDefaults;
                       onChange((current) => ({
                         ...current,
                         gameId,
-                        launchUrl: game.defaultLaunchUrl,
-                        windowWidth: defaults.windowWidth,
-                        windowHeight: defaults.windowHeight
+                        launchUrl: game.defaultLaunchUrl
                       }));
                     }}
                     required
@@ -241,39 +233,6 @@ function RoleForm({
                   description={t("roleForm.launchUrlDescription")}
                 >
                   <Input id="role-launch-url" type="url" value={form.launchUrl} onChange={(event) => onChange((current) => ({ ...current, launchUrl: event.target.value }))} required maxLength={2048} pattern="https?://.+" placeholder={t("roleForm.launchUrl.customPlaceholder")} />
-                </FormField>
-              </FormGrid>
-            </Surface>
-
-            <Surface className="grid gap-3 p-4" padding="none" variant="inset">
-              <FieldHeader
-                title={t("roleForm.section.launch")}
-                description={t("roleForm.section.launchDescription")}
-              />
-              <FormGrid columns={3}>
-                <FormField htmlFor="role-window-width" label={t("roleForm.width")}>
-                  <Input
-                    id="role-window-width"
-                    type="number"
-                    min={640}
-                    max={7680}
-                    value={form.windowWidth}
-                    onChange={(event) =>
-                      onChange((current) => ({ ...current, windowWidth: Number(event.target.value) }))
-                    }
-                  />
-                </FormField>
-                <FormField htmlFor="role-window-height" label={t("roleForm.height")}>
-                  <Input
-                    id="role-window-height"
-                    type="number"
-                    min={640}
-                    max={7680}
-                    value={form.windowHeight}
-                    onChange={(event) =>
-                      onChange((current) => ({ ...current, windowHeight: Number(event.target.value) }))
-                    }
-                  />
                 </FormField>
               </FormGrid>
             </Surface>

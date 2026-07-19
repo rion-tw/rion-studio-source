@@ -16,14 +16,6 @@ import {
   themeLabelKeys,
   themeModes
 } from "../../app/constants";
-import {
-  ROLE_WINDOW_CUSTOM_OPTION,
-  createRoleWindowSizeValue,
-  getRoleWindowSizeValue,
-  isValidRoleWindowSize,
-  parseRoleWindowSizeValue,
-  roleWindowSizeOptions
-} from "../../app/roleDefaults";
 import type { ResolvedTheme, ThemeMode } from "../../app/types";
 import { languages, type Language, type TranslationKey, type Translator } from "../../i18n";
 import {
@@ -52,7 +44,6 @@ import type {
   PortableImportResult,
   PortableImportWarning,
   PortableMacroConflictResolution,
-  RoleDefaults,
   SystemFontFamily,
   WorkspaceAppearanceSettings,
   WorkspaceBackgroundStyle,
@@ -90,7 +81,6 @@ interface SettingsViewProps {
   language: Language;
   macroSettings: MacroSettings;
   portableDataCounts: PortableDataCounts;
-  roleDefaults: RoleDefaults;
   resolvedTheme: ResolvedTheme;
   t: Translator;
   themeMode: ThemeMode;
@@ -111,7 +101,6 @@ interface SettingsViewProps {
   onInstallDownloadedUpdate: () => Promise<void>;
   onRestartApplication: () => Promise<void>;
   onLanguageChange: (language: Language) => void;
-  onRoleDefaultsChange: (roleDefaults: RoleDefaults) => void;
   onThemeModeChange: (themeMode: ThemeMode) => void;
   systemFonts: SystemFontFamily[];
 }
@@ -161,7 +150,6 @@ function SettingsViewBase({
   language,
   macroSettings,
   portableDataCounts,
-  roleDefaults,
   resolvedTheme,
   t,
   themeMode,
@@ -182,7 +170,6 @@ function SettingsViewBase({
   onInstallDownloadedUpdate,
   onRestartApplication,
   onLanguageChange,
-  onRoleDefaultsChange,
   onThemeModeChange,
   systemFonts
 }: SettingsViewBaseProps): JSX.Element {
@@ -339,7 +326,6 @@ function SettingsViewBase({
           language,
           gameBrowserSettings,
           macroSettings,
-          roleDefaults,
           themeMode
         },
         selection: portableExportSelection
@@ -521,20 +507,6 @@ function SettingsViewBase({
 
         {activeSection === "game" ? (
           <>
-            <SettingsSection>
-              <SettingsRow
-                title={t("settings.defaultWindow")}
-                description={t("settings.defaultWindowDescription")}
-                control={
-                  <DefaultWindowControl
-                    roleDefaults={roleDefaults}
-                    t={t}
-                    onRoleDefaultsChange={onRoleDefaultsChange}
-                  />
-                }
-              />
-            </SettingsSection>
-
             <SettingsSection title={t("settings.gameGroupBrowser")}>
               <SettingsRow
                 title={t("settings.browserLaunchMode")}
@@ -846,127 +818,6 @@ function SettingsViewBase({
       ) : null}
 
     </PageFrame>
-  );
-}
-
-interface DefaultWindowControlProps {
-  roleDefaults: RoleDefaults;
-  t: Translator;
-  onRoleDefaultsChange: (roleDefaults: RoleDefaults) => void;
-}
-
-function DefaultWindowControl({
-  roleDefaults,
-  t,
-  onRoleDefaultsChange
-}: DefaultWindowControlProps): JSX.Element {
-  const { windowHeight, windowWidth } = roleDefaults;
-  const derivedWindowSizeValue = getRoleWindowSizeValue(roleDefaults);
-  const [selectedWindowSize, setSelectedWindowSize] = useState(derivedWindowSizeValue);
-  const [customWidth, setCustomWidth] = useState(String(windowWidth));
-  const [customHeight, setCustomHeight] = useState(String(windowHeight));
-  const isCustomWindowSize = selectedWindowSize === ROLE_WINDOW_CUSTOM_OPTION;
-
-  useEffect(() => {
-    const nextWindowSizeValue = getRoleWindowSizeValue({ windowHeight, windowWidth });
-    setSelectedWindowSize(nextWindowSizeValue);
-    setCustomWidth(String(windowWidth));
-    setCustomHeight(String(windowHeight));
-  }, [windowHeight, windowWidth]);
-
-  function handleWindowSizeChange(value: string): void {
-    setSelectedWindowSize(value);
-
-    if (value === ROLE_WINDOW_CUSTOM_OPTION) {
-      setCustomWidth(String(windowWidth));
-      setCustomHeight(String(windowHeight));
-      return;
-    }
-
-    const parsedSize = parseRoleWindowSizeValue(value);
-    if (!parsedSize) {
-      return;
-    }
-
-    onRoleDefaultsChange({
-      ...roleDefaults,
-      ...parsedSize
-    });
-  }
-
-  function handleCustomSizeChange(field: "windowHeight" | "windowWidth", value: string): void {
-    if (field === "windowWidth") {
-      setCustomWidth(value);
-    } else {
-      setCustomHeight(value);
-    }
-
-    const nextSize = Number(value);
-    if (!value.trim() || !isValidRoleWindowSize(nextSize)) {
-      return;
-    }
-
-    onRoleDefaultsChange({
-      ...roleDefaults,
-      [field]: nextSize
-    });
-  }
-
-  function resetCustomSize(field: "windowHeight" | "windowWidth"): void {
-    if (field === "windowWidth") {
-      setCustomWidth(String(windowWidth));
-    } else {
-      setCustomHeight(String(windowHeight));
-    }
-  }
-
-  return (
-    <div className="settings-menu-stack grid gap-2">
-      <Select
-        value={selectedWindowSize}
-        onValueChange={handleWindowSizeChange}
-      >
-        <SelectTrigger className="settings-menu-control" aria-label={t("settings.defaultWindow")}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {roleWindowSizeOptions.map((option) => (
-            <SelectItem
-              key={createRoleWindowSizeValue(option.width, option.height)}
-              value={createRoleWindowSizeValue(option.width, option.height)}
-            >
-              {formatRoleWindowSize(option.width, option.height)}
-            </SelectItem>
-          ))}
-          <SelectItem value={ROLE_WINDOW_CUSTOM_OPTION}>{t("settings.defaultWindow.custom")}</SelectItem>
-        </SelectContent>
-      </Select>
-
-      {isCustomWindowSize ? (
-        <div className="settings-window-size-fields grid grid-cols-2 gap-2">
-          <Input
-            aria-label={t("settings.defaultWindowWidth")}
-            inputMode="numeric"
-            max={7680}
-            min={640}
-            type="number"
-            value={customWidth}
-            onBlur={() => resetCustomSize("windowWidth")}
-            onChange={(event) => handleCustomSizeChange("windowWidth", event.target.value)}
-          />
-          <Input
-            aria-label={t("settings.defaultWindowHeight")}
-            inputMode="numeric"
-            max={7680}
-            min={640}
-            type="number"
-            value={customHeight}
-            onBlur={() => resetCustomSize("windowHeight")}
-            onChange={(event) => handleCustomSizeChange("windowHeight", event.target.value)}
-          />
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -1439,10 +1290,6 @@ function formatDeviceId(vendorId?: number, deviceId?: number): string {
     .filter((value): value is number => value !== undefined)
     .map((value) => `0x${value.toString(16).padStart(4, "0")}`)
     .join(":");
-}
-
-function formatRoleWindowSize(width: number, height: number): string {
-  return `${width} x ${height}`;
 }
 
 function formatBrowserFontSettingsSummary(settings: GameBrowserSettings, t: Translator): string {

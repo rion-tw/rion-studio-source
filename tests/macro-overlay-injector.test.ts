@@ -18,8 +18,6 @@ const role: Role = {
   gameId: "game-1",
   name: "Main",
   launchUrl: "https://example.com/play",
-  windowWidth: 1280,
-  windowHeight: 720,
   notes: "",
   authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",

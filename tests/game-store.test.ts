@@ -48,40 +48,40 @@ describe("GameStore", () => {
     expect(repaired[0].coverImageDataUrl).toBeUndefined();
   });
 
-  it("removes legacy launch presets from custom role defaults without changing timestamps", async () => {
+  it("removes legacy window defaults and launch presets without changing timestamps", async () => {
     await store.initialize();
     const game = await store.createGame({
       name: "Performance defaults",
-      defaultLaunchUrl: "https://example.test/performance",
-      roleDefaults: { windowWidth: 1280, windowHeight: 720 }
+      defaultLaunchUrl: "https://example.test/performance"
     });
     const gamesPath = join(baseDir, "games.json");
     const file = JSON.parse(await readFile(gamesPath, "utf8")) as { games: Array<Record<string, unknown>> };
     const storedGame = file.games.find((item) => item.id === game.id);
-    (storedGame?.roleDefaults as Record<string, unknown>).launchPreset = "performance";
+    storedGame!.roleDefaults = { windowWidth: 1280, windowHeight: 720, launchPreset: "performance" };
     await writeFile(gamesPath, JSON.stringify(file), "utf8");
 
     const reloadedStore = new GameStore(baseDir, roleStore);
     await expect(reloadedStore.removeLegacyLaunchPresets()).resolves.toBe(true);
     await expect(new GameStore(baseDir, roleStore).getGame(game.id)).resolves.toEqual(game);
+    await expect(new GameStore(baseDir, roleStore).getGame(game.id)).resolves.not.toHaveProperty("roleDefaults");
     await expect(readFile(gamesPath, "utf8")).resolves.not.toContain("launchPreset");
   });
 
-  it("ignores and removes an invalid stored game launch preset", async () => {
+  it("ignores and removes invalid legacy stored game defaults", async () => {
     await store.initialize();
     const game = await store.createGame({
       name: "Invalid stored defaults",
-      defaultLaunchUrl: "https://example.test/invalid",
-      roleDefaults: { windowWidth: 1280, windowHeight: 720 }
+      defaultLaunchUrl: "https://example.test/invalid"
     });
     const gamesPath = join(baseDir, "games.json");
     const file = JSON.parse(await readFile(gamesPath, "utf8")) as { games: Array<Record<string, unknown>> };
     const storedGame = file.games.find((item) => item.id === game.id);
-    (storedGame?.roleDefaults as Record<string, unknown>).launchPreset = "turbo";
+    storedGame!.roleDefaults = { windowWidth: 100, windowHeight: 900, launchPreset: "turbo" };
     await writeFile(gamesPath, JSON.stringify(file), "utf8");
     const reloadedStore = new GameStore(baseDir, roleStore);
 
     await expect(reloadedStore.getGame(game.id)).resolves.toEqual(game);
+    await expect(reloadedStore.getGame(game.id)).resolves.not.toHaveProperty("roleDefaults");
     await reloadedStore.removeLegacyLaunchPresets();
     await expect(readFile(gamesPath, "utf8")).resolves.not.toContain("launchPreset");
   });
@@ -157,7 +157,7 @@ describe("GameStore", () => {
     expect(customNames).toEqual(["same.test", "same.test 2"]);
   });
 
-  it("validates unique names, URLs, icons, and complete role defaults", async () => {
+  it("validates unique names, URLs, and images", async () => {
     await store.initialize();
     await store.createGame({ name: "Custom", defaultLaunchUrl: "https://example.test" });
 
@@ -191,11 +191,6 @@ describe("GameStore", () => {
     const oversizedCover = `data:image/jpeg;base64,${Buffer.alloc(1_500_001).toString("base64")}`;
     await expect(store.updateGame(gameWithCover.id, { coverImageDataUrl: oversizedCover }))
       .rejects.toMatchObject({ code: "GAME_COVER_INVALID" });
-    await expect(store.createGame({
-      name: "Bad defaults",
-      defaultLaunchUrl: "https://defaults.test",
-      roleDefaults: { windowWidth: 100, windowHeight: 900 }
-    })).rejects.toMatchObject({ code: "GAME_ROLE_DEFAULTS_INVALID" });
   });
 
   it("protects and resets built-in game fields", async () => {
@@ -209,15 +204,13 @@ describe("GameStore", () => {
 
     await store.updateGame(FLYFF_UNIVERSE_GAME_ID, {
       defaultLaunchUrl: "https://example.test/override",
-      browserLaunchMode: "external",
-      roleDefaults: { windowWidth: 1280, windowHeight: 720 }
+      browserLaunchMode: "external"
     });
     const reset = await store.resetBuiltinGame(FLYFF_UNIVERSE_GAME_ID);
     expect(reset).toMatchObject({
       defaultLaunchUrl: "https://universe.flyff.com/play",
       browserLaunchMode: "inherit"
     });
-    expect(reset.roleDefaults).toBeUndefined();
   });
 
   it("blocks deleting a custom game that still has roles", async () => {

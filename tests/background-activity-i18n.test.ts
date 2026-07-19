@@ -25,11 +25,17 @@ describe("automatic power saving i18n", () => {
     }
   });
 
-  it("keeps adaptive and unrestricted labels with browser-size-only role descriptions", () => {
-    expect(en["roleForm.section.launchDescription"]).toBe("Set the browser size for this role.");
-    expect(zhTW["roleForm.section.launchDescription"]).toBe("設定此角色的瀏覽器尺寸。");
-    expect(zhCN["roleForm.section.launchDescription"]).toBe("设置此角色的浏览器尺寸。");
-    expect(ja["roleForm.section.launchDescription"]).toBe("このロールのブラウザーサイズを設定します。");
+  it("keeps adaptive and unrestricted labels without role window settings", () => {
+    for (const dictionary of Object.values(dictionaries)) {
+      expect(dictionary).not.toHaveProperty("roleForm.section.launchDescription");
+      expect(dictionary).not.toHaveProperty("roleForm.width");
+      expect(dictionary).not.toHaveProperty("roleForm.height");
+      expect(dictionary).not.toHaveProperty("settings.roleDefaults");
+      expect(dictionary).not.toHaveProperty("settings.defaultWindow");
+      expect(dictionary).not.toHaveProperty("settings.defaultWindowWidth");
+      expect(dictionary).not.toHaveProperty("settings.defaultWindowHeight");
+      expect(dictionary).not.toHaveProperty("games.form.roleDefaults");
+    }
 
     for (const dictionary of Object.values(dictionaries)) {
       expect(dictionary["workspaces.resourceModeAdaptive"]).toBeTruthy();

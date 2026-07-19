@@ -12,7 +12,6 @@ import type {
   Game,
   InheritableBrowserLaunchMode,
   Role,
-  RoleDefaults,
   UpdateGameInput
 } from "../../shared/types";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
@@ -146,7 +145,6 @@ export class GameStore {
         loginUrl: normalizeOptionalHttpUrl(input.loginUrl),
         iconImageDataUrl: normalizeImageDataUrl(input.iconImageDataUrl),
         coverImageDataUrl: normalizeCoverImageDataUrl(input.coverImageDataUrl),
-        roleDefaults: normalizeOptionalRoleDefaults(input.roleDefaults),
         browserLaunchMode: normalizeBrowserLaunchMode(input.browserLaunchMode),
         createdAt: timestamp,
         updatedAt: timestamp
@@ -194,9 +192,6 @@ export class GameStore {
         coverImageDataUrl: input.coverImageDataUrl === undefined
           ? current.coverImageDataUrl
           : normalizeCoverImageDataUrl(input.coverImageDataUrl),
-        roleDefaults: input.roleDefaults === undefined
-          ? current.roleDefaults
-          : normalizeOptionalRoleDefaults(input.roleDefaults),
         browserLaunchMode: input.browserLaunchMode === undefined
           ? current.browserLaunchMode
           : normalizeBrowserLaunchMode(input.browserLaunchMode),
@@ -370,7 +365,6 @@ function normalizeStoredGame(value: unknown): Game {
     loginUrl: normalizeOptionalHttpUrl(value.loginUrl),
     iconImageDataUrl: definition ? undefined : normalizeImageDataUrl(value.iconImageDataUrl),
     coverImageDataUrl: definition ? undefined : normalizeCoverImageDataUrl(value.coverImageDataUrl),
-    roleDefaults: normalizeOptionalRoleDefaults(value.roleDefaults),
     browserLaunchMode: normalizeBrowserLaunchMode(value.browserLaunchMode),
     createdAt: normalizeTimestamp(value.createdAt),
     updatedAt: normalizeTimestamp(value.updatedAt)
@@ -483,26 +477,6 @@ function getBase64PayloadByteLength(dataUrl: string): number {
   const payload = dataUrl.slice(dataUrl.indexOf(",") + 1);
   const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
   return Math.floor((payload.length * 3) / 4) - padding;
-}
-
-function normalizeOptionalRoleDefaults(value: unknown): RoleDefaults | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (!isRecord(value)) {
-    throw new GameStoreError("GAME_ROLE_DEFAULTS_INVALID", "Game role defaults are invalid.");
-  }
-  const { windowWidth, windowHeight } = value;
-  if (
-    !Number.isInteger(windowWidth) || Number(windowWidth) < 640 || Number(windowWidth) > 7680 ||
-    !Number.isInteger(windowHeight) || Number(windowHeight) < 640 || Number(windowHeight) > 7680
-  ) {
-    throw new GameStoreError("GAME_ROLE_DEFAULTS_INVALID", "Game role defaults are invalid.");
-  }
-  return {
-    windowWidth: Number(windowWidth),
-    windowHeight: Number(windowHeight)
-  };
 }
 
 function normalizeBrowserLaunchMode(value: unknown): InheritableBrowserLaunchMode {

@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, type WebContents } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc";
-import { DEFAULT_ROLE_WINDOW_HEIGHT, DEFAULT_ROLE_WINDOW_WIDTH, LOG_LEVELS } from "../../shared/types";
+import { LOG_LEVELS } from "../../shared/types";
 import type {
   AcceptLegalDocumentsInput,
   AppLanguage,
@@ -25,7 +25,6 @@ import type {
   PortableExportInput,
   PortableImportInput,
   ReorderItemsInput,
-  RoleDefaults,
   RoleStatus,
   UpdateLaunchWorkspaceInput,
   UpdateGameInput,
@@ -247,11 +246,11 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.gamesCompatibilityList, () =>
     options.gameCompatibilityManager?.listReports() ?? Promise.resolve([])
   );
-  ipcMain.handle(IPC_CHANNELS.gamesCompatibilityRun, async (_event, id: string, fallbackRoleDefaults?: RoleDefaults) => {
+  ipcMain.handle(IPC_CHANNELS.gamesCompatibilityRun, async (_event, id: string) => {
     if (!options.gameCompatibilityManager) {
       throw new Error("Game compatibility checks are not available.");
     }
-    return options.gameCompatibilityManager.runCheck(id, normalizeCompatibilityRoleDefaults(fallbackRoleDefaults));
+    return options.gameCompatibilityManager.runCheck(id);
   });
   ipcMain.handle(IPC_CHANNELS.gamesCompatibilityCancel, (_event, id: string) =>
     options.gameCompatibilityManager?.cancelCheck(id)
@@ -497,9 +496,7 @@ export function registerIpcHandlers(
       const game = options.gameStore ? await options.gameStore.getGame(input.gameId) : undefined;
       const role = await roleStore.createRole(game ? {
         ...input,
-        launchUrl: input.launchUrl ?? game.defaultLaunchUrl,
-        windowWidth: input.windowWidth ?? game.roleDefaults?.windowWidth,
-        windowHeight: input.windowHeight ?? game.roleDefaults?.windowHeight
+        launchUrl: input.launchUrl ?? game.defaultLaunchUrl
       } : input);
       options.onRolesChanged?.();
       return role;
@@ -921,20 +918,6 @@ function isWorkspaceLaunchInput(value: unknown): value is WorkspaceLaunchInput |
     input.displayId === undefined ||
     (typeof input.displayId === "number" && Number.isSafeInteger(input.displayId) && input.displayId !== -1)
   );
-}
-
-function normalizeCompatibilityRoleDefaults(value: RoleDefaults | undefined): RoleDefaults {
-  const defaults = value ?? {
-    windowWidth: DEFAULT_ROLE_WINDOW_WIDTH,
-    windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT
-  };
-  if (
-    !Number.isInteger(defaults.windowWidth) || defaults.windowWidth < 640 || defaults.windowWidth > 7680 ||
-    !Number.isInteger(defaults.windowHeight) || defaults.windowHeight < 640 || defaults.windowHeight > 7680
-  ) {
-    throw new Error("Compatibility role defaults are invalid.");
-  }
-  return defaults;
 }
 
 function getWorkspaceDisplays(options: RegisterIpcHandlersOptions): WorkspaceDisplayInfo[] {

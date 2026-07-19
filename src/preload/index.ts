@@ -41,8 +41,7 @@ const api: RionStudioApi = {
   deleteGame: (id) => ipcRenderer.invoke(IPC_CHANNELS.gamesDelete, id),
   deleteGames: (input) => ipcRenderer.invoke(IPC_CHANNELS.gamesDeleteMany, input),
   listGameCompatibilityReports: () => ipcRenderer.invoke(IPC_CHANNELS.gamesCompatibilityList),
-  runGameCompatibilityCheck: (id, fallbackRoleDefaults) =>
-    ipcRenderer.invoke(IPC_CHANNELS.gamesCompatibilityRun, id, fallbackRoleDefaults),
+  runGameCompatibilityCheck: (id) => ipcRenderer.invoke(IPC_CHANNELS.gamesCompatibilityRun, id),
   cancelGameCompatibilityCheck: (id) => ipcRenderer.invoke(IPC_CHANNELS.gamesCompatibilityCancel, id),
   listRoles: () => ipcRenderer.invoke(IPC_CHANNELS.rolesList),
   createRole: (input) => ipcRenderer.invoke(IPC_CHANNELS.rolesCreate, input),

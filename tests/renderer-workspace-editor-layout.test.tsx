@@ -198,8 +198,6 @@ function role(index: number): Role {
     gameId: "game-1",
     name: `Role ${index}`,
     launchUrl: "https://example.test/play",
-    windowWidth: 1280,
-    windowHeight: 720,
     notes: "",
     authState: "authenticated",
     createdAt: "2026-07-15T00:00:00.000Z",

@@ -227,8 +227,6 @@ function role(overrides: Partial<Role>): Role {
     gameId: "game-1",
     name: "Role",
     launchUrl: "https://example.test/play",
-    windowWidth: 1280,
-    windowHeight: 720,
     notes: "",
     authState: "unknown",
     createdAt: "2026-01-01T00:00:00.000Z",

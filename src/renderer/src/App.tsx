@@ -183,10 +183,6 @@ export function App(): JSX.Element {
         preferences.handleLanguageChange(result.preferences.language);
       }
 
-      if (result.preferences?.roleDefaults) {
-        preferences.handleRoleDefaultsChange(result.preferences.roleDefaults);
-      }
-
       if (result.preferences?.gameBrowserSettings) {
         setGameBrowserSettings(result.preferences.gameBrowserSettings);
       }
@@ -240,7 +236,6 @@ export function App(): JSX.Element {
 
   const gameWorkflow = useGameWorkflow({
     beginErrorOperation: data.beginErrorOperation,
-    roleDefaults: preferences.roleDefaults,
     roles: data.roles,
     setCompatibilityReports: data.setCompatibilityReports,
     setGames: data.setGames,
@@ -429,7 +424,6 @@ export function App(): JSX.Element {
       busyRoleIds={roleWorkflow.busyRoleIds}
       games={data.games}
       isSaving={roleWorkflow.isSaving}
-      roleDefaults={preferences.roleDefaults}
       roles={data.roles}
       t={preferences.t}
       onClearBrowserData={roleWorkflow.handleClearBrowserData}
@@ -445,7 +439,6 @@ export function App(): JSX.Element {
       games={data.games}
       isSaving={gameWorkflow.isSavingGame}
       reports={data.gameCompatibilityReports}
-      roleDefaults={preferences.roleDefaults}
       runStatuses={data.gameCompatibilityStatuses}
       t={preferences.t}
       onApplyRecommendation={gameWorkflow.applyRecommendation}
@@ -715,7 +708,6 @@ export function App(): JSX.Element {
                     roleCount: data.roles.length,
                     workspaceCount: data.workspaces.length
                   }}
-                  roleDefaults={preferences.roleDefaults}
                   resolvedTheme={preferences.resolvedTheme}
                   t={preferences.t}
                   themeMode={preferences.themeMode}
@@ -736,7 +728,6 @@ export function App(): JSX.Element {
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
                   onRestartApplication={restartApplication}
                   onLanguageChange={preferences.handleLanguageChange}
-                  onRoleDefaultsChange={preferences.handleRoleDefaultsChange}
                   onThemeModeChange={preferences.handleThemeModeChange}
                   systemFonts={systemFonts}
                 />

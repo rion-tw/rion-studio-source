@@ -461,6 +461,7 @@ function WorkspaceLayoutPreview({
   const splitX = splits.vertical[0] ?? 1;
   const splitX2 = splits.vertical[1] ?? 1;
   const splitY = splits.horizontal[0] ?? 1;
+  const splitY2 = splits.horizontal[1] ?? 1;
 
   function renderSlot(slot: LaunchWorkspaceSlot | undefined, index: number): JSX.Element | null {
     if (!slot) {
@@ -617,6 +618,20 @@ function WorkspaceLayoutPreview({
           </div>
         );
       }
+      case "nine_grid":
+        return (
+          <div className="flex h-full min-h-0 flex-col gap-1">
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY)}>
+              {renderGridRow(0, 3)}
+            </div>
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(splitY2 - splitY)}>
+              {renderGridRow(3, 3)}
+            </div>
+            <div className="min-h-0 min-w-0" style={createPreviewFlexStyle(1 - splitY2)}>
+              {renderGridRow(6, 3)}
+            </div>
+          </div>
+        );
       case "three_columns":
       case "four_columns":
         return (

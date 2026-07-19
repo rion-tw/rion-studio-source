@@ -10,7 +10,7 @@ import GameEditorRoute from "../src/renderer/src/features/games/GameModal";
 import GamesRoute from "../src/renderer/src/features/games/GamesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
-import type { Game, RoleDefaults } from "../src/shared/types";
+import type { Game } from "../src/shared/types";
 
 const { processedCover } = vi.hoisted(() => ({
   processedCover: "data:image/webp;base64,UFJPQ0VTU0VE"
@@ -260,7 +260,6 @@ describe("games cover UI", () => {
         games={[customGame]}
         isSaving={false}
         reports={[]}
-        roleDefaults={roleDefaults}
         runStatuses={[]}
         t={t}
         onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
@@ -300,7 +299,6 @@ describe("games cover UI", () => {
         games={[builtinGame]}
         isSaving={false}
         reports={[]}
-        roleDefaults={roleDefaults}
         runStatuses={[]}
         t={t}
         onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
@@ -337,7 +335,6 @@ describe("games cover UI", () => {
           recommendation: { mode: "embedded", reason: "embedded_available" },
           observations: {}
         }]}
-        roleDefaults={roleDefaults}
         runStatuses={[]}
         t={t}
         onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
@@ -357,42 +354,7 @@ describe("games cover UI", () => {
     expect(onRunCheck).toHaveBeenCalledWith(customGame.id);
   });
 
-  it("shows custom role window defaults without a background activity option", () => {
-    const customGame = game({
-      id: "game-1",
-      name: "Custom game",
-      roleDefaults: { windowWidth: 1280, windowHeight: 720 }
-    });
-    const router = createMemoryRouter([{
-      path: "/games/:id/edit",
-      element: <ConfirmationProvider><GameEditorRoute
-        games={[customGame]}
-        isSaving={false}
-        reports={[]}
-        roleDefaults={roleDefaults}
-        runStatuses={[]}
-        t={t}
-        onApplyRecommendation={vi.fn().mockResolvedValue(undefined)}
-        onCancelCheck={vi.fn()}
-        onError={vi.fn()}
-        onOpenGraphicsSettings={vi.fn()}
-        onReset={vi.fn()}
-        onRunCheck={vi.fn()}
-        onSave={vi.fn()}
-      /></ConfirmationProvider>
-    }], { initialEntries: ["/games/game-1/edit"] });
-    render(<RouterProvider router={router} />);
-
-    expect(screen.getByText("Width")).toBeTruthy();
-    expect(screen.getByText("Height")).toBeTruthy();
-    expect(screen.queryByText("Background activity")).toBeNull();
-  });
 });
-
-const roleDefaults: RoleDefaults = {
-  windowWidth: 1440,
-  windowHeight: 900
-};
 
 const t: Translator = (key) => en[key];
 

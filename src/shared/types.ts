@@ -1,7 +1,4 @@
 export const DEFAULT_LAUNCH_URL = "https://universe.flyff.com/play";
-export const DEFAULT_ROLE_WINDOW_WIDTH = 1440;
-export const DEFAULT_ROLE_WINDOW_HEIGHT = 900;
-
 export type WorkspaceLayoutTemplate =
   | "single"
   | "two_columns"
@@ -14,7 +11,8 @@ export type WorkspaceLayoutTemplate =
   | "quad"
   | "four_columns"
   | "six_grid"
-  | "eight_grid";
+  | "eight_grid"
+  | "nine_grid";
 export type WorkspaceBrowserZoomPercent = 25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125;
 export type WorkspaceSlotBrowserZoomPercent = number;
 export type WorkspaceBrowserZoomMode = "adaptive" | "fixed";
@@ -50,7 +48,6 @@ export interface Game {
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
   loginUrl?: string;
-  roleDefaults?: RoleDefaults;
   browserLaunchMode: InheritableBrowserLaunchMode;
   createdAt: string;
   updatedAt: string;
@@ -62,7 +59,6 @@ export interface CreateGameInput {
   coverImageDataUrl?: string | null;
   defaultLaunchUrl: string;
   loginUrl?: string | null;
-  roleDefaults?: RoleDefaults | null;
   browserLaunchMode?: InheritableBrowserLaunchMode;
 }
 
@@ -73,8 +69,6 @@ export interface Role {
   gameId: string;
   name: string;
   launchUrl: string;
-  windowWidth: number;
-  windowHeight: number;
   notes: string;
   authState: AuthState;
   coverImageDataUrl?: string;
@@ -89,8 +83,6 @@ export interface CreateRoleInput {
   gameId: string;
   name: string;
   launchUrl?: string;
-  windowWidth?: number;
-  windowHeight?: number;
   notes?: string;
   coverImageDataUrl?: string | null;
   coverImageDominantColor?: string | null;
@@ -428,11 +420,6 @@ export interface AppErrorPayload {
   message: string;
 }
 
-export interface RoleDefaults {
-  windowWidth: number;
-  windowHeight: number;
-}
-
 export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";
 export type BrowserGraphicsMode = "automatic" | "high_performance" | "experimental";
@@ -609,7 +596,6 @@ export interface PortablePreferences {
   gameBrowserSettings?: GameBrowserSettings;
   language?: AppLanguage;
   macroSettings?: MacroSettings;
-  roleDefaults?: RoleDefaults;
   themeMode?: AppThemeMode;
 }
 
@@ -675,8 +661,6 @@ export interface PortableRole {
   gameRecovered?: boolean;
   name: string;
   launchUrl: string;
-  windowWidth: number;
-  windowHeight: number;
   notes: string;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
@@ -705,7 +689,6 @@ export interface PortableGame {
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
   loginUrl?: string;
-  roleDefaults?: RoleDefaults;
   browserLaunchMode: InheritableBrowserLaunchMode;
 }
 
@@ -779,12 +762,17 @@ export interface RionPortableDataV5 {
   preferences?: PortablePreferences;
 }
 
+export interface RionPortableDataV6 extends Omit<RionPortableDataV5, "schemaVersion"> {
+  schemaVersion: 6;
+}
+
 export type RionPortableData =
   | RionPortableDataV1
   | RionPortableDataV2
   | RionPortableDataV3
   | RionPortableDataV4
-  | RionPortableDataV5;
+  | RionPortableDataV5
+  | RionPortableDataV6;
 
 export interface PortableExportResult {
   filePath: string;

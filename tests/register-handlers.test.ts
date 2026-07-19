@@ -63,8 +63,6 @@ const authenticatedRole: Role = {
   gameId: "game-1",
   name: "Main",
   launchUrl: "https://example.com/play",
-  windowWidth: 1280,
-  windowHeight: 720,
   notes: "",
   authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -355,15 +353,12 @@ describe("registerIpcHandlers workspace handlers", () => {
 
     vi.mocked(gameStore.getGame).mockResolvedValueOnce({
       ...customGame,
-      defaultLaunchUrl: "https://defaults.test/play",
-      roleDefaults: { windowWidth: 1600, windowHeight: 1000 }
+      defaultLaunchUrl: "https://defaults.test/play"
     });
     await handlers.get(IPC_CHANNELS.rolesCreate)?.({}, { gameId: customGame.id, name: "Defaults" });
     expect(roleStore.createRole).toHaveBeenLastCalledWith(expect.objectContaining({
       gameId: customGame.id,
-      launchUrl: "https://defaults.test/play",
-      windowWidth: 1600,
-      windowHeight: 1000
+      launchUrl: "https://defaults.test/play"
     }));
     vi.mocked(roleStore.createRole).mockClear();
 
@@ -463,20 +458,10 @@ describe("registerIpcHandlers workspace handlers", () => {
     expect(roleStore.deleteRole).not.toHaveBeenCalled();
   });
 
-  it("passes resolved role defaults to compatibility checks", async () => {
-    const defaults = { windowWidth: 1200, windowHeight: 800 };
-    await handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id, defaults);
-
-    expect(gameCompatibilityManager.runCheck).toHaveBeenCalledWith(customGame.id, defaults);
+  it("runs compatibility checks from the current work area", async () => {
     await handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id);
-    expect(gameCompatibilityManager.runCheck).toHaveBeenLastCalledWith(customGame.id, {
-      windowWidth: 1440,
-      windowHeight: 900
-    });
-    await expect(handlers.get(IPC_CHANNELS.gamesCompatibilityRun)?.({}, customGame.id, {
-      ...defaults,
-      windowWidth: 100
-    })).rejects.toThrow("Compatibility role defaults are invalid");
+
+    expect(gameCompatibilityManager.runCheck).toHaveBeenCalledWith(customGame.id);
   });
 
   it("records launch mode, fallback, and stable failures as game observations", async () => {

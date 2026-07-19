@@ -39,7 +39,6 @@ import type {
   PortableImportResult,
   ReorderItemsInput,
   Role,
-  RoleDefaults,
   RolePaths,
   RoleStatus,
   SystemFontFamily,
@@ -72,7 +71,7 @@ export interface RionStudioApi {
   deleteGame: (id: string) => Promise<void>;
   deleteGames: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   listGameCompatibilityReports: () => Promise<GameCompatibilityReport[]>;
-  runGameCompatibilityCheck: (id: string, fallbackRoleDefaults: RoleDefaults) => Promise<GameCompatibilityReport>;
+  runGameCompatibilityCheck: (id: string) => Promise<GameCompatibilityReport>;
   cancelGameCompatibilityCheck: (id: string) => Promise<void>;
   listRoles: () => Promise<Role[]>;
   createRole: (input: CreateRoleInput) => Promise<Role>;

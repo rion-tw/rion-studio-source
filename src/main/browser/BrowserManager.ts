@@ -847,9 +847,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private async launchUnlocked(role: Role, options: BrowserLaunchOptions): Promise<RoleStatus> {
     const zoomFactor = options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR;
+    const target = options.target ?? this.getDefaultLaunchTarget();
     const launchMode = await this.getBrowserLaunchMode(role);
     if (launchMode === "external") {
-      return this.launchExternal(role, undefined, zoomFactor);
+      return this.launchExternal(role, undefined, zoomFactor, target.workArea);
     }
 
     const existing = this.sessions.get(role.id);
@@ -863,10 +864,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
 
     if (this.options.externalChromeManager?.hasSession(role.id)) {
-      return this.launchExternal(role, undefined, zoomFactor);
+      return this.launchExternal(role, undefined, zoomFactor, target.workArea);
     }
 
-    const target = options.target ?? this.getDefaultLaunchTarget();
     const gameIconDataUrl = await this.resolveRuntimeTabGameIcon(role);
     const host = this.createHost(
       role.name,
@@ -895,7 +895,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     } catch (error) {
       await this.stopHost(host.id);
       if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
-        return this.launchExternal(role, EXTERNAL_COMPAT_NOTICE, zoomFactor);
+        return this.launchExternal(role, EXTERNAL_COMPAT_NOTICE, zoomFactor, target.workArea);
       }
       throw error;
     }
@@ -2239,13 +2239,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private async launchExternal(
     role: Role,
     notice?: string,
-    zoomFactor = DEFAULT_BROWSER_ZOOM_FACTOR
+    zoomFactor = DEFAULT_BROWSER_ZOOM_FACTOR,
+    workArea?: PixelBounds
   ): Promise<RoleStatus> {
     if (!this.options.externalChromeManager) {
       throw new Error("External Chrome compatibility mode is not available.");
     }
 
-    return this.options.externalChromeManager.launch(role, { notice, zoomFactor });
+    return this.options.externalChromeManager.launch(role, { notice, zoomFactor, workArea });
   }
 
   private async launchExternalWorkspace(

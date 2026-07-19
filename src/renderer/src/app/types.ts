@@ -18,8 +18,6 @@ export interface RoleFormState {
   gameId: string;
   name: string;
   launchUrl: string;
-  windowWidth: number;
-  windowHeight: number;
   notes: string;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
@@ -45,9 +43,6 @@ export interface GameFormState {
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
   loginUrl: string;
-  usesGlobalRoleDefaults: boolean;
-  windowWidth: number;
-  windowHeight: number;
   browserLaunchMode: InheritableBrowserLaunchMode;
 }
 

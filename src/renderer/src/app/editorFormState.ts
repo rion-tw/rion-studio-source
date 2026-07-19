@@ -1,6 +1,5 @@
-import type { Game, LaunchWorkspace, Macro, Role, RoleDefaults } from "../../../shared/types";
+import { DEFAULT_LAUNCH_URL, type Game, type LaunchWorkspace, type Macro, type Role } from "../../../shared/types";
 import type { GameFormState, MacroFormState, RoleFormState, WorkspaceFormState } from "./types";
-import { createEmptyRoleForm } from "./roleDefaults";
 import { createEmptyMacroForm, createMacroFormState } from "../features/macros/macroUtils";
 import {
   createEmptyWorkspaceForm,
@@ -10,8 +9,13 @@ import type { Translator } from "../i18n";
 
 export type EditorFormState = GameFormState | RoleFormState | WorkspaceFormState | MacroFormState;
 
-export function createNewRoleForm(roleDefaults: RoleDefaults, game?: Game): RoleFormState {
-  return createEmptyRoleForm(game?.roleDefaults ?? roleDefaults, game?.id, game?.defaultLaunchUrl);
+export function createNewRoleForm(game?: Game): RoleFormState {
+  return {
+    gameId: game?.id ?? "",
+    name: "",
+    launchUrl: game?.defaultLaunchUrl ?? DEFAULT_LAUNCH_URL,
+    notes: ""
+  };
 }
 
 export function createRoleFormState(role: Role): RoleFormState {
@@ -20,27 +24,23 @@ export function createRoleFormState(role: Role): RoleFormState {
     gameId: role.gameId,
     name: role.name,
     launchUrl: role.launchUrl,
-    windowWidth: role.windowWidth,
-    windowHeight: role.windowHeight,
     notes: role.notes,
     coverImageDataUrl: role.coverImageDataUrl,
     coverImageDominantColor: role.coverImageDominantColor
   };
 }
 
-export function createNewGameForm(roleDefaults: RoleDefaults): GameFormState {
+export function createNewGameForm(): GameFormState {
   return {
     source: "custom",
     name: "",
     defaultLaunchUrl: "https://",
     loginUrl: "",
-    usesGlobalRoleDefaults: true,
-    ...roleDefaults,
     browserLaunchMode: "inherit"
   };
 }
 
-export function createGameFormState(game: Game, roleDefaults: RoleDefaults): GameFormState {
+export function createGameFormState(game: Game): GameFormState {
   return {
     id: game.id,
     source: game.source,
@@ -49,8 +49,6 @@ export function createGameFormState(game: Game, roleDefaults: RoleDefaults): Gam
     coverImageDataUrl: game.coverImageDataUrl,
     defaultLaunchUrl: game.defaultLaunchUrl,
     loginUrl: game.loginUrl ?? "",
-    usesGlobalRoleDefaults: !game.roleDefaults,
-    ...(game.roleDefaults ?? roleDefaults),
     browserLaunchMode: game.browserLaunchMode
   };
 }

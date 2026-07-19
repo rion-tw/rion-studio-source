@@ -5,8 +5,10 @@ export interface ConfirmationOptions {
   confirmLabel: string;
   confirmDisabled?: boolean;
   description: string;
+  details?: string[];
   title: string;
   tone?: "default" | "destructive";
+  warning?: string;
 }
 
 export type Confirm = (options: ConfirmationOptions) => Promise<boolean>;

@@ -61,6 +61,7 @@ describe("create controls at the end of lists", () => {
         statusByRole={new Map()}
         t={t}
         onClearQuery={vi.fn()}
+        onClearBrowserData={vi.fn()}
         onCopy={vi.fn()}
         onDelete={vi.fn()}
         onDeleteMany={vi.fn().mockResolvedValue(false)}

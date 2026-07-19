@@ -1,0 +1,150 @@
+// @vitest-environment jsdom
+
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
+import RoleEditorRoute from "../src/renderer/src/features/roles/RoleModal";
+import type { Translator } from "../src/renderer/src/i18n";
+import en from "../src/renderer/src/i18n/en.json";
+import type { Game, Role } from "../src/shared/types";
+
+beforeAll(() => {
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    close: {
+      configurable: true,
+      value: function close(this: HTMLDialogElement): void {
+        this.removeAttribute("open");
+      }
+    },
+    showModal: {
+      configurable: true,
+      value: function showModal(this: HTMLDialogElement): void {
+        this.setAttribute("open", "");
+      }
+    }
+  });
+});
+
+afterEach(cleanup);
+
+describe("role saved browser data controls", () => {
+  it("shows the action for an existing role and keeps it independent from saving", async () => {
+    const user = userEvent.setup();
+    const selectedRole = role();
+    const onClearBrowserData = vi.fn().mockResolvedValue(true);
+    const router = createRoleRouter({
+      initialEntry: `/roles/${selectedRole.id}/edit`,
+      onClearBrowserData,
+      roles: [selectedRole]
+    });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    expect(screen.getByText("Saved browser data")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Clear saved data" }));
+    expect(onClearBrowserData).toHaveBeenCalledWith(selectedRole);
+  });
+
+  it("does not show the action while creating a role", () => {
+    const router = createRoleRouter({
+      initialEntry: "/roles/new",
+      onClearBrowserData: vi.fn(),
+      roles: []
+    });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    expect(screen.queryByText("Saved browser data")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clear saved data" })).toBeNull();
+  });
+
+  it("disables the action while the role is busy", () => {
+    const selectedRole = role();
+    const router = createRoleRouter({
+      busyRoleIds: new Set([selectedRole.id]),
+      initialEntry: `/roles/${selectedRole.id}/edit`,
+      onClearBrowserData: vi.fn(),
+      roles: [selectedRole]
+    });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    expect((screen.getByRole("button", { name: "Clear saved data" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+function createRoleRouter({
+  initialEntry,
+  onClearBrowserData,
+  roles,
+  busyRoleIds = new Set()
+}: {
+  busyRoleIds?: ReadonlySet<string>;
+  initialEntry: string;
+  onClearBrowserData: (role: Role) => Promise<boolean>;
+  roles: Role[];
+}) {
+  return createMemoryRouter([
+    {
+      path: "/roles/new",
+      element: roleEditor(roles, onClearBrowserData, busyRoleIds)
+    },
+    {
+      path: "/roles/:id/edit",
+      element: roleEditor(roles, onClearBrowserData, busyRoleIds)
+    },
+    { path: "/roles", element: <div>Role list</div> }
+  ], { initialEntries: [initialEntry] });
+}
+
+function roleEditor(
+  roles: Role[],
+  onClearBrowserData: (role: Role) => Promise<boolean>,
+  busyRoleIds: ReadonlySet<string>
+) {
+  return (
+    <RoleEditorRoute
+      authStatusByRole={new Map()}
+      busyRoleIds={busyRoleIds}
+      games={[game]}
+      isSaving={false}
+      roleDefaults={{ windowWidth: 1440, windowHeight: 900 }}
+      roles={roles}
+      t={t}
+      onClearBrowserData={onClearBrowserData}
+      onError={vi.fn()}
+      onRelogin={vi.fn()}
+      onSave={vi.fn()}
+    />
+  );
+}
+
+const game: Game = {
+  id: "game-1",
+  source: "custom",
+  name: "Example",
+  defaultLaunchUrl: "https://example.test/play",
+  browserLaunchMode: "inherit",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z"
+};
+
+function role(): Role {
+  return {
+    id: "role-1",
+    gameId: game.id,
+    name: "Main",
+    launchUrl: game.defaultLaunchUrl,
+    windowWidth: 1280,
+    windowHeight: 720,
+    notes: "",
+    authState: "authenticated",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  };
+}
+
+const t: Translator = (key) => en[key];

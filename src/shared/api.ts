@@ -80,6 +80,7 @@ export interface RionStudioApi {
   reorderRoles: (input: ReorderItemsInput) => Promise<Role[]>;
   deleteRole: (id: string) => Promise<void>;
   deleteRoles: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
+  clearRoleBrowserData: (id: string) => Promise<Role>;
   getRolePaths: (id: string) => Promise<RolePaths>;
   startLogin: (id: string) => Promise<AuthFlowStatus>;
   listAuthStatuses: () => Promise<AuthFlowStatus[]>;

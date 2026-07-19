@@ -49,6 +49,7 @@ const api: RionStudioApi = {
   reorderRoles: (input) => ipcRenderer.invoke(IPC_CHANNELS.rolesReorder, input),
   deleteRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesDelete, id),
   deleteRoles: (input) => ipcRenderer.invoke(IPC_CHANNELS.rolesDeleteMany, input),
+  clearRoleBrowserData: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesClearBrowserData, id),
   getRolePaths: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesPaths, id),
   startLogin: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesStartLogin, id),
   listAuthStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.rolesAuthStatuses),

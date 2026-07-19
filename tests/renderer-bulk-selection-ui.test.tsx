@@ -133,6 +133,7 @@ describe("bulk selection UI", () => {
         statusByRole={new Map()}
         t={t}
         onClearQuery={vi.fn()}
+        onClearBrowserData={vi.fn()}
         onCopy={vi.fn()}
         onDelete={vi.fn()}
         onDeleteMany={vi.fn().mockResolvedValue(false)}

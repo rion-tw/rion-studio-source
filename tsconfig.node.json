@@ -52,6 +52,8 @@
     "src/renderer/src/features/macros/macroListUtils.ts",
     "src/renderer/src/features/macros/macroUtils.ts",
     "src/renderer/src/features/roles/LoginSessionGuide.tsx",
+    "src/renderer/src/features/roles/RoleModal.tsx",
+    "src/renderer/src/features/roles/roleCover.ts",
     "src/renderer/src/features/roles/roleCardStyle.ts",
     "src/renderer/src/features/roles/RolesRoute.tsx",
     "src/renderer/src/features/legal/legalMarkdownParser.ts",

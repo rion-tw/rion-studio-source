@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   Copy,
+  Eraser,
   Globe2,
   Loader2,
   LogIn,
@@ -71,6 +72,7 @@ interface RolesViewProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   onClearQuery: () => void;
+  onClearBrowserData: (role: Role) => void;
   onCopy: (role: Role) => void;
   onDelete: (role: Role) => void;
   onDeleteMany: (roles: Role[]) => Promise<boolean>;
@@ -99,6 +101,7 @@ function RolesView({
   statusByRole,
   t,
   onClearQuery,
+  onClearBrowserData,
   onCopy,
   onDelete,
   onDeleteMany,
@@ -286,6 +289,7 @@ function RolesView({
                 selectionRef={selection.registerItem(role.id)}
                 t={t}
                 onCopy={() => onCopy(role)}
+                onClearBrowserData={() => onClearBrowserData(role)}
                 onDelete={() => onDelete(role)}
                 onEdit={() => onEdit(role)}
                 onLaunch={() => onLaunch(role.id)}
@@ -339,6 +343,7 @@ interface RoleCardProps {
   isSelected: boolean;
   language: Language;
   onCopy: () => void;
+  onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onDragEnd: () => void;
@@ -365,6 +370,7 @@ function RoleCard({
   isSelected,
   language,
   onCopy,
+  onClearBrowserData,
   onDelete,
   onEdit,
   onDragEnd,
@@ -424,6 +430,7 @@ function RoleCard({
           isOnCover
           t={t}
           onCopy={onCopy}
+          onClearBrowserData={onClearBrowserData}
           onDelete={onDelete}
           onEdit={onEdit}
           onDragEnd={onDragEnd}
@@ -554,6 +561,7 @@ interface RoleActionMenuProps {
   isDragging: boolean;
   isOnCover?: boolean;
   onCopy: () => void;
+  onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onDragEnd: () => void;
@@ -569,6 +577,7 @@ function RoleActionMenu({
   isDragging,
   isOnCover = false,
   onCopy,
+  onClearBrowserData,
   onDelete,
   onEdit,
   onDragEnd,
@@ -623,6 +632,11 @@ function RoleActionMenu({
     onDelete();
   }
 
+  function handleClearBrowserData(): void {
+    setIsOpen(false);
+    onClearBrowserData();
+  }
+
   function handleRelogin(): void {
     setIsOpen(false);
     onRelogin();
@@ -671,7 +685,7 @@ function RoleActionMenu({
 
       {isOpen ? (
         <Surface
-          className="absolute right-0 top-8 z-20 min-w-32 overflow-hidden text-popover-foreground"
+          className="absolute right-0 top-8 z-20 min-w-44 overflow-hidden text-popover-foreground"
           padding="xs"
           variant="popover"
           role="menu"
@@ -707,6 +721,17 @@ function RoleActionMenu({
               <span>{t("role.relogin")}</span>
             </button>
           ) : null}
+          <div className="my-1 border-t border-border/60" role="separator" />
+          <button
+            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+            type="button"
+            role="menuitem"
+            onClick={handleClearBrowserData}
+            disabled={isBusy}
+          >
+            <Eraser size={14} />
+            <span>{t("role.clearSavedData")}</span>
+          </button>
           <button
             className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
             type="button"

@@ -174,6 +174,44 @@ describe("BrowserManager game host windows", () => {
     expect(events).toEqual(["active:start", "active:end", "delete"]);
   });
 
+  it("rejects work queued before a recoverable mutation but allows fresh work afterward", async () => {
+    const harness = createHarness();
+    const events: string[] = [];
+    let releaseActiveOperation!: () => void;
+    let markActiveOperationStarted!: () => void;
+    const activeOperationStarted = new Promise<void>((resolve) => {
+      markActiveOperationStarted = resolve;
+    });
+    const activeOperationGate = new Promise<void>((resolve) => {
+      releaseActiveOperation = resolve;
+    });
+
+    const activeOperation = harness.manager.runRoleOperation([role.id], async () => {
+      events.push("active:start");
+      markActiveOperationStarted();
+      await activeOperationGate;
+      events.push("active:end");
+    });
+    await activeOperationStarted;
+
+    const mutation = harness.manager.stopRoleAndRunRecoverableMutation(role.id, async () => {
+      events.push("clear");
+    });
+    const staleOperation = harness.manager.runRoleOperation([role.id], async () => {
+      events.push("stale");
+    });
+    releaseActiveOperation();
+
+    await activeOperation;
+    await mutation;
+    await expect(staleOperation).rejects.toThrow("Role data changed while the operation was queued.");
+    await expect(harness.manager.runRoleOperation([role.id], async () => {
+      events.push("fresh");
+      return "ready";
+    })).resolves.toBe("ready");
+    expect(events).toEqual(["active:start", "active:end", "clear", "fresh"]);
+  });
+
   it.each([
     ["darwin", {
       backgroundColor: "#000000",

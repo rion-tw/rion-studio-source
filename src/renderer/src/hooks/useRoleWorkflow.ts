@@ -273,6 +273,60 @@ export function useRoleWorkflow({
     await handleDeleteMany([role]);
   }
 
+  async function handleClearBrowserData(role: Role): Promise<boolean> {
+    const confirmed = await confirm({
+      title: t("confirm.clearRoleData.title").replace("{name}", role.name),
+      description: t("confirm.clearRoleData.description"),
+      details: [
+        t("confirm.clearRoleData.target"),
+        t("confirm.clearRoleData.stop"),
+        t("confirm.clearRoleData.preserve")
+      ],
+      warning: t("confirm.clearRoleData.warning"),
+      cancelLabel: t("confirm.cancel"),
+      confirmLabel: t("confirm.clearData"),
+      tone: "destructive"
+    });
+
+    if (!confirmed) {
+      return false;
+    }
+
+    const finishBusy = beginBusy(role.id);
+    if (!finishBusy) {
+      return false;
+    }
+
+    const reportError = beginErrorOperation();
+    setNotice?.(null);
+
+    try {
+      const updatedRole = await window.rionStudio.clearRoleBrowserData(role.id);
+      setRoles((current) => current.map((item) => item.id === updatedRole.id ? updatedRole : item));
+      setStatuses((current) => current.filter((status) => status.roleId !== role.id));
+      setAuthStatuses((current) => current.filter((status) => status.roleId !== role.id));
+      setNotice?.(t("notice.roleBrowserDataCleared").replace("{name}", role.name));
+      return true;
+    } catch (clearError) {
+      reportError(clearError);
+      try {
+        const [nextRoles, nextStatuses, nextAuthStatuses] = await Promise.all([
+          window.rionStudio.listRoles(),
+          window.rionStudio.listRoleStatuses(),
+          window.rionStudio.listAuthStatuses()
+        ]);
+        setRoles(nextRoles);
+        setStatuses(nextStatuses);
+        setAuthStatuses(nextAuthStatuses);
+      } catch (recoveryError) {
+        reportError(recoveryError);
+      }
+      return false;
+    } finally {
+      finishBusy();
+    }
+  }
+
   async function handleCopy(role: Role): Promise<void> {
     const finishBusy = beginBusy(role.id);
     if (!finishBusy) {
@@ -340,6 +394,7 @@ export function useRoleWorkflow({
     activeFilter,
     busyRoleIds,
     filteredRoles,
+    handleClearBrowserData,
     handleCopy,
     handleDelete,
     handleDeleteMany,

@@ -295,6 +295,26 @@ export class RoleStore {
     });
   }
 
+  async resetBrowserUserDataDir(id: string): Promise<string> {
+    return this.taskQueue.run(async () => {
+      const roleExists = (await this.readRolesFile()).roles.some((role) => role.id === id);
+
+      if (!roleExists) {
+        throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
+      }
+
+      const browserUserDataDir = this.getBrowserUserDataDir(id);
+      await rm(browserUserDataDir, {
+        force: true,
+        maxRetries: 8,
+        recursive: true,
+        retryDelay: 100
+      });
+      await mkdir(browserUserDataDir, { recursive: true });
+      return browserUserDataDir;
+    });
+  }
+
   private getBrowserUserDataDir(id: string): string {
     return join(this.rolesRoot, id, "browser");
   }

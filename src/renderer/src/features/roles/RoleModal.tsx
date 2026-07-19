@@ -1,4 +1,4 @@
-import { Check, ImagePlus, Loader2, LogIn, Save, Trash2 } from "lucide-react";
+import { Check, Eraser, ImagePlus, Loader2, LogIn, Save, Trash2 } from "lucide-react";
 import { type ChangeEvent, type FormEvent, type JSX, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
@@ -27,6 +27,7 @@ interface RoleEditorRouteProps {
   roles: Role[];
   t: Translator;
   onError: (error: unknown | null) => void;
+  onClearBrowserData: (role: Role) => Promise<boolean>;
   onRelogin: (roleId: string) => void;
   onSave: (form: RoleFormState) => Promise<Role | undefined>;
 }
@@ -42,6 +43,7 @@ interface RoleFormProps {
   selectedRole?: Role;
   t: Translator;
   onChange: (form: RoleFormState | ((current: RoleFormState) => RoleFormState)) => void;
+  onClearBrowserData: (role: Role) => Promise<boolean>;
   onError: (error: unknown | null) => void;
   onRelogin: (roleId: string) => void;
 }
@@ -80,6 +82,7 @@ function RoleEditor({
   selectedRole,
   t,
   onError,
+  onClearBrowserData,
   onRelogin,
   onSave
 }: RoleEditorRouteProps & { initialForm: RoleFormState; isGameLocked: boolean; selectedRole?: Role }): JSX.Element {
@@ -142,6 +145,7 @@ function RoleEditor({
         roleDefaults={roleDefaults}
         t={t}
         onChange={setForm}
+        onClearBrowserData={onClearBrowserData}
         onError={onError}
         onRelogin={onRelogin}
       />
@@ -160,6 +164,7 @@ function RoleForm({
   roleDefaults,
   t,
   onChange,
+  onClearBrowserData,
   onError,
   onRelogin
 }: RoleFormProps): JSX.Element {
@@ -292,6 +297,25 @@ function RoleForm({
                     {t("roleForm.relogin")}
                   </Button>
                 ) : null}
+              </Surface>
+            ) : null}
+
+            {selectedRole ? (
+              <Surface className="grid gap-3 p-4" padding="none" variant="inset">
+                <FieldHeader
+                  title={t("roleForm.savedData")}
+                  description={t("roleForm.savedDataDescription")}
+                />
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="w-full"
+                  onClick={() => void onClearBrowserData(selectedRole)}
+                  disabled={isSaving || isLoginBusy}
+                >
+                  {isLoginBusy ? <Loader2 className="spin" size={17} /> : <Eraser size={17} />}
+                  {t("role.clearSavedData")}
+                </Button>
               </Surface>
             ) : null}
           </div>

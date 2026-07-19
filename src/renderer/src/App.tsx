@@ -432,6 +432,7 @@ export function App(): JSX.Element {
       roleDefaults={preferences.roleDefaults}
       roles={data.roles}
       t={preferences.t}
+      onClearBrowserData={roleWorkflow.handleClearBrowserData}
       onError={data.setError}
       onRelogin={roleWorkflow.requestSystemLogin}
       onSave={roleWorkflow.saveRole}
@@ -608,6 +609,7 @@ export function App(): JSX.Element {
                     query={roleWorkflow.query}
                     statusByRole={data.statusByRole}
                     t={preferences.t}
+                    onClearBrowserData={(role) => void roleWorkflow.handleClearBrowserData(role)}
                     onClearQuery={() => roleWorkflow.setQuery("")}
                     onCopy={(role) => void roleWorkflow.handleCopy(role)}
                     onDelete={(role) => void roleWorkflow.handleDelete(role)}

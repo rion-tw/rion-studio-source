@@ -273,6 +273,7 @@ export type GameDividerPointerPayload =
 export const GAME_DIVIDER_POINTER_CHANNEL = "game-divider:pointer";
 
 interface BrowserSession {
+  gameInputContextActive: boolean;
   hostId: string;
   launchedAt?: string;
   popupViews: Set<WebContentsView>;
@@ -736,6 +737,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   getRoleIdForWebContents(webContentsId: number): string | undefined {
     return [...this.sessions.entries()].find(([, session]) => session.view.webContents.id === webContentsId)?.[0];
+  }
+
+  setGameInputContext(webContentsId: number, active: boolean): void {
+    const session = [...this.sessions.values()].find(
+      (candidate) => candidate.view.webContents.id === webContentsId
+    );
+    if (!session || session.view.webContents.isDestroyed()) return;
+
+    const nextActive = active && session.state === "running";
+    if (session.gameInputContextActive === nextActive) return;
+    session.gameInputContextActive = nextActive;
+    session.view.webContents.setIgnoreMenuShortcuts(nextActive);
   }
 
   getAutomationSession(roleId: string): BrowserAutomationSession | undefined {
@@ -1999,6 +2012,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       }
     });
     const session: BrowserSession = {
+      gameInputContextActive: false,
       hostId: host.id,
       popupViews: new Set(),
       rect,
@@ -2026,9 +2040,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.layoutDisplayHost(this.getDisplayHost(host));
     this.configureZoomPersistence(session, view.webContents);
     this.configureWindowOpenHandler(session, view.webContents);
-    this.configureCloseShortcut(host, view.webContents);
+    this.configureCloseShortcut(host, session, view.webContents);
     this.configureHtmlFullscreen(host, view.webContents);
     this.trackGameViewFocus(host, view);
+    view.webContents.on("blur", () => this.setGameInputContext(view.webContents.id, false));
+    view.webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
+      if (isMainFrame) this.setGameInputContext(view.webContents.id, false);
+    });
     view.webContents.once("destroyed", () => {
       if (this.sessions.get(role.id) === session) {
         this.sessions.delete(role.id);
@@ -2230,10 +2248,15 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }));
   }
 
-  private configureCloseShortcut(host: GameHostWindow, webContents: WebContents): void {
+  private configureCloseShortcut(
+    host: GameHostWindow,
+    session: BrowserSession,
+    webContents: WebContents
+  ): void {
     const displayHost = this.getDisplayHost(host);
-    if (displayHost) this.configureRuntimeWindowAccelerators(displayHost, webContents);
+    if (displayHost) this.configureRuntimeWindowAccelerators(displayHost, webContents, session);
     webContents.on("before-input-event", (event, input) => {
+      if (this.isProtectedGameInputActive(session, webContents)) return;
       if (input.type !== "keyDown" || input.key.toLowerCase() !== "w" || (!input.meta && !input.control)) {
         return;
       }
@@ -2244,10 +2267,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private configureRuntimeWindowAccelerators(
     displayHost: EmbeddedDisplayHost,
-    webContents: WebContents
+    webContents: WebContents,
+    session?: BrowserSession
   ): void {
     if ((this.options.platform ?? process.platform) !== "darwin") return;
     webContents.on("before-input-event", (event, input) => {
+      if (session && this.isProtectedGameInputActive(session, webContents)) return;
       if (
         input.type !== "keyDown" ||
         input.isAutoRepeat ||
@@ -2258,6 +2283,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       event.preventDefault();
       this.toggleRuntimeWindowFullscreen(displayHost);
     });
+  }
+
+  private isProtectedGameInputActive(session: BrowserSession, webContents: WebContents): boolean {
+    return session.gameInputContextActive && session.view.webContents === webContents;
   }
 
   private createPopupView(
@@ -2295,7 +2324,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }, popupView.webContents);
     this.configureZoomPersistence(session, popupView.webContents);
     this.configureWindowOpenHandler(session, popupView.webContents);
-    this.configureCloseShortcut(host, popupView.webContents);
+    this.configureCloseShortcut(host, session, popupView.webContents);
     this.configureHtmlFullscreen(host, popupView.webContents);
     this.trackGameViewFocus(host, popupView);
     popupView.webContents.once("destroyed", () => {

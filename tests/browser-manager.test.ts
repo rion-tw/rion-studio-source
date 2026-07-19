@@ -3367,6 +3367,74 @@ describe("BrowserManager game host windows", () => {
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["darwin", "win32"] as const)(
+    "suspends native menu and close shortcuts while game input is active on %s",
+    async (platform) => {
+      const harness = createHarness({ platform, useTabbedHostWindow: true });
+      await harness.manager.launch(role);
+      const webContents = harness.views[0].webContents;
+      const closeEvent = { preventDefault: vi.fn() };
+
+      harness.manager.setGameInputContext(webContents.id, true);
+
+      expect(webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+      webContents.emit("before-input-event", closeEvent, {
+        control: platform === "win32",
+        key: "w",
+        meta: platform === "darwin",
+        type: "keyDown"
+      });
+      expect(closeEvent.preventDefault).not.toHaveBeenCalled();
+      expect(harness.hosts[0].hide).not.toHaveBeenCalled();
+
+      if (platform === "darwin") {
+        const fullscreenEvent = { preventDefault: vi.fn() };
+        webContents.emit("before-input-event", fullscreenEvent, {
+          control: true,
+          isAutoRepeat: false,
+          key: "f",
+          meta: true,
+          type: "keyDown"
+        });
+        expect(fullscreenEvent.preventDefault).not.toHaveBeenCalled();
+        expect(harness.hosts[0].setFullScreen).not.toHaveBeenCalled();
+      }
+
+      webContents.emit("blur");
+      expect(webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+      harness.manager.setGameInputContext(webContents.id, true);
+      webContents.emit("did-start-navigation", {}, "https://example.com/play", false, true);
+      expect(webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+      webContents.emit("before-input-event", closeEvent, {
+        control: platform === "win32",
+        key: "w",
+        meta: platform === "darwin",
+        type: "keyDown"
+      });
+      expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+      expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
+    }
+  );
+
+  it("keeps popup shortcuts active while the parent game canvas is protected", async () => {
+    const harness = createHarness({ platform: "darwin", useTabbedHostWindow: true });
+    await harness.manager.launch(role);
+    const gameWebContents = harness.views[0].webContents;
+    harness.manager.setGameInputContext(gameWebContents.id, true);
+    const popup = createOAuthPopup(harness.views[0], harness.views);
+    const event = { preventDefault: vi.fn() };
+
+    popup.webContents.emit("before-input-event", event, {
+      key: "w",
+      meta: true,
+      type: "keyDown"
+    });
+
+    expect(gameWebContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
+  });
+
   it("hosts OAuth popups over the matching role cell", async () => {
     const onEmbeddedWebContentsCreated = vi.fn();
     const harness = createHarness({ onEmbeddedWebContentsCreated });
@@ -3879,6 +3947,7 @@ function createMockView(
     sendInputEvent: vi.fn(),
     session: { cookies: { get: vi.fn().mockResolvedValue([]) }, setProxy: vi.fn().mockResolvedValue(undefined) },
     setWindowOpenHandler: vi.fn(),
+    setIgnoreMenuShortcuts: vi.fn(),
     setZoomFactor: vi.fn((zoomFactor: number) => {
       currentZoomFactor = zoomFactor;
     })

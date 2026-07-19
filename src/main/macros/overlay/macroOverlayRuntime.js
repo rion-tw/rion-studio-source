@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v33";
+  const hostId = "rion-studio-macro-overlay-v34";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 31 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 32 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-19.1";
+  const scriptVersion = "2026-07-19.2";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -82,9 +82,23 @@
     '<rect width="20" height="16" x="2" y="4" rx="2"/>',
     "</svg>"
   ].join("");
+  const gameBrowserDefaultCodes = new Set([
+    "Tab",
+    "Space",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "PageUp",
+    "PageDown",
+    "Home",
+    "End",
+    "Backspace"
+  ]);
   let activeBadgesElement = null;
   const activeHeldShortcuts = new Map();
   let cleanupInterval = undefined;
+  let gameInputContextActive = false;
   let host = null;
   let isDisposed = false;
   let isInstalled = false;
@@ -124,6 +138,85 @@
   const pendingMacroActions = new Set();
   const macroActionTails = new Map();
   let nextPressId = 1;
+
+  function isCanvas(candidate) {
+    return typeof HTMLCanvasElement !== "undefined" && candidate instanceof HTMLCanvasElement;
+  }
+
+  function eventPathIncludesCanvas(event) {
+    try {
+      return event.composedPath().some(isCanvas);
+    } catch {
+      return isCanvas(event.target);
+    }
+  }
+
+  function getDeepActiveElement() {
+    let activeElement = document.activeElement;
+    const visited = new Set();
+    while (activeElement?.shadowRoot?.activeElement && !visited.has(activeElement)) {
+      visited.add(activeElement);
+      activeElement = activeElement.shadowRoot.activeElement;
+    }
+    return activeElement;
+  }
+
+  function hasActiveGameCanvas() {
+    return isCanvas(getDeepActiveElement()) || isCanvas(document.pointerLockElement);
+  }
+
+  function reportGameInputContext(active) {
+    const nextActive = Boolean(active);
+    if (gameInputContextActive === nextActive) return;
+    gameInputContextActive = nextActive;
+    void Promise.resolve(binding({ type: "game-input-context", active: nextActive })).catch(() => undefined);
+  }
+
+  function refreshGameInputContext() {
+    reportGameInputContext(hasActiveGameCanvas());
+  }
+
+  function scheduleGameInputContextRefresh() {
+    Promise.resolve().then(() => {
+      if (!isDisposed) refreshGameInputContext();
+    });
+  }
+
+  function handleGameSurfacePointerDown(event) {
+    if (eventPathIncludesCanvas(event)) {
+      reportGameInputContext(true);
+      return;
+    }
+    scheduleGameInputContextRefresh();
+  }
+
+  function handleGameSurfaceFocusIn(event) {
+    reportGameInputContext(eventPathIncludesCanvas(event) || hasActiveGameCanvas());
+  }
+
+  function handleGameSurfaceFocusOut() {
+    scheduleGameInputContextRefresh();
+  }
+
+  function isMacPlatform() {
+    const platform = navigator.userAgentData?.platform ?? navigator.platform ?? "";
+    return /mac/i.test(String(platform));
+  }
+
+  function isSystemOwnedShortcut(event) {
+    if (event.code === "Tab" && (event.metaKey || event.altKey)) return true;
+    if (event.metaKey && (event.code === "Space" || event.code.startsWith("Arrow"))) return true;
+    return isMacPlatform() && event.ctrlKey && event.code.startsWith("Arrow");
+  }
+
+  function preventGameBrowserDefault(event) {
+    if (!gameInputContextActive && !eventPathIncludesCanvas(event)) return;
+    if (isSystemOwnedShortcut(event)) return;
+
+    if (gameBrowserDefaultCodes.has(event.code)) {
+      event.preventDefault();
+    }
+  }
 
   function getText() {
     return overlayTexts[state.language] ?? overlayTexts[detectOverlayLanguage()] ?? overlayTexts.en;
@@ -520,10 +613,14 @@
   }
 
   function handleKeyDown(event) {
+    const ignoresShortcut = shouldIgnoreShortcutEvent(event, undefined, document.designMode);
+    if (!ignoresShortcut) {
+      preventGameBrowserDefault(event);
+    }
     if (consumeSuppressedShortcut(event.code, "keydown")) {
       return;
     }
-    if (shouldIgnoreShortcutEvent(event, undefined, document.designMode)) {
+    if (ignoresShortcut) {
       return;
     }
 
@@ -597,28 +694,38 @@
   }
 
   function handleFocus() {
+    scheduleGameInputContextRefresh();
     void refresh();
   }
 
   function handleBlur() {
+    reportGameInputContext(false);
     releaseActiveHeldShortcuts();
   }
 
   function handleVisibilityChange() {
     if (document.visibilityState === "hidden") {
+      reportGameInputContext(false);
       releaseActiveHeldShortcuts();
+      return;
     }
+    scheduleGameInputContextRefresh();
   }
 
   function dispose() {
     isDisposed = true;
     refreshQueued = false;
+    reportGameInputContext(false);
     releaseActiveHeldShortcuts();
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
     window.removeEventListener("focus", handleFocus, true);
     window.removeEventListener("blur", handleBlur, true);
     window.removeEventListener("pagehide", handleBlur, true);
+    window.removeEventListener("pointerdown", handleGameSurfacePointerDown, true);
+    document.removeEventListener("focusin", handleGameSurfaceFocusIn, true);
+    document.removeEventListener("focusout", handleGameSurfaceFocusOut, true);
+    document.removeEventListener("pointerlockchange", refreshGameInputContext, true);
     document.removeEventListener("visibilitychange", handleVisibilityChange, true);
 
     if (cleanupInterval !== undefined) {
@@ -648,6 +755,10 @@
     window.addEventListener("focus", handleFocus, true);
     window.addEventListener("blur", handleBlur, true);
     window.addEventListener("pagehide", handleBlur, true);
+    window.addEventListener("pointerdown", handleGameSurfacePointerDown, true);
+    document.addEventListener("focusin", handleGameSurfaceFocusIn, true);
+    document.addEventListener("focusout", handleGameSurfaceFocusOut, true);
+    document.addEventListener("pointerlockchange", refreshGameInputContext, true);
     document.addEventListener("visibilitychange", handleVisibilityChange, true);
     refreshInterval = setInterval(() => void refresh(), 1500);
     cleanupInterval = setInterval(() => {
@@ -665,6 +776,7 @@
       version: scriptVersion
     };
     isInstalled = true;
+    refreshGameInputContext();
     updatePresentation();
     void refresh();
   }

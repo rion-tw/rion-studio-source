@@ -804,6 +804,9 @@ async function initializeApplication(): Promise<void> {
     },
     onMacroOverlayRequest: async (webContents, request) => {
       const activeRoleId = browserManager?.getRoleIdForWebContents(webContents.id);
+      if (request.type === "game-input-context") {
+        browserManager?.setGameInputContext(webContents.id, request.active);
+      }
       return macroOverlayInjector.handleEmbeddedRequest(webContents, activeRoleId, request);
     },
     onOverlayLanguageChanged: (language) => {

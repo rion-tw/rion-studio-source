@@ -1004,6 +1004,22 @@ describe("registerIpcHandlers macro handlers", () => {
       handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.({ sender }, { type: "open" })
     ).resolves.toEqual({ macros: [], statuses: [] });
     expect(onMacroOverlayRequest).toHaveBeenCalledWith(sender, { type: "open" });
+    await expect(
+      handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.(
+        { sender },
+        { type: "game-input-context", active: true }
+      )
+    ).resolves.toEqual({ macros: [], statuses: [] });
+    expect(onMacroOverlayRequest).toHaveBeenCalledWith(sender, {
+      type: "game-input-context",
+      active: true
+    });
+    expect(() =>
+      handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.(
+        { sender },
+        { type: "game-input-context", active: "yes" }
+      )
+    ).toThrow("Macro overlay request is invalid.");
     expect(() =>
       handlers.get(IPC_CHANNELS.macrosOverlayRequest)?.({ sender }, { type: "unknown" })
     ).toThrow("Macro overlay request is invalid.");

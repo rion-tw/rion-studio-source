@@ -24,6 +24,7 @@
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
 - (void)scheduleContentLayoutNotification;
+- (void)scheduleFullscreenHostRefresh;
 - (BOOL)attachTitlebarHeightOverrideToFrameView:(nullable NSView *)frameView;
 - (BOOL)attachTitlebarWidgetInsetOverride:(CGFloat)inset
                               toFrameView:(nullable NSView *)frameView;
@@ -154,6 +155,56 @@
   return YES;
 }
 
+@end
+
+@interface RionFullscreenProbeWindow : NSWindow
+
+@property(nonatomic) BOOL simulatedFullscreen;
+
+@end
+
+@implementation RionFullscreenProbeWindow
+
+- (NSWindowStyleMask)styleMask {
+  NSWindowStyleMask styleMask = [super styleMask];
+  return self.simulatedFullscreen
+      ? styleMask | NSWindowStyleMaskFullScreen
+      : styleMask;
+}
+
+- (void)setStyleMask:(NSWindowStyleMask)styleMask {
+  // AppKit rejects setting NSWindowStyleMaskFullScreen outside a real
+  // transition. The probe strips that bit while its getter supplies the
+  // fullscreen view used by the controller tests.
+  [super setStyleMask:styleMask & ~NSWindowStyleMaskFullScreen];
+}
+
+@end
+
+@interface RionFullscreenPresentationDelegateProbe : NSObject <NSWindowDelegate>
+
+@property(nonatomic) NSUInteger callbackCount;
+
+@end
+
+@implementation RionFullscreenPresentationDelegateProbe
+
+- (NSApplicationPresentationOptions)window:
+    (NSWindow *)window
+    willUseFullScreenPresentationOptions:
+        (NSApplicationPresentationOptions)proposedOptions {
+  (void)window;
+  self.callbackCount += 1;
+  return proposedOptions | NSApplicationPresentationAutoHideToolbar;
+}
+
+@end
+
+@interface RionFullscreenPresentationDelegateReplacementProbe
+    : RionFullscreenPresentationDelegateProbe
+@end
+
+@implementation RionFullscreenPresentationDelegateReplacementProbe
 @end
 
 static void Assert(bool condition, const char *message) {
@@ -412,7 +463,7 @@ int main() {
            "A content layout without an intersection must be marked invalid.");
 
     [NSApplication sharedApplication];
-    NSWindow *window = [[NSWindow alloc]
+    RionFullscreenProbeWindow *window = [[RionFullscreenProbeWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 900, 600)
                   styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                             NSWindowStyleMaskMiniaturizable |
@@ -701,10 +752,10 @@ int main() {
            "The full titlebar must use a soft system header blur material.");
     NSTitlebarAccessoryViewController *accessory =
         [controller valueForKey:@"_accessoryController"];
-    Assert([accessory isMemberOfClass:NSTitlebarAccessoryViewController.class] &&
+    Assert([accessory isKindOfClass:NSTitlebarAccessoryViewController.class] &&
                accessory.layoutAttribute == NSLayoutAttributeTrailing &&
-               accessory.fullScreenMinHeight == 40.0,
-           "Runtime tabs must use one standard 40pt titlebar accessory.");
+               accessory.fullScreenMinHeight == 0.0,
+           "Windowed runtime tabs must use one trailing titlebar accessory without a fullscreen minimum.");
 
     // AppKit may mutate titlebar properties while re-hosting the accessory for
     // fullscreen. The shared appearance pass must restore the exact windowed
@@ -732,12 +783,13 @@ int main() {
                backdrop.blendingMode == NSVisualEffectBlendingModeBehindWindow &&
                backdrop.state == NSVisualEffectStateFollowsWindowActiveState,
            "The fullscreen re-host pass must restore the same blurred header material.");
-    Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+    Assert(accessory.layoutAttribute == NSLayoutAttributeBottom &&
                accessory.fullScreenMinHeight == 28.0,
-           "Appearance refreshes must not transiently rewrite fullscreen geometry.");
+           "Appearance refreshes must not rewrite accessory placement or fullscreen geometry.");
     [controller applyFullScreenPolicy];
-    Assert(accessory.fullScreenMinHeight == 40.0,
-           "The windowed policy must restore the settled 40pt accessory geometry.");
+    Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0,
+           "The windowed policy must restore the trailing accessory without a fullscreen minimum.");
     Assert([controller valueForKey:@"_tabSurfaces"] == originalTabSurfaces,
            "Re-hosting must preserve the existing Liquid Glass tab surfaces.");
     [controller detachAccessoryController];
@@ -783,35 +835,241 @@ int main() {
     NSToolbar *windowedToolbar = window.toolbar;
     NSToolbar *preparedFullscreenToolbar =
         [controller valueForKey:@"_fullscreenToolbar"];
+
+    RionFullscreenProbeWindow *delegatePolicyWindow =
+        [[RionFullscreenProbeWindow alloc]
+            initWithContentRect:NSMakeRect(0, 0, 500, 320)
+                      styleMask:NSWindowStyleMaskTitled |
+                                NSWindowStyleMaskClosable
+                        backing:NSBackingStoreBuffered
+                          defer:NO];
+    RionFullscreenPresentationDelegateProbe *delegateProbe =
+        [[RionFullscreenPresentationDelegateProbe alloc] init];
+    delegatePolicyWindow.delegate = delegateProbe;
+    RionRuntimeTabsController *delegatePolicyController =
+        [[RionRuntimeTabsController alloc]
+            initWithWindow:delegatePolicyWindow
+             actionHandler:^(__unused NSDictionary<NSString *, id> *action) {}
+             contentLayoutHandler:^(__unused RionRuntimeContentLayout layout) {}];
+    delegatePolicyWindow.simulatedFullscreen = NO;
+    [delegatePolicyController setAlwaysShowInFullScreen:YES];
+    NSApplicationPresentationOptions proposedDelegateOptions =
+        NSApplicationPresentationFullScreen |
+        NSApplicationPresentationAutoHideMenuBar |
+        NSApplicationPresentationAutoHideToolbar;
+    NSApplicationPresentationOptions bridgedDelegateOptions =
+        [delegateProbe window:delegatePolicyWindow
+            willUseFullScreenPresentationOptions:proposedDelegateOptions];
+    Assert(delegateProbe.callbackCount == 1 &&
+               (bridgedDelegateOptions & NSApplicationPresentationFullScreen) != 0 &&
+               (bridgedDelegateOptions & NSApplicationPresentationAutoHideMenuBar) != 0 &&
+               (bridgedDelegateOptions & NSApplicationPresentationAutoHideToolbar) == 0,
+           "The fullscreen delegate bridge must clear only AutoHideToolbar for an always-show Rion window.");
+    delegatePolicyWindow.simulatedFullscreen = YES;
+    [delegatePolicyController prepareForFullscreenTransition:YES];
+
+    RionFullscreenPresentationDelegateReplacementProbe *replacementProbe =
+        [[RionFullscreenPresentationDelegateReplacementProbe alloc] init];
+    delegatePolicyWindow.delegate = replacementProbe;
+    [delegatePolicyController setAlwaysShowInFullScreen:YES];
+    NSApplicationPresentationOptions replacementOptions =
+        [replacementProbe window:delegatePolicyWindow
+            willUseFullScreenPresentationOptions:proposedDelegateOptions];
+    Assert(replacementProbe.callbackCount == 1 &&
+               (replacementOptions & NSApplicationPresentationAutoHideToolbar) == 0,
+           "The delegate bridge must continue working after Electron replaces the window delegate.");
+
+    [delegatePolicyController setAlwaysShowInFullScreen:NO];
+    NSApplicationPresentationOptions autoHideDelegateOptions =
+        [replacementProbe window:delegatePolicyWindow
+            willUseFullScreenPresentationOptions:proposedDelegateOptions];
+    Assert((autoHideDelegateOptions & NSApplicationPresentationAutoHideToolbar) != 0,
+           "The delegate bridge must preserve AutoHideToolbar for auto-hide fullscreen.");
+
+    RionFullscreenProbeWindow *unmarkedDelegateWindow =
+        [[RionFullscreenProbeWindow alloc]
+            initWithContentRect:NSMakeRect(0, 0, 500, 320)
+                      styleMask:NSWindowStyleMaskTitled |
+                                NSWindowStyleMaskClosable
+                        backing:NSBackingStoreBuffered
+                          defer:NO];
+    RionFullscreenPresentationDelegateReplacementProbe *unmarkedProbe =
+        [[RionFullscreenPresentationDelegateReplacementProbe alloc] init];
+    unmarkedDelegateWindow.delegate = unmarkedProbe;
+    NSApplicationPresentationOptions unmarkedOptions =
+        [unmarkedProbe window:unmarkedDelegateWindow
+            willUseFullScreenPresentationOptions:proposedDelegateOptions];
+    Assert(unmarkedProbe.callbackCount == 1 &&
+               (unmarkedOptions & NSApplicationPresentationAutoHideToolbar) != 0,
+           "Unmarked windows must receive the original delegate presentation policy.");
+    [delegatePolicyController destroy];
+
+    // AppKit owns this presentation bit at process scope. Exercise the
+    // aggregate policy with two simulated fullscreen windows so an
+    // always-show request wins over auto-hide, reveal-lock can temporarily
+    // pin the toolbar, and the original bit is restored after the last
+    // controller leaves. Some AppKit test hosts reject synthetic presentation
+    // combinations; in that case the native policy remains covered by the
+    // real fullscreen transition path below.
+    NSApplication *application = NSApplication.sharedApplication;
+    NSApplicationPresentationOptions policyBaselineOptions =
+        application.presentationOptions;
+    NSApplicationPresentationOptions policyTestOptions =
+        policyBaselineOptions | NSApplicationPresentationAutoHideToolbar;
+    BOOL policyTestAvailable = NO;
+    @try {
+      application.presentationOptions = policyTestOptions;
+      policyTestAvailable =
+          (application.presentationOptions &
+           NSApplicationPresentationAutoHideToolbar) != 0;
+    } @catch (__unused NSException *exception) {
+      policyTestAvailable = NO;
+    }
+    if (policyTestAvailable) {
+      RionFullscreenProbeWindow *autoHidePolicyWindow =
+          [[RionFullscreenProbeWindow alloc]
+              initWithContentRect:NSMakeRect(0, 0, 500, 320)
+                        styleMask:NSWindowStyleMaskTitled |
+                                  NSWindowStyleMaskClosable
+                          backing:NSBackingStoreBuffered
+                            defer:NO];
+      RionRuntimeTabsController *autoHidePolicyController =
+          [[RionRuntimeTabsController alloc]
+              initWithWindow:autoHidePolicyWindow
+               actionHandler:^(__unused NSDictionary<NSString *, id> *action) {}
+               contentLayoutHandler:^(__unused RionRuntimeContentLayout layout) {}];
+      autoHidePolicyWindow.simulatedFullscreen = YES;
+      [autoHidePolicyController prepareForFullscreenTransition:YES];
+      Assert((application.presentationOptions &
+              NSApplicationPresentationAutoHideToolbar) != 0,
+             "An auto-hide fullscreen request must retain the original presentation bit.");
+
+      RionFullscreenProbeWindow *alwaysShowPolicyWindow =
+          [[RionFullscreenProbeWindow alloc]
+              initWithContentRect:NSMakeRect(0, 0, 500, 320)
+                        styleMask:NSWindowStyleMaskTitled |
+                                  NSWindowStyleMaskClosable
+                          backing:NSBackingStoreBuffered
+                            defer:NO];
+      RionRuntimeTabsController *alwaysShowPolicyController =
+          [[RionRuntimeTabsController alloc]
+              initWithWindow:alwaysShowPolicyWindow
+               actionHandler:^(__unused NSDictionary<NSString *, id> *action) {}
+               contentLayoutHandler:^(__unused RionRuntimeContentLayout layout) {}];
+      alwaysShowPolicyWindow.simulatedFullscreen = YES;
+      [alwaysShowPolicyController setAlwaysShowInFullScreen:YES];
+      [alwaysShowPolicyController prepareForFullscreenTransition:YES];
+      Assert((application.presentationOptions &
+              NSApplicationPresentationAutoHideToolbar) == 0,
+             "Always-show must clear AppKit auto-hide while another runtime remains auto-hide.");
+
+      [alwaysShowPolicyController destroy];
+      Assert((application.presentationOptions &
+              NSApplicationPresentationAutoHideToolbar) != 0,
+             "Destroying the always-show controller must restore auto-hide for the remaining runtime.");
+      [autoHidePolicyController setRevealLocked:YES];
+      Assert((application.presentationOptions &
+              NSApplicationPresentationAutoHideToolbar) == 0,
+             "A reveal lock must take the same process-wide precedence as always-show.");
+      [autoHidePolicyController setRevealLocked:NO];
+      Assert((application.presentationOptions &
+              NSApplicationPresentationAutoHideToolbar) != 0,
+             "Releasing a reveal lock must restore the aggregate auto-hide policy.");
+      [autoHidePolicyController destroy];
+      Assert(application.presentationOptions == policyTestOptions,
+             "The last fullscreen controller must restore the captured presentation options.");
+      @try {
+        application.presentationOptions = policyBaselineOptions;
+      } @catch (__unused NSException *exception) {
+        // The original options were accepted before the test and should be
+        // restored by AppKit; keep the test process alive if a transition is
+        // still settling on an older macOS host.
+      }
+    } else {
+      @try {
+        application.presentationOptions = policyBaselineOptions;
+      } @catch (__unused NSException *exception) {
+      }
+    }
+
     [controller setAlwaysShowInFullScreen:YES];
     [controller prepareForFullscreenTransition:YES];
     NSToolbar *fullscreenToolbar = [controller valueForKey:@"_toolbar"];
     Assert(fullscreenToolbar == preparedFullscreenToolbar &&
                fullscreenToolbar != windowedToolbar &&
                window.toolbar == fullscreenToolbar &&
-               !fullscreenToolbar.visible && fullscreenToolbar.delegate == nil &&
+               fullscreenToolbar.visible && fullscreenToolbar.delegate == nil &&
                fullscreenToolbar.items.count == 0,
-           "Fullscreen preflight must install the prepared empty toolbar before AppKit starts its transition.");
+           "Always-show preflight must install a visible prepared toolbar before AppKit snapshots the transition.");
     AssertTitlebarHeight(
         titlebarFrameView, 40.0,
         "Fullscreen preflight must preserve the 40pt frame metric before AppKit snapshots it.");
-    Assert(accessory.fullScreenMinHeight == 40.0 &&
+    Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
                window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
-           "Fullscreen preflight must preserve one stable 40pt native accessory.");
+           "Always-show preflight must preserve one trailing accessory in the native titlebar row.");
     [controller applyFullScreenPolicy];
-    Assert(window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
+    Assert(window.toolbar.visible &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
-           "Did-enter always-show must keep Electron's fullscreen root content full-size.");
+           "Always-show must remain visible throughout fullscreen preflight.");
+    NSButton *enteredCloseButton =
+        [window standardWindowButton:NSWindowCloseButton];
+    NSButton *enteredMinimizeButton =
+        [window standardWindowButton:NSWindowMiniaturizeButton];
+    NSButton *enteredZoomButton =
+        [window standardWindowButton:NSWindowZoomButton];
+    // AppKit normally hides these controls while moving the titlebar into its
+    // fullscreen host. Simulate that transition state before DidEnter.
+    for (NSButton *button in @[ enteredCloseButton, enteredMinimizeButton,
+                                enteredZoomButton ]) {
+      button.hidden = YES;
+      button.alphaValue = 0.0;
+    }
+    window.simulatedFullscreen = YES;
+    [controller applyFullScreenPolicy];
+    [NSNotificationCenter.defaultCenter
+        postNotificationName:NSWindowDidEnterFullScreenNotification
+                      object:window];
+    DrainMainQueue();
+    Assert(window.toolbar.visible &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
+               !accessory.hidden && !root.hidden && root.alphaValue == 1.0 &&
+               (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
+           "The settled fullscreen host must retain the visible trailing accessory without rehosting it.");
+    Assert(!enteredCloseButton.hidden && enteredCloseButton.alphaValue == 1.0 &&
+               !enteredMinimizeButton.hidden &&
+               enteredMinimizeButton.alphaValue == 1.0 &&
+               !enteredZoomButton.hidden && enteredZoomButton.alphaValue == 1.0,
+           "The settled fullscreen refresh must keep all traffic lights visible.");
+    NSViewController *settledAccessoryParent = accessory.parentViewController;
+    [controller scheduleFullscreenHostRefresh];
+    id pendingHostRefresh =
+        [controller valueForKey:@"_pendingFullscreenHostRefresh"];
+    [accessory viewDidAppear];
+    Assert(pendingHostRefresh != nil &&
+               [controller valueForKey:@"_pendingFullscreenHostRefresh"] ==
+                   pendingHostRefresh,
+           "Accessory appearance must coalesce with the pending fullscreen host refresh.");
+    DrainMainQueue();
+    Assert(window.titlebarAccessoryViewControllers.count == 1 &&
+               window.titlebarAccessoryViewControllers.firstObject == accessory &&
+               accessory.parentViewController == settledAccessoryParent &&
+               [controller valueForKey:@"_pendingFullscreenHostRefresh"] == nil,
+           "A settled fullscreen refresh must not detach or replace AppKit's accessory host.");
     [controller setAlwaysShowInFullScreen:NO];
     Assert(!accessory.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Always-to-auto-hide must keep the single accessory over the same full-size root content.");
     [controller prepareForFullscreenTransition:YES];
     Assert(window.toolbar == fullscreenToolbar && !window.toolbar.visible &&
-               accessory.fullScreenMinHeight == 40.0 &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
-           "Auto-hide preflight must establish the final tab row before AppKit snapshots fullscreen geometry.");
+           "Auto-hide preflight must preserve the trailing accessory while hiding the native toolbar.");
     [controller applyLiquidGlassTitlebarAppearance];
     Assert(fullscreenToolbar.delegate == nil &&
                fullscreenToolbar.items.count == 0,
@@ -826,10 +1084,18 @@ int main() {
     AssertTitlebarHeight(
         titlebarFrameView, 40.0,
         "Fullscreen auto-hide must retain the frame-level 40pt reveal metric.");
-    Assert(accessory.fullScreenMinHeight == 40.0 &&
+    Assert(accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0 &&
                root.frame.size.height == 40.0,
-           "Auto-hide must keep one stable 40pt tab row over full-size game content.");
+           "Auto-hide must keep the 40pt trailing accessory in the single overlay titlebar row.");
+    [accessory viewDidAppear];
+    DrainMainQueue();
+    Assert(!window.toolbar.visible &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
+               window.titlebarAccessoryViewControllers.firstObject == accessory,
+           "Auto-hide appearance must not pin, resize or replace the trailing accessory.");
     Assert(std::fabs([controller trafficLightReserveWidth] -
                          windowedTrafficReserve) < 0.5 &&
                std::fabs(scrollView.frame.origin.x - windowedLeadingInset) < 0.5,
@@ -837,7 +1103,8 @@ int main() {
 
     [controller setRevealLocked:YES];
     Assert(window.toolbar.visible &&
-               accessory.fullScreenMinHeight == 40.0 &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
                window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "A reveal lock must pin the native titlebar while preserving overlay-style full-size content.");
@@ -845,8 +1112,11 @@ int main() {
         titlebarFrameView, 40.0,
         "A reveal lock must not change the fullscreen frame height.");
     [controller setRevealLocked:NO];
-    Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
+    Assert(!window.toolbar.visible &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
                window.titlebarAccessoryViewControllers.count == 1 &&
+               window.titlebarAccessoryViewControllers.firstObject == accessory &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Releasing a reveal lock must return the single native host to AppKit auto-hide.");
     AssertTitlebarHeight(
@@ -863,12 +1133,16 @@ int main() {
     [controller captureWindowedTrafficLightFrames];
     id zoomTarget = zoomButton.target;
     SEL zoomAction = zoomButton.action;
+    // This policy switch occurs while the simulated window is already
+    // fullscreen; mark the host settled before asking always-show to reveal it.
+    [controller setValue:@YES forKey:@"fullscreenHostReady"];
     [controller setAlwaysShowInFullScreen:YES];
     NSArray<NSButton *> *observedFullscreenButtons =
         [controller valueForKey:@"_observedTrafficLightButtons"];
     Assert(window.toolbar.visible && !root.hidden &&
                window.toolbar.delegate == nil && window.toolbar.items.count == 0 &&
-               accessory.fullScreenMinHeight == 40.0 && !accessory.hidden &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 && !accessory.hidden &&
                window.titlebarAccessoryViewControllers.count == 1 &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Always-show must reveal one 40pt native row over the unchanged full-size root content.");
@@ -908,6 +1182,7 @@ int main() {
         initWithFrame:NSUnionRect(closeFrame, zoomFrame)];
     [closeButton.superview addSubview:residualFullScreenOverlay];
     [controller setValue:@NO forKey:@"fullscreenTransitionActive"];
+    window.simulatedFullscreen = NO;
     [controller restoreWindowedTitlebarHost];
     [controller installFreshToolbarForWindowedMode];
     Assert(window.toolbar != fullscreenToolbar &&
@@ -920,8 +1195,10 @@ int main() {
     Assert(residualFullScreenOverlay.superview == nil,
            "Leaving fullscreen must remove AppKit's residual fullscreen-exit overlay without replacing the native controls.");
     [controller applyFullScreenPolicy];
-    Assert(window.toolbar.visible,
-           "Leaving fullscreen must restore the visible windowed toolbar.");
+    Assert(window.toolbar.visible &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0,
+           "Leaving fullscreen must restore the visible toolbar and trailing windowed accessory.");
     for (NSButton *button in @[ closeButton, minimizeButton, zoomButton ]) {
       Assert(!button.hidden && button.alphaValue == 1.0 &&
                  button.state == NSControlStateValueOff,
@@ -949,7 +1226,9 @@ int main() {
 
     [controller prepareForFullscreenTransition:YES];
     [controller setAlwaysShowInFullScreen:NO];
-    Assert(!window.toolbar.visible && accessory.fullScreenMinHeight == 40.0 &&
+    Assert(!window.toolbar.visible &&
+               accessory.layoutAttribute == NSLayoutAttributeTrailing &&
+               accessory.fullScreenMinHeight == 0.0 &&
                !accessory.hidden &&
                (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0,
            "Disabling always-show must immediately restore auto-hide.");
@@ -1051,6 +1330,8 @@ int main() {
 
     NSUInteger notificationCountBeforeDestroy = contentLayoutNotificationCount;
     [controller scheduleContentLayoutNotification];
+    [controller scheduleFullscreenHostRefresh];
+    window.simulatedFullscreen = NO;
     [controller destroy];
     DrainMainQueue();
     Assert(contentLayoutNotificationCount == notificationCountBeforeDestroy,

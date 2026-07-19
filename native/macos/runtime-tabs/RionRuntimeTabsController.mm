@@ -41,6 +41,197 @@ static char RionRuntimeTitlebarWidgetInsetAssociationKey;
 static std::mutex RionRuntimeTitlebarWidgetInsetHookMutex;
 static std::unordered_map<Class, IMP>
     RionRuntimeOriginalTitlebarWidgetInsetIMPs;
+static char RionRuntimeFullscreenPresentationPolicyAssociationKey;
+static std::mutex RionRuntimeFullscreenPresentationHookMutex;
+static std::unordered_map<Class, IMP>
+    RionRuntimeOriginalFullscreenPresentationOptionIMPs;
+
+// NSApplicationPresentationOptions is process-wide, while each runtime window
+// owns its fullscreen toolbar policy. Keep a main-thread registry so one
+// auto-hide window cannot re-enable AppKit's process-wide auto-hide bit while a
+// different fullscreen runtime window needs its toolbar permanently visible.
+// The original bit is captured before the first fullscreen request and is
+// restored after the last managed fullscreen window leaves.
+static NSMutableDictionary<NSValue *, NSNumber *> *
+RionFullscreenToolbarPresentationRequests(void) {
+  static NSMutableDictionary<NSValue *, NSNumber *> *requests;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    requests = [NSMutableDictionary dictionary];
+  });
+  return requests;
+}
+
+static BOOL RionFullscreenToolbarPresentationBaselineCaptured = NO;
+static BOOL RionFullscreenToolbarPresentationBaselineAutoHide = NO;
+
+static void RionApplyFullscreenToolbarPresentationPolicy(void) {
+  NSApplication *application = NSApplication.sharedApplication;
+  NSMutableDictionary<NSValue *, NSNumber *> *requests =
+      RionFullscreenToolbarPresentationRequests();
+  NSApplicationPresentationOptions current = application.presentationOptions;
+
+  if (requests.count == 0 &&
+      !RionFullscreenToolbarPresentationBaselineCaptured) {
+    return;
+  }
+
+  if (requests.count > 0 &&
+      !RionFullscreenToolbarPresentationBaselineCaptured) {
+    RionFullscreenToolbarPresentationBaselineCaptured = YES;
+    RionFullscreenToolbarPresentationBaselineAutoHide =
+        (current & NSApplicationPresentationAutoHideToolbar) != 0;
+  }
+
+  BOOL shouldAutoHide = RionFullscreenToolbarPresentationBaselineAutoHide;
+  for (NSNumber *request in requests.objectEnumerator) {
+    // A false request represents always-show or reveal-lock. It has priority
+    // over every auto-hide fullscreen runtime window in this process.
+    if (!request.boolValue) {
+      shouldAutoHide = NO;
+      break;
+    }
+  }
+
+  const NSApplicationPresentationOptions autoHideToolbar =
+      NSApplicationPresentationAutoHideToolbar;
+  NSApplicationPresentationOptions desired = current;
+  if (shouldAutoHide) {
+    desired |= autoHideToolbar;
+  } else {
+    desired &= ~autoHideToolbar;
+  }
+
+  BOOL policyApplied = desired == current;
+  if (desired != current) {
+    @try {
+      // Only change AutoHideToolbar. FullScreen, menu bar, Dock and every
+      // other process presentation option remain exactly as AppKit set them.
+      application.presentationOptions = desired;
+      policyApplied = YES;
+    } @catch (__unused NSException *exception) {
+      // AppKit can reject presentation changes during a style-mask animation;
+      // the next controller/event policy pass will retry with the same bit.
+    }
+  }
+
+  if (requests.count == 0 && policyApplied) {
+    RionFullscreenToolbarPresentationBaselineCaptured = NO;
+    RionFullscreenToolbarPresentationBaselineAutoHide = NO;
+  }
+}
+
+static void RionSetFullscreenToolbarPresentationRequest(
+    const void *controller, BOOL active, BOOL autoHide) {
+  if (!controller) return;
+  NSMutableDictionary<NSValue *, NSNumber *> *requests =
+      RionFullscreenToolbarPresentationRequests();
+  NSValue *key = [NSValue valueWithPointer:controller];
+  if (active) {
+    requests[key] = @(autoHide);
+  } else {
+    [requests removeObjectForKey:key];
+  }
+  RionApplyFullscreenToolbarPresentationPolicy();
+}
+
+static Method RionDirectInstanceMethod(Class targetClass, SEL selector);
+
+static IMP RionOriginalFullscreenPresentationOptionsIMPForObject(id object) {
+  std::lock_guard<std::mutex> lock(
+      RionRuntimeFullscreenPresentationHookMutex);
+  for (Class candidate = object_getClass(object); candidate;
+       candidate = class_getSuperclass(candidate)) {
+    auto found = RionRuntimeOriginalFullscreenPresentationOptionIMPs.find(
+        candidate);
+    if (found != RionRuntimeOriginalFullscreenPresentationOptionIMPs.end()) {
+      return found->second;
+    }
+  }
+  return nullptr;
+}
+
+static NSApplicationPresentationOptions
+RionRuntimeFullscreenPresentationOptions(
+    id delegate, SEL selector, NSWindow *window,
+    NSApplicationPresentationOptions proposedOptions) {
+  NSApplicationPresentationOptions options = proposedOptions;
+  IMP original = RionOriginalFullscreenPresentationOptionsIMPForObject(delegate);
+  if (original) {
+    using FullscreenPresentationOptionsFunction =
+        NSApplicationPresentationOptions (*)(id, SEL, NSWindow *,
+                                             NSApplicationPresentationOptions);
+    @try {
+      options = reinterpret_cast<FullscreenPresentationOptionsFunction>(
+          original)(delegate, selector, window, proposedOptions);
+    } @catch (__unused NSException *exception) {
+      options = proposedOptions;
+    }
+  }
+
+  // AppKit asks the window delegate for the final presentation options before
+  // building NSToolbarFullScreenWindow. Clamp only the Rion-marked window;
+  // every other delegate result, including all non-toolbar flags, is kept.
+  NSNumber *alwaysShow = objc_getAssociatedObject(
+      window, &RionRuntimeFullscreenPresentationPolicyAssociationKey);
+  if (alwaysShow.boolValue) {
+    options &= ~NSApplicationPresentationAutoHideToolbar;
+  }
+  return options;
+}
+
+static BOOL RionInstallFullscreenPresentationOptionsHook(NSWindow *window) {
+  if (!window || !window.delegate) return NO;
+  id delegate = window.delegate;
+  SEL selector = @selector(window:willUseFullScreenPresentationOptions:);
+  if (![delegate respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature = [delegate methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 4 ||
+      signature.methodReturnLength != sizeof(NSApplicationPresentationOptions)) {
+    return NO;
+  }
+
+  Class targetClass = object_getClass(delegate);
+  std::lock_guard<std::mutex> lock(RionRuntimeFullscreenPresentationHookMutex);
+  if (RionRuntimeOriginalFullscreenPresentationOptionIMPs.find(targetClass) !=
+      RionRuntimeOriginalFullscreenPresentationOptionIMPs.end()) {
+    return YES;
+  }
+
+  Method inheritedMethod = class_getInstanceMethod(targetClass, selector);
+  if (!inheritedMethod) return NO;
+  IMP original = method_getImplementation(inheritedMethod);
+  // A superclass may already carry the marker-aware wrapper. Do not save that
+  // wrapper as the subclass's original implementation.
+  if (original == (IMP)RionRuntimeFullscreenPresentationOptions) return YES;
+  const char *types = method_getTypeEncoding(inheritedMethod);
+  RionRuntimeOriginalFullscreenPresentationOptionIMPs.emplace(targetClass,
+                                                                original);
+
+  Method directMethod = RionDirectInstanceMethod(targetClass, selector);
+  if (directMethod) {
+    method_setImplementation(directMethod,
+                             (IMP)RionRuntimeFullscreenPresentationOptions);
+    return YES;
+  }
+  if (class_addMethod(targetClass, selector,
+                      (IMP)RionRuntimeFullscreenPresentationOptions, types)) {
+    return YES;
+  }
+
+  RionRuntimeOriginalFullscreenPresentationOptionIMPs.erase(targetClass);
+  return NO;
+}
+
+static void RionSetFullscreenPresentationPolicyMarker(NSWindow *window,
+                                                      BOOL active,
+                                                      BOOL alwaysShow) {
+  if (!window) return;
+  objc_setAssociatedObject(
+      window, &RionRuntimeFullscreenPresentationPolicyAssociationKey,
+      active && alwaysShow ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
 RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
     NSRect contentBounds, NSRect contentLayoutRect, BOOL contentViewFlipped) {
@@ -315,6 +506,13 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 
 @end
 
+@interface RionRuntimeTitlebarAccessoryViewController
+    : NSTitlebarAccessoryViewController
+
+@property(nonatomic, copy, nullable) dispatch_block_t appearanceHandler;
+
+@end
+
 @interface RionRuntimeTabsController () <NSToolbarDelegate>
 
 @property(nonatomic, readwrite) BOOL alwaysShowInFullScreen;
@@ -325,7 +523,9 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 - (void)attachAccessoryController;
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event;
 - (void)captureWindowedTrafficLightFrames;
+- (void)configureAccessoryForTitlebar;
 - (void)detachAccessoryController;
+- (void)displayTitlebarHostIfNeeded;
 - (void)detachTitlebarHeightOverrideFromFrameView:(nullable NSView *)frameView;
 - (void)detachTitlebarWidgetInsetOverrideFromFrameView:
     (nullable NSView *)frameView;
@@ -352,8 +552,10 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 - (BOOL)readTitlebarWidgetInset:(CGFloat *)inset
                   fromFrameView:(nullable NSView *)frameView;
 - (void)restoreWindowedTrafficLightFrames;
+- (void)refreshFullscreenTrafficLightVisibility;
 - (void)restoreWindowedTitlebarHost;
 - (void)scheduleContentLayoutNotification;
+- (void)scheduleFullscreenHostRefresh;
 - (void)scheduleLiquidGlassTitlebarRehost;
 - (BOOL)setCustomTitlebarHeight:(CGFloat)height
                     onFrameView:(nullable NSView *)frameView;
@@ -364,6 +566,8 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 - (void)synchronizeFullScreenTitlebarGeometry;
 - (BOOL)synchronizeTitlebarGeometryForFrameView:(nullable NSView *)frameView;
 - (void)updateTrafficLightObservation;
+- (void)ensureFullscreenPresentationOptionsHook;
+- (void)updateFullscreenToolbarPresentationPolicy;
 - (BOOL)updateTitlebarButtonPositionsForFrameView:(nullable NSView *)frameView;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
 - (nullable NSView *)toolbarHostView;
@@ -909,10 +1113,19 @@ static void *RionRuntimeContentLayoutObservationContext =
 
 @end
 
+@implementation RionRuntimeTitlebarAccessoryViewController
+
+- (void)viewDidAppear {
+  [super viewDidAppear];
+  if (self.appearanceHandler) self.appearanceHandler();
+}
+
+@end
+
 @implementation RionRuntimeTabsController {
   RionRuntimeTabsActionHandler _actionHandler;
   RionRuntimeContentLayoutHandler _contentLayoutHandler;
-  NSTitlebarAccessoryViewController *_accessoryController;
+  RionRuntimeTitlebarAccessoryViewController *_accessoryController;
   RionRuntimeSurfaceView *_addSurface;
   RionRuntimeAddButton *_addButton;
   NSView *_clusterContainer;
@@ -926,6 +1139,7 @@ static void *RionRuntimeContentLayoutObservationContext =
   NSToolbar *_fullscreenToolbar;
   NSToolbar *_toolbar;
   dispatch_block_t _pendingContentLayoutNotification;
+  dispatch_block_t _pendingFullscreenHostRefresh;
   RionRuntimeDraggableView *_tabCanvas;
   NSMutableArray<RionRuntimeTabItemView *> *_tabItems;
   NSScrollView *_tabScrollView;
@@ -951,6 +1165,7 @@ static void *RionRuntimeContentLayoutObservationContext =
   BOOL _enforcingTrafficLightVisibility;
   BOOL _hasLastNotifiedContentLayout;
   BOOL _fullscreenTransitionActive;
+  BOOL _fullscreenHostReady;
   RionRuntimeContentLayout _lastNotifiedContentLayout;
   CGFloat _stableTrafficLightReserveWidth;
 }
@@ -991,6 +1206,7 @@ static void *RionRuntimeContentLayoutObservationContext =
       (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0;
   _fullscreenTransitionActive =
       (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  _fullscreenHostReady = _fullscreenTransitionActive;
   _stableTrafficLightReserveWidth = kRionTrafficLightFallbackWidth;
 
   window.titleVisibility = NSWindowTitleHidden;
@@ -1069,15 +1285,25 @@ static void *RionRuntimeContentLayoutObservationContext =
   _insertionIndicator.hidden = YES;
   [root addSubview:_insertionIndicator];
 
-  _accessoryController = [[NSTitlebarAccessoryViewController alloc] init];
+  _accessoryController =
+      [[RionRuntimeTitlebarAccessoryViewController alloc] init];
   _accessoryController.layoutAttribute = NSLayoutAttributeTrailing;
-  _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
+  _accessoryController.fullScreenMinHeight = 0;
   _accessoryController.view = root;
+  __weak RionRuntimeTabsController *weakSelf = self;
+  _accessoryController.appearanceHandler = ^{
+    [weakSelf scheduleFullscreenHostRefresh];
+  };
   [self applyLiquidGlassTitlebarAppearance];
+  [self configureAccessoryForTitlebar];
   [self attachAccessoryController];
   [self layoutTitlebarContent];
   [self captureWindowedTrafficLightFrames];
   [self installWindowObservers];
+  // A controller can be created for a window that is already fullscreen
+  // (for example after a display-host rebuild). Register that settled state
+  // immediately instead of waiting for a future fullscreen notification.
+  [self updateFullscreenToolbarPresentationPolicy];
   return self;
 }
 
@@ -1397,13 +1623,17 @@ static void *RionRuntimeContentLayoutObservationContext =
       } else if ([notification.name
                      isEqualToString:NSWindowDidEnterFullScreenNotification]) {
         strongSelf->_fullscreenTransitionActive = YES;
+        strongSelf->_fullscreenHostReady = YES;
+        [strongSelf updateFullscreenToolbarPresentationPolicy];
         // AppKit has already built NSToolbarFullScreenWindow. Never replace its
         // toolbar here; apply the final native visibility and frame geometry.
         [strongSelf attachAccessoryController];
         [strongSelf applyFullScreenPolicy];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
+        [strongSelf scheduleFullscreenHostRefresh];
       } else if ([notification.name
                      isEqualToString:NSWindowWillExitFullScreenNotification]) {
+        strongSelf->_fullscreenHostReady = NO;
         NSWindow *titlebarHost = strongSelf->_accessoryController.view.window;
         if ([NSStringFromClass(titlebarHost.class)
                 isEqualToString:@"NSToolbarFullScreenWindow"]) {
@@ -1416,6 +1646,8 @@ static void *RionRuntimeContentLayoutObservationContext =
       } else if ([notification.name
                      isEqualToString:NSWindowDidExitFullScreenNotification]) {
         strongSelf->_fullscreenTransitionActive = NO;
+        strongSelf->_fullscreenHostReady = NO;
+        [strongSelf updateFullscreenToolbarPresentationPolicy];
         [strongSelf detachTitlebarWidgetInsetOverrides];
         if (!strongSelf->_previousFullSizeContentView) {
           strongSelf->_window.styleMask &=
@@ -1502,11 +1734,11 @@ static void *RionRuntimeContentLayoutObservationContext =
 
 - (void)restoreWindowedTitlebarHost {
   if (_destroyed || !_window) return;
-  _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
   // Force AppKit to move the accessory out of NSToolbarFullScreenWindow.
   // Merely checking the browser window's controller array can leave the view
   // parented by the transition host even after DidExitFullScreen.
   [self detachAccessoryController];
+  [self configureAccessoryForTitlebar];
   [self attachAccessoryController];
   _accessoryController.hidden = NO;
   _accessoryController.view.hidden = NO;
@@ -1610,11 +1842,20 @@ static void *RionRuntimeContentLayoutObservationContext =
   _toolbar.displayMode = NSToolbarDisplayModeIconOnly;
   _toolbar.showsBaselineSeparator = NO;
 
-  _accessoryController.layoutAttribute = NSLayoutAttributeTrailing;
   _titlebarBackdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
   _titlebarBackdrop.material = NSVisualEffectMaterialHeaderView;
   _titlebarBackdrop.state = NSVisualEffectStateFollowsWindowActiveState;
   [self updateWindowActiveState];
+}
+
+- (void)configureAccessoryForTitlebar {
+  if (_destroyed || !_window || !_accessoryController) return;
+
+  // A trailing accessory shares the unified titlebar row with AppKit's window
+  // controls. Bottom is intentionally avoided because it creates a second row;
+  // fullscreen visibility is owned by NSToolbar and presentation options.
+  _accessoryController.layoutAttribute = NSLayoutAttributeTrailing;
+  _accessoryController.fullScreenMinHeight = 0;
 }
 
 - (void)scheduleLiquidGlassTitlebarRehost {
@@ -1712,6 +1953,20 @@ static void *RionRuntimeContentLayoutObservationContext =
   }
 }
 
+- (void)displayTitlebarHostIfNeeded {
+  if (_destroyed || !_window || !_toolbar || !_accessoryController) return;
+
+  [_toolbar validateVisibleItems];
+  if (_toolbar.visible) [self orderToolbarBelowAccessory];
+  NSView *toolbarView = [self toolbarHostView];
+  [toolbarView.superview layoutSubtreeIfNeeded];
+  [_accessoryController.view layoutSubtreeIfNeeded];
+  [_window.contentView.superview layoutSubtreeIfNeeded];
+  [toolbarView displayIfNeeded];
+  [_accessoryController.view displayIfNeeded];
+  [_window displayIfNeeded];
+}
+
 - (BOOL)orderToolbarBelowAccessory {
   if (_destroyed || !_window || !_toolbar) return NO;
   // NSToolbar's host view and titlebar accessories are siblings. AppKit puts
@@ -1731,10 +1986,15 @@ static void *RionRuntimeContentLayoutObservationContext =
 
   _toolbar.visible = YES;
   if (![self orderToolbarBelowAccessory]) {
-    // AppKit has changed this private accessor before. Re-adding the public
-    // controller is Chromium's fallback and restores the intended z-order.
-    [self detachAccessoryController];
-    [self attachAccessoryController];
+    BOOL fullScreen = _fullscreenTransitionActive ||
+        (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+    if (!fullScreen) {
+      // Re-adding is safe in the settled windowed host. In fullscreen AppKit
+      // owns a clip view for bottom accessories, so never detach it merely to
+      // repair z-order; viewDidAppear schedules a non-destructive refresh.
+      [self detachAccessoryController];
+      [self attachAccessoryController];
+    }
   }
 }
 
@@ -2037,9 +2297,43 @@ static void *RionRuntimeContentLayoutObservationContext =
   _actionHandler(action);
 }
 
+- (void)ensureFullscreenPresentationOptionsHook {
+  if (_destroyed || !_window) return;
+  // Electron may replace its delegate while rebuilding the native window
+  // frame during a fullscreen transition. The class bridge is idempotent, so
+  // checking the current delegate at every policy boundary is safe.
+  RionInstallFullscreenPresentationOptionsHook(_window);
+}
+
+- (void)updateFullscreenToolbarPresentationPolicy {
+  if (_destroyed || !_window) {
+    RionSetFullscreenToolbarPresentationRequest((__bridge const void *)self,
+                                                NO, YES);
+    return;
+  }
+
+  [self ensureFullscreenPresentationOptionsHook];
+  BOOL fullScreen = _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  BOOL active = fullScreen;
+  BOOL autoHide = !self.alwaysShowInFullScreen && !self.revealLocked;
+  // Keep the marker armed while always-show is selected even in windowed mode:
+  // AppKit can ask the delegate for fullscreen presentation options before it
+  // emits NSWindowWillEnterFullScreenNotification. The marker is consulted
+  // only by that fullscreen callback, so it has no windowed behavior.
+  RionSetFullscreenPresentationPolicyMarker(
+      _window, self.alwaysShowInFullScreen || self.revealLocked, !autoHide);
+  RionSetFullscreenToolbarPresentationRequest((__bridge const void *)self,
+                                              active, autoHide);
+}
+
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow {
   _alwaysShowInFullScreen = alwaysShow;
+  [self updateFullscreenToolbarPresentationPolicy];
   [self applyFullScreenPolicy];
+  if (alwaysShow && _window && _fullscreenHostReady) {
+    [self scheduleFullscreenHostRefresh];
+  }
 }
 
 - (void)prepareForFullscreenTransition:(BOOL)fullScreen {
@@ -2052,7 +2346,10 @@ static void *RionRuntimeContentLayoutObservationContext =
     // toolbar synchronously before Electron calls -setFullScreen: so native
     // auto-hide owns one stable host for the entire transition.
     _fullscreenTransitionActive = YES;
+    _fullscreenHostReady = NO;
+    [self updateFullscreenToolbarPresentationPolicy];
     [self installPreparedToolbarForFullScreen];
+    [self configureAccessoryForTitlebar];
     [self attachAccessoryController];
     [self applyLiquidGlassTitlebarAppearance];
     [self layoutTitlebarContent];
@@ -2060,14 +2357,14 @@ static void *RionRuntimeContentLayoutObservationContext =
     _accessoryController.view.hidden = NO;
     _accessoryController.view.alphaValue = 1.0;
 
-    // Preserve the transition geometry that already works for always-show:
-    // top chrome stays hidden over full-size content until DidEnterFullscreen
-    // applies its steady state. Auto-hide establishes the tab accessory's
-    // final 40pt row before AppKit snapshots NSToolbarFullScreenWindow; the
-    // hidden toolbar still keeps that row offscreen during the transition.
+    // Snapshot the final single-row state before Electron begins the
+    // transition. Always-show enters with the native host fully laid out and
+    // visible; auto-hide keeps the same trailing accessory in AppKit's
+    // top-edge reveal host without resizing Electron's full-size content.
     _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
-    _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
-    _toolbar.visible = NO;
+    BOOL pinned = self.alwaysShowInFullScreen || self.revealLocked;
+    _toolbar.visible = pinned;
+    if (pinned) [self displayTitlebarHostIfNeeded];
     [self removeTrafficLightObservationRestoringState:NO];
     [self scheduleContentLayoutNotification];
     return;
@@ -2078,6 +2375,8 @@ static void *RionRuntimeContentLayoutObservationContext =
   // restore the settled windowed host immediately.
   if ((_window.styleMask & NSWindowStyleMaskFullScreen) != 0) return;
   _fullscreenTransitionActive = NO;
+  _fullscreenHostReady = NO;
+  [self updateFullscreenToolbarPresentationPolicy];
   [self detachTitlebarWidgetInsetOverrides];
   [self restoreWindowedTitlebarHost];
   [self installFreshToolbarForWindowedMode];
@@ -2087,7 +2386,11 @@ static void *RionRuntimeContentLayoutObservationContext =
 
 - (void)setRevealLocked:(BOOL)locked {
   _revealLocked = locked;
+  [self updateFullscreenToolbarPresentationPolicy];
   [self applyFullScreenPolicy];
+  if (_window && _fullscreenHostReady) {
+    [self scheduleFullscreenHostRefresh];
+  }
 }
 
 - (RionRuntimeContentLayout)contentLayout {
@@ -2144,17 +2447,55 @@ static void *RionRuntimeContentLayoutObservationContext =
   dispatch_async(dispatch_get_main_queue(), notification);
 }
 
+- (void)scheduleFullscreenHostRefresh {
+  if (_destroyed || !_window || _pendingFullscreenHostRefresh) return;
+
+  __weak RionRuntimeTabsController *weakSelf = self;
+  dispatch_block_t refresh = dispatch_block_create(
+      (dispatch_block_flags_t)0, ^{
+        RionRuntimeTabsController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_pendingFullscreenHostRefresh = nil;
+        if (strongSelf->_destroyed || !strongSelf->_window ||
+            !strongSelf->_fullscreenHostReady) {
+          return;
+        }
+
+        // NSTitlebarAccessoryViewController owns fullscreen rehosting. Once
+        // its view appears, refresh only the settled host; detaching here would
+        // discard AppKit's clip view and recreate the blank-row failure.
+        [strongSelf updateFullscreenToolbarPresentationPolicy];
+        [strongSelf configureAccessoryForTitlebar];
+        strongSelf->_accessoryController.hidden = NO;
+        strongSelf->_accessoryController.view.hidden = NO;
+        strongSelf->_accessoryController.view.alphaValue = 1.0;
+        [strongSelf layoutTitlebarContent];
+        [strongSelf displayTitlebarHostIfNeeded];
+        [strongSelf synchronizeFullScreenTitlebarGeometry];
+
+        if (strongSelf.alwaysShowInFullScreen) {
+          [strongSelf removeTrafficLightObservationRestoringState:NO];
+          [strongSelf refreshFullscreenTrafficLightVisibility];
+        }
+        [strongSelf scheduleContentLayoutNotification];
+      });
+  _pendingFullscreenHostRefresh = refresh;
+  dispatch_async(dispatch_get_main_queue(), refresh);
+}
+
 - (void)applyFullScreenPolicy {
   if (_destroyed || !_window) return;
   [self ensureTitlebarHeightOverride];
   BOOL fullScreen = _fullscreenTransitionActive ||
       (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  [self updateFullscreenToolbarPresentationPolicy];
   BOOL shouldShow = !fullScreen || self.alwaysShowInFullScreen ||
       self.revealLocked;
 
   if (fullScreen) {
     if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
     [self attachAccessoryController];
+    [self configureAccessoryForTitlebar];
     [self applyLiquidGlassTitlebarAppearance];
     [self layoutTitlebarContent];
     _accessoryController.hidden = NO;
@@ -2165,7 +2506,6 @@ static void *RionRuntimeContentLayoutObservationContext =
       // Keep Electron's root content full-size for both fullscreen policies.
       // BrowserManager follows AppKit's contentLayoutRect for the static-safe
       // child View area while this row remains visible.
-      _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
       _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
       [self revealToolbarAndOrderBelowAccessory];
       [self synchronizeFullScreenTitlebarGeometry];
@@ -2174,10 +2514,9 @@ static void *RionRuntimeContentLayoutObservationContext =
       return;
     }
 
-    // Keep one trailing tab accessory at its final row height and let AppKit's
-    // empty fullscreen NSToolbar host own top-edge tracking, clipping, and the
-    // reveal animation. Full-size content keeps the native group overlaid.
-    _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
+    // Auto-hide keeps the same trailing accessory in AppKit's native
+    // top-edge reveal animation. Full-size content leaves the game viewport
+    // unchanged while the single titlebar row overlays it.
     _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
     if (self.revealLocked) {
       [self revealToolbarAndOrderBelowAccessory];
@@ -2197,7 +2536,6 @@ static void *RionRuntimeContentLayoutObservationContext =
   }
   if (_window.toolbar != _toolbar) _window.toolbar = _toolbar;
   [self restoreWindowedTitlebarHost];
-  _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
   [self applyLiquidGlassTitlebarAppearance];
   [self layoutTitlebarContent];
   if (shouldShow) {
@@ -2285,6 +2623,40 @@ static void *RionRuntimeContentLayoutObservationContext =
   _enforcingTrafficLightVisibility = NO;
 }
 
+- (void)refreshFullscreenTrafficLightVisibility {
+  if (_destroyed || !_window || !self.alwaysShowInFullScreen ||
+      !_fullscreenHostReady) {
+    return;
+  }
+
+  // Rebind before changing visibility so the original AppKit state is still
+  // captured for the later auto-hide/fullscreen-exit restore pass.
+  [self updateTrafficLightObservation];
+
+  // Keep this explicit in addition to KVO enforcement. AppKit can install a
+  // fresh set of standard buttons while moving the titlebar into its
+  // fullscreen host, so the controls must be made visible immediately after
+  // that replacement rather than waiting for a property-change notification.
+  for (NSNumber *buttonType in @[
+         @(NSWindowCloseButton),
+         @(NSWindowMiniaturizeButton),
+         @(NSWindowZoomButton)
+       ]) {
+    NSButton *button =
+        [_window standardWindowButton:(NSWindowButton)buttonType.integerValue];
+    if (!button) continue;
+    button.hidden = NO;
+    button.alphaValue = 1.0;
+    button.needsDisplay = YES;
+    button.superview.needsLayout = YES;
+    button.superview.needsDisplay = YES;
+  }
+  [self enforceTrafficLightVisibility];
+  NSButton *closeButton = [_window standardWindowButton:NSWindowCloseButton];
+  [closeButton.superview layoutSubtreeIfNeeded];
+  [closeButton.superview displayIfNeeded];
+}
+
 - (void)removeTrafficLightObservationRestoringState:(BOOL)restoreState {
   if (_observedTrafficLightButtons.count == 0) return;
   _enforcingTrafficLightVisibility = YES;
@@ -2343,11 +2715,21 @@ static void *RionRuntimeContentLayoutObservationContext =
 
 - (void)destroy {
   if (_destroyed) return;
+  RionSetFullscreenPresentationPolicyMarker(_window, NO, NO);
   _destroyed = YES;
+  // Remove this controller before tearing down its AppKit hosts so a pending
+  // fullscreen policy cannot keep AutoHideToolbar overridden after destroy.
+  RionSetFullscreenToolbarPresentationRequest((__bridge const void *)self,
+                                              NO, YES);
   if (_pendingContentLayoutNotification) {
     dispatch_block_cancel(_pendingContentLayoutNotification);
     _pendingContentLayoutNotification = nil;
   }
+  if (_pendingFullscreenHostRefresh) {
+    dispatch_block_cancel(_pendingFullscreenHostRefresh);
+    _pendingFullscreenHostRefresh = nil;
+  }
+  _accessoryController.appearanceHandler = nil;
   if (_contentLayoutObserved && _window) {
     [_window removeObserver:self
                  forKeyPath:@"contentLayoutRect"

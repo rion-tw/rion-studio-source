@@ -144,6 +144,30 @@ describe("macro overlay interactions", () => {
     expect(root.querySelector(".active-badge-name")?.textContent).toBe(assignedMacro.name);
   });
 
+  it("replays the badge border animation when a loop iteration advances", async () => {
+    createGameSurface(document);
+    let statuses: Array<Record<string, unknown>> = [runningStatus()];
+    const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    const firstBadge = getOverlayRoot(document).querySelector(".active-badge");
+    expect(firstBadge?.getAttribute("data-iteration")).toBe("0");
+
+    statuses = [{
+      ...runningStatus(),
+      iteration: 1,
+      updatedAt: "2026-07-10T00:00:00.250Z"
+    }];
+    await controller.refresh();
+
+    const nextBadge = getOverlayRoot(document).querySelector(".active-badge");
+    expect(nextBadge).not.toBe(firstBadge);
+    expect(nextBadge?.getAttribute("data-iteration")).toBe("1");
+    expect(nextBadge?.getAttribute("style")).toContain("--active-badge-flash-duration:80ms");
+    expect(nextBadge?.classList.contains("is-iteration-flash")).toBe(true);
+  });
+
   it("coalesces delayed polling refreshes and runs only one trailing request", async () => {
     vi.useFakeTimers();
     createGameSurface(document);
@@ -661,7 +685,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v38")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v42")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -727,7 +751,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v38")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v42")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

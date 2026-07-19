@@ -74,7 +74,11 @@ export class MacroOverlayInjector {
   private readonly initializedContents = new WeakSet<WebContents>();
   private readonly contentRoleIds = new WeakMap<WebContents, string>();
   private readonly contentRefreshStates = new WeakMap<WebContents, OverlayRefreshState>();
-  private previousMacroStatuses = new Map<string, { roleId: string; state: MacroRunStatus["state"] }>();
+  private previousMacroStatuses = new Map<string, {
+    iteration: number;
+    roleId: string;
+    state: MacroRunStatus["state"];
+  }>();
   private previousRolePresentation = new Map<string, string>();
   private language: AppLanguage | undefined;
 
@@ -167,14 +171,14 @@ export class MacroOverlayInjector {
     const next = new Map(
       statuses.map((status) => [
         `${status.roleId}:${status.macroId}`,
-        { roleId: status.roleId, state: status.state }
+        { iteration: status.iteration ?? 0, roleId: status.roleId, state: status.state }
       ])
     );
     const changedRoleIds = new Set<string>();
     new Set([...this.previousMacroStatuses.keys(), ...next.keys()]).forEach((key) => {
       const previous = this.previousMacroStatuses.get(key);
       const current = next.get(key);
-      if (previous?.state !== current?.state) {
+      if (previous?.state !== current?.state || previous?.iteration !== current?.iteration) {
         changedRoleIds.add(current?.roleId ?? previous!.roleId);
       }
     });

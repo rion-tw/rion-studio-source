@@ -254,6 +254,8 @@ export interface MacroRunStatus {
   roleId: string;
   macroId: string;
   state: MacroRunState;
+  /** Number of completed iterations for the current runtime invocation. */
+  iteration?: number;
   startedAt: string;
   updatedAt: string;
   error?: string;

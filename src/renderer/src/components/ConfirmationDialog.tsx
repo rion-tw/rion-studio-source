@@ -6,6 +6,7 @@ import {
   useRef,
   useState
 } from "react";
+import { TriangleAlert } from "lucide-react";
 
 import { Button } from "./ui/button";
 import { Surface } from "./ui/patterns";
@@ -75,7 +76,7 @@ function ConfirmationDialog({
       ref={dialogRef}
       aria-describedby="confirmation-dialog-description"
       aria-labelledby="confirmation-dialog-title"
-      className="confirmation-dialog m-auto w-[min(420px,calc(100vw-2rem))] max-w-none border-0 bg-transparent p-0 text-foreground"
+      className="confirmation-dialog m-auto w-[min(480px,calc(100vw-2rem))] max-w-none border-0 bg-transparent p-0 text-foreground"
       onCancel={(event) => {
         event.preventDefault();
         onSettle(false);
@@ -87,9 +88,20 @@ function ConfirmationDialog({
             <h2 id="confirmation-dialog-title" className="text-base font-semibold leading-6">
               {pending.title}
             </h2>
-            <p id="confirmation-dialog-description" className="text-xs font-medium leading-5 text-muted-foreground">
-              {pending.description}
-            </p>
+            <div id="confirmation-dialog-description" className="grid gap-3 text-xs font-medium leading-5 text-muted-foreground">
+              <p>{pending.description}</p>
+              {pending.details?.length ? (
+                <ul className="grid list-disc gap-1 pl-4">
+                  {pending.details.map((detail) => <li key={detail}>{detail}</li>)}
+                </ul>
+              ) : null}
+              {pending.warning ? (
+                <div className="flex gap-2 rounded-md border border-destructive/25 bg-destructive/8 p-3 text-destructive">
+                  <TriangleAlert className="mt-0.5 shrink-0" size={15} />
+                  <p>{pending.warning}</p>
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button ref={cancelButtonRef} type="button" variant="outline" onClick={() => onSettle(false)}>

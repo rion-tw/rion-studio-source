@@ -46,6 +46,7 @@ import {
   EXTERNAL_COMPAT_NOTICE,
   type BrowserManager
 } from "../browser/BrowserManager";
+import type { RoleBrowserDataManager } from "../browser/RoleBrowserDataManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { SystemFontService } from "../game-browser/SystemFontService";
 import type { GameCompatibilityManager } from "../games/GameCompatibilityManager";
@@ -87,6 +88,7 @@ interface RegisterIpcHandlersOptions {
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
+  roleBrowserDataManager?: Pick<RoleBrowserDataManager, "clear">;
   workspaceLauncher?: Pick<WorkspaceLaunchCoordinator, "launch">;
   withDataMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
   getDefaultWorkspaceDisplayId?: () => number;
@@ -550,6 +552,14 @@ export function registerIpcHandlers(
     })
   );
 
+  ipcMain.handle(IPC_CHANNELS.rolesClearBrowserData, (_event, id: string) =>
+    runDataMutation(options, async () => {
+      const role = await requireRoleBrowserDataManager(options).clear(id);
+      options.onRolesChanged?.();
+      return role;
+    })
+  );
+
   ipcMain.handle(IPC_CHANNELS.rolesPaths, async (_event, id: string) => {
     await roleStore.getRole(id);
     return roleStore.getRolePaths(id);
@@ -757,6 +767,15 @@ function runDataMutation<T>(
 async function deleteGameRecord(options: RegisterIpcHandlersOptions, id: string): Promise<void> {
   await requireGameStore(options).deleteGame(id);
   await options.gameCompatibilityManager?.deleteGame(id);
+}
+
+function requireRoleBrowserDataManager(
+  options: RegisterIpcHandlersOptions
+): Pick<RoleBrowserDataManager, "clear"> {
+  if (!options.roleBrowserDataManager) {
+    throw new Error("Role browser data clearing is not available.");
+  }
+  return options.roleBrowserDataManager;
 }
 
 async function deleteRoleRecord(

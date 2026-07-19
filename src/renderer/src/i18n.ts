@@ -38,6 +38,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Role cover image is too large.": "error.roleCoverTooLarge",
   "Unable to process role cover image.": "error.roleCoverProcessFailed",
   "Role cover dominant color must be a valid hex color.": "error.roleCoverColorInvalid",
+  "Some saved browser data could not be cleared.": "error.roleBrowserDataClearFailed",
   "A role with this name already exists.": "error.roleNameDuplicate",
   "Game not found.": "error.gameNotFound",
   "Game data file is invalid.": "error.gameDataInvalid",

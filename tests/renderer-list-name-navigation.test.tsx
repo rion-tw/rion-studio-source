@@ -33,6 +33,7 @@ describe("list editor navigation", () => {
         statusByRole={new Map()}
         t={t}
         onClearQuery={vi.fn()}
+        onClearBrowserData={vi.fn()}
         onCopy={vi.fn()}
         onDelete={vi.fn()}
         onDeleteMany={vi.fn().mockResolvedValue(false)}
@@ -52,6 +53,48 @@ describe("list editor navigation", () => {
 
     expect(onEdit).toHaveBeenCalledOnce();
     expect(onEdit).toHaveBeenCalledWith(item);
+  });
+
+  it("opens saved browser data clearing from the role action menu", async () => {
+    const user = userEvent.setup();
+    const item = role();
+    const onClearBrowserData = vi.fn();
+
+    render(
+      <RolesView
+        activeFilter="all"
+        authStatusByRole={new Map()}
+        busyRoleIds={new Set()}
+        filteredRoles={[item]}
+        games={[]}
+        isReordering={false}
+        language="en"
+        roleStats={{ total: 1, running: 0, stopped: 1, needsLogin: 1, authFailed: 0 }}
+        roles={[item]}
+        scrollPositionRef={{ current: 0 }}
+        query=""
+        statusByRole={new Map()}
+        t={t}
+        onClearQuery={vi.fn()}
+        onClearBrowserData={onClearBrowserData}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
+        onEdit={vi.fn()}
+        onFilterChange={vi.fn()}
+        onLaunch={vi.fn()}
+        onLogin={vi.fn()}
+        onNewRole={vi.fn()}
+        onQueryChange={vi.fn()}
+        onReorder={vi.fn()}
+        onStop={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "role.actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "role.clearSavedData" }));
+
+    expect(onClearBrowserData).toHaveBeenCalledWith(item);
   });
 
   it("opens a workspace editor from its action menu", async () => {

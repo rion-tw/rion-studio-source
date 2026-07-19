@@ -22,6 +22,7 @@ import {
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
+import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
@@ -647,6 +648,11 @@ async function initializeApplication(): Promise<void> {
   browserManager.setBeforeRolesStop(async (roleIds) => {
     await Promise.all(roleIds.map((roleId) => macroManager.stopRole(roleId)));
   });
+  const roleBrowserDataManager = new RoleBrowserDataManager({
+    browserManager,
+    getSession: (partition) => electronSession.fromPartition(partition),
+    roleStore
+  });
   const macroOverlayInjector = new MacroOverlayInjector(
     macroStore,
     macroManager,
@@ -784,6 +790,7 @@ async function initializeApplication(): Promise<void> {
     macroStore,
     macroSettingsStore,
     portableDataManager,
+    roleBrowserDataManager,
     systemFontService,
     updateManager,
     withDataMutation,

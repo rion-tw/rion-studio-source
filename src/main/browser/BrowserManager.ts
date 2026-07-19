@@ -323,6 +323,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly hosts = new Map<string, GameHostWindow>();
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly pendingWorkspaceLaunchIds = new Set<string>();
+  private readonly roleOperationVersions = new Map<string, number>();
   private readonly roleOperationTails = new Map<string, Promise<void>>();
   private readonly workspaceDisplayReservations = new Map<string, { displayId: number; name: string }>();
   private readonly workspaceHostIds = new Map<string, string>();
@@ -984,8 +985,23 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   runRoleOperation<T>(roleIds: string[], operation: () => Promise<T>): Promise<T> {
+    const expectedVersions = new Map(
+      roleIds.map((roleId) => [roleId, this.roleOperationVersions.get(roleId) ?? 0])
+    );
     return this.withRoleOperationLocks(roleIds, async () => {
       this.assertRolesAvailable(roleIds);
+      if (roleIds.some((roleId) => (this.roleOperationVersions.get(roleId) ?? 0) !== expectedVersions.get(roleId))) {
+        throw new Error("Role data changed while the operation was queued.");
+      }
+      return operation();
+    });
+  }
+
+  stopRoleAndRunRecoverableMutation<T>(roleId: string, operation: () => Promise<T>): Promise<T> {
+    return this.withRoleOperationLocks([roleId], async () => {
+      this.assertRolesAvailable([roleId]);
+      this.roleOperationVersions.set(roleId, (this.roleOperationVersions.get(roleId) ?? 0) + 1);
+      await this.stopUnlocked(roleId);
       return operation();
     });
   }

@@ -30,6 +30,7 @@ export const IPC_CHANNELS = {
   rolesReorder: "roles:reorder",
   rolesDelete: "roles:delete",
   rolesDeleteMany: "roles:delete-many",
+  rolesClearBrowserData: "roles:clear-browser-data",
   rolesPaths: "roles:paths",
   rolesStartLogin: "roles:start-login",
   rolesAuthStatuses: "roles:auth-statuses",

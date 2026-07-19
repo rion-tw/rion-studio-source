@@ -135,6 +135,7 @@ describe("registerIpcHandlers workspace handlers", () => {
   let onLegalAccepted: AnyMock;
   let onRolesChanged: AnyMock;
   let onWorkspacesChanged: AnyMock;
+  let roleBrowserDataManager: { clear: AnyMock };
   let consumePendingWorkspaceLaunchRequest: AnyMock;
   let quitApplication: AnyMock;
   let legalAcceptanceStore: {
@@ -212,6 +213,9 @@ describe("registerIpcHandlers workspace handlers", () => {
     onLegalAccepted = vi.fn();
     onRolesChanged = vi.fn();
     onWorkspacesChanged = vi.fn();
+    roleBrowserDataManager = {
+      clear: vi.fn(async (id: string) => ({ ...authenticatedRole, id, authState: "login_required" as const }))
+    };
     consumePendingWorkspaceLaunchRequest = vi.fn(() => ({
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -270,7 +274,8 @@ describe("registerIpcHandlers workspace handlers", () => {
         onRendererReady,
         onRolesChanged,
         onWorkspacesChanged,
-        quitApplication
+        quitApplication,
+        roleBrowserDataManager
       }
     );
   });
@@ -509,6 +514,18 @@ describe("registerIpcHandlers workspace handlers", () => {
       authenticatedRole.id,
       expect.any(Function)
     );
+  });
+
+  it("clears isolated role browser data and returns the updated authentication state", async () => {
+    await expect(
+      handlers.get(IPC_CHANNELS.rolesClearBrowserData)?.({}, authenticatedRole.id)
+    ).resolves.toMatchObject({
+      id: authenticatedRole.id,
+      authState: "login_required"
+    });
+
+    expect(roleBrowserDataManager.clear).toHaveBeenCalledWith(authenticatedRole.id);
+    expect(onRolesChanged).toHaveBeenCalledOnce();
   });
 
   it("persists role and workspace orders and reports both collections changed", async () => {

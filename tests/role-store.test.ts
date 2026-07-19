@@ -510,4 +510,21 @@ describe("RoleStore", () => {
       code: "ENOENT"
     });
   });
+
+  it("resets only the selected role browser directory and recreates it", async () => {
+    const selected = await store.createRole({ gameId: "game-1", name: "Main" });
+    const other = await store.createRole({ gameId: "game-1", name: "Alt" });
+    const selectedMarker = join(store.getRolePaths(selected.id).browserUserDataDir, "Local Storage");
+    const otherMarker = join(store.getRolePaths(other.id).browserUserDataDir, "Cookies");
+    await writeFile(selectedMarker, "selected", "utf8");
+    await writeFile(otherMarker, "other", "utf8");
+
+    await expect(store.resetBrowserUserDataDir(selected.id)).resolves.toBe(
+      store.getRolePaths(selected.id).browserUserDataDir
+    );
+
+    await expect(access(store.getRolePaths(selected.id).browserUserDataDir)).resolves.toBeUndefined();
+    await expect(access(selectedMarker)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(otherMarker, "utf8")).resolves.toBe("other");
+  });
 });

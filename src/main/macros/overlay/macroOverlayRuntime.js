@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v35";
+  const hostId = "rion-studio-macro-overlay-v38";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 33 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 36 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-19.3";
+  const scriptVersion = "2026-07-19.6";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -467,12 +467,16 @@
         const behavior = formatMacroBehavior(macro);
         return [
           '<span class="active-badge">',
+          '<span class="active-badge-shortcut">',
+          escapeHtml(formatShortcut(macro.trigger)),
+          "</span>",
           '<span class="active-badge-name">',
           escapeHtml(macro.name),
-          '</span><span class="active-badge-shortcut">',
-          escapeHtml(formatShortcut(macro.trigger)),
-          behavior ? " · " + escapeHtml(behavior) : "",
-          "</span></span>"
+          "</span>",
+          behavior
+            ? '<span class="active-badge-behavior"> · ' + escapeHtml(behavior) + "</span>"
+            : "",
+          "</span>"
         ].join("");
       })
       .join("");

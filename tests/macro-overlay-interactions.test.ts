@@ -139,6 +139,8 @@ describe("macro overlay interactions", () => {
     const root = getOverlayRoot(document);
     expect(root.querySelector(".trigger")).toBe(trigger);
     expect(trigger?.isConnected).toBe(true);
+    expect(root.querySelector(".active-badge")?.firstElementChild?.className)
+      .toBe("active-badge-shortcut");
     expect(root.querySelector(".active-badge-name")?.textContent).toBe(assignedMacro.name);
   });
 
@@ -422,6 +424,8 @@ describe("macro overlay interactions", () => {
       pressId: expect.any(String)
     })));
     expect(getOverlayRoot(document).querySelector(".active-badge-shortcut")?.textContent)
+      .toBe("F2");
+    expect(getOverlayRoot(document).querySelector(".active-badge-behavior")?.textContent)
       .toContain("Tap or hold · Hold");
     expect(binding.mock.calls.filter(([request]) => isRecord(request) && request.type === "press")).toHaveLength(1);
 
@@ -657,7 +661,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v35")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v38")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -723,7 +727,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v35")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v38")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

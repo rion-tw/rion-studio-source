@@ -506,8 +506,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v35"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.3"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v38"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.6"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -543,6 +543,12 @@ describe("MacroOverlayInjector", () => {
     );
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge-name"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge-shortcut"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badge-behavior"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('background:rgba(0,0,0,.22)');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('font-size:10px');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('font-size:8px');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('height:16px');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('padding:4px 8px 4px 4px');
     expect(MACRO_OVERLAY_SCRIPT).toContain("left:50%");
     expect(MACRO_OVERLAY_SCRIPT).toContain("top:20%");
     expect(MACRO_OVERLAY_SCRIPT).toContain("pointer-events:none;position:fixed");

@@ -88,7 +88,7 @@ async function main() {
 
   await assertFile(hostAddonPath, "host macOS runtime tabs addon");
   const addon = require(hostAddonPath);
-  if (addon.protocolVersion !== 3) {
+  if (addon.protocolVersion !== 4) {
     throw new Error(
       `Unexpected macOS runtime tabs protocol: ${String(addon.protocolVersion)}.`
     );
@@ -96,7 +96,7 @@ async function main() {
   for (const method of [
     "createController",
     "destroyController",
-    "getWindowedContentLayout",
+    "getContentLayout",
     "prepareFullscreenTransition",
     "setFullscreenPolicy",
     "setRevealLocked",
@@ -108,7 +108,7 @@ async function main() {
   }
 
   if (options.shouldRunTests) await runTests();
-  console.log(`Verified macOS runtime tabs protocol 3: ${options.addonPath}`);
+  console.log(`Verified macOS runtime tabs protocol 4: ${options.addonPath}`);
 }
 
 main().catch((error) => {

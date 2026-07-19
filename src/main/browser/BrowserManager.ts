@@ -62,6 +62,7 @@ import type { EmbeddedRuntimeDiagnosticContext } from "./EmbeddedRuntimeDiagnost
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import { ElectronWorkspaceResourceTarget } from "./ElectronWorkspaceResourceTarget";
 import type {
+  MacRuntimeTabsContentLayout,
   MacRuntimeTabsController,
   MacRuntimeTabsControllerFactory
 } from "./MacRuntimeTabsController";
@@ -223,6 +224,8 @@ interface EmbeddedDisplayHost {
   displayId: number;
   pendingWindowAction?: "close" | "hide";
   id: string;
+  macNativeContentLayout?: RuntimeContentLayout;
+  macNativeContentLayoutUpdate?: ReturnType<typeof setImmediate>;
   macNativeTabs?: MacRuntimeTabsController;
   macSystemMenuBarHeight: number;
   systemMenuBarTemporarilyRevealed: boolean;
@@ -427,10 +430,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.alwaysShowToolbarInFullScreen = value;
     this.displayHosts.forEach((host) => {
       if (host.macNativeTabs) {
+        host.macNativeContentLayout = undefined;
         host.macNativeTabs.setFullscreenPolicy(value ? "always" : "autoHide");
-        // Native fullscreen keeps Electron's root content full-size for both
-        // policies. Re-layout every child View so Always reserves the 40pt row
-        // and Auto-hide immediately returns to overlay geometry.
+        this.refreshMacNativeContentLayout(host);
+        this.clearMacNativeContentLayoutUpdate(host);
+        // Always-show follows AppKit's unobscured rect. Auto-hide remains an
+        // overlay even while its native toolbar is temporarily revealed.
         this.layoutDisplayHost(host);
         return;
       }
@@ -1166,6 +1171,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       ...getWorkspaceWindowMaterialOptions(platform, prefersReducedTransparency)
     };
     let macNativeTabs: MacRuntimeTabsController | undefined;
+    let initialMacNativeContentLayout: RuntimeContentLayout | undefined;
     let window: BaseWindow;
     if (platform === "darwin" && this.options.createMacRuntimeTabsController) {
       const candidate = this.options.createHostWindow({
@@ -1181,11 +1187,23 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
             candidate,
             target.displayId,
             action
+          ),
+          (layout) => this.handleMacNativeContentLayoutChange(
+            candidate,
+            target.displayId,
+            layout
           )
         );
         macNativeTabs.setFullscreenPolicy(
           this.alwaysShowToolbarInFullScreen ? "always" : "autoHide"
         );
+        const contentLayout = macNativeTabs.getContentLayout();
+        if (contentLayout.valid) {
+          initialMacNativeContentLayout = {
+            heightInset: contentLayout.heightInset,
+            yOffset: contentLayout.yOffset
+          };
+        }
         window = candidate;
       } catch (error) {
         console.error(
@@ -1239,6 +1257,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       closing: false,
       displayId: target.displayId,
       id: randomUUID(),
+      ...(initialMacNativeContentLayout
+        ? { macNativeContentLayout: initialMacNativeContentLayout }
+        : {}),
       ...(macNativeTabs ? { macNativeTabs } : {}),
       macSystemMenuBarHeight: RUNTIME_TAB_MAC_MENU_BAR_FALLBACK_HEIGHT,
       systemMenuBarTemporarilyRevealed: false,
@@ -1303,6 +1324,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
     window.once("closed", () => {
       this.clearRuntimeToolbarCursorMonitor(displayHost);
+      this.clearMacNativeContentLayoutUpdate(displayHost);
       displayHost.macNativeTabs?.destroy();
       displayHost.macNativeTabs = undefined;
       if (displayHost.chromeWebContents) {
@@ -1415,6 +1437,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private finalizeDisplayHostDestroy(displayHost: EmbeddedDisplayHost): void {
     displayHost.pendingWindowAction = undefined;
     this.displayHosts.delete(displayHost.displayId);
+    this.clearMacNativeContentLayoutUpdate(displayHost);
     displayHost.macNativeTabs?.destroy();
     displayHost.macNativeTabs = undefined;
     if (displayHost.chromeWebContents) {
@@ -1486,6 +1509,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     fullscreen: boolean
   ): void {
     displayHost.windowFullscreenTransitionTarget = undefined;
+    this.refreshMacNativeContentLayout(displayHost);
     this.setWindowFullscreen(displayHost, fullscreen);
     if (!displayHost.pendingWindowAction) return;
     if (fullscreen) {
@@ -1512,6 +1536,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     displayHost.windowFullscreenTransitionTarget = fullscreen;
     try {
       displayHost.macNativeTabs?.prepareFullscreenTransition(fullscreen);
+      if (displayHost.macNativeTabs) {
+        this.refreshMacNativeContentLayout(displayHost);
+        this.clearMacNativeContentLayoutUpdate(displayHost);
+        this.layoutDisplayHost(displayHost);
+      }
       displayHost.window.setFullScreen(fullscreen);
     } catch (error) {
       if (fullscreen) {
@@ -1522,6 +1551,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         }
       }
       displayHost.windowFullscreenTransitionTarget = undefined;
+      if (displayHost.macNativeTabs) {
+        this.refreshMacNativeContentLayout(displayHost);
+        this.clearMacNativeContentLayoutUpdate(displayHost);
+        this.layoutDisplayHost(displayHost);
+      }
       throw error;
     }
     return true;
@@ -1605,11 +1639,20 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private getRuntimeContentLayout(displayHost: EmbeddedDisplayHost): RuntimeContentLayout {
     if (displayHost.macNativeTabs) {
-      const fullscreenOrTransitioning =
-        this.isDisplayHostFullscreen(displayHost) ||
-        displayHost.windowFullscreenTransitionTarget !== undefined;
-      if (!fullscreenOrTransitioning) {
-        return displayHost.macNativeTabs.getWindowedContentLayout();
+      const transitioning = displayHost.windowFullscreenTransitionTarget !== undefined;
+      const htmlFullscreen = displayHost.tabIds.some(
+        (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
+      );
+      if (!transitioning) {
+        if (htmlFullscreen && !displayHost.windowFullscreen) {
+          return { heightInset: 0, yOffset: 0 };
+        }
+        if (displayHost.windowFullscreen && !this.alwaysShowToolbarInFullScreen) {
+          return { heightInset: 0, yOffset: 0 };
+        }
+      }
+      if (displayHost.macNativeContentLayout) {
+        return displayHost.macNativeContentLayout;
       }
       const windowFullscreenOrEntering =
         displayHost.windowFullscreen ||
@@ -1631,6 +1674,69 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return { heightInset: inset, yOffset: inset };
     }
     return { heightInset: 0, yOffset: 0 };
+  }
+
+  private handleMacNativeContentLayoutChange(
+    window: BaseWindow,
+    displayId: number,
+    layout: MacRuntimeTabsContentLayout
+  ): void {
+    if (!layout.valid) return;
+    const displayHost = this.displayHosts.get(displayId);
+    if (
+      !displayHost ||
+      displayHost.closing ||
+      displayHost.window !== window ||
+      !displayHost.macNativeTabs
+    ) return;
+    const nextLayout = {
+      heightInset: layout.heightInset,
+      yOffset: layout.yOffset
+    };
+    if (
+      displayHost.macNativeContentLayout?.heightInset === nextLayout.heightInset &&
+      displayHost.macNativeContentLayout.yOffset === nextLayout.yOffset
+    ) return;
+    displayHost.macNativeContentLayout = nextLayout;
+    if (!this.shouldApplyMacNativeContentLayout(displayHost)) return;
+    this.scheduleMacNativeContentLayoutUpdate(displayHost);
+  }
+
+  private shouldApplyMacNativeContentLayout(displayHost: EmbeddedDisplayHost): boolean {
+    if (displayHost.windowFullscreenTransitionTarget !== undefined) return true;
+    if (displayHost.windowFullscreen) return this.alwaysShowToolbarInFullScreen;
+    return !displayHost.tabIds.some(
+      (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
+    );
+  }
+
+  private refreshMacNativeContentLayout(displayHost: EmbeddedDisplayHost): boolean {
+    const layout = displayHost.macNativeTabs?.getContentLayout();
+    if (!layout?.valid) return false;
+    displayHost.macNativeContentLayout = {
+      heightInset: layout.heightInset,
+      yOffset: layout.yOffset
+    };
+    return true;
+  }
+
+  private scheduleMacNativeContentLayoutUpdate(displayHost: EmbeddedDisplayHost): void {
+    if (displayHost.macNativeContentLayoutUpdate) return;
+    displayHost.macNativeContentLayoutUpdate = setImmediate(() => {
+      displayHost.macNativeContentLayoutUpdate = undefined;
+      if (
+        displayHost.closing ||
+        displayHost.window.isDestroyed() ||
+        this.displayHosts.get(displayHost.displayId) !== displayHost
+      ) return;
+      this.layoutDisplayHost(displayHost);
+    });
+  }
+
+  private clearMacNativeContentLayoutUpdate(displayHost: EmbeddedDisplayHost): void {
+    if (!displayHost.macNativeContentLayoutUpdate) return;
+    clearImmediate(displayHost.macNativeContentLayoutUpdate);
+    displayHost.macNativeContentLayoutUpdate = undefined;
   }
 
   private layoutRuntimeChrome(displayHost: EmbeddedDisplayHost): void {

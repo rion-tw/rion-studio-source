@@ -452,9 +452,11 @@ describe("BrowserManager game host windows", () => {
     });
     harness.manager.setAlwaysShowToolbarInFullScreen(false);
 
-    const windowedLayoutCallsBeforeFullscreen =
-      harness.nativeChromeControllers[0].getWindowedContentLayout.mock.calls.length;
-
+    harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 0,
+      heightInset: 0
+    });
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
     expect(harness.nativeChromeControllers[0].prepareFullscreenTransition)
@@ -480,9 +482,14 @@ describe("BrowserManager game host windows", () => {
     const nativePolicy = harness.nativeChromeControllers[0].setFullscreenPolicy;
     harness.views[0].setBounds.mockClear();
     popup.setBounds.mockClear();
-    // Native fullscreen keeps one fixed full-size Electron root. Policy
-    // changes only add or remove the 40pt inset from child View layout.
+    // Native fullscreen keeps one fixed full-size Electron root. Always-show
+    // follows AppKit's safe content rect; auto-hide remains an overlay.
     const fixedContentBounds = { ...harness.hosts[0].contentBounds };
+    harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
+      valid: false,
+      yOffset: 0,
+      heightInset: 0
+    });
     harness.manager.setAlwaysShowToolbarInFullScreen(true);
     expect(nativePolicy).toHaveBeenLastCalledWith("always");
     expect(harness.hosts[0].contentBounds).toEqual(fixedContentBounds);
@@ -501,6 +508,11 @@ describe("BrowserManager game host windows", () => {
     expect(nativePolicy.mock.invocationCallOrder.at(-1))
       .toBeLessThan(harness.views[0].setBounds.mock.invocationCallOrder.at(-1)!);
 
+    harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 0,
+      heightInset: 0
+    });
     harness.manager.setAlwaysShowToolbarInFullScreen(false);
     expect(nativePolicy).toHaveBeenLastCalledWith("autoHide");
     expect(harness.hosts[0].contentBounds).toEqual(fixedContentBounds);
@@ -526,9 +538,11 @@ describe("BrowserManager game host windows", () => {
       11,
       { type: "activate", tabId: "native-tab" }
     );
-    expect(harness.nativeChromeControllers[0].getWindowedContentLayout)
-      .toHaveBeenCalledTimes(windowedLayoutCallsBeforeFullscreen);
-
+    harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 8,
+      heightInset: 8
+    });
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.nativeChromeControllers[0].prepareFullscreenTransition)
       .toHaveBeenLastCalledWith(false);
@@ -546,8 +560,6 @@ describe("BrowserManager game host windows", () => {
       height: 768
     });
 
-    const windowedLayoutCallsBeforeHtmlFullscreen =
-      harness.nativeChromeControllers[0].getWindowedContentLayout.mock.calls.length;
     harness.views[0].webContents.emit("enter-html-full-screen");
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
@@ -561,8 +573,6 @@ describe("BrowserManager game host windows", () => {
       width: 1200,
       height: 776
     });
-    expect(harness.nativeChromeControllers[0].getWindowedContentLayout)
-      .toHaveBeenCalledTimes(windowedLayoutCallsBeforeHtmlFullscreen);
     harness.views[0].webContents.emit("leave-html-full-screen");
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
@@ -576,8 +586,7 @@ describe("BrowserManager game host windows", () => {
       width: 1200,
       height: 768
     });
-    expect(harness.nativeChromeControllers[0].getWindowedContentLayout.mock.calls.length)
-      .toBeGreaterThan(windowedLayoutCallsBeforeHtmlFullscreen);
+    expect(harness.nativeChromeControllers[0].getContentLayout).toHaveBeenCalled();
 
     harness.hosts[0].emit("closed");
     expect(harness.nativeChromeControllers[0].destroy).toHaveBeenCalledOnce();
@@ -612,6 +621,11 @@ describe("BrowserManager game host windows", () => {
     const windowedGameBounds = harness.views[0].setBounds.mock.lastCall![0];
     expect(windowedGameBounds.y + windowedGameBounds.height).toBe(776);
 
+    harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 0,
+      heightInset: 0
+    });
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.hosts[0].contentBounds).toEqual(fixedRootBounds);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
@@ -624,6 +638,11 @@ describe("BrowserManager game host windows", () => {
       expect.objectContaining({ y: 0, height: 776 })
     );
 
+    harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 40,
+      heightInset: 40
+    });
     harness.manager.setAlwaysShowToolbarInFullScreen(true);
     expect(harness.hosts[0].contentBounds).toEqual(fixedRootBounds);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
@@ -636,6 +655,31 @@ describe("BrowserManager game host windows", () => {
       expect.objectContaining({ y: 40, height: 736 })
     );
 
+    harness.views[0].setBounds.mockClear();
+    popup.setBounds.mockClear();
+    divider.setBounds.mockClear();
+    harness.nativeChromeControllers[0].emitContentLayout({
+      valid: true,
+      yOffset: 42,
+      heightInset: 42
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.views[0].setBounds).toHaveBeenCalledOnce();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 42, height: 734 })
+    );
+    expect(popup.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 42, height: 734 })
+    );
+    expect(divider.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 42, height: 734 })
+    );
+
+    harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 0,
+      heightInset: 0
+    });
     harness.manager.setAlwaysShowToolbarInFullScreen(false);
     expect(harness.hosts[0].contentBounds.height).toBe(776);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
@@ -648,6 +692,26 @@ describe("BrowserManager game host windows", () => {
       expect.objectContaining({ y: 0, height: 776 })
     );
 
+    harness.views[0].setBounds.mockClear();
+    popup.setBounds.mockClear();
+    divider.setBounds.mockClear();
+    const releaseRevealLock = harness.manager.acquireRuntimeToolbarRevealLock(11);
+    harness.nativeChromeControllers[0].emitContentLayout({
+      valid: true,
+      yOffset: 40,
+      heightInset: 40
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    releaseRevealLock();
+    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
+    expect(popup.setBounds).not.toHaveBeenCalled();
+    expect(divider.setBounds).not.toHaveBeenCalled();
+
+    harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 8,
+      heightInset: 8
+    });
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
       expect.objectContaining({ y: 8, height: 768 })
@@ -660,7 +724,7 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
-  it("does not read the native windowed layout during fullscreen transitions", async () => {
+  it("coalesces native AppKit layout changes during fullscreen transitions", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       deferFullscreenTransitions: true,
@@ -670,25 +734,72 @@ describe("BrowserManager game host windows", () => {
       workspaceDisplays: runtimeDisplays
     });
     await harness.manager.launch(role);
-    const getWindowedContentLayout =
-      harness.nativeChromeControllers[0].getWindowedContentLayout;
-    getWindowedContentLayout.mockClear();
-
+    const controller = harness.nativeChromeControllers[0];
+    controller.getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 6,
+      heightInset: 6
+    });
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
-    harness.hosts[0].emit("resize");
-    expect(getWindowedContentLayout).not.toHaveBeenCalled();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 6, height: 770 })
+    );
+
+    harness.views[0].setBounds.mockClear();
+    controller.emitContentLayout({ valid: true, yOffset: 4, heightInset: 4 });
+    controller.emitContentLayout({ valid: true, yOffset: 3, heightInset: 3 });
+    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.views[0].setBounds).toHaveBeenCalledOnce();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 3, height: 773 })
+    );
+
+    harness.views[0].setBounds.mockClear();
+    controller.emitContentLayout({ valid: false, yOffset: 0, heightInset: 0 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
+
+    controller.getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 0,
+      heightInset: 0
+    });
+    harness.hosts[0].completeFullScreenTransition();
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
       expect.objectContaining({ y: 0, height: 776 })
     );
 
-    harness.hosts[0].completeFullScreenTransition();
-    expect(getWindowedContentLayout).not.toHaveBeenCalled();
-    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
-    harness.hosts[0].emit("resize");
-    expect(getWindowedContentLayout).not.toHaveBeenCalled();
+    harness.views[0].setBounds.mockClear();
+    controller.emitContentLayout({ valid: true, yOffset: 40, heightInset: 40 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
 
+    controller.getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 20,
+      heightInset: 20
+    });
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 20, height: 756 })
+    );
+
+    harness.views[0].setBounds.mockClear();
+    controller.emitContentLayout({ valid: true, yOffset: 8, heightInset: 8 });
+    controller.emitContentLayout({ valid: true, yOffset: 8, heightInset: 8 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.views[0].setBounds).toHaveBeenCalledOnce();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 8, height: 768 })
+    );
+
+    controller.getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 8,
+      heightInset: 8
+    });
     harness.hosts[0].completeFullScreenTransition();
-    expect(getWindowedContentLayout).toHaveBeenCalled();
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
       expect.objectContaining({ y: 8, height: 768 })
     );
@@ -3339,7 +3450,8 @@ function createHarness(options: {
   const nativeChromeControllers: Array<{
     destroy: ReturnType<typeof vi.fn>;
     emitAction: (action: Parameters<NonNullable<BrowserManagerOptions["handleRuntimeTabAction"]>>[2]) => void;
-    getWindowedContentLayout: ReturnType<typeof vi.fn>;
+    emitContentLayout: (layout: { heightInset: number; valid: boolean; yOffset: number }) => void;
+    getContentLayout: ReturnType<typeof vi.fn>;
     prepareFullscreenTransition: ReturnType<typeof vi.fn>;
     setFullscreenPolicy: ReturnType<typeof vi.fn>;
     setRevealLocked: ReturnType<typeof vi.fn>;
@@ -3395,12 +3507,21 @@ function createHarness(options: {
     chromeViews.push(view);
     return view.view as never;
   });
-  const createMacRuntimeTabsController = vi.fn((_window, onAction) => {
+  const createMacRuntimeTabsController = vi.fn((
+    _window,
+    onAction,
+    onContentLayoutChange
+  ) => {
     if (options.macNativeChromeError) throw options.macNativeChromeError;
     const controller = {
       destroy: vi.fn(),
       emitAction: onAction,
-      getWindowedContentLayout: vi.fn(() => ({ heightInset: 8, yOffset: 8 })),
+      emitContentLayout: onContentLayoutChange,
+      getContentLayout: vi.fn(() => ({
+        heightInset: 8,
+        valid: true,
+        yOffset: 8
+      })),
       prepareFullscreenTransition: vi.fn(),
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),

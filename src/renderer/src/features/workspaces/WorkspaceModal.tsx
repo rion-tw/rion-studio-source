@@ -694,33 +694,37 @@ function WorkspaceLayoutFormEditor({
         </div>
       </Surface>
 
-      <HelpPanel
-        data-workspace-help
-      >
-        <div className="grid max-w-[72ch] gap-3 text-xs leading-5 text-muted-foreground">
+      <div className="grid gap-4">
+        <HelpPanel data-workspace-help="editing">
           <WorkspaceHelpSection title={t("workspaces.help.editingTitle")}>
             <li>{t("workspaces.help.editingAssign")}</li>
             <li>{t("workspaces.help.editingResize")}</li>
             <li>{t("workspaces.help.editingTemplate")}</li>
           </WorkspaceHelpSection>
+        </HelpPanel>
+
+        <HelpPanel data-workspace-help="launch">
           <WorkspaceHelpSection title={t("workspaces.help.launchTitle")}>
             <li>{t("workspaces.help.launchRequirements")}</li>
             <li>{t("workspaces.help.launchDisplay")}</li>
             <li>{t("workspaces.help.launchMode")}</li>
           </WorkspaceHelpSection>
+        </HelpPanel>
+
+        <HelpPanel data-workspace-help="runtime">
           <WorkspaceHelpSection title={t("workspaces.help.runtimeTitle")}>
             <li>{t("workspaces.help.runtimeZoom")}</li>
             <li>{t("workspaces.help.runtimeResource")}</li>
           </WorkspaceHelpSection>
-        </div>
-      </HelpPanel>
+        </HelpPanel>
+      </div>
     </div>
   );
 }
 
 function WorkspaceHelpSection({ children, title }: { children: ReactNode; title: string }): JSX.Element {
   return (
-    <section className="grid gap-1">
+    <section className="grid max-w-[72ch] gap-1 text-xs leading-5 text-muted-foreground">
       <h2 className="text-[11px] font-semibold leading-5 text-foreground">{title}</h2>
       <ul className="grid list-disc gap-1 pl-4">{children}</ul>
     </section>

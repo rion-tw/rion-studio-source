@@ -78,7 +78,7 @@ describe("workspace editor role picker layout", () => {
     const roleList = container.querySelector<HTMLElement>("[data-workspace-role-list]");
     const roleButtons = container.querySelectorAll<HTMLElement>("[data-workspace-role-id]");
     const verticalResizeHandle = container.querySelector<HTMLElement>("button.cursor-col-resize");
-    const workspaceHelp = container.querySelector<HTMLElement>("[data-workspace-help]");
+    const workspaceHelps = container.querySelectorAll<HTMLElement>("[data-workspace-help]");
 
     expect(screen.getByRole("combobox", { name: "Browser zoom" }).textContent).toContain(
       "Adaptive (recommended)"
@@ -86,25 +86,31 @@ describe("workspace editor role picker layout", () => {
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();
     expect(screen.queryByText("96%")).toBeNull();
-    expect(workspaceHelp?.textContent).toContain("Editing roles and layout");
-    expect(workspaceHelp?.textContent).toContain("Launching the workspace");
-    expect(workspaceHelp?.textContent).toContain("While running");
-    expect(workspaceHelp?.textContent).toContain("A role can appear only once");
-    expect(workspaceHelp?.textContent).toContain("roles outside the new layout are not kept");
-    expect(workspaceHelp?.textContent).toContain("finish login for every assigned role");
-    expect(workspaceHelp?.textContent).toContain("switches to external Chrome");
-    expect(workspaceHelp?.textContent).toContain("Command +/−/0 on macOS");
-    expect(workspaceHelp?.textContent).toContain("Ctrl +/−/0 on Windows");
-    expect(workspaceHelp?.textContent).toContain("saved to this workspace automatically");
-    expect(workspaceHelp?.textContent).toContain("restored the next time the role launches");
-    expect(workspaceHelp?.textContent).toContain("roles running a macro stay at full speed");
-    expect(workspaceHelp?.querySelector("svg")).toBeNull();
-    expect(workspaceHelp?.querySelectorAll("section")).toHaveLength(3);
-    expect(workspaceHelp?.querySelectorAll("li")).toHaveLength(8);
-    expect(workspaceHelp?.className).toContain("rounded-lg");
-    expect(workspaceHelp?.className).toContain("p-4");
-    expect(workspaceHelp?.className).not.toContain("bg-background/25");
-    expect(workspaceHelp?.parentElement?.lastElementChild).toBe(workspaceHelp);
+    expect(workspaceHelps).toHaveLength(3);
+    expect(workspaceHelps[0].getAttribute("data-workspace-help")).toBe("editing");
+    expect(workspaceHelps[1].getAttribute("data-workspace-help")).toBe("launch");
+    expect(workspaceHelps[2].getAttribute("data-workspace-help")).toBe("runtime");
+    expect(workspaceHelps[0].textContent).toContain("Editing roles and layout");
+    expect(workspaceHelps[0].textContent).toContain("A role can appear only once");
+    expect(workspaceHelps[0].textContent).toContain("roles outside the new layout are not kept");
+    expect(workspaceHelps[1].textContent).toContain("Launching the workspace");
+    expect(workspaceHelps[1].textContent).toContain("finish login for every assigned role");
+    expect(workspaceHelps[1].textContent).toContain("switches to external Chrome");
+    expect(workspaceHelps[2].textContent).toContain("While running");
+    expect(workspaceHelps[2].textContent).toContain("Command +/−/0 on macOS");
+    expect(workspaceHelps[2].textContent).toContain("Ctrl +/−/0 on Windows");
+    expect(workspaceHelps[2].textContent).toContain("saved to this workspace automatically");
+    expect(workspaceHelps[2].textContent).toContain("restored the next time the role launches");
+    expect(workspaceHelps[2].textContent).toContain("roles running a macro stay at full speed");
+    workspaceHelps.forEach((workspaceHelp) => {
+      expect(workspaceHelp.querySelector("svg")).toBeNull();
+      expect(workspaceHelp.querySelectorAll("section")).toHaveLength(1);
+      expect(workspaceHelp.querySelectorAll("li").length).toBeGreaterThan(0);
+      expect(workspaceHelp.className).toContain("rounded-lg");
+      expect(workspaceHelp.className).toContain("p-4");
+      expect(workspaceHelp.className).not.toContain("bg-background/25");
+    });
+    expect(workspaceHelps[2].parentElement?.lastElementChild).toBe(workspaceHelps[2]);
     expect(screen.queryByRole("combobox", { name: "Initial primary" })).toBeNull();
     expect(screen.queryByText("Primary")).toBeNull();
     expect(rolePanel?.className).toContain("flex-col");
@@ -162,11 +168,11 @@ describe("workspace editor role picker layout", () => {
       </ConfirmationProvider>
     );
 
-    const workspaceHelp = container.querySelector("[data-workspace-help]");
-    expect(workspaceHelp?.textContent).toContain("Editing roles and layout");
-    expect(workspaceHelp?.textContent).toContain("Launching the workspace");
-    expect(workspaceHelp?.textContent).toContain("While running");
-    expect(workspaceHelp?.querySelectorAll("section")).toHaveLength(3);
+    const workspaceHelps = container.querySelectorAll("[data-workspace-help]");
+    expect(workspaceHelps).toHaveLength(3);
+    expect(workspaceHelps[0].textContent).toContain("Editing roles and layout");
+    expect(workspaceHelps[1].textContent).toContain("Launching the workspace");
+    expect(workspaceHelps[2].textContent).toContain("While running");
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();
   });

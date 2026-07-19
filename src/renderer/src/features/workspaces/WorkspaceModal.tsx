@@ -4,6 +4,7 @@ import {
   type FormEvent,
   type JSX,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -694,16 +695,35 @@ function WorkspaceLayoutFormEditor({
       </Surface>
 
       <HelpPanel
-        data-workspace-role-zoom-hint
+        data-workspace-help
       >
-        <ul className="max-w-[72ch] text-xs leading-5 text-muted-foreground">
-          <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
-            <span className="font-semibold text-foreground/70" aria-hidden="true">*</span>
-            <span>{t("workspaces.roleZoomShortcutHint")}</span>
-          </li>
-        </ul>
+        <div className="grid max-w-[72ch] gap-3 text-xs leading-5 text-muted-foreground">
+          <WorkspaceHelpSection title={t("workspaces.help.editingTitle")}>
+            <li>{t("workspaces.help.editingAssign")}</li>
+            <li>{t("workspaces.help.editingResize")}</li>
+            <li>{t("workspaces.help.editingTemplate")}</li>
+          </WorkspaceHelpSection>
+          <WorkspaceHelpSection title={t("workspaces.help.launchTitle")}>
+            <li>{t("workspaces.help.launchRequirements")}</li>
+            <li>{t("workspaces.help.launchDisplay")}</li>
+            <li>{t("workspaces.help.launchMode")}</li>
+          </WorkspaceHelpSection>
+          <WorkspaceHelpSection title={t("workspaces.help.runtimeTitle")}>
+            <li>{t("workspaces.help.runtimeZoom")}</li>
+            <li>{t("workspaces.help.runtimeResource")}</li>
+          </WorkspaceHelpSection>
+        </div>
       </HelpPanel>
     </div>
+  );
+}
+
+function WorkspaceHelpSection({ children, title }: { children: ReactNode; title: string }): JSX.Element {
+  return (
+    <section className="grid gap-1">
+      <h2 className="text-[11px] font-semibold leading-5 text-foreground">{title}</h2>
+      <ul className="grid list-disc gap-1 pl-4">{children}</ul>
+    </section>
   );
 }
 

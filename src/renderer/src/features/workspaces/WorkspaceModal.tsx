@@ -14,7 +14,7 @@ import { useNavigate, useParams } from "react-router";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
-import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
+import { FieldHeader, FormField, HelpPanel, Surface } from "../../components/ui/patterns";
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
 import type { WorkspaceFormState } from "../../app/types";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
@@ -693,9 +693,8 @@ function WorkspaceLayoutFormEditor({
         </div>
       </Surface>
 
-      <div
+      <HelpPanel
         data-workspace-role-zoom-hint
-        className="rounded-md border border-border/45 bg-background/25 px-4 py-3"
       >
         <ul className="max-w-[72ch] text-xs leading-5 text-muted-foreground">
           <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
@@ -703,7 +702,7 @@ function WorkspaceLayoutFormEditor({
             <span>{t("workspaces.roleZoomShortcutHint")}</span>
           </li>
         </ul>
-      </div>
+      </HelpPanel>
     </div>
   );
 }

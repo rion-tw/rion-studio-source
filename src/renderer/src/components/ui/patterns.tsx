@@ -46,6 +46,16 @@ export const Surface = forwardRef<HTMLDivElement, SurfaceProps>(
 
 Surface.displayName = "Surface";
 
+export type HelpPanelProps = HTMLAttributes<HTMLDivElement>;
+
+export const HelpPanel = forwardRef<HTMLDivElement, HelpPanelProps>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn("rounded-lg border border-border/45 p-4", className)} {...props} />
+  )
+);
+
+HelpPanel.displayName = "HelpPanel";
+
 export interface PageFrameProps extends HTMLAttributes<HTMLElement> {
   children: ReactNode;
   containerRef?: MutableRefObject<HTMLElement | null>;

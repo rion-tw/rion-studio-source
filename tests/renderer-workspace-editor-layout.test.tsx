@@ -92,6 +92,9 @@ describe("workspace editor role picker layout", () => {
     expect(roleZoomHint?.textContent).toContain("restored the next time the role launches");
     expect(roleZoomHint?.querySelector("svg")).toBeNull();
     expect(roleZoomHint?.querySelectorAll("li")).toHaveLength(1);
+    expect(roleZoomHint?.className).toContain("rounded-lg");
+    expect(roleZoomHint?.className).toContain("p-4");
+    expect(roleZoomHint?.className).not.toContain("bg-background/25");
     expect(roleZoomHint?.querySelector("ol")).toBeNull();
     expect(roleZoomHint?.querySelector("ul")?.className).toContain("max-w-[72ch]");
     expect(roleZoomHint?.querySelector("li")?.textContent?.trim().startsWith("*")).toBe(true);

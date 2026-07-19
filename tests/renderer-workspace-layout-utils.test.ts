@@ -109,6 +109,10 @@ describe("renderer workspace layout helpers", () => {
     expect(applyWorkspaceTemplate(eightSlots, "eight_grid").map((item) => item.roleId)).toEqual([
       "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"
     ]);
+
+    expect(applyWorkspaceTemplate(eightSlots, "nine_grid").map((item) => item.roleId)).toEqual([
+      "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", undefined
+    ]);
   });
 
   it("creates stable slot ids when applying a template to empty slots", () => {
@@ -342,6 +346,53 @@ describe("renderer workspace layout helpers", () => {
     });
   });
 
+  it("adjusts two horizontal and two vertical dividers in a nine-grid workspace", () => {
+    const initialSlots = applyWorkspaceTemplate([], "nine_grid");
+    const initialSplits = getWorkspaceSplits("nine_grid", initialSlots);
+    const adjustedSplits = {
+      horizontal: [0.4, 0.72],
+      vertical: [0.2, 0.48]
+    };
+    const slots = applyWorkspaceSplits("nine_grid", initialSlots, adjustedSplits);
+
+    expect(initialSlots).toHaveLength(9);
+    expect(initialSplits).toEqual({ horizontal: [1 / 3, 2 / 3], vertical: [1 / 3, 2 / 3] });
+    expect(slots).toHaveLength(9);
+    expect(slots.map((item) => item.rect)).toEqual([
+      { x: 0, y: 0, width: 0.2, height: 0.4 },
+      { x: 0.2, y: 0, width: 0.27999999999999997, height: 0.4 },
+      { x: 0.48, y: 0, width: 0.52, height: 0.4 },
+      { x: 0, y: 0.4, width: 0.2, height: 0.31999999999999995 },
+      { x: 0.2, y: 0.4, width: 0.27999999999999997, height: 0.31999999999999995 },
+      { x: 0.48, y: 0.4, width: 0.52, height: 0.31999999999999995 },
+      { x: 0, y: 0.72, width: 0.2, height: 0.28 },
+      { x: 0.2, y: 0.72, width: 0.27999999999999997, height: 0.28 },
+      { x: 0.48, y: 0.72, width: 0.52, height: 0.28 }
+    ]);
+    expect(getWorkspaceSplits("nine_grid", slots)).toEqual(adjustedSplits);
+    expect(getWorkspaceHorizontalResizeHandles("nine_grid", adjustedSplits)).toEqual([
+      { splitIndex: 0, x: 0.5, y: 0.4 },
+      { splitIndex: 1, x: 0.5, y: 0.72 }
+    ]);
+    expect(getWorkspaceVerticalResizeHandles("nine_grid", adjustedSplits)).toEqual([
+      { splitIndex: 0, x: 0.2, y: 0.5 },
+      { splitIndex: 1, x: 0.48, y: 0.5 }
+    ]);
+    expect(getWorkspaceResizeAffectedSlotIndexes("nine_grid", initialSlots, "horizontal", 0)).toEqual([
+      0, 1, 2, 3, 4, 5
+    ]);
+    expect(getWorkspaceResizeAffectedSlotIndexes("nine_grid", initialSlots, "horizontal", 1)).toEqual([
+      3, 4, 5, 6, 7, 8
+    ]);
+    expect(getWorkspaceResizeAffectedSlotIndexes("nine_grid", initialSlots, "vertical", 0)).toEqual([
+      0, 1, 3, 4, 6, 7
+    ]);
+    expect(getWorkspaceSplitRange("nine_grid", initialSplits, "horizontal", 0)).toEqual({
+      min: 0.2,
+      max: 2 / 3 - 0.2
+    });
+  });
+
   it("adjusts three top columns independently from two bottom columns", () => {
     const template = "three_top_two_bottom";
     const initialSlots = applyWorkspaceTemplate([], template);
@@ -546,8 +597,6 @@ function role(overrides: Partial<Role> = {}): Role {
     gameId: "game-1",
     name: "Knight",
     launchUrl: "https://universe.flyff.com/play",
-    windowWidth: 1280,
-    windowHeight: 720,
     notes: "",
     authState: "unknown",
     createdAt: "2026-07-14T00:00:00.000Z",

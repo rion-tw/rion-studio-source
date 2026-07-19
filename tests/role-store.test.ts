@@ -5,11 +5,7 @@ import { tmpdir } from "node:os";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { RoleStore, RoleStoreError } from "../src/main/roles/RoleStore";
-import {
-  DEFAULT_LAUNCH_URL,
-  DEFAULT_ROLE_WINDOW_HEIGHT,
-  DEFAULT_ROLE_WINDOW_WIDTH
-} from "../src/shared/types";
+import { DEFAULT_LAUNCH_URL } from "../src/shared/types";
 
 const sampleCoverImageDataUrl =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -28,14 +24,12 @@ describe("RoleStore", () => {
     store = new RoleStore(baseDir);
   });
 
-  it("creates a role with defaults and a browser role directory", async () => {
+  it("creates a role without window defaults and a browser role directory", async () => {
     const role = await store.createRole({ gameId: "game-1", name: "Main" });
 
     expect(role).toMatchObject({
       name: "Main",
       launchUrl: DEFAULT_LAUNCH_URL,
-      windowWidth: DEFAULT_ROLE_WINDOW_WIDTH,
-      windowHeight: DEFAULT_ROLE_WINDOW_HEIGHT,
       authState: "login_required"
     });
     await expect(mkdir(store.getRolePaths(role.id).browserUserDataDir)).rejects.toMatchObject({
@@ -187,6 +181,14 @@ describe("RoleStore", () => {
       launchUrl: "https://example.com/play"
     });
     expect(role).not.toHaveProperty("loginProvider");
+    expect(role).not.toHaveProperty("windowWidth");
+    expect(role).not.toHaveProperty("windowHeight");
+    await store.updateRole("role-1", { notes: "Migrated" });
+    const stored = JSON.parse(await readFile(join(baseDir, "roles.json"), "utf8")) as {
+      roles: Array<Record<string, unknown>>;
+    };
+    expect(stored.roles[0]).not.toHaveProperty("windowWidth");
+    expect(stored.roles[0]).not.toHaveProperty("windowHeight");
   });
 
   it("migrates legacy runtime URL fields to launch URLs", async () => {
@@ -329,16 +331,12 @@ describe("RoleStore", () => {
   it("updates a role and keeps its original created timestamp", async () => {
     const role = await store.createRole({ gameId: "game-1", name: "Main" });
     const updated = await store.updateRole(role.id, {
-      name: "Main 2",
-      windowWidth: 1440,
-      windowHeight: 900
+      name: "Main 2"
     });
 
     expect(updated).toMatchObject({
       id: role.id,
       name: "Main 2",
-      windowWidth: 1440,
-      windowHeight: 900,
       createdAt: role.createdAt
     });
     expect(updated.updatedAt >= role.updatedAt).toBe(true);

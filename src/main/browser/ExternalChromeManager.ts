@@ -166,13 +166,11 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
   async launch(role: Role, options: ExternalChromeLaunchOptions = {}): Promise<RoleStatus> {
     const workArea = options.workArea ?? this.options.getLaunchWorkArea();
-    const width = Math.min(role.windowWidth, workArea.width);
-    const height = Math.min(role.windowHeight, workArea.height);
     const bounds = {
       x: workArea.x,
       y: workArea.y,
-      width,
-      height
+      width: workArea.width,
+      height: workArea.height
     };
     const zoomFactor = resolveExternalChromeZoomFactor(
       options.zoomMode ?? "fixed",

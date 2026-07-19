@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { LANGUAGE_STORAGE_KEY, THEME_STORAGE_KEY } from "../app/constants";
-import { readStoredRoleDefaults, writeStoredRoleDefaults } from "../app/roleDefaults";
 import { readStoredThemeMode, resolveTheme } from "../app/theme";
 import type { ResolvedTheme, ThemeMode } from "../app/types";
 import {
@@ -12,13 +11,11 @@ import {
   type Language,
   type TranslationDictionary
 } from "../i18n";
-import type { RoleDefaults } from "../../../shared/types";
 
 export function usePreferences() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredThemeMode);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(readStoredThemeMode()));
   const [language, setLanguage] = useState<Language>(() => readStoredLanguage(LANGUAGE_STORAGE_KEY));
-  const [roleDefaults, setRoleDefaults] = useState<RoleDefaults>(readStoredRoleDefaults);
   const [translations, setTranslations] = useState<TranslationDictionary | undefined>(() =>
     getLoadedTranslations(readStoredLanguage(LANGUAGE_STORAGE_KEY))
   );
@@ -92,17 +89,11 @@ export function usePreferences() {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
   }
 
-  function handleRoleDefaultsChange(nextRoleDefaults: RoleDefaults): void {
-    setRoleDefaults(writeStoredRoleDefaults(nextRoleDefaults));
-  }
-
   return {
     handleLanguageChange,
-    handleRoleDefaultsChange,
     handleThemeModeChange,
     language,
     resolvedTheme,
-    roleDefaults,
     t,
     themeMode
   };

@@ -2,8 +2,7 @@ import {
   DEFAULT_LAUNCH_URL,
   type BuiltinGameKey,
   type Game,
-  type InheritableBrowserLaunchMode,
-  type RoleDefaults
+  type InheritableBrowserLaunchMode
 } from "./types";
 
 export const FLYFF_UNIVERSE_GAME_ID = "builtin-flyff-universe";
@@ -15,7 +14,6 @@ export interface BuiltinGameDefinition {
   name: string;
   defaultLaunchUrl: string;
   loginUrl?: string;
-  roleDefaults?: RoleDefaults;
   browserLaunchMode: InheritableBrowserLaunchMode;
 }
 

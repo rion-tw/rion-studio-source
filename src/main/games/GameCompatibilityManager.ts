@@ -14,8 +14,7 @@ import type {
   GameCompatibilityRunPhase,
   GameCompatibilityRunStatus,
   GameBrowserSettings,
-  PixelBounds,
-  RoleDefaults
+  PixelBounds
 } from "../../shared/types";
 
 const LOAD_TIMEOUT_MS = 20_000;
@@ -79,7 +78,7 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
     });
   }
 
-  async runCheck(gameId: string, fallbackRoleDefaults: RoleDefaults): Promise<GameCompatibilityReport> {
+  async runCheck(gameId: string): Promise<GameCompatibilityReport> {
     if (this.activeChecks.has(gameId)) {
       throw new Error("A compatibility check is already running for this game.");
     }
@@ -105,7 +104,7 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
     let report: GameCompatibilityReport;
 
     try {
-      const window = this.createTestWindow(game, fallbackRoleDefaults);
+      const window = this.createTestWindow(game);
       active.window = window;
       window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
       const closedPromise = new Promise<"closed">((resolve) => window.once("closed", () => {
@@ -225,16 +224,13 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
     this.emit("change");
   }
 
-  private createTestWindow(game: Game, fallbackRoleDefaults: RoleDefaults): BrowserWindow {
+  private createTestWindow(game: Game): BrowserWindow {
     const workArea = this.options.getLaunchWorkArea();
-    const defaults = game.roleDefaults ?? fallbackRoleDefaults;
-    const width = Math.min(Math.max(defaults.windowWidth, 640), workArea.width);
-    const height = Math.min(Math.max(defaults.windowHeight, 640), workArea.height);
     return this.options.createWindow({
-      x: workArea.x + Math.floor((workArea.width - width) / 2),
-      y: workArea.y + Math.floor((workArea.height - height) / 2),
-      width,
-      height,
+      x: workArea.x,
+      y: workArea.y,
+      width: workArea.width,
+      height: workArea.height,
       title: `Rion Studio - Compatibility Check - ${game.name}`,
       show: false,
       backgroundColor: "#000000",

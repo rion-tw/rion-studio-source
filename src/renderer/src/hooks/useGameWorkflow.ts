@@ -4,13 +4,12 @@ import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { GameFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Game, GameCompatibilityReport, Role, RoleDefaults } from "../../../shared/types";
+import type { Game, GameCompatibilityReport, Role } from "../../../shared/types";
 
 interface UseGameWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
   setGames: Dispatch<SetStateAction<Game[]>>;
   setCompatibilityReports: Dispatch<SetStateAction<GameCompatibilityReport[]>>;
-  roleDefaults: RoleDefaults;
   roles: Role[];
   setNotice?: (message: string | null) => void;
   t: Translator;
@@ -20,7 +19,6 @@ export function useGameWorkflow({
   beginErrorOperation,
   setGames,
   setCompatibilityReports,
-  roleDefaults,
   roles,
   setNotice,
   t
@@ -40,12 +38,6 @@ export function useGameWorkflow({
         coverImageDataUrl: form.source === "custom" ? form.coverImageDataUrl ?? null : undefined,
         defaultLaunchUrl: form.defaultLaunchUrl,
         loginUrl: form.loginUrl.trim() || null,
-        roleDefaults: form.usesGlobalRoleDefaults
-          ? null
-          : {
-              windowWidth: Number(form.windowWidth),
-              windowHeight: Number(form.windowHeight)
-            },
         browserLaunchMode: form.browserLaunchMode
       };
       const saved = form.id
@@ -152,7 +144,7 @@ export function useGameWorkflow({
   async function runCompatibilityCheck(gameId: string): Promise<void> {
     const reportError = beginErrorOperation();
     try {
-      await window.rionStudio.runGameCompatibilityCheck(gameId, roleDefaults);
+      await window.rionStudio.runGameCompatibilityCheck(gameId);
     } catch (error) {
       reportError(error);
     }

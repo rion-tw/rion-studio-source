@@ -79,6 +79,7 @@ function isMultiColumnTemplate(template: WorkspaceLayoutTemplate): boolean {
     template === "four_columns" ||
     template === "six_grid" ||
     template === "eight_grid" ||
+    template === "nine_grid" ||
     template === "main_center_side_stacks" ||
     template === "three_top_two_bottom" ||
     template === "two_top_three_bottom"
@@ -304,10 +305,13 @@ export function getWorkspaceSplits(
     case "quad":
       return { horizontal: [firstRect.height], vertical: [firstRect.width] };
     case "six_grid":
-    case "eight_grid": {
+    case "eight_grid":
+    case "nine_grid": {
       const columnCount = template === "eight_grid" ? 4 : 3;
       return {
-        horizontal: [firstRect.height],
+        horizontal: template === "nine_grid"
+          ? [firstRect.height, firstRect.height + (slots[3]?.rect.height ?? defaultRects[3].height)]
+          : [firstRect.height],
         vertical: defaultRects.slice(0, columnCount - 1).map((defaultRect, index) => {
           const rect = slots[index]?.rect ?? defaultRect;
           return rect.x + rect.width;
@@ -337,6 +341,8 @@ export function getWorkspaceHorizontalResizeHandles(
       ? [splitX / 2, splitX2 + (1 - splitX2) / 2]
       : template === "quad" || template === "six_grid" || template === "eight_grid"
         ? [0.25]
+        : template === "nine_grid"
+          ? [0.5]
         : template === "main_left_stack_right"
           ? [splitX + (1 - splitX) / 2]
           : template === "main_right_stack_left"
@@ -367,7 +373,11 @@ export function getWorkspaceVerticalResizeHandles(
     );
   }
 
-  const y = template === "quad" || template === "six_grid" || template === "eight_grid" ? 0.25 : 0.5;
+  const y = template === "quad" || template === "six_grid" || template === "eight_grid"
+    ? 0.25
+    : template === "nine_grid"
+      ? 0.5
+      : 0.5;
   return splits.vertical.map((x, splitIndex) => ({ splitIndex, x, y }));
 }
 
@@ -444,13 +454,16 @@ export function createWorkspaceRectsFromSplits(
         { x: splitX, y: splitY, width: 1 - splitX, height: 1 - splitY }
       ];
     case "six_grid":
-    case "eight_grid": {
+    case "eight_grid":
+    case "nine_grid": {
       const columnBoundaries = [
         0,
         ...defaultSplits.vertical.map((value, index) => splits.vertical[index] ?? value),
         1
       ];
-      const rowBoundaries = [0, splitY, 1];
+      const rowBoundaries = template === "nine_grid"
+        ? [0, splitY, splits.horizontal[1] ?? defaultSplits.horizontal[1] ?? 1, 1]
+        : [0, splitY, 1];
 
       return rowBoundaries.slice(0, -1).flatMap((y, rowIndex) =>
         columnBoundaries.slice(0, -1).map((x, columnIndex) => ({

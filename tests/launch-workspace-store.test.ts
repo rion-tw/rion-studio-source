@@ -622,7 +622,7 @@ describe("LaunchWorkspaceStore", () => {
       store.createWorkspace({
         name: "Too many",
         template: "quad",
-        slots: [{}, {}, {}, {}, {}, {}, {}, {}, {}]
+        slots: [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]
       })
     ).rejects.toMatchObject({
       code: "WORKSPACE_TOO_MANY_SLOTS"

@@ -4,8 +4,6 @@ import { join } from "node:path";
 
 import {
   DEFAULT_LAUNCH_URL,
-  DEFAULT_ROLE_WINDOW_HEIGHT,
-  DEFAULT_ROLE_WINDOW_WIDTH,
   type AuthState,
   type CreateRoleInput,
   type ReorderItemsInput,
@@ -127,8 +125,6 @@ export class RoleStore {
         gameId,
         name,
         launchUrl,
-        windowWidth: this.normalizeWindowSize(input.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH, "windowWidth"),
-        windowHeight: this.normalizeWindowSize(input.windowHeight, DEFAULT_ROLE_WINDOW_HEIGHT, "windowHeight"),
         notes: input.notes?.trim() ?? "",
         authState: "login_required",
         coverImageDataUrl,
@@ -178,12 +174,6 @@ export class RoleStore {
         gameId: nextGameId,
         name: nextName,
         launchUrl: nextLaunchUrl,
-        windowWidth: input.windowWidth === undefined
-          ? current.windowWidth
-          : this.normalizeWindowSize(input.windowWidth, current.windowWidth, "windowWidth"),
-        windowHeight: input.windowHeight === undefined
-          ? current.windowHeight
-          : this.normalizeWindowSize(input.windowHeight, current.windowHeight, "windowHeight"),
         notes: input.notes === undefined ? current.notes : input.notes.trim(),
         authState: isSessionIdentityChanged ? "login_required" : current.authState,
         lastAuthCheckAt: isSessionIdentityChanged ? undefined : current.lastAuthCheckAt,
@@ -396,23 +386,21 @@ export class RoleStore {
     return normalized;
   }
 
-  private normalizeWindowSize(value: number | undefined, fallback: number, field: string): number {
-    const size = value ?? fallback;
-
-    if (!Number.isInteger(size) || size < 640 || size > 7680) {
-      throw new RoleStoreError("ROLE_WINDOW_SIZE_INVALID", `${field} must be between 640 and 7680.`);
-    }
-
-    return size;
-  }
-
   private normalizeStoredRole(role: Role): Role {
     const {
       gameUrl: legacyLaunchUrl,
       loginProvider: _loginProvider,
       launchPreset: _launchPreset,
+      windowWidth: _windowWidth,
+      windowHeight: _windowHeight,
       ...storedRole
-    } = role as Role & { gameUrl?: unknown; loginProvider?: unknown; launchPreset?: unknown };
+    } = role as Role & {
+      gameUrl?: unknown;
+      loginProvider?: unknown;
+      launchPreset?: unknown;
+      windowWidth?: unknown;
+      windowHeight?: unknown;
+    };
     const launchUrl = this.normalizeLaunchUrl(
       typeof storedRole.launchUrl === "string"
         ? storedRole.launchUrl

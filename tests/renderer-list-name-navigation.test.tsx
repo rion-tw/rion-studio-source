@@ -142,8 +142,6 @@ function role(): Role {
     gameId: "game-1",
     name: "Main role",
     launchUrl: "https://example.test/play",
-    windowWidth: 1280,
-    windowHeight: 720,
     notes: "",
     authState: "login_required",
     createdAt: "2026-01-01T00:00:00.000Z",

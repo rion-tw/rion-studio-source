@@ -32,8 +32,6 @@ import {
 } from "../workspaces/LaunchWorkspaceStore";
 import {
   DEFAULT_LAUNCH_URL,
-  DEFAULT_ROLE_WINDOW_HEIGHT,
-  DEFAULT_ROLE_WINDOW_WIDTH,
   type GameBrowserSettings,
   type Game,
   type InheritableBrowserLaunchMode,
@@ -60,9 +58,8 @@ import {
   type PortableMacroConflict,
   type PortableMacroConflictResolution,
   type PortableRole,
-  type RionPortableDataV5,
+  type RionPortableDataV6,
   type Role,
-  type RoleDefaults,
   type WorkspaceResourcePolicy
 } from "../../shared/types";
 import {
@@ -154,7 +151,7 @@ interface PlannedPortableMacro {
 }
 
 interface PendingImport {
-  data: RionPortableDataV5;
+  data: RionPortableDataV6;
   filePath: string;
 }
 
@@ -177,7 +174,7 @@ interface PortableImportJournal {
 }
 
 const PORTABLE_APP_NAME = "Rion Studio";
-const PORTABLE_SCHEMA_VERSION = 5;
+const PORTABLE_SCHEMA_VERSION = 6;
 const PORTABLE_IMPORT_JOURNAL_FILE = "portable-import-transaction.json";
 const PORTABLE_IMPORT_STAGE_DIRECTORY = "portable-import-transaction.stage";
 const MAX_COVER_IMAGE_DATA_URL_LENGTH = 1_500_000;
@@ -362,7 +359,7 @@ export class PortableDataManager {
   private async createPortableData(
     preferences: PortablePreferences | undefined,
     selection: PortableDataSelection
-  ): Promise<RionPortableDataV5> {
+  ): Promise<RionPortableDataV6> {
     const [games, roles, launchWorkspaces, macros] = await Promise.all([
       this.options.gameStore.listGames(),
       this.options.roleStore.listRoles(),
@@ -382,8 +379,6 @@ export class PortableDataManager {
         gameId: role.gameId,
         name: role.name,
         launchUrl: role.launchUrl,
-        windowWidth: role.windowWidth,
-        windowHeight: role.windowHeight,
         notes: role.notes,
         ...(role.coverImageDataUrl ? { coverImageDataUrl: role.coverImageDataUrl } : {}),
         ...(role.coverImageDominantColor ? { coverImageDominantColor: role.coverImageDominantColor } : {})
@@ -601,7 +596,7 @@ export class PortableDataManager {
   }
 
   private async buildImportPlan(
-    data: RionPortableDataV5,
+    data: RionPortableDataV6,
     resolutions: PortableMacroConflictResolution[]
   ): Promise<ImportPlan> {
     const [existingGames, existingRoles, existingWorkspaces, existingMacros] = await Promise.all([
@@ -1073,7 +1068,6 @@ function createMergedGame(existing: Game, source: PortableGame, timestamp: strin
     loginUrl: source.loginUrl,
     iconImageDataUrl: existing.source === "builtin" ? existing.iconImageDataUrl : source.iconImageDataUrl,
     coverImageDataUrl: existing.source === "builtin" ? existing.coverImageDataUrl : source.coverImageDataUrl,
-    roleDefaults: source.roleDefaults ? { ...source.roleDefaults } : undefined,
     browserLaunchMode: source.browserLaunchMode,
     updatedAt: timestamp
   };
@@ -1092,7 +1086,6 @@ function createImportedGame(source: PortableGame, name: string, timestamp: strin
     ...(source.coverImageDataUrl && !definition ? { coverImageDataUrl: source.coverImageDataUrl } : {}),
     defaultLaunchUrl: source.defaultLaunchUrl,
     ...(source.loginUrl ? { loginUrl: source.loginUrl } : {}),
-    ...(source.roleDefaults ? { roleDefaults: { ...source.roleDefaults } } : {}),
     browserLaunchMode: source.browserLaunchMode,
     createdAt: timestamp,
     updatedAt: timestamp
@@ -1135,8 +1128,6 @@ function createMergedRole(
     gameId,
     name,
     launchUrl: source.launchUrl,
-    windowWidth: source.windowWidth,
-    windowHeight: source.windowHeight,
     notes: source.notes,
     coverImageDataUrl: source.coverImageDataUrl,
     coverImageDominantColor: source.coverImageDataUrl ? source.coverImageDominantColor : undefined,
@@ -1155,8 +1146,6 @@ function createImportedRole(
     gameId,
     name,
     launchUrl: source.launchUrl,
-    windowWidth: source.windowWidth,
-    windowHeight: source.windowHeight,
     notes: source.notes,
     authState: "login_required",
     ...(source.coverImageDataUrl ? { coverImageDataUrl: source.coverImageDataUrl } : {}),
@@ -1178,8 +1167,6 @@ function toPortableRole(role: Role): PortableRole {
     gameId: role.gameId,
     name: role.name,
     launchUrl: role.launchUrl,
-    windowWidth: role.windowWidth,
-    windowHeight: role.windowHeight,
     notes: role.notes,
     ...(role.coverImageDataUrl ? { coverImageDataUrl: role.coverImageDataUrl } : {}),
     ...(role.coverImageDominantColor ? { coverImageDominantColor: role.coverImageDominantColor } : {})
@@ -1412,9 +1399,9 @@ function normalizePortableMacroConflictResolutions(value: unknown): PortableMacr
 }
 
 function selectPortableData(
-  data: RionPortableDataV5,
+  data: RionPortableDataV6,
   selection: PortableDataSelection
-): RionPortableDataV5 {
+): RionPortableDataV6 {
   return {
     app: data.app,
     schemaVersion: data.schemaVersion,
@@ -1428,7 +1415,7 @@ function selectPortableData(
   };
 }
 
-function getEffectivePortableDataSelection(data: RionPortableDataV5): PortableDataSelection {
+function getEffectivePortableDataSelection(data: RionPortableDataV6): PortableDataSelection {
   return {
     games: data.games.length > 0,
     roles: data.roles.length > 0,
@@ -1438,7 +1425,7 @@ function getEffectivePortableDataSelection(data: RionPortableDataV5): PortableDa
   };
 }
 
-function ensurePortableContentSelected(data: RionPortableDataV5): void {
+function ensurePortableContentSelected(data: RionPortableDataV6): void {
   const selection = getEffectivePortableDataSelection(data);
   if (!selection.games && !selection.roles && !selection.launchWorkspaces && !selection.macros && !selection.preferences) {
     throw new PortableDataError("PORTABLE_SELECTION_EMPTY", "Select at least one available data category.");
@@ -1455,12 +1442,11 @@ function toPortableGame(game: Game): PortableGame {
     ...(game.coverImageDataUrl ? { coverImageDataUrl: game.coverImageDataUrl } : {}),
     defaultLaunchUrl: game.defaultLaunchUrl,
     ...(game.loginUrl ? { loginUrl: game.loginUrl } : {}),
-    ...(game.roleDefaults ? { roleDefaults: { ...game.roleDefaults } } : {}),
     browserLaunchMode: game.browserLaunchMode
   };
 }
 
-function parsePortableData(raw: string): RionPortableDataV5 {
+function parsePortableData(raw: string): RionPortableDataV6 {
   try {
     const parsed = JSON.parse(raw) as unknown;
     const data = toRecord(parsed);
@@ -1472,6 +1458,7 @@ function parsePortableData(raw: string): RionPortableDataV5 {
         data.schemaVersion !== 2 &&
         data.schemaVersion !== 3 &&
         data.schemaVersion !== 4 &&
+        data.schemaVersion !== 5 &&
         data.schemaVersion !== PORTABLE_SCHEMA_VERSION
       ) ||
       !Array.isArray(data.roles) ||
@@ -1482,14 +1469,14 @@ function parsePortableData(raw: string): RionPortableDataV5 {
     }
 
     let roles = data.roles.map(normalizePortableRole);
-    const games = (data.schemaVersion === 2 || data.schemaVersion === 3 || data.schemaVersion === 4 || data.schemaVersion === PORTABLE_SCHEMA_VERSION) && Array.isArray(data.games)
+    const games = (data.schemaVersion === 2 || data.schemaVersion === 3 || data.schemaVersion === 4 || data.schemaVersion === 5 || data.schemaVersion === PORTABLE_SCHEMA_VERSION) && Array.isArray(data.games)
       ? data.games.map(normalizePortableGame)
       : [];
     const normalizedGames = recoverPortableGames(games, roles);
     roles = normalizedGames.roles;
     const launchWorkspaces = data.launchWorkspaces.map(normalizePortableLaunchWorkspace);
     const macros = data.macros.map((macro) =>
-      normalizePortableMacro(macro, data.schemaVersion === PORTABLE_SCHEMA_VERSION)
+      normalizePortableMacro(macro, data.schemaVersion === 5 || data.schemaVersion === PORTABLE_SCHEMA_VERSION)
     );
     const preferences = normalizePortablePreferences(data.preferences);
     ensureUniqueIds(roles.map((role) => role.id));
@@ -1532,8 +1519,6 @@ function normalizePortableRole(value: unknown): PortableRole {
     ...(typeof role.gameId === "string" && role.gameId.trim() ? { gameId: role.gameId.trim() } : {}),
     name: normalizeName(role.name),
     launchUrl: normalizeLaunchUrl(role.launchUrl),
-    windowWidth: normalizeWindowSize(role.windowWidth, DEFAULT_ROLE_WINDOW_WIDTH),
-    windowHeight: normalizeWindowSize(role.windowHeight, DEFAULT_ROLE_WINDOW_HEIGHT),
     notes: typeof role.notes === "string" ? role.notes.trim() : "",
     ...(coverImageDataUrl ? { coverImageDataUrl } : {}),
     ...(coverImageDataUrl ? normalizeOptionalCoverImageDominantColorProperty(role.coverImageDominantColor) : {})
@@ -1559,7 +1544,6 @@ function normalizePortableGame(value: unknown): PortableGame {
     ? normalizeOptionalGameCoverDataUrl(game.coverImageDataUrl)
     : undefined;
   const loginUrl = normalizeOptionalPortableUrl(game.loginUrl);
-  const roleDefaults = normalizeOptionalPortableRoleDefaults(game.roleDefaults);
   return {
     id: normalizeRequiredString(game.id),
     source,
@@ -1569,7 +1553,6 @@ function normalizePortableGame(value: unknown): PortableGame {
     ...(coverImageDataUrl ? { coverImageDataUrl } : {}),
     defaultLaunchUrl: normalizeLaunchUrl(game.defaultLaunchUrl),
     ...(loginUrl ? { loginUrl } : {}),
-    ...(roleDefaults ? { roleDefaults } : {}),
     browserLaunchMode: normalizeInheritableBrowserLaunchMode(game.browserLaunchMode)
   };
 }
@@ -1741,7 +1724,6 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
   const themeMode = preferences.themeMode;
   const gameBrowserSettings = normalizeOptionalPortableGameBrowserSettings(preferences.gameBrowserSettings);
   const macroSettings = normalizeOptionalPortableMacroSettings(preferences.macroSettings);
-  const roleDefaults = normalizeOptionalPortableRoleDefaults(preferences.roleDefaults);
   const normalized: PortablePreferences = {};
 
   if (language === "en" || language === "zh-TW" || language === "zh-CN" || language === "ja") {
@@ -1750,10 +1732,6 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
 
   if (themeMode === "system" || themeMode === "light" || themeMode === "dark") {
     normalized.themeMode = themeMode;
-  }
-
-  if (roleDefaults) {
-    normalized.roleDefaults = roleDefaults;
   }
 
   if (gameBrowserSettings) {
@@ -1766,7 +1744,6 @@ function normalizePortablePreferences(value: unknown): PortablePreferences | und
 
   return normalized.language ||
     normalized.themeMode ||
-    normalized.roleDefaults ||
     normalized.gameBrowserSettings ||
     normalized.macroSettings
     ? normalized
@@ -1787,35 +1764,6 @@ function normalizeOptionalPortableMacroSettings(value: unknown): MacroSettings |
   }
 
   return normalizeMacroSettings(value);
-}
-
-function normalizeOptionalPortableRoleDefaults(value: unknown): RoleDefaults | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-
-  try {
-    const defaults = toRecord(value);
-    const windowWidth = defaults.windowWidth;
-    const windowHeight = defaults.windowHeight;
-    if (
-      !isValidRoleDefaultWindowSize(windowWidth) ||
-      !isValidRoleDefaultWindowSize(windowHeight)
-    ) {
-      return undefined;
-    }
-
-    return {
-      windowWidth,
-      windowHeight
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function isValidRoleDefaultWindowSize(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 640 && value <= 7680;
 }
 
 function normalizeOptionalTriggerProperty(value: unknown): { trigger?: MacroTrigger } {
@@ -2026,16 +1974,6 @@ function normalizeOptionalPortableUrl(value: unknown): string | undefined {
 
 function normalizeInheritableBrowserLaunchMode(value: unknown): InheritableBrowserLaunchMode {
   return value === "auto" || value === "embedded" || value === "external" ? value : "inherit";
-}
-
-function normalizeWindowSize(value: unknown, fallback: number): number {
-  const size = value ?? fallback;
-
-  if (!Number.isInteger(size) || Number(size) < 640 || Number(size) > 7680) {
-    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
-  }
-
-  return Number(size);
 }
 
 function normalizeOptionalCoverImageDataUrl(value: unknown): string | undefined {

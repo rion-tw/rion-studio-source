@@ -43,10 +43,7 @@ describe("GameCompatibilityManager", () => {
       }
     });
 
-    const report = await manager.runCheck(game.id, {
-      windowWidth: 1440,
-      windowHeight: 900
-    });
+    const report = await manager.runCheck(game.id);
 
     expect(report).toMatchObject({
       gameId: game.id,
@@ -85,10 +82,7 @@ describe("GameCompatibilityManager", () => {
       createWindow: (options) => new FakeCompatibilityWindow(options, "fail").asBrowserWindow()
     });
 
-    await expect(manager.runCheck(game.id, {
-      windowWidth: 1280,
-      windowHeight: 720
-    })).resolves.toMatchObject({
+    await expect(manager.runCheck(game.id)).resolves.toMatchObject({
       load: { state: "failed", errorCode: "ERR_CONNECTION_REFUSED" },
       recommendation: { mode: "external", reason: "external_recommended" }
     });
@@ -102,10 +96,7 @@ describe("GameCompatibilityManager", () => {
       createWindow: (options) => new FakeCompatibilityWindow(options, "fail").asBrowserWindow()
     });
 
-    await expect(manager.runCheck(game.id, {
-      windowWidth: 1280,
-      windowHeight: 720
-    })).resolves.toMatchObject({
+    await expect(manager.runCheck(game.id)).resolves.toMatchObject({
       systemChrome: { state: "unavailable" },
       recommendation: { reason: "chrome_required" }
     });
@@ -122,10 +113,7 @@ describe("GameCompatibilityManager", () => {
       }
     });
 
-    await expect(manager.runCheck(game.id, {
-      windowWidth: 1280,
-      windowHeight: 720
-    })).resolves.toMatchObject({ load: { state: "available" } });
+    await expect(manager.runCheck(game.id)).resolves.toMatchObject({ load: { state: "available" } });
   });
 
   it("times out, prevents duplicate checks, and allows the user to cancel by closing the window", async () => {
@@ -139,15 +127,14 @@ describe("GameCompatibilityManager", () => {
         return activeWindow.asBrowserWindow();
       }
     });
-    const defaults = { windowWidth: 1280, windowHeight: 720 };
-    const timedRun = manager.runCheck(game.id, defaults);
-    await expect(manager.runCheck(game.id, defaults)).rejects.toThrow("already running");
+    const timedRun = manager.runCheck(game.id);
+    await expect(manager.runCheck(game.id)).rejects.toThrow("already running");
     await expect(timedRun).resolves.toMatchObject({
       load: { state: "failed", errorCode: "COMPATIBILITY_LOAD_TIMEOUT" }
     });
 
     activeWindow = undefined;
-    const cancelledRun = manager.runCheck(game.id, defaults);
+    const cancelledRun = manager.runCheck(game.id);
     await Promise.resolve();
     await Promise.resolve();
     expect(activeWindow).toBeDefined();
@@ -156,7 +143,7 @@ describe("GameCompatibilityManager", () => {
     await expect(cancelledRun).resolves.toMatchObject({ load: { state: "cancelled" } });
 
     activeWindow = undefined;
-    const cancelledByApi = manager.runCheck(game.id, defaults);
+    const cancelledByApi = manager.runCheck(game.id);
     await Promise.resolve();
     await Promise.resolve();
     await manager.cancelCheck(game.id);
@@ -169,7 +156,7 @@ describe("GameCompatibilityManager", () => {
       settings: () => settings,
       createWindow: (options) => new FakeCompatibilityWindow(options).asBrowserWindow()
     });
-    await manager.runCheck(game.id, { windowWidth: 1280, windowHeight: 720 });
+    await manager.runCheck(game.id);
     expect((await manager.listReports())[0].isStale).toBe(false);
 
     settings = {

@@ -87,7 +87,7 @@ control. Normal embedded launches do not add remote debugging flags.
 ## Roles And Launch Workspaces
 
 Roles represent isolated browser sessions. A role includes a name, launch
-URL, window size, notes, launch preset, auth state, optional cover
+URL, notes, launch preset, auth state, optional cover
 image data URL, optional dominant color, and timestamps.
 
 Launch workspaces group roles and assign each one to a normalized window
@@ -103,9 +103,10 @@ rectangle. Supported layout templates are:
 - `four_columns`
 - `six_grid`
 - `eight_grid`
+- `nine_grid`
 
 `two_columns` is the default workspace template. A launch workspace can contain
-at most eight slots. A role can appear only once in the same launch workspace.
+at most nine slots. A role can appear only once in the same launch workspace.
 
 ## Renderer Conventions
 

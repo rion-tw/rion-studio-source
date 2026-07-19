@@ -25,7 +25,7 @@ import type {
   RionPortableDataV2,
   RionPortableDataV3,
   RionPortableDataV4,
-  RionPortableDataV5
+  RionPortableDataV6
 } from "../src/shared/types";
 import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
 
@@ -107,14 +107,10 @@ describe("PortableDataManager", () => {
           workspace: { background: "black", gap: 1 }
         },
         language: "zh-TW",
-        roleDefaults: {
-          windowWidth: 1920,
-          windowHeight: 1080
-        },
         themeMode: "dark"
       }
     });
-    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV5;
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV6;
 
     expect(result).toMatchObject({
       gameCount: 2,
@@ -126,7 +122,7 @@ describe("PortableDataManager", () => {
     });
     expect(parsed).toMatchObject({
       app: "Rion Studio",
-      schemaVersion: 5,
+      schemaVersion: 6,
       appVersion: "1.2.3",
       preferences: {
         gameBrowserSettings: {
@@ -141,10 +137,6 @@ describe("PortableDataManager", () => {
           workspace: { background: "black", gap: 1 }
         },
         language: "zh-TW",
-        roleDefaults: {
-          windowWidth: 1920,
-          windowHeight: 1080
-        },
         themeMode: "dark"
       }
     });
@@ -158,7 +150,10 @@ describe("PortableDataManager", () => {
     expect(parsed.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
     expect(parsed.roles[0]).not.toHaveProperty("browserUserDataDir");
     expect(parsed.roles[0]).not.toHaveProperty("launchPreset");
-    expect(parsed.preferences?.roleDefaults).not.toHaveProperty("launchPreset");
+    expect(parsed.roles[0]).not.toHaveProperty("windowWidth");
+    expect(parsed.roles[0]).not.toHaveProperty("windowHeight");
+    expect(parsed.preferences).not.toHaveProperty("roleDefaults");
+    expect(parsed.games[0]).not.toHaveProperty("roleDefaults");
     expect(parsed).not.toHaveProperty("gameCompatibilityReports");
     expect(parsed.launchWorkspaces[0]).toMatchObject({
       browserZoomMode: "adaptive",
@@ -197,8 +192,8 @@ describe("PortableDataManager", () => {
     });
 
     await manager.exportData({ selection: ALL_PORTABLE_DATA });
-    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV5;
-    expect(exported.schemaVersion).toBe(5);
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV6;
+    expect(exported.schemaVersion).toBe(6);
     expect(exported.macros.find((macro) => macro.id === parent.id)?.steps).toEqual([
       { id: "call", type: "macro", macroId: child.id }
     ]);
@@ -256,8 +251,6 @@ describe("PortableDataManager", () => {
       gameId: "builtin-flyff-universe",
       name: "Combo role",
       launchUrl: "https://example.com/play",
-      windowWidth: 1280,
-      windowHeight: 720,
       notes: ""
     });
     const combo = await macroStore.createMacro({
@@ -279,8 +272,8 @@ describe("PortableDataManager", () => {
     });
 
     await manager.exportData({ selection: ALL_PORTABLE_DATA });
-    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV5;
-    expect(exported.schemaVersion).toBe(5);
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV6;
+    expect(exported.schemaVersion).toBe(6);
     expect(exported.macros.find((macro) => macro.id === combo.id)?.steps).toEqual([
       expect.objectContaining({ modifiers: ["ctrl", "shift"] })
     ]);
@@ -331,8 +324,8 @@ describe("PortableDataManager", () => {
       },
       selection
     });
-    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV5;
-    expect(exported.schemaVersion).toBe(5);
+    const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV6;
+    expect(exported.schemaVersion).toBe(6);
     expect(exported.preferences?.macroSettings).toEqual({
       startupDelayMs: 0,
       keyHoldMs: 20,
@@ -404,7 +397,7 @@ describe("PortableDataManager", () => {
         preferences: false
       }
     });
-    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV5;
+    const parsed = JSON.parse(await readFile(exportPath, "utf8")) as RionPortableDataV6;
 
     expect(result).toMatchObject({
       roleCount: 1,
@@ -488,7 +481,7 @@ describe("PortableDataManager", () => {
 
   it("rejects an invalid custom game cover in portable v2 data", async () => {
     const importPath = join(baseDir, "invalid-game-cover.json");
-    const fixture: RionPortableDataV2 = {
+    const fixture = {
       app: "Rion Studio",
       schemaVersion: 2,
       exportedAt: "2026-07-13T09:00:00.000Z",
@@ -504,7 +497,7 @@ describe("PortableDataManager", () => {
       roles: [],
       launchWorkspaces: [],
       macros: []
-    };
+    } as unknown as RionPortableDataV2;
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
     const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
 
@@ -664,7 +657,7 @@ describe("PortableDataManager", () => {
       backgroundCpuThrottleRate: 2,
       primaryRoleId: "old-role"
     };
-    const fixture: RionPortableDataV2 = {
+    const fixture = {
       ...legacyFixture,
       schemaVersion: 2,
       games: [{
@@ -676,7 +669,7 @@ describe("PortableDataManager", () => {
         browserLaunchMode: "inherit"
       }],
       roles: legacyFixture.roles.map((role) => ({ ...role, gameId: "remote-builtin" }))
-    };
+    } as unknown as RionPortableDataV2;
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
 
     const manager = createManager({
@@ -705,10 +698,6 @@ describe("PortableDataManager", () => {
           workspace: { background: "black", gap: 16 }
         },
         language: "ja",
-        roleDefaults: {
-          windowWidth: 1280,
-          windowHeight: 720
-        },
         themeMode: "light"
       }
     });
@@ -736,13 +725,10 @@ describe("PortableDataManager", () => {
             mode: "custom"
           },
           workspace: { background: "black", gap: 16 }
-        },
-        roleDefaults: {
-          windowWidth: 1280,
-          windowHeight: 720
         }
       }
     });
+    expect(preview?.preferences).not.toHaveProperty("roleDefaults");
     const importedRole = (await roleStore.listRoles()).find((role) => role.name === "Main");
     expect(importedRole).toMatchObject({
       id: existingRole.id,
@@ -750,6 +736,8 @@ describe("PortableDataManager", () => {
       lastSuccessfulLoginAt: "2026-07-13T08:00:00.000Z",
       launchUrl: "https://example.org/play"
     });
+    expect(importedRole).not.toHaveProperty("windowWidth");
+    expect(importedRole).not.toHaveProperty("windowHeight");
     await expect(readFile(join(baseDir, "roles", existingRole.id, "browser", "session-marker"), "utf8"))
       .resolves.toBe("keep-login");
 
@@ -776,7 +764,7 @@ describe("PortableDataManager", () => {
   it("maps v2 built-ins, renames custom games, and recovers missing role games", async () => {
     const importPath = join(baseDir, "v2-games.json");
     await gameStore.createGame({ name: "Shared", defaultLaunchUrl: "https://local-shared.test/play" });
-    const fixture: RionPortableDataV2 = {
+    const fixture = {
       app: "Rion Studio",
       schemaVersion: 2,
       exportedAt: "2026-07-13T09:00:00.000Z",
@@ -839,7 +827,7 @@ describe("PortableDataManager", () => {
         repeat: { type: "once" },
         steps: [{ id: "step-1", type: "key", code: "F2" }]
       }]
-    };
+    } as unknown as RionPortableDataV2;
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
     const manager = createManager({ importPath, importId: "v2-import", macroStore, roleStore, workspaceStore });
 
@@ -1092,14 +1080,14 @@ describe("PortableDataManager", () => {
     await expect(invalidLoopManager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
-  it("accepts eight-grid portable workspaces and rejects a ninth slot", async () => {
-    const importPath = join(baseDir, "eight-grid.json");
+  it("accepts nine-grid portable workspaces and rejects a tenth slot", async () => {
+    const importPath = join(baseDir, "nine-grid.json");
     const fixture = createPortableFixture();
     fixture.launchWorkspaces[0] = {
       ...fixture.launchWorkspaces[0],
-      template: "eight_grid",
-      browserZoomPercent: 75,
-      slots: getDefaultWorkspaceRects("eight_grid").map((rect, index) => ({
+      template: "nine_grid",
+      browserZoomPercent: 80,
+      slots: getDefaultWorkspaceRects("nine_grid").map((rect, index) => ({
         id: `slot-${index + 1}`,
         ...(index === 0 ? { roleId: "old-role" } : {}),
         rect
@@ -1111,8 +1099,8 @@ describe("PortableDataManager", () => {
     await expect(manager.previewImport()).resolves.toMatchObject({ workspaceCount: 1 });
 
     fixture.launchWorkspaces[0].slots.push({
-      id: "slot-9",
-      rect: { x: 0, y: 0, width: 0.5, height: 0.5 }
+      id: "slot-10",
+      rect: { x: 0, y: 0, width: 1 / 3, height: 1 / 3 }
     });
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
 
@@ -1260,11 +1248,11 @@ describe("PortableDataManager", () => {
     const invalidImportPath = join(baseDir, "invalid-role-defaults.json");
     const invalidFixture = createPortableFixture();
     invalidFixture.preferences = {
-      language: "zh-TW",
-      roleDefaults: {
-        windowWidth: 100,
-        windowHeight: 1080
-      }
+      language: "zh-TW"
+    };
+    (invalidFixture.preferences as unknown as Record<string, unknown>).roleDefaults = {
+      windowWidth: 100,
+      windowHeight: 1080
     };
     await writeFile(invalidImportPath, `${JSON.stringify(invalidFixture, null, 2)}\n`, "utf8");
 
@@ -1300,22 +1288,39 @@ describe("PortableDataManager", () => {
     const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
 
     const preview = await manager.previewImport();
-    expect(preview?.preferences?.roleDefaults).not.toHaveProperty("launchPreset");
+    expect(preview?.preferences).not.toHaveProperty("roleDefaults");
     await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
     expect((await roleStore.listRoles()).find((role) => role.name === "Main"))
       .not.toHaveProperty("launchPreset");
+  });
+
+  it("imports portable v5 while ignoring legacy role window sizes", async () => {
+    const importPath = join(baseDir, "portable-v5.json");
+    const fixture = createPortableFixture() as unknown as { schemaVersion: number };
+    fixture.schemaVersion = 5;
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    expect(preview?.preferences).not.toHaveProperty("roleDefaults");
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+
+    const importedRole = (await roleStore.listRoles()).find((role) => role.name === "Main");
+    expect(importedRole).not.toHaveProperty("windowWidth");
+    expect(importedRole).not.toHaveProperty("windowHeight");
   });
 
   it("accepts but strips an explicitly imported performance launch preset", async () => {
     const importPath = join(baseDir, "performance-launch-preset.json");
     const fixture = createPortableFixture();
     (fixture.roles[0] as unknown as Record<string, unknown>).launchPreset = "performance";
-    (fixture.preferences!.roleDefaults! as unknown as Record<string, unknown>).launchPreset = "performance";
+    const rawPreferences = fixture.preferences as unknown as Record<string, unknown>;
+    (rawPreferences.roleDefaults as Record<string, unknown>).launchPreset = "performance";
     await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
     const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
 
     const preview = await manager.previewImport();
-    expect(preview?.preferences?.roleDefaults).not.toHaveProperty("launchPreset");
+    expect(preview?.preferences).not.toHaveProperty("roleDefaults");
     await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
     expect((await roleStore.listRoles()).find((role) => role.name === "Main"))
       .not.toHaveProperty("launchPreset");
@@ -1741,7 +1746,7 @@ function createPortableFixture(): RionPortableDataV1 {
         steps: [{ id: "step-2", type: "delay", ms: 100 }]
       }
     ]
-  };
+  } as unknown as RionPortableDataV1;
 }
 
 function createPortableV2Fixture(): RionPortableDataV2 {

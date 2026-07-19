@@ -1,13 +1,18 @@
 import type { Language, TranslationKey } from "../i18n";
 import type { RoleFormState, ResolvedTheme, ThemeMode } from "./types";
-import { createEmptyRoleForm } from "./roleDefaults";
+import { DEFAULT_LAUNCH_URL } from "../../../shared/types";
 
 export const THEME_STORAGE_KEY = "rion-studio-theme";
 export const LANGUAGE_STORAGE_KEY = "rion-studio-language";
 
 export const themeModes: ThemeMode[] = ["system", "light", "dark"];
 
-export const emptyForm: RoleFormState = createEmptyRoleForm();
+export const emptyForm: RoleFormState = {
+  gameId: "",
+  name: "",
+  launchUrl: DEFAULT_LAUNCH_URL,
+  notes: ""
+};
 
 export const themeLabelKeys: Record<ThemeMode, TranslationKey> = {
   system: "theme.system",

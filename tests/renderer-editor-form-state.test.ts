@@ -15,10 +15,18 @@ import type { Translator } from "../src/renderer/src/i18n";
 const t: Translator = (key) => key;
 
 describe("editor form state", () => {
-  it("creates role forms from defaults and saved roles", () => {
-    expect(createNewRoleForm({ windowWidth: 1600, windowHeight: 900 })).toMatchObject({
-      windowWidth: 1600,
-      windowHeight: 900
+  it("creates role forms from the selected game and saved roles", () => {
+    expect(createNewRoleForm({
+      id: "game-1",
+      source: "custom",
+      name: "Example",
+      defaultLaunchUrl: "https://example.test/play",
+      browserLaunchMode: "inherit",
+      createdAt: "2026-07-14T00:00:00.000Z",
+      updatedAt: "2026-07-14T00:00:00.000Z"
+    })).toMatchObject({
+      gameId: "game-1",
+      launchUrl: "https://example.test/play"
     });
     expect(createRoleFormState(role())).toMatchObject({
       id: "role-1",
@@ -95,8 +103,6 @@ function role(overrides: Partial<Role> = {}): Role {
     gameId: "game-1",
     name: "Main",
     launchUrl: "https://example.com/game",
-    windowWidth: 1280,
-    windowHeight: 720,
     notes: "Ready",
     authState: "authenticated",
     createdAt: "2026-07-14T00:00:00.000Z",

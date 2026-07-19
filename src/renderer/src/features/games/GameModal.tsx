@@ -8,7 +8,7 @@ import type { GameFormState } from "../../app/types";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
+import { FieldHeader, FormField, Surface } from "../../components/ui/patterns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
@@ -16,8 +16,7 @@ import type {
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
-  InheritableBrowserLaunchMode,
-  RoleDefaults
+  InheritableBrowserLaunchMode
 } from "../../../../shared/types";
 import { GameCompatibilityPanel } from "./GameCompatibilityPanel";
 import { createGameCoverImageDataUrl } from "./gameCover";
@@ -26,7 +25,6 @@ interface GameEditorRouteProps {
   games: Game[];
   isSaving: boolean;
   reports: GameCompatibilityReport[];
-  roleDefaults: RoleDefaults;
   runStatuses: GameCompatibilityRunStatus[];
   t: Translator;
   onApplyRecommendation: (game: Game) => Promise<Game | undefined>;
@@ -45,7 +43,7 @@ function GameEditorRoute(props: GameEditorRouteProps): JSX.Element {
   if (id && !game) {
     return <EditorNotFound title={props.t("editor.notFound.title")} description={props.t("games.notFound")} actionLabel={props.t("games.back")} onAction={() => navigate("/games", { replace: true })} />;
   }
-  const initialForm = game ? createGameFormState(game, props.roleDefaults) : createNewGameForm(props.roleDefaults);
+  const initialForm = game ? createGameFormState(game) : createNewGameForm();
   return <GameEditor key={id ?? "new"} {...props} game={game} initialForm={initialForm} />;
 }
 
@@ -55,7 +53,6 @@ function GameEditor({
   initialForm,
   isSaving,
   reports,
-  roleDefaults,
   runStatuses,
   t,
   onApplyRecommendation,
@@ -84,7 +81,7 @@ function GameEditor({
     if (!game) return;
     const saved = await onReset(game);
     if (!saved) return;
-    const resetForm = createGameFormState(saved, roleDefaults);
+    const resetForm = createGameFormState(saved);
     initialRef.current = resetForm;
     setForm(resetForm);
   }
@@ -117,13 +114,6 @@ function GameEditor({
           <FormField htmlFor="game-login-url" label={t("games.form.loginUrl")} description={t("games.form.loginUrlDescription")}><Input id="game-login-url" type="url" maxLength={2048} value={form.loginUrl} onChange={(e) => setForm({ ...form, loginUrl: e.target.value })} /></FormField>
         </Surface>
         <Surface className="grid gap-4 p-4" variant="inset">
-          <FormField label={t("games.form.roleDefaults")} description={t("games.form.roleDefaultsDescription")}>
-            <Select value={form.usesGlobalRoleDefaults ? "global" : "custom"} onValueChange={(value) => setForm({ ...form, usesGlobalRoleDefaults: value === "global" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="global">{t("games.form.inheritGlobal")}</SelectItem><SelectItem value="custom">{t("games.form.customDefaults")}</SelectItem></SelectContent></Select>
-          </FormField>
-          {!form.usesGlobalRoleDefaults ? <FormGrid columns={2}>
-            <FormField label={t("roleForm.width")}><Input type="number" min={640} max={7680} value={form.windowWidth} onChange={(e) => setForm({ ...form, windowWidth: Number(e.target.value) })} /></FormField>
-            <FormField label={t("roleForm.height")}><Input type="number" min={640} max={7680} value={form.windowHeight} onChange={(e) => setForm({ ...form, windowHeight: Number(e.target.value) })} /></FormField>
-          </FormGrid> : null}
           <FormField label={t("games.form.launchMode")}><Select value={form.browserLaunchMode} onValueChange={(value) => setForm({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.mode.inherit")}</SelectItem><SelectItem value="auto">{t("games.mode.auto")}</SelectItem><SelectItem value="embedded">{t("games.mode.embedded")}</SelectItem><SelectItem value="external">{t("games.mode.external")}</SelectItem></SelectContent></Select></FormField>
         </Surface>
         {game ? (

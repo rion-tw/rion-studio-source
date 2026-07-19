@@ -79,5 +79,12 @@ export const workspaceLayoutIconNodes: Record<
     ["path", { d: "M12 3v18", key: "column-2" }],
     ["path", { d: "M16.5 3v18", key: "column-3" }],
     ["path", { d: "M3 12h18", key: "row" }]
+  ],
+  nine_grid: [
+    ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "outer" }],
+    ["path", { d: "M9 3v18", key: "column-1" }],
+    ["path", { d: "M15 3v18", key: "column-2" }],
+    ["path", { d: "M3 9h18", key: "row-1" }],
+    ["path", { d: "M3 15h18", key: "row-2" }]
   ]
 };

@@ -31,7 +31,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 
 @property(nonatomic) NSInteger displayID;
 @property(nonatomic, copy) NSString *addLabel;
-@property(nonatomic, copy) NSString *moreLabel;
+@property(nonatomic, copy) NSString *closeLabel;
 @property(nonatomic, copy) NSArray<RionRuntimeTabModel *> *tabs;
 
 @end

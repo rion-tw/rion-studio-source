@@ -14,7 +14,7 @@
 
 namespace {
 
-constexpr int32_t kProtocolVersion = 4;
+constexpr int32_t kProtocolVersion = 5;
 
 struct ControllerRecord {
   __strong RionRuntimeTabsController *controller = nil;
@@ -193,8 +193,8 @@ RionRuntimeTabsState *ParseState(napi_env env, napi_value value) {
   if (!labels) return nil;
   state.addLabel = GetNSString(env, GetNamed(env, labels, "add"),
                                "Invalid add label in runtime tabs state.");
-  state.moreLabel = GetNSString(env, GetNamed(env, labels, "more"),
-                                "Invalid more label in runtime tabs state.");
+  state.closeLabel = GetNSString(env, GetNamed(env, labels, "close"),
+                                 "Invalid close label in runtime tabs state.");
 
   napi_value tabs = GetNamed(env, value, "tabs");
   bool is_array = false;

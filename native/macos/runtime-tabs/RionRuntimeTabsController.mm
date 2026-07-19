@@ -487,7 +487,7 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 
 - (void)configureWithTab:(RionRuntimeTabModel *)tab
                     image:(NSImage *)image
-                moreLabel:(NSString *)moreLabel
+               closeLabel:(NSString *)closeLabel
              windowActive:(BOOL)windowActive;
 - (void)updateWindowActive:(BOOL)windowActive;
 
@@ -519,6 +519,7 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 @property(nonatomic, readwrite) BOOL revealLocked;
 
 - (void)activateTab:(NSString *)tabIdentifier;
+- (void)closeTab:(NSString *)tabIdentifier;
 - (void)applyLiquidGlassTitlebarAppearance;
 - (void)attachAccessoryController;
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event;
@@ -819,14 +820,14 @@ static void *RionRuntimeContentLayoutObservationContext =
   _badgeField.focusRingType = NSFocusRingTypeNone;
   [_badgeView addSubview:_badgeField];
 
-  NSImage *ellipsis = [NSImage imageWithSystemSymbolName:@"ellipsis"
-                                accessibilityDescription:nil];
-  ellipsis = [ellipsis imageWithSymbolConfiguration:
+  NSImage *closeImage = [NSImage imageWithSystemSymbolName:@"xmark"
+                                   accessibilityDescription:nil];
+  closeImage = [closeImage imageWithSymbolConfiguration:
                          [NSImageSymbolConfiguration configurationWithPointSize:11.0
                                                                         weight:NSFontWeightSemibold]];
-  _moreButton = [NSButton buttonWithImage:ellipsis
+  _moreButton = [NSButton buttonWithImage:closeImage
                                    target:self
-                                   action:@selector(morePressed:)];
+                                   action:@selector(closePressed:)];
   _moreButton.bordered = NO;
   _moreButton.imageScaling = NSImageScaleProportionallyDown;
   _moreButton.contentTintColor = NSColor.secondaryLabelColor;
@@ -862,7 +863,7 @@ static void *RionRuntimeContentLayoutObservationContext =
 
 - (void)configureWithTab:(RionRuntimeTabModel *)tab
                     image:(NSImage *)image
-                moreLabel:(NSString *)moreLabel
+               closeLabel:(NSString *)closeLabel
              windowActive:(BOOL)windowActive {
   _windowActive = windowActive;
   self.tabIdentifier = tab.identifier;
@@ -870,8 +871,8 @@ static void *RionRuntimeContentLayoutObservationContext =
   _iconView.image = image;
   _titleField.stringValue = tab.name;
   _moreButton.identifier = tab.identifier;
-  _moreButton.toolTip = moreLabel;
-  _moreButton.accessibilityLabel = moreLabel;
+  _moreButton.toolTip = closeLabel;
+  _moreButton.accessibilityLabel = closeLabel;
   self.toolTip = tab.name;
   self.accessibilityLabel = tab.name;
   self.accessibilityValue = @(tab.active);
@@ -1007,9 +1008,9 @@ static void *RionRuntimeContentLayoutObservationContext =
                              withObject:self.tabIdentifier];
 }
 
-- (void)morePressed:(id)sender {
+- (void)closePressed:(id)sender {
   (void)sender;
-  [self.tabsController performSelector:@selector(showTabMenu:)
+  [self.tabsController performSelector:@selector(closeTab:)
                              withObject:self.tabIdentifier];
 }
 
@@ -2122,8 +2123,8 @@ static void *RionRuntimeContentLayoutObservationContext =
     item.sourceDisplayID = state.displayID;
     [item configureWithTab:tab
                      image:[self imageForTab:tab]
-                 moreLabel:state.moreLabel
-              windowActive:_window.isKeyWindow];
+                closeLabel:state.closeLabel
+             windowActive:_window.isKeyWindow];
     [nextItems addObject:item];
     [nextSurfaces addObject:surface];
   }
@@ -2208,6 +2209,12 @@ static void *RionRuntimeContentLayoutObservationContext =
 - (void)activateTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
     _actionHandler(@{ @"type" : @"activate", @"tabId" : tabIdentifier });
+  }
+}
+
+- (void)closeTab:(NSString *)tabIdentifier {
+  if (_actionHandler && tabIdentifier.length > 0) {
+    _actionHandler(@{ @"type" : @"stop", @"tabId" : tabIdentifier });
   }
 }
 

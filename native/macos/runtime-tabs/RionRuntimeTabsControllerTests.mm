@@ -336,7 +336,7 @@ static RionRuntimeTabsState *MakeState(NSArray<RionRuntimeTabModel *> *tabs) {
   RionRuntimeTabsState *state = [[RionRuntimeTabsState alloc] init];
   state.addLabel = @"Add";
   state.displayID = 11;
-  state.moreLabel = @"More";
+  state.closeLabel = @"Stop and close tab";
   state.tabs = tabs;
   return state;
 }
@@ -809,6 +809,27 @@ int main() {
       AssertItemSubviewsDoNotOverlap(item);
       AssertTitleTextVerticallyCentered(item);
     }
+    NSButton *tabCloseButton = [tabItems[0] valueForKey:@"_moreButton"];
+    Assert([tabCloseButton.accessibilityLabel isEqualToString:@"Stop and close tab"],
+           "The native tab close button must expose the stop-and-close label.");
+    [tabCloseButton performClick:nil];
+    Assert([lastAction[@"type"] isEqualToString:@"stop"] &&
+               [lastAction[@"tabId"] isEqualToString:@"tab-1"],
+           "Expected the native tab close button to emit stop.");
+    NSEvent *rightMouseEvent = [NSEvent
+        mouseEventWithType:NSEventTypeRightMouseDown
+                  location:NSMakePoint(0, 0)
+             modifierFlags:0
+                 timestamp:0
+              windowNumber:window.windowNumber
+                   context:nil
+               eventNumber:0
+              clickCount:1
+                pressure:0];
+    [tabItems[0] rightMouseDown:rightMouseEvent];
+    Assert([lastAction[@"type"] isEqualToString:@"openTabMenu"] &&
+               [lastAction[@"tabId"] isEqualToString:@"tab-1"],
+           "Expected a native tab right click to emit openTabMenu.");
     Assert([[tabItems[0] accessibilityRole]
                isEqualToString:NSAccessibilityRadioButtonRole],
            "Tabs must expose the radio-button accessibility role.");

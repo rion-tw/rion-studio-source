@@ -37,6 +37,7 @@ import type {
   RoleStatus,
   WorkspaceBrowserZoomMode,
   WorkspaceBrowserZoomPercent,
+  WorkspaceSlotBrowserZoomPercent,
   WorkspaceAppearanceSettings,
   WorkspaceDisplayInfo,
   WorkspaceLayoutTemplate
@@ -49,6 +50,7 @@ import {
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
 import {
   getAdaptiveWorkspaceBrowserZoomPercent,
+  isWorkspaceSlotBrowserZoomPercent,
   MIN_WORKSPACE_SLOT_SIZE,
   normalizeWorkspaceRectEdges
 } from "../../shared/workspaceLayout";
@@ -80,6 +82,7 @@ export interface BrowserLaunchOptions {
 }
 
 export interface BrowserWorkspaceLaunchItem {
+  browserZoomPercent?: WorkspaceSlotBrowserZoomPercent;
   rect: NormalizedRect;
   role: Role;
 }
@@ -105,6 +108,11 @@ export type BrowserMacroOverlayInstaller = (role: Role, webContents: WebContents
 export type BrowserProxyApplier = (role: Role, partition: string, session: Session) => Promise<void>;
 export type BrowserCdnCompatibilityApplier = (role: Role, partition: string, session: Session) => Promise<void>;
 export type BeforeRolesStop = (roleIds: string[]) => Promise<void>;
+export type WorkspaceRoleZoomPersister = (
+  workspaceId: string,
+  roleId: string,
+  browserZoomPercent: WorkspaceSlotBrowserZoomPercent
+) => Promise<void>;
 
 export interface BrowserManagerOptions {
   applyBrowserFonts?: (role: Role, partition: string) => Promise<void>;
@@ -142,6 +150,7 @@ export interface BrowserManagerOptions {
     context: EmbeddedRuntimeDiagnosticContext,
     webContents: WebContents
   ) => void;
+  persistWorkspaceRoleZoom?: WorkspaceRoleZoomPersister;
   resourcePressureMonitor?: SystemPressureSource;
 }
 
@@ -284,9 +293,24 @@ interface BrowserSession {
   view: WebContentsView;
   zoomFactor: number;
   zoomMode: WorkspaceBrowserZoomMode;
+  zoomPersistenceTimer?: ReturnType<typeof setTimeout>;
 }
 
+interface NativeZoomShortcutInput {
+  alt: boolean;
+  code: string;
+  control: boolean;
+  isComposing: boolean;
+  key: string;
+  meta: boolean;
+  shift: boolean;
+  type: string;
+}
+
+export type NativeZoomShortcutAction = "in" | "out" | "reset";
+
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
+const WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS = 200;
 const RUNTIME_TAB_CHROME_HEIGHT = 40;
 const RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT = 2;
 const RUNTIME_TAB_FULLSCREEN_REVEAL_DETECTION_HEIGHT = 4;
@@ -297,6 +321,33 @@ const RUNTIME_TAB_TOOLBAR_CURSOR_MONITOR_INTERVAL_MS = 50;
 export const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
+
+export function classifyNativeZoomShortcut(
+  input: NativeZoomShortcutInput,
+  platform: NodeJS.Platform
+): NativeZoomShortcutAction | undefined {
+  const usesMeta = platform === "darwin";
+  if (
+    input.type !== "keyDown" ||
+    input.isComposing ||
+    input.alt ||
+    input.meta !== usesMeta ||
+    input.control === usesMeta
+  ) {
+    return undefined;
+  }
+
+  if (input.code === "NumpadAdd" || input.code === "Equal" || input.code === "Plus") {
+    return "in";
+  }
+  if (!input.shift && (input.code === "NumpadSubtract" || input.code === "Minus")) {
+    return "out";
+  }
+  if (!input.shift && (input.code === "Digit0" || input.code === "Numpad0")) {
+    return "reset";
+  }
+  return undefined;
+}
 
 function getWorkspaceWindowMaterialOptions(
   platform: NodeJS.Platform,
@@ -876,9 +927,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       try {
         await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
         const normalizedRects = normalizeWorkspaceRectEdges(items.map((item) => item.rect));
-        const zoomFactor = workspace.browserZoomPercent / 100;
         const sessions = items.map((item, index) =>
-          this.createSession(item.role, host, normalizedRects[index], zoomFactor, workspace.browserZoomMode)
+          this.createSession(
+            item.role,
+            host,
+            normalizedRects[index],
+            (item.browserZoomPercent ?? workspace.browserZoomPercent) / 100,
+            item.browserZoomPercent === undefined ? workspace.browserZoomMode : "fixed"
+          )
         );
         await this.createHostDividers(host);
         const displayHost = this.getDisplayHost(host);
@@ -2046,6 +2102,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }, view.webContents);
     this.layoutDisplayHost(this.getDisplayHost(host));
     this.configureZoomPersistence(session, view.webContents);
+    this.configureNativeZoomShortcuts(host, session, view.webContents);
     this.configureWindowOpenHandler(session, view.webContents);
     this.configureCloseShortcut(host, session, view.webContents);
     this.configureHtmlFullscreen(host, view.webContents);
@@ -2055,6 +2112,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (isMainFrame) this.setGameInputContext(view.webContents.id, false);
     });
     view.webContents.once("destroyed", () => {
+      if (session.zoomPersistenceTimer) {
+        clearTimeout(session.zoomPersistenceTimer);
+        session.zoomPersistenceTimer = undefined;
+      }
       if (this.sessions.get(role.id) === session) {
         this.sessions.delete(role.id);
         host.roleIds.delete(role.id);
@@ -2330,6 +2391,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       ...(host.workspaceId ? { workspaceId: host.workspaceId } : {})
     }, popupView.webContents);
     this.configureZoomPersistence(session, popupView.webContents);
+    this.configureNativeZoomShortcuts(host, session, popupView.webContents);
     this.configureWindowOpenHandler(session, popupView.webContents);
     this.configureCloseShortcut(host, session, popupView.webContents);
     this.configureHtmlFullscreen(host, popupView.webContents);
@@ -2551,6 +2613,74 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         console.warn("Failed to reapply browser zoom after navigation.", error);
       }
     });
+  }
+
+  private configureNativeZoomShortcuts(
+    host: GameHostWindow,
+    session: BrowserSession,
+    webContents: WebContents
+  ): void {
+    webContents.on("before-input-event", (_event, input) => {
+      const zoomAction = classifyNativeZoomShortcut(input, this.options.platform ?? process.platform);
+      if (!zoomAction) {
+        return;
+      }
+
+      session.zoomMode = "fixed";
+      const protectedGameInput = this.isProtectedGameInputActive(session, webContents);
+      if (protectedGameInput) {
+        webContents.setIgnoreMenuShortcuts(false);
+      }
+
+      setImmediate(() => {
+        if (protectedGameInput && !webContents.isDestroyed()) {
+          webContents.setIgnoreMenuShortcuts(this.isProtectedGameInputActive(session, webContents));
+        }
+        if (webContents.isDestroyed()) {
+          return;
+        }
+
+        try {
+          const browserZoomPercent = Math.round(webContents.getZoomFactor() * 100);
+          if (!isWorkspaceSlotBrowserZoomPercent(browserZoomPercent)) {
+            console.warn("Ignoring browser zoom outside the supported workspace role range.", {
+              browserZoomPercent,
+              roleId: session.role.id
+            });
+            return;
+          }
+
+          this.setSessionZoomFactor(session, browserZoomPercent / 100);
+          this.scheduleWorkspaceRoleZoomPersistence(host, session, browserZoomPercent);
+        } catch (error) {
+          console.warn("Failed to synchronize native browser zoom.", error);
+        }
+      });
+    });
+  }
+
+  private scheduleWorkspaceRoleZoomPersistence(
+    host: GameHostWindow,
+    session: BrowserSession,
+    browserZoomPercent: WorkspaceSlotBrowserZoomPercent
+  ): void {
+    if (!host.workspaceId || !this.options.persistWorkspaceRoleZoom) {
+      return;
+    }
+
+    if (session.zoomPersistenceTimer) {
+      clearTimeout(session.zoomPersistenceTimer);
+    }
+    session.zoomPersistenceTimer = setTimeout(() => {
+      session.zoomPersistenceTimer = undefined;
+      void this.options.persistWorkspaceRoleZoom?.(
+        host.workspaceId as string,
+        session.role.id,
+        browserZoomPercent
+      ).catch((error) => {
+        console.warn("Failed to persist workspace role browser zoom.", error);
+      });
+    }, WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS);
   }
 
   private trackGameViewFocus(host: GameHostWindow, view: WebContentsView): void {

@@ -72,6 +72,7 @@ describe("PortableDataManager", () => {
         {
           id: "slot-1",
           roleId: role.id,
+          browserZoomPercent: 110,
           rect: { x: 0, y: 0, width: 0.5, height: 1 }
         }
       ]
@@ -164,6 +165,7 @@ describe("PortableDataManager", () => {
       browserZoomPercent: 75,
       resourcePolicy: { mode: "adaptive" }
     });
+    expect(parsed.launchWorkspaces[0].slots[0]).toMatchObject({ browserZoomPercent: 110 });
     expect(parsed.launchWorkspaces[0].resourcePolicy).not.toHaveProperty("primaryRoleId");
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplayId");
     expect(parsed.launchWorkspaces[0]).not.toHaveProperty("targetDisplay");
@@ -1128,7 +1130,12 @@ describe("PortableDataManager", () => {
       browserZoomPercent: 90,
       resourcePolicy: { mode: "unrestricted" },
       slots: [
-        { id: "slot-1", roleId: "old-role", rect: { x: 0, y: 0, width: 0.3333, height: 1 } },
+        {
+          id: "slot-1",
+          roleId: "old-role",
+          browserZoomPercent: 120,
+          rect: { x: 0, y: 0, width: 0.3333, height: 1 }
+        },
         { id: "slot-2", rect: { x: 0.3333, y: 0, width: 0.3333, height: 1 } },
         { id: "slot-3", rect: { x: 0.6667, y: 0, width: 0.3333, height: 1 } }
       ]
@@ -1151,8 +1158,14 @@ describe("PortableDataManager", () => {
       mode: "unrestricted"
     });
     expect(importedWorkspace?.browserZoomMode).toBe("fixed");
+    expect(importedWorkspace?.slots[0].browserZoomPercent).toBe(120);
     expect(JSON.parse(await readFile(join(baseDir, "launch-workspaces.json"), "utf8")))
       .toMatchObject({ schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION });
+
+    fixture.launchWorkspaces[0].slots[0].browserZoomPercent = 301;
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    await expect(createManager({ importPath, macroStore, roleStore, workspaceStore }).previewImport())
+      .rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
   it("migrates primary priority to adaptive when an imported workspace has no assigned roles", async () => {

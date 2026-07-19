@@ -20,7 +20,8 @@ import type {
   PixelBounds,
   Role,
   RoleStatus,
-  WorkspaceBrowserZoomMode
+  WorkspaceBrowserZoomMode,
+  WorkspaceSlotBrowserZoomPercent
 } from "../../shared/types";
 import {
   getAdaptiveWorkspaceBrowserZoomPercent,
@@ -43,6 +44,7 @@ export interface ExternalChromeManagerEvents {
 }
 
 export interface ExternalChromeLaunchItem {
+  browserZoomPercent?: WorkspaceSlotBrowserZoomPercent;
   rect: NormalizedRect;
   role: Role;
 }
@@ -235,11 +237,13 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
             physicalBounds?.[index],
             workspace.id,
             options.notice,
-            resolveExternalChromeZoomFactor(
-              options.zoomMode ?? "fixed",
-              options.zoomFactor ?? 1,
-              dipBounds[index].width
-            )
+            item.browserZoomPercent !== undefined
+              ? item.browserZoomPercent / 100
+              : resolveExternalChromeZoomFactor(
+                  options.zoomMode ?? "fixed",
+                  options.zoomFactor ?? 1,
+                  dipBounds[index].width
+                )
           ).then((session) => ({ roleId: item.role.id, session }))
         )
       );

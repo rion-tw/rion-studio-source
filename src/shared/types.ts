@@ -16,6 +16,7 @@ export type WorkspaceLayoutTemplate =
   | "six_grid"
   | "eight_grid";
 export type WorkspaceBrowserZoomPercent = 25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125;
+export type WorkspaceSlotBrowserZoomPercent = number;
 export type WorkspaceBrowserZoomMode = "adaptive" | "fixed";
 export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppThemeMode = "system" | "light" | "dark";
@@ -283,6 +284,7 @@ export interface NormalizedRect {
 export interface LaunchWorkspaceSlot {
   id: string;
   roleId?: string;
+  browserZoomPercent?: WorkspaceSlotBrowserZoomPercent;
   rect: NormalizedRect;
 }
 
@@ -356,7 +358,7 @@ export interface CreateLaunchWorkspaceInput {
   browserZoomPercent?: WorkspaceBrowserZoomPercent;
   resourcePolicy?: WorkspaceResourcePolicy;
   targetDisplay?: WorkspaceDisplayTarget | null;
-  slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "rect">>>;
+  slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "browserZoomPercent" | "rect">>>;
 }
 
 export type UpdateLaunchWorkspaceInput = Partial<CreateLaunchWorkspaceInput>;

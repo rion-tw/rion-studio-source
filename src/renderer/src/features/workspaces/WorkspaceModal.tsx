@@ -57,6 +57,7 @@ import {
   getWorkspaceSplitRange,
   getWorkspaceSplits,
   getWorkspaceVerticalResizeHandles,
+  mergeWorkspaceRoleZoomOverrides,
   readRoleDragId,
   readWorkspaceSlotDragIndex,
   rectToPreviewStyle,
@@ -97,7 +98,14 @@ function WorkspaceEditorRoute(props: WorkspaceEditorRouteProps): JSX.Element {
   const initialForm = selectedWorkspace
     ? createWorkspaceFormState(selectedWorkspace, props.workspaceDisplays)
     : createNewWorkspaceForm(props.workspaces, props.t);
-  return <WorkspaceEditor key={id ?? "new"} {...props} initialForm={initialForm} />;
+  return (
+    <WorkspaceEditor
+      key={id ?? "new"}
+      {...props}
+      initialForm={initialForm}
+      persistedSlots={selectedWorkspace?.slots}
+    />
+  );
 }
 
 function WorkspaceEditor({
@@ -108,10 +116,15 @@ function WorkspaceEditor({
   statusByRole,
   t,
   workspaceDisplays,
-  onSave
-}: WorkspaceEditorRouteProps & { initialForm: WorkspaceFormState }): JSX.Element {
+  onSave,
+  persistedSlots
+}: WorkspaceEditorRouteProps & {
+  initialForm: WorkspaceFormState;
+  persistedSlots?: LaunchWorkspaceSlot[];
+}): JSX.Element {
   const navigate = useNavigate();
   const initialFormRef = useRef(initialForm);
+  const persistedSlotsRef = useRef(persistedSlots ?? initialForm.slots);
   const [form, setForm] = useState(initialForm);
   const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
   const canSubmit = form.name.trim().length > 0;
@@ -123,6 +136,27 @@ function WorkspaceEditor({
     tone: "destructive" as const
   }), [t]);
   const allowNavigation = useUnsavedChangesGuard(isDirty, confirmationOptions, isSaving);
+
+  useEffect(() => {
+    if (!persistedSlots || persistedSlotsRef.current === persistedSlots) {
+      return;
+    }
+
+    const previousPersistedSlots = persistedSlotsRef.current;
+    setForm((current) => ({
+      ...current,
+      slots: mergeWorkspaceRoleZoomOverrides(current.slots, previousPersistedSlots, persistedSlots)
+    }));
+    initialFormRef.current = {
+      ...initialFormRef.current,
+      slots: mergeWorkspaceRoleZoomOverrides(
+        initialFormRef.current.slots,
+        previousPersistedSlots,
+        persistedSlots
+      )
+    };
+    persistedSlotsRef.current = persistedSlots;
+  }, [persistedSlots]);
 
   function handleCancel(): void {
     navigate("/workspaces", { replace: true });
@@ -253,6 +287,16 @@ function WorkspaceLayoutFormEditor({
 
   function handleClearSelectedSlot(): void {
     updateSlots(assignRoleToWorkspaceSlot(slots, selectedSlotIndex, undefined));
+  }
+
+  function handleClearSelectedSlotBrowserZoom(): void {
+    updateSlots(slots.map((slot, index) => {
+      if (index !== selectedSlotIndex) {
+        return slot;
+      }
+      const { browserZoomPercent: _browserZoomPercent, ...nextSlot } = slot;
+      return nextSlot;
+    }));
   }
 
   function handleSlotDragStart(event: ReactDragEvent, slotIndex: number): void {
@@ -597,6 +641,36 @@ function WorkspaceLayoutFormEditor({
               <Eraser size={15} />
             </Button>
           </div>
+          {selectedSlot?.roleId ? (
+            <div className="px-4 pb-3">
+              <div className="glass-control flex items-center justify-between gap-3 rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-foreground">{t("workspaces.roleBrowserZoom")}</p>
+                  <p className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
+                    {selectedSlot.browserZoomPercent === undefined
+                      ? t("workspaces.roleBrowserZoomInherited").replace(
+                          "{value}",
+                          form.browserZoomMode === "adaptive"
+                            ? t("workspaces.browserZoomAdaptive")
+                            : `${form.browserZoomPercent}%`
+                        )
+                      : `${selectedSlot.browserZoomPercent}%`}
+                  </p>
+                </div>
+                {selectedSlot.browserZoomPercent !== undefined ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={isSaving}
+                    onClick={handleClearSelectedSlotBrowserZoom}
+                  >
+                    {t("workspaces.roleBrowserZoomFollow")}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <div
             data-workspace-role-scroll
             className="max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto min-[1180px]:min-h-0 min-[1180px]:max-h-none min-[1180px]:flex-1"

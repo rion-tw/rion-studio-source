@@ -87,7 +87,13 @@ export class WorkspaceLaunchCoordinator {
     try {
       const statuses = await this.options.browserManager.launchWorkspace(
         workspace,
-        launchItems.map(({ role, slot }) => ({ role, rect: slot.rect })),
+        launchItems.map(({ role, slot }) => ({
+          role,
+          rect: slot.rect,
+          ...(slot.browserZoomPercent === undefined
+            ? {}
+            : { browserZoomPercent: slot.browserZoomPercent })
+        })),
         { displayId: targetDisplay.id, workArea: targetDisplay.workArea },
         workspaceLaunchMode
       );

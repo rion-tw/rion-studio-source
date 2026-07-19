@@ -13,6 +13,7 @@ import { MACRO_DELAY_MAX_MS, normalizeMacroSettings } from "../../shared/macroSe
 import { BUILTIN_GAME_DEFINITIONS } from "../../shared/games";
 import {
   areMacroTriggersEqual,
+  isReservedBrowserZoomMacroTrigger,
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../shared/macroShortcuts";
@@ -71,6 +72,7 @@ import {
   getWorkspaceTemplateSlotCount,
   isWorkspaceBrowserZoomMode,
   isWorkspaceBrowserZoomPercent,
+  isWorkspaceSlotBrowserZoomPercent,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
   MIN_WORKSPACE_SLOT_SIZE,
@@ -397,6 +399,9 @@ export class PortableDataManager {
         slots: workspace.slots.map((slot) => ({
           id: slot.id,
           ...(slot.roleId ? { roleId: slot.roleId } : {}),
+          ...(slot.roleId && slot.browserZoomPercent !== undefined
+            ? { browserZoomPercent: slot.browserZoomPercent }
+            : {}),
           rect: { ...slot.rect }
         }))
       })) : [],
@@ -1202,6 +1207,9 @@ function createImportedWorkspace(
     return {
       id: sourceSlot?.id || `slot-${index + 1}`,
       ...(roleId ? { roleId } : {}),
+      ...(roleId && sourceSlot?.browserZoomPercent !== undefined
+        ? { browserZoomPercent: sourceSlot.browserZoomPercent }
+        : {}),
       rect: { ...(sourceSlot?.rect ?? defaultRect) }
     };
   });
@@ -1238,6 +1246,9 @@ function toPortableWorkspace(workspace: LaunchWorkspace): PortableLaunchWorkspac
     slots: workspace.slots.map((slot) => ({
       id: slot.id,
       ...(slot.roleId ? { roleId: slot.roleId } : {}),
+      ...(slot.roleId && slot.browserZoomPercent !== undefined
+        ? { browserZoomPercent: slot.browserZoomPercent }
+        : {}),
       rect: { ...slot.rect }
     }))
   };
@@ -1674,10 +1685,16 @@ function remapWorkspaceResourcePolicy(
 function normalizePortableWorkspaceSlot(value: unknown, index: number): PortableLaunchWorkspace["slots"][number] {
   const slot = toRecord(value);
   const roleId = slot.roleId === undefined ? undefined : normalizeOptionalString(slot.roleId);
+  const browserZoomPercent = slot.browserZoomPercent;
+
+  if (browserZoomPercent !== undefined && !isWorkspaceSlotBrowserZoomPercent(browserZoomPercent)) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
 
   return {
     id: typeof slot.id === "string" && slot.id.trim() ? slot.id.trim() : `slot-${index + 1}`,
     ...(roleId ? { roleId } : {}),
+    ...(roleId && browserZoomPercent !== undefined ? { browserZoomPercent } : {}),
     rect: normalizeRect(slot.rect)
   };
 }
@@ -1689,10 +1706,15 @@ function normalizePortableMacro(value: unknown, supportsKeyModifiers: boolean): 
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 
-  const activationMode = normalizeActivationMode(macro.activationMode);
-  const trigger = macro.trigger === undefined
+  const sourceActivationMode = normalizeActivationMode(macro.activationMode);
+  const sourceTrigger = macro.trigger === undefined
     ? undefined
     : normalizeOptionalTriggerProperty(macro.trigger).trigger;
+  const hasReservedBrowserZoomTrigger = isReservedBrowserZoomMacroTrigger(sourceTrigger);
+  const activationMode = hasReservedBrowserZoomTrigger && sourceActivationMode === "while_held"
+    ? "toggle"
+    : sourceActivationMode;
+  const trigger = hasReservedBrowserZoomTrigger ? undefined : sourceTrigger;
   if (activationMode === "while_held" && !trigger) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }

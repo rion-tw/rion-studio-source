@@ -32,6 +32,7 @@ import type {
   UpdateMacroInput,
   UpdateRoleInput,
   WorkspaceDisplayInfo,
+  LaunchWorkspace,
   WorkspaceLaunchInput,
   LogLevel,
   LogQuery,
@@ -1000,6 +1001,12 @@ function broadcastRuntimeStateChange(state: EmbeddedRuntimeState): void {
 export function broadcastWorkspaceDisplaysChanged(displays: WorkspaceDisplayInfo[]): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.workspacesDisplaysChanged, displays);
+  });
+}
+
+export function broadcastWorkspacesChanged(workspaces: LaunchWorkspace[]): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.workspacesChanged, workspaces);
   });
 }
 

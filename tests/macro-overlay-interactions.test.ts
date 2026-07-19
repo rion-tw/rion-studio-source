@@ -350,11 +350,113 @@ describe("macro overlay interactions", () => {
     expect(canvas.dispatchEvent(systemSpace)).toBe(true);
     expect(systemSpace.defaultPrevented).toBe(false);
 
+    const windowsSystemShortcut = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Home",
+      key: "Home",
+      metaKey: true
+    });
+    expect(canvas.dispatchEvent(windowsSystemShortcut)).toBe(true);
+    expect(windowsSystemShortcut.defaultPrevented).toBe(false);
+
     input.focus();
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "game-input-context",
       active: false
     }));
+  });
+
+  it("blocks macOS browser navigation while preserving system desktop shortcuts", () => {
+    vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    installOverlay(window, vi.fn(async () => ({ macros: [], statuses: [] })));
+    const pageKeyDown = vi.fn();
+    canvas.addEventListener("keydown", pageKeyDown);
+
+    for (const input of [
+      { code: "ArrowLeft", key: "ArrowLeft", metaKey: true },
+      { code: "BracketLeft", key: "[", metaKey: true },
+      { code: "ArrowRight", key: "ArrowRight", altKey: true },
+      { code: "BrowserBack", key: "BrowserBack" }
+    ]) {
+      const event = new window.KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        ...input
+      });
+      expect(canvas.dispatchEvent(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+    }
+
+    const systemDesktopShortcut = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "ArrowLeft",
+      ctrlKey: true,
+      key: "ArrowLeft"
+    });
+    expect(canvas.dispatchEvent(systemDesktopShortcut)).toBe(true);
+    expect(systemDesktopShortcut.defaultPrevented).toBe(false);
+    expect(pageKeyDown).toHaveBeenCalledTimes(5);
+  });
+
+  it("keeps modified wheel input in the game canvas without affecting editable controls", () => {
+    const { canvas } = createGameSurface(document);
+    const input = document.createElement("input");
+    document.body.append(input);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    installOverlay(window, vi.fn(async () => ({ macros: [], statuses: [] })));
+    const canvasWheel = vi.fn();
+    canvas.addEventListener("wheel", canvasWheel);
+
+    const gameWheel = new window.WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: 10
+    });
+    expect(canvas.dispatchEvent(gameWheel)).toBe(false);
+    expect(gameWheel.defaultPrevented).toBe(true);
+    expect(canvasWheel).toHaveBeenCalledOnce();
+
+    input.focus();
+    const editableWheel = new window.WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: 10
+    });
+    expect(input.dispatchEvent(editableWheel)).toBe(true);
+    expect(editableWheel.defaultPrevented).toBe(false);
+  });
+
+  it("does not run legacy macros that use reserved browser zoom shortcuts", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    const legacyZoomMacro: Macro = {
+      ...assignedMacro,
+      trigger: { code: "Equal", ctrl: true, alt: false, shift: true, meta: false }
+    };
+    const binding = vi.fn(async () => ({ macros: [legacyZoomMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const event = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Equal",
+      ctrlKey: true,
+      key: "+",
+      shiftKey: true
+    });
+
+    expect(canvas.dispatchEvent(event)).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(binding).not.toHaveBeenCalledWith({ type: "start", macroId: legacyZoomMacro.id });
   });
 
   it("preserves Flyff text input focus and ignores keyboard events forwarded to the canvas", async () => {

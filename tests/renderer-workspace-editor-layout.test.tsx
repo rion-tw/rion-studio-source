@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import WorkspaceEditorRoute from "../src/renderer/src/features/workspaces/WorkspaceModal";
+import { mergeWorkspaceRoleZoomOverrides } from "../src/renderer/src/features/workspaces/workspaceLayoutUtils";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
 import type { Game, LaunchWorkspace, Role } from "../src/shared/types";
@@ -22,6 +23,22 @@ afterEach(cleanup);
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
+  it("merges runtime zoom changes without overwriting a local reset", () => {
+    const previous = workspace().slots.map((slot) => slot.roleId === "role-1"
+      ? { ...slot, browserZoomPercent: 110 }
+      : slot);
+    const runtimeUpdated = previous.map((slot) => slot.roleId === "role-1"
+      ? { ...slot, browserZoomPercent: 120 }
+      : slot);
+
+    expect(mergeWorkspaceRoleZoomOverrides(previous, previous, runtimeUpdated)[0])
+      .toMatchObject({ browserZoomPercent: 120 });
+
+    const locallyReset = workspace().slots;
+    expect(mergeWorkspaceRoleZoomOverrides(locallyReset, previous, runtimeUpdated)[0])
+      .not.toHaveProperty("browserZoomPercent");
+  });
+
   it("fills the wide role panel, caps the stacked layout, and keeps every role card at a fixed height", () => {
     const roles = Array.from({ length: 7 }, (_value, index) => role(index + 1));
     const selectedWorkspace = workspace();

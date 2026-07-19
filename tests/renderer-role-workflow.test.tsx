@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmationContext, type Confirm } from "../src/renderer/src/components/confirmation";
 import { useRoleWorkflow } from "../src/renderer/src/hooks/useRoleWorkflow";
 import type { Translator } from "../src/renderer/src/i18n";
-import type { AuthFlowStatus, Macro, Role, RoleStatus } from "../src/shared/types";
+import type { AuthFlowStatus, LaunchWorkspace, Macro, Role, RoleStatus } from "../src/shared/types";
 
 afterEach(() => {
   Reflect.deleteProperty(window, "rionStudio");
@@ -37,6 +37,26 @@ describe("useRoleWorkflow", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z"
     }];
+    let workspaces: LaunchWorkspace[] = [{
+      id: "workspace-1",
+      name: "Party",
+      template: "two_columns",
+      browserLaunchMode: "inherit",
+      browserZoomMode: "adaptive",
+      browserZoomPercent: 100,
+      resourcePolicy: { mode: "adaptive" },
+      slots: [
+        {
+          id: "slot-1",
+          roleId: selectedRole.id,
+          browserZoomPercent: 110,
+          rect: { x: 0, y: 0, width: 0.5, height: 1 }
+        },
+        { id: "slot-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    }];
     const deleteRoles = vi.fn().mockResolvedValue({ deletedIds: [selectedRole.id], skipped: [] });
     Object.defineProperty(window, "rionStudio", {
       configurable: true,
@@ -52,6 +72,11 @@ describe("useRoleWorkflow", () => {
     const setMacros = vi.fn((update: Macro[] | ((current: Macro[]) => Macro[])) => {
       macros = typeof update === "function" ? update(macros) : update;
     });
+    const setWorkspaces = vi.fn((
+      update: LaunchWorkspace[] | ((current: LaunchWorkspace[]) => LaunchWorkspace[])
+    ) => {
+      workspaces = typeof update === "function" ? update(workspaces) : update;
+    });
     const { result } = renderHook(() => useRoleWorkflow({
       beginErrorOperation: () => vi.fn(),
       gameNamesById: new Map([["game-1", "Game"]]),
@@ -60,7 +85,7 @@ describe("useRoleWorkflow", () => {
       setMacros,
       setRoles: vi.fn(),
       setStatuses: vi.fn(),
-      setWorkspaces: vi.fn(),
+      setWorkspaces,
       statusByRole: new Map(),
       t: ((key: string) => key) as Translator
     }), { wrapper: ConfirmationWrapper });
@@ -71,6 +96,8 @@ describe("useRoleWorkflow", () => {
 
     expect(deleteRoles).toHaveBeenCalledWith({ ids: [selectedRole.id] });
     expect(macros).toEqual([expect.objectContaining({ id: "macro-1", roleIds: [] })]);
+    expect(workspaces[0].slots[0]).not.toHaveProperty("roleId");
+    expect(workspaces[0].slots[0]).not.toHaveProperty("browserZoomPercent");
   });
 
   it("describes the clear targets and leaves data untouched when cancelled", async () => {

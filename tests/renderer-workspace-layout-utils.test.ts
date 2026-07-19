@@ -149,6 +149,40 @@ describe("renderer workspace layout helpers", () => {
     ]);
   });
 
+  it("moves and clears browser zoom overrides with role assignments", () => {
+    const slots: LaunchWorkspaceSlot[] = [
+      { ...slot("slot-1", "p1"), browserZoomPercent: 110 },
+      { ...slot("slot-2", "p2"), browserZoomPercent: 90 },
+      slot("slot-3")
+    ];
+
+    expect(assignRoleToWorkspaceSlot(slots, 2, "p1")).toEqual([
+      slot("slot-1"),
+      { ...slot("slot-2", "p2"), browserZoomPercent: 90 },
+      { ...slot("slot-3", "p1"), browserZoomPercent: 110 }
+    ]);
+    expect(assignRoleToWorkspaceSlot(slots, 0, undefined)[0]).toEqual(slot("slot-1"));
+    expect(swapWorkspaceSlotRoles(slots, 0, 1)).toEqual([
+      { ...slot("slot-1", "p2"), browserZoomPercent: 90 },
+      { ...slot("slot-2", "p1"), browserZoomPercent: 110 },
+      slot("slot-3")
+    ]);
+    expect(applyWorkspaceTemplate(slots, "two_columns")).toEqual([
+      {
+        id: "slot-1",
+        roleId: "p1",
+        browserZoomPercent: 110,
+        rect: getDefaultWorkspaceRects("two_columns")[0]
+      },
+      {
+        id: "slot-2",
+        roleId: "p2",
+        browserZoomPercent: 90,
+        rect: getDefaultWorkspaceRects("two_columns")[1]
+      }
+    ]);
+  });
+
   it("swaps roles between slots", () => {
     expect(swapWorkspaceSlotRoles([slot("slot-1", "p1"), slot("slot-2")], 0, 1)).toEqual([
       { ...slot("slot-1"), roleId: undefined },

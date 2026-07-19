@@ -59,10 +59,11 @@ import {
   formatMacroIntervalPreset,
   formatMacroModifierLabel,
   formatMacroShortcut,
-  getCallableMacroTargets,
+  getMacroTargetOptions,
   isCallableMacroTarget,
   isMacroIntervalPreset,
   isValidMacroInterval,
+  type MacroTargetOption,
   MACRO_INTERVAL_CUSTOM_VALUE,
   MACRO_INTERVAL_OPTIONS,
   isPureModifierCode
@@ -143,13 +144,6 @@ function MacroEditor({
     );
     if (
       isReferenced &&
-      form.repeat.type === "loop" &&
-      form.id
-    ) {
-      return t("macroForm.saveHint.referencedLoop");
-    }
-    if (
-      isReferenced &&
       form.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")
     ) {
       return t("macroForm.saveHint.referencedHold");
@@ -160,7 +154,7 @@ function MacroEditor({
       return !isCallableMacroTarget(macros, form.id, step.macroId);
     });
     return invalidStep ? t("macroForm.saveHint.invalidMacroTarget") : undefined;
-  }, [form.id, form.repeat.type, form.steps, macros, t]);
+  }, [form.id, form.steps, macros, t]);
   const activationError = form.activationMode === "while_held" && !form.trigger
     ? t("macroForm.saveHint.holdNeedsShortcut")
     : undefined;
@@ -265,10 +259,13 @@ function MacroForm({
     () => form.roleIds.filter((roleId) => !roles.some((role) => role.id === roleId)),
     [form.roleIds, roles]
   );
-  const macroTargets = useMemo(
-    () => getCallableMacroTargets(macros, form.id),
+  const macroTargetOptions = useMemo(
+    () => getMacroTargetOptions(macros, form.id),
     [form.id, macros]
   );
+  const firstCallableMacroTargetId = macroTargetOptions.find(
+    (option) => !option.unavailableReason
+  )?.macro.id;
   const addStepOptions: Array<{
     action?: MacroKeyAction;
     label: string;
@@ -305,7 +302,7 @@ function MacroForm({
   }
 
   function addStep(type: MacroStep["type"], keyAction?: MacroKeyAction): void {
-    const step = createStep(type, undefined, macroTargets[0]?.id, form.activationMode, keyAction);
+    const step = createStep(type, undefined, firstCallableMacroTargetId, form.activationMode, keyAction);
     update((current) => ({ ...current, steps: [...current.steps, step] }));
   }
 
@@ -596,7 +593,7 @@ function MacroForm({
                           isFirst={index === 0}
                           isLast={index === form.steps.length - 1}
                           isSaving={isSaving}
-                          macroTargets={macroTargets}
+                          macroTargetOptions={macroTargetOptions}
                           step={step}
                           t={t}
                           onDragEnd={handleStepDragEnd}
@@ -899,7 +896,7 @@ interface MacroStepEditorProps {
   isFirst: boolean;
   isLast: boolean;
   isSaving: boolean;
-  macroTargets: Macro[];
+  macroTargetOptions: MacroTargetOption[];
   onDragEnd: () => void;
   onMoveDown: () => void;
   onMoveUp: () => void;
@@ -920,7 +917,7 @@ function MacroStepEditor({
   isFirst,
   isLast,
   isSaving,
-  macroTargets,
+  macroTargetOptions,
   onDragEnd,
   onMoveDown,
   onMoveUp,
@@ -965,7 +962,11 @@ function MacroStepEditor({
       <Select
         value={step.type}
         onValueChange={(value) =>
-          onUpdate(createStep(value as MacroStep["type"], step.id, macroTargets[0]?.id))
+          onUpdate(createStep(
+            value as MacroStep["type"],
+            step.id,
+            macroTargetOptions.find((option) => !option.unavailableReason)?.macro.id
+          ))
         }
         disabled={isSaving}
       >
@@ -984,7 +985,7 @@ function MacroStepEditor({
       <MacroStepFields
         className="ml-0 flex-1"
         isSaving={isSaving}
-        macroTargets={macroTargets}
+        macroTargetOptions={macroTargetOptions}
         step={step}
         t={t}
         onUpdate={onUpdate}
@@ -1129,9 +1130,36 @@ function getMacroStepTypeLabel(type: MacroStep["type"], t: Translator): string {
   }
 }
 
+function getMacroTargetOptionLabel(option: MacroTargetOption, t: Translator): string {
+  const details: string[] = [];
+  if (option.macro.repeat.type === "loop") {
+    details.push(t("macroForm.macroTargetRunsOnce"));
+  }
+  if (!option.macro.enabled) {
+    details.push(t("macroForm.macroTargetDisabled"));
+  }
+  switch (option.unavailableReason) {
+    case "self":
+      details.push(t("macroForm.macroTargetSelf"));
+      break;
+    case "hold":
+      details.push(t("macroForm.macroTargetHoldsKey"));
+      break;
+    case "cycle":
+      details.push(t("macroForm.macroTargetCreatesCycle"));
+      break;
+    case "missing":
+      details.push(t("macroForm.macroTargetUnavailable"));
+      break;
+  }
+  return details.length > 0
+    ? `${option.macro.name} (${details.join(" · ")})`
+    : option.macro.name;
+}
+
 function MacroStepFields({
   isSaving,
-  macroTargets,
+  macroTargetOptions,
   className,
   onUpdate,
   step,
@@ -1139,7 +1167,7 @@ function MacroStepFields({
 }: {
   className?: string;
   isSaving: boolean;
-  macroTargets: Macro[];
+  macroTargetOptions: MacroTargetOption[];
   onUpdate: (step: MacroStep) => void;
   step: MacroStep;
   t: Translator;
@@ -1282,10 +1310,11 @@ function MacroStepFields({
   }
 
   if (step.type === "macro") {
-    const selectedTarget = macroTargets.find((macro) => macro.id === step.macroId);
+    const selectedTarget = macroTargetOptions.find((option) => option.macro.id === step.macroId);
+    const hasCallableTarget = macroTargetOptions.some((option) => !option.unavailableReason);
     return (
       <Select
-        disabled={isSaving || macroTargets.length === 0}
+        disabled={isSaving || !hasCallableTarget}
         value={step.macroId || undefined}
         onValueChange={(macroId) => onUpdate({ ...step, macroId })}
       >
@@ -1293,11 +1322,13 @@ function MacroStepFields({
           <SelectValue placeholder={t("macroForm.macroTargetPlaceholder")} />
         </SelectTrigger>
         <SelectContent>
-          {macroTargets.map((macro) => (
-            <SelectItem key={macro.id} value={macro.id}>
-              {macro.enabled
-                ? macro.name
-                : `${macro.name} (${t("macroForm.macroTargetDisabled")})`}
+          {macroTargetOptions.map((option) => (
+            <SelectItem
+              key={option.macro.id}
+              value={option.macro.id}
+              disabled={Boolean(option.unavailableReason)}
+            >
+              {getMacroTargetOptionLabel(option, t)}
             </SelectItem>
           ))}
           {!selectedTarget && step.macroId ? (

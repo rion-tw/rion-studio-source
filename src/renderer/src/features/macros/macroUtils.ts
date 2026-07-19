@@ -21,19 +21,36 @@ export const MACRO_INTERVAL_PRESETS = [0, 250, 500, 1000, 2000, 5000, 10000] as 
 export const MACRO_INTERVAL_CUSTOM_VALUE = "custom";
 export const MACRO_INTERVAL_OPTIONS = [...MACRO_INTERVAL_PRESETS, MACRO_INTERVAL_CUSTOM_VALUE] as const;
 
+export type MacroTargetUnavailableReason = "missing" | "self" | "hold" | "cycle";
+
+export interface MacroTargetOption {
+  macro: Macro;
+  unavailableReason?: MacroTargetUnavailableReason;
+}
+
+export function getMacroTargetUnavailableReason(
+  macros: Macro[],
+  currentMacroId: string | undefined,
+  targetMacroId: string
+): MacroTargetUnavailableReason | undefined {
+  const target = macros.find((macro) => macro.id === targetMacroId);
+  if (!target) return "missing";
+  if (target.id === currentMacroId) return "self";
+  if (target.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")) {
+    return "hold";
+  }
+  if (currentMacroId && macroDependsOn(macros, target.id, currentMacroId)) {
+    return "cycle";
+  }
+  return undefined;
+}
+
 export function isCallableMacroTarget(
   macros: Macro[],
   currentMacroId: string | undefined,
   targetMacroId: string
 ): boolean {
-  const target = macros.find((macro) => macro.id === targetMacroId);
-  return Boolean(
-    target &&
-    target.repeat.type === "once" &&
-    !target.steps.some((step) => step.type === "key" && step.action === "hold_until_stop") &&
-    target.id !== currentMacroId &&
-    !(currentMacroId && macroDependsOn(macros, target.id, currentMacroId))
-  );
+  return getMacroTargetUnavailableReason(macros, currentMacroId, targetMacroId) === undefined;
 }
 
 export function getCallableMacroTargets(
@@ -41,6 +58,16 @@ export function getCallableMacroTargets(
   currentMacroId?: string
 ): Macro[] {
   return macros.filter((macro) => isCallableMacroTarget(macros, currentMacroId, macro.id));
+}
+
+export function getMacroTargetOptions(
+  macros: Macro[],
+  currentMacroId?: string
+): MacroTargetOption[] {
+  return macros.map((macro) => ({
+    macro,
+    unavailableReason: getMacroTargetUnavailableReason(macros, currentMacroId, macro.id)
+  }));
 }
 
 export function isMacroIntervalPreset(value: number): boolean {

@@ -1080,6 +1080,44 @@ describe("MacroManager", () => {
     );
   });
 
+  it("runs one iteration of a looping called macro before continuing the parent", async () => {
+    const parentTarget = createTarget();
+    const childTarget = createTarget();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["role-parent"],
+      steps: [
+        { id: "call", type: "macro", macroId: "child" },
+        { id: "after", type: "key", code: "KeyC" }
+      ]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Looping child",
+      roleIds: ["role-child"],
+      repeat: { type: "loop", intervalMs: 1 },
+      steps: [{ id: "child-key", type: "key", code: "KeyB" }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "role-parent": parentTarget, "role-child": childTarget }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(parentTarget.dispatchKey).toHaveBeenCalledWith(
+      "KeyC",
+      expectInputOptions()
+    ));
+
+    expect(childTarget.dispatchKey).toHaveBeenCalledTimes(1);
+    expect(childTarget.dispatchKey).toHaveBeenCalledWith("KeyB", expectInputOptions());
+    expect(childTarget.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
+      parentTarget.dispatchKey.mock.invocationCallOrder[0]
+    );
+  });
+
   it("decides called-macro timing from each macro's own shortcut", async () => {
     const parentTarget = createTarget();
     const childTarget = createTarget();

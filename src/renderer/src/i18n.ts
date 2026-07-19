@@ -98,7 +98,6 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro step is invalid.": "error.macroStepInvalid",
   "Macro step target is invalid.": "error.macroStepTargetInvalid",
   "Macro step target was not found.": "error.macroStepTargetNotFound",
-  "Macro step target must run once.": "error.macroStepTargetRepeats",
   "Macro step target cannot hold a key until stopped.": "error.macroStepTargetHoldsKey",
   "Macro dependency cycle detected while running a called macro.": "error.macroDependencyCycle",
   "Cancelled because a called macro was stopped.": "error.macroChildStopped",
@@ -224,7 +223,6 @@ export function localizeErrorMessage(message: string, language: Language): strin
   const dynamicMacroErrors: Array<[RegExp, TranslationKey, string]> = [
     [/^Macro is used by: (.+)\.$/, "error.macroInUse", "{names}"],
     [/^Macro dependency cycle: (.+)\.$/, "error.macroDependencyCycleNames", "{names}"],
-    [/^Called macro "(.+)" must run once\.$/, "error.macroChildRepeats", "{name}"],
     [/^Called macro "(.+)" is already running\.$/, "error.macroChildAlreadyRunning", "{name}"]
   ];
   for (const [pattern, key, placeholder] of dynamicMacroErrors) {

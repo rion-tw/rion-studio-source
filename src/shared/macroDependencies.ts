@@ -1,17 +1,12 @@
 import type { Macro } from "./types";
 
-export type MacroDependencyNode = Pick<Macro, "id" | "repeat" | "steps">;
+export type MacroDependencyNode = Pick<Macro, "id" | "steps">;
 
 export type MacroAssignmentNode = Pick<Macro, "id" | "roleIds" | "steps">;
 
 export type MacroDependencyIssue =
   | {
       type: "missing";
-      macroId: string;
-      targetMacroId: string;
-    }
-  | {
-      type: "repeat";
       macroId: string;
       targetMacroId: string;
     }
@@ -39,9 +34,6 @@ export function findMacroDependencyIssue(
       const target = macroById.get(targetMacroId);
       if (!target) {
         return { type: "missing", macroId: macro.id, targetMacroId };
-      }
-      if (target.repeat.type !== "once") {
-        return { type: "repeat", macroId: macro.id, targetMacroId };
       }
       if (target.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")) {
         return { type: "hold", macroId: macro.id, targetMacroId };

@@ -688,7 +688,8 @@ async function initializeApplication(): Promise<void> {
         "Embedded game overlay refresh requested.",
         details
       );
-    }
+    },
+    async () => (await gameBrowserSettingsStore.getSettings()).macroBadgePosition
   );
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
   browserManager.setExternalMacroOverlayInstaller((role, target) => macroOverlayInjector.installExternal(role, target));
@@ -809,6 +810,9 @@ async function initializeApplication(): Promise<void> {
     systemFontService,
     updateManager,
     withDataMutation,
+    onGameBrowserSettingsChanged: () => {
+      macroOverlayInjector.refreshInstalledOverlays(undefined, "game_browser_settings");
+    },
     onMacrosChanged: () => {
       macroOverlayInjector.refreshInstalledOverlays(undefined, "macro_definition");
       void macroStore.listMacros().then(broadcastMacrosChanged);

@@ -4,7 +4,16 @@ import macroOverlayCss from "./overlay/macroOverlay.css?raw";
 import macroOverlayRuntimeSource from "./overlay/macroOverlayRuntime.js?raw";
 
 import { findUnassignedMacroDependency } from "../../shared/macroDependencies";
-import type { AppLanguage, Macro, MacroPageRequest, MacroRunStatus, Role, RoleStatus } from "../../shared/types";
+import { DEFAULT_MACRO_BADGE_POSITION } from "../../shared/macroOverlay";
+import type {
+  AppLanguage,
+  Macro,
+  MacroBadgePositionSettings,
+  MacroPageRequest,
+  MacroRunStatus,
+  Role,
+  RoleStatus
+} from "../../shared/types";
 import type { HeldTriggerReleaseMode, MacroManager } from "./MacroManager";
 import type { MacroStore } from "./MacroStore";
 
@@ -12,6 +21,7 @@ interface MacroOverlayState {
   cpuThrottleRate?: RoleStatus["cpuThrottleRate"];
   detached?: true;
   language?: AppLanguage;
+  macroBadgePosition?: MacroBadgePositionSettings;
   macros: Macro[];
   resourceState?: RoleStatus["resourceState"];
   startSummary?: {
@@ -102,7 +112,8 @@ export class MacroOverlayInjector {
       roleId: string | undefined;
       source: string;
       trailing: boolean;
-    }) => void
+    }) => void,
+    private readonly getMacroBadgePosition?: () => Promise<MacroBadgePositionSettings>
   ) {}
 
   async install(role: Role, webContents: WebContents): Promise<void> {
@@ -449,7 +460,10 @@ export class MacroOverlayInjector {
   }
 
   private async getOverlayState(roleId: string): Promise<MacroOverlayState> {
-    const macros = await this.macroStore.listMacros();
+    const [macros, macroBadgePosition] = await Promise.all([
+      this.macroStore.listMacros(),
+      this.getMacroBadgePosition?.() ?? Promise.resolve({ ...DEFAULT_MACRO_BADGE_POSITION })
+    ]);
     const statuses = this.macroManager.listStatuses();
     const roleStatus = this.getRoleStatus?.(roleId);
     const assignedMacros = macros.filter(
@@ -462,6 +476,7 @@ export class MacroOverlayInjector {
     return {
       cpuThrottleRate: roleStatus?.cpuThrottleRate,
       language: this.language,
+      macroBadgePosition,
       macros: assignedMacros,
       resourceState: roleStatus?.resourceState,
       statuses: statuses.filter((status) => assignedMacroIds.has(status.macroId))

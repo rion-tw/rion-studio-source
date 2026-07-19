@@ -264,6 +264,50 @@ describe("macro editor controls", () => {
     })));
   });
 
+  it("edits shortcut modifiers and the main key independently", async () => {
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    const modifierSelectors = screen.getAllByRole("combobox", { name: "Modifiers" });
+    const keySelectors = screen.getAllByRole("combobox", { name: "Key" });
+    expect(modifierSelectors).toHaveLength(2);
+    expect(keySelectors).toHaveLength(2);
+    expect(modifierSelectors[0].textContent).toContain("No modifiers");
+    expect(keySelectors[0].textContent).toContain("F6");
+
+    fireEvent.click(modifierSelectors[0]);
+    fireEvent.click(getModifierOption("Ctrl + Shift"));
+    fireEvent.click(keySelectors[0]);
+    fireEvent.click(screen.getByRole("option", { name: "F8" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: { code: "F8", ctrl: true, alt: false, shift: true, meta: false }
+    })));
+  });
+
   it("uses the same icon-only record control and switches its active state", () => {
     const selectedMacro = macro({
       trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
@@ -325,7 +369,7 @@ describe("macro editor controls", () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
 
     expect(screen.getByText("Choose a non-modifier main key before adding modifiers.")).toBeTruthy();
-    expect((screen.getByRole("combobox", { name: "Modifiers" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((getStepModifierSelect() as HTMLButtonElement).disabled).toBe(true);
     for (const name of ["Primary (Ctrl)", "Ctrl", "Alt", "Shift", "Meta"]) {
       expect(screen.queryByRole("option", { name })).toBeNull();
     }
@@ -354,7 +398,7 @@ describe("macro editor controls", () => {
       </ConfirmationProvider>
     );
 
-    expect(screen.getByRole("combobox", { name: /^Modifiers/i }).textContent).toContain("No modifiers");
+    expect(getStepModifierSelect().textContent).toContain("No modifiers");
 
     openModifierMenu();
     const optionLabels = screen.getAllByRole("option").map((option) => option.textContent?.trim() ?? "");
@@ -705,10 +749,19 @@ describe("macro editor controls", () => {
 const t: Translator = (key) => en[key];
 
 function openModifierMenu(): void {
-  const trigger = screen.getByRole("combobox", { name: /^Modifiers/i });
+  const trigger = getStepModifierSelect();
   if (trigger.getAttribute("aria-expanded") !== "true") {
     fireEvent.click(trigger);
   }
+}
+
+function getStepModifierSelect(): HTMLElement {
+  const selectors = screen.getAllByRole("combobox", { name: /^Modifiers/i });
+  const selector = selectors.at(-1);
+  if (!selector) {
+    throw new Error("Step modifier selector was not found.");
+  }
+  return selector;
 }
 
 function getModifierOption(name: string): HTMLElement {

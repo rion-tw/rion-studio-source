@@ -459,10 +459,19 @@ export interface WorkspaceAppearanceSettings {
   gap: WorkspaceGapSize;
 }
 
+export type MacroBadgeHorizontalAlign = "left" | "center" | "right";
+
+export interface MacroBadgePositionSettings {
+  horizontalAlign: MacroBadgeHorizontalAlign;
+  horizontalMarginPercent: number;
+  topPercent: number;
+}
+
 export interface GameBrowserSettings {
   fonts: BrowserFontSettings;
   graphics: BrowserGraphicsSettings;
   launchMode: BrowserLaunchMode;
+  macroBadgePosition: MacroBadgePositionSettings;
   network: BrowserNetworkSettings;
   workspace: WorkspaceAppearanceSettings;
 }

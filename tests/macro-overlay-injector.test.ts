@@ -9,7 +9,13 @@ import {
   shouldIgnoreMacroShortcutEvent,
   type MacroOverlayRequest
 } from "../src/main/macros/MacroOverlayInjector";
-import type { Macro, MacroRunStatus, Role, RoleStatus } from "../src/shared/types";
+import type {
+  Macro,
+  MacroBadgePositionSettings,
+  MacroRunStatus,
+  Role,
+  RoleStatus
+} from "../src/shared/types";
 
 type AnyMock = Mock;
 
@@ -105,6 +111,21 @@ describe("MacroOverlayInjector", () => {
     await vi.waitFor(() =>
       expect(host.evaluate).toHaveBeenCalledWith("void window.__rionStudioMacroOverlay?.refresh?.()")
     );
+  });
+
+  it("includes the current macro badge position in overlay state", async () => {
+    const macroBadgePosition: MacroBadgePositionSettings = {
+      horizontalAlign: "right",
+      horizontalMarginPercent: 10,
+      topPercent: 35
+    };
+    const injector = createInjector({
+      getMacroBadgePosition: vi.fn().mockResolvedValue(macroBadgePosition)
+    });
+
+    await expect(injector.handleRequest(role.id, { type: "list" })).resolves.toMatchObject({
+      macroBadgePosition
+    });
   });
 
   it("coalesces a dense external refresh burst to one in-flight and one trailing request", async () => {
@@ -505,7 +526,7 @@ describe("MacroOverlayInjector", () => {
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v43"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.12"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.1"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -671,7 +692,8 @@ function createInjector({
     stop: vi.fn().mockResolvedValue(undefined)
   },
   onMacroPageRequested,
-  onEmbeddedRefresh
+  onEmbeddedRefresh,
+  getMacroBadgePosition
 }: {
   macroManager?: {
     listStatuses: AnyMock;
@@ -684,6 +706,7 @@ function createInjector({
   getRoleStatus?: (roleId: string) => RoleStatus | undefined;
   onMacroPageRequested?: AnyMock;
   onEmbeddedRefresh?: AnyMock;
+  getMacroBadgePosition?: () => Promise<MacroBadgePositionSettings>;
 } = {}): MacroOverlayInjector {
   const roleAwareMacroManager = {
     listStatuses: macroManager.listStatuses,
@@ -709,7 +732,8 @@ function createInjector({
     onMacroPageRequested,
     getRoleStatus,
     undefined,
-    onEmbeddedRefresh
+    onEmbeddedRefresh,
+    getMacroBadgePosition
   );
 }
 

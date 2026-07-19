@@ -100,6 +100,32 @@ describe("macro overlay interactions", () => {
     expect(root.querySelector(".macro-row")).toBeNull();
   });
 
+  it("positions active badges from the shared overlay state", async () => {
+    createGameSurface(document);
+    const binding = vi.fn(async () => ({
+      macroBadgePosition: {
+        horizontalAlign: "right",
+        horizontalMarginPercent: 10,
+        topPercent: 35
+      },
+      macros: [assignedMacro],
+      statuses: [runningStatus()]
+    }));
+    const controller = installOverlay(window, binding);
+
+    await controller.refresh();
+
+    const badges = getOverlayRoot(document).querySelector<HTMLElement>(".active-badges");
+    expect(badges).not.toBeNull();
+    expect(badges).toMatchObject({
+      hidden: false
+    });
+    expect(badges?.style.top).toBe("35%");
+    expect(badges?.style.left).toBe("auto");
+    expect(badges?.style.right).toBe("10%");
+    expect(badges?.style.transform).toBe("none");
+  });
+
   it("opens the app from Ctrl+Shift+M and consumes the shortcut", async () => {
     createGameSurface(document);
     const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses: [] }));

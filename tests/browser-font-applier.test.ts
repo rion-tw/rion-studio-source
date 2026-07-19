@@ -14,6 +14,7 @@ import {
   DEFAULT_BROWSER_NETWORK_SETTINGS,
   DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 } from "../src/shared/browserFonts";
+import { DEFAULT_MACRO_BADGE_POSITION } from "../src/shared/macroOverlay";
 import type { GameBrowserSettings } from "../src/shared/types";
 
 const customSettings: GameBrowserSettings = {
@@ -29,6 +30,7 @@ const customSettings: GameBrowserSettings = {
   },
   graphics: { mode: "automatic" },
   launchMode: "auto",
+  macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
   network: DEFAULT_BROWSER_NETWORK_SETTINGS,
   workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 };
@@ -85,6 +87,7 @@ describe("applyBrowserFontSettingsToPreferences", () => {
           fonts: { families: {}, mode: "default" },
           graphics: { mode: "automatic" },
           launchMode: "auto",
+          macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
           network: DEFAULT_BROWSER_NETWORK_SETTINGS,
           workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
         }
@@ -151,6 +154,7 @@ describe("BrowserFontApplier", () => {
         fonts: { families: {}, mode: "default" },
         graphics: { mode: "automatic" },
         launchMode: "auto",
+        macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
         network: DEFAULT_BROWSER_NETWORK_SETTINGS,
         workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
       })
@@ -160,6 +164,7 @@ describe("BrowserFontApplier", () => {
       fonts: { families: {}, mode: "default" },
       graphics: { mode: "automatic" },
       launchMode: "auto",
+      macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
       network: DEFAULT_BROWSER_NETWORK_SETTINGS,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { IPC_CHANNELS } from "../src/shared/ipc";
+import { DEFAULT_MACRO_BADGE_POSITION } from "../src/shared/macroOverlay";
 import type { AuthManager } from "../src/main/auth/AuthManager";
 import {
   BrowserWorkspaceDisplayOccupiedError,
@@ -1127,6 +1128,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
   };
   let getGraphicsDiagnostics: AnyMock;
   let restartApplication: AnyMock;
+  let onGameBrowserSettingsChanged: AnyMock;
   const settings: GameBrowserSettings = {
     fonts: {
       families: {
@@ -1137,6 +1139,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     },
     graphics: { mode: "automatic" },
     launchMode: "auto",
+    macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
     network: DEFAULT_BROWSER_NETWORK_SETTINGS,
     workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
   };
@@ -1184,6 +1187,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     };
     getGraphicsDiagnostics = vi.fn().mockResolvedValue({ appliedMode: "automatic" });
     restartApplication = vi.fn();
+    onGameBrowserSettingsChanged = vi.fn();
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -1195,7 +1199,8 @@ describe("registerIpcHandlers game browser settings handlers", () => {
         macroSettingsStore,
         getGraphicsDiagnostics,
         restartApplication,
-        systemFontService
+        systemFontService,
+        onGameBrowserSettingsChanged
       }
     );
   });
@@ -1212,6 +1217,7 @@ describe("registerIpcHandlers game browser settings handlers", () => {
     expect(macroSettingsStore.getSettings).toHaveBeenCalledTimes(1);
     expect(macroSettingsStore.updateSettings).toHaveBeenCalledWith(macroSettings);
     expect(browserManager.setWorkspaceAppearanceSettings).toHaveBeenCalledWith(settings.workspace);
+    expect(onGameBrowserSettingsChanged).toHaveBeenCalledTimes(1);
     expect(systemFontService.listFonts).toHaveBeenCalledTimes(1);
   });
 
@@ -1333,6 +1339,7 @@ describe("registerIpcHandlers portable data handlers", () => {
   let onMacrosChanged: AnyMock;
   let onRolesChanged: AnyMock;
   let onWorkspacesChanged: AnyMock;
+  let onGameBrowserSettingsChanged: AnyMock;
 
   beforeEach(() => {
     handlers.clear();
@@ -1381,6 +1388,7 @@ describe("registerIpcHandlers portable data handlers", () => {
     onMacrosChanged = vi.fn();
     onRolesChanged = vi.fn();
     onWorkspacesChanged = vi.fn();
+    onGameBrowserSettingsChanged = vi.fn();
 
     registerIpcHandlers(
       roleStore as RoleStore,
@@ -1390,6 +1398,7 @@ describe("registerIpcHandlers portable data handlers", () => {
       {
         gameBrowserSettingsStore,
         onMacrosChanged,
+        onGameBrowserSettingsChanged,
         onRolesChanged,
         onWorkspacesChanged,
         portableDataManager
@@ -1435,6 +1444,7 @@ describe("registerIpcHandlers portable data handlers", () => {
       },
       graphics: { mode: "automatic" },
       launchMode: "auto",
+      macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
       network: DEFAULT_BROWSER_NETWORK_SETTINGS,
       workspace: { background: "black", gap: 16 }
     };
@@ -1466,5 +1476,6 @@ describe("registerIpcHandlers portable data handlers", () => {
     expect(onRolesChanged).not.toHaveBeenCalled();
     expect(onWorkspacesChanged).not.toHaveBeenCalled();
     expect(onMacrosChanged).not.toHaveBeenCalled();
+    expect(onGameBrowserSettingsChanged).toHaveBeenCalledTimes(1);
   });
 });

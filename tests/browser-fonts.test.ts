@@ -53,6 +53,7 @@ describe("browser font settings normalization", () => {
       },
       graphics: { mode: "automatic" },
       launchMode: "auto",
+      macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
       network: DEFAULT_BROWSER_NETWORK_SETTINGS,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });
@@ -65,6 +66,31 @@ describe("browser font settings normalization", () => {
       normalizeGameBrowserSettings({ launchMode: "turbo" }, { ...DEFAULT_GAME_BROWSER_SETTINGS, launchMode: "embedded" })
         .launchMode
     ).toBe("embedded");
+  });
+
+  it("normalizes macro badge position options and falls back for invalid values", () => {
+    expect(
+      normalizeGameBrowserSettings({
+        macroBadgePosition: {
+          horizontalAlign: "right",
+          horizontalMarginPercent: 15,
+          topPercent: 65
+        }
+      }).macroBadgePosition
+    ).toEqual({
+      horizontalAlign: "right",
+      horizontalMarginPercent: 15,
+      topPercent: 65
+    });
+    expect(
+      normalizeGameBrowserSettings({
+        macroBadgePosition: {
+          horizontalAlign: "diagonal",
+          horizontalMarginPercent: 3,
+          topPercent: 81
+        }
+      }).macroBadgePosition
+    ).toEqual(DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition);
   });
 
   it("defaults legacy graphics settings and validates acceleration modes", () => {

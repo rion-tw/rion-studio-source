@@ -18,6 +18,7 @@ import {
   LaunchWorkspaceStore
 } from "../src/main/workspaces/LaunchWorkspaceStore";
 import { DEFAULT_BROWSER_NETWORK_SETTINGS } from "../src/shared/browserFonts";
+import { DEFAULT_MACRO_BADGE_POSITION } from "../src/shared/macroOverlay";
 import { MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
 import type {
   PortableDataSelection,
@@ -103,6 +104,11 @@ describe("PortableDataManager", () => {
           },
           graphics: { mode: "high_performance" },
           launchMode: "external",
+          macroBadgePosition: {
+            horizontalAlign: "right",
+            horizontalMarginPercent: 10,
+            topPercent: 35
+          },
           network: DEFAULT_BROWSER_NETWORK_SETTINGS,
           workspace: { background: "black", gap: 1 }
         },
@@ -133,6 +139,11 @@ describe("PortableDataManager", () => {
               standard: "Arial"
             },
             mode: "custom"
+          },
+          macroBadgePosition: {
+            horizontalAlign: "right",
+            horizontalMarginPercent: 10,
+            topPercent: 35
           },
           workspace: { background: "black", gap: 1 }
         },
@@ -1341,6 +1352,7 @@ describe("PortableDataManager", () => {
         },
         graphics: { mode: "automatic" },
         launchMode: "auto",
+        macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
         network: DEFAULT_BROWSER_NETWORK_SETTINGS,
         workspace: { background: "black", gap: 16 }
       }

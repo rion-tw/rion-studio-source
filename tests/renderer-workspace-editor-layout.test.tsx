@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -23,7 +23,7 @@ afterEach(cleanup);
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
-  it("merges runtime zoom changes without overwriting a local reset", () => {
+  it("merges background runtime zoom changes into hidden form state", () => {
     const previous = workspace().slots.map((slot) => slot.roleId === "role-1"
       ? { ...slot, browserZoomPercent: 110 }
       : slot);
@@ -34,14 +34,18 @@ describe("workspace editor role picker layout", () => {
     expect(mergeWorkspaceRoleZoomOverrides(previous, previous, runtimeUpdated)[0])
       .toMatchObject({ browserZoomPercent: 120 });
 
-    const locallyReset = workspace().slots;
-    expect(mergeWorkspaceRoleZoomOverrides(locallyReset, previous, runtimeUpdated)[0])
-      .not.toHaveProperty("browserZoomPercent");
+    const locallyResized = previous.map((slot, index) => index === 0
+      ? { ...slot, rect: { ...slot.rect, width: 0.55 } }
+      : slot);
+    expect(mergeWorkspaceRoleZoomOverrides(locallyResized, previous, runtimeUpdated)[0])
+      .toMatchObject({ browserZoomPercent: 120, rect: { width: 0.55 } });
   });
 
-  it("fills the wide role panel, caps the stacked layout, and keeps every role card at a fixed height", () => {
+  it("hides role zoom while preserving it through workspace saves", async () => {
     const roles = Array.from({ length: 7 }, (_value, index) => role(index + 1));
     const selectedWorkspace = workspace();
+    selectedWorkspace.slots[0].browserZoomPercent = 96;
+    const onSave = vi.fn().mockResolvedValue(undefined);
     const router = createMemoryRouter(
       [
         {
@@ -55,7 +59,7 @@ describe("workspace editor role picker layout", () => {
               t={t}
               workspaceDisplays={[]}
               workspaces={[selectedWorkspace]}
-              onSave={vi.fn()}
+              onSave={onSave}
             />
           )
         }
@@ -78,6 +82,9 @@ describe("workspace editor role picker layout", () => {
     expect(screen.getByRole("combobox", { name: "Browser zoom" }).textContent).toContain(
       "Adaptive (recommended)"
     );
+    expect(screen.queryByText("Role zoom")).toBeNull();
+    expect(screen.queryByText("Follow workspace")).toBeNull();
+    expect(screen.queryByText("96%")).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Initial primary" })).toBeNull();
     expect(screen.queryByText("Primary")).toBeNull();
     expect(rolePanel?.className).toContain("flex-col");
@@ -97,6 +104,10 @@ describe("workspace editor role picker layout", () => {
       expect(button.className).toContain("h-[52px]");
       expect(button.getAttribute("draggable")).toBe("true");
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].slots[0]).toMatchObject({ browserZoomPercent: 96 });
 
     fireEvent.click(roleButtons[2]);
 

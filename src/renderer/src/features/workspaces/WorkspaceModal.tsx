@@ -289,16 +289,6 @@ function WorkspaceLayoutFormEditor({
     updateSlots(assignRoleToWorkspaceSlot(slots, selectedSlotIndex, undefined));
   }
 
-  function handleClearSelectedSlotBrowserZoom(): void {
-    updateSlots(slots.map((slot, index) => {
-      if (index !== selectedSlotIndex) {
-        return slot;
-      }
-      const { browserZoomPercent: _browserZoomPercent, ...nextSlot } = slot;
-      return nextSlot;
-    }));
-  }
-
   function handleSlotDragStart(event: ReactDragEvent, slotIndex: number): void {
     dragPayloadRef.current = { slotIndex };
     event.dataTransfer.setData("application/x-rion-workspace-slot", String(slotIndex));
@@ -641,36 +631,6 @@ function WorkspaceLayoutFormEditor({
               <Eraser size={15} />
             </Button>
           </div>
-          {selectedSlot?.roleId ? (
-            <div className="px-4 pb-3">
-              <div className="glass-control flex items-center justify-between gap-3 rounded-lg px-3 py-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-foreground">{t("workspaces.roleBrowserZoom")}</p>
-                  <p className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
-                    {selectedSlot.browserZoomPercent === undefined
-                      ? t("workspaces.roleBrowserZoomInherited").replace(
-                          "{value}",
-                          form.browserZoomMode === "adaptive"
-                            ? t("workspaces.browserZoomAdaptive")
-                            : `${form.browserZoomPercent}%`
-                        )
-                      : `${selectedSlot.browserZoomPercent}%`}
-                  </p>
-                </div>
-                {selectedSlot.browserZoomPercent !== undefined ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isSaving}
-                    onClick={handleClearSelectedSlotBrowserZoom}
-                  >
-                    {t("workspaces.roleBrowserZoomFollow")}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
           <div
             data-workspace-role-scroll
             className="max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto min-[1180px]:min-h-0 min-[1180px]:max-h-none min-[1180px]:flex-1"

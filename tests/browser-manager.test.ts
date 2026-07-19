@@ -454,8 +454,8 @@ describe("BrowserManager game host windows", () => {
 
     harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
       valid: true,
-      yOffset: 0,
-      heightInset: 0
+      yOffset: 40,
+      heightInset: 40
     });
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
@@ -623,8 +623,8 @@ describe("BrowserManager game host windows", () => {
 
     harness.nativeChromeControllers[0].getContentLayout.mockReturnValue({
       valid: true,
-      yOffset: 0,
-      heightInset: 0
+      yOffset: 40,
+      heightInset: 40
     });
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.hosts[0].contentBounds).toEqual(fixedRootBounds);
@@ -724,7 +724,120 @@ describe("BrowserManager game host windows", () => {
     );
   });
 
-  it("coalesces native AppKit layout changes during fullscreen transitions", async () => {
+  it("keeps auto-hide overlaid while entering fullscreen and follows AppKit while exiting", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      deferFullscreenTransitions: true,
+      platform: "darwin",
+      useMacNativeChrome: true,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+    const popup = createOAuthPopup(harness.views[0], harness.views);
+    const divider = harness.views[2];
+    const controller = harness.nativeChromeControllers[0];
+    controller.getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 6,
+      heightInset: 6
+    });
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+    expect(popup.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+    expect(divider.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+
+    harness.views[0].setBounds.mockClear();
+    popup.setBounds.mockClear();
+    divider.setBounds.mockClear();
+    controller.emitContentLayout({ valid: true, yOffset: 40, heightInset: 40 });
+    controller.emitContentLayout({ valid: true, yOffset: 8, heightInset: 8 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
+    expect(popup.setBounds).not.toHaveBeenCalled();
+    expect(divider.setBounds).not.toHaveBeenCalled();
+
+    controller.getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 0,
+      heightInset: 0
+    });
+    harness.hosts[0].completeFullScreenTransition();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+    expect(popup.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+    expect(divider.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+
+    harness.views[0].setBounds.mockClear();
+    popup.setBounds.mockClear();
+    divider.setBounds.mockClear();
+    controller.emitContentLayout({ valid: true, yOffset: 40, heightInset: 40 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
+    expect(popup.setBounds).not.toHaveBeenCalled();
+    expect(divider.setBounds).not.toHaveBeenCalled();
+
+    controller.getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 20,
+      heightInset: 20
+    });
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 20, height: 756 })
+    );
+    expect(popup.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 20, height: 756 })
+    );
+    expect(divider.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 20, height: 756 })
+    );
+
+    harness.views[0].setBounds.mockClear();
+    popup.setBounds.mockClear();
+    divider.setBounds.mockClear();
+    controller.emitContentLayout({ valid: true, yOffset: 8, heightInset: 8 });
+    controller.emitContentLayout({ valid: true, yOffset: 8, heightInset: 8 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.views[0].setBounds).toHaveBeenCalledOnce();
+    expect(popup.setBounds).toHaveBeenCalledOnce();
+    expect(divider.setBounds).toHaveBeenCalledOnce();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 8, height: 768 })
+    );
+    expect(popup.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 8, height: 768 })
+    );
+    expect(divider.setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 8, height: 768 })
+    );
+
+    controller.getContentLayout.mockReturnValue({
+      valid: true,
+      yOffset: 8,
+      heightInset: 8
+    });
+    harness.hosts[0].completeFullScreenTransition();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 8, height: 768 })
+    );
+  });
+
+  it("follows AppKit layout changes while always-show enters and exits fullscreen", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       deferFullscreenTransitions: true,
@@ -735,6 +848,8 @@ describe("BrowserManager game host windows", () => {
     });
     await harness.manager.launch(role);
     const controller = harness.nativeChromeControllers[0];
+    harness.manager.setAlwaysShowToolbarInFullScreen(true);
+
     controller.getContentLayout.mockReturnValue({
       valid: true,
       yOffset: 6,
@@ -748,32 +863,21 @@ describe("BrowserManager game host windows", () => {
     harness.views[0].setBounds.mockClear();
     controller.emitContentLayout({ valid: true, yOffset: 4, heightInset: 4 });
     controller.emitContentLayout({ valid: true, yOffset: 3, heightInset: 3 });
-    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(harness.views[0].setBounds).toHaveBeenCalledOnce();
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
       expect.objectContaining({ y: 3, height: 773 })
     );
 
-    harness.views[0].setBounds.mockClear();
-    controller.emitContentLayout({ valid: false, yOffset: 0, heightInset: 0 });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
-
     controller.getContentLayout.mockReturnValue({
       valid: true,
-      yOffset: 0,
-      heightInset: 0
+      yOffset: 40,
+      heightInset: 40
     });
     harness.hosts[0].completeFullScreenTransition();
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
-      expect.objectContaining({ y: 0, height: 776 })
+      expect.objectContaining({ y: 40, height: 736 })
     );
-
-    harness.views[0].setBounds.mockClear();
-    controller.emitContentLayout({ valid: true, yOffset: 40, heightInset: 40 });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(harness.views[0].setBounds).not.toHaveBeenCalled();
 
     controller.getContentLayout.mockReturnValue({
       valid: true,
@@ -786,7 +890,6 @@ describe("BrowserManager game host windows", () => {
     );
 
     harness.views[0].setBounds.mockClear();
-    controller.emitContentLayout({ valid: true, yOffset: 8, heightInset: 8 });
     controller.emitContentLayout({ valid: true, yOffset: 8, heightInset: 8 });
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(harness.views[0].setBounds).toHaveBeenCalledOnce();

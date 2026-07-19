@@ -10,6 +10,6 @@
 .active-badge-name{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .active-badge-behavior{display:block;flex:0 0 auto;font-size:inherit;}
 @keyframes active-badge-border-flash{0%,100%{border-color:rgba(255,255,255,.14);}35%{border-color:rgba(255,255,255,.62);}}
-.active-badge.is-iteration-flash{animation:active-badge-border-flash var(--active-badge-flash-duration,120ms) ease-out;}
+.active-badge.is-iteration-flash{animation:active-badge-border-flash var(--active-badge-flash-duration,120ms) ease-out var(--active-badge-flash-delay,0ms) 1 both;}
 @media (prefers-reduced-motion:reduce){.active-badge.is-iteration-flash{animation:none;}}
 [hidden]{display:none!important;}

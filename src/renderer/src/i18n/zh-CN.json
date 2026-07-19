@@ -365,7 +365,7 @@
   "settings.aboutLegalDescription": "查看 App 身份、法律文件、隐私做法及第三方软件声明。",
   "settings.description": "调整界面、游戏、数据与更新设置，不更改既有角色数据。",
   "settings.interface": "界面设置",
-  "settings.interfaceDescription": "选择应用程序主题、界面语言与工作区外观。",
+  "settings.interfaceDescription": "选择应用程序主题、界面语言、浏览器字体与工作区外观。",
   "settings.game": "游戏设置",
   "settings.gameDescription": "设置新增角色与启动游戏浏览器时使用的默认值。",
   "settings.macros": "宏设置",

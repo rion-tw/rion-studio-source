@@ -369,7 +369,7 @@
   "settings.aboutLegalDescription": "查看 App 身分、法律文件、隱私做法及第三方軟體聲明。",
   "settings.description": "調整介面、遊戲、資料與更新設定，不變更既有角色資料。",
   "settings.interface": "介面設定",
-  "settings.interfaceDescription": "選擇應用程式主題、介面語言與工作區外觀。",
+  "settings.interfaceDescription": "選擇應用程式主題、介面語言、瀏覽器字體與工作區外觀。",
   "settings.game": "遊戲設定",
   "settings.gameDescription": "設定新增角色與啟動遊戲瀏覽器時使用的預設值。",
   "settings.macros": "巨集設定",

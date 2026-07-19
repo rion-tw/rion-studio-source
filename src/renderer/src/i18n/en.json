@@ -124,6 +124,7 @@
   "workspaces.browserZoom": "Browser zoom",
   "workspaces.browserZoomDescription": "Adapt to each viewport width. Embedded views update while resizing; external Chrome recalculates when relaunched. Or choose a fixed scale.",
   "workspaces.browserZoomAdaptive": "Adaptive (recommended)",
+  "workspaces.roleZoomShortcutHint": "After launching a role, click its embedded viewport and use Command +/−/0 on macOS or Ctrl +/−/0 on Windows to adjust that role's game zoom. The zoom is saved to this workspace automatically and restored the next time the role launches.",
   "workspaces.resourceMode": "Resource policy",
   "workspaces.resourceModeDescription": "Keep visible roles at full speed and automatically reduce CPU use for inactive Rion tabs.",
   "workspaces.resourceModeAdaptive": "Adaptive (recommended)",

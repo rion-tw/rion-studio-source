@@ -86,8 +86,14 @@ describe("MacroOverlayInjector", () => {
     await expect(requestHandler?.({ type: "start", macroId: assignedMacro.id })).resolves.toMatchObject({
       macros: [{ id: assignedMacro.id }]
     });
+    await expect(requestHandler?.({ type: "game-input-context", active: true })).resolves.toEqual({
+      macros: [],
+      statuses: []
+    });
     await requestHandler?.({ type: "open" });
     await expect(requestHandler?.({ type: "unknown" })).rejects.toThrow("Invalid macro overlay request");
+    await expect(requestHandler?.({ type: "game-input-context", active: "yes" }))
+      .rejects.toThrow("Invalid macro overlay request");
     await expect(requestHandler?.({
       type: "release",
       macroId: assignedMacro.id,
@@ -500,8 +506,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v33"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.1"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v34"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.2"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');

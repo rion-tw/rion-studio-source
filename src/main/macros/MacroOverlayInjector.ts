@@ -37,6 +37,10 @@ export interface ExternalMacroOverlayHost {
 
 export type MacroOverlayRequest =
   | {
+      active: boolean;
+      type: "game-input-context";
+    }
+  | {
       type: "list";
     }
   | {
@@ -222,6 +226,8 @@ export class MacroOverlayInjector {
 
   async handleRequest(roleId: string, request: MacroOverlayRequest): Promise<MacroOverlayState> {
     switch (request.type) {
+      case "game-input-context":
+        return { macros: [], statuses: [] };
       case "list":
         break;
       case "open":
@@ -473,11 +479,15 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
     return false;
   }
   const request = value as {
+    active?: unknown;
     type?: unknown;
     macroId?: unknown;
     pressId?: unknown;
     releaseMode?: unknown;
   };
+  if (request.type === "game-input-context") {
+    return typeof request.active === "boolean";
+  }
   if (request.type === "list" || request.type === "open") {
     return true;
   }

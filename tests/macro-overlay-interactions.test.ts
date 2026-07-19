@@ -47,7 +47,8 @@ describe("macro overlay interactions", () => {
 
   it("leaves game pointer events and focus untouched", () => {
     const { button, canvas } = createGameSurface(document);
-    installOverlay(window);
+    const binding = vi.fn(async () => ({ macros: [], statuses: [] }));
+    installOverlay(window, binding);
     const pagePointerDown = vi.fn();
     document.addEventListener("pointerdown", pagePointerDown);
     button.focus();
@@ -60,6 +61,11 @@ describe("macro overlay interactions", () => {
     expect(pagePointerDown).toHaveBeenCalledOnce();
     expect(document.activeElement).toBe(button);
     expect(document.activeElement).not.toBe(canvas);
+
+    const canvasPointerDown = createMouseEvent(window, "pointerdown");
+    expect(canvas.dispatchEvent(canvasPointerDown)).toBe(true);
+    expect(canvasPointerDown.defaultPrevented).toBe(false);
+    expect(binding).toHaveBeenCalledWith({ type: "game-input-context", active: true });
   });
 
   it("opens the app once from a physical trigger click without rendering an action menu", async () => {
@@ -219,6 +225,105 @@ describe("macro overlay interactions", () => {
     expect(pageKeyUp).toHaveBeenCalledOnce();
     expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({
       type: expect.stringMatching(/^(?:start|stop|press|release)$/)
+    }));
+  });
+
+  it("prevents browser defaults on a focused game canvas without hiding key events from the game", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses: [] }));
+    installOverlay(window, binding);
+    const pageKeyDown = vi.fn();
+    const pageKeyUp = vi.fn();
+    document.addEventListener("keydown", pageKeyDown);
+    document.addEventListener("keyup", pageKeyUp);
+
+    const protectedInputs = [
+      { code: "Tab", key: "Tab" },
+      { code: "Tab", key: "Tab", repeat: true },
+      { code: "Tab", key: "Tab", shiftKey: true },
+      { code: "Space", key: " " },
+      { code: "ArrowDown", key: "ArrowDown" },
+      { code: "PageDown", key: "PageDown" },
+      { code: "Home", key: "Home" },
+      { code: "Backspace", key: "Backspace" },
+      { altKey: true, code: "ArrowLeft", key: "ArrowLeft" }
+    ];
+
+    for (const input of protectedInputs) {
+      const event = new window.KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        ...input
+      });
+      expect(canvas.dispatchEvent(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+    }
+
+    const keyUp = new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "Tab",
+      key: "Tab"
+    });
+    expect(canvas.dispatchEvent(keyUp)).toBe(true);
+
+    document.removeEventListener("keydown", pageKeyDown);
+    document.removeEventListener("keyup", pageKeyUp);
+    expect(document.activeElement).toBe(canvas);
+    expect(pageKeyDown).toHaveBeenCalledTimes(protectedInputs.length);
+    expect(pageKeyUp).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "game-input-context",
+      active: true
+    }));
+  });
+
+  it("leaves editable controls and operating-system switch shortcuts untouched", async () => {
+    const { canvas } = createGameSurface(document);
+    const input = document.createElement("input");
+    document.body.append(input);
+    const binding = vi.fn(async () => ({ macros: [], statuses: [] }));
+    installOverlay(window, binding);
+
+    input.focus();
+    const editableTab = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Tab",
+      key: "Tab"
+    });
+    expect(input.dispatchEvent(editableTab)).toBe(true);
+    expect(editableTab.defaultPrevented).toBe(false);
+
+    canvas.tabIndex = -1;
+    canvas.focus();
+    for (const modifiers of [{ metaKey: true }, { altKey: true }]) {
+      const systemTab = new window.KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        code: "Tab",
+        key: "Tab",
+        ...modifiers
+      });
+      expect(canvas.dispatchEvent(systemTab)).toBe(true);
+      expect(systemTab.defaultPrevented).toBe(false);
+    }
+    const systemSpace = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Space",
+      key: " ",
+      metaKey: true
+    });
+    expect(canvas.dispatchEvent(systemSpace)).toBe(true);
+    expect(systemSpace.defaultPrevented).toBe(false);
+
+    input.focus();
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "game-input-context",
+      active: false
     }));
   });
 
@@ -489,7 +594,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v33")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v34")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -555,7 +660,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v33")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v34")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

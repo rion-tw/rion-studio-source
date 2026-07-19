@@ -634,6 +634,20 @@ static void *RionRuntimeContentLayoutObservationContext =
 
 @end
 
+static BOOL RionRuntimeUsesDarkAppearance(NSAppearance *appearance) {
+  NSAppearanceName match = [appearance
+      bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua,
+                                           NSAppearanceNameDarkAqua ]];
+  return [match isEqualToString:NSAppearanceNameDarkAqua];
+}
+
+static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
+                                        CGFloat lightAlpha,
+                                        CGFloat darkAlpha) {
+  return [NSColor colorWithCalibratedWhite:darkAppearance ? 1.0 : 0.0
+                                     alpha:darkAppearance ? darkAlpha : lightAlpha];
+}
+
 @implementation RionRuntimeSurfaceView {
   BOOL _active;
   CGFloat _cornerRadius;
@@ -707,21 +721,50 @@ static void *RionRuntimeContentLayoutObservationContext =
 }
 
 - (void)applyAppearanceAnimated:(BOOL)animate {
+  NSAppearance *appearance = self.effectiveAppearance;
+  BOOL darkAppearance = RionRuntimeUsesDarkAppearance(appearance);
+  BOOL increaseContrast =
+      NSWorkspace.sharedWorkspace.accessibilityDisplayShouldIncreaseContrast;
   BOOL reduceTransparency =
       NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency;
   BOOL reduceMotion =
       NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
-  CGFloat accentAlpha = _active ? (_windowActive ? 0.08 : 0.045)
-                                : _hovered ? (_windowActive ? 0.035 : 0.025) : 0.0;
-  NSColor *tint = accentAlpha > 0
-                      ? [NSColor.controlAccentColor colorWithAlphaComponent:accentAlpha]
-                      : nil;
+  CGFloat activeFillAlpha = darkAppearance
+                                ? (increaseContrast ? 0.12 : 0.075)
+                                : (increaseContrast ? 0.075 : 0.045);
+  CGFloat hoverFillAlpha = darkAppearance
+                               ? (increaseContrast ? 0.065 : 0.045)
+                               : (increaseContrast ? 0.045 : 0.025);
+  CGFloat activeBorderAlpha = darkAppearance
+                                  ? (increaseContrast ? 0.24 : 0.16)
+                                  : (increaseContrast ? 0.18 : 0.12);
+  CGFloat hoverBorderAlpha = darkAppearance
+                                 ? (increaseContrast ? 0.16 : 0.11)
+                                 : (increaseContrast ? 0.13 : 0.08);
+  CGFloat visibility = _windowActive ? 1.0 : 0.65;
+  CGFloat fillAlpha = _active
+                          ? activeFillAlpha * visibility
+                          : _hovered ? hoverFillAlpha * visibility : 0.0;
+  CGFloat borderAlpha = _active
+                            ? activeBorderAlpha * visibility
+                            : _hovered ? hoverBorderAlpha * visibility : 0.0;
+  NSColor *neutralTint = fillAlpha > 0
+                             ? RionRuntimeNeutralColor(darkAppearance,
+                                                       fillAlpha,
+                                                       fillAlpha)
+                             : nil;
+  NSColor *surfaceFill = neutralTint ?: NSColor.clearColor;
+  NSColor *borderColor = borderAlpha > 0
+                             ? RionRuntimeNeutralColor(darkAppearance,
+                                                       borderAlpha,
+                                                       borderAlpha)
+                             : NSColor.clearColor;
 
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
   if (@available(macOS 26.0, *)) {
     if (_usesLiquidGlass) {
       NSGlassEffectView *glass = (NSGlassEffectView *)_effectView;
-      glass.tintColor = tint;
+      glass.tintColor = neutralTint;
       glass.alphaValue = _windowActive ? 1.0 : 0.82;
     }
   }
@@ -730,20 +773,20 @@ static void *RionRuntimeContentLayoutObservationContext =
     NSVisualEffectView *material = (NSVisualEffectView *)_effectView;
     material.material = reduceTransparency
                             ? NSVisualEffectMaterialWindowBackground
-                            : _active ? NSVisualEffectMaterialSelection
-                                      : NSVisualEffectMaterialTitlebar;
-    material.emphasized = _active && _windowActive;
-    material.alphaValue = _windowActive ? 0.96 : 0.78;
+                            : NSVisualEffectMaterialTitlebar;
+    material.emphasized = NO;
+    material.alphaValue = _windowActive
+                              ? (reduceTransparency || increaseContrast ? 1.0 : 0.96)
+                              : 0.78;
+    material.layer.backgroundColor = surfaceFill.CGColor;
   }
 
-  NSColor *borderColor = _active
-                             ? [NSColor.separatorColor colorWithAlphaComponent:
-                                                        _windowActive ? 0.25 : 0.17]
-                             : [NSColor.separatorColor colorWithAlphaComponent:
-                                                        _hovered ? 0.20 : 0.10];
   void (^updates)(void) = ^{
     self.layer.cornerRadius = self->_cornerRadius;
-    self.layer.borderWidth = self->_active ? 0.65 : 0.45;
+    self.layer.backgroundColor = surfaceFill.CGColor;
+    self.layer.borderWidth = self->_active
+                                 ? (increaseContrast ? 0.85 : 0.65)
+                                 : self->_hovered ? 0.5 : 0.0;
     self.layer.borderColor = borderColor.CGColor;
     self.layer.opacity = 1.0;
   };
@@ -803,6 +846,7 @@ static void *RionRuntimeContentLayoutObservationContext =
   _badgeView.wantsLayer = YES;
   _badgeView.layer.cornerRadius = 8.0;
   _badgeView.layer.masksToBounds = YES;
+  _badgeView.layer.borderWidth = 0.55;
   RionRuntimeVerticallyCenteredTextFieldCell *badgeCell =
       [[RionRuntimeVerticallyCenteredTextFieldCell alloc] initTextCell:@""];
   badgeCell.alignment = NSTextAlignmentCenter;
@@ -963,9 +1007,25 @@ static void *RionRuntimeContentLayoutObservationContext =
                               ? (_windowActive ? NSColor.labelColor
                                                : NSColor.secondaryLabelColor)
                               : NSColor.secondaryLabelColor;
-  _badgeField.textColor = NSColor.secondaryLabelColor;
-  _badgeView.layer.backgroundColor =
-      [NSColor.quaternaryLabelColor colorWithAlphaComponent:0.15].CGColor;
+  NSAppearance *appearance = self.effectiveAppearance;
+  BOOL darkAppearance = RionRuntimeUsesDarkAppearance(appearance);
+  BOOL increaseContrast =
+      NSWorkspace.sharedWorkspace.accessibilityDisplayShouldIncreaseContrast;
+  NSColor *badgeFill = [NSColor.systemPurpleColor
+      colorWithAlphaComponent:darkAppearance
+                            ? (increaseContrast ? 0.32 : 0.24)
+                            : (increaseContrast ? 0.20 : 0.14)];
+  NSColor *badgeBorder = [NSColor.systemPurpleColor
+      colorWithAlphaComponent:darkAppearance
+                            ? (increaseContrast ? 0.58 : 0.42)
+                            : (increaseContrast ? 0.40 : 0.28)];
+  _badgeField.textColor = [NSColor.labelColor
+      colorWithAlphaComponent:darkAppearance ? 0.94 : 0.86];
+  [appearance performAsCurrentDrawingAppearance:^{
+    self->_badgeView.layer.backgroundColor = badgeFill.CGColor;
+    self->_badgeView.layer.borderColor = badgeBorder.CGColor;
+  }];
+  _badgeView.layer.borderWidth = increaseContrast ? 0.8 : 0.55;
   CGFloat moreAlpha = self.activeTab ? 0.46 : _hovered ? 0.76 : 0.0;
   BOOL reduceMotion =
       NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;

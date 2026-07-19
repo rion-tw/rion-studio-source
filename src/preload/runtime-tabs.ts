@@ -301,13 +301,16 @@ function installStyles(): void {
       --runtime-bar-highlight: rgba(255,255,255,.045);
       --runtime-edge: rgba(255,255,255,.095);
       --runtime-tab-hover: rgba(255,255,255,.065);
-      --runtime-tab-active: rgba(255,255,255,.115);
-      --runtime-tab-border: rgba(255,255,255,.11);
+      --runtime-tab-active: rgba(255,255,255,.075);
+      --runtime-tab-border: rgba(255,255,255,.14);
       --runtime-tab-divider: rgba(255,255,255,.075);
-      --runtime-tab-highlight: rgba(255,255,255,.075);
+      --runtime-tab-highlight: rgba(255,255,255,.065);
       --runtime-control-hover: rgba(255,255,255,.1);
       --runtime-focus: rgba(138,180,255,.72);
-      --runtime-workspace: #9bbcff;
+      --runtime-workspace: #c6a4ff;
+      --runtime-badge-fill: rgba(186,140,255,.22);
+      --runtime-badge-border: rgba(210,181,255,.36);
+      --runtime-badge-text: rgba(247,241,255,.95);
     }
     * { box-sizing: border-box; }
     html, body, #runtime-tabs-root { height: 100%; margin: 0; overflow: hidden; }
@@ -424,7 +427,18 @@ function installStyles(): void {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .runtime-tab-count { color: var(--runtime-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+    .runtime-tab-count {
+      background: var(--runtime-badge-fill);
+      border: 1px solid var(--runtime-badge-border);
+      border-radius: 999px;
+      color: var(--runtime-badge-text);
+      font-size: 9px;
+      font-variant-numeric: tabular-nums;
+      line-height: 14px;
+      min-width: 18px;
+      padding: 0 5px;
+      text-align: center;
+    }
     .runtime-tab-count:empty { display: none; }
     .runtime-icon-button {
       align-items: center;
@@ -458,13 +472,16 @@ function installStyles(): void {
         --runtime-bar-highlight: rgba(255,255,255,.34);
         --runtime-edge: rgba(26,28,34,.1);
         --runtime-tab-hover: rgba(20,22,28,.052);
-        --runtime-tab-active: rgba(255,255,255,.68);
-        --runtime-tab-border: rgba(24,26,32,.095);
+        --runtime-tab-active: rgba(24,26,32,.045);
+        --runtime-tab-border: rgba(24,26,32,.11);
         --runtime-tab-divider: rgba(24,26,32,.075);
-        --runtime-tab-highlight: rgba(255,255,255,.52);
+        --runtime-tab-highlight: rgba(255,255,255,.42);
         --runtime-control-hover: rgba(20,22,28,.07);
         --runtime-focus: rgba(36,99,235,.62);
-        --runtime-workspace: #3867bd;
+        --runtime-workspace: #7652ae;
+        --runtime-badge-fill: rgba(126,87,194,.14);
+        --runtime-badge-border: rgba(126,87,194,.28);
+        --runtime-badge-text: rgba(82,51,132,.95);
       }
     }
     @media (prefers-reduced-transparency: reduce) {

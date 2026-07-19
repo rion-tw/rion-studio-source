@@ -6,6 +6,7 @@ import type {
   BaseWindowConstructorOptions,
   BrowserWindow,
   BrowserWindowConstructorOptions,
+  KeyboardEvent as ElectronKeyboardEvent,
   Session,
   WebContents,
   WebContentsView,
@@ -113,6 +114,12 @@ export type WorkspaceRoleZoomPersister = (
   roleId: string,
   browserZoomPercent: WorkspaceSlotBrowserZoomPercent
 ) => Promise<void>;
+export type NativeZoomPerformer = (
+  action: NativeZoomShortcutAction,
+  window: BaseWindow,
+  webContents: WebContents,
+  event: ElectronKeyboardEvent
+) => boolean;
 
 export interface BrowserManagerOptions {
   applyBrowserFonts?: (role: Role, partition: string) => Promise<void>;
@@ -150,6 +157,7 @@ export interface BrowserManagerOptions {
     context: EmbeddedRuntimeDiagnosticContext,
     webContents: WebContents
   ) => void;
+  performNativeZoom?: NativeZoomPerformer;
   persistWorkspaceRoleZoom?: WorkspaceRoleZoomPersister;
   resourcePressureMonitor?: SystemPressureSource;
 }
@@ -347,6 +355,20 @@ export function classifyNativeZoomShortcut(
     return "reset";
   }
   return undefined;
+}
+
+export function isExpectedNativeZoomResult(
+  action: NativeZoomShortcutAction,
+  previousPercent: number,
+  nextPercent: number
+): boolean {
+  if (action === "reset") {
+    return nextPercent === 100;
+  }
+  if (action === "in") {
+    return nextPercent > previousPercent || (previousPercent >= 300 && nextPercent === previousPercent);
+  }
+  return nextPercent < previousPercent || (previousPercent <= 50 && nextPercent === previousPercent);
 }
 
 function getWorkspaceWindowMaterialOptions(
@@ -2626,17 +2648,46 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         return;
       }
 
-      session.zoomMode = "fixed";
-      const protectedGameInput = this.isProtectedGameInputActive(session, webContents);
-      if (protectedGameInput) {
-        webContents.setIgnoreMenuShortcuts(false);
+      let previousPercent: number;
+      try {
+        previousPercent = Math.round(webContents.getZoomFactor() * 100);
+      } catch (error) {
+        console.warn("Failed to read browser zoom before the native action.", error);
+        return;
+      }
+
+      webContents.setIgnoreMenuShortcuts(true);
+      let didPerformNativeZoom = false;
+      try {
+        didPerformNativeZoom = this.options.performNativeZoom?.(
+          zoomAction,
+          host.window,
+          webContents,
+          {
+            altKey: input.alt,
+            ctrlKey: input.control,
+            metaKey: input.meta,
+            shiftKey: input.shift,
+            triggeredByAccelerator: true
+          }
+        ) ?? false;
+      } catch (error) {
+        console.warn("Failed to execute native browser zoom for the game role.", error);
       }
 
       setImmediate(() => {
-        if (protectedGameInput && !webContents.isDestroyed()) {
+        if (!webContents.isDestroyed()) {
           webContents.setIgnoreMenuShortcuts(this.isProtectedGameInputActive(session, webContents));
         }
         if (webContents.isDestroyed()) {
+          return;
+        }
+
+        if (!didPerformNativeZoom) {
+          console.warn("Native browser zoom was unavailable for the game role.", {
+            roleId: session.role.id,
+            zoomAction
+          });
           return;
         }
 
@@ -2649,7 +2700,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
             });
             return;
           }
+          if (!isExpectedNativeZoomResult(zoomAction, previousPercent, browserZoomPercent)) {
+            this.setSessionZoomFactor(session, session.zoomFactor);
+            console.warn("Native browser zoom did not change the targeted game role as expected.", {
+              browserZoomPercent,
+              previousPercent,
+              roleId: session.role.id,
+              zoomAction
+            });
+            return;
+          }
 
+          session.zoomMode = "fixed";
           this.setSessionZoomFactor(session, browserZoomPercent / 100);
           this.scheduleWorkspaceRoleZoomPersistence(host, session, browserZoomPercent);
         } catch (error) {

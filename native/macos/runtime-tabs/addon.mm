@@ -14,11 +14,12 @@
 
 namespace {
 
-constexpr int32_t kProtocolVersion = 3;
+constexpr int32_t kProtocolVersion = 4;
 
 struct ControllerRecord {
   __strong RionRuntimeTabsController *controller = nil;
   napi_ref callback = nullptr;
+  napi_ref content_layout_callback = nullptr;
 };
 
 std::unordered_map<int64_t, std::unique_ptr<ControllerRecord>> controllers;
@@ -125,6 +126,21 @@ napi_value NSDictionaryValue(napi_env env, NSDictionary<NSString *, id> *diction
   return result;
 }
 
+napi_value ContentLayoutValue(napi_env env, RionRuntimeContentLayout layout) {
+  napi_value result;
+  napi_value height_inset;
+  napi_value valid;
+  napi_value y_offset;
+  napi_create_object(env, &result);
+  napi_create_double(env, layout.heightInset, &height_inset);
+  napi_get_boolean(env, layout.valid, &valid);
+  napi_create_double(env, layout.yOffset, &y_offset);
+  napi_set_named_property(env, result, "heightInset", height_inset);
+  napi_set_named_property(env, result, "valid", valid);
+  napi_set_named_property(env, result, "yOffset", y_offset);
+  return result;
+}
+
 void EmitAction(int64_t controller_id,
                 NSDictionary<NSString *, id> *action) {
   auto iterator = controllers.find(controller_id);
@@ -137,6 +153,25 @@ void EmitAction(int64_t controller_id,
           napi_ok &&
       napi_get_global(addon_env, &global) == napi_ok) {
     napi_value argument = NSDictionaryValue(addon_env, action);
+    napi_value ignored;
+    napi_call_function(addon_env, global, callback, 1, &argument, &ignored);
+  }
+  napi_close_handle_scope(addon_env, scope);
+}
+
+void EmitContentLayout(int64_t controller_id,
+                       RionRuntimeContentLayout layout) {
+  auto iterator = controllers.find(controller_id);
+  if (iterator == controllers.end() || !addon_env) return;
+  napi_handle_scope scope;
+  if (napi_open_handle_scope(addon_env, &scope) != napi_ok) return;
+  napi_value callback;
+  napi_value global;
+  if (napi_get_reference_value(addon_env,
+                               iterator->second->content_layout_callback,
+                               &callback) == napi_ok &&
+      napi_get_global(addon_env, &global) == napi_ok) {
+    napi_value argument = ContentLayoutValue(addon_env, layout);
     napi_value ignored;
     napi_call_function(addon_env, global, callback, 1, &argument, &ignored);
   }
@@ -205,12 +240,12 @@ RionRuntimeTabsState *ParseState(napi_env env, napi_value value) {
 }
 
 napi_value CreateController(napi_env env, napi_callback_info info) {
-  size_t argc = 2;
-  napi_value args[2];
+  size_t argc = 3;
+  napi_value args[3];
   if (!Check(env, napi_get_cb_info(env, info, &argc, args, nullptr, nullptr),
              "Unable to read controller arguments.") ||
-      argc != 2) {
-    Throw(env, "createController requires a window handle and callback.");
+      argc != 3) {
+    Throw(env, "createController requires a window handle and two callbacks.");
     return nullptr;
   }
   void *buffer_data = nullptr;
@@ -225,6 +260,12 @@ napi_value CreateController(napi_env env, napi_callback_info info) {
   napi_typeof(env, args[1], &callback_type);
   if (callback_type != napi_function) {
     Throw(env, "The native runtime tabs action callback must be a function.");
+    return nullptr;
+  }
+  napi_valuetype content_layout_callback_type;
+  napi_typeof(env, args[2], &content_layout_callback_type);
+  if (content_layout_callback_type != napi_function) {
+    Throw(env, "The native content layout callback must be a function.");
     return nullptr;
   }
 
@@ -243,14 +284,25 @@ napi_value CreateController(napi_env env, napi_callback_info info) {
              "Unable to retain the runtime tabs callback.")) {
     return nullptr;
   }
+  if (!Check(env,
+             napi_create_reference(env, args[2], 1,
+                                   &record->content_layout_callback),
+             "Unable to retain the content layout callback.")) {
+    napi_delete_reference(env, record->callback);
+    return nullptr;
+  }
   __weak NSWindow *weak_window = window;
   record->controller = [[RionRuntimeTabsController alloc]
       initWithWindow:weak_window
        actionHandler:^(NSDictionary<NSString *, id> *action) {
     EmitAction(controller_id, action);
+  }
+       contentLayoutHandler:^(RionRuntimeContentLayout layout) {
+    EmitContentLayout(controller_id, layout);
   }];
   if (!record->controller) {
     napi_delete_reference(env, record->callback);
+    napi_delete_reference(env, record->content_layout_callback);
     Throw(env, "Unable to attach the native runtime tabs titlebar.");
     return nullptr;
   }
@@ -334,27 +386,17 @@ napi_value SetRevealLocked(napi_env env, napi_callback_info info) {
   return Undefined(env);
 }
 
-napi_value GetWindowedContentLayout(napi_env env, napi_callback_info info) {
+napi_value GetContentLayout(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value args[1];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   if (argc != 1) {
-    Throw(env, "getWindowedContentLayout requires an identifier.");
+    Throw(env, "getContentLayout requires an identifier.");
     return nullptr;
   }
   ControllerRecord *record = GetController(env, args[0]);
   if (!record) return nullptr;
-  RionRuntimeContentLayout layout =
-      [record->controller windowedContentLayout];
-  napi_value result;
-  napi_value height_inset;
-  napi_value y_offset;
-  napi_create_object(env, &result);
-  napi_create_double(env, layout.heightInset, &height_inset);
-  napi_create_double(env, layout.yOffset, &y_offset);
-  napi_set_named_property(env, result, "heightInset", height_inset);
-  napi_set_named_property(env, result, "yOffset", y_offset);
-  return result;
+  return ContentLayoutValue(env, [record->controller contentLayout]);
 }
 
 napi_value DestroyController(napi_env env, napi_callback_info info) {
@@ -371,6 +413,7 @@ napi_value DestroyController(napi_env env, napi_callback_info info) {
   if (iterator == controllers.end()) return Undefined(env);
   [iterator->second->controller destroy];
   napi_delete_reference(env, iterator->second->callback);
+  napi_delete_reference(env, iterator->second->content_layout_callback);
   controllers.erase(iterator);
   return Undefined(env);
 }
@@ -380,6 +423,9 @@ void Cleanup(void *data) {
   for (auto &entry : controllers) {
     [entry.second->controller destroy];
     if (entry.second->callback) napi_delete_reference(addon_env, entry.second->callback);
+    if (entry.second->content_layout_callback) {
+      napi_delete_reference(addon_env, entry.second->content_layout_callback);
+    }
   }
   controllers.clear();
   addon_env = nullptr;
@@ -394,7 +440,7 @@ napi_value Initialize(napi_env env, napi_value exports) {
        napi_default, nullptr},
       {"prepareFullscreenTransition", nullptr, PrepareFullscreenTransition,
        nullptr, nullptr, nullptr, napi_default, nullptr},
-      {"getWindowedContentLayout", nullptr, GetWindowedContentLayout, nullptr,
+      {"getContentLayout", nullptr, GetContentLayout, nullptr,
        nullptr, nullptr, napi_default, nullptr},
       {"setFullscreenPolicy", nullptr, SetFullscreenPolicy, nullptr, nullptr,
        nullptr, napi_default, nullptr},

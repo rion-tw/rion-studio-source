@@ -44,7 +44,7 @@ static std::unordered_map<Class, IMP>
 
 RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
     NSRect contentBounds, NSRect contentLayoutRect, BOOL contentViewFlipped) {
-  RionRuntimeContentLayout result = {0, 0};
+  RionRuntimeContentLayout result = {0, 0, NO};
   const CGFloat contentHeight = NSHeight(contentBounds);
   if (!std::isfinite(NSMinX(contentBounds)) ||
       !std::isfinite(NSMinY(contentBounds)) ||
@@ -69,6 +69,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
   result.yOffset = MIN(maximumInset, MAX(0.0, round(topInset)));
   result.heightInset = MIN(maximumInset,
                            MAX(result.yOffset, round(totalInset)));
+  result.valid = YES;
   return result;
 }
 
@@ -363,6 +364,7 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
                   fromFrameView:(nullable NSView *)frameView;
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
+- (void)scheduleContentLayoutNotification;
 - (void)scheduleLiquidGlassTitlebarRehost;
 - (BOOL)setCustomTitlebarHeight:(CGFloat)height
                     onFrameView:(nullable NSView *)frameView;
@@ -399,6 +401,8 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 
 static void *RionRuntimeTrafficLightObservationContext =
     &RionRuntimeTrafficLightObservationContext;
+static void *RionRuntimeContentLayoutObservationContext =
+    &RionRuntimeContentLayoutObservationContext;
 
 @implementation RionRuntimeBackdropView
 
@@ -918,6 +922,7 @@ static void *RionRuntimeTrafficLightObservationContext =
 
 @implementation RionRuntimeTabsController {
   RionRuntimeTabsActionHandler _actionHandler;
+  RionRuntimeContentLayoutHandler _contentLayoutHandler;
   NSTitlebarAccessoryViewController *_accessoryController;
   RionRuntimeSurfaceView *_addSurface;
   RionRuntimeAddButton *_addButton;
@@ -931,6 +936,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   NSMutableDictionary<NSNumber *, NSValue *> *_windowedTrafficLightFrames;
   NSToolbar *_fullscreenToolbar;
   NSToolbar *_toolbar;
+  dispatch_block_t _pendingContentLayoutNotification;
   RionRuntimeDraggableView *_tabCanvas;
   NSMutableArray<RionRuntimeTabItemView *> *_tabItems;
   NSScrollView *_tabScrollView;
@@ -952,14 +958,19 @@ static void *RionRuntimeTrafficLightObservationContext =
   __weak NSWindow *_window;
   NSMutableArray<id> *_windowObservers;
   BOOL _destroyed;
+  BOOL _contentLayoutObserved;
   BOOL _enforcingTrafficLightVisibility;
+  BOOL _hasLastNotifiedContentLayout;
   BOOL _fullscreenTransitionActive;
+  RionRuntimeContentLayout _lastNotifiedContentLayout;
   CGFloat _stableTrafficLightReserveWidth;
 }
 
 - (nullable instancetype)initWithWindow:(NSWindow *)window
-                           actionHandler:(RionRuntimeTabsActionHandler)actionHandler {
-  if (!window || !actionHandler) return nil;
+                           actionHandler:(RionRuntimeTabsActionHandler)actionHandler
+                    contentLayoutHandler:
+                        (RionRuntimeContentLayoutHandler)contentLayoutHandler {
+  if (!window || !actionHandler || !contentLayoutHandler) return nil;
   self = [super init];
   if (!self) return nil;
 
@@ -977,6 +988,7 @@ static void *RionRuntimeTrafficLightObservationContext =
   }
   [self ensureTitlebarHeightOverride];
   _actionHandler = [actionHandler copy];
+  _contentLayoutHandler = [contentLayoutHandler copy];
   _observedTrafficLightButtons = [NSMutableArray array];
   _originalTrafficLightStates = [NSMutableDictionary dictionary];
   _windowedTrafficLightFrames = [NSMutableDictionary dictionary];
@@ -1356,6 +1368,12 @@ static void *RionRuntimeTrafficLightObservationContext =
 }
 
 - (void)installWindowObservers {
+  [_window addObserver:self
+            forKeyPath:@"contentLayoutRect"
+               options:NSKeyValueObservingOptionNew
+               context:RionRuntimeContentLayoutObservationContext];
+  _contentLayoutObserved = YES;
+
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   __weak RionRuntimeTabsController *weakSelf = self;
   NSArray<NSNotificationName> *names = @[
@@ -1376,6 +1394,7 @@ static void *RionRuntimeTrafficLightObservationContext =
       if (!strongSelf) return;
       if ([notification.name isEqualToString:NSWindowDidResizeNotification]) {
         [strongSelf layoutTitlebarContent];
+        [strongSelf scheduleContentLayoutNotification];
       } else if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] ||
                  [notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
         if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] &&
@@ -2066,6 +2085,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
     _toolbar.visible = NO;
     [self removeTrafficLightObservationRestoringState:NO];
+    [self scheduleContentLayoutNotification];
     return;
   }
 
@@ -2086,8 +2106,8 @@ static void *RionRuntimeTrafficLightObservationContext =
   [self applyFullScreenPolicy];
 }
 
-- (RionRuntimeContentLayout)windowedContentLayout {
-  RionRuntimeContentLayout emptyLayout = {0, 0};
+- (RionRuntimeContentLayout)contentLayout {
+  RionRuntimeContentLayout emptyLayout = {0, 0, NO};
   if (_destroyed || !_window) return emptyLayout;
 
   NSView *contentView = _window.contentView;
@@ -2103,6 +2123,41 @@ static void *RionRuntimeTrafficLightObservationContext =
   return RionRuntimeContentLayoutForRects(contentView.bounds,
                                           contentLayoutRect,
                                           contentView.isFlipped);
+}
+
+- (void)scheduleContentLayoutNotification {
+  if (_destroyed || !_window || !_contentLayoutHandler ||
+      _pendingContentLayoutNotification) {
+    return;
+  }
+
+  __weak RionRuntimeTabsController *weakSelf = self;
+  dispatch_block_t notification =
+      dispatch_block_create((dispatch_block_flags_t)0, ^{
+        RionRuntimeTabsController *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (strongSelf->_destroyed || !strongSelf->_contentLayoutHandler) {
+          strongSelf->_pendingContentLayoutNotification = nil;
+          return;
+        }
+
+        RionRuntimeContentLayout layout = [strongSelf contentLayout];
+        RionRuntimeContentLayout previous =
+            strongSelf->_lastNotifiedContentLayout;
+        if (strongSelf->_hasLastNotifiedContentLayout &&
+            previous.valid == layout.valid &&
+            previous.heightInset == layout.heightInset &&
+            previous.yOffset == layout.yOffset) {
+          strongSelf->_pendingContentLayoutNotification = nil;
+          return;
+        }
+        strongSelf->_lastNotifiedContentLayout = layout;
+        strongSelf->_hasLastNotifiedContentLayout = YES;
+        strongSelf->_contentLayoutHandler(layout);
+        strongSelf->_pendingContentLayoutNotification = nil;
+      });
+  _pendingContentLayoutNotification = notification;
+  dispatch_async(dispatch_get_main_queue(), notification);
 }
 
 - (void)applyFullScreenPolicy {
@@ -2124,13 +2179,14 @@ static void *RionRuntimeTrafficLightObservationContext =
 
     if (self.alwaysShowInFullScreen) {
       // Keep Electron's root content full-size for both fullscreen policies.
-      // BrowserManager reserves this 40pt row in its child View layout for
-      // always-show, avoiding AppKit's stale fullscreen content-rect cache.
+      // BrowserManager follows AppKit's contentLayoutRect for the static-safe
+      // child View area while this row remains visible.
       _accessoryController.fullScreenMinHeight = kRionTitlebarHeight;
       _window.styleMask |= NSWindowStyleMaskFullSizeContentView;
       [self revealToolbarAndOrderBelowAccessory];
       [self synchronizeFullScreenTitlebarGeometry];
       [self updateTrafficLightObservation];
+      [self scheduleContentLayoutNotification];
       return;
     }
 
@@ -2146,6 +2202,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     }
     [self synchronizeFullScreenTitlebarGeometry];
     [self removeTrafficLightObservationRestoringState:NO];
+    [self scheduleContentLayoutNotification];
     return;
   }
 
@@ -2165,6 +2222,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     _toolbar.visible = NO;
   }
   [self updateTrafficLightObservation];
+  [self scheduleContentLayoutNotification];
 }
 
 - (void)updateTrafficLightObservation {
@@ -2286,6 +2344,13 @@ static void *RionRuntimeTrafficLightObservationContext =
     }
     return;
   }
+  if (context == RionRuntimeContentLayoutObservationContext) {
+    (void)keyPath;
+    (void)object;
+    (void)change;
+    [self scheduleContentLayoutNotification];
+    return;
+  }
   [super observeValueForKeyPath:keyPath
                        ofObject:object
                          change:change
@@ -2295,6 +2360,16 @@ static void *RionRuntimeTrafficLightObservationContext =
 - (void)destroy {
   if (_destroyed) return;
   _destroyed = YES;
+  if (_pendingContentLayoutNotification) {
+    dispatch_block_cancel(_pendingContentLayoutNotification);
+    _pendingContentLayoutNotification = nil;
+  }
+  if (_contentLayoutObserved && _window) {
+    [_window removeObserver:self
+                 forKeyPath:@"contentLayoutRect"
+                    context:RionRuntimeContentLayoutObservationContext];
+    _contentLayoutObserved = NO;
+  }
   NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
   for (id observer in _windowObservers) [center removeObserver:observer];
   [_windowObservers removeAllObjects];
@@ -2329,6 +2404,7 @@ static void *RionRuntimeTrafficLightObservationContext =
     }
   }
   _actionHandler = nil;
+  _contentLayoutHandler = nil;
 }
 
 - (void)dealloc {

@@ -23,6 +23,7 @@
 - (void)layoutTitlebarContent;
 - (void)restoreWindowedTrafficLightFrames;
 - (void)restoreWindowedTitlebarHost;
+- (void)scheduleContentLayoutNotification;
 - (BOOL)attachTitlebarHeightOverrideToFrameView:(nullable NSView *)frameView;
 - (BOOL)attachTitlebarWidgetInsetOverride:(CGFloat)inset
                               toFrameView:(nullable NSView *)frameView;
@@ -117,11 +118,54 @@
 
 @end
 
+@interface RionContentLayoutProbeWindow : NSWindow {
+ @private
+  NSRect _probedContentLayoutRect;
+  BOOL _usesProbedContentLayoutRect;
+}
+
+- (void)setProbedContentLayoutRect:(NSRect)contentLayoutRect;
+
+@end
+
+@implementation RionContentLayoutProbeWindow
+
+- (NSRect)contentLayoutRect {
+  return _usesProbedContentLayoutRect
+      ? _probedContentLayoutRect
+      : [super contentLayoutRect];
+}
+
+- (void)setProbedContentLayoutRect:(NSRect)contentLayoutRect {
+  [self willChangeValueForKey:@"contentLayoutRect"];
+  _probedContentLayoutRect = contentLayoutRect;
+  _usesProbedContentLayoutRect = YES;
+  [self didChangeValueForKey:@"contentLayoutRect"];
+}
+
+@end
+
+@interface RionFlippedContentView : NSView
+@end
+
+@implementation RionFlippedContentView
+
+- (BOOL)isFlipped {
+  return YES;
+}
+
+@end
+
 static void Assert(bool condition, const char *message) {
   if (!condition) {
     std::cerr << message << std::endl;
     std::exit(1);
   }
+}
+
+static void DrainMainQueue(void) {
+  [NSRunLoop.mainRunLoop
+      runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
 }
 
 static BOOL ReadTitlebarHeight(NSView *frameView, CGFloat *height) {
@@ -360,6 +404,12 @@ int main() {
                                          NSMakeRect(0, -10, 900, 620), YES);
     Assert(clippedLayout.yOffset == 0 && clippedLayout.heightInset == 0,
            "Layout geometry outside the content bounds must be clipped safely.");
+    RionRuntimeContentLayout invalidLayout =
+        RionRuntimeContentLayoutForRects(NSMakeRect(0, 0, 900, 600),
+                                         NSMakeRect(0, 700, 900, 100), YES);
+    Assert(!invalidLayout.valid && invalidLayout.yOffset == 0 &&
+               invalidLayout.heightInset == 0,
+           "A content layout without an intersection must be marked invalid.");
 
     [NSApplication sharedApplication];
     NSWindow *window = [[NSWindow alloc]
@@ -416,10 +466,15 @@ int main() {
                                 &controlTitlebarWidgetInset);
 
     __block NSDictionary<NSString *, id> *lastAction = nil;
+    __block NSUInteger contentLayoutNotificationCount = 0;
     RionRuntimeTabsController *controller = [[RionRuntimeTabsController alloc]
         initWithWindow:window
          actionHandler:^(NSDictionary<NSString *, id> *action) {
       lastAction = action;
+    }
+         contentLayoutHandler:^(RionRuntimeContentLayout layout) {
+      (void)layout;
+      contentLayoutNotificationCount += 1;
     }];
     Assert(controller != nil, "Expected the native runtime tabs controller.");
     NSView *contentView = window.contentView;
@@ -430,11 +485,11 @@ int main() {
         RionRuntimeContentLayoutForRects(contentView.bounds,
                                          convertedContentLayoutRect,
                                          contentView.isFlipped);
-    RionRuntimeContentLayout actualWindowedLayout =
-        [controller windowedContentLayout];
+    RionRuntimeContentLayout actualWindowedLayout = [controller contentLayout];
     Assert(actualWindowedLayout.yOffset == expectedWindowedLayout.yOffset &&
                actualWindowedLayout.heightInset ==
                    expectedWindowedLayout.heightInset &&
+               actualWindowedLayout.valid == expectedWindowedLayout.valid &&
                actualWindowedLayout.yOffset >= 0 &&
                actualWindowedLayout.heightInset >=
                    actualWindowedLayout.yOffset &&
@@ -994,7 +1049,12 @@ int main() {
                                       toFrameView:secondInsetHost],
            "The destroy path must be exercised with an active fullscreen inset marker.");
 
+    NSUInteger notificationCountBeforeDestroy = contentLayoutNotificationCount;
+    [controller scheduleContentLayoutNotification];
     [controller destroy];
+    DrainMainQueue();
+    Assert(contentLayoutNotificationCount == notificationCountBeforeDestroy,
+           "Destroying the controller must cancel pending content-layout callbacks.");
     if (supportsCustomTitlebarHeight) {
       CGFloat restoredCustomTitlebarHeight = -1;
       Assert(ReadCustomTitlebarHeightIfSupported(
@@ -1046,6 +1106,87 @@ int main() {
     }
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Destroying runtime tabs must preserve standard traffic lights.");
+
+    RionContentLayoutProbeWindow *layoutProbeWindow =
+        [[RionContentLayoutProbeWindow alloc]
+            initWithContentRect:NSMakeRect(0, 0, 640, 480)
+                      styleMask:NSWindowStyleMaskTitled |
+                                NSWindowStyleMaskResizable
+                        backing:NSBackingStoreBuffered
+                          defer:NO];
+    NSRect initialProbeRect = [layoutProbeWindow contentLayoutRect];
+    [layoutProbeWindow setProbedContentLayoutRect:initialProbeRect];
+    __block NSUInteger probeNotificationCount = 0;
+    __block RionRuntimeContentLayout probeNotification = {0, 0, NO};
+    RionRuntimeTabsController *layoutProbeController =
+        [[RionRuntimeTabsController alloc]
+            initWithWindow:layoutProbeWindow
+             actionHandler:^(NSDictionary<NSString *, id> *action) {
+      (void)action;
+    }
+             contentLayoutHandler:^(RionRuntimeContentLayout layout) {
+      probeNotificationCount += 1;
+      probeNotification = layout;
+    }];
+    DrainMainQueue();
+    NSUInteger settledProbeNotificationCount = probeNotificationCount;
+    NSRect intermediateProbeRect = initialProbeRect;
+    intermediateProbeRect.size.height =
+        MAX(1.0, intermediateProbeRect.size.height - 4.0);
+    NSRect finalProbeRect = initialProbeRect;
+    finalProbeRect.size.height = MAX(1.0, finalProbeRect.size.height - 6.0);
+    [layoutProbeWindow setProbedContentLayoutRect:intermediateProbeRect];
+    [layoutProbeWindow setProbedContentLayoutRect:finalProbeRect];
+    DrainMainQueue();
+    NSView *probeContentView = layoutProbeWindow.contentView;
+    NSRect convertedProbeRect =
+        [probeContentView convertRect:layoutProbeWindow.contentLayoutRect
+                             fromView:nil];
+    RionRuntimeContentLayout expectedProbeLayout =
+        RionRuntimeContentLayoutForRects(probeContentView.bounds,
+                                         convertedProbeRect,
+                                         probeContentView.isFlipped);
+    Assert(probeNotificationCount == settledProbeNotificationCount + 1 &&
+               probeNotification.valid == expectedProbeLayout.valid &&
+               probeNotification.yOffset == expectedProbeLayout.yOffset &&
+               probeNotification.heightInset ==
+                   expectedProbeLayout.heightInset,
+           "contentLayoutRect KVO changes must coalesce and sample the latest AppKit geometry.");
+    [layoutProbeWindow setProbedContentLayoutRect:finalProbeRect];
+    DrainMainQueue();
+    Assert(probeNotificationCount == settledProbeNotificationCount + 1,
+           "Repeated KVO geometry must not emit a duplicate content-layout callback.");
+
+    NSView *previousProbeContentView = layoutProbeWindow.contentView;
+    RionFlippedContentView *replacementProbeContentView =
+        [[RionFlippedContentView alloc]
+            initWithFrame:previousProbeContentView.frame];
+    [layoutProbeWindow setContentView:replacementProbeContentView];
+    replacementProbeContentView.bounds = NSMakeRect(
+        0, 5, replacementProbeContentView.bounds.size.width,
+        replacementProbeContentView.bounds.size.height);
+    NSRect replacementProbeRect = initialProbeRect;
+    replacementProbeRect.size.height =
+        MAX(1.0, replacementProbeRect.size.height - 10.0);
+    [layoutProbeWindow setProbedContentLayoutRect:replacementProbeRect];
+    DrainMainQueue();
+    NSRect convertedReplacementProbeRect =
+        [replacementProbeContentView
+            convertRect:layoutProbeWindow.contentLayoutRect
+              fromView:nil];
+    RionRuntimeContentLayout expectedReplacementLayout =
+        RionRuntimeContentLayoutForRects(
+            replacementProbeContentView.bounds,
+            convertedReplacementProbeRect,
+            replacementProbeContentView.isFlipped);
+    Assert(layoutProbeWindow.contentView == replacementProbeContentView &&
+               probeNotificationCount == settledProbeNotificationCount + 2 &&
+               probeNotification.valid == expectedReplacementLayout.valid &&
+               probeNotification.yOffset == expectedReplacementLayout.yOffset &&
+               probeNotification.heightInset ==
+                   expectedReplacementLayout.heightInset,
+           "Content-layout sampling must re-read the current contentView after AppKit rebuilds the hierarchy.");
+    [layoutProbeController destroy];
   }
   std::cout << "macOS runtime tabs native tests passed" << std::endl;
   return 0;

@@ -7,7 +7,10 @@ typedef void (^RionRuntimeTabsActionHandler)(NSDictionary<NSString *, id> *actio
 typedef struct {
   CGFloat heightInset;
   CGFloat yOffset;
+  BOOL valid;
 } RionRuntimeContentLayout;
+
+typedef void (^RionRuntimeContentLayoutHandler)(RionRuntimeContentLayout layout);
 
 RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
     NSRect contentBounds, NSRect contentLayoutRect, BOOL contentViewFlipped);
@@ -40,13 +43,15 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 @property(nonatomic, readonly) BOOL revealLocked;
 
 - (nullable instancetype)initWithWindow:(NSWindow *)window
-                           actionHandler:(RionRuntimeTabsActionHandler)actionHandler;
+                           actionHandler:(RionRuntimeTabsActionHandler)actionHandler
+                    contentLayoutHandler:
+                        (RionRuntimeContentLayoutHandler)contentLayoutHandler;
+- (RionRuntimeContentLayout)contentLayout;
 - (void)destroy;
 - (void)prepareForFullscreenTransition:(BOOL)fullScreen;
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow;
 - (void)setRevealLocked:(BOOL)locked;
 - (void)updateState:(RionRuntimeTabsState *)state;
-- (RionRuntimeContentLayout)windowedContentLayout;
 
 @end
 

@@ -94,18 +94,21 @@ describe("MacRuntimeTabsController", () => {
 
   it("owns the native controller lifecycle and accepts validated actions", () => {
     let nativeCallback: ((action: unknown) => void) | undefined;
+    let nativeContentLayoutCallback: ((layout: unknown) => void) | undefined;
     const nativeAddon: MacRuntimeTabsNativeAddon = {
-      createController: vi.fn((_handle, callback) => {
+      createController: vi.fn((_handle, callback, contentLayoutCallback) => {
         nativeCallback = callback;
+        nativeContentLayoutCallback = contentLayoutCallback;
         return 17;
       }),
       destroyController: vi.fn(),
-      getWindowedContentLayout: vi.fn(() => ({
+      getContentLayout: vi.fn(() => ({
         heightInset: 8,
+        valid: true,
         yOffset: 8
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 3,
+      protocolVersion: 4,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()
@@ -113,14 +116,17 @@ describe("MacRuntimeTabsController", () => {
     const handle = Buffer.alloc(8);
     const window = { getNativeWindowHandle: vi.fn(() => handle) };
     const onAction = vi.fn();
+    const onContentLayoutChange = vi.fn();
     const controller = createMacRuntimeTabsControllerFactory(nativeAddon)(
       window as never,
-      onAction
+      onAction,
+      onContentLayoutChange
     );
 
     controller.update(state);
-    expect(controller.getWindowedContentLayout()).toEqual({
+    expect(controller.getContentLayout()).toEqual({
       heightInset: 8,
+      valid: true,
       yOffset: 8
     });
     controller.prepareFullscreenTransition(true);
@@ -128,34 +134,79 @@ describe("MacRuntimeTabsController", () => {
     controller.setRevealLocked(true);
     nativeCallback?.({ type: "activate", tabId: "role" });
     nativeCallback?.({ type: "activate", tabId: "" });
+    nativeContentLayoutCallback?.({ heightInset: 8, valid: true, yOffset: 8 });
+    nativeContentLayoutCallback?.({ heightInset: 7.5, valid: true, yOffset: 7 });
 
-    expect(nativeAddon.createController).toHaveBeenCalledWith(handle, expect.any(Function));
+    expect(nativeAddon.createController).toHaveBeenCalledWith(
+      handle,
+      expect.any(Function),
+      expect.any(Function)
+    );
     expect(nativeAddon.updateController).toHaveBeenCalledWith(
       17,
       expect.objectContaining({ displayId: 11, tabs: expect.any(Array) })
     );
-    expect(nativeAddon.getWindowedContentLayout).toHaveBeenCalledWith(17);
+    expect(nativeAddon.getContentLayout).toHaveBeenCalledWith(17);
     expect(nativeAddon.prepareFullscreenTransition).toHaveBeenCalledWith(17, true);
     expect(nativeAddon.setFullscreenPolicy).toHaveBeenCalledWith(17, "always");
     expect(nativeAddon.setRevealLocked).toHaveBeenCalledWith(17, true);
     expect(onAction).toHaveBeenCalledOnce();
     expect(onAction).toHaveBeenCalledWith({ type: "activate", tabId: "role" });
+    expect(onContentLayoutChange).toHaveBeenCalledOnce();
+    expect(onContentLayoutChange).toHaveBeenCalledWith({
+      heightInset: 8,
+      valid: true,
+      yOffset: 8
+    });
 
     controller.destroy();
     controller.destroy();
     controller.update(state);
-    expect(controller.getWindowedContentLayout()).toEqual({
+    nativeCallback?.({ type: "activate", tabId: "after-destroy" });
+    nativeContentLayoutCallback?.({ heightInset: 10, valid: true, yOffset: 10 });
+    expect(controller.getContentLayout()).toEqual({
       heightInset: 0,
+      valid: false,
       yOffset: 0
     });
     expect(nativeAddon.destroyController).toHaveBeenCalledOnce();
-    expect(nativeAddon.getWindowedContentLayout).toHaveBeenCalledOnce();
+    expect(nativeAddon.getContentLayout).toHaveBeenCalledOnce();
     expect(nativeAddon.updateController).toHaveBeenCalledOnce();
+    expect(onAction).toHaveBeenCalledOnce();
+    expect(onContentLayoutChange).toHaveBeenCalledOnce();
+  });
+
+  it("normalizes an invalid synchronous native content layout", () => {
+    const nativeAddon = {
+      createController: vi.fn(() => 21),
+      destroyController: vi.fn(),
+      getContentLayout: vi.fn(() => ({
+        heightInset: Number.POSITIVE_INFINITY,
+        valid: true,
+        yOffset: 1
+      })),
+      prepareFullscreenTransition: vi.fn(),
+      protocolVersion: 4,
+      setFullscreenPolicy: vi.fn(),
+      setRevealLocked: vi.fn(),
+      updateController: vi.fn()
+    } satisfies MacRuntimeTabsNativeAddon;
+    const controller = createMacRuntimeTabsControllerFactory(nativeAddon)(
+      { getNativeWindowHandle: () => Buffer.alloc(8) } as never,
+      vi.fn(),
+      vi.fn()
+    );
+
+    expect(controller.getContentLayout()).toEqual({
+      heightInset: 0,
+      valid: false,
+      yOffset: 0
+    });
   });
 
   it("rejects an incompatible native protocol", () => {
-    expect(() => createMacRuntimeTabsControllerFactory({ protocolVersion: 2 } as never))
-      .toThrow("Unsupported macOS runtime tabs protocol 2");
+    expect(() => createMacRuntimeTabsControllerFactory({ protocolVersion: 3 } as never))
+      .toThrow("Unsupported macOS runtime tabs protocol 3");
   });
 
   it("logs a clear warning and permits the HTML fallback when the addon is missing", () => {

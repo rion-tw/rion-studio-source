@@ -801,6 +801,10 @@ function getMacroStatusLabel(item: DashboardMacroItem, t: Translator): string {
     return t("macros.automationUnavailable");
   }
 
+  if (item.action.disabledReason === "unassignedDependency") {
+    return t("macros.status.unassignedDependency");
+  }
+
   return t("dashboard.status.ready");
 }
 
@@ -897,6 +901,10 @@ function getMacroActionTitle(item: DashboardMacroItem, t: Translator): string | 
 
   if (item.action.disabledReason === "automationUnavailable") {
     return t("macros.automationUnavailable");
+  }
+
+  if (item.action.disabledReason === "unassignedDependency") {
+    return t("macros.assignCalledMacroRoleFirst");
   }
 
   return undefined;

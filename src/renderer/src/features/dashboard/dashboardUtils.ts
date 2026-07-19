@@ -6,6 +6,7 @@ import type {
   Role,
   RoleStatus
 } from "../../../../shared/types";
+import { findUnassignedMacroDependency } from "../../../../shared/macroDependencies";
 
 export interface DashboardSummary {
   rolesNeedingLogin: number;
@@ -71,7 +72,12 @@ export type DashboardMacroActionKind = "start" | "stop";
 
 export interface DashboardMacroActionState {
   disabled: boolean;
-  disabledReason?: "automationUnavailable" | "macroDisabled" | "noRoles" | "rolesNotRunning";
+  disabledReason?:
+    | "automationUnavailable"
+    | "macroDisabled"
+    | "noRoles"
+    | "rolesNotRunning"
+    | "unassignedDependency";
   isBusy: boolean;
   isRunning: boolean;
   kind: DashboardMacroActionKind;
@@ -207,6 +213,7 @@ export function createMacroActionState({
   busyRunKeys,
   macro,
   macroStatusByRun,
+  hasUnassignedDependency,
   roleIds,
   statusByRole
 }: {
@@ -214,6 +221,7 @@ export function createMacroActionState({
   busyRunKeys: ReadonlySet<string>;
   macro: Macro;
   macroStatusByRun: Map<string, MacroRunStatus>;
+  hasUnassignedDependency: boolean;
   roleIds: Set<string>;
   statusByRole: Map<string, RoleStatus>;
 }): DashboardMacroActionState {
@@ -233,10 +241,12 @@ export function createMacroActionState({
       statusByRole.get(roleId)?.automationState !== "unavailable"
   );
   const isBusy = busyRunKeys.has(macro.id) || busyMacroIds.has(macro.id) || isStopping;
-  const disabledReason = !macro.enabled && !isRunning
-    ? "macroDisabled"
-    : !hasRoles
+  const disabledReason = !isRunning && !hasRoles
     ? "noRoles"
+    : !isRunning && hasUnassignedDependency
+      ? "unassignedDependency"
+    : !macro.enabled && !isRunning
+      ? "macroDisabled"
     : !hasRunningBrowser && !isRunning
       ? "rolesNotRunning"
       : !hasRunnableRole && !isRunning
@@ -281,6 +291,7 @@ export function getDashboardMacroItems({
           busyRunKeys,
           macro,
           macroStatusByRun,
+          hasUnassignedDependency: Boolean(findUnassignedMacroDependency(macros, macro.id)),
           roleIds,
           statusByRole
         }),

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MacroStore, MacroStoreError } from "../src/main/macros/MacroStore";
 import { MACRO_DELAY_MAX_MS } from "../src/shared/macroSettings";
@@ -16,6 +16,10 @@ describe("MacroStore", () => {
   beforeEach(async () => {
     baseDir = await mkdtemp(join(tmpdir(), "rion-macro-test-"));
     store = new MacroStore(baseDir);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("returns isolated macro copies from the in-memory cache", async () => {
@@ -239,7 +243,7 @@ describe("MacroStore", () => {
     ).rejects.toMatchObject({ code: "MACRO_TIME_INVALID" });
   });
 
-  it("requires at least one valid assigned role", async () => {
+  it("requires a valid role array while allowing an unassigned macro", async () => {
     await expect(
       store.createMacro({
         name: "Unassigned",
@@ -255,13 +259,11 @@ describe("MacroStore", () => {
       })
     ).rejects.toMatchObject({ code: "MACRO_ROLE_ID_INVALID" });
 
-    await expect(
-      store.createMacro({
-        name: "Empty roles",
-        roleIds: [],
-        steps: [{ id: "step-1", type: "key", code: "F2" }]
-      })
-    ).rejects.toMatchObject({ code: "MACRO_ROLE_ID_INVALID" });
+    await expect(store.createMacro({
+      name: "Empty roles",
+      roleIds: [],
+      steps: [{ id: "step-1", type: "key", code: "F2" }]
+    })).resolves.toMatchObject({ roleIds: [] });
   });
 
   it("deduplicates and trims assigned roles", async () => {
@@ -392,7 +394,9 @@ describe("MacroStore", () => {
     await expect(store.listMacros()).resolves.toMatchObject([{ id: "macro-1", roleIds: ["role-1"] }]);
   });
 
-  it("removes deleted role assignments and deletes macros with no remaining roles", async () => {
+  it("clears deleted role assignments while preserving macros and their dependents", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-19T01:00:00.000Z"));
     const deletedRoleOnlyMacro = await store.createMacro({
       name: "Role 1",
       roleIds: ["role-1"],
@@ -403,14 +407,31 @@ describe("MacroStore", () => {
       roleIds: ["role-1", "role-2"],
       steps: [{ id: "step-1", type: "key", code: "F1" }]
     });
+    const parentMacro = await store.createMacro({
+      name: "Parent",
+      roleIds: ["role-2"],
+      steps: [{ id: "call-child", type: "macro", macroId: deletedRoleOnlyMacro.id }]
+    });
 
-    await store.deleteRoleMacros("role-1");
+    vi.setSystemTime(new Date("2026-07-19T02:00:00.000Z"));
+    await store.clearRoleAssignment("role-1");
 
-    await expect(store.getMacro(deletedRoleOnlyMacro.id)).rejects.toMatchObject({ code: "MACRO_NOT_FOUND" });
+    await expect(store.getMacro(deletedRoleOnlyMacro.id)).resolves.toMatchObject({
+      id: deletedRoleOnlyMacro.id,
+      roleIds: [],
+      updatedAt: "2026-07-19T02:00:00.000Z"
+    });
     await expect(store.getMacro(remainingMacro.id)).resolves.toMatchObject({
       id: remainingMacro.id,
-      roleIds: ["role-2"]
+      roleIds: ["role-2"],
+      updatedAt: "2026-07-19T02:00:00.000Z"
     });
+    await expect(store.getMacro(parentMacro.id)).resolves.toMatchObject({
+      id: parentMacro.id,
+      roleIds: ["role-2"],
+      updatedAt: "2026-07-19T01:00:00.000Z"
+    });
+    await expect(new MacroStore(baseDir).listMacros()).resolves.toHaveLength(3);
   });
 
   it("serializes concurrent role cleanup without losing either mutation", async () => {
@@ -421,7 +442,7 @@ describe("MacroStore", () => {
     });
 
     await expect(
-      Promise.all([store.deleteRoleMacros("role-1"), store.deleteRoleMacros("role-2")])
+      Promise.all([store.clearRoleAssignment("role-1"), store.clearRoleAssignment("role-2")])
     ).resolves.toEqual([undefined, undefined]);
     await expect(store.getMacro(macro.id)).resolves.toMatchObject({ roleIds: ["role-3"] });
   });

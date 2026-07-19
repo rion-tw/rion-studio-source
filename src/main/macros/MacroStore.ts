@@ -242,30 +242,21 @@ export class MacroStore {
     });
   }
 
-  async deleteRoleMacros(roleId: string): Promise<void> {
+  async clearRoleAssignment(roleId: string): Promise<void> {
     return this.taskQueue.run(async () => {
       const file = await this.readMacrosFile();
-      const updatedMacros = file.macros.map((macro) => ({
-        ...macro,
-        roleIds: macro.roleIds.filter((assignedRoleId) => assignedRoleId !== roleId)
-      }));
-      const removedIds = new Set(
-        updatedMacros.filter((macro) => macro.roleIds.length === 0).map((macro) => macro.id)
-      );
-      let didExpand = true;
-      while (didExpand) {
-        didExpand = false;
-        updatedMacros.forEach((macro) => {
-          if (
-            !removedIds.has(macro.id) &&
-            macro.steps.some((step) => step.type === "macro" && removedIds.has(step.macroId))
-          ) {
-            removedIds.add(macro.id);
-            didExpand = true;
-          }
-        });
-      }
-      const macros = updatedMacros.filter((macro) => !removedIds.has(macro.id));
+      const updatedAt = new Date().toISOString();
+      const macros = file.macros.map((macro) => {
+        if (!macro.roleIds.includes(roleId)) {
+          return macro;
+        }
+
+        return {
+          ...macro,
+          roleIds: macro.roleIds.filter((assignedRoleId) => assignedRoleId !== roleId),
+          updatedAt
+        };
+      });
 
       if (JSON.stringify(macros) === JSON.stringify(file.macros)) {
         return;
@@ -386,7 +377,7 @@ export class MacroStore {
     const normalizedRoleIds = roleIds.map((roleId) => (typeof roleId === "string" ? roleId.trim() : ""));
     const uniqueRoleIds = [...new Set(normalizedRoleIds)];
 
-    if (uniqueRoleIds.length === 0 || normalizedRoleIds.some((roleId) => roleId.length === 0)) {
+    if (normalizedRoleIds.some((roleId) => roleId.length === 0)) {
       throw new MacroStoreError("MACRO_ROLE_ID_INVALID", "Macro role assignment is invalid.");
     }
 

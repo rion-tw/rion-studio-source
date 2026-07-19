@@ -241,8 +241,7 @@ export function useRoleWorkflow({
         .map((macro) => ({
           ...macro,
           roleIds: macro.roleIds.filter((roleId) => !confirmedDeletedIds.has(roleId))
-        }))
-        .filter((macro) => macro.roleIds.length > 0));
+        })));
 
       try {
         const [nextRoles, nextStatuses, nextAuthStatuses, nextWorkspaces, nextMacros] = await Promise.all([

@@ -31,6 +31,38 @@ afterEach(() => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe("macro editor controls", () => {
+  it("saves edits to an existing unassigned macro without requiring reassignment", async () => {
+    const unassignedMacro = macro({ roleIds: [] });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...unassignedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[unassignedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    expect(screen.getByText("This macro will remain unavailable until a role is assigned.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      id: unassignedMacro.id,
+      roleIds: []
+    })));
+  });
+
   it("loads a disabled macro and includes the changed enabled state when saving", async () => {
     const disabledMacro = macro({ enabled: false });
     const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({

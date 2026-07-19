@@ -155,6 +155,40 @@ describe("renderer status indicators", () => {
     expect(onSetMacroEnabled).toHaveBeenCalledWith(disabledMacro, true);
     expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("labels an unassigned macro and disables its start action with an assignment hint", () => {
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[{ ...macro(), roleIds: [] }]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={[role()]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map([["role-1", { roleId: "role-1", state: "running" }]])}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Unassigned role")).toBeTruthy();
+    const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    expect(start.title).toBe("Assign a role before running this macro.");
+  });
 });
 
 const t: Translator = (key) => en[key];

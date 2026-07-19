@@ -57,7 +57,9 @@ export function getMacroListItems({
         return true;
       }
 
-      const roleNames = macro.roleIds.map((roleId) => roleById.get(roleId)?.name ?? t("macros.unknownRole"));
+      const roleNames = macro.roleIds.length > 0
+        ? macro.roleIds.map((roleId) => roleById.get(roleId)?.name ?? t("macros.unknownRole"))
+        : [t("macros.noRoles")];
 
       return [
         macro.name,

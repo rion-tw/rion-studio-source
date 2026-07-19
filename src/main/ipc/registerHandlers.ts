@@ -769,7 +769,7 @@ async function deleteRoleRecord(
   await browserManager.stopRoleAndRunMutation(id, async () => {
     await roleStore.deleteRole(id);
     await workspaceStore.clearRole(id);
-    await macroStore?.deleteRoleMacros(id);
+    await macroStore?.clearRoleAssignment(id);
   });
 }
 

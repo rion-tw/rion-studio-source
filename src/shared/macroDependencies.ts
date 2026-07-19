@@ -2,6 +2,8 @@ import type { Macro } from "./types";
 
 export type MacroDependencyNode = Pick<Macro, "id" | "repeat" | "steps">;
 
+export type MacroAssignmentNode = Pick<Macro, "id" | "roleIds" | "steps">;
+
 export type MacroDependencyIssue =
   | {
       type: "missing";
@@ -105,4 +107,27 @@ export function macroDependsOn(
 
 export function getMacroReferrers(macros: Macro[], targetMacroId: string): Macro[] {
   return macros.filter((macro) => getMacroDependencyIds(macro).includes(targetMacroId));
+}
+
+export function findUnassignedMacroDependency<T extends MacroAssignmentNode>(
+  macros: T[],
+  sourceMacroId: string
+): T | undefined {
+  const macroById = new Map(macros.map((macro) => [macro.id, macro]));
+  const pending = [sourceMacroId];
+  const visited = new Set<string>();
+
+  while (pending.length > 0) {
+    const macroId = pending.pop()!;
+    if (visited.has(macroId)) continue;
+    visited.add(macroId);
+
+    const macro = macroById.get(macroId);
+    if (!macro) continue;
+    if (macro.roleIds.length === 0) return macro;
+
+    pending.push(...getMacroDependencyIds(macro));
+  }
+
+  return undefined;
 }

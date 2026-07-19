@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 
+import { findUnassignedMacroDependency } from "../../shared/macroDependencies";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type { Macro, MacroRunStatus, MacroSettings, MacroStep } from "../../shared/types";
 import type { MacroKeyInput } from "../../shared/macroKeys";
@@ -78,6 +79,8 @@ export type HeldTriggerReleaseMode = "complete_first_iteration" | "immediate";
 const MACRO_TARGET_OPERATION_TIMEOUT_MS = 10_000;
 const SIBLING_FAILURE_MESSAGE = "Cancelled because another assigned role failed.";
 const CHILD_CANCELLED_MESSAGE = "Cancelled because a called macro was stopped.";
+const UNASSIGNED_WORKFLOW_MESSAGE =
+  "Assign a role to this macro and every called macro before running it.";
 
 class MacroRunCancelledError extends Error {
   constructor(message = "Macro run cancelled.") {
@@ -113,7 +116,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   constructor(
     private readonly browserManager: Pick<BrowserManager, "getAutomationSession"> &
       Partial<Pick<BrowserManager, "setMacroActiveRoleIds">>,
-    private readonly macroStore: Pick<MacroStore, "getMacro">,
+    private readonly macroStore: Pick<MacroStore, "getMacro" | "listMacros">,
     private readonly macroSettingsStore: Pick<MacroSettingsStore, "getSettings"> = {
       getSettings: async () => ({ ...DEFAULT_MACRO_SETTINGS })
     }
@@ -319,6 +322,12 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     }
     if (!macro.enabled) {
       throw new Error("Enable this macro before running it.");
+    }
+    if (parentAncestry.length === 0) {
+      const macros = await this.macroStore.listMacros();
+      if (findUnassignedMacroDependency(macros, macroId)) {
+        throw new Error(UNASSIGNED_WORKFLOW_MESSAGE);
+      }
     }
     if (parentAncestry.length > 0 && macro.repeat.type !== "once") {
       throw new Error(`Called macro "${macro.name}" must run once.`);

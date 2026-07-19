@@ -27,6 +27,7 @@ import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { useListSelection } from "../../hooks/useListSelection";
+import { findUnassignedMacroDependency } from "../../../../shared/macroDependencies";
 import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared/types";
 import {
   getMacroListItems,
@@ -107,6 +108,14 @@ function MacrosRoute({
     macroStatuses
       .filter((status) => status.state === "running" || status.state === "stopping")
       .map((status) => status.macroId)
+  );
+  const unassignedWorkflowMacroIds = useMemo(
+    () => new Set(
+      macros
+        .filter((macro) => findUnassignedMacroDependency(macros, macro.id))
+        .map((macro) => macro.id)
+    ),
+    [macros]
   );
   const filteredMacros = useMemo(
     () => getMacroListItems({ macros, query, roleFilterId, roles, sort, t }),
@@ -358,6 +367,7 @@ function MacrosRoute({
                           busyRunKeys={busyRunKeys}
                           macro={macro}
                           macroStatusByRun={macroStatusByRun}
+                          hasUnassignedDependency={unassignedWorkflowMacroIds.has(macro.id)}
                           onCopy={() => onCopyMacro(macro)}
                           onDelete={() => onDeleteMacro(macro)}
                           onEdit={() => onEditMacro(macro)}
@@ -464,6 +474,7 @@ interface MacroActionMenuProps {
   busyMacroIds: ReadonlySet<string>;
   busyRunKeys: ReadonlySet<string>;
   macro: Macro;
+  hasUnassignedDependency: boolean;
   macroStatusByRun: Map<string, MacroRunStatus>;
   onCopy: () => void;
   onDelete: () => void;
@@ -484,6 +495,7 @@ function MacroActionMenu({
   busyRunKeys,
   macro,
   macroStatusByRun,
+  hasUnassignedDependency,
   onCopy,
   onDelete,
   onEdit,
@@ -513,7 +525,9 @@ function MacroActionMenu({
   const isRunBusy = busyRunKeys.has(macro.id) || isStopping;
   const isDeleteBusy = busyMacroIds.has(macro.id);
   const runLabel = t(isRunning || isStopping ? "macros.stopShort" : "macros.startShort");
-  const isRunDisabled = isRunBusy || (!isRunning && (!macro.enabled || !hasRunnableRole));
+  const isRunDisabled = isRunBusy || (
+    !isRunning && (!macro.enabled || hasUnassignedDependency || !hasRunnableRole)
+  );
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -676,7 +690,11 @@ function MacroActionMenu({
         variant="ghost"
         size="icon"
         title={
-          !isRunning && !macro.enabled
+          !isRunning && macro.roleIds.length === 0
+            ? t("macros.assignRoleFirst")
+            : !isRunning && hasUnassignedDependency
+              ? t("macros.assignCalledMacroRoleFirst")
+          : !isRunning && !macro.enabled
             ? t("macros.disabledHint")
             : !isRunning && !hasRunningBrowser
             ? t("macros.launchRoleFirst")

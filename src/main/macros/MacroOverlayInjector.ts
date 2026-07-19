@@ -3,6 +3,7 @@ import type { WebContents } from "electron";
 import macroOverlayCss from "./overlay/macroOverlay.css?raw";
 import macroOverlayRuntimeSource from "./overlay/macroOverlayRuntime.js?raw";
 
+import { findUnassignedMacroDependency } from "../../shared/macroDependencies";
 import type { AppLanguage, Macro, MacroPageRequest, MacroRunStatus, Role, RoleStatus } from "../../shared/types";
 import type { HeldTriggerReleaseMode, MacroManager } from "./MacroManager";
 import type { MacroStore } from "./MacroStore";
@@ -441,7 +442,11 @@ export class MacroOverlayInjector {
     const macros = await this.macroStore.listMacros();
     const statuses = this.macroManager.listStatuses();
     const roleStatus = this.getRoleStatus?.(roleId);
-    const assignedMacros = macros.filter((macro) => macro.roleIds.includes(roleId));
+    const assignedMacros = macros.filter(
+      (macro) =>
+        macro.roleIds.includes(roleId) &&
+        !findUnassignedMacroDependency(macros, macro.id)
+    );
     const assignedMacroIds = new Set(assignedMacros.map((macro) => macro.id));
 
     return {

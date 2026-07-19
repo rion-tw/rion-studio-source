@@ -327,6 +327,67 @@ describe("macro overlay interactions", () => {
     }));
   });
 
+  it("preserves Flyff text input focus and ignores keyboard events forwarded to the canvas", async () => {
+    const { canvas } = createGameSurface(document);
+    const input = document.createElement("input");
+    input.id = "text_input";
+    input.type = "text";
+    document.body.append(input);
+    const binding = vi.fn(async (request: unknown) => ({
+      macros: [assignedMacro],
+      statuses: isRecord(request) && request.type === "start" ? [runningStatus()] : []
+    }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const canvasKeyDown = vi.fn();
+    canvas.addEventListener("keydown", canvasKeyDown);
+    const forwardedEvents: KeyboardEvent[] = [];
+    input.addEventListener("keydown", (event) => {
+      const forwarded = new window.KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        code: event.code,
+        ctrlKey: event.ctrlKey,
+        isComposing: event.isComposing,
+        key: event.key
+      });
+      forwardedEvents.push(forwarded);
+      canvas.dispatchEvent(forwarded);
+    });
+
+    canvas.dispatchEvent(createMouseEvent(window, "pointerdown"));
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "game-input-context",
+      active: false
+    }));
+
+    const inputs = [
+      { code: "KeyA", key: "a" },
+      { code: "Digit1", key: "1" },
+      { code: "Backspace", key: "Backspace" },
+      { code: "Delete", key: "Delete" },
+      { code: "ArrowLeft", key: "ArrowLeft" },
+      { code: "Enter", key: "Enter" },
+      { code: "F2", key: "F2" },
+      { code: "KeyA", isComposing: true, key: "Process" }
+    ];
+    const originalEvents = inputs.map((init) => new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      ...init
+    }));
+    originalEvents.forEach((event) => expect(input.dispatchEvent(event)).toBe(true));
+
+    expect(document.activeElement).toBe(input);
+    expect(originalEvents.every((event) => !event.defaultPrevented)).toBe(true);
+    expect(forwardedEvents).toHaveLength(inputs.length);
+    expect(forwardedEvents.every((event) => !event.defaultPrevented)).toBe(true);
+    expect(canvasKeyDown).toHaveBeenCalledTimes(inputs.length);
+    expect(binding).not.toHaveBeenCalledWith({ type: "start", macroId: assignedMacro.id });
+  });
+
   it("pairs while-held shortcuts with one press and release while consuming auto-repeat", async () => {
     createGameSurface(document);
     const heldMacro: Macro = {
@@ -557,6 +618,8 @@ describe("macro overlay interactions", () => {
       key: "F2"
     });
 
+    canvas.dispatchEvent(createMouseEvent(window, "pointerdown"));
+    expect(document.activeElement).toBe(staleInput);
     canvas.dispatchEvent(event);
 
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "start", macroId: assignedMacro.id }));
@@ -594,7 +657,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v34")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v35")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -660,7 +723,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v34")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v35")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

@@ -30,7 +30,6 @@ const ATTACH_TIMEOUT_MS = 10_000;
 const ATTACH_POLL_INTERVAL_MS = 500;
 const OVERLAY_BINDING_NAME = "rionStudioMacroOverlay";
 const OVERLAY_BRIDGE_KEY = "__rionStudioExternalMacroBridge";
-const POINTER_FOCUS_STATE_KEY = "__rionStudioPointerFocusState";
 const DIAGNOSTICS_BINDING_NAME = "rionStudioExternalDiagnostics";
 const DIAGNOSTICS_STATE_KEY = "__rionStudioExternalDiagnosticsV1";
 
@@ -117,7 +116,6 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   private mainFrameId?: string;
   private readonly navigationListeners = new Set<() => void>();
   private overlayHandler?: ExternalMacroOverlayHandler;
-  private pointerFocusTrackingInstalled = false;
   private removeNotificationListener?: () => void;
   private removeDiagnosticDisconnectListener?: () => void;
   private consecutiveEvaluateFailures = 0;
@@ -505,9 +503,6 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     const release = { type: "mouseReleased", button: "left", clickCount: 1, x, y };
     let didPress = false;
     let didRelease = false;
-    if (this.pointerFocusTrackingInstalled) {
-      await this.evaluateInExecutionContexts(createPointerFocusSuppressionSource(true));
-    }
     try {
       await this.client.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, x, y });
       didPress = true;
@@ -517,9 +512,6 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     } finally {
       if (didPress && !didRelease) {
         await this.client.send("Input.dispatchMouseEvent", release).catch(() => undefined);
-      }
-      if (this.pointerFocusTrackingInstalled) {
-        await this.evaluateInExecutionContexts(createPointerFocusSuppressionSource(false));
       }
     }
     await waitForInputDelay(postDelayMs, signal);
@@ -566,13 +558,9 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     this.overlayHandler = handler;
     await this.client.send("Runtime.addBinding", { name: OVERLAY_BINDING_NAME });
     const bootstrap = createOverlayBridgeBootstrap();
-    const pointerFocusTracking = createExternalPointerFocusTrackingSource();
     await this.client.send("Page.addScriptToEvaluateOnNewDocument", { source: bootstrap });
-    await this.client.send("Page.addScriptToEvaluateOnNewDocument", { source: pointerFocusTracking });
     await this.client.send("Page.addScriptToEvaluateOnNewDocument", { source });
     await this.evaluate(bootstrap);
-    await this.evaluate(pointerFocusTracking);
-    this.pointerFocusTrackingInstalled = true;
     await this.evaluate(source);
   }
 
@@ -808,34 +796,6 @@ function createExternalFocusSource(allowBodyFallback: boolean): string {
     try { target.focus({ preventScroll: true }); } catch { target.focus(); }
     return document.activeElement === target;
   })()`;
-}
-
-function createExternalPointerFocusTrackingSource(): string {
-  return `(() => {
-    const key = ${JSON.stringify(POINTER_FOCUS_STATE_KEY)};
-    if (window[key]?.version === 1) return;
-    const state = {
-      suppressionDepth: 0,
-      version: 1,
-      setSuppressed(suppressed) {
-        state.suppressionDepth = Math.max(0, state.suppressionDepth + (suppressed ? 1 : -1));
-      }
-    };
-    window[key] = state;
-    window.addEventListener("pointerdown", (event) => {
-      if (state.suppressionDepth > 0 || event.button !== 0) return;
-      const canvas = event.composedPath().find((item) => item instanceof HTMLCanvasElement);
-      if (!(canvas instanceof HTMLCanvasElement) || document.activeElement === canvas) return;
-      const hadTabIndex = canvas.hasAttribute("tabindex");
-      if (!hadTabIndex) canvas.setAttribute("tabindex", "-1");
-      try { canvas.focus({ preventScroll: true }); } catch { canvas.focus(); }
-      if (!hadTabIndex) setTimeout(() => canvas.removeAttribute("tabindex"), 0);
-    }, true);
-  })()`;
-}
-
-function createPointerFocusSuppressionSource(suppressed: boolean): string {
-  return `window[${JSON.stringify(POINTER_FOCUS_STATE_KEY)}]?.setSuppressed?.(${JSON.stringify(suppressed)})`;
 }
 
 export function getCdpKeyDescriptor(

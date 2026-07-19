@@ -75,6 +75,7 @@ describe("macro badge interface settings", () => {
       </MemoryRouter>
     );
 
+    expect(screen.getByRole("button", { name: "Customize fonts" })).toBeTruthy();
     expect(screen.getByText("Macro badges")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Left" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Center" }).getAttribute("aria-pressed")).toBe("true");

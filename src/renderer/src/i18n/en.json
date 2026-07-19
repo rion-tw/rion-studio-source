@@ -369,7 +369,7 @@
   "settings.aboutLegalDescription": "Review app identity, legal documents, privacy practices, and third-party software notices.",
   "settings.description": "Adjust interface, game, data, and update settings without changing existing role data.",
   "settings.interface": "Interface settings",
-  "settings.interfaceDescription": "Choose the app theme, interface language, and workspace appearance.",
+  "settings.interfaceDescription": "Choose the app theme, interface language, browser fonts, and workspace appearance.",
   "settings.game": "Game settings",
   "settings.gameDescription": "Set defaults used when creating roles and launching game browsers.",
   "settings.macros": "Macro settings",

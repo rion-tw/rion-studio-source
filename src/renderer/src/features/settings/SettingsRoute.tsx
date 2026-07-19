@@ -438,7 +438,6 @@ function SettingsViewBase({
                 }
               />
               <SettingsRow
-                showDivider={false}
                 title={t("settings.language")}
                 description={t("settings.languageDescription")}
                 control={
@@ -458,6 +457,15 @@ function SettingsViewBase({
                     </SelectContent>
                   </Select>
                 }
+              />
+              <BrowserFontsSettingsRows
+                hasRunningRoles={hasRunningRoles}
+                settings={gameBrowserSettings}
+                systemFonts={systemFonts}
+                t={t}
+                onError={onError}
+                onLoadSystemFonts={onLoadSystemFonts}
+                onSave={onGameBrowserSettingsChange}
               />
             </SettingsSection>
 
@@ -549,15 +557,6 @@ function SettingsViewBase({
                     </SelectContent>
                   </Select>
                 }
-              />
-              <BrowserFontsSettingsRows
-                hasRunningRoles={hasRunningRoles}
-                settings={gameBrowserSettings}
-                systemFonts={systemFonts}
-                t={t}
-                onError={onError}
-                onLoadSystemFonts={onLoadSystemFonts}
-                onSave={onGameBrowserSettingsChange}
               />
             </SettingsSection>
 

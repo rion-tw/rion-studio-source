@@ -12,8 +12,14 @@ import type { AppLanguage, WorkspaceLayoutTemplate } from "../../shared/types";
 
 export type MacRuntimeTabsFullscreenPolicy = "always" | "autoHide";
 
+export interface MacRuntimeTabsWindowedContentLayout {
+  heightInset: number;
+  yOffset: number;
+}
+
 export interface MacRuntimeTabsController {
   destroy(): void;
+  getWindowedContentLayout(): MacRuntimeTabsWindowedContentLayout;
   prepareFullscreenTransition(fullscreen: boolean): void;
   setFullscreenPolicy(policy: MacRuntimeTabsFullscreenPolicy): void;
   setRevealLocked(locked: boolean): void;
@@ -50,6 +56,9 @@ export interface MacRuntimeTabsNativeAddon {
     callback: (action: unknown) => void
   ): number;
   destroyController(controllerId: number): void;
+  getWindowedContentLayout(
+    controllerId: number
+  ): MacRuntimeTabsWindowedContentLayout;
   prepareFullscreenTransition(controllerId: number, fullscreen: boolean): void;
   protocolVersion: number;
   setFullscreenPolicy(
@@ -79,7 +88,7 @@ const labels: Record<AppLanguage, MacRuntimeTabsNativeState["labels"]> = {
   }
 };
 
-const NATIVE_PROTOCOL_VERSION = 2;
+const NATIVE_PROTOCOL_VERSION = 3;
 
 export function toMacRuntimeTabsNativeState(
   state: RuntimeTabChromeState
@@ -129,6 +138,9 @@ export function createMacRuntimeTabsControllerFactory(
         destroyed = true;
         nativeAddon.destroyController(controllerId);
       },
+      getWindowedContentLayout: () => destroyed
+        ? { heightInset: 0, yOffset: 0 }
+        : nativeAddon.getWindowedContentLayout(controllerId),
       prepareFullscreenTransition: (fullscreen) => {
         if (!destroyed) {
           nativeAddon.prepareFullscreenTransition(controllerId, fullscreen);

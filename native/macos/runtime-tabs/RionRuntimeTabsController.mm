@@ -42,6 +42,36 @@ static std::mutex RionRuntimeTitlebarWidgetInsetHookMutex;
 static std::unordered_map<Class, IMP>
     RionRuntimeOriginalTitlebarWidgetInsetIMPs;
 
+RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
+    NSRect contentBounds, NSRect contentLayoutRect, BOOL contentViewFlipped) {
+  RionRuntimeContentLayout result = {0, 0};
+  const CGFloat contentHeight = NSHeight(contentBounds);
+  if (!std::isfinite(NSMinX(contentBounds)) ||
+      !std::isfinite(NSMinY(contentBounds)) ||
+      !std::isfinite(NSWidth(contentBounds)) ||
+      !std::isfinite(contentHeight) || contentHeight <= 0 ||
+      !std::isfinite(NSMinX(contentLayoutRect)) ||
+      !std::isfinite(NSMinY(contentLayoutRect)) ||
+      !std::isfinite(NSWidth(contentLayoutRect)) ||
+      !std::isfinite(NSHeight(contentLayoutRect))) {
+    return result;
+  }
+
+  NSRect clippedLayoutRect = NSIntersectionRect(contentBounds,
+                                                 contentLayoutRect);
+  if (NSIsEmptyRect(clippedLayoutRect)) return result;
+
+  const CGFloat topInset = contentViewFlipped
+      ? NSMinY(clippedLayoutRect) - NSMinY(contentBounds)
+      : NSMaxY(contentBounds) - NSMaxY(clippedLayoutRect);
+  const CGFloat totalInset = contentHeight - NSHeight(clippedLayoutRect);
+  const CGFloat maximumInset = floor(contentHeight);
+  result.yOffset = MIN(maximumInset, MAX(0.0, round(topInset)));
+  result.heightInset = MIN(maximumInset,
+                           MAX(result.yOffset, round(totalInset)));
+  return result;
+}
+
 // Electron's BrowserWindowFrame deliberately falls back to AppKit's 32pt
 // fullscreen metric unless Chromium's tabbed immersive-mode controller is
 // present. Rion uses AppKit's native fullscreen host without that Chromium
@@ -2054,6 +2084,25 @@ static void *RionRuntimeTrafficLightObservationContext =
 - (void)setRevealLocked:(BOOL)locked {
   _revealLocked = locked;
   [self applyFullScreenPolicy];
+}
+
+- (RionRuntimeContentLayout)windowedContentLayout {
+  RionRuntimeContentLayout emptyLayout = {0, 0};
+  if (_destroyed || !_window) return emptyLayout;
+
+  NSView *contentView = _window.contentView;
+  if (!contentView) return emptyLayout;
+  [contentView.superview layoutSubtreeIfNeeded];
+  [contentView layoutSubtreeIfNeeded];
+
+  // contentLayoutRect is AppKit's authoritative unobscured content region in
+  // window coordinates. Convert it into Electron's contentView coordinates so
+  // BrowserManager can lay out child Views without reproducing titlebar math.
+  NSRect contentLayoutRect =
+      [contentView convertRect:_window.contentLayoutRect fromView:nil];
+  return RionRuntimeContentLayoutForRects(contentView.bounds,
+                                          contentLayoutRect,
+                                          contentView.isFlipped);
 }
 
 - (void)applyFullScreenPolicy {

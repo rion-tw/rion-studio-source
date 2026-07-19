@@ -100,8 +100,12 @@ describe("MacRuntimeTabsController", () => {
         return 17;
       }),
       destroyController: vi.fn(),
+      getWindowedContentLayout: vi.fn(() => ({
+        heightInset: 8,
+        yOffset: 8
+      })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 2,
+      protocolVersion: 3,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()
@@ -115,6 +119,10 @@ describe("MacRuntimeTabsController", () => {
     );
 
     controller.update(state);
+    expect(controller.getWindowedContentLayout()).toEqual({
+      heightInset: 8,
+      yOffset: 8
+    });
     controller.prepareFullscreenTransition(true);
     controller.setFullscreenPolicy("always");
     controller.setRevealLocked(true);
@@ -126,6 +134,7 @@ describe("MacRuntimeTabsController", () => {
       17,
       expect.objectContaining({ displayId: 11, tabs: expect.any(Array) })
     );
+    expect(nativeAddon.getWindowedContentLayout).toHaveBeenCalledWith(17);
     expect(nativeAddon.prepareFullscreenTransition).toHaveBeenCalledWith(17, true);
     expect(nativeAddon.setFullscreenPolicy).toHaveBeenCalledWith(17, "always");
     expect(nativeAddon.setRevealLocked).toHaveBeenCalledWith(17, true);
@@ -135,13 +144,18 @@ describe("MacRuntimeTabsController", () => {
     controller.destroy();
     controller.destroy();
     controller.update(state);
+    expect(controller.getWindowedContentLayout()).toEqual({
+      heightInset: 0,
+      yOffset: 0
+    });
     expect(nativeAddon.destroyController).toHaveBeenCalledOnce();
+    expect(nativeAddon.getWindowedContentLayout).toHaveBeenCalledOnce();
     expect(nativeAddon.updateController).toHaveBeenCalledOnce();
   });
 
   it("rejects an incompatible native protocol", () => {
-    expect(() => createMacRuntimeTabsControllerFactory({ protocolVersion: 1 } as never))
-      .toThrow("Unsupported macOS runtime tabs protocol 1");
+    expect(() => createMacRuntimeTabsControllerFactory({ protocolVersion: 2 } as never))
+      .toThrow("Unsupported macOS runtime tabs protocol 2");
   });
 
   it("logs a clear warning and permits the HTML fallback when the addon is missing", () => {

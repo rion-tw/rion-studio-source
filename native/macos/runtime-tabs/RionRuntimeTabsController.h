@@ -4,6 +4,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef void (^RionRuntimeTabsActionHandler)(NSDictionary<NSString *, id> *action);
 
+typedef struct {
+  CGFloat heightInset;
+  CGFloat yOffset;
+} RionRuntimeContentLayout;
+
+RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
+    NSRect contentBounds, NSRect contentLayoutRect, BOOL contentViewFlipped);
+
 @interface RionRuntimeTabModel : NSObject
 
 @property(nonatomic) BOOL active;
@@ -38,6 +46,7 @@ typedef void (^RionRuntimeTabsActionHandler)(NSDictionary<NSString *, id> *actio
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow;
 - (void)setRevealLocked:(BOOL)locked;
 - (void)updateState:(RionRuntimeTabsState *)state;
+- (RionRuntimeContentLayout)windowedContentLayout;
 
 @end
 

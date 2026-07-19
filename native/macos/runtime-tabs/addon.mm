@@ -14,7 +14,7 @@
 
 namespace {
 
-constexpr int32_t kProtocolVersion = 2;
+constexpr int32_t kProtocolVersion = 3;
 
 struct ControllerRecord {
   __strong RionRuntimeTabsController *controller = nil;
@@ -334,6 +334,29 @@ napi_value SetRevealLocked(napi_env env, napi_callback_info info) {
   return Undefined(env);
 }
 
+napi_value GetWindowedContentLayout(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (argc != 1) {
+    Throw(env, "getWindowedContentLayout requires an identifier.");
+    return nullptr;
+  }
+  ControllerRecord *record = GetController(env, args[0]);
+  if (!record) return nullptr;
+  RionRuntimeContentLayout layout =
+      [record->controller windowedContentLayout];
+  napi_value result;
+  napi_value height_inset;
+  napi_value y_offset;
+  napi_create_object(env, &result);
+  napi_create_double(env, layout.heightInset, &height_inset);
+  napi_create_double(env, layout.yOffset, &y_offset);
+  napi_set_named_property(env, result, "heightInset", height_inset);
+  napi_set_named_property(env, result, "yOffset", y_offset);
+  return result;
+}
+
 napi_value DestroyController(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value args[1];
@@ -371,6 +394,8 @@ napi_value Initialize(napi_env env, napi_value exports) {
        napi_default, nullptr},
       {"prepareFullscreenTransition", nullptr, PrepareFullscreenTransition,
        nullptr, nullptr, nullptr, napi_default, nullptr},
+      {"getWindowedContentLayout", nullptr, GetWindowedContentLayout, nullptr,
+       nullptr, nullptr, napi_default, nullptr},
       {"setFullscreenPolicy", nullptr, SetFullscreenPolicy, nullptr, nullptr,
        nullptr, napi_default, nullptr},
       {"setRevealLocked", nullptr, SetRevealLocked, nullptr, nullptr, nullptr,

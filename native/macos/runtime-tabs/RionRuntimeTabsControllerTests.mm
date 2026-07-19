@@ -334,6 +334,33 @@ static void AssertBadgeTextVerticallyCentered(NSView *item,
 
 int main() {
   @autoreleasepool {
+    RionRuntimeContentLayout flippedLayout =
+        RionRuntimeContentLayoutForRects(NSMakeRect(0, 0, 900, 600),
+                                         NSMakeRect(0, 8, 900, 592), YES);
+    Assert(flippedLayout.yOffset == 8 && flippedLayout.heightInset == 8,
+           "Flipped content coordinates must preserve AppKit's top layout inset.");
+    RionRuntimeContentLayout unflippedLayout =
+        RionRuntimeContentLayoutForRects(NSMakeRect(0, 0, 900, 600),
+                                         NSMakeRect(0, 0, 900, 592), NO);
+    Assert(unflippedLayout.yOffset == 8 &&
+               unflippedLayout.heightInset == 8,
+           "Unflipped content coordinates must measure the inset from the visual top.");
+    RionRuntimeContentLayout splitInsets =
+        RionRuntimeContentLayoutForRects(NSMakeRect(0, 0, 900, 600),
+                                         NSMakeRect(0, 8, 900, 580), YES);
+    Assert(splitInsets.yOffset == 8 && splitInsets.heightInset == 20,
+           "The layout conversion must retain distinct top and total height insets.");
+    RionRuntimeContentLayout roundedLayout =
+        RionRuntimeContentLayoutForRects(NSMakeRect(0, 0, 900, 600),
+                                         NSMakeRect(0, 7.6, 900, 592.4), YES);
+    Assert(roundedLayout.yOffset == 8 && roundedLayout.heightInset == 8,
+           "Fractional AppKit geometry must be rounded to integer DIP values.");
+    RionRuntimeContentLayout clippedLayout =
+        RionRuntimeContentLayoutForRects(NSMakeRect(0, 0, 900, 600),
+                                         NSMakeRect(0, -10, 900, 620), YES);
+    Assert(clippedLayout.yOffset == 0 && clippedLayout.heightInset == 0,
+           "Layout geometry outside the content bounds must be clipped safely.");
+
     [NSApplication sharedApplication];
     NSWindow *window = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 900, 600)
@@ -395,6 +422,25 @@ int main() {
       lastAction = action;
     }];
     Assert(controller != nil, "Expected the native runtime tabs controller.");
+    NSView *contentView = window.contentView;
+    [contentView.superview layoutSubtreeIfNeeded];
+    NSRect convertedContentLayoutRect =
+        [contentView convertRect:window.contentLayoutRect fromView:nil];
+    RionRuntimeContentLayout expectedWindowedLayout =
+        RionRuntimeContentLayoutForRects(contentView.bounds,
+                                         convertedContentLayoutRect,
+                                         contentView.isFlipped);
+    RionRuntimeContentLayout actualWindowedLayout =
+        [controller windowedContentLayout];
+    Assert(actualWindowedLayout.yOffset == expectedWindowedLayout.yOffset &&
+               actualWindowedLayout.heightInset ==
+                   expectedWindowedLayout.heightInset &&
+               actualWindowedLayout.yOffset >= 0 &&
+               actualWindowedLayout.heightInset >=
+                   actualWindowedLayout.yOffset &&
+               actualWindowedLayout.heightInset <=
+                   floor(contentView.bounds.size.height),
+           "The controller must expose AppKit's contentLayoutRect in bounded content-view coordinates.");
     NSView *titlebarFrameView = window.contentView.superview;
     AssertTitlebarHeight(
         titlebarFrameView, 40.0,

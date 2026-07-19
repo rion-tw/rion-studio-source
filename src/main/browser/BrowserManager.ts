@@ -1582,8 +1582,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private getRuntimeContentTopInset(displayHost: EmbeddedDisplayHost): number {
     if (displayHost.macNativeTabs) {
-      return displayHost.windowFullscreen &&
-        this.alwaysShowToolbarInFullScreen
+      return !this.isDisplayHostFullscreen(displayHost) ||
+        (displayHost.windowFullscreen && this.alwaysShowToolbarInFullScreen)
         ? RUNTIME_TAB_CHROME_HEIGHT
         : 0;
     }

@@ -428,37 +428,6 @@ function WorkspaceLayoutFormEditor({
 
         <Surface className="p-4" padding="none" variant="inset">
           <FormField
-            htmlFor="workspace-layout-template"
-            label={t("workspaces.layout")}
-            description={t("workspaces.layoutDescription")}
-          >
-            <Select
-              value={form.template}
-              onValueChange={(value) => handleTemplateChange(value as WorkspaceLayoutTemplate)}
-              disabled={isSaving}
-            >
-              <SelectTrigger id="workspace-layout-template">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {workspaceLayoutTemplates.map((template) => {
-                  const Icon = workspaceTemplateIcons[template];
-                  const label = t(workspaceTemplateLabelKeys[template]);
-
-                  return (
-                    <SelectItem key={template} value={template} textValue={label}>
-                      <Icon className="size-4 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{label}</span>
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
-
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField
             htmlFor="workspace-browser-zoom"
             label={t("workspaces.browserZoom")}
             description={t("workspaces.browserZoomDescription")}
@@ -529,6 +498,37 @@ function WorkspaceLayoutFormEditor({
                     {formatWorkspaceDisplayLabel(display, index, t)}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+        </Surface>
+
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField
+            htmlFor="workspace-layout-template"
+            label={t("workspaces.layout")}
+            description={t("workspaces.layoutDescription")}
+          >
+            <Select
+              value={form.template}
+              onValueChange={(value) => handleTemplateChange(value as WorkspaceLayoutTemplate)}
+              disabled={isSaving}
+            >
+              <SelectTrigger id="workspace-layout-template">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {workspaceLayoutTemplates.map((template) => {
+                  const Icon = workspaceTemplateIcons[template];
+                  const label = t(workspaceTemplateLabelKeys[template]);
+
+                  return (
+                    <SelectItem key={template} value={template} textValue={label}>
+                      <Icon className="size-4 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{label}</span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </FormField>

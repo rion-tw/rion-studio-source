@@ -430,9 +430,9 @@ describe("BrowserManager game host windows", () => {
     expect(harness.createTabbedHostWindow).not.toHaveBeenCalled();
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: 40,
+      y: 8,
       width: 1200,
-      height: 736
+      height: 768
     });
     expect(harness.nativeChromeControllers[0].setFullscreenPolicy)
       .toHaveBeenCalledWith("autoHide");
@@ -446,11 +446,14 @@ describe("BrowserManager game host windows", () => {
     harness.manager.setAlwaysShowToolbarInFullScreen(true);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: 40,
+      y: 8,
       width: 1200,
-      height: 736
+      height: 768
     });
     harness.manager.setAlwaysShowToolbarInFullScreen(false);
+
+    const windowedLayoutCallsBeforeFullscreen =
+      harness.nativeChromeControllers[0].getWindowedContentLayout.mock.calls.length;
 
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(true);
@@ -523,6 +526,8 @@ describe("BrowserManager game host windows", () => {
       11,
       { type: "activate", tabId: "native-tab" }
     );
+    expect(harness.nativeChromeControllers[0].getWindowedContentLayout)
+      .toHaveBeenCalledTimes(windowedLayoutCallsBeforeFullscreen);
 
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.nativeChromeControllers[0].prepareFullscreenTransition)
@@ -530,17 +535,19 @@ describe("BrowserManager game host windows", () => {
     expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: 40,
+      y: 8,
       width: 1200,
-      height: 736
+      height: 768
     });
     expect(popup.setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: 40,
+      y: 8,
       width: 1200,
-      height: 736
+      height: 768
     });
 
+    const windowedLayoutCallsBeforeHtmlFullscreen =
+      harness.nativeChromeControllers[0].getWindowedContentLayout.mock.calls.length;
     harness.views[0].webContents.emit("enter-html-full-screen");
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
@@ -554,19 +561,23 @@ describe("BrowserManager game host windows", () => {
       width: 1200,
       height: 776
     });
+    expect(harness.nativeChromeControllers[0].getWindowedContentLayout)
+      .toHaveBeenCalledTimes(windowedLayoutCallsBeforeHtmlFullscreen);
     harness.views[0].webContents.emit("leave-html-full-screen");
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: 40,
+      y: 8,
       width: 1200,
-      height: 736
+      height: 768
     });
     expect(popup.setBounds).toHaveBeenLastCalledWith({
       x: 0,
-      y: 40,
+      y: 8,
       width: 1200,
-      height: 736
+      height: 768
     });
+    expect(harness.nativeChromeControllers[0].getWindowedContentLayout.mock.calls.length)
+      .toBeGreaterThan(windowedLayoutCallsBeforeHtmlFullscreen);
 
     harness.hosts[0].emit("closed");
     expect(harness.nativeChromeControllers[0].destroy).toHaveBeenCalledOnce();
@@ -590,14 +601,16 @@ describe("BrowserManager game host windows", () => {
     const fixedRootBounds = { ...harness.hosts[0].contentBounds };
 
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
-      expect.objectContaining({ y: 40, height: 736 })
+      expect.objectContaining({ y: 8, height: 768 })
     );
     expect(popup.setBounds).toHaveBeenLastCalledWith(
-      expect.objectContaining({ y: 40, height: 736 })
+      expect.objectContaining({ y: 8, height: 768 })
     );
     expect(divider.setBounds).toHaveBeenLastCalledWith(
-      expect.objectContaining({ y: 40, height: 736 })
+      expect.objectContaining({ y: 8, height: 768 })
     );
+    const windowedGameBounds = harness.views[0].setBounds.mock.lastCall![0];
+    expect(windowedGameBounds.y + windowedGameBounds.height).toBe(776);
 
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.hosts[0].contentBounds).toEqual(fixedRootBounds);
@@ -637,13 +650,47 @@ describe("BrowserManager game host windows", () => {
 
     harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
     expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
-      expect.objectContaining({ y: 40, height: 736 })
+      expect.objectContaining({ y: 8, height: 768 })
     );
     expect(popup.setBounds).toHaveBeenLastCalledWith(
-      expect.objectContaining({ y: 40, height: 736 })
+      expect.objectContaining({ y: 8, height: 768 })
     );
     expect(divider.setBounds).toHaveBeenLastCalledWith(
-      expect.objectContaining({ y: 40, height: 736 })
+      expect.objectContaining({ y: 8, height: 768 })
+    );
+  });
+
+  it("does not read the native windowed layout during fullscreen transitions", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      deferFullscreenTransitions: true,
+      platform: "darwin",
+      useMacNativeChrome: true,
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    await harness.manager.launch(role);
+    const getWindowedContentLayout =
+      harness.nativeChromeControllers[0].getWindowedContentLayout;
+    getWindowedContentLayout.mockClear();
+
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    harness.hosts[0].emit("resize");
+    expect(getWindowedContentLayout).not.toHaveBeenCalled();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 0, height: 776 })
+    );
+
+    harness.hosts[0].completeFullScreenTransition();
+    expect(getWindowedContentLayout).not.toHaveBeenCalled();
+    harness.manager.handleRuntimeWindowControl(11, "toggleFullscreen");
+    harness.hosts[0].emit("resize");
+    expect(getWindowedContentLayout).not.toHaveBeenCalled();
+
+    harness.hosts[0].completeFullScreenTransition();
+    expect(getWindowedContentLayout).toHaveBeenCalled();
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({ y: 8, height: 768 })
     );
   });
 
@@ -3292,6 +3339,7 @@ function createHarness(options: {
   const nativeChromeControllers: Array<{
     destroy: ReturnType<typeof vi.fn>;
     emitAction: (action: Parameters<NonNullable<BrowserManagerOptions["handleRuntimeTabAction"]>>[2]) => void;
+    getWindowedContentLayout: ReturnType<typeof vi.fn>;
     prepareFullscreenTransition: ReturnType<typeof vi.fn>;
     setFullscreenPolicy: ReturnType<typeof vi.fn>;
     setRevealLocked: ReturnType<typeof vi.fn>;
@@ -3352,6 +3400,7 @@ function createHarness(options: {
     const controller = {
       destroy: vi.fn(),
       emitAction: onAction,
+      getWindowedContentLayout: vi.fn(() => ({ heightInset: 8, yOffset: 8 })),
       prepareFullscreenTransition: vi.fn(),
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),

@@ -257,6 +257,11 @@ interface GameDividerResizeResult {
   roleIds: string[];
 }
 
+interface RuntimeContentLayout {
+  heightInset: number;
+  yOffset: number;
+}
+
 export type GameDividerPointerPayload =
   | { phase: "move" | "start"; screenPosition: number }
   | { phase: "end" }
@@ -1331,12 +1336,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private getTabContentBounds(tab: GameHostWindow): PixelBounds {
     const displayHost = this.getDisplayHost(tab);
     const bounds = tab.window.getContentBounds();
-    const chromeHeight = displayHost ? this.getRuntimeContentTopInset(displayHost) : 0;
+    const contentLayout = displayHost
+      ? this.getRuntimeContentLayout(displayHost)
+      : { heightInset: 0, yOffset: 0 };
     return {
       x: 0,
-      y: chromeHeight,
+      y: contentLayout.yOffset,
       width: Math.max(1, bounds.width),
-      height: Math.max(1, bounds.height - chromeHeight)
+      height: Math.max(1, bounds.height - contentLayout.heightInset)
     };
   }
 
@@ -1596,21 +1603,34 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       : RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT;
   }
 
-  private getRuntimeContentTopInset(displayHost: EmbeddedDisplayHost): number {
+  private getRuntimeContentLayout(displayHost: EmbeddedDisplayHost): RuntimeContentLayout {
     if (displayHost.macNativeTabs) {
-      return !this.isDisplayHostFullscreen(displayHost) ||
-        (displayHost.windowFullscreen && this.alwaysShowToolbarInFullScreen)
+      const fullscreenOrTransitioning =
+        this.isDisplayHostFullscreen(displayHost) ||
+        displayHost.windowFullscreenTransitionTarget !== undefined;
+      if (!fullscreenOrTransitioning) {
+        return displayHost.macNativeTabs.getWindowedContentLayout();
+      }
+      const windowFullscreenOrEntering =
+        displayHost.windowFullscreen ||
+        displayHost.windowFullscreenTransitionTarget === true;
+      const inset = windowFullscreenOrEntering && this.alwaysShowToolbarInFullScreen
         ? RUNTIME_TAB_CHROME_HEIGHT
         : 0;
+      return { heightInset: inset, yOffset: inset };
     }
     if (displayHost.chromeView) {
-      if (!this.isDisplayHostFullscreen(displayHost)) return RUNTIME_TAB_CHROME_HEIGHT;
-      return this.alwaysShowToolbarInFullScreen
+      const inset = !this.isDisplayHostFullscreen(displayHost) ||
+        this.alwaysShowToolbarInFullScreen
         ? RUNTIME_TAB_CHROME_HEIGHT
         : 0;
+      return { heightInset: inset, yOffset: inset };
     }
-    if (displayHost.chromeWebContents) return this.getRuntimeToolbarHeight(displayHost);
-    return 0;
+    if (displayHost.chromeWebContents) {
+      const inset = this.getRuntimeToolbarHeight(displayHost);
+      return { heightInset: inset, yOffset: inset };
+    }
+    return { heightInset: 0, yOffset: 0 };
   }
 
   private layoutRuntimeChrome(displayHost: EmbeddedDisplayHost): void {

@@ -66,21 +66,20 @@ describe("runtime tabs HTML preload", () => {
     });
   });
 
-  it("renders a tinted workspace badge with neutral light and dark palette tokens", () => {
+  it("renders workspace role names in the hover tip and removes tab badges", () => {
     renderState("workspace");
 
     const styleText = [...document.head.querySelectorAll("style")]
       .map((style) => style.textContent ?? "")
       .join("\n");
-    const count = document.querySelector<HTMLElement>(".runtime-tab-count");
+    const tab = document.querySelector<HTMLElement>('[role="tab"]');
 
     expect(styleText).toContain("--runtime-tab-active: rgba(24,26,32,.045)");
     expect(styleText).toContain("--runtime-tab-active: rgba(255,255,255,.075)");
-    expect(styleText).toContain("--runtime-badge-fill: rgba(126,87,194,.14)");
-    expect(styleText).toContain("--runtime-badge-fill: rgba(186,140,255,.22)");
     expect(styleText).not.toContain("--runtime-tab-active: rgba(255,255,255,.68)");
-    expect(count?.textContent).toBe("4");
-    expect(count?.className).toBe("runtime-tab-count");
+    expect(styleText).not.toContain("runtime-tab-count");
+    expect(tab?.title).toBe("Test tab：角色 1, 角色 2, 角色 3, 角色 4");
+    expect(document.querySelector(".runtime-tab-count")).toBeNull();
   });
 });
 
@@ -104,6 +103,9 @@ function renderState(kind: "role" | "workspace" = "role"): void {
       roleIds: workspace
         ? ["role-1", "role-2", "role-3", "role-4"]
         : ["role-1"],
+      ...(workspace
+        ? { roleNames: ["角色 1", "角色 2", "角色 3", "角色 4"] }
+        : {}),
       sourceId: "role-1",
       type: kind
     }],

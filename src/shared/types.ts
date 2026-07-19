@@ -144,6 +144,8 @@ export interface EmbeddedRuntimeTabSummary {
   name: string;
   displayId: number;
   roleIds: string[];
+  /** Role names in the same order as roleIds, present for workspace tabs. */
+  roleNames?: string[];
   hidden: boolean;
   active: boolean;
 }

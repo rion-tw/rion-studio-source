@@ -21,7 +21,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 @property(nonatomic, copy, nullable) NSString *iconDataURL;
 @property(nonatomic, copy) NSString *identifier;
 @property(nonatomic, copy) NSString *name;
-@property(nonatomic) NSInteger roleCount;
+@property(nonatomic, copy) NSString *tooltip;
 @property(nonatomic, copy) NSString *type;
 @property(nonatomic, copy, nullable) NSString *workspaceTemplate;
 

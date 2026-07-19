@@ -5,6 +5,7 @@ import type { BaseWindow } from "electron";
 
 import {
   isRuntimeTabAction,
+  formatRuntimeTabTooltip,
   type RuntimeTabAction,
   type RuntimeTabChromeState
 } from "../../shared/runtimeTabs";
@@ -38,7 +39,7 @@ interface MacRuntimeTabsNativeTab {
   iconDataUrl?: string;
   id: string;
   name: string;
-  roleCount: number;
+  tooltip: string;
   type: "role" | "workspace";
   workspaceTemplate?: WorkspaceLayoutTemplate;
 }
@@ -124,7 +125,7 @@ export function toMacRuntimeTabsNativeState(
           : {}),
         id: tab.id,
         name: tab.name,
-        roleCount: tab.type === "workspace" ? tab.roleIds.length : 0,
+        tooltip: formatRuntimeTabTooltip(tab, state.language),
         type: tab.type,
         ...(state.tabWorkspaceTemplates[tab.id]
           ? { workspaceTemplate: state.tabWorkspaceTemplates[tab.id] }

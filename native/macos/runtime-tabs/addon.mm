@@ -214,6 +214,8 @@ RionRuntimeTabsState *ParseState(napi_env env, napi_value value) {
                                    "Invalid runtime tab identifier.");
     model.name = GetNSString(env, GetNamed(env, tab, "name"),
                              "Invalid runtime tab name.");
+    model.tooltip = GetNSString(env, GetNamed(env, tab, "tooltip"),
+                                "Invalid runtime tab tooltip.");
     model.type = GetNSString(env, GetNamed(env, tab, "type"),
                              "Invalid runtime tab type.");
     model.iconDataURL = GetOptionalNSString(env, tab, "iconDataUrl");
@@ -225,14 +227,6 @@ RionRuntimeTabsState *ParseState(napi_env env, napi_value value) {
       return nil;
     }
     model.active = active_value;
-    napi_value role_count = GetNamed(env, tab, "roleCount");
-    int32_t role_count_value = 0;
-    if (!role_count ||
-        napi_get_value_int32(env, role_count, &role_count_value) != napi_ok) {
-      Throw(env, "Invalid role count for runtime tab.");
-      return nil;
-    }
-    model.roleCount = role_count_value;
     [models addObject:model];
   }
   state.tabs = models;

@@ -21,9 +21,6 @@ static const CGFloat kRionTabIconTitleSpacing = 6.0;
 static const CGFloat kRionTabAccessorySpacing = 4.0;
 static const CGFloat kRionTabMoreButtonWidth = 20.0;
 static const CGFloat kRionTabTrailingPadding = 8.0;
-static const CGFloat kRionBadgeHeight = 16.0;
-static const CGFloat kRionBadgeMinimumWidth = 18.0;
-static const CGFloat kRionBadgeHorizontalPadding = 10.0;
 static const CGFloat kRionAddButtonSpacing = 8.0;
 static const CGFloat kRionRootLeadingInset = 4.0;
 static const CGFloat kRionRootTrailingDraggableWidth = 12.0;
@@ -803,9 +800,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 @end
 
 @implementation RionRuntimeTabItemView {
-  NSView *_badgeView;
-  NSTextField *_badgeField;
-  CGFloat _badgeWidth;
   BOOL _hovered;
   NSImageView *_iconView;
   NSButton *_moreButton;
@@ -842,28 +836,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _titleField.cell = titleCell;
   _titleField.focusRingType = NSFocusRingTypeNone;
 
-  _badgeView = [[NSView alloc] initWithFrame:NSZeroRect];
-  _badgeView.wantsLayer = YES;
-  _badgeView.layer.cornerRadius = 8.0;
-  _badgeView.layer.masksToBounds = YES;
-  _badgeView.layer.borderWidth = 0.55;
-  RionRuntimeVerticallyCenteredTextFieldCell *badgeCell =
-      [[RionRuntimeVerticallyCenteredTextFieldCell alloc] initTextCell:@""];
-  badgeCell.alignment = NSTextAlignmentCenter;
-  badgeCell.font = [NSFont monospacedDigitSystemFontOfSize:10.0
-                                                   weight:NSFontWeightMedium];
-  badgeCell.bezeled = NO;
-  badgeCell.bordered = NO;
-  badgeCell.drawsBackground = NO;
-  badgeCell.editable = NO;
-  badgeCell.selectable = NO;
-  badgeCell.usesSingleLineMode = YES;
-  badgeCell.lineBreakMode = NSLineBreakByClipping;
-  _badgeField = [[NSTextField alloc] initWithFrame:NSZeroRect];
-  _badgeField.cell = badgeCell;
-  _badgeField.focusRingType = NSFocusRingTypeNone;
-  [_badgeView addSubview:_badgeField];
-
   NSImage *closeImage = [NSImage imageWithSystemSymbolName:@"xmark"
                                    accessibilityDescription:nil];
   closeImage = [closeImage imageWithSymbolConfiguration:
@@ -878,7 +850,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
   [self addSubview:_iconView];
   [self addSubview:_titleField];
-  [self addSubview:_badgeView];
   [self addSubview:_moreButton];
   return self;
 }
@@ -894,9 +865,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   CGFloat fixedWidth = kRionTabLeadingPadding + kRionTabIconSize +
       kRionTabIconTitleSpacing + kRionTabAccessorySpacing +
       kRionTabMoreButtonWidth + kRionTabTrailingPadding;
-  if (!_badgeView.hidden) {
-    fixedWidth += kRionTabAccessorySpacing + _badgeWidth;
-  }
   return MIN(kRionTabMaximumWidth,
              MAX(kRionTabMinimumWidth, ceil(labelWidth) + fixedWidth));
 }
@@ -917,24 +885,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _moreButton.identifier = tab.identifier;
   _moreButton.toolTip = closeLabel;
   _moreButton.accessibilityLabel = closeLabel;
-  self.toolTip = tab.name;
+  self.toolTip = tab.tooltip.length > 0 ? tab.tooltip : tab.name;
   self.accessibilityLabel = tab.name;
   self.accessibilityValue = @(tab.active);
 
-  if (tab.roleCount > 0) {
-    NSString *count = [NSString stringWithFormat:@"%ld", (long)tab.roleCount];
-    _badgeField.stringValue = count;
-    CGFloat measured = [count sizeWithAttributes:@{
-      NSFontAttributeName : _badgeField.font
-    }].width;
-    _badgeWidth =
-        MAX(kRionBadgeMinimumWidth, ceil(measured) + kRionBadgeHorizontalPadding);
-    _badgeView.hidden = NO;
-  } else {
-    _badgeField.stringValue = @"";
-    _badgeWidth = 0;
-    _badgeView.hidden = YES;
-  }
   [self invalidateIntrinsicContentSize];
   [self updateVisualStateAnimated:YES];
   self.needsLayout = YES;
@@ -954,14 +908,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _moreButton.frame =
       NSMakeRect(moreX, 0, kRionTabMoreButtonWidth, kRionTabHeight);
   CGFloat titleEnd = moreX - kRionTabAccessorySpacing;
-  if (!_badgeView.hidden) {
-    CGFloat badgeX = MAX(x, titleEnd - _badgeWidth);
-    _badgeView.frame =
-        NSMakeRect(badgeX, (kRionTabHeight - kRionBadgeHeight) / 2.0,
-                   _badgeWidth, kRionBadgeHeight);
-    _badgeField.frame = _badgeView.bounds;
-    titleEnd = badgeX - kRionTabAccessorySpacing;
-  }
   _titleField.frame =
       NSMakeRect(x, 0, MAX(1.0, titleEnd - x), kRionTabHeight);
 }
@@ -1007,25 +953,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                               ? (_windowActive ? NSColor.labelColor
                                                : NSColor.secondaryLabelColor)
                               : NSColor.secondaryLabelColor;
-  NSAppearance *appearance = self.effectiveAppearance;
-  BOOL darkAppearance = RionRuntimeUsesDarkAppearance(appearance);
-  BOOL increaseContrast =
-      NSWorkspace.sharedWorkspace.accessibilityDisplayShouldIncreaseContrast;
-  NSColor *badgeFill = [NSColor.systemPurpleColor
-      colorWithAlphaComponent:darkAppearance
-                            ? (increaseContrast ? 0.32 : 0.24)
-                            : (increaseContrast ? 0.20 : 0.14)];
-  NSColor *badgeBorder = [NSColor.systemPurpleColor
-      colorWithAlphaComponent:darkAppearance
-                            ? (increaseContrast ? 0.58 : 0.42)
-                            : (increaseContrast ? 0.40 : 0.28)];
-  _badgeField.textColor = [NSColor.labelColor
-      colorWithAlphaComponent:darkAppearance ? 0.94 : 0.86];
-  [appearance performAsCurrentDrawingAppearance:^{
-    self->_badgeView.layer.backgroundColor = badgeFill.CGColor;
-    self->_badgeView.layer.borderColor = badgeBorder.CGColor;
-  }];
-  _badgeView.layer.borderWidth = increaseContrast ? 0.8 : 0.55;
   CGFloat moreAlpha = self.activeTab ? 0.46 : _hovered ? 0.76 : 0.0;
   BOOL reduceMotion =
       NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;

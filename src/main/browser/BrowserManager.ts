@@ -412,6 +412,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
               name: tab.name,
               displayId: displayHost.displayId,
               roleIds: [...tab.roleIds],
+              ...(tab.type === "workspace"
+                ? {
+                    roleNames: [...tab.roleIds].map(
+                      (roleId) => this.sessions.get(roleId)?.role.name ?? roleId
+                    )
+                  }
+                : {}),
               hidden: tab.hidden,
               active: displayHost.activeTabId === tab.id && !tab.hidden && isWindowVisible(displayHost.window)
             }]

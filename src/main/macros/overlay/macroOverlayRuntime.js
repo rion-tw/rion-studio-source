@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v42";
+  const hostId = "rion-studio-macro-overlay-v43";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 40 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 41 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-19.10";
+  const scriptVersion = "2026-07-19.11";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -278,7 +278,12 @@
     const iteration = status?.iteration ?? 0;
     const timestamp = Date.parse(status?.updatedAt ?? "") || Date.now();
     const previous = macroIterationTimings.get(macroId);
-    let duration = 120;
+    const hasSameIteration =
+      previous &&
+      previous.startedAt === status?.startedAt &&
+      previous.iteration === iteration;
+    let duration = hasSameIteration ? previous.duration : 120;
+    let delay = hasSameIteration ? previous.delay : 0;
     if (
       previous &&
       previous.startedAt === status?.startedAt &&
@@ -288,14 +293,16 @@
       if (period > 0) {
         duration = Math.min(220, Math.max(70, Math.round(period * 0.32)));
       }
+      delay = -Math.min(duration, Math.max(0, Date.now() - timestamp));
     }
     macroIterationTimings.set(macroId, {
+      delay,
       duration,
       iteration,
       startedAt: status?.startedAt,
       timestamp
     });
-    return { duration, iteration };
+    return { delay, duration, iteration };
   }
 
   function formatCode(code) {
@@ -495,12 +502,17 @@
     const nextMarkup = getRunningBadgeMacros()
       .map((macro) => {
         const behavior = formatMacroBehavior(macro);
-        const { duration, iteration } = getMacroIteration(macro.id);
+        const { delay, duration, iteration } = getMacroIteration(macro.id);
+        const iterationFlashClass = iteration > 0 ? " is-iteration-flash" : "";
         return [
-          '<span class="active-badge is-iteration-flash" data-iteration="',
+          '<span class="active-badge',
+          iterationFlashClass,
+          '" data-iteration="',
           String(iteration),
           '" style="--active-badge-flash-duration:',
           String(duration),
+          'ms;--active-badge-flash-delay:',
+          String(delay),
           'ms">',
           '<span class="active-badge-shortcut">',
           escapeHtml(formatShortcut(macro.trigger)),

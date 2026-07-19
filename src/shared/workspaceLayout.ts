@@ -3,6 +3,7 @@ import type {
   NormalizedRect,
   WorkspaceBrowserZoomMode,
   WorkspaceBrowserZoomPercent,
+  WorkspaceSlotBrowserZoomPercent,
   WorkspaceLayoutTemplate,
   WorkspaceResourcePolicy
 } from "./types";
@@ -12,6 +13,8 @@ export const MIN_WORKSPACE_SLOT_SIZE = 0.12;
 export const DEFAULT_WORKSPACE_TEMPLATE: WorkspaceLayoutTemplate = "two_columns";
 export const DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE: WorkspaceBrowserZoomMode = "adaptive";
 export const DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT: WorkspaceBrowserZoomPercent = 100;
+export const MIN_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 50;
+export const MAX_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 300;
 export const DEFAULT_WORKSPACE_RESOURCE_POLICY: WorkspaceResourcePolicy = {
   mode: "adaptive"
 };
@@ -102,6 +105,17 @@ export function isWorkspaceBrowserZoomPercent(value: unknown): value is Workspac
   return (
     typeof value === "number" &&
     workspaceBrowserZoomPercents.includes(value as WorkspaceBrowserZoomPercent)
+  );
+}
+
+export function isWorkspaceSlotBrowserZoomPercent(
+  value: unknown
+): value is WorkspaceSlotBrowserZoomPercent {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= MIN_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT &&
+    value <= MAX_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT
   );
 }
 

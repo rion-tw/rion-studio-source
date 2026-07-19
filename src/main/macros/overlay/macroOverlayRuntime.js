@@ -5,7 +5,7 @@
     ...Array.from({ length: 41 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-19.11";
+  const scriptVersion = "2026-07-19.12";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -207,17 +207,45 @@
 
   function isSystemOwnedShortcut(event) {
     if (event.code === "Tab" && (event.metaKey || event.altKey)) return true;
-    if (event.metaKey && (event.code === "Space" || event.code.startsWith("Arrow"))) return true;
+    if (event.metaKey && event.code === "Space") return true;
+    if (!isMacPlatform() && event.metaKey) return true;
     return isMacPlatform() && event.ctrlKey && event.code.startsWith("Arrow");
+  }
+
+  function isBrowserNavigationShortcut(event) {
+    if (event.code === "BrowserBack" || event.code === "BrowserForward") return true;
+    if (event.altKey && (event.code === "ArrowLeft" || event.code === "ArrowRight")) return true;
+    return isMacPlatform() && event.metaKey &&
+      (event.code === "BracketLeft" || event.code === "BracketRight" ||
+        event.code === "ArrowLeft" || event.code === "ArrowRight");
+  }
+
+  function isReservedBrowserZoomShortcutEvent(event) {
+    if (event.altKey || event.ctrlKey === event.metaKey || (!event.ctrlKey && !event.metaKey)) {
+      return false;
+    }
+    if (event.code === "Equal" || event.code === "Plus" || event.code === "NumpadAdd") {
+      return true;
+    }
+    if (event.shiftKey) return false;
+    return event.code === "Minus" || event.code === "NumpadSubtract" ||
+      event.code === "Digit0" || event.code === "Numpad0";
   }
 
   function preventGameBrowserDefault(event) {
     if (!gameInputContextActive && !eventPathIncludesCanvas(event)) return;
     if (isSystemOwnedShortcut(event)) return;
 
-    if (gameBrowserDefaultCodes.has(event.code)) {
+    if (gameBrowserDefaultCodes.has(event.code) || isBrowserNavigationShortcut(event)) {
       event.preventDefault();
     }
+  }
+
+  function handleGameWheel(event) {
+    if ((!gameInputContextActive && !eventPathIncludesCanvas(event)) || (!event.ctrlKey && !event.metaKey)) {
+      return;
+    }
+    event.preventDefault();
   }
 
   function getText() {
@@ -679,6 +707,9 @@
     if (ignoresShortcut) {
       return;
     }
+    if (isReservedBrowserZoomShortcutEvent(event)) {
+      return;
+    }
 
     const matchesMacroShortcut = state.macros.some(
       (macro) => macro.enabled !== false && matchesShortcut(event, macro.trigger)
@@ -775,6 +806,7 @@
     releaseActiveHeldShortcuts();
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keyup", handleKeyUp, true);
+    window.removeEventListener("wheel", handleGameWheel, true);
     window.removeEventListener("focus", handleFocus, true);
     window.removeEventListener("blur", handleBlur, true);
     window.removeEventListener("pagehide", handleBlur, true);
@@ -808,6 +840,7 @@
     isDisposed = false;
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("wheel", handleGameWheel, { capture: true, passive: false });
     window.addEventListener("focus", handleFocus, true);
     window.addEventListener("blur", handleBlur, true);
     window.addEventListener("pagehide", handleBlur, true);

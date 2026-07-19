@@ -37,6 +37,38 @@ export interface WorkspaceVerticalResizeHandle {
   y: number;
 }
 
+export function mergeWorkspaceRoleZoomOverrides(
+  currentSlots: LaunchWorkspaceSlot[],
+  previousPersistedSlots: LaunchWorkspaceSlot[],
+  nextPersistedSlots: LaunchWorkspaceSlot[]
+): LaunchWorkspaceSlot[] {
+  const previousByRoleId = new Map(
+    previousPersistedSlots.flatMap((slot) => slot.roleId ? [[slot.roleId, slot] as const] : [])
+  );
+  const nextByRoleId = new Map(
+    nextPersistedSlots.flatMap((slot) => slot.roleId ? [[slot.roleId, slot] as const] : [])
+  );
+
+  return currentSlots.map((slot) => {
+    if (!slot.roleId) {
+      return slot;
+    }
+    const previous = previousByRoleId.get(slot.roleId);
+    const next = nextByRoleId.get(slot.roleId);
+    if (!previous || !next || slot.browserZoomPercent !== previous.browserZoomPercent) {
+      return slot;
+    }
+
+    const { browserZoomPercent: _browserZoomPercent, ...rest } = slot;
+    return {
+      ...rest,
+      ...(next.browserZoomPercent === undefined
+        ? {}
+        : { browserZoomPercent: next.browserZoomPercent })
+    };
+  });
+}
+
 export type WorkspaceSplitAxis = keyof WorkspaceSplits;
 
 const EXISTING_LAYOUT_MIN_SPLIT_SIZE = 0.2;
@@ -146,6 +178,9 @@ export function applyWorkspaceTemplate(
     return {
       id: slot?.id ?? `slot-${index + 1}`,
       ...(slot?.roleId ? { roleId: slot.roleId } : {}),
+      ...(slot?.roleId && slot.browserZoomPercent !== undefined
+        ? { browserZoomPercent: slot.browserZoomPercent }
+        : {}),
       rect
     };
   });
@@ -156,14 +191,21 @@ export function assignRoleToWorkspaceSlot(
   slotIndex: number,
   roleId: string | undefined
 ): LaunchWorkspaceSlot[] {
-  return slots.map((slot, index) => {
-    const shouldClear = Boolean(roleId && slot.roleId === roleId);
-    const nextRoleId = index === slotIndex ? roleId : shouldClear ? undefined : slot.roleId;
+  const sourceSlotIndex = roleId
+    ? slots.findIndex((slot) => slot.roleId === roleId)
+    : -1;
+  const sourceZoomPercent = sourceSlotIndex === -1
+    ? undefined
+    : slots[sourceSlotIndex].browserZoomPercent;
 
-    return {
-      ...slot,
-      ...(nextRoleId ? { roleId: nextRoleId } : { roleId: undefined })
-    };
+  return slots.map((slot, index) => {
+    if (index === slotIndex) {
+      return withWorkspaceSlotRole(slot, roleId, sourceZoomPercent);
+    }
+    if (index === sourceSlotIndex) {
+      return withWorkspaceSlotRole(slot, undefined);
+    }
+    return slot;
   });
 }
 
@@ -178,24 +220,37 @@ export function swapWorkspaceSlotRoles(
 
   const sourceRoleId = slots[sourceSlotIndex].roleId;
   const targetRoleId = slots[targetSlotIndex].roleId;
+  const sourceZoomPercent = slots[sourceSlotIndex].browserZoomPercent;
+  const targetZoomPercent = slots[targetSlotIndex].browserZoomPercent;
 
   return slots.map((slot, index) => {
     if (index === sourceSlotIndex) {
-      return {
-        ...slot,
-        ...(targetRoleId ? { roleId: targetRoleId } : { roleId: undefined })
-      };
+      return withWorkspaceSlotRole(slot, targetRoleId, targetZoomPercent);
     }
 
     if (index === targetSlotIndex) {
-      return {
-        ...slot,
-        ...(sourceRoleId ? { roleId: sourceRoleId } : { roleId: undefined })
-      };
+      return withWorkspaceSlotRole(slot, sourceRoleId, sourceZoomPercent);
     }
 
     return slot;
   });
+}
+
+function withWorkspaceSlotRole(
+  slot: LaunchWorkspaceSlot,
+  roleId: string | undefined,
+  browserZoomPercent?: number
+): LaunchWorkspaceSlot {
+  const {
+    roleId: _roleId,
+    browserZoomPercent: _browserZoomPercent,
+    ...rest
+  } = slot;
+  return {
+    ...rest,
+    ...(roleId ? { roleId } : {}),
+    ...(roleId && browserZoomPercent !== undefined ? { browserZoomPercent } : {})
+  };
 }
 
 export function getWorkspaceSplits(

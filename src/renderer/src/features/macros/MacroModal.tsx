@@ -45,6 +45,7 @@ import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import {
   areMacroTriggersEqual,
+  isReservedBrowserZoomMacroTrigger,
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../../../shared/macroShortcuts";
@@ -125,6 +126,9 @@ function MacroEditor({
     }
     if (areMacroTriggersEqual(form.trigger, MACRO_OVERLAY_TRIGGER)) {
       return t("macroForm.shortcutReserved");
+    }
+    if (isReservedBrowserZoomMacroTrigger(form.trigger)) {
+      return t("macroForm.shortcutBrowserZoomReserved");
     }
 
     const conflictingMacro = macros.find(

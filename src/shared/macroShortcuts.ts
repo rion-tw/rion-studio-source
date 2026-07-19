@@ -30,6 +30,32 @@ export function macroRoleAssignmentsOverlap(left: string[], right: string[]): bo
   return left.some((roleId) => rightRoleIds.has(roleId));
 }
 
+export function isReservedBrowserZoomMacroTrigger(
+  trigger: MacroTrigger | null | undefined
+): boolean {
+  if (
+    !trigger ||
+    trigger.alt ||
+    trigger.ctrl === trigger.meta ||
+    (!trigger.ctrl && !trigger.meta)
+  ) {
+    return false;
+  }
+
+  if (trigger.code === "Equal" || trigger.code === "Plus" || trigger.code === "NumpadAdd") {
+    return true;
+  }
+  if (trigger.shift) {
+    return false;
+  }
+  return (
+    trigger.code === "Minus" ||
+    trigger.code === "NumpadSubtract" ||
+    trigger.code === "Digit0" ||
+    trigger.code === "Numpad0"
+  );
+}
+
 export function createMacroShortcutSuppressionSource(code: string): string {
   return createMacroShortcutPhaseSuppressionSource(code, "keydown");
 }

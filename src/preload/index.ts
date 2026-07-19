@@ -11,6 +11,7 @@ import type {
   GameCompatibilityRunStatus,
   EmbeddedRuntimeState,
   LogEntry,
+  LaunchWorkspace,
   Macro,
   MacroPageRequest,
   MacroRunStatus,
@@ -126,6 +127,13 @@ const api: RionStudioApi = {
     const listener = (_event: Electron.IpcRendererEvent, games: Game[]) => callback(games);
     ipcRenderer.on(IPC_CHANNELS.gamesChanged, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.gamesChanged, listener);
+  },
+  onWorkspacesChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, workspaces: LaunchWorkspace[]) => {
+      callback(workspaces);
+    };
+    ipcRenderer.on(IPC_CHANNELS.workspacesChanged, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.workspacesChanged, listener);
   },
   onGameCompatibilityChanged: (callback) => {
     const listener = (

@@ -310,6 +310,25 @@ describe("ExternalChromeManager", () => {
     );
   });
 
+  it("uses a per-role zoom override instead of adaptive external Chrome zoom", async () => {
+    const harness = createHarness();
+    const launchPromise = harness.manager.launchWorkspace(
+      { id: "workspace-1" },
+      [{
+        role,
+        rect: { x: 0, y: 0, width: 1, height: 1 },
+        browserZoomPercent: 120
+      }],
+      { zoomMode: "adaptive" }
+    );
+
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launchPromise;
+
+    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 1.2);
+  });
+
   it("calculates adaptive native zoom independently for every eight-grid role", async () => {
     const harness = createHarness();
     const roles = Array.from({ length: 8 }, (_value, index) => ({

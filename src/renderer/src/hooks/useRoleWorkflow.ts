@@ -233,7 +233,11 @@ export function useRoleWorkflow({
             return slot;
           }
 
-          const { roleId: _roleId, ...nextSlot } = slot;
+          const {
+            roleId: _roleId,
+            browserZoomPercent: _browserZoomPercent,
+            ...nextSlot
+          } = slot;
           return nextSlot;
         })
       })));

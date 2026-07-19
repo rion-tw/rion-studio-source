@@ -299,6 +299,14 @@ export function useAppData() {
       return;
     }
 
+    return window.rionStudio.onWorkspacesChanged(setWorkspaces);
+  }, [setWorkspaces]);
+
+  useEffect(() => {
+    if (!window.rionStudio) {
+      return;
+    }
+
     return window.rionStudio.onMacroStatusChanged((nextStatuses) => {
       setMacroStatuses(nextStatuses);
     });

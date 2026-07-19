@@ -65,6 +65,94 @@ describe("LaunchWorkspaceStore", () => {
     expect(updated.resourcePolicy).toEqual({ mode: "adaptive" });
   });
 
+  it("validates and persists per-role browser zoom overrides", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Zoomed party",
+      slots: [
+        { roleId: "role-1", browserZoomPercent: 110 },
+        { roleId: "role-2" }
+      ]
+    });
+
+    expect(workspace.slots[0]).toMatchObject({ roleId: "role-1", browserZoomPercent: 110 });
+    const reloaded = await new LaunchWorkspaceStore(baseDir).getWorkspace(workspace.id);
+    expect(reloaded.slots[0]).toMatchObject({ browserZoomPercent: 110 });
+
+    for (const browserZoomPercent of [49, 300.5, 301]) {
+      await expect(store.updateWorkspace(workspace.id, {
+        slots: [
+          { roleId: "role-1", browserZoomPercent: browserZoomPercent as never },
+          { roleId: "role-2" }
+        ]
+      })).rejects.toMatchObject({ code: "WORKSPACE_BROWSER_ZOOM_INVALID" });
+    }
+  });
+
+  it("updates only the role still assigned to a workspace", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Runtime zoom",
+      slots: [{ roleId: "role-1" }, { roleId: "role-2", browserZoomPercent: 90 }]
+    });
+
+    await expect(store.updateRoleBrowserZoom(workspace.id, "role-1", 120)).resolves.toMatchObject({
+      slots: [
+        expect.objectContaining({ roleId: "role-1", browserZoomPercent: 120 }),
+        expect.objectContaining({ roleId: "role-2", browserZoomPercent: 90 })
+      ]
+    });
+    await expect(store.updateRoleBrowserZoom(workspace.id, "missing-role", 130)).resolves.toBeUndefined();
+    await expect(store.updateRoleBrowserZoom("missing-workspace", "role-1", 130)).resolves.toBeUndefined();
+
+    const updated = await store.getWorkspace(workspace.id);
+    expect(updated.slots[0].browserZoomPercent).toBe(120);
+    expect(updated.slots[1].browserZoomPercent).toBe(90);
+  });
+
+  it("serializes concurrent browser zoom updates for different roles", async () => {
+    const workspace = await store.createWorkspace({
+      name: "Concurrent zoom",
+      slots: [{ roleId: "role-1" }, { roleId: "role-2" }]
+    });
+
+    await Promise.all([
+      store.updateRoleBrowserZoom(workspace.id, "role-1", 110),
+      store.updateRoleBrowserZoom(workspace.id, "role-2", 125)
+    ]);
+
+    const updated = await store.getWorkspace(workspace.id);
+    expect(updated.slots[0]).toMatchObject({ roleId: "role-1", browserZoomPercent: 110 });
+    expect(updated.slots[1]).toMatchObject({ roleId: "role-2", browserZoomPercent: 125 });
+  });
+
+  it("migrates schema v6 workspaces to v7 without creating role overrides", async () => {
+    const path = join(baseDir, "launch-workspaces.json");
+    const timestamp = "2026-07-10T00:00:00.000Z";
+    await writeFile(path, JSON.stringify({
+      schemaVersion: 6,
+      workspaces: [{
+        id: "workspace-v6",
+        name: "Version six",
+        template: "two_columns",
+        browserLaunchMode: "inherit",
+        browserZoomMode: "adaptive",
+        browserZoomPercent: 100,
+        resourcePolicy: { mode: "adaptive" },
+        slots: [{ id: "slot-1", roleId: "role-1" }, { id: "slot-2" }],
+        createdAt: timestamp,
+        updatedAt: timestamp
+      }]
+    }), "utf8");
+
+    const workspace = await store.getWorkspace("workspace-v6");
+    expect(workspace.slots[0]).not.toHaveProperty("browserZoomPercent");
+    const persisted = JSON.parse(await readFile(path, "utf8")) as {
+      schemaVersion: number;
+      workspaces: Array<{ slots: Array<Record<string, unknown>> }>;
+    };
+    expect(persisted.schemaVersion).toBe(7);
+    expect(persisted.workspaces[0].slots.every((slot) => !("browserZoomPercent" in slot))).toBe(true);
+  });
+
   it("normalizes and persists an adaptive resource policy without role priority", async () => {
     const workspace = await store.createWorkspace({
       name: "Priority party",

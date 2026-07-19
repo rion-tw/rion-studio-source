@@ -54,6 +54,7 @@ import { GameStore } from "./games/GameStore";
 import { createRuntimeGameIconDataUrl } from "./games/runtimeGameIcon";
 import {
   broadcastMacrosChanged,
+  broadcastWorkspacesChanged,
   broadcastWorkspaceDisplaysChanged,
   registerIpcHandlers
 } from "./ipc/registerHandlers";
@@ -467,6 +468,10 @@ async function initializeApplication(): Promise<void> {
   await runBackgroundActivityMigration(userDataDir, { gameStore, roleStore });
   const workspaceStore = new LaunchWorkspaceStore(userDataDir);
   await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
+  const notifyWorkspacesChanged = async (): Promise<void> => {
+    appQuickMenu?.scheduleRefresh();
+    broadcastWorkspacesChanged(await workspaceStore.listWorkspaces());
+  };
   const macroStore = new MacroStore(userDataDir);
   getDiagnosticDataCounts = async () => {
     const [games, roles, workspaces, macros] = await Promise.all([
@@ -612,6 +617,14 @@ async function initializeApplication(): Promise<void> {
       (await gameBrowserSettingsStore.getSettings()).workspace,
     onEmbeddedWebContentsCreated: (context, contents) => {
       embeddedRuntimeDiagnostics?.attach(context, contents);
+    },
+    persistWorkspaceRoleZoom: async (workspaceId, roleId, browserZoomPercent) => {
+      const updated = await withDataMutation(() =>
+        workspaceStore.updateRoleBrowserZoom(workspaceId, roleId, browserZoomPercent)
+      );
+      if (updated) {
+        await notifyWorkspacesChanged();
+      }
     },
     handleRuntimeTabAction: (runtimeWindow, displayId, action) => {
       dispatchRuntimeTabAction(runtimeWindow, displayId, action);
@@ -822,7 +835,9 @@ async function initializeApplication(): Promise<void> {
       appQuickMenu?.scheduleRefresh();
     },
     onWorkspacesChanged: () => {
-      appQuickMenu?.scheduleRefresh();
+      void notifyWorkspacesChanged().catch((error) => {
+        console.error("Failed to broadcast launch workspace changes.", error);
+      });
     },
     quitApplication: () => app.quit(),
     restartApplication: () => {

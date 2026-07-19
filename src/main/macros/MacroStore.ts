@@ -24,6 +24,7 @@ import { findMacroDependencyIssue, getMacroReferrers } from "../../shared/macroD
 import { MACRO_DELAY_MAX_MS } from "../../shared/macroSettings";
 import {
   areMacroTriggersEqual,
+  isReservedBrowserZoomMacroTrigger,
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../shared/macroShortcuts";
@@ -287,6 +288,7 @@ export class MacroStore {
           LEGACY_ROLE_ID_FIELD in storedMacro ||
           storedMacro.enabled === undefined ||
           storedMacro.activationMode === undefined ||
+          isReservedBrowserZoomMacroTrigger(storedMacro.trigger) ||
           (Array.isArray(storedMacro.steps) &&
             storedMacro.steps.some((step) => step.type === "key" && step.action === undefined))
         );
@@ -322,14 +324,19 @@ export class MacroStore {
 
   private normalizeStoredMacro(macro: StoredMacro): Macro {
     const now = new Date().toISOString();
+    const trigger = this.normalizeTrigger(macro.trigger);
+    const hasReservedBrowserZoomTrigger = isReservedBrowserZoomMacroTrigger(trigger);
+    const activationMode = this.normalizeActivationMode(macro.activationMode);
 
     return {
       id: typeof macro.id === "string" && macro.id.trim() ? macro.id : randomUUID(),
       enabled: macro.enabled === undefined ? true : this.normalizeEnabled(macro.enabled),
-      activationMode: this.normalizeActivationMode(macro.activationMode),
+      activationMode: hasReservedBrowserZoomTrigger && activationMode === "while_held"
+        ? "toggle"
+        : activationMode,
       name: this.normalizeName(macro.name),
       roleIds: this.normalizeRoleIds(this.readMacroRoleIds(macro)),
-      trigger: this.normalizeTrigger(macro.trigger),
+      trigger: hasReservedBrowserZoomTrigger ? undefined : trigger,
       repeat: this.normalizeStoredRepeat(macro.repeat),
       steps: this.normalizeSteps(macro.steps),
       createdAt: typeof macro.createdAt === "string" ? macro.createdAt : now,
@@ -430,6 +437,13 @@ export class MacroStore {
       throw new MacroStoreError(
         "MACRO_TRIGGER_RESERVED",
         "Ctrl+Shift+M is reserved for the macro overlay."
+      );
+    }
+
+    if (isReservedBrowserZoomMacroTrigger(trigger)) {
+      throw new MacroStoreError(
+        "MACRO_TRIGGER_RESERVED",
+        "Browser zoom shortcuts are reserved for the active game role."
       );
     }
 

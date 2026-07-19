@@ -12,6 +12,7 @@ import type {
   UpdateLaunchWorkspaceInput,
   WorkspaceBrowserZoomPercent,
   WorkspaceBrowserZoomMode,
+  WorkspaceSlotBrowserZoomPercent,
   WorkspaceDisplayFingerprint,
   WorkspaceDisplayInfo,
   WorkspaceDisplayTarget,
@@ -33,6 +34,7 @@ import {
   getWorkspaceTemplateSlotCount,
   isWorkspaceBrowserZoomPercent,
   isWorkspaceBrowserZoomMode,
+  isWorkspaceSlotBrowserZoomPercent,
   isWorkspaceLayoutTemplate,
   MAX_WORKSPACE_SLOTS,
   MIN_WORKSPACE_SLOT_SIZE,
@@ -70,7 +72,7 @@ const LEGACY_CENTERED_MAIN_DEFAULT_RECTS: NormalizedRect[] = [
 ];
 
 const WORKSPACE_NAME_MAX_LENGTH = 80;
-export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 6;
+export const LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION = 7;
 
 export class LaunchWorkspaceStoreError extends Error {
   constructor(
@@ -269,6 +271,43 @@ export class LaunchWorkspaceStore {
     });
   }
 
+  async updateRoleBrowserZoom(
+    workspaceId: string,
+    roleId: string,
+    browserZoomPercent: WorkspaceSlotBrowserZoomPercent
+  ): Promise<LaunchWorkspace | undefined> {
+    return this.taskQueue.run(async () => {
+      const file = await this.readWorkspacesFile();
+      const workspaceIndex = file.workspaces.findIndex((workspace) => workspace.id === workspaceId);
+      if (workspaceIndex === -1) {
+        return undefined;
+      }
+
+      const workspace = file.workspaces[workspaceIndex];
+      const slotIndex = workspace.slots.findIndex((slot) => slot.roleId === roleId);
+      if (slotIndex === -1) {
+        return undefined;
+      }
+
+      const normalizedZoomPercent = this.normalizeSlotBrowserZoomPercent(browserZoomPercent);
+      if (workspace.slots[slotIndex].browserZoomPercent === normalizedZoomPercent) {
+        return workspace;
+      }
+
+      const slots = workspace.slots.map((slot, index) => index === slotIndex
+        ? { ...slot, browserZoomPercent: normalizedZoomPercent }
+        : slot);
+      const updated = {
+        ...workspace,
+        slots,
+        updatedAt: new Date().toISOString()
+      };
+      file.workspaces[workspaceIndex] = updated;
+      await this.writeWorkspacesFile(file);
+      return updated;
+    });
+  }
+
   async reorderWorkspaces(input: ReorderItemsInput): Promise<LaunchWorkspace[]> {
     return this.taskQueue.run(async () => {
       const file = await this.readWorkspacesFile();
@@ -313,7 +352,11 @@ export class LaunchWorkspaceStore {
 
           didChange = true;
           workspaceChanged = true;
-          const { roleId: _roleId, ...nextSlot } = slot;
+          const {
+            roleId: _roleId,
+            browserZoomPercent: _browserZoomPercent,
+            ...nextSlot
+          } = slot;
           return nextSlot;
         });
 
@@ -718,6 +761,9 @@ export class LaunchWorkspaceStore {
       return {
         id: this.normalizeSlotId(inputSlot?.id, index),
         ...(roleId ? { roleId } : {}),
+        ...(roleId && inputSlot?.browserZoomPercent !== undefined
+          ? { browserZoomPercent: this.normalizeSlotBrowserZoomPercent(inputSlot.browserZoomPercent) }
+          : {}),
         rect: this.normalizeRect(inputSlot?.rect, getDefaultWorkspaceRects(template)[index])
       };
     });
@@ -732,6 +778,16 @@ export class LaunchWorkspaceStore {
   private normalizeSlotId(value: string | undefined, index: number): string {
     const normalized = value?.trim();
     return normalized || `slot-${index + 1}`;
+  }
+
+  private normalizeSlotBrowserZoomPercent(value: unknown): WorkspaceSlotBrowserZoomPercent {
+    if (!isWorkspaceSlotBrowserZoomPercent(value)) {
+      throw new LaunchWorkspaceStoreError(
+        "WORKSPACE_BROWSER_ZOOM_INVALID",
+        "Launch workspace role browser zoom is invalid."
+      );
+    }
+    return value;
   }
 
   private normalizeRoleId(value: string | null | undefined): string | undefined {

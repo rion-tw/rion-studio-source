@@ -124,6 +124,7 @@
   "workspaces.browserZoom": "Browser zoom",
   "workspaces.browserZoomDescription": "各ゲームビューポートの幅に合わせて自動調整します。埋め込み表示はリサイズ時に更新され、外部 Chrome は再起動時に再計算されます。固定倍率も選択できます。",
   "workspaces.browserZoomAdaptive": "自動調整（推奨）",
+  "workspaces.roleZoomShortcutHint": "ロールを起動した後、埋め込みロールのビューポートをクリックし、macOS では Command +／−／0、Windows では Ctrl +／−／0 を使用して、そのロールのゲーム画面を拡大・縮小できます。ズーム設定はこのワークスペースに自動保存され、次回そのロールを起動したときに復元されます。",
   "workspaces.resourceMode": "リソースポリシー",
   "workspaces.resourceModeDescription": "表示中のロールをフル速度に保ち、Rion の非アクティブなタブの CPU 使用量を自動的に抑えます。",
   "workspaces.resourceModeAdaptive": "自動調整（推奨）",

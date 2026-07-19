@@ -692,6 +692,18 @@ function WorkspaceLayoutFormEditor({
           </div>
         </div>
       </Surface>
+
+      <div
+        data-workspace-role-zoom-hint
+        className="rounded-md border border-border/45 bg-background/25 px-4 py-3"
+      >
+        <ul className="max-w-[72ch] text-xs leading-5 text-muted-foreground">
+          <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
+            <span className="font-semibold text-foreground/70" aria-hidden="true">*</span>
+            <span>{t("workspaces.roleZoomShortcutHint")}</span>
+          </li>
+        </ul>
+      </div>
     </div>
   );
 }

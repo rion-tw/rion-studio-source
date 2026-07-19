@@ -78,6 +78,7 @@ describe("workspace editor role picker layout", () => {
     const roleList = container.querySelector<HTMLElement>("[data-workspace-role-list]");
     const roleButtons = container.querySelectorAll<HTMLElement>("[data-workspace-role-id]");
     const verticalResizeHandle = container.querySelector<HTMLElement>("button.cursor-col-resize");
+    const roleZoomHint = container.querySelector<HTMLElement>("[data-workspace-role-zoom-hint]");
 
     expect(screen.getByRole("combobox", { name: "Browser zoom" }).textContent).toContain(
       "Adaptive (recommended)"
@@ -85,6 +86,16 @@ describe("workspace editor role picker layout", () => {
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();
     expect(screen.queryByText("96%")).toBeNull();
+    expect(roleZoomHint?.textContent).toContain("Command +/−/0 on macOS");
+    expect(roleZoomHint?.textContent).toContain("Ctrl +/−/0 on Windows");
+    expect(roleZoomHint?.textContent).toContain("saved to this workspace automatically");
+    expect(roleZoomHint?.textContent).toContain("restored the next time the role launches");
+    expect(roleZoomHint?.querySelector("svg")).toBeNull();
+    expect(roleZoomHint?.querySelectorAll("li")).toHaveLength(1);
+    expect(roleZoomHint?.querySelector("ol")).toBeNull();
+    expect(roleZoomHint?.querySelector("ul")?.className).toContain("max-w-[72ch]");
+    expect(roleZoomHint?.querySelector("li")?.textContent?.trim().startsWith("*")).toBe(true);
+    expect(roleZoomHint?.parentElement?.lastElementChild).toBe(roleZoomHint);
     expect(screen.queryByRole("combobox", { name: "Initial primary" })).toBeNull();
     expect(screen.queryByText("Primary")).toBeNull();
     expect(rolePanel?.className).toContain("flex-col");
@@ -112,6 +123,40 @@ describe("workspace editor role picker layout", () => {
     fireEvent.click(roleButtons[2]);
 
     expect(roleButtons[2].textContent).toContain("S1");
+  });
+
+  it("shows the role zoom shortcut hint when creating a workspace", () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/workspaces/new",
+          element: (
+            <WorkspaceEditorRoute
+              games={[game()]}
+              isSaving={false}
+              roles={[]}
+              statusByRole={new Map()}
+              t={t}
+              workspaceDisplays={[]}
+              workspaces={[]}
+              onSave={vi.fn()}
+            />
+          )
+        }
+      ],
+      { initialEntries: ["/workspaces/new"] }
+    );
+
+    const { container } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    expect(container.querySelector("[data-workspace-role-zoom-hint]")?.textContent)
+      .toContain("Command +/−/0 on macOS");
+    expect(screen.queryByText("Role zoom")).toBeNull();
+    expect(screen.queryByText("Follow workspace")).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import { ipcRenderer } from "electron";
 
 import {
+  formatRuntimeTabTooltip,
   RUNTIME_TABS_ACTION_CHANNEL,
   RUNTIME_TABS_STATE_CHANNEL,
   type RuntimeTabAction,
@@ -113,7 +114,7 @@ function render(): void {
     tabButton.tabIndex = 0;
     tabButton.setAttribute("role", "tab");
     tabButton.setAttribute("aria-selected", String(tab.active));
-    tabButton.title = tab.name;
+    tabButton.title = formatRuntimeTabTooltip(tab, currentState.language);
     tabButton.addEventListener("click", () => send({ type: "activate", tabId: tab.id }));
     tabButton.addEventListener("contextmenu", (event) => {
       event.preventDefault();
@@ -145,11 +146,9 @@ function render(): void {
     const marker = createTabMarker(tab);
     const name = element("span", "runtime-tab-name");
     name.textContent = tab.name;
-    const count = element("span", "runtime-tab-count");
-    count.textContent = tab.type === "workspace" ? String(tab.roleIds.length) : "";
     const close = iconButton("×", label("stopAndClose"), () => send({ type: "stop", tabId: tab.id }));
     close.classList.add("runtime-tab-action");
-    tabButton.append(marker, name, count, close);
+    tabButton.append(marker, name, close);
     tabs.append(tabButton);
   }
 
@@ -308,9 +307,6 @@ function installStyles(): void {
       --runtime-control-hover: rgba(255,255,255,.1);
       --runtime-focus: rgba(138,180,255,.72);
       --runtime-workspace: #c6a4ff;
-      --runtime-badge-fill: rgba(186,140,255,.22);
-      --runtime-badge-border: rgba(210,181,255,.36);
-      --runtime-badge-text: rgba(247,241,255,.95);
     }
     * { box-sizing: border-box; }
     html, body, #runtime-tabs-root { height: 100%; margin: 0; overflow: hidden; }
@@ -427,19 +423,6 @@ function installStyles(): void {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .runtime-tab-count {
-      background: var(--runtime-badge-fill);
-      border: 1px solid var(--runtime-badge-border);
-      border-radius: 999px;
-      color: var(--runtime-badge-text);
-      font-size: 9px;
-      font-variant-numeric: tabular-nums;
-      line-height: 14px;
-      min-width: 18px;
-      padding: 0 5px;
-      text-align: center;
-    }
-    .runtime-tab-count:empty { display: none; }
     .runtime-icon-button {
       align-items: center;
       background: transparent;
@@ -479,9 +462,6 @@ function installStyles(): void {
         --runtime-control-hover: rgba(20,22,28,.07);
         --runtime-focus: rgba(36,99,235,.62);
         --runtime-workspace: #7652ae;
-        --runtime-badge-fill: rgba(126,87,194,.14);
-        --runtime-badge-border: rgba(126,87,194,.28);
-        --runtime-badge-text: rgba(82,51,132,.95);
       }
     }
     @media (prefers-reduced-transparency: reduce) {

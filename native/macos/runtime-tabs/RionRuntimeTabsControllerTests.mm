@@ -230,14 +230,6 @@ static BOOL IsNeutralColor(CGColorRef color) {
       std::fabs(red - green) < 0.015 && std::fabs(green - blue) < 0.015;
 }
 
-static BOOL IsTintedColor(CGColorRef color) {
-  CGFloat red = ColorComponent(color, 0);
-  CGFloat green = ColorComponent(color, 1);
-  CGFloat blue = ColorComponent(color, 2);
-  return red >= 0 && green >= 0 && blue >= 0 &&
-      (std::fabs(red - green) >= 0.02 || std::fabs(green - blue) >= 0.02);
-}
-
 static void DrainMainQueue(void) {
   [NSRunLoop.mainRunLoop
       runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
@@ -345,14 +337,14 @@ static BOOL SetCustomTitlebarHeightIfSupported(NSView *frameView,
 }
 
 static RionRuntimeTabModel *MakeTab(NSString *identifier, NSString *name,
-                                    BOOL active, NSInteger roleCount) {
+                                    BOOL active, BOOL workspace) {
   RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
   tab.active = active;
   tab.identifier = identifier;
   tab.name = name;
-  tab.roleCount = roleCount;
-  tab.type = roleCount > 0 ? @"workspace" : @"role";
-  tab.workspaceTemplate = roleCount > 0 ? @"quad" : nil;
+  tab.tooltip = name;
+  tab.type = workspace ? @"workspace" : @"role";
+  tab.workspaceTemplate = workspace ? @"quad" : nil;
   return tab;
 }
 
@@ -368,16 +360,12 @@ static RionRuntimeTabsState *MakeState(NSArray<RionRuntimeTabModel *> *tabs) {
 static void AssertItemSubviewsDoNotOverlap(NSView *item) {
   NSView *icon = [item valueForKey:@"_iconView"];
   NSView *title = [item valueForKey:@"_titleField"];
-  NSView *badge = [item valueForKey:@"_badgeView"];
   NSView *more = [item valueForKey:@"_moreButton"];
   if (NSIntersectsRect(icon.frame, title.frame) ||
-      NSIntersectsRect(title.frame, more.frame) ||
-      (!badge.hidden && (NSIntersectsRect(title.frame, badge.frame) ||
-                         NSIntersectsRect(badge.frame, more.frame)))) {
+      NSIntersectsRect(title.frame, more.frame)) {
     std::cerr << "Overlapping tab frames: item=" << NSStringFromRect(item.frame).UTF8String
               << " icon=" << NSStringFromRect(icon.frame).UTF8String
               << " title=" << NSStringFromRect(title.frame).UTF8String
-              << " badge=" << NSStringFromRect(badge.frame).UTF8String
               << " more=" << NSStringFromRect(more.frame).UTF8String << std::endl;
   }
   Assert(!NSIntersectsRect(icon.frame, title.frame),
@@ -393,12 +381,6 @@ static void AssertItemSubviewsDoNotOverlap(NSView *item) {
         }].width;
     Assert(title.frame.size.width + 0.5 >= ceil(measuredTitleWidth),
            "A non-max-width tab must not truncate its title prematurely.");
-  }
-  if (!badge.hidden) {
-    Assert(!NSIntersectsRect(title.frame, badge.frame),
-           "Title and badge frames must not overlap.");
-    Assert(!NSIntersectsRect(badge.frame, more.frame),
-           "Badge and more-button frames must not overlap.");
   }
 }
 
@@ -419,36 +401,6 @@ static void AssertTitleTextVerticallyCentered(NSView *item) {
   Assert(std::fabs(NSMidY(titleRect) - NSMidY(titleField.bounds)) < 0.01 &&
              std::fabs(NSHeight(titleRect) - metricHeight) < 0.01,
          "Tab-name title rects must be vertically centered from native font metrics.");
-}
-
-static void AssertBadgeTextVerticallyCentered(NSView *item,
-                                              NSInteger count) {
-  NSView *badge = [item valueForKey:@"_badgeView"];
-  NSTextField *badgeField = [item valueForKey:@"_badgeField"];
-  NSTextFieldCell *badgeCell = (NSTextFieldCell *)badgeField.cell;
-  NSString *expected = [NSString stringWithFormat:@"%ld", (long)count];
-  Assert(!badge.hidden && badge.frame.size.height == 16.0 &&
-             [badgeField.stringValue isEqualToString:expected],
-         "One-, two-, and three-digit badges must retain the 16pt badge height.");
-  Assert([badgeCell isKindOfClass:
-                        NSClassFromString(@"RionRuntimeVerticallyCenteredTextFieldCell")],
-         "Badges must use the vertically centered native text-field cell.");
-
-  NSRect titleRect = [badgeCell titleRectForBounds:badgeField.bounds];
-  NSFont *font = badgeCell.font;
-  CGFloat metricHeight =
-      MIN(NSHeight(badgeField.bounds),
-          ceil(font.ascender - font.descender + font.leading));
-  Assert(std::fabs(NSMidY(titleRect) - NSMidY(badgeField.bounds)) < 0.01 &&
-             std::fabs(NSHeight(titleRect) - metricHeight) < 0.01,
-         "Badge title rects must be vertically centered from native font metrics.");
-
-  NSView *title = [item valueForKey:@"_titleField"];
-  NSView *more = [item valueForKey:@"_moreButton"];
-  Assert(std::fabs(NSMaxX(badge.frame) - (NSMinX(more.frame) - 4.0)) < 0.01 &&
-             std::fabs(NSMaxX(title.frame) - (NSMinX(badge.frame) - 4.0)) <
-                 0.01,
-         "The badge and more button must keep fixed trailing slots while the title receives the remaining width.");
 }
 
 int main() {
@@ -752,8 +704,9 @@ int main() {
     Assert([window standardWindowButton:NSWindowCloseButton] != nil,
            "Attaching runtime tabs must preserve standard traffic lights.");
 
-    RionRuntimeTabModel *role = MakeTab(@"tab-1", @"Mina", YES, 0);
-    RionRuntimeTabModel *workspace = MakeTab(@"tab-2", @"Team", NO, 4);
+    RionRuntimeTabModel *role = MakeTab(@"tab-1", @"Mina", YES, NO);
+    RionRuntimeTabModel *workspace = MakeTab(@"tab-2", @"Team", NO, YES);
+    workspace.tooltip = @"Team：Mina, Alt";
     RionRuntimeTabsState *state = MakeState(@[ role, workspace ]);
     [controller updateState:state];
     Assert(controller.renderedTabCount == 2, "Expected two rendered native tabs.");
@@ -765,25 +718,17 @@ int main() {
     tabItems = [controller valueForKey:@"_tabItems"];
     tabSurfaces = [controller valueForKey:@"_tabSurfaces"];
     CGColorRef lightActiveFill = tabSurfaces[0].layer.backgroundColor;
-    NSView *lightBadge = [tabItems[1] valueForKey:@"_badgeView"];
-    CGColorRef lightBadgeFill = lightBadge.layer.backgroundColor;
     Assert(IsNeutralColor(lightActiveFill),
            "Light active tab fill must remain neutral instead of system blue.");
-    Assert(IsTintedColor(lightBadgeFill),
-           "Light workspace badges must use a tinted fill instead of gray.");
     window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     [controller updateState:state];
     tabItems = [controller valueForKey:@"_tabItems"];
     tabSurfaces = [controller valueForKey:@"_tabSurfaces"];
     CGColorRef darkActiveFill = tabSurfaces[0].layer.backgroundColor;
-    NSView *darkBadge = [tabItems[1] valueForKey:@"_badgeView"];
-    CGColorRef darkBadgeFill = darkBadge.layer.backgroundColor;
     Assert(IsNeutralColor(darkActiveFill) &&
                std::fabs(ColorComponent(lightActiveFill, 0) -
                          ColorComponent(darkActiveFill, 0)) > 0.5,
            "Dark active tab fill must use a distinct neutral appearance variant.");
-    Assert(IsTintedColor(darkBadgeFill),
-           "Dark workspace badges must use a tinted fill instead of gray.");
     window.appearance = nil;
     [controller updateState:state];
     tabItems = [controller valueForKey:@"_tabItems"];
@@ -864,6 +809,8 @@ int main() {
     NSButton *tabCloseButton = [tabItems[0] valueForKey:@"_moreButton"];
     Assert([tabCloseButton.accessibilityLabel isEqualToString:@"Stop and close tab"],
            "The native tab close button must expose the stop-and-close label.");
+    Assert([tabItems[1].toolTip isEqualToString:@"Team：Mina, Alt"],
+           "Workspace tabs must expose their role names in the hover tooltip.");
     [tabCloseButton performClick:nil];
     Assert([lastAction[@"type"] isEqualToString:@"stop"] &&
                [lastAction[@"tabId"] isEqualToString:@"tab-1"],
@@ -893,14 +840,6 @@ int main() {
     Assert(NSMaxX(addSurface.frame) < root.bounds.size.width - 12.0,
            "A short tab strip must leave a clean draggable trailing region.");
 
-    for (NSNumber *count in @[ @1, @12, @123 ]) {
-      RionRuntimeTabModel *countedWorkspace =
-          MakeTab(@"tab-2", @"Team", NO, count.integerValue);
-      [controller updateState:MakeState(@[ role, countedWorkspace ])];
-      NSArray<NSView *> *countedItems = [controller valueForKey:@"_tabItems"];
-      AssertBadgeTextVerticallyCentered(countedItems[1], count.integerValue);
-      AssertItemSubviewsDoNotOverlap(countedItems[1]);
-    }
     [controller updateState:state];
 
     CGFloat windowedLeadingInset = scrollView.frame.origin.x;
@@ -1338,7 +1277,7 @@ int main() {
                            ? @"A very long workspace name that must truncate safely"
                            : [NSString stringWithFormat:@"Tab %ld", (long)index + 1];
       [manyTabs addObject:MakeTab(identifier, name, index == 9,
-                                  index == 3 ? 128 : 0)];
+                                  index == 3)];
     }
     [controller updateState:MakeState(manyTabs)];
     tabItems = [controller valueForKey:@"_tabItems"];

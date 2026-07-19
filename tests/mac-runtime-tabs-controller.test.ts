@@ -34,6 +34,7 @@ const state: RuntimeTabChromeState = {
       id: "workspace",
       name: "四人隊伍",
       roleIds: ["role-1", "role-2", "role-3", "role-4"],
+      roleNames: ["米娜醬", "阿爾", "露娜", "凱文"],
       sourceId: "workspace-1",
       type: "workspace"
     },
@@ -77,14 +78,14 @@ describe("MacRuntimeTabsController", () => {
           iconDataUrl: "data:image/png;base64,aWNvbg==",
           id: "role",
           name: "米娜醬",
-          roleCount: 0,
+          tooltip: "米娜醬",
           type: "role"
         },
         {
           active: false,
           id: "workspace",
           name: "四人隊伍",
-          roleCount: 4,
+          tooltip: "四人隊伍：米娜醬, 阿爾, 露娜, 凱文",
           type: "workspace",
           workspaceTemplate: "quad"
         }

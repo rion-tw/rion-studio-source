@@ -1,12 +1,22 @@
 import type {
   AppLanguage,
   EmbeddedRuntimeState,
+  EmbeddedRuntimeTabSummary,
   WorkspaceDisplayInfo,
   WorkspaceLayoutTemplate
 } from "./types";
 
 export const RUNTIME_TABS_STATE_CHANNEL = "runtime-tabs:state";
 export const RUNTIME_TABS_ACTION_CHANNEL = "runtime-tabs:action";
+
+export function formatRuntimeTabTooltip(
+  tab: Pick<EmbeddedRuntimeTabSummary, "name" | "type" | "roleNames">,
+  language: AppLanguage
+): string {
+  if (tab.type !== "workspace" || !tab.roleNames?.length) return tab.name;
+  const separator = language === "zh-TW" || language === "zh-CN" ? "：" : ":";
+  return `${tab.name}${separator}${tab.roleNames.join(", ")}`;
+}
 
 export type RuntimeTabAction =
   | { type: "activate"; tabId: string }

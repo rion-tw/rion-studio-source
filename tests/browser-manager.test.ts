@@ -1069,7 +1069,7 @@ describe("BrowserManager game host windows", () => {
     expect(getRuntimeTabGameIcon).not.toHaveBeenCalled();
     const [tab] = harness.manager.listEmbeddedRuntimeState().tabs;
     expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
-      { type: "workspace" }
+      { type: "workspace", roleNames: [role.name] }
     ]);
     expect(tab).not.toHaveProperty("workspaceTemplate");
     expect(harness.chromeViews[0].webContents.send).toHaveBeenLastCalledWith(

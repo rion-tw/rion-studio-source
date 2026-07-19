@@ -380,7 +380,7 @@ export function formatMacroStep(
     case "delay":
       return `${t(macroStepLabelKeys.delay)}:${step.ms}ms`;
     case "macro":
-      return `${t(macroStepLabelKeys.macro)}:${macroNameById?.get(step.macroId) ?? t("macros.unknownMacro")}`;
+      return `${t(step.callMode === "trigger" ? "macro.step.trigger" : macroStepLabelKeys.macro)}:${macroNameById?.get(step.macroId) ?? t("macros.unknownMacro")}`;
   }
 }
 

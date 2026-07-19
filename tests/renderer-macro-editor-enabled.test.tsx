@@ -153,10 +153,15 @@ describe("macro editor controls", () => {
 
     const trigger = screen.getByRole("combobox", { name: "Macro to run" });
     expect(trigger.textContent).toContain("Loop target (runs one iteration when called)");
+    const callMode = screen.getByRole("combobox", { name: "Macro call mode" });
+    expect(callMode.textContent).toContain("Wait for completion");
+    fireEvent.click(callMode);
+    fireEvent.click(screen.getByRole("option", { name: "Trigger and continue" }));
+    expect(callMode.textContent).toContain("Trigger and continue");
     fireEvent.click(trigger);
 
     const loopOption = screen.getByRole("option", {
-      name: "Loop target (runs one iteration when called)"
+      name: "Loop target (runs with its loop setting when triggered)"
     });
     const selfOption = screen.getByRole("option", { name: "Auto heal (current macro)" });
     const heldOption = screen.getByRole("option", {

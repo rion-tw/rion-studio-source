@@ -206,7 +206,7 @@ describe("PortableDataManager", () => {
     const exported = JSON.parse(await readFile(filePath, "utf8")) as RionPortableDataV6;
     expect(exported.schemaVersion).toBe(6);
     expect(exported.macros.find((macro) => macro.id === parent.id)?.steps).toEqual([
-      { id: "call", type: "macro", macroId: child.id }
+      { id: "call", type: "macro", macroId: child.id, callMode: "wait" }
     ]);
 
     const preview = await manager.previewImport();
@@ -555,7 +555,7 @@ describe("PortableDataManager", () => {
     expect(child).toMatchObject({ activationMode: "toggle", steps: [{ action: "tap" }] });
     expect(parent.id).not.toBe("source-parent");
     expect(child.id).not.toBe("source-child");
-    expect(parent.steps).toEqual([{ id: "call", type: "macro", macroId: child.id }]);
+    expect(parent.steps).toEqual([{ id: "call", type: "macro", macroId: child.id, callMode: "wait" }]);
   });
 
   it("skips portable macro dependents when their called target cannot be imported", async () => {

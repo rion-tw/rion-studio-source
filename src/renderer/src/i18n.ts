@@ -86,6 +86,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro must contain at least one step.": "error.macroStepsRequired",
   "Macro can contain at most 100 steps.": "error.macroStepsTooMany",
   "Macro key step is invalid.": "error.macroKeyStepInvalid",
+  "Macro call mode is invalid.": "error.macroCallModeInvalid",
   "Macro key action is invalid.": "error.macroKeyActionInvalid",
   "Macro key modifiers are invalid.": "error.macroKeyModifiersInvalid",
   "Primary cannot be combined with Ctrl or Meta.": "error.macroKeyPrimaryConflict",

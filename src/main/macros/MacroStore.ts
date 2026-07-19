@@ -7,6 +7,7 @@ import type {
   CreateMacroInput,
   Macro,
   MacroActivationMode,
+  MacroCallMode,
   MacroKeyAction,
   MacroKeyModifier,
   MacroRepeat,
@@ -533,7 +534,8 @@ export class MacroStore {
           return {
             id,
             type: "macro",
-            macroId: this.normalizeMacroId(step.macroId)
+            macroId: this.normalizeMacroId(step.macroId),
+            callMode: this.normalizeMacroCallMode(step.callMode)
           };
         default:
           throw new MacroStoreError("MACRO_STEP_INVALID", "Macro step is invalid.");
@@ -595,6 +597,16 @@ export class MacroStore {
       throw new MacroStoreError("MACRO_STEP_TARGET_INVALID", "Macro step target is invalid.");
     }
     return normalized;
+  }
+
+  private normalizeMacroCallMode(value: unknown): MacroCallMode {
+    if (value === undefined || value === "wait") {
+      return "wait";
+    }
+    if (value === "trigger") {
+      return value;
+    }
+    throw new MacroStoreError("MACRO_CALL_MODE_INVALID", "Macro call mode is invalid.");
   }
 
   private assertDependencyGraph(macros: Macro[]): void {

@@ -51,7 +51,7 @@ import {
 } from "../../../../shared/macroShortcuts";
 import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
-import type { Game, Macro, MacroActivationMode, MacroKeyAction, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import type { Game, Macro, MacroActivationMode, MacroCallMode, MacroKeyAction, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
@@ -1179,10 +1179,16 @@ function getMacroStepTypeLabel(type: MacroStep["type"], t: Translator): string {
   }
 }
 
-function getMacroTargetOptionLabel(option: MacroTargetOption, t: Translator): string {
+function getMacroTargetOptionLabel(
+  option: MacroTargetOption,
+  t: Translator,
+  callMode: MacroCallMode = "wait"
+): string {
   const details: string[] = [];
   if (option.macro.repeat.type === "loop") {
-    details.push(t("macroForm.macroTargetRunsOnce"));
+    details.push(t(callMode === "trigger"
+      ? "macroForm.macroTargetRunsConfigured"
+      : "macroForm.macroTargetRunsOnce"));
   }
   if (!option.macro.enabled) {
     details.push(t("macroForm.macroTargetDisabled"));
@@ -1362,29 +1368,47 @@ function MacroStepFields({
     const selectedTarget = macroTargetOptions.find((option) => option.macro.id === step.macroId);
     const hasCallableTarget = macroTargetOptions.some((option) => !option.unavailableReason);
     return (
-      <Select
-        disabled={isSaving || !hasCallableTarget}
-        value={step.macroId || undefined}
-        onValueChange={(macroId) => onUpdate({ ...step, macroId })}
-      >
-        <SelectTrigger className="w-fit max-w-full" aria-label={t("macroForm.macroTarget")}>
-          <SelectValue placeholder={t("macroForm.macroTargetPlaceholder")} />
-        </SelectTrigger>
-        <SelectContent>
-          {macroTargetOptions.map((option) => (
-            <SelectItem
-              key={option.macro.id}
-              value={option.macro.id}
-              disabled={Boolean(option.unavailableReason)}
-            >
-              {getMacroTargetOptionLabel(option, t)}
-            </SelectItem>
-          ))}
-          {!selectedTarget && step.macroId ? (
-            <SelectItem value={step.macroId}>{t("macroForm.macroTargetUnavailable")}</SelectItem>
-          ) : null}
-        </SelectContent>
-      </Select>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Select
+          disabled={isSaving}
+          value={step.callMode ?? "wait"}
+          onValueChange={(callMode) => onUpdate({
+            ...step,
+            callMode: callMode as MacroCallMode
+          })}
+        >
+          <SelectTrigger className="w-fit shrink-0" aria-label={t("macroForm.macroCallMode")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="wait">{t("macroForm.macroCallMode.wait")}</SelectItem>
+            <SelectItem value="trigger">{t("macroForm.macroCallMode.trigger")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          disabled={isSaving || !hasCallableTarget}
+          value={step.macroId || undefined}
+          onValueChange={(macroId) => onUpdate({ ...step, macroId })}
+        >
+          <SelectTrigger className="w-fit max-w-full" aria-label={t("macroForm.macroTarget")}>
+            <SelectValue placeholder={t("macroForm.macroTargetPlaceholder")} />
+          </SelectTrigger>
+          <SelectContent>
+            {macroTargetOptions.map((option) => (
+              <SelectItem
+                key={option.macro.id}
+                value={option.macro.id}
+                disabled={Boolean(option.unavailableReason)}
+              >
+                {getMacroTargetOptionLabel(option, t, step.callMode ?? "wait")}
+              </SelectItem>
+            ))}
+            {!selectedTarget && step.macroId ? (
+              <SelectItem value={step.macroId}>{t("macroForm.macroTargetUnavailable")}</SelectItem>
+            ) : null}
+          </SelectContent>
+        </Select>
+      </div>
     );
   }
 
@@ -1490,7 +1514,8 @@ function createStep(
       return {
         id,
         type: "macro",
-        macroId
+        macroId,
+        callMode: "wait"
       };
   }
 }

@@ -767,6 +767,10 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         await this.delay(run, step.ms);
         return;
       case "macro":
+        if (step.callMode === "trigger") {
+          this.triggerCalledMacro(invocation, step.macroId);
+          return;
+        }
         await this.enterMacroBarrier(runKey, run, invocation, iteration, step);
     }
   }
@@ -842,6 +846,26 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     if (outcome.state === "cancelled") {
       throw new ChildMacroCancelledError(CHILD_CANCELLED_MESSAGE);
     }
+  }
+
+  private triggerCalledMacro(parent: MacroInvocation, macroId: string): void {
+    const start = this.withMacroMutationLock(macroId, async () => {
+      if (this.hasActiveMacroRun(macroId)) {
+        return;
+      }
+
+      await this.startInvocationUnlocked(
+        macroId,
+        undefined,
+        parent.ancestry,
+        undefined,
+        "configured"
+      );
+    });
+
+    void start.catch((error) => {
+      console.warn("Asynchronous macro trigger failed.", error);
+    });
   }
 
   private async executeTargetOperation(run: MacroRun, operation: () => Promise<void>): Promise<void> {

@@ -30,6 +30,7 @@ const t: Translator = (key) =>
       "macro.step.hold": "Hold",
       "macro.step.key": "Key",
       "macro.step.macro": "Run macro",
+      "macro.step.trigger": "Trigger macro",
       "macroForm.intervalMilliseconds": "{value} ms",
       "macroForm.intervalSeconds": "{value} sec",
       "macroForm.intervalNone": "0 ms · No extra wait",
@@ -132,6 +133,12 @@ describe("macroUtils", () => {
         new Map([["child", "After thunder"]])
       )
     ).toBe("Run macro:After thunder");
+
+    expect(summarizeMacroSteps(
+      [{ id: "trigger", type: "macro", macroId: "child", callMode: "trigger" }],
+      t,
+      new Map([["child", "After thunder"]])
+    )).toBe("Trigger macro:After thunder");
 
     expect(summarizeMacroSteps(
       [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }],

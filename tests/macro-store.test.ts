@@ -106,6 +106,43 @@ describe("MacroStore", () => {
     });
   });
 
+  it("defaults macro calls to waiting and persists asynchronous trigger mode", async () => {
+    const child = await store.createMacro({
+      name: "Child",
+      roleIds: ["role-1"],
+      steps: [{ id: "child-key", type: "key", code: "F2" }]
+    });
+    const waitingParent = await store.createMacro({
+      name: "Waiting parent",
+      roleIds: ["role-1"],
+      steps: [{ id: "wait", type: "macro", macroId: child.id }]
+    });
+    const triggeringParent = await store.createMacro({
+      name: "Triggering parent",
+      roleIds: ["role-1"],
+      steps: [{ id: "trigger", type: "macro", macroId: child.id, callMode: "trigger" }]
+    });
+
+    expect(waitingParent.steps).toEqual([{
+      id: "wait",
+      type: "macro",
+      macroId: child.id,
+      callMode: "wait"
+    }]);
+    expect(triggeringParent.steps).toEqual([{
+      id: "trigger",
+      type: "macro",
+      macroId: child.id,
+      callMode: "trigger"
+    }]);
+
+    await expect(store.createMacro({
+      name: "Invalid mode",
+      roleIds: ["role-1"],
+      steps: [{ id: "invalid", type: "macro", macroId: child.id, callMode: "invalid" as never }]
+    })).rejects.toMatchObject({ code: "MACRO_CALL_MODE_INVALID" });
+  });
+
   it("validates while-held activation and persists hold key actions", async () => {
     await expect(store.createMacro({
       activationMode: "while_held",

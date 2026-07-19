@@ -186,6 +186,8 @@ export type MacroRepeat =
       intervalMs: number;
     };
 
+export type MacroCallMode = "wait" | "trigger";
+
 export type MacroStep =
   | {
       id: string;
@@ -210,6 +212,8 @@ export type MacroStep =
       id: string;
       type: "macro";
       macroId: string;
+      /** Defaults to wait for legacy macro step data. */
+      callMode?: MacroCallMode;
     };
 
 export interface Macro {

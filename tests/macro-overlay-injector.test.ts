@@ -506,8 +506,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v34"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.2"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v35"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-19.3"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -635,9 +635,16 @@ describe("macro shortcut editable guard", () => {
       MACRO_OVERLAY_SCRIPT.indexOf("function handleKeyDown(event)"),
       MACRO_OVERLAY_SCRIPT.indexOf("function handleFocus()")
     );
-    const guardIndex = handler.indexOf("shouldIgnoreShortcutEvent(event, undefined, document.designMode)");
+    const contextIndex = handler.indexOf(
+      "const activeElement = gameInputContextActive ? undefined : document.activeElement"
+    );
+    const guardIndex = handler.indexOf(
+      "shouldIgnoreShortcutEvent(event, activeElement, document.designMode)"
+    );
 
+    expect(contextIndex).toBeGreaterThan(-1);
     expect(guardIndex).toBeGreaterThan(-1);
+    expect(contextIndex).toBeLessThan(guardIndex);
     expect(guardIndex).toBeLessThan(handler.indexOf("refreshIfStale()"));
     expect(guardIndex).toBeLessThan(handler.indexOf("matchesOpenShortcut(event)"));
     expect(guardIndex).toBeLessThan(handler.indexOf("matchesShortcut(event, macro.trigger)"));

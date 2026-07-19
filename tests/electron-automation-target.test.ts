@@ -400,24 +400,11 @@ describe("ElectronAutomationTarget", () => {
     expect(harness.frame.executeJavaScript).not.toHaveBeenCalled();
   });
 
-  it("focuses a canvas hit by a physical left click but ignores macro clicks", async () => {
+  it("does not install physical click focus repair or focus during macro clicks", async () => {
     const harness = createHarness();
-    harness.webContents.executeJavaScript.mockResolvedValue(true);
     const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
 
-    harness.emitBeforeMouseEvent({ button: "left", type: "mouseDown", x: 320, y: 240 });
-    await vi.waitFor(() => expect(harness.webContents.executeJavaScript).toHaveBeenCalledWith(
-      expect.stringMatching(/const x = 320;[\s\S]*const y = 240;[\s\S]*document\.elementFromPoint\(x, y\)/)
-    ));
-    expect(harness.webContents.executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining("if (!(element instanceof HTMLCanvasElement)) return false")
-    );
-    harness.webContents.executeJavaScript.mockClear();
-    harness.webContents.sendInputEvent.mockImplementation((event: { type: string }) => {
-      if (event.type === "mouseDown") {
-        harness.emitBeforeMouseEvent({ button: "left", type: "mouseDown", x: 320, y: 240 });
-      }
-    });
+    expect(harness.webContents.on).not.toHaveBeenCalled();
 
     await target.dispatchClick(25, 75);
 
@@ -439,7 +426,6 @@ describe("ElectronAutomationTarget", () => {
 });
 
 function createHarness(bounds: { width: number; height: number } = { width: 1280, height: 720 }) {
-  let beforeMouseEvent: ((event: unknown, mouse: Record<string, unknown>) => void) | undefined;
   const frame = {
     executeJavaScript: vi.fn().mockResolvedValue("canvas")
   };
@@ -448,9 +434,7 @@ function createHarness(bounds: { width: number; height: number } = { width: 1280
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
     mainFrame: { framesInSubtree: [frame] },
-    on: vi.fn((event: string, listener: (event: unknown, mouse: Record<string, unknown>) => void) => {
-      if (event === "before-mouse-event") beforeMouseEvent = listener;
-    }),
+    on: vi.fn(),
     sendInputEvent: vi.fn()
   };
   const view = {
@@ -458,7 +442,6 @@ function createHarness(bounds: { width: number; height: number } = { width: 1280
   };
 
   return {
-    emitBeforeMouseEvent: (mouse: Record<string, unknown>) => beforeMouseEvent?.({}, mouse),
     frame,
     view,
     webContents

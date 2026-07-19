@@ -711,32 +711,24 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
-  it("focuses physically clicked canvases while suppressing macro click focus repair", async () => {
+  it("does not inject physical click focus repair or focus during macro clicks", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client);
     await target.initialize();
     await target.installMacroOverlay("window.overlayInstalled = true", vi.fn());
 
-    expect(harness.send).toHaveBeenCalledWith(
-      "Page.addScriptToEvaluateOnNewDocument",
-      expect.objectContaining({
-        source: expect.stringMatching(
-          /addEventListener\("pointerdown"[\s\S]*event\.composedPath\(\)[\s\S]*HTMLCanvasElement/
-        )
-      })
+    const installedSources = harness.send.mock.calls
+      .filter(([method]) => method === "Page.addScriptToEvaluateOnNewDocument")
+      .map(([, params]) => String(params?.source));
+    expect(installedSources.join("\n")).not.toContain("__rionStudioPointerFocusState");
+    expect(installedSources.join("\n")).not.toMatch(
+      /addEventListener\("pointerdown"[\s\S]*HTMLCanvasElement/
     );
 
     harness.send.mockClear();
     await target.dispatchClick(50, 50);
 
-    const evaluatedSources = harness.send.mock.calls
-      .filter(([method]) => method === "Runtime.evaluate")
-      .map(([, params]) => String(params?.expression));
-    expect(evaluatedSources).toEqual([
-      expect.stringContaining("setSuppressed?.(true)"),
-      expect.stringContaining("setSuppressed?.(false)")
-    ]);
-    expect(evaluatedSources.join("\n")).not.toContain(".focus(");
+    expect(harness.send.mock.calls.filter(([method]) => method === "Runtime.evaluate")).toHaveLength(0);
     expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
     expect(harness.send.mock.calls.filter(([method]) => method === "Input.dispatchMouseEvent")).toHaveLength(2);
   });

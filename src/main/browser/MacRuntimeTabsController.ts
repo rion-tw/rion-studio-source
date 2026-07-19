@@ -47,7 +47,7 @@ export interface MacRuntimeTabsNativeState {
   displayId: number;
   labels: {
     add: string;
-    more: string;
+    close: string;
   };
   tabs: MacRuntimeTabsNativeTab[];
 }
@@ -73,23 +73,23 @@ export interface MacRuntimeTabsNativeAddon {
 const labels: Record<AppLanguage, MacRuntimeTabsNativeState["labels"]> = {
   en: {
     add: "Open role or workspace",
-    more: "More actions"
+    close: "Stop and close tab"
   },
   "zh-TW": {
     add: "開啟角色或工作區",
-    more: "更多操作"
+    close: "停止並關閉分頁"
   },
   "zh-CN": {
     add: "打开角色或工作区",
-    more: "更多操作"
+    close: "停止并关闭标签页"
   },
   ja: {
     add: "ロールまたはワークスペースを開く",
-    more: "その他の操作"
+    close: "タブを停止して閉じる"
   }
 };
 
-const NATIVE_PROTOCOL_VERSION = 4;
+const NATIVE_PROTOCOL_VERSION = 5;
 const INVALID_CONTENT_LAYOUT: MacRuntimeTabsContentLayout = {
   heightInset: 0,
   valid: false,

@@ -14,7 +14,7 @@ import type {
 import { workspaceLayoutIconNodes } from "../shared/workspaceLayoutIcons";
 
 type LabelKey = "add" | "close" | "enterFullScreen" | "exitFullScreen" |
-  "minimize" | "more" | "zoom";
+  "minimize" | "stopAndClose" | "zoom";
 
 const translations: Record<AppLanguage, Record<LabelKey, string>> = {
   en: {
@@ -23,7 +23,7 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     enterFullScreen: "Enter full screen",
     exitFullScreen: "Exit full screen",
     minimize: "Minimize game window",
-    more: "More actions",
+    stopAndClose: "Stop and close tab",
     zoom: "Zoom game window"
   },
   "zh-TW": {
@@ -32,7 +32,7 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     enterFullScreen: "進入全螢幕",
     exitFullScreen: "離開全螢幕",
     minimize: "最小化遊戲視窗",
-    more: "更多操作",
+    stopAndClose: "停止並關閉分頁",
     zoom: "縮放遊戲視窗"
   },
   "zh-CN": {
@@ -41,7 +41,7 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     enterFullScreen: "进入全屏",
     exitFullScreen: "退出全屏",
     minimize: "最小化游戏窗口",
-    more: "更多操作",
+    stopAndClose: "停止并关闭标签页",
     zoom: "缩放游戏窗口"
   },
   ja: {
@@ -50,7 +50,7 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     enterFullScreen: "フルスクリーンにする",
     exitFullScreen: "フルスクリーンを解除",
     minimize: "ゲームウインドウを最小化",
-    more: "その他の操作",
+    stopAndClose: "タブを停止して閉じる",
     zoom: "ゲームウインドウを拡大／復元"
   }
 };
@@ -115,6 +115,10 @@ function render(): void {
     tabButton.setAttribute("aria-selected", String(tab.active));
     tabButton.title = tab.name;
     tabButton.addEventListener("click", () => send({ type: "activate", tabId: tab.id }));
+    tabButton.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      send({ type: "openTabMenu", tabId: tab.id });
+    });
     tabButton.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -143,9 +147,9 @@ function render(): void {
     name.textContent = tab.name;
     const count = element("span", "runtime-tab-count");
     count.textContent = tab.type === "workspace" ? String(tab.roleIds.length) : "";
-    const more = iconButton("⋯", label("more"), () => send({ type: "openTabMenu", tabId: tab.id }));
-    more.classList.add("runtime-tab-action");
-    tabButton.append(marker, name, count, more);
+    const close = iconButton("×", label("stopAndClose"), () => send({ type: "stop", tabId: tab.id }));
+    close.classList.add("runtime-tab-action");
+    tabButton.append(marker, name, count, close);
     tabs.append(tabButton);
   }
 

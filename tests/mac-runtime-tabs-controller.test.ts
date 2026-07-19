@@ -69,7 +69,7 @@ describe("MacRuntimeTabsController", () => {
       displayId: 11,
       labels: {
         add: "開啟角色或工作區",
-        more: "更多操作"
+        close: "停止並關閉分頁"
       },
       tabs: [
         {
@@ -108,7 +108,7 @@ describe("MacRuntimeTabsController", () => {
         yOffset: 8
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 4,
+      protocolVersion: 5,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()
@@ -186,7 +186,7 @@ describe("MacRuntimeTabsController", () => {
         yOffset: 1
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 4,
+      protocolVersion: 5,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()

@@ -1,21 +1,29 @@
 import type { WebContents } from "electron";
 
 import type { WorkspaceCpuThrottleRate } from "../../shared/types";
+import {
+  getElectronDebuggerSession,
+  type ElectronDebuggerLease,
+  type ElectronDebuggerSession
+} from "./ElectronDebuggerSession";
 import type { WorkspaceResourceTarget } from "./WorkspaceResourceCoordinator";
 
 export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget {
   readonly runtimeMode = "embedded" as const;
   private currentRate: 1 | WorkspaceCpuThrottleRate | undefined;
   private desiredRate: 1 | WorkspaceCpuThrottleRate = 1;
+  private readonly debuggerSession: ElectronDebuggerSession;
+  private debuggerLease?: ElectronDebuggerLease;
   private readonly iframeSessionIds = new Set<string>();
-  private ownsDebugger = false;
   private suppressDetachInvalidation = false;
   private autoAttachConfigured = false;
 
   constructor(
     readonly roleId: string,
     private readonly webContents: WebContents
-  ) {}
+  ) {
+    this.debuggerSession = getElectronDebuggerSession(webContents);
+  }
 
   getProcessId(): number | undefined {
     if (this.webContents.isDestroyed()) {
@@ -37,7 +45,6 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
       listener();
     };
     const handleDetach = (): void => {
-      this.ownsDebugger = false;
       this.currentRate = undefined;
       this.desiredRate = 1;
       this.autoAttachConfigured = false;
@@ -47,11 +54,12 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
       }
     };
     const handleMessage = (
-      _event: Electron.Event,
       method: string,
-      params: Record<string, unknown>,
-      _sessionId?: string
+      rawParams: unknown,
+      _sessionId: string
     ): void => {
+      if (typeof rawParams !== "object" || rawParams === null) return;
+      const params = rawParams as Record<string, unknown>;
       if (method === "Target.detachedFromTarget" && typeof params.sessionId === "string") {
         this.iframeSessionIds.delete(params.sessionId);
         return;
@@ -67,7 +75,7 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
       }
       const sessionId = params.sessionId;
       this.iframeSessionIds.add(sessionId);
-      void this.webContents.debugger.sendCommand(
+      void this.debuggerSession.sendCommand(
         "Emulation.setCPUThrottlingRate",
         { rate: this.desiredRate },
         sessionId
@@ -78,16 +86,16 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
     this.webContents.on("destroyed", invalidate);
     this.webContents.on("did-finish-load", invalidate);
     this.webContents.on("render-process-gone", invalidate);
-    this.webContents.debugger.on("detach", handleDetach);
-    this.webContents.debugger.on("message", handleMessage);
+    const removeDetachListener = this.debuggerSession.onDetach(handleDetach);
+    const removeMessageListener = this.debuggerSession.onMessage(handleMessage);
     return () => {
       this.webContents.removeListener("devtools-opened", invalidate);
       this.webContents.removeListener("devtools-closed", invalidate);
       this.webContents.removeListener("destroyed", invalidate);
       this.webContents.removeListener("did-finish-load", invalidate);
       this.webContents.removeListener("render-process-gone", invalidate);
-      this.webContents.debugger.removeListener("detach", handleDetach);
-      this.webContents.debugger.removeListener("message", handleMessage);
+      removeDetachListener();
+      removeMessageListener();
     };
   }
 
@@ -98,18 +106,15 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
     if (this.webContents.isDevToolsOpened()) {
       throw new Error("CPU throttling pauses while DevTools is open.");
     }
-    if (this.currentRate === rate && this.ownsDebugger && this.webContents.debugger.isAttached()) {
+    if (this.currentRate === rate && this.debuggerLease && this.debuggerSession.isAttached()) {
       return;
     }
-    if (!this.ownsDebugger) {
-      if (this.webContents.debugger.isAttached()) {
-        throw new Error("Another debugger is already attached to the embedded browser view.");
-      }
-      this.webContents.debugger.attach("1.3");
-      this.ownsDebugger = true;
+    if (!this.debuggerLease || !this.debuggerSession.isAttached()) {
+      this.debuggerLease?.release();
+      this.debuggerLease = await this.debuggerSession.acquire();
     }
     if (!this.autoAttachConfigured) {
-      await this.webContents.debugger.sendCommand("Target.setAutoAttach", {
+      await this.debuggerSession.sendCommand("Target.setAutoAttach", {
         autoAttach: true,
         flatten: true,
         waitForDebuggerOnStart: false
@@ -120,9 +125,9 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
     this.desiredRate = rate;
     try {
       await Promise.all([
-        this.webContents.debugger.sendCommand("Emulation.setCPUThrottlingRate", { rate }),
+        this.debuggerSession.sendCommand("Emulation.setCPUThrottlingRate", { rate }),
         ...[...this.iframeSessionIds].map((sessionId) =>
-          this.webContents.debugger.sendCommand("Emulation.setCPUThrottlingRate", { rate }, sessionId)
+          this.debuggerSession.sendCommand("Emulation.setCPUThrottlingRate", { rate }, sessionId)
         )
       ]);
       this.currentRate = rate;
@@ -133,8 +138,9 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
   }
 
   async releaseThrottle(): Promise<void> {
-    if (!this.ownsDebugger || !this.webContents.debugger.isAttached()) {
-      this.ownsDebugger = false;
+    if (!this.debuggerLease || !this.debuggerSession.isAttached()) {
+      this.debuggerLease?.release();
+      this.debuggerLease = undefined;
       this.currentRate = undefined;
       return;
     }
@@ -143,19 +149,19 @@ export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget 
       if (this.currentRate !== 1) {
         this.desiredRate = 1;
         await Promise.all([
-          this.webContents.debugger.sendCommand("Emulation.setCPUThrottlingRate", { rate: 1 }),
+          this.debuggerSession.sendCommand("Emulation.setCPUThrottlingRate", { rate: 1 }),
           ...[...this.iframeSessionIds].map((sessionId) =>
-            this.webContents.debugger.sendCommand("Emulation.setCPUThrottlingRate", { rate: 1 }, sessionId)
+            this.debuggerSession.sendCommand("Emulation.setCPUThrottlingRate", { rate: 1 }, sessionId)
           )
         ]);
       }
     } finally {
       this.suppressDetachInvalidation = true;
       try {
-        this.webContents.debugger.detach();
+        this.debuggerLease.release();
       } finally {
         this.suppressDetachInvalidation = false;
-        this.ownsDebugger = false;
+        this.debuggerLease = undefined;
         this.currentRate = undefined;
         this.desiredRate = 1;
         this.autoAttachConfigured = false;

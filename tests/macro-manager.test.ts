@@ -270,6 +270,31 @@ describe("MacroManager", () => {
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
 
+  it("keeps a toggled looping hold active until an explicit stop", async () => {
+    const target = createTarget();
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        repeat: { type: "loop", intervalMs: 1 },
+        steps: [{ id: "hold", type: "key", code: "Digit1", action: "hold_until_stop" }]
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => expect(target.holdKey).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(manager.listStatuses()[0]?.iteration).toBeGreaterThan(0));
+    expect(manager.listStatuses()).toMatchObject([{ state: "running" }]);
+
+    await manager.stop("macro-1");
+    expect(target.releaseKey).toHaveBeenCalledWith(
+      "Digit1",
+      expect.stringContaining("macro-invocation-")
+    );
+    await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
+  });
+
   it("gives held combination steps distinct owners and releases them in reverse order", async () => {
     const target = createTarget();
     const manager = createManager({

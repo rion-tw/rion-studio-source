@@ -5,10 +5,15 @@ import {
   createMacroShortcutPhaseSuppressionSource
 } from "../../shared/macroShortcuts";
 import {
-  getMacroModifierForCode,
   resolveMacroKeyInput,
   type MacroKeyInput
 } from "../../shared/macroKeys";
+import { getCdpKeyDescriptor, getCdpModifierMask } from "./CdpInput";
+import {
+  getElectronDebuggerSession,
+  type ElectronDebuggerLease,
+  type ElectronDebuggerSession
+} from "./ElectronDebuggerSession";
 
 export interface BrowserAutomationTarget {
   dispatchClick: (
@@ -36,16 +41,23 @@ export interface BrowserInputDispatchOptions {
 
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
   private readonly heldKeyOwners = new Map<string, Set<string>>();
+  private readonly debuggerSession: ElectronDebuggerSession;
+  private inputLease?: ElectronDebuggerLease;
   private inputDispatchTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly view: Pick<WebContentsView, "getBounds">,
     private readonly webContents: Pick<
       WebContents,
-      "executeJavaScript" | "focus" | "isDestroyed" | "mainFrame" | "sendInputEvent"
+      "debugger" | "executeJavaScript" | "focus" | "isDestroyed" | "mainFrame" | "on"
     >,
     private readonly platform: NodeJS.Platform = "linux"
-  ) {}
+  ) {
+    this.debuggerSession = getElectronDebuggerSession(webContents);
+    this.debuggerSession.onDetach(() => this.scheduleHeldKeyReassertion());
+    this.webContents.on("blur", () => this.scheduleHeldKeyReassertion());
+    this.webContents.on("focus", () => this.scheduleHeldKeyReassertion());
+  }
 
   async focus(): Promise<void> {
     if (this.webContents.isDestroyed()) {
@@ -114,66 +126,70 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       return;
     }
 
-    const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
-    const activeCodes = new Set(this.heldKeyOwners.keys());
-    const pressedCodes: string[] = [];
+    const hadInputLease = Boolean(this.inputLease && this.debuggerSession.isAttached());
+    await this.ensureInputLease();
     try {
-      for (const modifierCode of modifierCodes) {
+      const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
+      const activeCodes = new Set(this.heldKeyOwners.keys());
+      const pressedCodes: string[] = [];
+      try {
+        for (const modifierCode of modifierCodes) {
+          signal?.throwIfAborted();
+          if (activeCodes.has(modifierCode)) continue;
+          activeCodes.add(modifierCode);
+          await this.sendKeyDown(modifierCode, activeCodes);
+          pressedCodes.push(modifierCode);
+        }
+
+        await this.suppressShortcutPhase(code, "keydown");
         signal?.throwIfAborted();
-        if (activeCodes.has(modifierCode)) continue;
-        activeCodes.add(modifierCode);
-        this.sendKeyDown(modifierCode, activeCodes);
-        pressedCodes.push(modifierCode);
-      }
+        if (activeCodes.has(code)) {
+          await this.sendKeyDown(code, activeCodes, true);
+        } else {
+          activeCodes.add(code);
+          await this.sendKeyDown(code, activeCodes);
+          pressedCodes.push(code);
+        }
+        await this.clearShortcutPhase(code, "keydown");
+        await waitForInputDelay(holdMs, signal);
 
-      await this.suppressShortcutPhase(code, "keydown");
-      signal?.throwIfAborted();
-      if (activeCodes.has(code)) {
-        this.sendKeyDown(code, activeCodes, true);
-      } else {
-        activeCodes.add(code);
-        this.sendKeyDown(code, activeCodes);
-        pressedCodes.push(code);
-      }
-      await this.clearShortcutPhase(code, "keydown");
-      await waitForInputDelay(holdMs, signal);
+        if (pressedCodes.at(-1) === code) {
+          signal?.throwIfAborted();
+          await this.suppressShortcutPhase(code, "keyup");
+          activeCodes.delete(code);
+          await this.sendKeyUp(code, activeCodes);
+          pressedCodes.pop();
+          await this.clearShortcutPhase(code, "keyup");
+        }
 
-      if (pressedCodes.at(-1) === code) {
-        signal?.throwIfAborted();
-        await this.suppressShortcutPhase(code, "keyup");
-        activeCodes.delete(code);
-        this.sendKeyUp(code, activeCodes);
-        pressedCodes.pop();
-        await this.clearShortcutPhase(code, "keyup");
-      }
-
-      for (const modifierCode of [...modifierCodes].reverse()) {
-        const index = pressedCodes.lastIndexOf(modifierCode);
-        if (index === -1) continue;
-        activeCodes.delete(modifierCode);
-        this.sendKeyUp(modifierCode, activeCodes);
-        pressedCodes.splice(index, 1);
-      }
-    } finally {
-      if (!this.webContents.isDestroyed()) {
-        for (const pressedCode of [...pressedCodes].reverse()) {
-          if (pressedCode === code) {
-            await this.suppressShortcutPhase(code, "keyup").catch(() => undefined);
-          }
-          activeCodes.delete(pressedCode);
-          try {
-            this.sendKeyUp(pressedCode, activeCodes);
-          } catch {
-            // Best-effort recovery for a partially dispatched native key sequence.
+        for (const modifierCode of [...modifierCodes].reverse()) {
+          const index = pressedCodes.lastIndexOf(modifierCode);
+          if (index === -1) continue;
+          activeCodes.delete(modifierCode);
+          await this.sendKeyUp(modifierCode, activeCodes);
+          pressedCodes.splice(index, 1);
+        }
+      } finally {
+        if (!this.webContents.isDestroyed() && this.debuggerSession.isAttached()) {
+          for (const pressedCode of [...pressedCodes].reverse()) {
+            if (pressedCode === code) {
+              await this.suppressShortcutPhase(code, "keyup").catch(() => undefined);
+            }
+            activeCodes.delete(pressedCode);
+            await this.sendKeyUp(pressedCode, activeCodes).catch(() => undefined);
           }
         }
+        await Promise.all([
+          this.clearShortcutPhase(code, "keydown"),
+          this.clearShortcutPhase(code, "keyup")
+        ]);
       }
-      await Promise.all([
-        this.clearShortcutPhase(code, "keydown"),
-        this.clearShortcutPhase(code, "keyup")
-      ]);
+      await waitForInputDelay(postDelayMs, signal);
+    } finally {
+      if (!hadInputLease && this.heldKeyOwners.size === 0) {
+        this.releaseInputLeaseIfIdle();
+      }
     }
-    await waitForInputDelay(postDelayMs, signal);
   }
 
   private async holdKeyUnlocked(
@@ -186,8 +202,13 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     if (this.webContents.isDestroyed()) return;
     const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
     const codes = [...modifierCodes, code];
+    const hadInputLease = Boolean(this.inputLease && this.debuggerSession.isAttached());
+    await this.ensureInputLease();
     const acquiredCodes: string[] = [];
     try {
+      if (!hadInputLease && this.heldKeyOwners.size > 0) {
+        await this.reassertHeldKeysUnlocked(signal);
+      }
       for (const currentCode of codes) {
         signal?.throwIfAborted();
         const existingOwners = this.heldKeyOwners.get(currentCode);
@@ -201,7 +222,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
         if (currentCode === code) {
           await this.suppressShortcutPhase(code, "keydown");
         }
-        this.sendKeyDown(currentCode, new Set(this.heldKeyOwners.keys()));
+        await this.sendKeyDown(currentCode, new Set(this.heldKeyOwners.keys()));
         signal?.throwIfAborted();
         if (currentCode === code) {
           await this.clearShortcutPhase(code, "keydown");
@@ -216,6 +237,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           acquiredCode === code
         ).catch(() => undefined);
       }
+      this.releaseInputLeaseIfIdle();
       throw error;
     } finally {
       await this.clearShortcutPhase(code, "keydown");
@@ -223,10 +245,14 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   private async releaseKeyUnlocked(input: MacroKeyInput, ownerId: string): Promise<void> {
+    if (this.heldKeyOwners.size > 0) {
+      await this.ensureInputLease();
+    }
     const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
     for (const currentCode of [code, ...modifierCodes.slice().reverse()]) {
       await this.releaseOwnedKey(currentCode, ownerId, currentCode === code);
     }
+    this.releaseInputLeaseIfIdle();
   }
 
   private async releaseOwnedKey(code: string, ownerId: string, suppressShortcut: boolean): Promise<void> {
@@ -241,10 +267,10 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       await this.suppressShortcutPhase(code, "keyup").catch(() => undefined);
     }
     try {
-      this.sendKeyUp(code, new Set(this.heldKeyOwners.keys()));
+      await this.sendKeyUp(code, new Set(this.heldKeyOwners.keys()));
     } catch (error) {
       try {
-        this.sendKeyUp(code, new Set(this.heldKeyOwners.keys()));
+        await this.sendKeyUp(code, new Set(this.heldKeyOwners.keys()));
         return;
       } catch {
         const currentOwners = this.heldKeyOwners.get(code);
@@ -263,23 +289,23 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     }
   }
 
-  private sendKeyDown(code: string, activeCodes: ReadonlySet<string>, autoRepeat = false): void {
-    const modifiers = getElectronModifiers(activeCodes);
-    this.webContents.sendInputEvent({
+  private sendKeyDown(code: string, activeCodes: ReadonlySet<string>, autoRepeat = false): Promise<void> {
+    const modifiers = getCdpModifierMask(activeCodes);
+    return this.debuggerSession.sendCommand("Input.dispatchKeyEvent", {
       type: "rawKeyDown",
-      keyCode: getElectronKeyCode(code),
-      ...(modifiers.length > 0 ? { modifiers } : {}),
-      ...(autoRepeat ? { isAutoRepeat: true } : {})
-    } as unknown as Electron.KeyboardInputEvent);
+      ...(autoRepeat ? { autoRepeat: true } : {}),
+      ...getCdpKeyDescriptor(code, modifiers),
+      ...(modifiers > 0 ? { modifiers } : {})
+    }).then(() => undefined);
   }
 
-  private sendKeyUp(code: string, activeCodes: ReadonlySet<string>): void {
-    const modifiers = getElectronModifiers(activeCodes);
-    this.webContents.sendInputEvent({
+  private sendKeyUp(code: string, activeCodes: ReadonlySet<string>): Promise<void> {
+    const modifiers = getCdpModifierMask(activeCodes);
+    return this.debuggerSession.sendCommand("Input.dispatchKeyEvent", {
       type: "keyUp",
-      keyCode: getElectronKeyCode(code),
-      ...(modifiers.length > 0 ? { modifiers } : {})
-    });
+      ...getCdpKeyDescriptor(code, modifiers),
+      ...(modifiers > 0 ? { modifiers } : {})
+    }).then(() => undefined);
   }
 
   private suppressShortcutPhase(code: string, phase: "keydown" | "keyup"): Promise<unknown[]> {
@@ -317,27 +343,96 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       return;
     }
 
-    const bounds = this.view.getBounds();
-    const x = Math.max(0, Math.min(bounds.width - 1, Math.round((bounds.width * xPercent) / 100)));
-    const y = Math.max(0, Math.min(bounds.height - 1, Math.round((bounds.height * yPercent) / 100)));
-    const release = { type: "mouseUp" as const, button: "left" as const, clickCount: 1, x, y };
-    let didPress = false;
-    let didRelease = false;
+    await this.ensureInputLease();
     try {
-      this.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, x, y });
-      didPress = true;
-      this.webContents.sendInputEvent(release);
-      didRelease = true;
-    } finally {
-      if (didPress && !didRelease && !this.webContents.isDestroyed()) {
-        try {
-          this.webContents.sendInputEvent(release);
-        } catch {
-          // Best-effort recovery for a partially dispatched native click sequence.
+      const viewport = await this.getInputViewport();
+      const x = Math.max(0, Math.min(viewport.width - 1, Math.round((viewport.width * xPercent) / 100)));
+      const y = Math.max(0, Math.min(viewport.height - 1, Math.round((viewport.height * yPercent) / 100)));
+      const release = { type: "mouseReleased", button: "left", clickCount: 1, x, y };
+      let didPress = false;
+      let didRelease = false;
+      try {
+        signal?.throwIfAborted();
+        await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          button: "left",
+          clickCount: 1,
+          x,
+          y
+        });
+        didPress = true;
+        signal?.throwIfAborted();
+        await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release);
+        didRelease = true;
+      } finally {
+        if (didPress && !didRelease && !this.webContents.isDestroyed() && this.debuggerSession.isAttached()) {
+          await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release).catch(() => undefined);
         }
       }
+      await waitForInputDelay(postDelayMs, signal);
+    } finally {
+      this.releaseInputLeaseIfIdle();
     }
-    await waitForInputDelay(postDelayMs, signal);
+  }
+
+  private async ensureInputLease(): Promise<void> {
+    if (this.inputLease && this.debuggerSession.isAttached()) {
+      return;
+    }
+
+    this.inputLease?.release();
+    this.inputLease = await this.debuggerSession.acquire();
+  }
+
+  private releaseInputLeaseIfIdle(): void {
+    if (this.heldKeyOwners.size > 0) return;
+    this.inputLease?.release();
+    this.inputLease = undefined;
+  }
+
+  private scheduleHeldKeyReassertion(): void {
+    if (this.heldKeyOwners.size === 0 || this.webContents.isDestroyed()) return;
+    void this.enqueueInput(() => this.reassertHeldKeysUnlocked()).catch(() => undefined);
+  }
+
+  private async reassertHeldKeysUnlocked(signal?: AbortSignal): Promise<void> {
+    if (this.heldKeyOwners.size === 0 || this.webContents.isDestroyed()) return;
+    await this.ensureInputLease();
+    const activeCodes = new Set(this.heldKeyOwners.keys());
+    for (const code of activeCodes) {
+      signal?.throwIfAborted();
+      if (!this.isModifierCode(code)) {
+        await this.suppressShortcutPhase(code, "keydown");
+      }
+      await this.sendKeyDown(code, activeCodes);
+      if (!this.isModifierCode(code)) {
+        await this.clearShortcutPhase(code, "keydown");
+      }
+    }
+  }
+
+  private isModifierCode(code: string): boolean {
+    return code === "AltLeft" || code === "AltRight" ||
+      code === "ControlLeft" || code === "ControlRight" ||
+      code === "MetaLeft" || code === "MetaRight" ||
+      code === "ShiftLeft" || code === "ShiftRight";
+  }
+
+  private async getInputViewport(): Promise<{ height: number; width: number }> {
+    type LayoutMetrics = {
+      cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
+      layoutViewport?: { clientHeight?: number; clientWidth?: number };
+    };
+    const metrics = await this.debuggerSession.sendCommand<LayoutMetrics>("Page.getLayoutMetrics")
+      .catch((): LayoutMetrics => ({}));
+    const viewport = metrics.cssVisualViewport ?? metrics.layoutViewport;
+    const bounds = this.view.getBounds();
+    const width = viewport?.clientWidth ?? bounds.width;
+    const height = viewport?.clientHeight ?? bounds.height;
+    return {
+      height: Math.max(1, Math.round(height)),
+      width: Math.max(1, Math.round(width))
+    };
   }
 
   private enqueueInput(operation: () => Promise<void>): Promise<void> {
@@ -411,54 +506,6 @@ export function createFocusSource(allowFallback: boolean, allowBodyFallback = al
   })()`;
 }
 
-function getElectronKeyCode(code: string): string {
-  if (/^Key[A-Z]$/.test(code)) {
-    return code.slice(3);
-  }
-
-  if (/^Digit[0-9]$/.test(code)) {
-    return code.slice(5);
-  }
-
-  if (/^Numpad[0-9]$/.test(code)) {
-    return `num${code.slice(6)}`;
-  }
-
-  return electronKeyCodes[code] ?? code;
-}
-
 function toMacroKeyInput(input: MacroKeyInput | string): MacroKeyInput {
   return typeof input === "string" ? { code: input } : input;
 }
-
-function getElectronModifiers(
-  activeCodes: ReadonlySet<string>
-): Array<"control" | "alt" | "shift" | "meta"> {
-  const activeModifiers = new Set(
-    [...activeCodes].map(getMacroModifierForCode).filter(Boolean)
-  );
-  return [
-    activeModifiers.has("ctrl") ? "control" : undefined,
-    activeModifiers.has("alt") ? "alt" : undefined,
-    activeModifiers.has("shift") ? "shift" : undefined,
-    activeModifiers.has("meta") ? "meta" : undefined
-  ].filter(
-    (modifier): modifier is "control" | "alt" | "shift" | "meta" => Boolean(modifier)
-  );
-}
-
-const electronKeyCodes: Record<string, string> = {
-  AltLeft: "Alt",
-  AltRight: "Alt",
-  ControlLeft: "Control",
-  ControlRight: "Control",
-  MetaLeft: "Meta",
-  MetaRight: "Meta",
-  NumpadAdd: "numadd",
-  NumpadDecimal: "numdec",
-  NumpadDivide: "numdiv",
-  NumpadMultiply: "nummult",
-  NumpadSubtract: "numsub",
-  ShiftLeft: "Shift",
-  ShiftRight: "Shift"
-};

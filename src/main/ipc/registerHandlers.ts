@@ -81,6 +81,7 @@ interface RegisterIpcHandlersOptions {
   updateManager?: AppUpdateManager;
   consumePendingMacroPageRequest?: () => MacroPageRequest | null;
   consumePendingWorkspaceLaunchRequest?: () => PendingWorkspaceLaunchRequest | null;
+  onGameBrowserSettingsChanged?: () => void;
   onMacrosChanged?: () => void;
   onMacroOverlayRequest?: (webContents: WebContents, request: MacroOverlayRequest) => Promise<unknown>;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
@@ -343,6 +344,7 @@ export function registerIpcHandlers(
     if (result.preferences?.gameBrowserSettings) {
       browserManager.setWorkspaceAppearanceSettings(result.preferences.gameBrowserSettings.workspace);
       await broadcastGameCompatibilityChange(options);
+      options.onGameBrowserSettingsChanged?.();
     }
     if (result.operations ? hasPortableImportChanges(result.operations.roles) : result.roleCount > 0) {
       options.onRolesChanged?.();
@@ -384,6 +386,7 @@ export function registerIpcHandlers(
       const savedSettings = await options.gameBrowserSettingsStore.updateSettings(settings);
       browserManager.setWorkspaceAppearanceSettings(savedSettings.workspace);
       await broadcastGameCompatibilityChange(options);
+      options.onGameBrowserSettingsChanged?.();
       return savedSettings;
     })
   );

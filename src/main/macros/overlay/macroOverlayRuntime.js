@@ -5,7 +5,7 @@
     ...Array.from({ length: 41 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-19.12";
+  const scriptVersion = "2026-07-20.1";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -95,6 +95,11 @@
     "End",
     "Backspace"
   ]);
+  const macroBadgeVerticalPositions = new Set([
+    5, 10, 15, 20, 25, 30, 35, 40,
+    45, 50, 55, 60, 65, 70, 75, 80
+  ]);
+  const macroBadgeHorizontalMargins = new Set([0, 5, 10, 15, 20]);
   let activeBadgesElement = null;
   const activeHeldShortcuts = new Map();
   const macroIterationTimings = new Map();
@@ -132,6 +137,11 @@
     cpuThrottleRate: 1,
     language: detectOverlayLanguage(),
     lastRefreshAt: 0,
+    macroBadgePosition: {
+      horizontalAlign: "center",
+      horizontalMarginPercent: 0,
+      topPercent: 20
+    },
     macros: [],
     requestVersion: 0,
     resourceState: undefined,
@@ -269,6 +279,25 @@
       : undefined;
   }
 
+  function normalizeMacroBadgePosition(value, fallback = state.macroBadgePosition) {
+    const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    return {
+      horizontalAlign:
+        input.horizontalAlign === "left" || input.horizontalAlign === "center" || input.horizontalAlign === "right"
+          ? input.horizontalAlign
+          : fallback.horizontalAlign,
+      horizontalMarginPercent:
+        Number.isInteger(input.horizontalMarginPercent) &&
+        macroBadgeHorizontalMargins.has(input.horizontalMarginPercent)
+          ? input.horizontalMarginPercent
+          : fallback.horizontalMarginPercent,
+      topPercent:
+        Number.isInteger(input.topPercent) && macroBadgeVerticalPositions.has(input.topPercent)
+          ? input.topPercent
+          : fallback.topPercent
+    };
+  }
+
   function disposeIfDetached(nextState) {
     if (nextState?.detached !== true) {
       return false;
@@ -280,6 +309,7 @@
 
   function applyState(nextState) {
     state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
+    state.macroBadgePosition = normalizeMacroBadgePosition(nextState?.macroBadgePosition);
     state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
     state.resourceState = nextState?.resourceState;
     state.cpuThrottleRate = nextState?.cpuThrottleRate || 1;
@@ -513,11 +543,36 @@
     return root;
   }
 
+  function updateActiveBadgesPosition() {
+    if (!activeBadgesElement) return;
+
+    const position = state.macroBadgePosition;
+    activeBadgesElement.style.top = String(position.topPercent) + "%";
+    activeBadgesElement.style.right = "auto";
+
+    if (position.horizontalAlign === "left") {
+      activeBadgesElement.style.left = String(position.horizontalMarginPercent) + "%";
+      activeBadgesElement.style.transform = "none";
+      return;
+    }
+
+    if (position.horizontalAlign === "right") {
+      activeBadgesElement.style.left = "auto";
+      activeBadgesElement.style.right = String(position.horizontalMarginPercent) + "%";
+      activeBadgesElement.style.transform = "none";
+      return;
+    }
+
+    activeBadgesElement.style.left = "50%";
+    activeBadgesElement.style.transform = "translateX(-50%)";
+  }
+
   function updatePresentation() {
     if (!ensureHost() || !triggerElement || !activeBadgesElement || !resourceElement) {
       return;
     }
 
+    updateActiveBadgesPosition();
     const text = getText();
     triggerElement.title = text.triggerTitle;
     triggerElement.setAttribute("aria-label", text.triggerAria);

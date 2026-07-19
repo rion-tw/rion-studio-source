@@ -54,6 +54,11 @@ describe("GameBrowserSettingsStore", () => {
         },
         graphics: { mode: "high_performance" },
         launchMode: "external",
+        macroBadgePosition: {
+          horizontalAlign: "right",
+          horizontalMarginPercent: 10,
+          topPercent: 35
+        },
         network: {
           cdnCompatibility: { mode: "on" },
           proxy: {
@@ -73,6 +78,11 @@ describe("GameBrowserSettingsStore", () => {
       },
       graphics: { mode: "high_performance" },
       launchMode: "external",
+      macroBadgePosition: {
+        horizontalAlign: "right",
+        horizontalMarginPercent: 10,
+        topPercent: 35
+      },
       network: {
         cdnCompatibility: { mode: "on" },
         proxy: {
@@ -97,6 +107,11 @@ describe("GameBrowserSettingsStore", () => {
       },
       graphics: { mode: "high_performance" },
       launchMode: "external",
+      macroBadgePosition: {
+        horizontalAlign: "right",
+        horizontalMarginPercent: 10,
+        topPercent: 35
+      },
       network: {
         cdnCompatibility: { mode: "on" },
         proxy: {

@@ -15,6 +15,10 @@ import type {
   WorkspaceBackgroundStyle,
   WorkspaceGapSize
 } from "./types";
+import {
+  DEFAULT_MACRO_BADGE_POSITION,
+  normalizeMacroBadgePositionSettings
+} from "./macroOverlay";
 
 export const browserFontFamilyRoles = ["standard", "serif", "sansserif", "fixed", "math"] as const;
 
@@ -60,6 +64,7 @@ export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   graphics: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
   launchMode: "auto",
+  macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
   network: DEFAULT_BROWSER_NETWORK_SETTINGS,
   workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 };
@@ -74,6 +79,10 @@ export function normalizeGameBrowserSettings(
     fonts: normalizeBrowserFontSettings(input.fonts, fallback.fonts),
     graphics: normalizeBrowserGraphicsSettings(input.graphics, fallback.graphics),
     launchMode: normalizeBrowserLaunchMode(input.launchMode, fallback.launchMode),
+    macroBadgePosition: normalizeMacroBadgePositionSettings(
+      input.macroBadgePosition,
+      fallback.macroBadgePosition
+    ),
     network: normalizeBrowserNetworkSettings(input.network, fallback.network),
     workspace: normalizeWorkspaceAppearanceSettings(input.workspace, fallback.workspace)
   };

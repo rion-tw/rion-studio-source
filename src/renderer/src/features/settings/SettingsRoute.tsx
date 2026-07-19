@@ -25,6 +25,10 @@ import {
   normalizeGameBrowserSettings,
   workspaceGapSizes
 } from "../../../../shared/browserFonts";
+import {
+  macroBadgeHorizontalMargins,
+  macroBadgeVerticalPositions
+} from "../../../../shared/macroOverlay";
 import { CURRENT_LEGAL_RELEASE, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
   AppUpdateStatus,
@@ -34,6 +38,8 @@ import type {
   BrowserLaunchMode,
   GameBrowserSettings,
   GraphicsDiagnostics,
+  MacroBadgeHorizontalAlign,
+  MacroBadgePositionSettings,
   MacroSettings,
   PortableDataSelection,
   PortableExportInput,
@@ -211,6 +217,24 @@ function SettingsViewBase({
       ...normalizedSettings,
       workspace: {
         ...normalizedSettings.workspace,
+        ...update
+      }
+    })
+      .catch(onError)
+      .finally(() => setIsWorkspaceAppearanceSaving(false));
+  }
+
+  function updateMacroBadgePosition(update: Partial<MacroBadgePositionSettings>): void {
+    if (isWorkspaceAppearanceSaving) {
+      return;
+    }
+
+    const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
+    setIsWorkspaceAppearanceSaving(true);
+    void onGameBrowserSettingsChange({
+      ...normalizedSettings,
+      macroBadgePosition: {
+        ...normalizedSettings.macroBadgePosition,
         ...update
       }
     })
@@ -495,6 +519,81 @@ function SettingsViewBase({
                       {workspaceGapSizes.map((size) => (
                         <SelectItem key={size} value={String(size)}>
                           {size} px
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                }
+              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.macroBadges")}>
+              <SettingsRow
+                title={t("settings.macroBadgeHorizontalAlign")}
+                description={t("settings.macroBadgeHorizontalAlignDescription")}
+                control={
+                  <SegmentedControl<MacroBadgeHorizontalAlign>
+                    className="settings-menu-control settings-segmented-menu grid-cols-3"
+                    disabled={isWorkspaceAppearanceSaving}
+                    items={[
+                      { value: "left", label: t("settings.macroBadgeHorizontalAlignLeft") },
+                      { value: "center", label: t("settings.macroBadgeHorizontalAlignCenter") },
+                      { value: "right", label: t("settings.macroBadgeHorizontalAlignRight") }
+                    ]}
+                    value={normalizeGameBrowserSettings(gameBrowserSettings).macroBadgePosition.horizontalAlign}
+                    onValueChange={(horizontalAlign) => updateMacroBadgePosition({ horizontalAlign })}
+                  />
+                }
+              />
+              <SettingsRow
+                title={t("settings.macroBadgeTop")}
+                description={t("settings.macroBadgeTopDescription")}
+                control={
+                  <Select
+                    disabled={isWorkspaceAppearanceSaving}
+                    value={String(normalizeGameBrowserSettings(gameBrowserSettings).macroBadgePosition.topPercent)}
+                    onValueChange={(value) => updateMacroBadgePosition({ topPercent: Number(value) })}
+                  >
+                    <SelectTrigger
+                      aria-label={t("settings.macroBadgeTop")}
+                      className="settings-menu-control"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {macroBadgeVerticalPositions.map((position) => (
+                        <SelectItem key={position} value={String(position)}>
+                          {position}%
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                }
+              />
+              <SettingsRow
+                showDivider={false}
+                title={t("settings.macroBadgeHorizontalMargin")}
+                description={t("settings.macroBadgeHorizontalMarginDescription")}
+                control={
+                  <Select
+                    disabled={isWorkspaceAppearanceSaving}
+                    value={String(
+                      normalizeGameBrowserSettings(gameBrowserSettings).macroBadgePosition.horizontalMarginPercent
+                    )}
+                    onValueChange={(value) =>
+                      updateMacroBadgePosition({ horizontalMarginPercent: Number(value) })
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label={t("settings.macroBadgeHorizontalMargin")}
+                      className="settings-menu-control"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {macroBadgeHorizontalMargins.map((margin) => (
+                        <SelectItem key={margin} value={String(margin)}>
+                          {margin}%
                         </SelectItem>
                       ))}
                     </SelectContent>

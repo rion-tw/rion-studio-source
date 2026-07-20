@@ -772,6 +772,39 @@ describe("PortableDataManager", () => {
     expect(macros.some((macro) => macro.name === "Orphan")).toBe(false);
   });
 
+  it("rejects duplicate source role names without changing local data", async () => {
+    const importPath = join(baseDir, "duplicate-role-names.json");
+    const fixture = createPortableV2Fixture();
+    fixture.roles.push({ ...fixture.roles[0], id: "duplicate-role" });
+    fixture.launchWorkspaces = [];
+    fixture.macros = [];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+    const before = await roleStore.listRoles();
+
+    await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_ROLE_NAME_CONFLICT" });
+    await expect(roleStore.listRoles()).resolves.toEqual(before);
+    await expect(access(join(baseDir, "portable-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects duplicate existing role names without changing local data", async () => {
+    const importPath = join(baseDir, "duplicate-existing-role-names.json");
+    const existing = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
+    const rolesPath = join(baseDir, "roles.json");
+    const stored = JSON.parse(await readFile(rolesPath, "utf8")) as { roles: Array<Record<string, unknown>> };
+    stored.roles.push({ ...existing, id: "duplicate-role" });
+    await writeFile(rolesPath, `${JSON.stringify(stored)}\n`, "utf8");
+    roleStore = new RoleStore(baseDir);
+    const fixture = createPortableV2Fixture();
+    fixture.launchWorkspaces = [];
+    fixture.macros = [];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_ROLE_NAME_CONFLICT" });
+    await expect(roleStore.listRoles()).resolves.toHaveLength(2);
+  });
+
   it("maps v2 built-ins, renames custom games, and recovers missing role games", async () => {
     const importPath = join(baseDir, "v2-games.json");
     await gameStore.createGame({ name: "Shared", defaultLaunchUrl: "https://local-shared.test/play" });

@@ -70,13 +70,17 @@ export class RoleStore {
     });
   }
 
-  async replaceRolesForImport(roles: Role[], publishCache = true): Promise<Role[]> {
+  async replaceRolesForImport(
+    roles: Role[],
+    publishCache = true,
+    preserveSessionState = true
+  ): Promise<Role[]> {
     return this.taskQueue.run(async () => {
       const currentById = new Map((await this.readRolesFile()).roles.map((role) => [role.id, role]));
       const normalized = roles.map((role) => {
         const next = this.normalizeStoredRole(role);
         const current = currentById.get(next.id);
-        return current
+        return current && preserveSessionState
           ? {
               ...next,
               authState: current.authState,

@@ -75,8 +75,12 @@ interface PendingImport {
 }
 
 interface ChromeImportJournal {
+  createdRoleIds?: string[];
   importId: string;
-  roleIds: string[];
+  overwrittenRoleIds?: string[];
+  originalRoles?: Role[];
+  phase?: "committed" | "prepared";
+  roleIds?: string[];
 }
 
 interface ChromeProfileImportManagerOptions {
@@ -97,7 +101,13 @@ interface ChromeProfileImportManagerOptions {
   ) => Promise<ChromeSessionSnapshot>;
   roleStore: Pick<
     RoleStore,
-    "createRole" | "deleteRole" | "getRolePaths" | "listRoles" | "updateAuthState" | "updateRole"
+    | "createRole"
+    | "deleteRole"
+    | "getRolePaths"
+    | "listRoles"
+    | "replaceRolesForImport"
+    | "updateAuthState"
+    | "updateRole"
   >;
   showOpenDialog: (options: OpenDirectoryDialogOptions) => Promise<OpenDirectoryDialogResult>;
   userDataDir: string;
@@ -198,100 +208,158 @@ export class ChromeProfileImportManager {
 
     const game = await this.options.gameStore.getGame(input.gameId);
     const existingRoles = await this.options.roleStore.listRoles();
-    const usedNames = new Set(
-      existingRoles
-        .filter((role) => role.gameId === game.id)
-        .map((role) => normalizeNameKey(role.name))
-    );
+    const existingRolesByIdentity = new Map<string, Role[]>();
+    for (const role of existingRoles) {
+      const key = createRoleIdentityKey(role.gameId, role.name);
+      const matches = existingRolesByIdentity.get(key) ?? [];
+      matches.push(role);
+      existingRolesByIdentity.set(key, matches);
+    }
+    const seenSourceIdentities = new Set<string>();
+    const assignments = selectedProfiles.map((profile) => {
+      const roleName = normalizeImportedRoleName(profile);
+      const identityKey = createRoleIdentityKey(game.id, roleName);
+      if (seenSourceIdentities.has(identityKey)) {
+        throw createRoleNameConflictError();
+      }
+      seenSourceIdentities.add(identityKey);
+      const matches = existingRolesByIdentity.get(identityKey) ?? [];
+      if (matches.length > 1) {
+        throw createRoleNameConflictError();
+      }
+      return { existing: matches[0], profile, roleName };
+    });
     const stageRoot = join(this.options.userDataDir, IMPORT_DIRECTORY, input.importId);
     const journalPath = join(this.options.userDataDir, IMPORT_JOURNAL);
     const createdRoleIds: string[] = [];
+    const overwrittenRoleIds = assignments.flatMap((assignment) =>
+      assignment.existing ? [assignment.existing.id] : []
+    );
     const results: ChromeProfileImportRoleResult[] = [];
     const warnings: ChromeProfileImportWarning[] = [{ code: "passwords_excluded" }];
+    const journal: ChromeImportJournal = {
+      createdRoleIds,
+      importId: input.importId,
+      originalRoles: structuredClone(existingRoles),
+      overwrittenRoleIds,
+      phase: "prepared"
+    };
 
     await rm(stageRoot, { force: true, recursive: true });
     await mkdir(stageRoot, { recursive: true });
-    await writeJsonFileAtomically(journalPath, { importId: input.importId, roleIds: [] } satisfies ChromeImportJournal);
 
     try {
-      for (const profile of selectedProfiles) {
-        const roleName = reserveRoleName(profile.name || profile.directoryName, usedNames);
-        if (roleName !== profile.name) {
-          warnings.push({
-            code: "name_renamed",
-            profileId: profile.id,
-            profileName: profile.name,
-            replacementName: roleName
-          });
+      for (const assignment of assignments) {
+        const stageBrowserDir = join(stageRoot, "profiles", assignment.profile.id);
+        await copyChromeProfile(
+          pending.sourceUserDataDir,
+          assignment.profile.directoryName,
+          stageBrowserDir,
+          this.lstat
+        );
+      }
+      for (const roleId of overwrittenRoleIds) {
+        const sourceBrowserDir = this.options.roleStore.getRolePaths(roleId).browserUserDataDir;
+        const backupBrowserDir = join(stageRoot, "backups", roleId);
+        if (await pathExists(sourceBrowserDir)) {
+          await copyDirectory(sourceBrowserDir, backupBrowserDir);
+        } else {
+          await mkdir(backupBrowserDir, { recursive: true });
+        }
+      }
+      await writeJsonFileAtomically(journalPath, journal);
+
+      for (const assignment of assignments) {
+        const role = assignment.existing
+          ? await this.options.roleStore.updateRole(assignment.existing.id, {
+              gameId: game.id,
+              launchUrl: game.defaultLaunchUrl,
+              name: assignment.roleName,
+              notes: "Imported from a local Chrome profile.",
+              preferredBrowserLaunchMode: null
+            })
+          : await this.options.roleStore.createRole({
+              gameId: game.id,
+              launchUrl: game.defaultLaunchUrl,
+              name: assignment.roleName,
+              notes: "Imported from a local Chrome profile."
+            });
+        if (!assignment.existing) {
+          createdRoleIds.push(role.id);
+          await writeJsonFileAtomically(journalPath, journal);
         }
 
-        const stageBrowserDir = join(stageRoot, profile.id);
-        await copyChromeProfile(pending.sourceUserDataDir, profile.directoryName, stageBrowserDir, this.lstat);
-        const role = await this.options.roleStore.createRole({
-          gameId: game.id,
-          launchUrl: game.defaultLaunchUrl,
-          name: roleName,
-          notes: "Imported from a local Chrome profile."
-        });
-        createdRoleIds.push(role.id);
-        await writeJsonFileAtomically(journalPath, { importId: input.importId, roleIds: createdRoleIds } satisfies ChromeImportJournal);
-
+        const stageBrowserDir = join(stageRoot, "profiles", assignment.profile.id);
         const targetBrowserDir = this.options.roleStore.getRolePaths(role.id).browserUserDataDir;
         await rm(targetBrowserDir, { force: true, recursive: true });
         await copyDirectory(stageBrowserDir, targetBrowserDir);
 
         const runtime = await this.verifyAndSeedRuntime(targetBrowserDir, role, game.loginUrl ?? role.launchUrl);
         if (runtime.embedded === "unavailable") {
-          warnings.push({ code: "embedded_unavailable", profileId: profile.id, profileName: profile.name });
-        }
-        if (runtime.external === "unavailable") {
-          warnings.push({ code: "external_unavailable", profileId: profile.id, profileName: profile.name });
-        }
-        if (runtime.embedded === "login_required" && runtime.external === "login_required") {
-          warnings.push({ code: "login_not_detected", profileId: profile.id, profileName: profile.name });
-        }
-        let updatedRole = role;
-        if (runtime.authState === "authenticated") {
-          updatedRole = await this.options.roleStore.updateAuthState(role.id, "authenticated");
-        }
-        if (runtime.preferredBrowserLaunchMode) {
-          updatedRole = await this.options.roleStore.updateRole(role.id, {
-            preferredBrowserLaunchMode: runtime.preferredBrowserLaunchMode
+          warnings.push({
+            code: "embedded_unavailable",
+            profileId: assignment.profile.id,
+            profileName: assignment.profile.name
           });
         }
+        if (runtime.external === "unavailable") {
+          warnings.push({
+            code: "external_unavailable",
+            profileId: assignment.profile.id,
+            profileName: assignment.profile.name
+          });
+        }
+        if (runtime.embedded === "login_required" && runtime.external === "login_required") {
+          warnings.push({
+            code: "login_not_detected",
+            profileId: assignment.profile.id,
+            profileName: assignment.profile.name
+          });
+        }
+        let updatedRole = await this.options.roleStore.updateAuthState(role.id, runtime.authState);
+        updatedRole = await this.options.roleStore.updateRole(role.id, {
+          preferredBrowserLaunchMode: runtime.preferredBrowserLaunchMode ?? null
+        });
 
         results.push({
           authState: updatedRole.authState,
           embedded: runtime.embedded,
           external: runtime.external,
-          profileId: profile.id,
-          profileName: profile.name,
+          profileId: assignment.profile.id,
+          profileName: assignment.profile.name,
           roleId: updatedRole.id,
           roleName: updatedRole.name
         });
       }
 
+      await writeJsonFileAtomically(journalPath, { ...journal, phase: "committed" });
+      journal.phase = "committed";
       const roles = await this.options.roleStore.listRoles();
       this.pending.delete(input.importId);
       await removeStagingDirectory(this.options.userDataDir, input.importId);
       await rm(journalPath, { force: true });
+      const affectedRoleIds = new Set([...overwrittenRoleIds, ...createdRoleIds]);
       return {
-        roles: roles.filter((role) => createdRoleIds.includes(role.id)),
+        roles: roles.filter((role) => affectedRoleIds.has(role.id)),
         results,
         warnings
       };
     } catch (error) {
-      const deletionResults = await Promise.all(createdRoleIds.map(async (roleId) => {
+      if (journal.phase !== "committed") {
         try {
-          await this.options.roleStore.deleteRole(roleId);
-          return true;
+          await restoreChromeImportTransaction(this.options.userDataDir, journal, this.options.roleStore);
+          await removeStagingDirectory(this.options.userDataDir, input.importId);
+          await rm(journalPath, { force: true });
         } catch {
-          return false;
+          // Keep the journal and staged backups for startup recovery.
         }
-      }));
-      await removeStagingDirectory(this.options.userDataDir, input.importId);
-      if (deletionResults.every(Boolean)) {
-        await rm(journalPath, { force: true });
+      } else {
+        try {
+          await removeStagingDirectory(this.options.userDataDir, input.importId);
+          await rm(journalPath, { force: true });
+        } catch {
+          // Keep the committed journal so startup recovery can finish cleanup.
+        }
       }
       throw error;
     } finally {
@@ -372,33 +440,109 @@ export class ChromeProfileImportManager {
   }
 }
 
-export async function recoverChromeProfileImport(
+function createRoleIdentityKey(gameId: string, name: string): string {
+  return `${gameId}\u0000${normalizeNameKey(name)}`;
+}
+
+function normalizeImportedRoleName(profile: ChromeProfileEntry): string {
+  return (profile.name.trim() || profile.directoryName || "Chrome Profile").slice(0, 80);
+}
+
+function createRoleNameConflictError(): ChromeProfileImportError {
+  return new ChromeProfileImportError(
+    "ROLE_NAME_CONFLICT",
+    "Multiple Chrome profiles or roles share a name in the selected game. Rename or remove duplicates before importing."
+  );
+}
+
+async function restoreChromeImportTransaction(
   userDataDir: string,
-  roleStore?: Pick<RoleStore, "deleteRole">
+  journal: Partial<ChromeImportJournal>,
+  roleStore: Pick<RoleStore, "deleteRole" | "getRolePaths" | "listRoles" | "replaceRolesForImport">
 ): Promise<void> {
-  const journalPath = join(userDataDir, IMPORT_JOURNAL);
-  let canRemoveJournal = true;
-  try {
-    const journal = JSON.parse(await readFile(journalPath, "utf8")) as Partial<ChromeImportJournal>;
-    if (roleStore && Array.isArray(journal.roleIds)) {
-      for (const id of journal.roleIds.filter((value): value is string => typeof value === "string")) {
-        try {
-          await roleStore.deleteRole(id);
-        } catch (error) {
-          const code = isRecord(error) && typeof error.code === "string" ? error.code : undefined;
-          if (code !== "ROLE_NOT_FOUND") {
-            canRemoveJournal = false;
-          }
-        }
+  const journalCreatedRoleIds = [
+    ...(Array.isArray(journal.createdRoleIds) ? journal.createdRoleIds : []),
+    ...(Array.isArray(journal.roleIds) ? journal.roleIds : [])
+  ].filter((roleId, index, roleIds): roleId is string =>
+    typeof roleId === "string" && roleIds.indexOf(roleId) === index
+  );
+  const currentRoles = Array.isArray(journal.originalRoles) ? await roleStore.listRoles() : [];
+  const originalRoleIds = new Set(
+    Array.isArray(journal.originalRoles) ? journal.originalRoles.map((role) => role.id) : []
+  );
+  const createdRoleIds = [
+    ...journalCreatedRoleIds,
+    ...currentRoles
+      .filter((role) => !originalRoleIds.has(role.id))
+      .map((role) => role.id)
+  ].filter((roleId, index, roleIds): roleId is string =>
+    roleIds.indexOf(roleId) === index
+  );
+  for (const roleId of createdRoleIds) {
+    try {
+      await roleStore.deleteRole(roleId);
+    } catch (error) {
+      const code = isRecord(error) && typeof error.code === "string" ? error.code : undefined;
+      if (code !== "ROLE_NOT_FOUND") {
+        throw error;
       }
     }
+  }
+
+  if (Array.isArray(journal.originalRoles)) {
+    await roleStore.replaceRolesForImport(journal.originalRoles, true, false);
+  }
+
+  const overwrittenRoleIds = Array.isArray(journal.overwrittenRoleIds)
+    ? journal.overwrittenRoleIds.filter((roleId): roleId is string => typeof roleId === "string")
+    : [];
+  for (const roleId of overwrittenRoleIds) {
+    const targetBrowserDir = roleStore.getRolePaths(roleId).browserUserDataDir;
+    const backupBrowserDir = join(userDataDir, IMPORT_DIRECTORY, journal.importId ?? "", "backups", roleId);
+    await rm(targetBrowserDir, { force: true, recursive: true });
+    if (await pathExists(backupBrowserDir)) {
+      await copyDirectory(backupBrowserDir, targetBrowserDir);
+    } else {
+      await mkdir(targetBrowserDir, { recursive: true });
+    }
+  }
+}
+
+export async function recoverChromeProfileImport(
+  userDataDir: string,
+  roleStore?: Pick<
+    RoleStore,
+    "deleteRole" | "getRolePaths" | "listRoles" | "replaceRolesForImport"
+  >
+): Promise<void> {
+  const journalPath = join(userDataDir, IMPORT_JOURNAL);
+  let journal: Partial<ChromeImportJournal> | undefined;
+  try {
+    journal = JSON.parse(await readFile(journalPath, "utf8")) as Partial<ChromeImportJournal>;
   } catch {
     // A missing or malformed journal is recovered by removing the staging directory.
   }
-  await rm(join(userDataDir, IMPORT_DIRECTORY), { force: true, recursive: true });
-  if (canRemoveJournal) {
+
+  if (journal?.phase === "committed") {
+    await rm(join(userDataDir, IMPORT_DIRECTORY), { force: true, recursive: true });
     await rm(journalPath, { force: true });
+    return;
   }
+
+  if (roleStore && journal) {
+    try {
+      await restoreChromeImportTransaction(userDataDir, journal, roleStore);
+      await rm(join(userDataDir, IMPORT_DIRECTORY), { force: true, recursive: true });
+      await rm(journalPath, { force: true });
+      return;
+    } catch {
+      // Leave the journal and backups in place so the next startup can retry recovery.
+      return;
+    }
+  }
+
+  await rm(join(userDataDir, IMPORT_DIRECTORY), { force: true, recursive: true });
+  await rm(journalPath, { force: true });
 }
 
 export function getDefaultChromeUserDataDirectory(
@@ -549,21 +693,20 @@ async function hasChromeLock(sourceUserDataDir: string): Promise<boolean> {
   return false;
 }
 
-function reserveRoleName(name: string, usedNames: Set<string>): string {
-  const baseName = (name.trim() || "Chrome Profile").slice(0, 80);
-  let candidate = baseName;
-  let suffix = 2;
-  while (usedNames.has(normalizeNameKey(candidate))) {
-    const suffixText = ` (${suffix})`;
-    candidate = `${baseName.slice(0, Math.max(1, 80 - suffixText.length))}${suffixText}`;
-    suffix += 1;
-  }
-  usedNames.add(normalizeNameKey(candidate));
-  return candidate;
-}
-
 function normalizeNameKey(value: string): string {
   return value.trim().toLocaleLowerCase();
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function isSafeImportId(value: unknown): value is string {

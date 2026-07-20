@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v54";
+  const hostId = "rion-studio-macro-overlay-v56";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 52 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 54 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-20.12";
+  const scriptVersion = "2026-07-20.14";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -154,6 +154,8 @@
   let actionMenuElement = null;
   const activeHeldShortcuts = new Map();
   const clickMarkerEvents = new Map();
+  const clickMarkerFlashStates = new Map();
+  const clickMarkerFlashDurationMs = 120;
   const macroIterationTimings = new Map();
   let renderedActiveBadgesMarkup = null;
   let renderedClickMarkersMarkup = null;
@@ -694,6 +696,7 @@
               eventKey: status.lastClick?.stepId === step.id && status.lastClick.sequence > 0
                 ? [status.startedAt, status.lastClick.stepId, status.lastClick.sequence].join(":")
                 : undefined,
+              shouldFlash: status.clickFlash === true,
               macroId: macro.id,
               stepId: step.id
             });
@@ -709,9 +712,24 @@
         .sort()
         .join("|");
       const previousEventKey = clickMarkerEvents.get(marker.key);
-      const isNewClick = eventKey.length > 0 && previousEventKey !== undefined && previousEventKey !== eventKey;
+      const isNewClick =
+        eventKey.length > 0 &&
+        previousEventKey !== eventKey &&
+        (previousEventKey !== undefined || marker.sources.some((source) => source.shouldFlash));
+      if (isNewClick) {
+        clickMarkerFlashStates.set(marker.key, {
+          eventKey,
+          expiresAt: Date.now() + clickMarkerFlashDurationMs
+        });
+      }
+      const flashState = clickMarkerFlashStates.get(marker.key);
+      const isClickFlashActive =
+        flashState?.eventKey === eventKey && flashState.expiresAt > Date.now();
+      if (flashState && !isClickFlashActive) {
+        clickMarkerFlashStates.delete(marker.key);
+      }
       clickMarkerEvents.set(marker.key, eventKey);
-      const flashClass = isNewClick ? " is-click-flash" : "";
+      const flashClass = isClickFlashActive ? " is-click-flash" : "";
       return [
         '<span class="click-marker',
         flashClass,
@@ -736,7 +754,9 @@
 
   function handleClickMarkerAnimationEnd(event) {
     const marker = event.target?.closest?.(".click-marker.is-click-flash");
-    marker?.classList.remove("is-click-flash");
+    if (!marker) return;
+    marker.classList.remove("is-click-flash");
+    clickMarkerFlashStates.delete(marker.dataset.markerKey);
   }
 
   function formatCode(code) {

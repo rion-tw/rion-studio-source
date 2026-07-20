@@ -29,7 +29,16 @@ interface MacroOverlayState {
     skippedCount: number;
     startedCount: number;
   };
-  statuses: MacroRunStatus[];
+  statuses: MacroOverlayStatus[];
+}
+
+type MacroOverlayStatus = MacroRunStatus & {
+  clickFlash?: true;
+};
+
+interface PendingClickStatus {
+  status: MacroOverlayStatus;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 interface OverlayRefreshState {
@@ -83,6 +92,7 @@ export type MacroOverlayRequest =
     };
 
 export class MacroOverlayInjector {
+  private static readonly CLICK_MARKER_STATUS_RETENTION_MS = 180;
   private readonly externalHosts = new Set<ExternalMacroOverlayHost>();
   private readonly externalHostRoleIds = new WeakMap<ExternalMacroOverlayHost, string>();
   private readonly externalRefreshStates = new WeakMap<ExternalMacroOverlayHost, OverlayRefreshState>();
@@ -90,6 +100,7 @@ export class MacroOverlayInjector {
   private readonly initializedContents = new WeakSet<WebContents>();
   private readonly contentRoleIds = new WeakMap<WebContents, string>();
   private readonly contentRefreshStates = new WeakMap<WebContents, OverlayRefreshState>();
+  private readonly pendingClickStatuses = new Map<string, PendingClickStatus>();
   private previousMacroStatuses = new Map<string, {
     iteration: number;
     lastClickSequence?: number;
@@ -203,6 +214,17 @@ export class MacroOverlayInjector {
       ])
     );
     const changedRoleIds = new Set<string>();
+    statuses.forEach((status) => {
+      const key = `${status.roleId}:${status.macroId}`;
+      const previous = this.previousMacroStatuses.get(key);
+      if (
+        status.lastClick &&
+        (previous?.lastClickSequence !== status.lastClick.sequence ||
+          previous?.lastClickStepId !== status.lastClick.stepId)
+      ) {
+        this.retainPendingClickStatus(status);
+      }
+    });
     new Set([...this.previousMacroStatuses.keys(), ...next.keys()]).forEach((key) => {
       const previous = this.previousMacroStatuses.get(key);
       const current = next.get(key);
@@ -500,6 +522,20 @@ export class MacroOverlayInjector {
       this.getMacroBadgePosition?.() ?? Promise.resolve({ ...DEFAULT_MACRO_BADGE_POSITION })
     ]);
     const statuses = this.macroManager.listStatuses();
+    const currentRunningStatusKeys = new Set(
+      statuses
+        .filter((status) => status.state === "running")
+        .map((status) => `${status.roleId}:${status.macroId}`)
+    );
+    const pendingStatuses = [...this.pendingClickStatuses.entries()]
+      .filter(([key, { status }]) => {
+        if (status.roleId !== roleId || currentRunningStatusKeys.has(key)) {
+          return false;
+        }
+        this.armPendingClickStatus(key);
+        return true;
+      })
+      .map(([, { status }]) => status);
     const roleStatus = this.getRoleStatus?.(roleId);
     const assignedMacros = macros.filter(
       (macro) =>
@@ -514,8 +550,36 @@ export class MacroOverlayInjector {
       macroBadgePosition,
       macros: assignedMacros,
       resourceState: roleStatus?.resourceState,
-      statuses: statuses.filter((status) => assignedMacroIds.has(status.macroId))
+      statuses: [...statuses, ...pendingStatuses].filter((status) => assignedMacroIds.has(status.macroId))
     };
+  }
+
+  private retainPendingClickStatus(status: MacroRunStatus): void {
+    if (!status.lastClick) return;
+    const key = `${status.roleId}:${status.macroId}`;
+    const previous = this.pendingClickStatuses.get(key);
+    if (previous?.timer) clearTimeout(previous.timer);
+
+    const pendingStatus: MacroOverlayStatus = {
+      ...status,
+      clickFlash: true,
+      lastClick: { ...status.lastClick }
+    };
+    this.pendingClickStatuses.set(key, { status: pendingStatus });
+  }
+
+  private armPendingClickStatus(key: string): void {
+    const pending = this.pendingClickStatuses.get(key);
+    if (!pending || pending.timer) return;
+
+    pending.timer = setTimeout(() => {
+      const current = this.pendingClickStatuses.get(key);
+      if (current !== pending) {
+        return;
+      }
+      this.pendingClickStatuses.delete(key);
+      this.refreshInstalledOverlays(pending.status.roleId, "macro_click_complete");
+    }, MacroOverlayInjector.CLICK_MARKER_STATUS_RETENTION_MS);
   }
 }
 

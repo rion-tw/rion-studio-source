@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v46";
+  const hostId = "rion-studio-macro-overlay-v47";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 44 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 45 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-20.4";
+  const scriptVersion = "2026-07-20.5";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -113,6 +113,17 @@
     '<circle cx="12" cy="12" r="3"/>',
     "</svg>"
   ].join("");
+  const coordinateAnchorDefinitions = [
+    { anchor: "top-left", xPercent: 0, yPercent: 0 },
+    { anchor: "top-center", xPercent: 50, yPercent: 0 },
+    { anchor: "top-right", xPercent: 100, yPercent: 0 },
+    { anchor: "center-left", xPercent: 0, yPercent: 50 },
+    { anchor: "center", xPercent: 50, yPercent: 50 },
+    { anchor: "center-right", xPercent: 100, yPercent: 50 },
+    { anchor: "bottom-left", xPercent: 0, yPercent: 100 },
+    { anchor: "bottom-center", xPercent: 50, yPercent: 100 },
+    { anchor: "bottom-right", xPercent: 100, yPercent: 100 }
+  ];
   const gameBrowserDefaultCodes = new Set([
     "Tab",
     "Space",
@@ -140,6 +151,7 @@
   let cleanupInterval = undefined;
   let coordinateCopyInFlight = false;
   let coordinateMeasureActive = false;
+  let coordinateAnchorLayerElement = null;
   let coordinateMeasureElement = null;
   let coordinateReadoutElement = null;
   let coordinateMeasureHideTimer = undefined;
@@ -375,15 +387,33 @@
 
   function updateCoordinateMeasurement(measurement) {
     coordinateMeasurement = measurement;
-    if (!coordinateMeasureElement || !coordinateReadoutElement) return;
+    if (!coordinateMeasureElement) return;
     const viewport = getVisualViewportSize();
+    updateCoordinateAnchorGuides(viewport);
     coordinateMeasureElement.style.setProperty("--coordinate-x", String(measurement.xPx) + "px");
     coordinateMeasureElement.style.setProperty("--coordinate-y", String(measurement.yPx) + "px");
     coordinateMeasureElement.style.setProperty("--coordinate-width", String(viewport.width) + "px");
     coordinateMeasureElement.style.setProperty("--coordinate-height", String(viewport.height) + "px");
+    if (!coordinateReadoutElement) return;
     coordinateReadoutElement.style.left = String(Math.min(measurement.xPx + 14, Math.max(8, viewport.width - 280))) + "px";
     coordinateReadoutElement.style.top = String(Math.min(measurement.yPx + 14, Math.max(8, viewport.height - 42))) + "px";
     setCoordinateReadoutStatus("ready");
+  }
+
+  function updateCoordinateAnchorGuides(viewport = getVisualViewportSize()) {
+    if (!coordinateAnchorLayerElement) return;
+    const markers = coordinateAnchorLayerElement.querySelectorAll(".coordinate-anchor-marker");
+    coordinateAnchorDefinitions.forEach((definition, index) => {
+      const marker = markers[index];
+      if (!marker) return;
+      marker.style.left = String((viewport.width * definition.xPercent) / 100) + "px";
+      marker.style.top = String((viewport.height * definition.yPercent) / 100) + "px";
+    });
+  }
+
+  function handleCoordinateViewportResize() {
+    if (!coordinateMeasureActive) return;
+    updateCoordinateAnchorGuides();
   }
 
   function cancelCoordinateMeasureHide() {
@@ -413,6 +443,9 @@
     coordinateMeasureActive = true;
     coordinateCopyInFlight = false;
     coordinateMeasureElement.hidden = false;
+    if (coordinateAnchorLayerElement) {
+      coordinateAnchorLayerElement.hidden = false;
+    }
     const viewport = getVisualViewportSize();
     const xPx = Math.floor(viewport.width / 2);
     const yPx = Math.floor(viewport.height / 2);
@@ -432,6 +465,9 @@
     coordinateMeasurement = null;
     if (coordinateMeasureElement) {
       coordinateMeasureElement.hidden = true;
+    }
+    if (coordinateAnchorLayerElement) {
+      coordinateAnchorLayerElement.hidden = true;
     }
   }
 
@@ -704,6 +740,7 @@
       root = null;
       triggerElement = null;
       coordinateMeasureElement = null;
+      coordinateAnchorLayerElement = null;
       coordinateReadoutElement = null;
       coordinateMeasureActive = false;
       coordinateCopyInFlight = false;
@@ -736,7 +773,7 @@
       return null;
     }
 
-    if (host?.isConnected && root && triggerElement && actionMenuElement && coordinateMeasureElement) {
+    if (host?.isConnected && root && triggerElement && actionMenuElement && coordinateAnchorLayerElement && coordinateMeasureElement) {
       return root;
     }
 
@@ -763,6 +800,9 @@
       "</div>",
       "</div>",
       '<div class="coordinate-picker" hidden>',
+      '<div class="coordinate-anchor-layer" hidden aria-hidden="true">',
+      coordinateAnchorDefinitions.map((definition) => '<div class="coordinate-anchor-marker" data-anchor="' + definition.anchor + '"></div>').join(""),
+      "</div>",
       '<div class="coordinate-line coordinate-line-horizontal"></div>',
       '<div class="coordinate-line coordinate-line-vertical"></div>',
       '<div class="coordinate-readout"></div>',
@@ -773,6 +813,7 @@
     resourceElement = root.querySelector(".resource-state");
     triggerElement = root.querySelector(".trigger");
     actionMenuElement = root.querySelector(".action-menu");
+    coordinateAnchorLayerElement = root.querySelector(".coordinate-anchor-layer");
     coordinateMeasureElement = root.querySelector(".coordinate-picker");
     coordinateReadoutElement = root.querySelector(".coordinate-readout");
     triggerElement?.addEventListener("pointerdown", (event) => {
@@ -1178,6 +1219,8 @@
     window.removeEventListener("focus", handleFocus, true);
     window.removeEventListener("blur", handleBlur, true);
     window.removeEventListener("pagehide", handleBlur, true);
+    window.removeEventListener("resize", handleCoordinateViewportResize, true);
+    window.visualViewport?.removeEventListener("resize", handleCoordinateViewportResize);
     window.removeEventListener("pointerdown", handleGameSurfacePointerDown, true);
     document.removeEventListener("focusin", handleGameSurfaceFocusIn, true);
     document.removeEventListener("focusout", handleGameSurfaceFocusOut, true);
@@ -1213,6 +1256,8 @@
     window.addEventListener("focus", handleFocus, true);
     window.addEventListener("blur", handleBlur, true);
     window.addEventListener("pagehide", handleBlur, true);
+    window.addEventListener("resize", handleCoordinateViewportResize, true);
+    window.visualViewport?.addEventListener("resize", handleCoordinateViewportResize);
     window.addEventListener("pointerdown", handleGameSurfacePointerDown, true);
     document.addEventListener("focusin", handleGameSurfaceFocusIn, true);
     document.addEventListener("focusout", handleGameSurfaceFocusOut, true);

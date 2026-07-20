@@ -155,6 +155,74 @@ describe("macro overlay interactions", () => {
     await vi.waitFor(() => expect(picker.hidden).toBe(true));
   });
 
+  it("renders nine non-interactive anchor markers and repositions them after resize", async () => {
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    try {
+      createGameSurface(document);
+      const binding = vi.fn(async (request: unknown) => ({
+        macros: [assignedMacro],
+        statuses: [],
+        ...(isRecord(request) && request.type === "copy-coordinate" ? { copied: true } : {})
+      }));
+      installOverlay(window, binding);
+      await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+
+      const root = getOverlayRoot(document);
+      root.querySelector<HTMLButtonElement>(".trigger")?.dispatchEvent(
+        createMouseEvent(window, "pointerenter")
+      );
+      root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
+        createMouseEvent(window, "click")
+      );
+
+      const picker = root.querySelector<HTMLElement>(".coordinate-picker");
+      const layer = root.querySelector<HTMLElement>(".coordinate-anchor-layer");
+      const markers = [...root.querySelectorAll<HTMLElement>(".coordinate-anchor-marker")];
+      if (!picker || !layer) throw new Error("Expected coordinate anchor guides.");
+
+      expect(picker.hidden).toBe(false);
+      expect(layer.hidden).toBe(false);
+      expect(layer.getAttribute("aria-hidden")).toBe("true");
+      expect(markers.map((marker) => marker.dataset.anchor)).toEqual([
+        "top-left", "top-center", "top-right",
+        "center-left", "center", "center-right",
+        "bottom-left", "bottom-center", "bottom-right"
+      ]);
+      expect(markers.map((marker) => [marker.style.left, marker.style.top])).toEqual([
+        ["0px", "0px"], ["500px", "0px"], ["1000px", "0px"],
+        ["0px", "400px"], ["500px", "400px"], ["1000px", "400px"],
+        ["0px", "800px"], ["500px", "800px"], ["1000px", "800px"]
+      ]);
+
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+      window.dispatchEvent(new Event("resize"));
+      expect(markers.map((marker) => [marker.style.left, marker.style.top])).toEqual([
+        ["0px", "0px"], ["600px", "0px"], ["1200px", "0px"],
+        ["0px", "300px"], ["600px", "300px"], ["1200px", "300px"],
+        ["0px", "600px"], ["600px", "600px"], ["1200px", "600px"]
+      ]);
+
+      markers[4]?.dispatchEvent(new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 600,
+        clientY: 300
+      }));
+      await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+        type: "copy-coordinate",
+        xPx: 600,
+        yPx: 300
+      })));
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+    }
+  });
+
   it("blocks macro shortcuts while measuring and lets Escape cancel without copying", async () => {
     createGameSurface(document);
     const binding = vi.fn(async (_request: unknown) => ({ macros: [assignedMacro], statuses: [] }));
@@ -996,7 +1064,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v46")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v47")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -1062,7 +1130,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v46")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v47")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

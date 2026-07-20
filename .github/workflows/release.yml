@@ -1,12 +1,13 @@
 name: Private Release Candidate
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Optional existing private release tag to rebuild (vMAJOR.MINOR.PATCH)
-        required: false
-        type: string
+  workflow_run:
+    workflows:
+      - Ubuntu CI
+    types:
+      - completed
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -17,60 +18,38 @@ env:
   RION_STUDIO_RELEASE_REPOSITORY: rion-tw/rion-studio
 
 concurrency:
-  group: private-release-${{ inputs.tag || github.ref }}
+  group: private-release-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  resolve-release-input:
+  validate-ci-run:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     outputs:
-      source_ref: ${{ steps.resolve.outputs.source_ref }}
-      rebuild: ${{ steps.resolve.outputs.rebuild }}
+      source_ref: ${{ steps.validate.outputs.source_ref }}
     steps:
-      - name: Checkout release history
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Resolve release source
-        id: resolve
+      - name: Validate successful Ubuntu CI run
+        id: validate
         shell: bash
         env:
-          REQUESTED_TAG: ${{ inputs.tag }}
-          CURRENT_REF: ${{ github.ref }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-
-          if [[ -n "${REQUESTED_TAG}" ]]; then
-            if [[ ! "${REQUESTED_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Invalid release tag: ${REQUESTED_TAG}" >&2
-              exit 1
-            fi
-            git rev-parse --verify "refs/tags/${REQUESTED_TAG}^{commit}" >/dev/null
-            gh release view "${REQUESTED_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null
-            echo "source_ref=${REQUESTED_TAG}" >> "${GITHUB_OUTPUT}"
-            echo "rebuild=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          test "${CURRENT_REF}" = "refs/heads/main"
-          echo "source_ref=${CURRENT_REF}" >> "${GITHUB_OUTPUT}"
-          echo "rebuild=false" >> "${GITHUB_OUTPUT}"
-
-  ci-gate:
-    needs: resolve-release-input
-    uses: ./.github/workflows/ci.yml
-    with:
-      ref: ${{ needs.resolve-release-input.outputs.source_ref }}
+          test "${WORKFLOW_CONCLUSION}" = "success"
+          test "${WORKFLOW_EVENT}" = "push"
+          test "${HEAD_BRANCH}" = "main"
+          test -n "${HEAD_SHA}"
+          echo "source_ref=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
 
   semantic-release:
-    needs:
-      - resolve-release-input
-      - ci-gate
-    if: >-
-      needs.resolve-release-input.outputs.rebuild != 'true' &&
-      needs.ci-gate.result == 'success'
+    needs: validate-ci-run
+    if: needs.validate-ci-run.result == 'success'
     runs-on: ubuntu-latest
     outputs:
       release_version: ${{ steps.semantic.outputs.release_version }}
@@ -79,6 +58,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ needs.validate-ci-run.outputs.source_ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -100,14 +80,12 @@ jobs:
 
   resolve-release:
     needs:
-      - resolve-release-input
-      - ci-gate
+      - validate-ci-run
       - semantic-release
     if: >-
       always() &&
-      needs.resolve-release-input.result == 'success' &&
-      needs.ci-gate.result == 'success' &&
-      (needs.semantic-release.result == 'success' || needs.semantic-release.result == 'skipped')
+      needs.validate-ci-run.result == 'success' &&
+      needs.semantic-release.result == 'success'
     runs-on: ubuntu-latest
     outputs:
       has_release: ${{ steps.resolve.outputs.has_release }}
@@ -123,41 +101,26 @@ jobs:
         id: resolve
         shell: bash
         env:
-          REQUESTED_TAG: ${{ inputs.tag }}
           SEMANTIC_VERSION: ${{ needs.semantic-release.outputs.release_version }}
-          REBUILD: ${{ needs.resolve-release-input.outputs.rebuild }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [[ "${REBUILD}" == "true" ]]; then
-            tag="${REQUESTED_TAG}"
-            if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Invalid release tag: ${tag}" >&2
-              exit 1
-            fi
-            git rev-parse --verify "refs/tags/${tag}^{commit}" >/dev/null
-            gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null
-            version="${tag#v}"
-          else
-            version="${SEMANTIC_VERSION}"
-            if [[ -z "${version}" ]]; then
-              echo "has_release=false" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            tag="v${version}"
+          version="${SEMANTIC_VERSION}"
+          if [[ -z "${version}" ]]; then
+            echo "has_release=false" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
+          tag="v${version}"
+          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null
 
           echo "has_release=true" >> "${GITHUB_OUTPUT}"
           echo "release_tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "release_version=${version}" >> "${GITHUB_OUTPUT}"
 
   build-release-assets:
-    needs:
-      - ci-gate
-      - resolve-release
+    needs: resolve-release
     if: >-
-      needs.ci-gate.result == 'success' &&
       needs.resolve-release.result == 'success' &&
       needs.resolve-release.outputs.has_release == 'true'
     runs-on: ${{ matrix.os }}
@@ -357,11 +320,9 @@ jobs:
 
   verify-private-release:
     needs:
-      - ci-gate
       - resolve-release
       - build-release-assets
     if: >-
-      needs.ci-gate.result == 'success' &&
       needs.resolve-release.result == 'success' &&
       needs.resolve-release.outputs.has_release == 'true'
     runs-on: ubuntu-latest
@@ -398,11 +359,9 @@ jobs:
 
   publish-public-release:
     needs:
-      - ci-gate
       - resolve-release
       - verify-private-release
     if: >-
-      needs.ci-gate.result == 'success' &&
       needs.resolve-release.result == 'success' &&
       needs.verify-private-release.result == 'success' &&
       needs.resolve-release.outputs.has_release == 'true'

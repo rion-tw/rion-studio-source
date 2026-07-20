@@ -116,6 +116,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Portable data selection is invalid.": "error.portableSelectionInvalid",
   "Select at least one available data category.": "error.portableSelectionEmpty",
   "Unable to create a unique imported name.": "error.portableNameConflict",
+  "Multiple roles share a name in the same game. Rename or remove duplicates before importing.":
+    "error.portableRoleNameConflict",
   "Chrome profile import is supported on macOS and Windows only.": "error.chromeProfileImportUnsupported",
   "Selected Chrome data path is not a folder.": "error.chromeProfileImportSourceInvalid",
   "Selected Chrome data folder does not exist.": "error.chromeProfileImportSourceMissing",
@@ -130,6 +132,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Chrome profile import is not available.": "error.chromeProfileImportUnavailable",
   "Chrome profile import input is invalid.": "error.chromeProfileImportInputInvalid",
   "Chrome profile import id is invalid.": "error.chromeProfileImportIdInvalid",
+  "Multiple Chrome profiles or roles share a name in the selected game. Rename or remove duplicates before importing.":
+    "error.chromeProfileImportRoleNameConflict",
   "Macro is already running for this role.": "error.macroAlreadyRunning",
   "Enable this macro before running it.": "error.macroDisabled",
   "Stop the macro before editing it.": "error.macroStopBeforeEditing",

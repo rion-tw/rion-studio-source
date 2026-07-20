@@ -669,7 +669,9 @@ export class PortableDataManager {
     }
 
     const finalRoles = structuredClone(existingRoles);
-    const usedRoleNames = createRoleNameRegistry(finalRoles);
+    if (data.roles.length > 0) {
+      assertUniqueRoleNames(existingRoles);
+    }
     const seenRoleKeys = new Set<string>();
     const createdRoleIds: string[] = [];
     for (const role of data.roles) {
@@ -681,13 +683,16 @@ export class PortableDataManager {
         warnings.push({ code: "ROLE_GAME_RECOVERED", itemName: role.name });
       }
       const identityKey = createRoleIdentityKey(gameId, role.name);
-      const isDuplicateSourceIdentity = seenRoleKeys.has(identityKey);
+      if (seenRoleKeys.has(identityKey)) {
+        throw new PortableDataError(
+          "PORTABLE_ROLE_NAME_CONFLICT",
+          "Multiple roles share a name in the same game. Rename or remove duplicates before importing."
+        );
+      }
       seenRoleKeys.add(identityKey);
-      const existing = isDuplicateSourceIdentity
-        ? undefined
-        : finalRoles.find(
-            (candidate) => candidate.gameId === gameId && normalizeNameKey(candidate.name) === normalizeNameKey(role.name)
-          );
+      const existing = finalRoles.find(
+        (candidate) => candidate.gameId === gameId && normalizeNameKey(candidate.name) === normalizeNameKey(role.name)
+      );
 
       if (existing) {
         roleIdMap.set(role.id, existing.id);
@@ -701,11 +706,7 @@ export class PortableDataManager {
         continue;
       }
 
-      const name = reserveUniqueRoleName(role.name, gameId, usedRoleNames);
-      if (name !== role.name) {
-        warnings.push({ code: "ROLE_NAME_RENAMED", itemName: role.name, replacementName: name });
-      }
-      const created = createImportedRole(role, gameId, name, timestamp);
+      const created = createImportedRole(role, gameId, role.name, timestamp);
       finalRoles.push(created);
       createdRoleIds.push(created.id);
       roleIdMap.set(role.id, created.id);
@@ -1102,20 +1103,18 @@ function createRoleIdentityKey(gameId: string, name: string): string {
   return `${gameId}\u0000${normalizeNameKey(name)}`;
 }
 
-function createRoleNameRegistry(roles: Role[]): Map<string, Set<string>> {
-  const registry = new Map<string, Set<string>>();
-  roles.forEach((role) => {
-    const names = registry.get(role.gameId) ?? new Set<string>();
-    names.add(normalizeNameKey(role.name));
-    registry.set(role.gameId, names);
-  });
-  return registry;
-}
-
-function reserveUniqueRoleName(name: string, gameId: string, registry: Map<string, Set<string>>): string {
-  const names = registry.get(gameId) ?? new Set<string>();
-  registry.set(gameId, names);
-  return reserveUniqueName(name, names);
+function assertUniqueRoleNames(roles: Role[]): void {
+  const seen = new Set<string>();
+  for (const role of roles) {
+    const key = createRoleIdentityKey(role.gameId, role.name);
+    if (seen.has(key)) {
+      throw new PortableDataError(
+        "PORTABLE_ROLE_NAME_CONFLICT",
+        "Multiple roles share a name in the same game. Rename or remove duplicates before importing."
+      );
+    }
+    seen.add(key);
+  }
 }
 
 function createMergedRole(

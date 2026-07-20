@@ -14,7 +14,7 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(
       ref={ref}
       aria-checked={checked}
       className={cn(
-        "inline-grid h-[var(--control-min-size)] min-w-9 shrink-0 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-45",
+        "inline-grid h-5 w-9 shrink-0 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-45",
         className
       )}
       data-state={checked ? "checked" : "unchecked"}

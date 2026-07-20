@@ -268,12 +268,12 @@ function ChromeProfileImportNoticeDialog({
           ) : null}
           <label className="mt-1 flex items-start gap-1 text-xs leading-5 text-foreground">
             <Checkbox
-              className="mt-0.5"
+              className="mt-[3px]"
               checked={consentAccepted}
               disabled={isBusy}
               onCheckedChange={(checked) => onConsentChange(checked === true)}
             />
-            <span className="pt-1.5">{t("settings.chromeProfileImportConsent")}</span>
+            <span>{t("settings.chromeProfileImportConsent")}</span>
           </label>
         </div>
         <div className="glass-divider flex flex-wrap items-center justify-between gap-2 border-t px-5 py-4">
@@ -412,12 +412,12 @@ function ChromeProfileImportDialog({
           </div>
           <label className="flex items-start gap-1 text-xs leading-5 text-foreground">
             <Checkbox
-              className="mt-0.5"
+              className="mt-[3px]"
               checked={consentAccepted}
               disabled={isBusy}
               onCheckedChange={(checked) => onConsentChange(checked === true)}
             />
-            <span className="pt-1.5">{t("settings.chromeProfileImportConsent")}</span>
+            <span>{t("settings.chromeProfileImportConsent")}</span>
           </label>
         </div>
         <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">

@@ -138,7 +138,7 @@ function AgreementCheckbox({ checked, label, onChange }: { checked: boolean; lab
   return (
     <label className="flex cursor-pointer items-start gap-3 text-xs font-medium leading-5 text-foreground">
       <Checkbox
-        className="mt-0.5"
+        className="mt-[3px]"
         checked={checked}
         onCheckedChange={(nextChecked) => onChange(nextChecked === true)}
       />

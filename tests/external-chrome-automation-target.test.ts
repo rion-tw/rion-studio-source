@@ -533,6 +533,26 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("resolves anchored clicks against the current CSS visual viewport", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    await target.dispatchClickAnchored("bottom-right", "px", -24, -32);
+    await target.dispatchClickAnchored("bottom-right", "percent", -10, -10);
+
+    expect(harness.send).toHaveBeenCalledWith("Input.dispatchMouseEvent", expect.objectContaining({
+      type: "mousePressed",
+      x: 1256,
+      y: 688
+    }));
+    expect(harness.send).toHaveBeenCalledWith("Input.dispatchMouseEvent", expect.objectContaining({
+      type: "mousePressed",
+      x: 1152,
+      y: 648
+    }));
+  });
+
   it("serializes concurrent clicks into complete press and release pairs", async () => {
     const harness = createHarness();
     const firstPress = createDeferred<void>();
@@ -790,6 +810,9 @@ function createHarness() {
     }
     if (method === "Browser.getVersion") {
       return { product: "Chrome/596.36", protocolVersion: "1.3" };
+    }
+    if (method === "Page.getLayoutMetrics") {
+      return { cssVisualViewport: { clientWidth: 1280, clientHeight: 720 } };
     }
     return method === "Runtime.evaluate" ? { result: { value: true } } : {};
   });

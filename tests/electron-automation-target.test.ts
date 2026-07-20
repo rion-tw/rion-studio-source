@@ -381,6 +381,21 @@ describe("ElectronAutomationTarget", () => {
     ]);
   });
 
+  it("resolves anchored clicks against the current CSS visual viewport", async () => {
+    const harness = createHarness({ width: 1024, height: 768 });
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    await target.dispatchClickAnchored("bottom-right", "px", -24, -32);
+    await target.dispatchClickAnchored("bottom-right", "percent", -10, -10);
+
+    expect(inputEvents(harness).slice(-4)).toEqual([
+      ["Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, x: 1000, y: 736 }],
+      ["Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, x: 1000, y: 736 }],
+      ["Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, x: 922, y: 691 }],
+      ["Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, x: 922, y: 691 }]
+    ]);
+  });
+
   it("releases key and mouse state after a partial dispatch failure", async () => {
     const keyHarness = createHarness();
     let keyUpCalls = 0;

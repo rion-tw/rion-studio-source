@@ -19,6 +19,7 @@ import {
 } from "../../shared/macroShortcuts";
 import { findMacroDependencyIssue, macroDependsOn } from "../../shared/macroDependencies";
 import { MacroMutationBusyError } from "../macros/MacroManager";
+import { isMacroClickAnchor } from "../../shared/macroCoordinates";
 import type { MacroStore } from "../macros/MacroStore";
 import type { MacroSettingsStore } from "../macros/MacroSettingsStore";
 import type { GameStore } from "../games/GameStore";
@@ -37,6 +38,7 @@ import {
   type InheritableBrowserLaunchMode,
   type LaunchWorkspace,
   type Macro,
+  type MacroClickAnchor,
   type MacroKeyModifier,
   type MacroRepeat,
   type MacroSettings,
@@ -1868,11 +1870,14 @@ function normalizeSteps(value: unknown, supportsKeyModifiers = true): MacroStep[
         };
         }
       case "click":
+        {
+          const anchor = normalizePortableClickAnchor(step.anchor);
         if (step.unit === "px") {
           return {
             id,
             type: "click",
             unit: "px",
+            ...(anchor ? { anchor } : {}),
             xPx: normalizePixel(step.xPx),
             yPx: normalizePixel(step.yPx)
           };
@@ -1880,9 +1885,11 @@ function normalizeSteps(value: unknown, supportsKeyModifiers = true): MacroStep[
         return {
           id,
           type: "click",
+          ...(anchor ? { anchor } : {}),
           xPercent: normalizePercent(step.xPercent),
           yPercent: normalizePercent(step.yPercent)
         };
+        }
       case "delay":
         return {
           id,
@@ -2071,7 +2078,7 @@ function normalizeOptionalLabel(value: unknown): string | undefined {
 }
 
 function normalizePercent(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < -100 || value > 100) {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
 
@@ -2079,9 +2086,20 @@ function normalizePercent(value: unknown): number {
 }
 
 function normalizePixel(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.round(value)
-    : 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(Math.round(value))) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+  return Math.round(value);
+}
+
+function normalizePortableClickAnchor(value: unknown): MacroClickAnchor | undefined {
+  if (value === undefined || value === "top-left") {
+    return undefined;
+  }
+  if (!isMacroClickAnchor(value)) {
+    throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+  }
+  return value;
 }
 
 function normalizeMilliseconds(value: unknown): number {

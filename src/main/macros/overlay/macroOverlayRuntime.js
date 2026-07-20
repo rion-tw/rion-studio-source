@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v45";
+  const hostId = "rion-studio-macro-overlay-v46";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 43 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 44 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-20.3";
+  const scriptVersion = "2026-07-20.4";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -328,6 +328,8 @@
     return {
       xPercent: roundCoordinatePercent((xPx / viewport.width) * 100),
       xPx,
+      viewportHeightPx: viewport.height,
+      viewportWidthPx: viewport.width,
       yPercent: roundCoordinatePercent((yPx / viewport.height) * 100),
       yPx
     };
@@ -417,6 +419,8 @@
     updateCoordinateMeasurement({
       xPercent: roundCoordinatePercent((xPx / viewport.width) * 100),
       xPx,
+      viewportHeightPx: viewport.height,
+      viewportWidthPx: viewport.width,
       yPercent: roundCoordinatePercent((yPx / viewport.height) * 100),
       yPx
     });

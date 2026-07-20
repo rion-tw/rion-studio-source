@@ -56,6 +56,31 @@ describe("MacroManager", () => {
     }
   });
 
+  it("forwards anchored click offsets to browser targets", async () => {
+    const dispatchClickAnchored = vi.fn().mockResolvedValue(undefined);
+    const target = createTarget({ dispatchClickAnchored });
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        steps: [{ id: "anchored-click", type: "click", unit: "px", anchor: "bottom-right", xPx: -24, yPx: -32 }]
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => expect(dispatchClickAnchored).toHaveBeenCalled());
+
+    expect(dispatchClickAnchored).toHaveBeenCalledWith(
+      "bottom-right",
+      "px",
+      -24,
+      -32,
+      expectInputOptions(false)
+    );
+    expect(target.dispatchClick).not.toHaveBeenCalled();
+  });
+
   it("dispatches key combinations as one target operation", async () => {
     const target = createTarget();
     const manager = createManager({
@@ -1772,7 +1797,7 @@ function expectNoTimingInputOptions() {
   };
 }
 
-function createTarget() {
+function createTarget(overrides: Record<string, unknown> = {}) {
   return {
     dispatchClick: vi.fn().mockResolvedValue(undefined),
     dispatchKey: vi.fn().mockResolvedValue(undefined),
@@ -1780,7 +1805,8 @@ function createTarget() {
     releaseKey: vi.fn().mockResolvedValue(undefined),
     ensureInputFocus: vi.fn().mockResolvedValue(true),
     evaluate: vi.fn().mockResolvedValue(undefined),
-    focus: vi.fn().mockResolvedValue(undefined)
+    focus: vi.fn().mockResolvedValue(undefined),
+    ...overrides
   };
 }
 

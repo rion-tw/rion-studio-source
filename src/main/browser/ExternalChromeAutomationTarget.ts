@@ -530,6 +530,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         await this.client.send("Input.dispatchMouseEvent", release).catch(() => undefined);
       }
     }
+    if (didRelease) options.onClick?.();
     await waitForInputDelay(postDelayMs, signal);
   }
 
@@ -561,6 +562,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         await this.client.send("Input.dispatchMouseEvent", release).catch(() => undefined);
       }
     }
+    if (didRelease) options.onClick?.();
     await waitForInputDelay(postDelayMs, signal);
   }
 
@@ -607,6 +609,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         await this.client.send("Input.dispatchMouseEvent", release).catch(() => undefined);
       }
     }
+    if (didRelease) options.onClick?.();
     await waitForInputDelay(postDelayMs, signal);
   }
 

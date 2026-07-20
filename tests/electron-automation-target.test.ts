@@ -396,6 +396,17 @@ describe("ElectronAutomationTarget", () => {
     ]);
   });
 
+  it("calls onClick after a successful mouse release", async () => {
+    const harness = createHarness();
+    const onClick = vi.fn();
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    await target.dispatchClickAnchored("center", "px", 0, 0, { onClick });
+
+    expect(onClick).toHaveBeenCalledOnce();
+    expect(inputEvents(harness).at(-1)?.[1]).toMatchObject({ type: "mouseReleased" });
+  });
+
   it("releases key and mouse state after a partial dispatch failure", async () => {
     const keyHarness = createHarness();
     let keyUpCalls = 0;
@@ -424,9 +435,11 @@ describe("ElectronAutomationTarget", () => {
         : {};
     });
     const clickTarget = new ElectronAutomationTarget(clickHarness.view as never, clickHarness.webContents as never);
+    const onClick = vi.fn();
 
-    await expect(clickTarget.dispatchClick(25, 75)).rejects.toThrow("mouse up failed");
+    await expect(clickTarget.dispatchClick(25, 75, { onClick })).rejects.toThrow("mouse up failed");
     expect(mouseReleaseCalls).toBe(2);
+    expect(onClick).not.toHaveBeenCalled();
     expect(clickHarness.debugger.detach).toHaveBeenCalledOnce();
   });
 

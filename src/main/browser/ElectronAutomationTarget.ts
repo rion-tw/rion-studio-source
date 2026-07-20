@@ -49,6 +49,7 @@ export interface BrowserAutomationTarget {
 
 export interface BrowserInputDispatchOptions {
   holdMs?: number;
+  onClick?: () => void;
   postDelayMs?: number;
   signal?: AbortSignal;
 }
@@ -397,6 +398,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release).catch(() => undefined);
         }
       }
+      if (didRelease) options.onClick?.();
       await waitForInputDelay(postDelayMs, signal);
     } finally {
       this.releaseInputLeaseIfIdle();
@@ -432,6 +434,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release).catch(() => undefined);
         }
       }
+      if (didRelease) options.onClick?.();
       await waitForInputDelay(postDelayMs, signal);
     } finally {
       this.releaseInputLeaseIfIdle();
@@ -479,6 +482,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release).catch(() => undefined);
         }
       }
+      if (didRelease) options.onClick?.();
       await waitForInputDelay(postDelayMs, signal);
     } finally {
       this.releaseInputLeaseIfIdle();

@@ -22,6 +22,13 @@
 .coordinate-readout[data-status="copying"]{border-color:rgba(255,255,255,.3);}
 .coordinate-readout[data-status="failed"]{border-color:rgba(255,105,105,.72);color:#ffd2d2;}
 .coordinate-hint{border-color:rgba(255,255,255,.16);font-size:10px;left:50%;padding:6px 8px;top:12px;transform:translateX(-50%);}
+.click-marker-layer{inset:0;pointer-events:none;position:fixed;z-index:2147483646;}
+.click-marker{color:rgba(236,72,153,.9);height:26px;left:var(--click-marker-x,0px);pointer-events:none;position:absolute;top:var(--click-marker-y,0px);transform:translate(-50%,-50%);width:26px;}
+.click-marker-icon{display:block;fill:none;height:100%;overflow:visible;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7;width:100%;}
+.click-marker-ring{fill:rgba(20,23,31,.52);}
+.click-marker-dot{fill:currentColor;stroke:none;}
+@keyframes click-marker-flash{0%,100%{filter:drop-shadow(0 0 2px rgba(236,72,153,.4));opacity:.78;transform:translate(-50%,-50%) scale(1);}35%{filter:drop-shadow(0 0 8px rgba(236,72,153,.95));opacity:1;transform:translate(-50%,-50%) scale(1.3);}}
+.click-marker.is-click-flash{animation:click-marker-flash var(--click-flash-duration,120ms) ease-out 1 both;}
 .active-badges{align-items:center;display:flex;flex-wrap:nowrap;gap:5px;justify-content:center;left:0;max-width:none;pointer-events:none;position:fixed;right:0;top:128px;transform:none;width:100vw;z-index:2147483647;}
 .active-badge{-webkit-backdrop-filter:blur(30px) saturate(140%);-webkit-font-smoothing:antialiased;align-items:center;backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.5);border:1px solid rgba(255,255,255,.14);border-radius:999px;color:rgba(255,255,255,.92);display:flex;font-size:10px;gap:5px;letter-spacing:0;line-height:1.15;max-width:176px;min-height:16px;padding:4px 8px 4px 4px;pointer-events:none;white-space:nowrap;}
 .active-badge-shortcut{align-items:center;background:rgba(0,0,0,.22);border:1px solid rgba(0,0,0,.12);border-radius:50%;color:#fff;display:inline-flex;flex:0 0 auto;font-size:8px;font-weight:600;height:16px;justify-content:center;line-height:1;min-height:16px;min-width:16px;padding:0;}

@@ -274,6 +274,10 @@ export interface MacroRunStatus {
   state: MacroRunState;
   /** Number of completed iterations for the current runtime invocation. */
   iteration?: number;
+  lastClick?: {
+    sequence: number;
+    stepId: string;
+  };
   startedAt: string;
   updatedAt: string;
   error?: string;

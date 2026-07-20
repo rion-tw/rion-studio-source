@@ -26,7 +26,10 @@ describe("Chrome profile import flow", () => {
   it("shows a first notice, starts with no profiles selected, and requires final consent", async () => {
     const onPreviewChromeProfileImport = vi.fn(async () => ({
       importId: "import-1",
-      profiles: [{ directoryName: "Profile 11", id: "profile-11", name: "小胖" }],
+      profiles: [
+        { directoryName: "Profile 11", id: "profile-11", name: "小胖" },
+        { directoryName: "Profile 12", id: "profile-12", name: "阿明" }
+      ],
       sourceLabel: "Chrome",
       warnings: [{ code: "passwords_excluded" as const }]
     }));
@@ -81,21 +84,25 @@ describe("Chrome profile import flow", () => {
     expect(profileDirectory.className).toContain("shrink-0");
     expect(profileDirectory.className).toContain("truncate");
     expect(profileDirectory.className).toContain("text-right");
+    expect(profileCard?.className).toContain("inline-flex");
+    expect(profileCard?.className).toContain("w-auto");
     expect(profileCard?.className).toContain("glass-control");
-    expect(profileCard?.className).toContain("min-h-10");
-    expect(profileCard?.className).toContain("rounded-lg");
-    expect(profileCard?.className).toContain("px-3");
-    expect(profileCard?.className).toContain("py-1");
+    expect(profileCard?.className).toContain("h-[30px]");
+    expect(profileCard?.className).toContain("min-h-[var(--control-min-size)]");
+    expect(profileCard?.className).toContain("rounded-md");
+    expect(profileCard?.className).toContain("px-2.5");
     expect(profileCard?.className).toContain("text-muted-foreground");
+    expect(profileCard?.parentElement?.className).toContain("flex-wrap");
+    expect(screen.getByText("阿明")).toBeTruthy();
 
     const importButton = screen.getByRole("button", { name: "Import selected profiles" });
     expect(importButton).toHaveProperty("disabled", true);
     const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes).toHaveLength(3);
     expect(checkboxes[0].getAttribute("data-state")).toBe("unchecked");
-    expect(checkboxes[1].className).toContain("mt-0.5");
-    expect(checkboxes[1].parentElement?.className).toContain("gap-1");
-    expect(checkboxes[1].nextElementSibling?.className).toContain("pt-1.5");
+    expect(checkboxes[2].className).toContain("mt-0.5");
+    expect(checkboxes[2].parentElement?.className).toContain("gap-1");
+    expect(checkboxes[2].nextElementSibling?.className).toContain("pt-1.5");
 
     fireEvent.click(checkboxes[0]);
     expect(profileCard?.className).toContain("macro-role-card-selected");
@@ -103,7 +110,7 @@ describe("Chrome profile import flow", () => {
     expect(profileCard?.className).not.toContain("macro-role-card-selected");
     fireEvent.click(checkboxes[0]);
     expect(importButton).toHaveProperty("disabled", true);
-    fireEvent.click(checkboxes[1]);
+    fireEvent.click(checkboxes[2]);
     await waitFor(() => expect(importButton).toHaveProperty("disabled", false));
     fireEvent.click(importButton);
     await waitFor(() => expect(onApplyChromeProfileImport).toHaveBeenCalledWith({

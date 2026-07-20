@@ -671,6 +671,7 @@ function toMessage(error: unknown): string {
 export function buildSystemChromeArgs(role: Role, browserUserDataDir: string): string[] {
   return [
     `--user-data-dir=${browserUserDataDir}`,
+    "--profile-directory=Default",
     "--new-window",
     role.launchUrl
   ];

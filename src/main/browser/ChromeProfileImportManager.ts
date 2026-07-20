@@ -77,15 +77,18 @@ interface ChromeLoginDataSnapshot {
 }
 
 export interface ChromeProfileImportLoginDataTransferSummary {
-  cookieFailedCount: number;
-  cookieInjectedCount: number;
-  cookieReadCount: number;
-  localStorageFailedOriginCount: number;
-  localStorageInjectedKeyCount: number;
-  localStorageInjectedOriginCount: number;
-  localStorageKeyCount: number;
-  localStorageOriginCount: number;
+  failedItemCount: number;
+  failedStorageOriginCount: number;
+  readbackFailed: boolean;
   readFailed: boolean;
+  resetFailed: boolean;
+  sourceItemCount: number;
+  sourceStorageKeyCount: number;
+  sourceStorageOriginCount: number;
+  visibleItemCount: number;
+  writtenItemCount: number;
+  writtenStorageKeyCount: number;
+  writtenStorageOriginCount: number;
   roleId: string;
 }
 
@@ -117,6 +120,7 @@ interface ChromeProfileImportManagerOptions {
   lstat?: typeof lstat;
   onLoginDataTransfer?: (summary: ChromeProfileImportLoginDataTransferSummary) => void;
   platform?: NodeJS.Platform;
+  resetEmbeddedSession?: (partition: string) => Promise<void>;
   readChromeLoginData?: (
     userDataDir: string,
     role: Pick<Role, "launchUrl">,
@@ -337,7 +341,12 @@ export class ChromeProfileImportManager {
         await rm(targetBrowserDir, { force: true, recursive: true });
         await copyDirectory(stageBrowserDir, targetBrowserDir);
 
-        await this.seedImportedLoginData(targetBrowserDir, role, createLoginDataUrls(role, game.loginUrl));
+        await this.seedImportedLoginData(
+          targetBrowserDir,
+          role,
+          createLoginDataUrls(role, game.loginUrl),
+          Boolean(assignment.existing)
+        );
         await this.options.roleStore.updateAuthState(role.id, "authenticated");
       }
 
@@ -386,18 +395,22 @@ export class ChromeProfileImportManager {
   private async seedImportedLoginData(
     browserUserDataDir: string,
     role: Role,
-    loginDataUrls: readonly string[]
+    loginDataUrls: readonly string[],
+    resetExistingSession: boolean
   ): Promise<void> {
     const summary: ChromeProfileImportLoginDataTransferSummary = {
-      cookieFailedCount: 0,
-      cookieInjectedCount: 0,
-      cookieReadCount: 0,
-      localStorageFailedOriginCount: 0,
-      localStorageInjectedKeyCount: 0,
-      localStorageInjectedOriginCount: 0,
-      localStorageKeyCount: 0,
-      localStorageOriginCount: 0,
+      failedItemCount: 0,
+      failedStorageOriginCount: 0,
+      readbackFailed: false,
       readFailed: false,
+      resetFailed: false,
+      sourceItemCount: 0,
+      sourceStorageKeyCount: 0,
+      sourceStorageOriginCount: 0,
+      visibleItemCount: 0,
+      writtenItemCount: 0,
+      writtenStorageKeyCount: 0,
+      writtenStorageOriginCount: 0,
       roleId: role.id
     };
 
@@ -423,26 +436,47 @@ export class ChromeProfileImportManager {
       return;
     }
 
-    summary.cookieReadCount = snapshot.cookies.length;
-    summary.localStorageOriginCount = Object.keys(snapshot.localStorageByOrigin).length;
-    summary.localStorageKeyCount = Object.values(snapshot.localStorageByOrigin)
+    summary.sourceItemCount = snapshot.cookies.length;
+    summary.sourceStorageOriginCount = Object.keys(snapshot.localStorageByOrigin).length;
+    summary.sourceStorageKeyCount = Object.values(snapshot.localStorageByOrigin)
       .reduce((count, values) => count + Object.keys(values).length, 0);
     const partition = `persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+
+    if (resetExistingSession && this.options.resetEmbeddedSession) {
+      try {
+        await this.options.resetEmbeddedSession(partition);
+      } catch {
+        summary.resetFailed = true;
+      }
+    }
 
     let session: Pick<Session, "cookies"> | undefined;
     try {
       session = this.options.getSession(partition);
     } catch {
-      summary.cookieFailedCount = snapshot.cookies.length;
+      summary.failedItemCount = snapshot.cookies.length;
     }
     if (session) {
       for (const cookie of snapshot.cookies) {
         try {
           await session.cookies.set(normalizeElectronCookie(cookie, role.launchUrl));
-          summary.cookieInjectedCount += 1;
+          summary.writtenItemCount += 1;
         } catch {
-          summary.cookieFailedCount += 1;
+          summary.failedItemCount += 1;
         }
+      }
+
+      try {
+        const visibleCookies = new Set<string>();
+        for (const url of loginDataUrls) {
+          const cookies = await session.cookies.get({ url });
+          cookies.forEach((cookie) => {
+            visibleCookies.add(`${cookie.domain ?? ""}\u0000${cookie.name}\u0000${cookie.path ?? ""}`);
+          });
+        }
+        summary.visibleItemCount = visibleCookies.size;
+      } catch {
+        summary.readbackFailed = true;
       }
     }
 
@@ -453,10 +487,10 @@ export class ChromeProfileImportManager {
       }
       try {
         await this.options.injectEmbeddedStorage(partition, url, values);
-        summary.localStorageInjectedOriginCount += 1;
-        summary.localStorageInjectedKeyCount += Object.keys(values).length;
+        summary.writtenStorageOriginCount += 1;
+        summary.writtenStorageKeyCount += Object.keys(values).length;
       } catch {
-        summary.localStorageFailedOriginCount += 1;
+        summary.failedStorageOriginCount += 1;
       }
     }
 
@@ -842,14 +876,10 @@ export async function readChromeLoginDataWithCdp(
   const requestedOrigins = new Set(urls.map((url) => getUrlOrigin(url)).filter((origin): origin is string => Boolean(origin)));
   const initialUrl = urls[0] ?? role.launchUrl;
   const executable = (options.findExecutable ?? findSystemChromeExecutable)();
-  const child = (options.spawnChrome ?? ((path, args) => spawn(path, args, { stdio: "ignore" })))(executable, [
-    `--user-data-dir=${userDataDir}`,
-    `--app=${initialUrl}`,
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--remote-debugging-address=127.0.0.1",
-    "--remote-debugging-port=0"
-  ]);
+  const child = (options.spawnChrome ?? ((path, args) => spawn(path, args, { stdio: "ignore" })))(
+    executable,
+    buildChromeProfileImportChromeArgs(userDataDir, initialUrl)
+  );
 
   try {
     await waitForChildSpawn(child);
@@ -893,6 +923,18 @@ export async function readChromeLoginDataWithCdp(
   } finally {
     await terminateChrome(child);
   }
+}
+
+export function buildChromeProfileImportChromeArgs(userDataDir: string, initialUrl: string): string[] {
+  return [
+    `--user-data-dir=${userDataDir}`,
+    "--profile-directory=Default",
+    `--app=${initialUrl}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--remote-debugging-address=127.0.0.1",
+    "--remote-debugging-port=0"
+  ];
 }
 
 async function navigateChromePage(client: CdpClient, url: string, timeoutMs: number): Promise<void> {

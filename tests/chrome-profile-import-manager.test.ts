@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ChromeProfileImportManager,
+  buildChromeProfileImportChromeArgs,
   type ChromeProfileImportLoginDataTransferSummary,
   getDefaultChromeUserDataDirectory,
   recoverChromeProfileImport
@@ -73,6 +74,7 @@ describe("ChromeProfileImportManager", () => {
       join(source, "Local State"),
       JSON.stringify({
         profile: {
+          last_used: "Profile 1",
           info_cache: {
             Default: { name: "Primary" },
             "Profile 1": { name: "Alt" }
@@ -92,9 +94,13 @@ describe("ChromeProfileImportManager", () => {
     const cookieSet = vi.fn()
       .mockRejectedValueOnce(new Error("cookie transfer failed"))
       .mockResolvedValue(undefined);
-    const session = { cookies: { set: cookieSet } };
+    const cookieGet = vi.fn().mockResolvedValue([
+      { domain: ".example.test", name: "session", path: "/" }
+    ]);
+    const session = { cookies: { get: cookieGet, set: cookieSet } };
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [source] }));
     const injectEmbeddedStorage = vi.fn(async () => undefined);
+    const resetEmbeddedSession = vi.fn(async () => undefined);
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
     const readChromeLoginData = vi.fn()
       .mockResolvedValueOnce({
@@ -126,6 +132,7 @@ describe("ChromeProfileImportManager", () => {
       onLoginDataTransfer: (summary) => transferSummaries.push(summary),
       platform: "darwin",
       readChromeLoginData,
+      resetEmbeddedSession,
       roleStore,
       showOpenDialog,
       userDataDir
@@ -179,6 +186,7 @@ describe("ChromeProfileImportManager", () => {
     expect(cookieSet).toHaveBeenCalledWith(expect.objectContaining({
       url: "https://accounts.example.test/"
     }));
+    expect(resetEmbeddedSession).toHaveBeenCalledOnce();
     expect(injectEmbeddedStorage).toHaveBeenCalledTimes(4);
     expect(injectEmbeddedStorage).toHaveBeenCalledWith(
       expect.any(String),
@@ -192,20 +200,26 @@ describe("ChromeProfileImportManager", () => {
     );
     expect(transferSummaries).toEqual([
       expect.objectContaining({
-        cookieFailedCount: 1,
-        cookieInjectedCount: 1,
-        cookieReadCount: 2,
-        localStorageFailedOriginCount: 0,
-        localStorageInjectedKeyCount: 2,
-        localStorageInjectedOriginCount: 2,
-        localStorageKeyCount: 2,
-        localStorageOriginCount: 2,
-        readFailed: false
+        failedItemCount: 1,
+        failedStorageOriginCount: 0,
+        readbackFailed: false,
+        readFailed: false,
+        resetFailed: false,
+        sourceItemCount: 2,
+        sourceStorageKeyCount: 2,
+        sourceStorageOriginCount: 2,
+        visibleItemCount: 1,
+        writtenItemCount: 1,
+        writtenStorageKeyCount: 2,
+        writtenStorageOriginCount: 2
       }),
       expect.objectContaining({
-        cookieFailedCount: 0,
-        cookieInjectedCount: 2,
-        cookieReadCount: 2
+        failedItemCount: 0,
+        readbackFailed: false,
+        resetFailed: false,
+        sourceItemCount: 2,
+        visibleItemCount: 1,
+        writtenItemCount: 2
       })
     ]);
     await expect(readFile(join(roleStore.getRolePaths(importedRoles[0].id).browserUserDataDir, "Default", "Cookies"), "utf8"))
@@ -214,6 +228,18 @@ describe("ChromeProfileImportManager", () => {
       .rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(join(userDataDir, ".chrome-profile-import"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(join(userDataDir, "chrome-profile-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("forces the copied snapshot to open as the Default Chrome profile", () => {
+    expect(buildChromeProfileImportChromeArgs("/tmp/rion-role/browser", "https://example.test/play")).toEqual([
+      "--user-data-dir=/tmp/rion-role/browser",
+      "--profile-directory=Default",
+      "--app=https://example.test/play",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--remote-debugging-address=127.0.0.1",
+      "--remote-debugging-port=0"
+    ]);
   });
 
   it.each(["SingletonCookie", "SingletonLock", "SingletonSocket"] as const)("rejects an active Chrome data folder marked by %s and cleans a discarded staging directory", async (lockFile) => {

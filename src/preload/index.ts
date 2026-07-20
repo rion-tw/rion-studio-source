@@ -84,6 +84,7 @@ const api: RionStudioApi = {
   applyPortableImport: (input) => ipcRenderer.invoke(IPC_CHANNELS.portableImportApply, input),
   discardPortableImport: (importId) => ipcRenderer.invoke(IPC_CHANNELS.portableImportDiscard, importId),
   previewChromeProfileImport: () => ipcRenderer.invoke(IPC_CHANNELS.chromeProfileImportPreview),
+  closeChromeForImport: () => ipcRenderer.invoke(IPC_CHANNELS.chromeProfileImportCloseChrome),
   applyChromeProfileImport: (input) => ipcRenderer.invoke(IPC_CHANNELS.chromeProfileImportApply, input),
   discardChromeProfileImport: (importId) => ipcRenderer.invoke(IPC_CHANNELS.chromeProfileImportDiscard, importId),
   getGameBrowserSettings: () => ipcRenderer.invoke(IPC_CHANNELS.gameBrowserSettingsGet),

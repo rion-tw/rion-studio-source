@@ -775,6 +775,7 @@ export function App(): JSX.Element {
           isOpen={isChromeProfileImportOpen}
           t={preferences.t}
           onApply={applyChromeProfileImport}
+          onCloseChrome={() => window.rionStudio.closeChromeForImport()}
           onDiscard={discardChromeProfileImport}
           onError={data.setError}
           onOpenChange={setIsChromeProfileImportOpen}

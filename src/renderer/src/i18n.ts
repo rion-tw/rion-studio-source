@@ -122,6 +122,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Selected Chrome data path is not a folder.": "error.chromeProfileImportSourceInvalid",
   "Selected Chrome data folder does not exist.": "error.chromeProfileImportSourceMissing",
   "Chrome is still using the selected profile. Quit Chrome and try again.": "error.chromeProfileImportChromeRunning",
+  "Unable to ask Google Chrome to close. Close Chrome manually and try again.": "error.chromeProfileImportCloseFailed",
   "No Chrome profiles were found in the selected folder.": "error.chromeProfileImportProfilesMissing",
   "Consent is required before importing Chrome profile data.": "error.chromeProfileImportConsentRequired",
   "Chrome profile import preview expired. Choose the folder again.": "error.chromeProfileImportExpired",

@@ -1,4 +1,4 @@
-import { ShieldAlert, Upload } from "lucide-react";
+import { Power, ShieldAlert, Upload } from "lucide-react";
 import { useEffect, useState, type JSX } from "react";
 
 import { Button } from "../../components/ui/button";
@@ -20,6 +20,7 @@ export interface ChromeProfileImportFlowProps {
   isOpen: boolean;
   t: Translator;
   onApply: (input: ChromeProfileImportInput) => Promise<ChromeProfileImportResult>;
+  onCloseChrome: () => Promise<void>;
   onDiscard: (importId: string) => Promise<void>;
   onError: (error: unknown) => void;
   onOpenChange: (open: boolean) => void;
@@ -31,6 +32,7 @@ export function ChromeProfileImportFlow({
   isOpen,
   t,
   onApply,
+  onCloseChrome,
   onDiscard,
   onError,
   onOpenChange,
@@ -42,6 +44,8 @@ export function ChromeProfileImportFlow({
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const [selectedGameId, setSelectedGameId] = useState("");
   const [consentAccepted, setConsentAccepted] = useState(false);
+  const [chromeRunning, setChromeRunning] = useState(false);
+  const [closeChromeState, setCloseChromeState] = useState<"idle" | "success" | "error">("idle");
   const [result, setResult] = useState<ChromeProfileImportResult | null>(null);
 
   useEffect(() => {
@@ -55,8 +59,25 @@ export function ChromeProfileImportFlow({
     setSelectedProfileIds([]);
     setSelectedGameId("");
     setConsentAccepted(false);
+    setChromeRunning(false);
+    setCloseChromeState("idle");
     setResult(null);
   }, [isOpen]);
+
+  async function handleCloseChrome(): Promise<void> {
+    setIsBusy(true);
+    setCloseChromeState("idle");
+    try {
+      await onCloseChrome();
+      setChromeRunning(false);
+      setCloseChromeState("success");
+    } catch (error) {
+      setCloseChromeState("error");
+      onError(error);
+    } finally {
+      setIsBusy(false);
+    }
+  }
 
   async function handleStartImport(): Promise<void> {
     if (!noticeConsent) {
@@ -75,7 +96,12 @@ export function ChromeProfileImportFlow({
       setSelectedProfileIds([]);
       setSelectedGameId(games[0]?.id ?? "");
       setConsentAccepted(false);
+      setChromeRunning(false);
     } catch (error) {
+      if (isChromeStillRunningError(error)) {
+        setChromeRunning(true);
+        return;
+      }
       onError(error);
       onOpenChange(false);
     } finally {
@@ -136,10 +162,13 @@ export function ChromeProfileImportFlow({
     <>
       {!preview && !result ? (
         <ChromeProfileImportNoticeDialog
+          chromeRunning={chromeRunning}
+          closeChromeState={closeChromeState}
           consentAccepted={noticeConsent}
           isBusy={isBusy}
           t={t}
           onCancel={() => onOpenChange(false)}
+          onCloseChrome={() => void handleCloseChrome()}
           onConsentChange={setNoticeConsent}
           onConfirm={() => void handleStartImport()}
         />
@@ -175,19 +204,25 @@ export function ChromeProfileImportFlow({
 }
 
 interface ChromeProfileImportNoticeDialogProps {
+  chromeRunning: boolean;
+  closeChromeState: "idle" | "success" | "error";
   consentAccepted: boolean;
   isBusy: boolean;
   t: Translator;
   onCancel: () => void;
+  onCloseChrome: () => void;
   onConsentChange: (accepted: boolean) => void;
   onConfirm: () => void;
 }
 
 function ChromeProfileImportNoticeDialog({
+  chromeRunning,
+  closeChromeState,
   consentAccepted,
   isBusy,
   t,
   onCancel,
+  onCloseChrome,
   onConsentChange,
   onConfirm
 }: ChromeProfileImportNoticeDialogProps): JSX.Element {
@@ -213,6 +248,24 @@ function ChromeProfileImportNoticeDialog({
           <p>{t("settings.chromeProfileImportNoticeData")}</p>
           <p>{t("settings.chromeProfileImportNoticeLocalOnly")}</p>
           <p>{t("settings.chromeProfileImportNoticeCloseChrome")}</p>
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] leading-5 text-amber-900 dark:text-amber-100">
+            {t("settings.chromeProfileImportCloseChromeWarning")}
+          </p>
+          {chromeRunning ? (
+            <p className="rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2 text-[11px] leading-5 text-destructive" role="alert">
+              {t("settings.chromeProfileImportChromeRunning")}
+            </p>
+          ) : null}
+          {closeChromeState === "success" ? (
+            <p className="text-[11px] leading-5 text-emerald-700 dark:text-emerald-300" role="status">
+              {t("settings.chromeProfileImportCloseChromeSuccess")}
+            </p>
+          ) : null}
+          {closeChromeState === "error" ? (
+            <p className="text-[11px] leading-5 text-destructive" role="alert">
+              {t("settings.chromeProfileImportCloseChromeFailed")}
+            </p>
+          ) : null}
           <label className="mt-1 flex items-start gap-1 text-xs leading-5 text-foreground">
             <Checkbox
               className="mt-0.5"
@@ -223,18 +276,33 @@ function ChromeProfileImportNoticeDialog({
             <span className="pt-1.5">{t("settings.chromeProfileImportConsent")}</span>
           </label>
         </div>
-        <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">
-          <Button type="button" variant="outline" disabled={isBusy} onClick={onCancel}>
-            {t("settings.importCancel")}
+        <div className="glass-divider flex flex-wrap items-center justify-between gap-2 border-t px-5 py-4">
+          <Button type="button" variant="outline" disabled={isBusy} onClick={onCloseChrome}>
+            <Power size={14} />
+            {t("settings.chromeProfileImportCloseChromeAction")}
           </Button>
-          <Button type="button" disabled={isBusy || !consentAccepted} onClick={onConfirm}>
-            <ShieldAlert size={14} />
-            {t("settings.chromeProfileImportChooseFolder")}
-          </Button>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={isBusy} onClick={onCancel}>
+              {t("settings.importCancel")}
+            </Button>
+            <Button type="button" disabled={isBusy || !consentAccepted} onClick={onConfirm}>
+              <ShieldAlert size={14} />
+              {t("settings.chromeProfileImportChooseFolder")}
+            </Button>
+          </div>
         </div>
       </Surface>
     </div>
   );
+}
+
+function isChromeStillRunningError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === "CHROME_RUNNING" || candidate.message === "Chrome is still using the selected profile. Quit Chrome and try again.";
 }
 
 interface ChromeProfileImportDialogProps {

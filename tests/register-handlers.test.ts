@@ -136,7 +136,7 @@ describe("registerIpcHandlers workspace handlers", () => {
   let onRolesChanged: AnyMock;
   let onWorkspacesChanged: AnyMock;
   let roleBrowserDataManager: { clear: AnyMock };
-  let chromeProfileImportManager: Pick<ChromeProfileImportManager, "applyImport" | "discardImport" | "previewImport">;
+  let chromeProfileImportManager: Pick<ChromeProfileImportManager, "applyImport" | "closeChrome" | "discardImport" | "previewImport">;
   let consumePendingWorkspaceLaunchRequest: AnyMock;
   let quitApplication: AnyMock;
   let legalAcceptanceStore: {
@@ -222,6 +222,7 @@ describe("registerIpcHandlers workspace handlers", () => {
         roles: [{ ...authenticatedRole, id: "imported-role" }],
         warnings: [{ code: "passwords_excluded" as const }]
       })),
+      closeChrome: vi.fn().mockResolvedValue(undefined),
       discardImport: vi.fn().mockResolvedValue(undefined),
       previewImport: vi.fn().mockResolvedValue({
         importId: "import-1",
@@ -560,6 +561,12 @@ describe("registerIpcHandlers workspace handlers", () => {
 
     await handlers.get(IPC_CHANNELS.chromeProfileImportDiscard)?.({}, "import-1");
     expect(chromeProfileImportManager.discardImport).toHaveBeenCalledWith("import-1");
+  });
+
+  it("coordinates the graceful Chrome close request through IPC", async () => {
+    await handlers.get(IPC_CHANNELS.chromeProfileImportCloseChrome)?.({});
+
+    expect(chromeProfileImportManager.closeChrome).toHaveBeenCalledOnce();
   });
 
   it("persists role and workspace orders and reports both collections changed", async () => {

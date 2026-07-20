@@ -73,6 +73,7 @@ export const IPC_CHANNELS = {
   portableImportApply: "portable:import-apply",
   portableImportDiscard: "portable:import-discard",
   chromeProfileImportPreview: "chrome-profile:import-preview",
+  chromeProfileImportCloseChrome: "chrome-profile:import-close-chrome",
   chromeProfileImportApply: "chrome-profile:import-apply",
   chromeProfileImportDiscard: "chrome-profile:import-discard",
   gameBrowserSettingsGet: "game-browser-settings:get",

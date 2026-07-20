@@ -94,7 +94,7 @@ interface RegisterIpcHandlersOptions {
   roleBrowserDataManager?: Pick<RoleBrowserDataManager, "clear">;
   chromeProfileImportManager?: Pick<
     ChromeProfileImportManager,
-    "applyImport" | "discardImport" | "previewImport"
+    "applyImport" | "closeChrome" | "discardImport" | "previewImport"
   >;
   workspaceLauncher?: Pick<WorkspaceLaunchCoordinator, "launch">;
   withDataMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
@@ -381,6 +381,14 @@ export function registerIpcHandlers(
     }
 
     return options.chromeProfileImportManager.previewImport();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.chromeProfileImportCloseChrome, () => {
+    if (!options.chromeProfileImportManager) {
+      throw new Error("Chrome profile import is not available.");
+    }
+
+    return options.chromeProfileImportManager.closeChrome();
   });
 
   ipcMain.handle(IPC_CHANNELS.chromeProfileImportApply, (_event, input: ChromeProfileImportInput) => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChromeProfileImportFlow } from "../src/renderer/src/features/chrome-profile-import/ChromeProfileImportFlow";
 import en from "../src/renderer/src/i18n/en.json";
@@ -19,10 +19,36 @@ const game: Game = {
 };
 
 afterEach(() => {
+  cleanup();
   vi.restoreAllMocks();
 });
 
 describe("Chrome profile import flow", () => {
+  it("requests a graceful close for all Chrome windows and reports success", async () => {
+    const onCloseChrome = vi.fn(async () => undefined);
+
+    render(
+      <ChromeProfileImportFlow
+        games={[game]}
+        isOpen
+        t={t}
+        onApply={async () => {
+          throw new Error("not used");
+        }}
+        onCloseChrome={onCloseChrome}
+        onDiscard={async () => undefined}
+        onError={vi.fn()}
+        onOpenChange={vi.fn()}
+        onPreview={async () => null}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Close all Chrome" }));
+
+    await waitFor(() => expect(onCloseChrome).toHaveBeenCalledOnce());
+    expect(screen.getByRole("status").textContent).toContain("A normal close request was sent.");
+  });
+
   it("shows a first notice, starts with no profiles selected, and requires final consent", async () => {
     const onPreviewChromeProfileImport = vi.fn(async () => ({
       importId: "import-1",
@@ -53,6 +79,7 @@ describe("Chrome profile import flow", () => {
         isOpen
         t={t}
         onApply={onApplyChromeProfileImport}
+        onCloseChrome={async () => undefined}
         onDiscard={async () => undefined}
         onError={vi.fn()}
         onOpenChange={vi.fn()}
@@ -142,6 +169,7 @@ describe("Chrome profile import flow", () => {
         onApply={async () => {
           throw new Error("not used");
         }}
+        onCloseChrome={async () => undefined}
         onDiscard={onDiscard}
         onError={vi.fn()}
         onOpenChange={onOpenChange}

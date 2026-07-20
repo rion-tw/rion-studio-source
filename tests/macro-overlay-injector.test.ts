@@ -242,6 +242,40 @@ describe("MacroOverlayInjector", () => {
     await vi.waitFor(() => expect(host.host.evaluate).toHaveBeenCalledTimes(1));
   });
 
+  it("retains the final click long enough for its marker flash after completion", async () => {
+    vi.useFakeTimers();
+    try {
+      const initial = runStatus(role.id, assignedMacro.id);
+      const clicked = {
+        ...initial,
+        lastClick: { sequence: 1, stepId: "click-step" },
+        updatedAt: "2026-07-20T00:00:01.000Z"
+      } satisfies MacroRunStatus;
+      const listStatuses = vi.fn(() => [] as MacroRunStatus[]);
+      const injector = createInjector({
+        macroManager: {
+          listStatuses,
+          start: vi.fn().mockResolvedValue([]),
+          stop: vi.fn().mockResolvedValue(undefined)
+        }
+      });
+
+      injector.refreshChangedMacroStatuses([initial]);
+      injector.refreshChangedMacroStatuses([clicked]);
+
+      await expect(injector.handleRequest(role.id, { type: "list" })).resolves.toMatchObject({
+        statuses: [{ lastClick: clicked.lastClick, clickFlash: true }]
+      });
+
+      await vi.advanceTimersByTimeAsync(180);
+      await expect(injector.handleRequest(role.id, { type: "list" })).resolves.toMatchObject({
+        statuses: []
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reinstalls after navigation and keeps event setup idempotent", async () => {
     const page = createPage();
     const injector = createInjector();
@@ -566,8 +600,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while exposing the coordinate action menu", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v54"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.12"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v56"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.14"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -582,6 +616,8 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badges" aria-hidden="true"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="click-marker-layer" hidden aria-hidden="true"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="click-marker-icon"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("shouldFlash: status.clickFlash === true");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("clickMarkerFlashStates");
     expect(MACRO_OVERLAY_SCRIPT).toContain("stroke-width:1;width:100%");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".click-marker-ring{fill:none;}");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".click-marker-dot{fill:currentColor;stroke:none;");

@@ -430,8 +430,12 @@ describe("macro overlay interactions", () => {
       await controller.refresh();
       const duplicateMarker = root.querySelector<HTMLElement>('[data-marker-key="300:300"]');
       expect(duplicateMarker?.classList.contains("is-click-flash")).toBe(true);
-      duplicateMarker?.dispatchEvent(new Event("animationend", { bubbles: true }));
-      expect(duplicateMarker?.classList.contains("is-click-flash")).toBe(false);
+      await controller.refresh();
+      const refreshedDuplicateMarker = root.querySelector<HTMLElement>('[data-marker-key="300:300"]');
+      expect(refreshedDuplicateMarker?.classList.contains("is-click-flash"))
+        .toBe(true);
+      refreshedDuplicateMarker?.dispatchEvent(new Event("animationend", { bubbles: true }));
+      expect(refreshedDuplicateMarker?.classList.contains("is-click-flash")).toBe(false);
 
       statuses = [{
         ...statuses[0],
@@ -1143,7 +1147,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v54")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v56")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -1209,7 +1213,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v54")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v56")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

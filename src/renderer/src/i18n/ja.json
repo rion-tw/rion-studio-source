@@ -855,6 +855,11 @@
   "settings.chromeProfileImportConfirm": "選択したプロファイルをインポート",
   "settings.chromeProfileImportComplete": "Chrome プロファイルのインポート完了",
   "settings.chromeProfileImportWarnings": "{count} 件の注意事項があります。",
+  "settings.chromeProfileImportEmbeddedMode": "内蔵ブラウザー",
+  "settings.chromeProfileImportExternalMode": "外部 Chrome",
+  "settings.chromeProfileImportLoginPreserved": "ログインを保持しました",
+  "settings.chromeProfileImportLoginRequired": "再ログインが必要です",
+  "settings.chromeProfileImportVerificationFailed": "検証に失敗しました",
   "error.chromeProfileImportRoleNameConflict": "選択したゲームで複数の Chrome プロファイルまたはロールが同じ名前を使用しています。名前を変更または重複を削除してからインポートしてください。",
   "common.close": "閉じる"
 }

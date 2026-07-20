@@ -4213,6 +4213,11 @@ function createHarness(options: {
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     ...(options.defaultLaunchTarget ? { getDefaultLaunchTarget: () => options.defaultLaunchTarget! } : {}),
     ...(options.workspaceDisplays ? { getWorkspaceDisplays: () => options.workspaceDisplays! } : {}),
+    authSessionSettleOptions: {
+      idleMs: 0,
+      pollIntervalMs: 0,
+      requiredStableSamples: 1
+    },
     loginPollIntervalMs: 0,
     platform: options.platform ?? (options.useTabbedHostWindow ? "win32" : process.platform),
     ...(options.prefersReducedTransparency

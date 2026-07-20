@@ -10,10 +10,13 @@ import type {
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
   ChromeProfileImportResult,
+  ChromeProfileImportRoleVerification,
+  ChromeProfileImportRuntimeVerification,
   ChromeProfileImportWarning,
   Role
 } from "../../shared/types";
 import { createLoginStorageSnapshot } from "../auth/loginEvidence";
+import { waitForSettledAuthSession } from "../auth/settledAuthSession";
 import type { GameStore } from "../games/GameStore";
 import {
   CdpClient,
@@ -42,22 +45,34 @@ const IMPORT_COPY_FILES = [
 ] as const;
 const LOCK_FILES = ["SingletonCookie", "SingletonLock", "SingletonSocket"] as const;
 const CHROME_LOGIN_DATA_EXPRESSION = `(async () => {
-  const values = {};
+  const readStorage = (name) => {
+    const values = {};
+    try {
+      const storage = window[name];
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (key !== null) values[key] = storage.getItem(key) ?? "";
+      }
+    } catch {
+      return values;
+    }
+    return values;
+  };
   try {
     if (document.readyState === "loading") {
       await new Promise((resolve) => document.addEventListener("DOMContentLoaded", resolve, { once: true }));
     }
-    const storage = window.localStorage;
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (key !== null) {
-        values[key] = storage.getItem(key) ?? "";
-      }
-    }
   } catch {
-    // Best effort only; the persisted profile snapshot remains available.
+    // Best effort only; the cookie snapshot remains available.
   }
-  return { localStorage: values, origin: window.location.origin };
+  return {
+    bodyText: document.body?.innerText ?? "",
+    href: window.location.href,
+    localStorage: readStorage("localStorage"),
+    origin: window.location.origin,
+    readyState: document.readyState,
+    sessionStorage: readStorage("sessionStorage")
+  };
 })()`;
 
 interface OpenDirectoryDialogOptions {
@@ -73,6 +88,7 @@ interface OpenDirectoryDialogResult {
 
 interface ChromeLoginDataSnapshot {
   cookies: Array<Record<string, unknown>>;
+  externalVerification?: ChromeProfileImportRuntimeVerification;
   localStorageByOrigin: Record<string, Record<string, string>>;
 }
 
@@ -126,6 +142,10 @@ interface ChromeProfileImportManagerOptions {
     role: Pick<Role, "launchUrl">,
     loginDataUrls: readonly string[]
   ) => Promise<ChromeLoginDataSnapshot>;
+  verifyEmbeddedSession?: (
+    partition: string,
+    role: Pick<Role, "launchUrl">
+  ) => Promise<ChromeProfileImportRuntimeVerification>;
   roleStore: Pick<
     RoleStore,
     | "createRole"
@@ -284,6 +304,7 @@ export class ChromeProfileImportManager {
     const overwrittenRoleIds = assignments.flatMap((assignment) =>
       assignment.existing ? [assignment.existing.id] : []
     );
+    const verifications: ChromeProfileImportRoleVerification[] = [];
     const warnings: ChromeProfileImportWarning[] = [{ code: "passwords_excluded" }];
     const journal: ChromeImportJournal = {
       createdRoleIds,
@@ -341,13 +362,34 @@ export class ChromeProfileImportManager {
         await rm(targetBrowserDir, { force: true, recursive: true });
         await copyDirectory(stageBrowserDir, targetBrowserDir);
 
-        await this.seedImportedLoginData(
+        const runtimeVerification = await this.seedImportedLoginData(
           targetBrowserDir,
           role,
           createLoginDataUrls(role, game.loginUrl),
           Boolean(assignment.existing)
         );
-        await this.options.roleStore.updateAuthState(role.id, "authenticated");
+        verifications.push({
+          embedded: runtimeVerification.embedded,
+          external: runtimeVerification.external,
+          profileId: assignment.profile.id,
+          profileName: assignment.profile.name,
+          roleId: role.id
+        });
+        for (const verification of [runtimeVerification.external, runtimeVerification.embedded]) {
+          if (verification.state === "authenticated") continue;
+          warnings.push({
+            code: verification.state === "auth_failed"
+              ? "login_verification_failed"
+              : "login_not_preserved",
+            mode: verification.mode,
+            profileId: assignment.profile.id,
+            profileName: assignment.profile.name
+          });
+        }
+        await this.options.roleStore.updateAuthState(
+          role.id,
+          combineRuntimeAuthStates(runtimeVerification.external, runtimeVerification.embedded)
+        );
       }
 
       await writeJsonFileAtomically(journalPath, { ...journal, phase: "committed" });
@@ -359,6 +401,7 @@ export class ChromeProfileImportManager {
       const affectedRoleIds = new Set([...overwrittenRoleIds, ...createdRoleIds]);
       return {
         roles: roles.filter((role) => affectedRoleIds.has(role.id)),
+        verifications,
         warnings
       };
     } catch (error) {
@@ -397,7 +440,10 @@ export class ChromeProfileImportManager {
     role: Role,
     loginDataUrls: readonly string[],
     resetExistingSession: boolean
-  ): Promise<void> {
+  ): Promise<{
+    embedded: ChromeProfileImportRuntimeVerification;
+    external: ChromeProfileImportRuntimeVerification;
+  }> {
     const summary: ChromeProfileImportLoginDataTransferSummary = {
       failedItemCount: 0,
       failedStorageOriginCount: 0,
@@ -424,17 +470,21 @@ export class ChromeProfileImportManager {
 
     if (!this.options.readChromeLoginData || !this.options.getSession || !this.options.injectEmbeddedStorage) {
       reportSummary();
-      return;
+      return createUnavailableRuntimeVerifications("Chrome login data transfer is unavailable.");
     }
 
     let snapshot: ChromeLoginDataSnapshot;
     try {
       snapshot = await this.options.readChromeLoginData(browserUserDataDir, role, loginDataUrls);
-    } catch {
+    } catch (error) {
       summary.readFailed = true;
       reportSummary();
-      return;
+      return createUnavailableRuntimeVerifications(
+        error instanceof Error ? error.message : "Unable to read Chrome login data."
+      );
     }
+
+    const external = snapshot.externalVerification ?? createRuntimeVerification("external", "authenticated");
 
     summary.sourceItemCount = snapshot.cookies.length;
     summary.sourceStorageOriginCount = Object.keys(snapshot.localStorageByOrigin).length;
@@ -495,7 +545,60 @@ export class ChromeProfileImportManager {
     }
 
     reportSummary();
+    let embedded: ChromeProfileImportRuntimeVerification;
+    if (!this.options.verifyEmbeddedSession) {
+      embedded = createRuntimeVerification("embedded", "authenticated");
+    } else {
+      try {
+        embedded = await this.options.verifyEmbeddedSession(partition, role);
+      } catch (error) {
+        embedded = createRuntimeVerification(
+          "embedded",
+          "auth_failed",
+          error instanceof Error ? error.message : "Unable to verify the embedded login session."
+        );
+      }
+    }
+
+    return { embedded, external };
   }
+}
+
+function createRuntimeVerification(
+  mode: ChromeProfileImportRuntimeVerification["mode"],
+  state: ChromeProfileImportRuntimeVerification["state"],
+  message?: string,
+  durationMs?: number
+): ChromeProfileImportRuntimeVerification {
+  return {
+    mode,
+    state,
+    ...(message ? { message } : {}),
+    ...(durationMs === undefined ? {} : { durationMs })
+  };
+}
+
+function createUnavailableRuntimeVerifications(message: string): {
+  embedded: ChromeProfileImportRuntimeVerification;
+  external: ChromeProfileImportRuntimeVerification;
+} {
+  return {
+    embedded: createRuntimeVerification("embedded", "auth_failed", message),
+    external: createRuntimeVerification("external", "auth_failed", message)
+  };
+}
+
+function combineRuntimeAuthStates(
+  external: ChromeProfileImportRuntimeVerification,
+  embedded: ChromeProfileImportRuntimeVerification
+): Role["authState"] {
+  if (external.state === "authenticated" && embedded.state === "authenticated") {
+    return "authenticated";
+  }
+  if (external.state === "auth_failed" || embedded.state === "auth_failed") {
+    return "auth_failed";
+  }
+  return "login_required";
 }
 
 function createRoleIdentityKey(gameId: string, name: string): string {
@@ -880,6 +983,7 @@ export async function readChromeLoginDataWithCdp(
     executable,
     buildChromeProfileImportChromeArgs(userDataDir, initialUrl)
   );
+  let client: CdpClient | undefined;
 
   try {
     await waitForChildSpawn(child);
@@ -891,38 +995,122 @@ export async function readChromeLoginDataWithCdp(
     if (!target?.webSocketDebuggerUrl) {
       throw new ChromeProfileImportError("LOGIN_DATA_TARGET_MISSING", "Imported Chrome profile did not expose a login data page.");
     }
-    const client = new CdpClient(target.webSocketDebuggerUrl);
+    client = new CdpClient(target.webSocketDebuggerUrl);
+    let lastNetworkActivityAt = Date.now();
+    const removeNetworkListener = client.onNotification((notification) => {
+      if (notification.method.startsWith("Network.") || notification.method.startsWith("Page.")) {
+        lastNetworkActivityAt = Date.now();
+      }
+    });
     try {
-      await client.send("Page.enable").catch(() => undefined);
+      await Promise.all([
+        client.send("Page.enable").catch(() => undefined),
+        client.send("Network.enable").catch(() => undefined)
+      ]);
       const localStorageByOrigin: Record<string, Record<string, string>> = {};
+      let externalVerification = createRuntimeVerification(
+        "external",
+        "auth_failed",
+        "Unable to verify the imported Chrome login session."
+      );
       for (const [index, url] of urls.entries()) {
         if (index > 0) {
           await navigateChromePage(client, url, options.timeoutMs ?? 10_000);
+          lastNetworkActivityAt = Date.now();
         }
-        const runtimeResult = await client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
-          expression: CHROME_LOGIN_DATA_EXPRESSION,
-          returnByValue: true,
-          awaitPromise: true
-        });
-        const runtimeValue = runtimeResult.result?.value;
-        const origin = readRuntimeOrigin(runtimeValue);
-        if (origin && requestedOrigins.has(origin)) {
-          localStorageByOrigin[origin] = createLoginStorageSnapshot(undefined, runtimeValue).localStorage;
+        const settled = await waitForSettledAuthSession(
+          () => readChromeAuthSample(client!, url),
+          {
+            isIdle: () => Date.now() - lastNetworkActivityAt >= 1_500,
+            timeoutMs: options.timeoutMs ?? 20_000
+          }
+        );
+        const origin = getUrlOrigin(settled.finalUrl ?? url);
+        if (origin && requestedOrigins.has(origin) && settled.snapshot) {
+          localStorageByOrigin[origin] = settled.snapshot.localStorage;
+        }
+        if (index === 0) {
+          externalVerification = createRuntimeVerification(
+            "external",
+            settled.authState,
+            settled.message,
+            settled.durationMs
+          );
         }
       }
+
+      if (urls.length > 1) {
+        await navigateChromePage(client, initialUrl, options.timeoutMs ?? 10_000);
+        lastNetworkActivityAt = Date.now();
+        const settled = await waitForSettledAuthSession(
+          () => readChromeAuthSample(client!, initialUrl),
+          {
+            isIdle: () => Date.now() - lastNetworkActivityAt >= 1_500,
+            timeoutMs: options.timeoutMs ?? 20_000
+          }
+        );
+        externalVerification = createRuntimeVerification(
+          "external",
+          settled.authState,
+          settled.message,
+          settled.durationMs
+        );
+      }
+
       const cookieResult = await client.send<{ cookies?: unknown[] }>("Network.getAllCookies");
       return {
         cookies: Array.isArray(cookieResult.cookies)
           ? cookieResult.cookies.filter(isRecord)
           : [],
+        externalVerification,
         localStorageByOrigin
       };
     } finally {
-      client.close();
+      removeNetworkListener();
     }
   } finally {
-    await terminateChrome(child);
+    if (client) {
+      await closeChromeGracefully(child, client);
+      client.close();
+    } else {
+      await terminateChrome(child);
+    }
   }
+}
+
+async function readChromeAuthSample(client: CdpClient, fallbackUrl: string) {
+  const [cookieResult, runtimeResult] = await Promise.all([
+    client.send<{ cookies?: unknown[] }>("Network.getCookies", { urls: [fallbackUrl] }),
+    client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
+      expression: CHROME_LOGIN_DATA_EXPRESSION,
+      returnByValue: true,
+      awaitPromise: true
+    })
+  ]);
+  const runtimeValue = runtimeResult.result?.value;
+  return {
+    finalUrl: readRuntimeHref(runtimeValue) ?? fallbackUrl,
+    snapshot: createLoginStorageSnapshot(cookieResult.cookies, runtimeValue)
+  };
+}
+
+async function closeChromeGracefully(child: ChildProcess, client: CdpClient): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const closed = waitForChildClose(child, 2_000);
+  await client.send("Browser.close", undefined, 1_000).catch(() => undefined);
+  if (await closed) return;
+  await terminateChrome(child);
+}
+
+async function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return new Promise<boolean>((resolve) => {
+    const timeout = setTimeout(() => resolve(false), timeoutMs);
+    child.once("close", () => {
+      clearTimeout(timeout);
+      resolve(true);
+    });
+  });
 }
 
 export function buildChromeProfileImportChromeArgs(userDataDir: string, initialUrl: string): string[] {
@@ -960,11 +1148,11 @@ async function navigateChromePage(client: CdpClient, url: string, timeoutMs: num
   }
 }
 
-function readRuntimeOrigin(value: unknown): string | undefined {
-  if (!isRecord(value) || typeof value.origin !== "string") {
+function readRuntimeHref(value: unknown): string | undefined {
+  if (!isRecord(value) || typeof value.href !== "string") {
     return undefined;
   }
-  return getUrlOrigin(value.origin);
+  return value.href;
 }
 
 async function waitForPageTarget(port: number, launchUrl: string, timeoutMs: number): Promise<DevToolsTarget | undefined> {

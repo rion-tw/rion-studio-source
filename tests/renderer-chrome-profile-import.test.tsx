@@ -70,6 +70,13 @@ describe("Chrome profile import flow", () => {
         notes: "Imported from a local Chrome profile.",
         updatedAt: "2026-07-10T00:00:00.000Z"
       }],
+      verifications: [{
+        embedded: { mode: "embedded" as const, state: "authenticated" as const },
+        external: { mode: "external" as const, state: "authenticated" as const },
+        profileId: "profile-11",
+        profileName: "小胖",
+        roleId: "role-1"
+      }],
       warnings: []
     }));
 
@@ -149,6 +156,9 @@ describe("Chrome profile import flow", () => {
     }));
     expect(screen.getByText("Chrome profile import complete")).toBeTruthy();
     expect(screen.getByText("小胖")).toBeTruthy();
+    expect(screen.getByText("Embedded browser")).toBeTruthy();
+    expect(screen.getByText("External Chrome")).toBeTruthy();
+    expect(screen.getAllByText("Login preserved")).toHaveLength(2);
   });
 
   it("discards a pending preview when the import is cancelled", async () => {

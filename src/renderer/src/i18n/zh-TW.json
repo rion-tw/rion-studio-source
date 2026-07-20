@@ -935,5 +935,10 @@
   "settings.chromeProfileImportConfirm": "匯入選取的個人資料",
   "settings.chromeProfileImportComplete": "Chrome 個人資料匯入完成",
   "settings.chromeProfileImportWarnings": "有 {count} 項注意事項。",
+  "settings.chromeProfileImportEmbeddedMode": "內嵌瀏覽器",
+  "settings.chromeProfileImportExternalMode": "外部 Chrome",
+  "settings.chromeProfileImportLoginPreserved": "登入已保留",
+  "settings.chromeProfileImportLoginRequired": "需要重新登入",
+  "settings.chromeProfileImportVerificationFailed": "驗證失敗",
   "common.close": "關閉"
 }

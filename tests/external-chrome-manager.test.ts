@@ -117,6 +117,33 @@ describe("ExternalChromeManager", () => {
     }
   );
 
+  it("stops an external launch when the imported session still requires login", async () => {
+    const automationTarget = createAutomationTarget();
+    automationTarget.evaluate.mockResolvedValue("https://example.com/login");
+    automationTarget.readLoginStorageSnapshot.mockResolvedValue({
+      bodyText: "Sign in",
+      cookies: {},
+      indexedDb: {},
+      localStorage: {},
+      sessionStorage: {}
+    });
+    const harness = createHarness({
+      connectAutomation: vi.fn().mockResolvedValue(automationTarget)
+    });
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+
+    await expect(launchPromise).rejects.toMatchObject({
+      code: "LOGIN_REQUIRED_AFTER_LAUNCH"
+    });
+    expect(harness.roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
+    expect(automationTarget.close).toHaveBeenCalledOnce();
+    expect(harness.children[0].kill).toHaveBeenCalledOnce();
+    expect(harness.manager.listStatuses()).toEqual([]);
+  });
+
   it("restores focus when launching an existing external role", async () => {
     const harness = createHarness();
 
@@ -826,7 +853,8 @@ function createHarness(options: {
   const automationTargets: Array<ReturnType<typeof createAutomationTarget>> = [];
   const automationTargetsByRoleId = new Map<string, ReturnType<typeof createAutomationTarget>>();
   const roleStore = {
-    ensureBrowserUserDataDir: vi.fn(async (roleId: string) => `/profiles/${roleId}/browser`)
+    ensureBrowserUserDataDir: vi.fn(async (roleId: string) => `/profiles/${roleId}/browser`),
+    updateAuthState: vi.fn().mockResolvedValue(undefined)
   };
   const spawnChrome = vi.fn(() => {
     const child = createChild(
@@ -845,6 +873,11 @@ function createHarness(options: {
   const applyBrowserZoom = options.applyBrowserZoom ?? vi.fn().mockResolvedValue(undefined);
   const manager = new ExternalChromeManager(roleStore, {
     applyBrowserZoom,
+    authSessionSettleOptions: {
+      idleMs: 0,
+      pollIntervalMs: 0,
+      requiredStableSamples: 1
+    },
     connectAutomation,
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
@@ -875,12 +908,19 @@ function createAutomationTarget() {
     disconnect: () => disconnectListeners.forEach((listener) => listener()),
     dispatchClick: vi.fn().mockResolvedValue(undefined),
     dispatchKey: vi.fn().mockResolvedValue(undefined),
-    evaluate: vi.fn().mockResolvedValue(undefined),
+    evaluate: vi.fn().mockResolvedValue("https://game.example.test/play"),
     focus: vi.fn().mockResolvedValue(undefined),
     installMacroOverlay: vi.fn().mockResolvedValue(undefined),
     onDisconnect: vi.fn((listener: () => void) => {
       disconnectListeners.add(listener);
       return () => disconnectListeners.delete(listener);
+    }),
+    readLoginStorageSnapshot: vi.fn().mockResolvedValue({
+      bodyText: "Game ready",
+      cookies: { session: "active" },
+      indexedDb: {},
+      localStorage: {},
+      sessionStorage: {}
     }),
     setWindowBounds: vi.fn().mockResolvedValue(undefined)
   };

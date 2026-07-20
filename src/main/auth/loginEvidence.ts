@@ -208,6 +208,17 @@ export function isPersistedLoginStorageReady(snapshot: LoginStorageSnapshot): Lo
   };
 }
 
+export function createLoginStorageFingerprint(snapshot: LoginStorageSnapshot): string {
+  return JSON.stringify(
+    listSnapshotEntries(snapshot)
+      .filter((entry) => !isTrackingStorageName(entry.name))
+      .sort((left, right) => {
+        const areaOrder = left.area.localeCompare(right.area);
+        return areaOrder !== 0 ? areaOrder : left.name.localeCompare(right.name);
+      })
+  );
+}
+
 function normalizeCookieMap(cookies: unknown): Record<string, string> {
   const values: Record<string, string> = {};
 

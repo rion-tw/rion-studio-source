@@ -14,15 +14,17 @@ import type {
 } from "electron";
 
 import {
-  classifyAuthSession,
   NO_PERSISTED_LOGIN_SESSION_MESSAGE,
   type AuthSessionCheckResult
 } from "../auth/authSessionClassification";
 import {
   createLoginStorageSnapshot,
-  isPersistedLoginStorageReady,
   LOGIN_STORAGE_EXPRESSION
 } from "../auth/loginEvidence";
+import {
+  waitForSettledAuthSession,
+  type WaitForSettledAuthSessionOptions
+} from "../auth/settledAuthSession";
 import type { RoleStore } from "../roles/RoleStore";
 import { DEFAULT_WORKSPACE_APPEARANCE_SETTINGS } from "../../shared/browserFonts";
 import type {
@@ -153,6 +155,7 @@ export interface BrowserManagerOptions {
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
+  authSessionSettleOptions?: WaitForSettledAuthSessionOptions;
   onEmbeddedWebContentsCreated?: (
     context: EmbeddedRuntimeDiagnosticContext,
     webContents: WebContents
@@ -2357,12 +2360,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const webContents = session.view.webContents;
 
     try {
-      const [cookies, runtimeValue] = await Promise.all([
-        webContents.session.cookies.get({ url: role.launchUrl }),
-        webContents.executeJavaScript(LOGIN_STORAGE_EXPRESSION)
-      ]);
-      const snapshot = createLoginStorageSnapshot(cookies, runtimeValue);
-      return classifyAuthSession(webContents.getURL(), snapshot.bodyText, isPersistedLoginStorageReady(snapshot));
+      return await waitForSettledAuthSession(async () => {
+        const [cookies, runtimeValue] = await Promise.all([
+          webContents.session.cookies.get({ url: role.launchUrl }),
+          webContents.executeJavaScript(LOGIN_STORAGE_EXPRESSION)
+        ]);
+        return {
+          finalUrl: webContents.getURL(),
+          snapshot: createLoginStorageSnapshot(cookies, runtimeValue)
+        };
+      }, this.options.authSessionSettleOptions);
     } catch (error) {
       return {
         authState: "auth_failed",

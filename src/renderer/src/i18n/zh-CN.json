@@ -855,6 +855,11 @@
   "settings.chromeProfileImportConfirm": "导入所选个人资料",
   "settings.chromeProfileImportComplete": "Chrome 个人资料导入完成",
   "settings.chromeProfileImportWarnings": "有 {count} 项注意事项。",
+  "settings.chromeProfileImportEmbeddedMode": "内嵌浏览器",
+  "settings.chromeProfileImportExternalMode": "外部 Chrome",
+  "settings.chromeProfileImportLoginPreserved": "登录已保留",
+  "settings.chromeProfileImportLoginRequired": "需要重新登录",
+  "settings.chromeProfileImportVerificationFailed": "验证失败",
   "error.chromeProfileImportRoleNameConflict": "所选游戏中有多个 Chrome 个人资料或角色使用相同名称。请先重命名或移除重复项目，再导入。",
   "common.close": "关闭"
 }

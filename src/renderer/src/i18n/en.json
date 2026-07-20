@@ -1049,5 +1049,10 @@
   "settings.chromeProfileImportConfirm": "Import selected profiles",
   "settings.chromeProfileImportComplete": "Chrome profile import complete",
   "settings.chromeProfileImportWarnings": "{count} notice(s) apply.",
+  "settings.chromeProfileImportEmbeddedMode": "Embedded browser",
+  "settings.chromeProfileImportExternalMode": "External Chrome",
+  "settings.chromeProfileImportLoginPreserved": "Login preserved",
+  "settings.chromeProfileImportLoginRequired": "Login required",
+  "settings.chromeProfileImportVerificationFailed": "Verification failed",
   "common.close": "Close"
 }

@@ -4,6 +4,10 @@ import {
   type BrowserInputDispatchOptions
 } from "./ElectronAutomationTarget";
 import {
+  readLoginStorageSnapshot,
+  type LoginStorageSnapshot
+} from "../auth/loginEvidence";
+import {
   createMacroShortcutPhaseSuppressionClearSource,
   createMacroShortcutPhaseSuppressionSource
 } from "../../shared/macroShortcuts";
@@ -56,6 +60,7 @@ export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget
   installMacroOverlay: (source: string, handler: ExternalMacroOverlayHandler) => Promise<void>;
   onDisconnect: (listener: () => void) => () => void;
   onNavigation: (listener: () => void) => () => void;
+  readLoginStorageSnapshot: (launchUrl: string) => Promise<LoginStorageSnapshot>;
   setWindowBounds: (bounds: PixelBounds) => Promise<void>;
 }
 
@@ -199,7 +204,11 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       });
     });
     try {
-      await Promise.all([this.client.send("Page.enable"), this.client.send("Runtime.enable")]);
+      await Promise.all([
+        this.client.send("Network.enable"),
+        this.client.send("Page.enable"),
+        this.client.send("Runtime.enable")
+      ]);
       await this.client.send("Page.setLifecycleEventsEnabled", { enabled: true }).catch(() => undefined);
       await this.installPageDiagnostics().catch(() => undefined);
       await this.recordBrowserVersion().catch(() => undefined);
@@ -260,6 +269,10 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   async focus(): Promise<void> {
     await this.client.send("Page.bringToFront");
     await this.focusPageTarget();
+  }
+
+  readLoginStorageSnapshot(launchUrl: string): Promise<LoginStorageSnapshot> {
+    return readLoginStorageSnapshot(this.client, launchUrl);
   }
 
   async ensureInputFocus(): Promise<boolean> {

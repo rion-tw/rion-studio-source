@@ -81,6 +81,36 @@ describe("MacroManager", () => {
     expect(target.dispatchClick).not.toHaveBeenCalled();
   });
 
+  it("records each successful click step with an increasing sequence", async () => {
+    const dispatchClick = vi.fn(async (
+      _xPercent: number,
+      _yPercent: number,
+      options?: { onClick?: () => void }
+    ) => {
+      options?.onClick?.();
+    });
+    const target = createTarget({ dispatchClick });
+    const manager = createManager({
+      macroOverride: {
+        ...macro,
+        roleIds: ["role-1"],
+        repeat: { type: "loop", intervalMs: 1000 },
+        steps: [
+          { id: "first-click", type: "click", xPercent: 25, yPercent: 75 },
+          { id: "second-click", type: "click", xPercent: 80, yPercent: 20 }
+        ]
+      },
+      targets: { "role-1": target }
+    });
+
+    await manager.start("macro-1");
+    await vi.waitFor(() => expect(dispatchClick).toHaveBeenCalledTimes(2));
+
+    expect(manager.listStatuses().find((status) => status.macroId === "macro-1")?.lastClick)
+      .toEqual({ sequence: 2, stepId: "second-click" });
+    await manager.stop("macro-1");
+  });
+
   it("dispatches key combinations as one target operation", async () => {
     const target = createTarget();
     const manager = createManager({
@@ -709,7 +739,10 @@ describe("MacroManager", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(target.dispatchKey).toHaveBeenCalledWith("KeyQ", expectNoTimingInputOptions());
-    expect(target.dispatchClick).toHaveBeenCalledWith(25, 75, expectNoTimingInputOptions());
+    expect(target.dispatchClick).toHaveBeenCalledWith(25, 75, expect.objectContaining({
+      onClick: expect.any(Function),
+      signal: expect.any(AbortSignal)
+    }));
     expect(target.holdKey).toHaveBeenCalledWith(
       "KeyW",
       expect.any(String),

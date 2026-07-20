@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MACRO_OVERLAY_SCRIPT } from "../src/main/macros/MacroOverlayInjector";
-import type { Macro } from "../src/shared/types";
+import type { Macro, MacroRunStatus } from "../src/shared/types";
 
 interface OverlayController {
   clearSuppressedShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
@@ -27,6 +27,17 @@ const assignedMacro: Macro = {
   steps: [{ id: "step-1", type: "key", code: "KeyQ" }],
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
+};
+
+const clickMacro: Macro = {
+  ...assignedMacro,
+  id: "click-macro",
+  name: "Click targets",
+  steps: [
+    { id: "click-first", type: "click", xPercent: 25, yPercent: 50 },
+    { id: "click-duplicate", type: "click", xPercent: 25, yPercent: 50 },
+    { id: "click-bottom-right", type: "click", unit: "px", anchor: "bottom-right", xPx: -24, yPx: -32 }
+  ]
 };
 
 describe("macro overlay interactions", () => {
@@ -371,6 +382,74 @@ describe("macro overlay interactions", () => {
     expect(badges?.style.right).toBe("0px");
     expect(badges?.style.width).toBe("100vw");
     expect(badges?.style.justifyContent).toBe("center");
+  });
+
+  it("renders running click coordinates, merges duplicates, and flashes the clicked marker", async () => {
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    let statuses: MacroRunStatus[] = [];
+    try {
+      createGameSurface(document);
+      const binding = vi.fn(async () => ({ macros: [clickMacro], statuses }));
+      const controller = installOverlay(window, binding);
+      await controller.refresh();
+
+      statuses = [{
+        roleId: "role-1",
+        macroId: clickMacro.id,
+        state: "running",
+        startedAt: "2026-07-20T00:00:00.000Z",
+        updatedAt: "2026-07-20T00:00:00.000Z"
+      }];
+      await controller.refresh();
+
+      const root = getOverlayRoot(document);
+      const layer = root.querySelector<HTMLElement>(".click-marker-layer");
+      if (!layer) throw new Error("Expected click marker layer.");
+      expect(layer.hidden).toBe(false);
+      expect(layer.style.pointerEvents).toBe("");
+      expect(layer.querySelectorAll(".click-marker")).toHaveLength(2);
+      expect(root.querySelector<HTMLElement>('[data-marker-key="250:400"]')?.style.getPropertyValue("--click-marker-x"))
+        .toBe("250px");
+      expect(root.querySelector<HTMLElement>('[data-marker-key="976:768"]')?.style.getPropertyValue("--click-marker-y"))
+        .toBe("768px");
+
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+      window.dispatchEvent(new Event("resize"));
+      expect(root.querySelector<HTMLElement>('[data-marker-key="300:300"]')).not.toBeNull();
+      expect(root.querySelector<HTMLElement>('[data-marker-key="1176:568"]')).not.toBeNull();
+
+      statuses = [{
+        ...statuses[0],
+        lastClick: { sequence: 1, stepId: "click-duplicate" },
+        updatedAt: "2026-07-20T00:00:01.000Z"
+      }];
+      await controller.refresh();
+      const duplicateMarker = root.querySelector<HTMLElement>('[data-marker-key="300:300"]');
+      expect(duplicateMarker?.classList.contains("is-click-flash")).toBe(true);
+      duplicateMarker?.dispatchEvent(new Event("animationend", { bubbles: true }));
+      expect(duplicateMarker?.classList.contains("is-click-flash")).toBe(false);
+
+      statuses = [{
+        ...statuses[0],
+        lastClick: { sequence: 2, stepId: "click-bottom-right" },
+        updatedAt: "2026-07-20T00:00:02.000Z"
+      }];
+      await controller.refresh();
+      expect(root.querySelector<HTMLElement>('[data-marker-key="1176:568"]')?.classList.contains("is-click-flash"))
+        .toBe(true);
+
+      statuses = [];
+      await controller.refresh();
+      expect(layer.hidden).toBe(true);
+      expect(layer.querySelectorAll(".click-marker")).toHaveLength(0);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+    }
   });
 
   it("opens the app from Ctrl+Shift+M and consumes the shortcut", async () => {
@@ -1064,7 +1143,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v48")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v50")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -1130,7 +1209,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v48")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v50")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

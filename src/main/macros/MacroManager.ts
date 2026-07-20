@@ -759,6 +759,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
             ...(invocation.appliesConfiguredTiming
               ? { postDelayMs: invocation.settings.postInputDelayMs }
               : {}),
+            onClick: () => this.markClickStep(run, step.id),
             signal: run.abortController.signal
           };
           if (target.dispatchClickAnchored) {
@@ -792,6 +793,18 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         }
         await this.enterMacroBarrier(runKey, run, invocation, iteration, step);
     }
+  }
+
+  private markClickStep(run: MacroRun, stepId: string): void {
+    run.status = {
+      ...run.status,
+      lastClick: {
+        sequence: (run.status.lastClick?.sequence ?? 0) + 1,
+        stepId
+      },
+      updatedAt: new Date().toISOString()
+    };
+    this.emitChange();
   }
 
   private async enterMacroBarrier(

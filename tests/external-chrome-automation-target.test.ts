@@ -553,6 +553,20 @@ describe("ExternalChromeAutomationTarget", () => {
     }));
   });
 
+  it("calls onClick after a successful mouse release", async () => {
+    const harness = createHarness();
+    const onClick = vi.fn();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    await target.dispatchClickAnchored("center", "px", 0, 0, { onClick });
+
+    expect(onClick).toHaveBeenCalledOnce();
+    expect(harness.send).toHaveBeenLastCalledWith("Input.dispatchMouseEvent", expect.objectContaining({
+      type: "mouseReleased"
+    }));
+  });
+
   it("serializes concurrent clicks into complete press and release pairs", async () => {
     const harness = createHarness();
     const firstPress = createDeferred<void>();

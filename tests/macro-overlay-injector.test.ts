@@ -224,6 +224,24 @@ describe("MacroOverlayInjector", () => {
     expect(secondHost.host.evaluate).not.toHaveBeenCalled();
   });
 
+  it("refreshes the matching role when a click sequence advances", async () => {
+    const host = createExternalHost();
+    const injector = createInjector();
+    await injector.installExternal(role, host.host);
+
+    const initial = runStatus(role.id, assignedMacro.id);
+    injector.refreshChangedMacroStatuses([initial]);
+    await vi.waitFor(() => expect(host.host.evaluate).toHaveBeenCalledTimes(1));
+    host.host.evaluate.mockClear();
+
+    injector.refreshChangedMacroStatuses([{
+      ...initial,
+      lastClick: { sequence: 1, stepId: "click-step" },
+      updatedAt: "2026-07-20T00:00:01.000Z"
+    }]);
+    await vi.waitFor(() => expect(host.host.evaluate).toHaveBeenCalledTimes(1));
+  });
+
   it("reinstalls after navigation and keeps event setup idempotent", async () => {
     const page = createPage();
     const injector = createInjector();
@@ -548,8 +566,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while exposing the coordinate action menu", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v48"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.6"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v50"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.8"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -562,6 +580,10 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("mousedown"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("click"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badges" aria-hidden="true"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('class="click-marker-layer" hidden aria-hidden="true"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('class="click-marker-icon"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".click-marker.is-click-flash");
+    expect(MACRO_OVERLAY_SCRIPT).toContain(".click-marker-layer{inset:0;pointer-events:none");
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="action-menu" hidden role="menu"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="coordinate-anchor-layer" hidden aria-hidden="true"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="coordinate-anchor-marker" data-anchor="');

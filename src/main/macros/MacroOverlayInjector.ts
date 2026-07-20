@@ -92,6 +92,8 @@ export class MacroOverlayInjector {
   private readonly contentRefreshStates = new WeakMap<WebContents, OverlayRefreshState>();
   private previousMacroStatuses = new Map<string, {
     iteration: number;
+    lastClickSequence?: number;
+    lastClickStepId?: string;
     roleId: string;
     state: MacroRunStatus["state"];
   }>();
@@ -191,14 +193,25 @@ export class MacroOverlayInjector {
     const next = new Map(
       statuses.map((status) => [
         `${status.roleId}:${status.macroId}`,
-        { iteration: status.iteration ?? 0, roleId: status.roleId, state: status.state }
+        {
+          iteration: status.iteration ?? 0,
+          lastClickSequence: status.lastClick?.sequence,
+          lastClickStepId: status.lastClick?.stepId,
+          roleId: status.roleId,
+          state: status.state
+        }
       ])
     );
     const changedRoleIds = new Set<string>();
     new Set([...this.previousMacroStatuses.keys(), ...next.keys()]).forEach((key) => {
       const previous = this.previousMacroStatuses.get(key);
       const current = next.get(key);
-      if (previous?.state !== current?.state || previous?.iteration !== current?.iteration) {
+      if (
+        previous?.state !== current?.state ||
+        previous?.iteration !== current?.iteration ||
+        previous?.lastClickSequence !== current?.lastClickSequence ||
+        previous?.lastClickStepId !== current?.lastClickStepId
+      ) {
         changedRoleIds.add(current?.roleId ?? previous!.roleId);
       }
     });

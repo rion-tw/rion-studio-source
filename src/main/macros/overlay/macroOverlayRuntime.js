@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v48";
+  const hostId = "rion-studio-macro-overlay-v50";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 46 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 48 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-20.6";
+  const scriptVersion = "2026-07-20.8";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -113,6 +113,13 @@
     '<circle cx="12" cy="12" r="3"/>',
     "</svg>"
   ].join("");
+  const clickMarkerIconMarkup = [
+    '<svg class="click-marker-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">',
+    '<path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
+    '<circle class="click-marker-ring" cx="12" cy="12" r="4.5"/>',
+    '<circle class="click-marker-dot" cx="12" cy="12" r="1.5"/>',
+    "</svg>"
+  ].join("");
   const coordinateAnchorDefinitions = [
     { anchor: "top-left", xPercent: 0, yPercent: 0 },
     { anchor: "top-center", xPercent: 50, yPercent: 0 },
@@ -146,14 +153,17 @@
   let activeBadgesElement = null;
   let actionMenuElement = null;
   const activeHeldShortcuts = new Map();
+  const clickMarkerEvents = new Map();
   const macroIterationTimings = new Map();
   let renderedActiveBadgesMarkup = null;
+  let renderedClickMarkersMarkup = null;
   let cleanupInterval = undefined;
   let coordinateCopyInFlight = false;
   let coordinateMeasureActive = false;
   let coordinateAnchorLayerElement = null;
   let coordinateMeasureElement = null;
   let coordinateReadoutElement = null;
+  let clickMarkerLayerElement = null;
   let coordinateMeasureHideTimer = undefined;
   let coordinateMeasurement = null;
   let gameInputContextActive = false;
@@ -412,8 +422,10 @@
   }
 
   function handleCoordinateViewportResize() {
-    if (!coordinateMeasureActive) return;
-    updateCoordinateAnchorGuides();
+    if (coordinateMeasureActive) {
+      updateCoordinateAnchorGuides();
+    }
+    renderClickMarkers();
   }
 
   function cancelCoordinateMeasureHide() {
@@ -626,6 +638,107 @@
     return { delay, duration, iteration };
   }
 
+  function getMacroClickAnchorBase(anchorValue) {
+    const parts = String(anchorValue || "top-left").split("-");
+    const vertical = parts[0];
+    const horizontal = parts.length > 1 ? parts[1] : "center";
+    return {
+      xPercent: horizontal === "left" ? 0 : horizontal === "right" ? 100 : 50,
+      yPercent: vertical === "top" ? 0 : vertical === "bottom" ? 100 : 50
+    };
+  }
+
+  function resolveMacroClickMarkerPosition(step, viewport) {
+    const anchor = getMacroClickAnchorBase(step.anchor);
+    const isPixel = step.unit === "px";
+    const xOffset = Number(isPixel ? step.xPx : step.xPercent) || 0;
+    const yOffset = Number(isPixel ? step.yPx : step.yPercent) || 0;
+    const x = isPixel
+      ? (viewport.width * anchor.xPercent) / 100 + xOffset
+      : (viewport.width * (anchor.xPercent + xOffset)) / 100;
+    const y = isPixel
+      ? (viewport.height * anchor.yPercent) / 100 + yOffset
+      : (viewport.height * (anchor.yPercent + yOffset)) / 100;
+    return {
+      xPx: clampCoordinate(x, viewport.width),
+      yPx: clampCoordinate(y, viewport.height)
+    };
+  }
+
+  function getRunningMacroStatuses(macroId) {
+    return state.statuses.filter(
+      (status) => status.macroId === macroId && status.state === "running"
+    );
+  }
+
+  function renderClickMarkers() {
+    if (!clickMarkerLayerElement) return;
+    const viewport = getVisualViewportSize();
+    const markersByPosition = new Map();
+    state.macros
+      .filter((macro) => macro.enabled !== false)
+      .forEach((macro) => {
+        const statuses = getRunningMacroStatuses(macro.id);
+        if (statuses.length === 0) return;
+        (macro.steps || []).forEach((step) => {
+          if (step.type !== "click") return;
+          const position = resolveMacroClickMarkerPosition(step, viewport);
+          const key = String(position.xPx) + ":" + String(position.yPx);
+          let marker = markersByPosition.get(key);
+          if (!marker) {
+            marker = { key, sources: [], xPx: position.xPx, yPx: position.yPx };
+            markersByPosition.set(key, marker);
+          }
+          statuses.forEach((status) => {
+            marker.sources.push({
+              eventKey: status.lastClick?.stepId === step.id && status.lastClick.sequence > 0
+                ? [status.startedAt, status.lastClick.stepId, status.lastClick.sequence].join(":")
+                : undefined,
+              macroId: macro.id,
+              stepId: step.id
+            });
+          });
+        });
+      });
+
+    const markers = [...markersByPosition.values()];
+    const nextMarkup = markers.map((marker) => {
+      const eventKey = marker.sources
+        .map((source) => source.eventKey)
+        .filter(Boolean)
+        .sort()
+        .join("|");
+      const previousEventKey = clickMarkerEvents.get(marker.key);
+      const isNewClick = eventKey.length > 0 && previousEventKey !== undefined && previousEventKey !== eventKey;
+      clickMarkerEvents.set(marker.key, eventKey);
+      const flashClass = isNewClick ? " is-click-flash" : "";
+      return [
+        '<span class="click-marker',
+        flashClass,
+        '" data-marker-key="',
+        marker.key,
+        '" style="--click-marker-x:',
+        String(marker.xPx),
+        'px;--click-marker-y:',
+        String(marker.yPx),
+        'px">',
+        clickMarkerIconMarkup,
+        "</span>"
+      ].join("");
+    }).join("");
+
+    if (nextMarkup !== renderedClickMarkersMarkup) {
+      clickMarkerLayerElement.innerHTML = nextMarkup;
+      renderedClickMarkersMarkup = nextMarkup;
+    }
+    clickMarkerLayerElement.hidden = markers.length === 0;
+  }
+
+  function handleClickMarkerAnimationEnd(event) {
+    const marker = event.target?.closest?.(".click-marker.is-click-flash");
+    marker?.classList.remove("is-click-flash");
+  }
+
   function formatCode(code) {
     return String(code)
       .replace(/^Key/, "")
@@ -734,8 +847,10 @@
       cancelCoordinateMeasureHide();
       activeBadgesElement = null;
       actionMenuElement = null;
+      clickMarkerLayerElement = null;
       host = null;
       renderedActiveBadgesMarkup = null;
+      renderedClickMarkersMarkup = null;
       resourceElement = null;
       root = null;
       triggerElement = null;
@@ -773,7 +888,7 @@
       return null;
     }
 
-    if (host?.isConnected && root && triggerElement && actionMenuElement && coordinateAnchorLayerElement && coordinateMeasureElement) {
+    if (host?.isConnected && root && triggerElement && actionMenuElement && clickMarkerLayerElement && coordinateAnchorLayerElement && coordinateMeasureElement) {
       return root;
     }
 
@@ -786,6 +901,7 @@
       "<style>",
       overlayCss,
       "</style>",
+      '<div class="click-marker-layer" hidden aria-hidden="true"></div>',
       '<div class="active-badges" aria-hidden="true"></div>',
       '<div class="toolbar">',
       '<div class="resource-state" hidden></div>',
@@ -811,11 +927,13 @@
     ].join("");
     activeBadgesElement = root.querySelector(".active-badges");
     resourceElement = root.querySelector(".resource-state");
+    clickMarkerLayerElement = root.querySelector(".click-marker-layer");
     triggerElement = root.querySelector(".trigger");
     actionMenuElement = root.querySelector(".action-menu");
     coordinateAnchorLayerElement = root.querySelector(".coordinate-anchor-layer");
     coordinateMeasureElement = root.querySelector(".coordinate-picker");
     coordinateReadoutElement = root.querySelector(".coordinate-readout");
+    clickMarkerLayerElement?.addEventListener("animationend", handleClickMarkerAnimationEnd);
     triggerElement?.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
     });
@@ -902,6 +1020,7 @@
     }
 
     updateActiveBadgesPosition();
+    renderClickMarkers();
     const text = getText();
     triggerElement.title = text.triggerTitle;
     triggerElement.setAttribute("aria-label", text.triggerAria);

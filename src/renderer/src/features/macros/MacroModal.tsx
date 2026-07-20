@@ -1433,7 +1433,7 @@ function MacroStepFields({
           prefix={t("macroForm.clickXOffset")}
           suffix={unit === "px" ? "px" : "%"}
           value={x}
-          widthClassName="w-full max-w-30 shrink-0"
+          widthClassName="w-full max-w-36 shrink-0"
           onChange={(value) => onUpdate(isPixel
             ? { id: step.id, type: "click", unit: "px", xPx: value, yPx: y }
             : { id: step.id, type: "click", xPercent: value, yPercent: y })}
@@ -1447,7 +1447,7 @@ function MacroStepFields({
           prefix={t("macroForm.clickYOffset")}
           suffix={unit === "px" ? "px" : "%"}
           value={y}
-          widthClassName="w-full max-w-30 shrink-0"
+          widthClassName="w-full max-w-36 shrink-0"
           onChange={(value) => onUpdate(isPixel
             ? { id: step.id, type: "click", unit: "px", xPx: x, yPx: value }
             : { id: step.id, type: "click", xPercent: x, yPercent: value })}

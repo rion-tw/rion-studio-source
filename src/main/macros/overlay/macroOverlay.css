@@ -24,8 +24,8 @@
 .coordinate-hint{border-color:rgba(255,255,255,.16);font-size:10px;left:50%;padding:6px 8px;top:12px;transform:translateX(-50%);}
 .click-marker-layer{inset:0;pointer-events:none;position:fixed;z-index:2147483646;}
 .click-marker{color:rgba(236,72,153,.9);height:26px;left:var(--click-marker-x,0px);pointer-events:none;position:absolute;top:var(--click-marker-y,0px);transform:translate(-50%,-50%);width:26px;}
-.click-marker-icon{display:block;fill:none;height:100%;overflow:visible;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7;width:100%;}
-.click-marker-ring{fill:rgba(20,23,31,.52);}
+.click-marker-icon{display:block;fill:none;height:100%;overflow:visible;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1;width:100%;}
+.click-marker-ring{fill:none;}
 .click-marker-dot{fill:currentColor;stroke:none;}
 @keyframes click-marker-flash{0%,100%{filter:drop-shadow(0 0 2px rgba(236,72,153,.4));opacity:.78;transform:translate(-50%,-50%) scale(1);}35%{filter:drop-shadow(0 0 8px rgba(236,72,153,.95));opacity:1;transform:translate(-50%,-50%) scale(1.3);}}
 .click-marker.is-click-flash{animation:click-marker-flash var(--click-flash-duration,120ms) ease-out 1 both;}

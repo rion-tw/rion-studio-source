@@ -11,7 +11,8 @@ import {
   Plus,
   Search,
   Square,
-  Trash2
+  Trash2,
+  Upload
 } from "lucide-react";
 import {
   type DragEvent,
@@ -63,6 +64,7 @@ interface RolesViewProps {
   busyRoleIds: ReadonlySet<string>;
   filteredRoles: Role[];
   games: Game[];
+  isChromeProfileImportOpen?: boolean;
   isReordering: boolean;
   language: Language;
   roleStats: AppStats;
@@ -80,6 +82,7 @@ interface RolesViewProps {
   onFilterChange: (filter: SidebarFilter) => void;
   onLaunch: (roleId: string) => void;
   onLogin: (roleId: string) => void;
+  onOpenChromeProfileImport?: () => void;
   onNewRole: () => void;
   onQueryChange: (query: string) => void;
   onReorder: (orderedIds: string[]) => void;
@@ -92,6 +95,7 @@ function RolesView({
   busyRoleIds,
   filteredRoles,
   games,
+  isChromeProfileImportOpen = false,
   isReordering,
   language,
   roleStats,
@@ -109,6 +113,7 @@ function RolesView({
   onFilterChange,
   onLaunch,
   onLogin,
+  onOpenChromeProfileImport = () => undefined,
   onNewRole,
   onQueryChange,
   onReorder,
@@ -192,6 +197,9 @@ function RolesView({
           description={t("roles.empty.description")}
           actionLabel={t("roles.empty.action")}
           onAction={onNewRole}
+          onSecondaryAction={onOpenChromeProfileImport}
+          secondaryActionDisabled={isChromeProfileImportOpen || games.length === 0}
+          secondaryActionLabel={t("roles.importChromeProfiles")}
         />
       </PageFrame>
     );
@@ -211,6 +219,16 @@ function RolesView({
               value={query}
               onChange={onQueryChange}
             />
+            <Button
+              className="flex-1 gap-1.5 px-2.5 sm:flex-none"
+              type="button"
+              variant="outline"
+              disabled={isChromeProfileImportOpen || games.length === 0}
+              onClick={onOpenChromeProfileImport}
+            >
+              <Upload size={14} />
+              {t("roles.importChromeProfiles")}
+            </Button>
             <Button
               className="flex-1 gap-1.5 px-2.5 sm:flex-none"
               type="button"

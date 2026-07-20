@@ -82,6 +82,7 @@
   "roles.filter.needsLogin": "未ログイン",
   "roles.searchPlaceholder": "ロールを検索",
   "roles.refresh": "更新",
+  "roles.importChromeProfiles": "Chrome プロファイルをインポート",
   "roles.newRole": "新規ロール",
   "roles.summary.total": "Total roles",
   "roles.summary.running": "Active now",

@@ -10,6 +10,7 @@ import { Surface } from "./components/ui/patterns";
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import { WorkspaceDisplayPickerDialog } from "./features/workspaces/WorkspaceDisplayPickerDialog";
+import { ChromeProfileImportFlow } from "./features/chrome-profile-import/ChromeProfileImportFlow";
 import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
 import { toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
@@ -62,6 +63,7 @@ export function App(): JSX.Element {
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
   const [macroSettings, setMacroSettings] = useState<MacroSettings>(DEFAULT_MACRO_SETTINGS);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isChromeProfileImportOpen, setIsChromeProfileImportOpen] = useState(false);
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
     enabled: hasBridge,
@@ -219,6 +221,11 @@ export function App(): JSX.Element {
     }
     await window.rionStudio.discardChromeProfileImport(importId);
   }, []);
+  const openChromeProfileImport = useCallback(() => {
+    if (data.games.length > 0) {
+      setIsChromeProfileImportOpen(true);
+    }
+  }, [data.games.length]);
 
   useEffect(() => {
     if (!hasBridge || data.initialLoadState !== "ready") {
@@ -618,6 +625,7 @@ export function App(): JSX.Element {
                     busyRoleIds={roleWorkflow.busyRoleIds}
                     filteredRoles={roleWorkflow.filteredRoles}
                     games={data.games}
+                    isChromeProfileImportOpen={isChromeProfileImportOpen}
                     language={preferences.language}
                     roleStats={data.roleStats}
                     roles={data.roles}
@@ -634,6 +642,7 @@ export function App(): JSX.Element {
                     onFilterChange={roleWorkflow.setActiveFilter}
                     onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLogin={roleWorkflow.requestSystemLogin}
+                    onOpenChromeProfileImport={openChromeProfileImport}
                     onNewRole={navigateToNewRole}
                     onQueryChange={roleWorkflow.setQuery}
                     onReorder={(orderedIds) => void roleWorkflow.handleReorder(orderedIds)}
@@ -748,9 +757,7 @@ export function App(): JSX.Element {
                   onPreviewPortableImport={previewPortableImport}
                   onApplyPortableImport={applyPortableImport}
                   onDiscardPortableImport={discardPortableImport}
-                  onPreviewChromeProfileImport={previewChromeProfileImport}
-                  onApplyChromeProfileImport={applyChromeProfileImport}
-                  onDiscardChromeProfileImport={discardChromeProfileImport}
+                  onOpenChromeProfileImport={openChromeProfileImport}
                   onOpenUpdateDownload={updates.openUpdateDownload}
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
                   onRestartApplication={restartApplication}
@@ -763,6 +770,16 @@ export function App(): JSX.Element {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Suspense>
+        <ChromeProfileImportFlow
+          games={data.games}
+          isOpen={isChromeProfileImportOpen}
+          t={preferences.t}
+          onApply={applyChromeProfileImport}
+          onDiscard={discardChromeProfileImport}
+          onError={data.setError}
+          onOpenChange={setIsChromeProfileImportOpen}
+          onPreview={previewChromeProfileImport}
+        />
       </main>
       <WorkspaceDisplayPickerDialog
         request={workspaceWorkflow.displaySelectionRequest}

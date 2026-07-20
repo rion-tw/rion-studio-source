@@ -82,6 +82,7 @@
   "roles.filter.needsLogin": "Not logged in",
   "roles.searchPlaceholder": "Search roles",
   "roles.refresh": "Refresh",
+  "roles.importChromeProfiles": "Import Chrome profiles",
   "roles.newRole": "New role",
   "roles.summary.total": "Total roles",
   "roles.summary.running": "Active now",

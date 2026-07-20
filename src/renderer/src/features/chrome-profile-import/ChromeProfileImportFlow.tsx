@@ -6,6 +6,7 @@ import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Surface } from "../../components/ui/patterns";
 import { type Translator } from "../../i18n";
+import { cn } from "../../lib/utils";
 import type {
   ChromeProfileEntry,
   ChromeProfileImportInput,
@@ -212,14 +213,14 @@ function ChromeProfileImportNoticeDialog({
           <p>{t("settings.chromeProfileImportNoticeData")}</p>
           <p>{t("settings.chromeProfileImportNoticeLocalOnly")}</p>
           <p>{t("settings.chromeProfileImportNoticeCloseChrome")}</p>
-          <label className="mt-1 flex items-start gap-3 text-xs leading-5 text-foreground">
+          <label className="mt-1 flex items-start gap-2 text-xs leading-5 text-foreground">
             <Checkbox
               className="mt-0.5"
               checked={consentAccepted}
               disabled={isBusy}
               onCheckedChange={(checked) => onConsentChange(checked === true)}
             />
-            <span>{t("settings.chromeProfileImportConsent")}</span>
+            <span className="pt-1.5">{t("settings.chromeProfileImportConsent")}</span>
           </label>
         </div>
         <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">
@@ -299,15 +300,25 @@ function ChromeProfileImportDialog({
               {t("settings.chromeProfileImportProfiles")}
             </p>
             {preview.profiles.map((profile) => (
-              <label key={profile.id} className="glass-inset flex items-center gap-3 rounded-md px-3 py-2.5">
+              <label
+                key={profile.id}
+                className={cn(
+                  "glass-control flex min-h-12 w-full items-center gap-2 rounded-lg p-1.5 text-left transition-[background-color,border-color,color,box-shadow] focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-500/25",
+                  selectedProfileIds.includes(profile.id)
+                    ? "macro-role-card-selected text-foreground"
+                    : isBusy
+                      ? "cursor-not-allowed text-muted-foreground opacity-60"
+                      : "cursor-pointer text-muted-foreground hover:text-foreground"
+                )}
+              >
                 <Checkbox
                   checked={selectedProfileIds.includes(profile.id)}
                   disabled={isBusy}
                   onCheckedChange={() => toggleProfile(profile)}
                 />
                 <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                  <span className="min-w-0 truncate text-xs font-semibold text-foreground">{profile.name}</span>
-                  <span className="max-w-[45%] shrink-0 truncate text-right text-[11px] text-muted-foreground">
+                  <span className="min-w-0 truncate text-xs font-semibold">{profile.name}</span>
+                  <span className="max-w-[45%] shrink-0 truncate pr-1 text-right text-[11px] text-muted-foreground">
                     {profile.directoryName}
                   </span>
                 </span>
@@ -332,14 +343,14 @@ function ChromeProfileImportDialog({
             <p className="mt-1">{t("settings.chromeProfileImportPasswordNotice")}</p>
             <p className="mt-1">{t("settings.chromeProfileImportLoginDataNotice")}</p>
           </div>
-          <label className="flex items-start gap-3 text-xs leading-5 text-foreground">
+          <label className="flex items-start gap-2 text-xs leading-5 text-foreground">
             <Checkbox
               className="mt-0.5"
               checked={consentAccepted}
               disabled={isBusy}
               onCheckedChange={(checked) => onConsentChange(checked === true)}
             />
-            <span>{t("settings.chromeProfileImportConsent")}</span>
+            <span className="pt-1.5">{t("settings.chromeProfileImportConsent")}</span>
           </label>
         </div>
         <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">

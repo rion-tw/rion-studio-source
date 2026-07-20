@@ -62,6 +62,8 @@ describe("Chrome profile import flow", () => {
 
     const noticeConsent = screen.getByRole("checkbox");
     expect(noticeConsent.className).toContain("mt-0.5");
+    expect(noticeConsent.parentElement?.className).toContain("gap-2");
+    expect(noticeConsent.nextElementSibling?.className).toContain("pt-1.5");
     const chooseFolderButton = screen.getByRole("button", { name: "Choose Chrome folder" });
     expect(chooseFolderButton).toHaveProperty("disabled", true);
     fireEvent.click(noticeConsent);
@@ -71,13 +73,20 @@ describe("Chrome profile import flow", () => {
     expect(screen.getByText("Choose Chrome profiles")).toBeTruthy();
     const profileName = screen.getByText("小胖");
     const profileDirectory = screen.getByText("Profile 11");
+    const profileCard = profileName.closest("label");
     expect(profileName.parentElement).toBe(profileDirectory.parentElement);
     expect(profileName.className).toContain("min-w-0");
     expect(profileName.className).toContain("truncate");
     expect(profileDirectory.className).toContain("max-w-[45%]");
     expect(profileDirectory.className).toContain("shrink-0");
     expect(profileDirectory.className).toContain("truncate");
+    expect(profileDirectory.className).toContain("pr-1");
     expect(profileDirectory.className).toContain("text-right");
+    expect(profileCard?.className).toContain("glass-control");
+    expect(profileCard?.className).toContain("min-h-12");
+    expect(profileCard?.className).toContain("rounded-lg");
+    expect(profileCard?.className).toContain("p-1.5");
+    expect(profileCard?.className).toContain("text-muted-foreground");
 
     const importButton = screen.getByRole("button", { name: "Import selected profiles" });
     expect(importButton).toHaveProperty("disabled", true);
@@ -85,7 +94,13 @@ describe("Chrome profile import flow", () => {
     expect(checkboxes).toHaveLength(2);
     expect(checkboxes[0].getAttribute("data-state")).toBe("unchecked");
     expect(checkboxes[1].className).toContain("mt-0.5");
+    expect(checkboxes[1].parentElement?.className).toContain("gap-2");
+    expect(checkboxes[1].nextElementSibling?.className).toContain("pt-1.5");
 
+    fireEvent.click(checkboxes[0]);
+    expect(profileCard?.className).toContain("macro-role-card-selected");
+    fireEvent.click(checkboxes[0]);
+    expect(profileCard?.className).not.toContain("macro-role-card-selected");
     fireEvent.click(checkboxes[0]);
     expect(importButton).toHaveProperty("disabled", true);
     fireEvent.click(checkboxes[1]);

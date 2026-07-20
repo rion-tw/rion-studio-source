@@ -5,14 +5,12 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Surface } from "../../components/ui/patterns";
-import { type TranslationKey, type Translator } from "../../i18n";
+import { type Translator } from "../../i18n";
 import type {
   ChromeProfileEntry,
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
   ChromeProfileImportResult,
-  ChromeProfileImportRuntimeReason,
-  ChromeProfileImportRuntimeState,
   Game
 } from "../../../../shared/types";
 
@@ -216,6 +214,7 @@ function ChromeProfileImportNoticeDialog({
           <p>{t("settings.chromeProfileImportNoticeCloseChrome")}</p>
           <label className="mt-1 flex items-start gap-3 text-xs leading-5 text-foreground">
             <Checkbox
+              className="mt-0.5"
               checked={consentAccepted}
               disabled={isBusy}
               onCheckedChange={(checked) => onConsentChange(checked === true)}
@@ -306,9 +305,11 @@ function ChromeProfileImportDialog({
                   disabled={isBusy}
                   onCheckedChange={() => toggleProfile(profile)}
                 />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-semibold text-foreground">{profile.name}</span>
-                  <span className="block text-[11px] text-muted-foreground">{profile.directoryName}</span>
+                <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                  <span className="min-w-0 truncate text-xs font-semibold text-foreground">{profile.name}</span>
+                  <span className="max-w-[45%] shrink-0 truncate text-right text-[11px] text-muted-foreground">
+                    {profile.directoryName}
+                  </span>
                 </span>
               </label>
             ))}
@@ -329,10 +330,11 @@ function ChromeProfileImportDialog({
           <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-[11px] leading-5 text-muted-foreground">
             <p>{t("settings.chromeProfileImportFinalNotice")}</p>
             <p className="mt-1">{t("settings.chromeProfileImportPasswordNotice")}</p>
-            <p className="mt-1">{t("settings.chromeProfileImportRuntimeNotice")}</p>
+            <p className="mt-1">{t("settings.chromeProfileImportLoginDataNotice")}</p>
           </div>
           <label className="flex items-start gap-3 text-xs leading-5 text-foreground">
             <Checkbox
+              className="mt-0.5"
               checked={consentAccepted}
               disabled={isBusy}
               onCheckedChange={(checked) => onConsentChange(checked === true)}
@@ -361,24 +363,6 @@ interface ChromeProfileImportResultDialogProps {
   onClose: () => void;
 }
 
-const chromeProfileRuntimeStateKeys: Record<ChromeProfileImportRuntimeState, TranslationKey> = {
-  authenticated: "settings.chromeProfileImportAuthenticated",
-  login_required: "settings.chromeProfileImportLoginRequired",
-  unavailable: "settings.chromeProfileImportUnavailable",
-  not_checked: "settings.chromeProfileImportNotChecked"
-};
-
-const chromeProfileRuntimeReasonKeys: Record<ChromeProfileImportRuntimeReason, TranslationKey> = {
-  embedded_cookie_injection_failed: "settings.chromeProfileImportReasonEmbeddedCookieInjectionFailed",
-  embedded_storage_injection_failed: "settings.chromeProfileImportReasonEmbeddedStorageInjectionFailed",
-  embedded_login_not_detected: "settings.chromeProfileImportReasonEmbeddedLoginNotDetected",
-  embedded_indexeddb_required: "settings.chromeProfileImportReasonEmbeddedIndexedDbRequired",
-  embedded_verification_failed: "settings.chromeProfileImportReasonEmbeddedVerificationFailed",
-  external_cookie_decryption_failed: "settings.chromeProfileImportReasonExternalCookieDecryptionFailed",
-  external_login_not_detected: "settings.chromeProfileImportReasonExternalLoginNotDetected",
-  external_verification_failed: "settings.chromeProfileImportReasonExternalVerificationFailed"
-};
-
 function ChromeProfileImportResultDialog({
   isBusy,
   result,
@@ -401,30 +385,9 @@ function ChromeProfileImportResultDialog({
           </h2>
         </div>
         <div className="grid gap-2 overflow-y-auto px-5 py-4">
-          {result.results.map((item) => (
-            <div key={item.profileId} className="glass-inset rounded-md px-3 py-2.5 text-xs">
-              <p className="font-semibold text-foreground">{item.roleName ?? item.profileName}</p>
-              <p className="mt-1 text-muted-foreground">
-                {t("settings.chromeProfileImportRuntimeSummary")
-                  .replace("{embedded}", t(chromeProfileRuntimeStateKeys[item.embedded]))
-                  .replace("{external}", t(chromeProfileRuntimeStateKeys[item.external]))}
-              </p>
-              {item.embeddedReason ? (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {t("settings.chromeProfileImportEmbeddedReason").replace(
-                    "{reason}",
-                    t(chromeProfileRuntimeReasonKeys[item.embeddedReason])
-                  )}
-                </p>
-              ) : null}
-              {item.externalReason ? (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {t("settings.chromeProfileImportExternalReason").replace(
-                    "{reason}",
-                    t(chromeProfileRuntimeReasonKeys[item.externalReason])
-                  )}
-                </p>
-              ) : null}
+          {result.roles.map((role) => (
+            <div key={role.id} className="glass-inset rounded-md px-3 py-2.5 text-xs">
+              <p className="font-semibold text-foreground">{role.name}</p>
             </div>
           ))}
           {result.warnings.length > 0 ? (

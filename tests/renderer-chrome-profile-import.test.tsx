@@ -26,20 +26,20 @@ describe("Chrome profile import flow", () => {
   it("shows a first notice, starts with no profiles selected, and requires final consent", async () => {
     const onPreviewChromeProfileImport = vi.fn(async () => ({
       importId: "import-1",
-      profiles: [{ directoryName: "Default", id: "Default", name: "Primary" }],
+      profiles: [{ directoryName: "Profile 11", id: "profile-11", name: "小胖" }],
       sourceLabel: "Chrome",
       warnings: [{ code: "passwords_excluded" as const }]
     }));
     const onApplyChromeProfileImport = vi.fn(async () => ({
-      roles: [],
-      results: [{
+      roles: [{
         authState: "authenticated" as const,
-        embedded: "authenticated" as const,
-        external: "authenticated" as const,
-        profileId: "Default",
-        profileName: "Primary",
-        roleId: "role-1",
-        roleName: "Primary"
+        createdAt: "2026-07-10T00:00:00.000Z",
+        gameId: game.id,
+        id: "role-1",
+        launchUrl: game.defaultLaunchUrl,
+        name: "小胖",
+        notes: "Imported from a local Chrome profile.",
+        updatedAt: "2026-07-10T00:00:00.000Z"
       }],
       warnings: []
     }));
@@ -61,6 +61,7 @@ describe("Chrome profile import flow", () => {
     expect(onPreviewChromeProfileImport).not.toHaveBeenCalled();
 
     const noticeConsent = screen.getByRole("checkbox");
+    expect(noticeConsent.className).toContain("mt-0.5");
     const chooseFolderButton = screen.getByRole("button", { name: "Choose Chrome folder" });
     expect(chooseFolderButton).toHaveProperty("disabled", true);
     fireEvent.click(noticeConsent);
@@ -68,12 +69,22 @@ describe("Chrome profile import flow", () => {
     fireEvent.click(chooseFolderButton);
     await waitFor(() => expect(onPreviewChromeProfileImport).toHaveBeenCalledOnce());
     expect(screen.getByText("Choose Chrome profiles")).toBeTruthy();
+    const profileName = screen.getByText("小胖");
+    const profileDirectory = screen.getByText("Profile 11");
+    expect(profileName.parentElement).toBe(profileDirectory.parentElement);
+    expect(profileName.className).toContain("min-w-0");
+    expect(profileName.className).toContain("truncate");
+    expect(profileDirectory.className).toContain("max-w-[45%]");
+    expect(profileDirectory.className).toContain("shrink-0");
+    expect(profileDirectory.className).toContain("truncate");
+    expect(profileDirectory.className).toContain("text-right");
 
     const importButton = screen.getByRole("button", { name: "Import selected profiles" });
     expect(importButton).toHaveProperty("disabled", true);
     const checkboxes = screen.getAllByRole("checkbox");
     expect(checkboxes).toHaveLength(2);
     expect(checkboxes[0].getAttribute("data-state")).toBe("unchecked");
+    expect(checkboxes[1].className).toContain("mt-0.5");
 
     fireEvent.click(checkboxes[0]);
     expect(importButton).toHaveProperty("disabled", true);
@@ -84,10 +95,10 @@ describe("Chrome profile import flow", () => {
       consentAccepted: true,
       gameId: game.id,
       importId: "import-1",
-      profileIds: ["Default"]
+      profileIds: ["profile-11"]
     }));
     expect(screen.getByText("Chrome profile import complete")).toBeTruthy();
-    expect(screen.getByText("Embedded: login available · External Chrome: login available")).toBeTruthy();
+    expect(screen.getByText("小胖")).toBeTruthy();
   });
 
   it("discards a pending preview when the import is cancelled", async () => {

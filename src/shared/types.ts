@@ -874,22 +874,6 @@ export interface PortableImportResult {
   warnings: PortableImportWarning[];
 }
 
-export type ChromeProfileImportRuntimeState =
-  | "authenticated"
-  | "login_required"
-  | "unavailable"
-  | "not_checked";
-
-export type ChromeProfileImportRuntimeReason =
-  | "embedded_cookie_injection_failed"
-  | "embedded_storage_injection_failed"
-  | "embedded_login_not_detected"
-  | "embedded_indexeddb_required"
-  | "embedded_verification_failed"
-  | "external_cookie_decryption_failed"
-  | "external_login_not_detected"
-  | "external_verification_failed";
-
 export interface ChromeProfileEntry {
   id: string;
   directoryName: string;
@@ -904,9 +888,6 @@ export interface ChromeProfileImportWarning {
     | "profile_invalid"
     | "profile_selection_empty"
     | "passwords_excluded"
-    | "embedded_unavailable"
-    | "external_unavailable"
-    | "login_not_detected"
     | "name_renamed";
   profileId?: string;
   profileName?: string;
@@ -927,21 +908,8 @@ export interface ChromeProfileImportInput {
   consentAccepted: boolean;
 }
 
-export interface ChromeProfileImportRoleResult {
-  profileId: string;
-  profileName: string;
-  roleId?: string;
-  roleName?: string;
-  embedded: ChromeProfileImportRuntimeState;
-  embeddedReason?: ChromeProfileImportRuntimeReason;
-  external: ChromeProfileImportRuntimeState;
-  externalReason?: ChromeProfileImportRuntimeReason;
-  authState: AuthState;
-}
-
 export interface ChromeProfileImportResult {
   roles: Role[];
-  results: ChromeProfileImportRoleResult[];
   warnings: ChromeProfileImportWarning[];
 }
 

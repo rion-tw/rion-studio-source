@@ -10,10 +10,16 @@ describe("private and public release workflows", () => {
     const publisherJob = workflow.slice(publisherJobIndex);
 
     expect(workflow).toContain("name: Private Release Candidate");
-    expect(workflow).not.toContain("push:\n    branches:\n      - main");
-    expect(workflow).toContain("ci-gate:");
-    expect(workflow).toContain("uses: ./.github/workflows/ci.yml");
-    expect(workflow).toContain("needs.ci-gate.result == 'success'");
+    expect(workflow).toContain("workflow_run:");
+    expect(workflow).toContain("- Ubuntu CI");
+    expect(workflow).toContain("- completed");
+    expect(workflow).toContain("github.event.workflow_run.conclusion == 'success'");
+    expect(workflow).toContain("github.event.workflow_run.event == 'push'");
+    expect(workflow).toContain("github.event.workflow_run.head_branch == 'main'");
+    expect(workflow).toContain("ref: ${{ needs.validate-ci-run.outputs.source_ref }}");
+    expect(workflow).toContain("needs.semantic-release.result == 'success'");
+    expect(workflow).not.toContain("workflow_dispatch:");
+    expect(workflow).not.toContain("inputs:");
     expect(workflow).toContain("RION_STUDIO_RELEASE_REPOSITORY: rion-tw/rion-studio");
     expect(workflow).toContain('gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}"');
     expect(publisherJobIndex).toBeGreaterThan(workflow.indexOf("\n  verify-private-release:"));
@@ -52,7 +58,8 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain("CXX=ccache clang++");
     expect(workflow).toContain(".ccache");
     expect(workflow).toContain("ELECTRON_BUILDER_CACHE");
-    expect(workflow).toContain("needs.ci-gate.result == 'success'");
+    expect(workflow).toContain("needs.resolve-release.outputs.has_release == 'true'");
+    expect(workflow).toContain('gh release view "${tag}" --repo "${GITHUB_REPOSITORY}"');
     expect(workflow).not.toContain("Build platform preflight artifact");
   });
 

@@ -301,29 +301,26 @@ function ChromeProfileImportDialog({
             </p>
             <div className="flex max-h-52 flex-wrap gap-2 overflow-auto p-0.5">
               {preview.profiles.map((profile) => (
-                <label
+                <button
                   key={profile.id}
+                  aria-pressed={selectedProfileIds.includes(profile.id)}
                   className={cn(
-                    "glass-control inline-flex h-[30px] min-h-[var(--control-min-size)] w-auto max-w-full flex-none items-center gap-1 rounded-md px-2.5 text-left transition-[background-color,border-color,color,box-shadow] focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-500/25",
+                    "glass-control inline-flex h-[30px] min-h-[var(--control-min-size)] w-auto max-w-full flex-none items-center gap-1 rounded-md px-2.5 text-left transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60",
                     selectedProfileIds.includes(profile.id)
                       ? "macro-role-card-selected text-foreground"
-                      : isBusy
-                        ? "cursor-not-allowed text-muted-foreground opacity-60"
-                        : "cursor-pointer text-muted-foreground hover:text-foreground"
+                      : "cursor-pointer text-muted-foreground hover:text-foreground"
                   )}
+                  disabled={isBusy}
+                  type="button"
+                  onClick={() => toggleProfile(profile)}
                 >
-                  <Checkbox
-                    checked={selectedProfileIds.includes(profile.id)}
-                    disabled={isBusy}
-                    onCheckedChange={() => toggleProfile(profile)}
-                  />
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span className="min-w-0 truncate text-xs font-semibold leading-none">{profile.name}</span>
                     <span className="shrink-0 whitespace-nowrap text-right text-[11px] leading-none text-muted-foreground">
                       {profile.directoryName}
                     </span>
                   </span>
-                </label>
+                </button>
               ))}
             </div>
           </div>

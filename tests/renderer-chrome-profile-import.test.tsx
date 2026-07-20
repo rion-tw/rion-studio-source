@@ -76,7 +76,7 @@ describe("Chrome profile import flow", () => {
     expect(screen.getByText("Choose Chrome profiles")).toBeTruthy();
     const profileName = screen.getByText("小胖");
     const profileDirectory = screen.getByText("Profile 11");
-    const profileCard = profileName.closest("label");
+    const profileCard = profileName.closest("button");
     expect(profileName.parentElement).toBe(profileDirectory.parentElement);
     expect(profileName.className).toContain("min-w-0");
     expect(profileName.className).toContain("truncate");
@@ -97,20 +97,21 @@ describe("Chrome profile import flow", () => {
 
     const importButton = screen.getByRole("button", { name: "Import selected profiles" });
     expect(importButton).toHaveProperty("disabled", true);
-    const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes).toHaveLength(3);
-    expect(checkboxes[0].getAttribute("data-state")).toBe("unchecked");
-    expect(checkboxes[2].className).toContain("mt-0.5");
-    expect(checkboxes[2].parentElement?.className).toContain("gap-1");
-    expect(checkboxes[2].nextElementSibling?.className).toContain("pt-1.5");
+    const consentCheckbox = screen.getByRole("checkbox");
+    expect(consentCheckbox.className).toContain("mt-0.5");
+    expect(consentCheckbox.parentElement?.className).toContain("gap-1");
+    expect(consentCheckbox.nextElementSibling?.className).toContain("pt-1.5");
+    expect(profileCard?.getAttribute("aria-pressed")).toBe("false");
 
-    fireEvent.click(checkboxes[0]);
+    fireEvent.click(profileCard!);
     expect(profileCard?.className).toContain("macro-role-card-selected");
-    fireEvent.click(checkboxes[0]);
+    expect(profileCard?.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(profileCard!);
     expect(profileCard?.className).not.toContain("macro-role-card-selected");
-    fireEvent.click(checkboxes[0]);
+    expect(profileCard?.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(profileCard!);
     expect(importButton).toHaveProperty("disabled", true);
-    fireEvent.click(checkboxes[2]);
+    fireEvent.click(consentCheckbox);
     await waitFor(() => expect(importButton).toHaveProperty("disabled", false));
     fireEvent.click(importButton);
     await waitFor(() => expect(onApplyChromeProfileImport).toHaveBeenCalledWith({

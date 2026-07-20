@@ -51,7 +51,7 @@ import {
 } from "../../../../shared/macroShortcuts";
 import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
-import type { Game, Macro, MacroActivationMode, MacroCallMode, MacroKeyAction, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import type { Game, Macro, MacroActivationMode, MacroCallMode, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
@@ -704,6 +704,7 @@ function MacroIntervalControl({
   value: number;
 }): JSX.Element {
   const [isCustom, setIsCustom] = useState(() => !isMacroIntervalPreset(value));
+  const [unit, setUnit] = useState<TimeUnit>("s");
   const showCustomInput = isCustom || !isMacroIntervalPreset(value);
 
   return (
@@ -735,18 +736,20 @@ function MacroIntervalControl({
         </SelectContent>
       </Select>
       {showCustomInput ? (
-        <AffixedInput
-          aria-label={t("macroForm.intervalCustomValue")}
-          disabled={disabled}
-          max={MACRO_DELAY_MAX_MS}
-          min={0}
-          step={1}
-          prefix={t("macroForm.intervalMs")}
-          suffix="ms"
-          value={value}
-          widthClassName="h-[30px] w-full"
-          onChange={onChange}
-        />
+        <div className="flex min-w-0 gap-2">
+          <AffixedInput
+            aria-label={t("macroForm.intervalCustomValue")}
+            disabled={disabled}
+            max={unit === "s" ? MACRO_DELAY_MAX_MS / 1000 : MACRO_DELAY_MAX_MS}
+            min={0}
+            step={unit === "s" ? 0.001 : 1}
+            suffix={unit}
+            value={toDisplayTime(value, unit)}
+            widthClassName="h-[30px] min-w-0 flex-1"
+            onChange={(next) => onChange(fromDisplayTime(next, unit))}
+          />
+          <TimeUnitSelect disabled={disabled} t={t} unit={unit} onChange={setUnit} />
+        </div>
       ) : null}
       {isValidMacroInterval(value) && value < 250 ? (
         <p
@@ -758,6 +761,38 @@ function MacroIntervalControl({
         </p>
       ) : null}
     </div>
+  );
+}
+
+type TimeUnit = "ms" | "s";
+
+function toDisplayTime(ms: number, unit: TimeUnit): number {
+  return unit === "s" ? Number((ms / 1000).toFixed(3)) : ms;
+}
+
+function fromDisplayTime(value: number, unit: TimeUnit): number {
+  return Math.round(unit === "s" ? value * 1000 : value);
+}
+
+function TimeUnitSelect({
+  disabled,
+  onChange,
+  t,
+  unit
+}: {
+  disabled: boolean;
+  onChange: (unit: TimeUnit) => void;
+  t: Translator;
+  unit: TimeUnit;
+}): JSX.Element {
+  return (
+    <Select value={unit} disabled={disabled} onValueChange={(value) => onChange(value as TimeUnit)}>
+      <SelectTrigger aria-label={t("macroForm.timeUnit")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="s">{t("macroForm.seconds")}</SelectItem>
+        <SelectItem value="ms">{t("macroForm.milliseconds")}</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -1228,6 +1263,7 @@ function MacroStepFields({
   t: Translator;
 }): JSX.Element {
   const [isRecording, setIsRecording] = useState(false);
+  const [timeUnit, setTimeUnit] = useState<TimeUnit>("s");
   const isKeyStep = step.type === "key";
 
   useEffect(() => {
@@ -1336,29 +1372,50 @@ function MacroStepFields({
   }
 
   if (step.type === "click") {
+    const unit: MacroClickUnit = step.unit ?? "percent";
+    const isPixel = unit === "px";
+    const x = step.unit === "px" ? step.xPx : step.xPercent;
+    const y = step.unit === "px" ? step.yPx : step.yPercent;
     return (
       <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
+        <Select
+          disabled={isSaving}
+          value={unit}
+          onValueChange={(nextUnit) => onUpdate(nextUnit === "px"
+            ? { id: step.id, type: "click", unit: "px", xPx: step.unit === "px" ? step.xPx : step.xPercent, yPx: step.unit === "px" ? step.yPx : step.yPercent }
+            : { id: step.id, type: "click", xPercent: step.unit === "px" ? step.xPx : step.xPercent, yPercent: step.unit === "px" ? step.yPx : step.yPercent })}
+        >
+          <SelectTrigger aria-label={t("macroForm.clickUnit")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="percent">%</SelectItem>
+            <SelectItem value="px">px</SelectItem>
+          </SelectContent>
+        </Select>
         <AffixedInput
           aria-label={t("macroForm.clickX")}
           disabled={isSaving}
-          max={100}
+          max={unit === "px" ? Number.MAX_SAFE_INTEGER : 100}
           min={0}
           prefix={t("macroForm.clickX")}
-          suffix="%"
-          value={step.xPercent}
+          suffix={unit === "px" ? "px" : "%"}
+          value={x}
           widthClassName="w-fit shrink-0"
-          onChange={(xPercent) => onUpdate({ ...step, xPercent })}
+          onChange={(value) => onUpdate(isPixel
+            ? { id: step.id, type: "click", unit: "px", xPx: value, yPx: y }
+            : { id: step.id, type: "click", xPercent: value, yPercent: y })}
         />
         <AffixedInput
           aria-label={t("macroForm.clickY")}
           disabled={isSaving}
-          max={100}
+          max={unit === "px" ? Number.MAX_SAFE_INTEGER : 100}
           min={0}
           prefix={t("macroForm.clickY")}
-          suffix="%"
-          value={step.yPercent}
+          suffix={unit === "px" ? "px" : "%"}
+          value={y}
           widthClassName="w-fit shrink-0"
-          onChange={(yPercent) => onUpdate({ ...step, yPercent })}
+          onChange={(value) => onUpdate(isPixel
+            ? { id: step.id, type: "click", unit: "px", xPx: x, yPx: value }
+            : { id: step.id, type: "click", xPercent: x, yPercent: value })}
         />
       </div>
     );
@@ -1413,16 +1470,20 @@ function MacroStepFields({
   }
 
   return (
-    <AffixedInput
+    <div className="flex min-w-0 items-center gap-2">
+      <AffixedInput
       aria-label={t("macroForm.delayMs")}
       disabled={isSaving}
-      max={MACRO_DELAY_MAX_MS}
+      max={timeUnit === "s" ? MACRO_DELAY_MAX_MS / 1000 : MACRO_DELAY_MAX_MS}
       min={0}
-      suffix="ms"
-      value={step.ms}
+      step={timeUnit === "s" ? 0.001 : 1}
+      suffix={timeUnit}
+      value={toDisplayTime(step.ms, timeUnit)}
       widthClassName="w-fit shrink-0"
-      onChange={(ms) => onUpdate({ ...step, ms })}
-    />
+      onChange={(value) => onUpdate({ ...step, ms: fromDisplayTime(value, timeUnit) })}
+      />
+      <TimeUnitSelect disabled={isSaving} t={t} unit={timeUnit} onChange={setTimeUnit} />
+    </div>
   );
 }
 

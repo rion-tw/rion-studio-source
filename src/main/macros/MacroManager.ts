@@ -754,14 +754,21 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         return;
       }
       case "click":
-        await this.executeTargetOperation(run, () =>
-          target.dispatchClick(step.xPercent, step.yPercent, {
+        await this.executeTargetOperation(run, () => {
+          const options = {
             ...(invocation.appliesConfiguredTiming
               ? { postDelayMs: invocation.settings.postInputDelayMs }
               : {}),
             signal: run.abortController.signal
-          })
-        );
+          };
+          if (step.unit === "px") {
+            if (!target.dispatchClickPixels) {
+              throw new Error("Pixel click input is not supported by this browser target.");
+            }
+            return target.dispatchClickPixels(step.xPx, step.yPx, options);
+          }
+          return target.dispatchClick(step.xPercent, step.yPercent, options);
+        });
         return;
       case "delay":
         await this.delay(run, step.ms);

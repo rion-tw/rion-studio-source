@@ -1868,6 +1868,15 @@ function normalizeSteps(value: unknown, supportsKeyModifiers = true): MacroStep[
         };
         }
       case "click":
+        if (step.unit === "px") {
+          return {
+            id,
+            type: "click",
+            unit: "px",
+            xPx: normalizePixel(step.xPx),
+            yPx: normalizePixel(step.yPx)
+          };
+        }
         return {
           id,
           type: "click",
@@ -2067,6 +2076,12 @@ function normalizePercent(value: unknown): number {
   }
 
   return Math.round(value * 100) / 100;
+}
+
+function normalizePixel(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : 0;
 }
 
 function normalizeMilliseconds(value: unknown): number {

@@ -21,6 +21,11 @@ export interface BrowserAutomationTarget {
     yPercent: number,
     options?: BrowserInputDispatchOptions
   ) => Promise<void>;
+  dispatchClickPixels?: (
+    xPx: number,
+    yPx: number,
+    options?: BrowserInputDispatchOptions
+  ) => Promise<void>;
   dispatchKey: (input: MacroKeyInput | string, options?: BrowserInputDispatchOptions) => Promise<void>;
   holdKey: (
     input: MacroKeyInput | string,
@@ -332,6 +337,10 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, options));
   }
 
+  dispatchClickPixels(xPx: number, yPx: number, options: BrowserInputDispatchOptions = {}): Promise<void> {
+    return this.enqueueInput(() => this.dispatchClickPixelsUnlocked(xPx, yPx, options));
+  }
+
   private async dispatchClickUnlocked(
     xPercent: number,
     yPercent: number,
@@ -359,6 +368,41 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           clickCount: 1,
           x,
           y
+        });
+        didPress = true;
+        signal?.throwIfAborted();
+        await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release);
+        didRelease = true;
+      } finally {
+        if (didPress && !didRelease && !this.webContents.isDestroyed() && this.debuggerSession.isAttached()) {
+          await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release).catch(() => undefined);
+        }
+      }
+      await waitForInputDelay(postDelayMs, signal);
+    } finally {
+      this.releaseInputLeaseIfIdle();
+    }
+  }
+
+  private async dispatchClickPixelsUnlocked(
+    xPx: number,
+    yPx: number,
+    options: BrowserInputDispatchOptions
+  ): Promise<void> {
+    const { postDelayMs = 0, signal } = options;
+    signal?.throwIfAborted();
+    if (this.webContents.isDestroyed()) return;
+    await this.ensureInputLease();
+    try {
+      const viewport = await this.getInputViewport();
+      const x = Math.max(0, Math.min(viewport.width - 1, Math.round(xPx)));
+      const y = Math.max(0, Math.min(viewport.height - 1, Math.round(yPx)));
+      const release = { type: "mouseReleased", button: "left", clickCount: 1, x, y };
+      let didPress = false;
+      let didRelease = false;
+      try {
+        await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", {
+          type: "mousePressed", button: "left", clickCount: 1, x, y
         });
         didPress = true;
         signal?.throwIfAborted();

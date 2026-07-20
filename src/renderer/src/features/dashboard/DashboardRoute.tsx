@@ -9,7 +9,6 @@ import {
   LogIn,
   MonitorUp,
   Play,
-  Plus,
   Square,
   Users
 } from "lucide-react";
@@ -158,10 +157,6 @@ function DashboardRoute({
                 <Badge variant="outline">{embeddedRuntime.tabs.length}</Badge>
               </Button>
             ) : null}
-            <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={onNewRole}>
-              <Plus aria-hidden="true" size={14} />
-              {t("roles.newRole")}
-            </Button>
           </>
         }
       />

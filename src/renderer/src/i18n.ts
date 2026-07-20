@@ -233,8 +233,9 @@ export function isLanguage(value: string | null): value is Language {
 }
 
 export function localizeErrorMessage(message: string, language: Language): string {
+  const normalizedMessage = normalizeIpcErrorMessage(message);
   const translations = getLoadedTranslations(language) ?? fallbackTranslations;
-  const alreadyRunningMatch = /^Already running in another game window: (.+)\.$/.exec(message);
+  const alreadyRunningMatch = /^Already running in another game window: (.+)\.$/.exec(normalizedMessage);
   if (alreadyRunningMatch) {
     const template = translations["error.rolesAlreadyRunning"] ?? fallbackTranslations["error.rolesAlreadyRunning"];
     return template.replace("{names}", alreadyRunningMatch[1]);
@@ -246,18 +247,18 @@ export function localizeErrorMessage(message: string, language: Language): strin
     [/^Called macro "(.+)" is already running\.$/, "error.macroChildAlreadyRunning", "{name}"]
   ];
   for (const [pattern, key, placeholder] of dynamicMacroErrors) {
-    const match = pattern.exec(message);
+    const match = pattern.exec(normalizedMessage);
     if (match) {
       return (translations[key] ?? fallbackTranslations[key]).replace(placeholder, match[1]);
     }
   }
 
-  const key = knownErrorMessages[message];
+  const key = knownErrorMessages[normalizedMessage];
   if (key) {
-    return translations[key] ?? fallbackTranslations[key] ?? message;
+    return translations[key] ?? fallbackTranslations[key] ?? normalizedMessage;
   }
 
-  let localizedMessage = message;
+  let localizedMessage = normalizedMessage;
   let localizedNotice = false;
   Object.entries(knownErrorMessages).forEach(([knownMessage, translationKey]) => {
     if (!translationKey?.startsWith("notice.") || !localizedMessage.includes(knownMessage)) {
@@ -267,7 +268,16 @@ export function localizeErrorMessage(message: string, language: Language): strin
     localizedMessage = localizedMessage.split(knownMessage).join(translatedNotice);
     localizedNotice = true;
   });
-  return localizedNotice ? localizedMessage : message;
+  return localizedNotice ? localizedMessage : normalizedMessage;
+}
+
+function normalizeIpcErrorMessage(message: string): string {
+  const wrappedMessageMatch = /^Error invoking remote method '[^']+':\s*([\s\S]+)$/.exec(message);
+  if (!wrappedMessageMatch) {
+    return message;
+  }
+
+  return wrappedMessageMatch[1].replace(/^(?:[A-Za-z_$][\w$]*Error|Error):\s*/, "");
 }
 
 function isTraditionalChineseLocale(locale: string): boolean {

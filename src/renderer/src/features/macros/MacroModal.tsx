@@ -31,6 +31,7 @@ import { moveItemById } from "../../app/reorderItems";
 import { Button } from "../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Switch } from "../../components/ui/switch";
+import { Textarea } from "../../components/ui/textarea";
 import {
   FormField,
   SegmentedControl,
@@ -64,6 +65,7 @@ import {
   formatMacroKeyCombination,
   formatMacroIntervalPreset,
   formatMacroModifierLabel,
+  formatMacroStep,
   getMacroTargetOptions,
   isCallableMacroTarget,
   isMacroIntervalPreset,
@@ -73,6 +75,12 @@ import {
   MACRO_INTERVAL_OPTIONS,
   isPureModifierCode
 } from "./macroUtils";
+import {
+  MACRO_COMMAND_MAX_STEPS,
+  parseMacroCommand,
+  type MacroCommandIssue,
+  type MacroCommandParseResult
+} from "./macroCommandParser";
 
 const MACRO_STEP_DRAG_MIME = "application/x-rion-macro-step";
 
@@ -287,6 +295,7 @@ function MacroForm({
   ];
   const [draggedStepId, setDraggedStepId] = useState<string | null>(null);
   const [dropTargetStepId, setDropTargetStepId] = useState<string | null>(null);
+  const [isCommandImportOpen, setIsCommandImportOpen] = useState(false);
 
   function update(updater: (current: MacroFormState) => MacroFormState): void {
     onChange(updater);
@@ -611,13 +620,224 @@ function MacroForm({
                         {option.label}
                       </Button>
                     ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsCommandImportOpen(true)}
+                      disabled={isSaving}
+                    >
+                      <Plus size={14} />
+                      {t("macroForm.addCommand")}
+                    </Button>
                   </div>
                 </div>
               </FormField>
             </Surface>
           </div>
+          <MacroCommandImportDialog
+            currentMacroId={form.id}
+            existingStepCount={form.steps.length}
+            isOpen={isCommandImportOpen}
+            macros={macros}
+            t={t}
+            onClose={() => setIsCommandImportOpen(false)}
+            onImport={(steps) => {
+              update((current) => ({
+                ...current,
+                steps: [
+                  ...current.steps,
+                  ...steps.map((step) => ({ ...step, id: createClientId() }))
+                ]
+              }));
+              setIsCommandImportOpen(false);
+            }}
+          />
     </>
   );
+}
+
+interface MacroCommandImportDialogProps {
+  currentMacroId?: string;
+  existingStepCount: number;
+  isOpen: boolean;
+  macros: Macro[];
+  onClose: () => void;
+  onImport: (steps: MacroStep[]) => void;
+  t: Translator;
+}
+
+export function MacroCommandImportDialog({
+  currentMacroId,
+  existingStepCount,
+  isOpen,
+  macros,
+  onClose,
+  onImport,
+  t
+}: MacroCommandImportDialogProps): JSX.Element {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [input, setInput] = useState("");
+  const maxImportSteps = Math.max(0, MACRO_COMMAND_MAX_STEPS - existingStepCount);
+  const result = useMemo<MacroCommandParseResult>(
+    () => parseMacroCommand(input, {
+      currentMacroId,
+      macros,
+      maxSteps: maxImportSteps
+    }),
+    [currentMacroId, input, macros, maxImportSteps]
+  );
+  const macroNameById = useMemo(
+    () => new Map(macros.map((macro) => [macro.id, macro.name])),
+    [macros]
+  );
+  const hasStepLimitIssue = result.issues.some((issue) => issue.code === "stepLimit");
+  const canImport = result.steps.length > 0 && !hasStepLimitIssue;
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    setInput("");
+  }, [isOpen]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
+    if (isOpen && !dialog.open) {
+      dialog.showModal();
+    } else if (!isOpen && dialog.open) {
+      dialog.close();
+    }
+  }, [isOpen]);
+
+  function handleImport(): void {
+    if (!canImport) {
+      return;
+    }
+
+    onImport(result.steps);
+  }
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-describedby="macro-command-import-description"
+      aria-labelledby="macro-command-import-title"
+      className="m-auto w-[min(720px,calc(100vw-2rem))] max-w-none border-0 bg-transparent p-0 text-foreground backdrop:bg-black/45"
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onClose={onClose}
+    >
+      <Surface className="grid max-h-[calc(100vh-2rem)] gap-4 overflow-auto p-5" radius="lg" variant="modal">
+        <div className="grid gap-1.5">
+          <h2 id="macro-command-import-title" className="text-base font-semibold leading-6">
+            {t("macroForm.commandImport.title")}
+          </h2>
+          <p id="macro-command-import-description" className="text-xs font-medium leading-5 text-muted-foreground">
+            {t("macroForm.commandImport.description")}
+          </p>
+        </div>
+
+        <Textarea
+          aria-label={t("macroForm.commandImport.input")}
+          autoFocus
+          className="min-h-28 font-mono text-[11px]"
+          placeholder={t("macroForm.commandImport.placeholder")}
+          rows={5}
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+        />
+
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-foreground">
+              {t("macroForm.commandImport.preview")}
+            </p>
+            <p className="text-[11px] font-medium text-muted-foreground">
+              {t("macroForm.commandImport.stepCount")
+                .replace("{count}", String(result.steps.length))
+                .replace("{remaining}", String(maxImportSteps))}
+            </p>
+          </div>
+
+          {result.steps.length > 0 ? (
+            <ol className="glass-control grid max-h-44 gap-1 overflow-auto rounded-md p-2 text-[11px] font-medium text-muted-foreground">
+              {result.steps.map((step, index) => (
+                <li key={step.id} className="flex gap-2">
+                  <span className="w-5 shrink-0 text-right text-[10px] text-muted-foreground/70">
+                    {index + 1}.
+                  </span>
+                  <span className="min-w-0 break-words text-foreground">
+                    {formatMacroStep(step, t, macroNameById)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="glass-control rounded-md border border-dashed border-border/60 p-3 text-[11px] font-medium text-muted-foreground">
+              {t("macroForm.commandImport.noSteps")}
+            </div>
+          )}
+        </div>
+
+        {result.issues.length > 0 ? (
+          <div className="grid gap-2 rounded-md border border-amber-500/25 bg-amber-500/[0.06] p-3">
+            <p className="text-xs font-semibold text-foreground">
+              {t("macroForm.commandImport.warnings")}
+            </p>
+            <ul className="grid gap-1 text-[11px] font-medium leading-4 text-muted-foreground">
+              {result.issues.map((issue, index) => (
+                <li key={`${issue.code}-${issue.token}-${index}`}>
+                  {formatMacroCommandIssue(issue, t)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("macroForm.cancel")}
+          </Button>
+          <Button type="button" disabled={!canImport} onClick={handleImport}>
+            <Plus size={14} />
+            {t("macroForm.commandImport.confirm").replace("{count}", String(result.steps.length))}
+          </Button>
+        </div>
+      </Surface>
+    </dialog>
+  );
+}
+
+function formatMacroCommandIssue(issue: MacroCommandIssue, t: Translator): string {
+  switch (issue.code) {
+    case "callToggle":
+      return t("macroForm.commandImport.warning.callToggle").replace("{name}", issue.detail ?? issue.token);
+    case "invalidClick":
+      return t("macroForm.commandImport.warning.invalidClick").replace("{token}", issue.token);
+    case "invalidWait":
+      return t("macroForm.commandImport.warning.invalidWait").replace("{token}", issue.token);
+    case "missingMacro":
+      return t("macroForm.commandImport.warning.missingMacro").replace("{name}", issue.detail ?? issue.token);
+    case "stepLimit":
+      return t("macroForm.commandImport.warning.stepLimit").replace("{limit}", issue.detail ?? "0");
+    case "unclosedQuote":
+      return t("macroForm.commandImport.warning.unclosedQuote");
+    case "unavailableMacro":
+      return t("macroForm.commandImport.warning.unavailableMacro").replace("{name}", issue.detail ?? issue.token);
+    case "unknownCommand":
+      return t("macroForm.commandImport.warning.unknownCommand").replace("{token}", issue.token);
+    case "unknownKey":
+      return t("macroForm.commandImport.warning.unknownKey").replace("{token}", issue.token);
+    case "unsupported":
+      return t("macroForm.commandImport.warning.unsupported").replace("{token}", issue.token);
+  }
 }
 
 interface AffixedInputProps {
@@ -1314,7 +1534,10 @@ function MacroStepFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {commonMacroKeyCodes.map((code) => (
+              {(commonMacroKeyCodes.includes(step.code as typeof commonMacroKeyCodes[number])
+                ? commonMacroKeyCodes
+                : [step.code, ...commonMacroKeyCodes]
+              ).map((code) => (
                 <SelectItem
                   key={code}
                   value={code}

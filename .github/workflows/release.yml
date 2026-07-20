@@ -1,14 +1,11 @@
 name: Private Release Candidate
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing private release tag to rebuild (vMAJOR.MINOR.PATCH)
-        required: true
+        description: Optional existing private release tag to rebuild (vMAJOR.MINOR.PATCH)
+        required: false
         type: string
 
 permissions:
@@ -20,130 +17,60 @@ env:
   RION_STUDIO_RELEASE_REPOSITORY: rion-tw/rion-studio
 
 concurrency:
-  group: private-release-${{ github.ref }}-${{ inputs.tag || 'automatic' }}
+  group: private-release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  validate-release:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            build_target: --mac dmg zip --arm64
-            required_assets: Rion.Studio-mac.dmg Rion.Studio-mac.zip Rion.Studio-mac.zip.blockmap latest-mac.yml
-          - os: windows-latest
-            build_target: --win nsis --x64
-            required_assets: Rion.Studio-win.exe Rion.Studio-win.exe.blockmap latest.yml
+  resolve-release-input:
+    runs-on: ubuntu-latest
+    outputs:
+      source_ref: ${{ steps.resolve.outputs.source_ref }}
+      rebuild: ${{ steps.resolve.outputs.rebuild }}
     steps:
-      - name: Checkout
+      - name: Checkout release history
         uses: actions/checkout@v7
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
+          fetch-depth: 0
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Typecheck
-        run: pnpm run typecheck
-
-      - name: Test
-        run: pnpm run test
-
-      - name: Lint
-        run: pnpm run lint
-
-      - name: Build app
-        run: pnpm exec electron-vite build
-
-      - name: Build macOS native runtime tabs
-        if: runner.os == 'macOS'
-        run: pnpm run build:native:macos
-
-      - name: Verify and test macOS native runtime tabs
-        if: runner.os == 'macOS'
-        run: pnpm run test:native:macos
-
-      - name: Build Windows native helper
-        if: runner.os == 'Windows'
-        run: pnpm run build:native:windows
-
-      - name: Verify and test Windows native helper
-        if: runner.os == 'Windows'
-        run: pnpm run test:native:windows
-
-      - name: Build platform preflight artifact
-        run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.build_target }} --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Verify platform preflight artifact
+      - name: Resolve release source
+        id: resolve
         shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          CURRENT_REF: ${{ github.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          release_dir="release/0.0.0-development"
-          read -r -a required_assets <<< "${{ matrix.required_assets }}"
-
-          for asset_name in "${required_assets[@]}"; do
-            test -f "${release_dir}/${asset_name}"
-          done
-
-          if [[ "${RUNNER_OS}" == "macOS" ]]; then
-            app_path="${release_dir}/mac-arm64/Rion Studio.app"
-            update_config="${app_path}/Contents/Resources/app-update.yml"
-            native_tabs="${app_path}/Contents/Resources/native/rion-runtime-tabs.node"
-            codesign --verify --deep --strict --verbose=2 "${app_path}"
-            codesign --verify --strict --verbose=2 "${native_tabs}"
-            node scripts/verifyMacRuntimeTabs.mjs "${native_tabs}"
-
-            signature_info="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
-            grep -Fx "Identifier=com.rionstudio.launcher" <<< "${signature_info}"
-            grep -Fx "Signature=adhoc" <<< "${signature_info}"
-            grep -Fx "TeamIdentifier=not set" <<< "${signature_info}"
-            grep -E '^Sealed Resources version=[0-9]+' <<< "${signature_info}"
-
-            verify_entitlement() {
-              local signed_path="$1"
-              local key="$2"
-              local entitlements
-              entitlements="$(codesign -d --entitlements :- "${signed_path}" 2>/dev/null)"
-              grep -F "<key>${key}</key>" <<< "${entitlements}"
-            }
-
-            verify_entitlement "${app_path}" "com.apple.security.cs.allow-jit"
-            verify_entitlement "${app_path}" "com.apple.security.cs.disable-library-validation"
-
-            for helper_name in \
-              "Rion Studio Helper.app" \
-              "Rion Studio Helper (Renderer).app" \
-              "Rion Studio Helper (GPU).app" \
-              "Rion Studio Helper (Plugin).app"; do
-              helper_path="${app_path}/Contents/Frameworks/${helper_name}"
-              verify_entitlement "${helper_path}" "com.apple.security.cs.allow-jit"
-              verify_entitlement "${helper_path}" "com.apple.security.cs.disable-library-validation"
-            done
-          else
-            update_config="${release_dir}/win-unpacked/resources/app-update.yml"
+          if [[ -n "${REQUESTED_TAG}" ]]; then
+            if [[ ! "${REQUESTED_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid release tag: ${REQUESTED_TAG}" >&2
+              exit 1
+            fi
+            git rev-parse --verify "refs/tags/${REQUESTED_TAG}^{commit}" >/dev/null
+            gh release view "${REQUESTED_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+            echo "source_ref=${REQUESTED_TAG}" >> "${GITHUB_OUTPUT}"
+            echo "rebuild=true" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
 
-          node scripts/verifyPackagedUpdateConfig.mjs "${update_config}" "${RION_STUDIO_RELEASE_REPOSITORY}"
+          test "${CURRENT_REF}" = "refs/heads/main"
+          echo "source_ref=${CURRENT_REF}" >> "${GITHUB_OUTPUT}"
+          echo "rebuild=false" >> "${GITHUB_OUTPUT}"
 
-      - name: Verify packaged Windows native helper
-        if: runner.os == 'Windows'
-        run: node scripts/verifyWindowsWindowFrameHelper.mjs release/0.0.0-development/win-unpacked/resources/native/rion-window-frame-helper.exe
+  ci-gate:
+    needs: resolve-release-input
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.resolve-release-input.outputs.source_ref }}
 
   semantic-release:
-    if: github.event_name == 'push'
-    needs: validate-release
+    needs:
+      - resolve-release-input
+      - ci-gate
+    if: >-
+      needs.resolve-release-input.outputs.rebuild != 'true' &&
+      needs.ci-gate.result == 'success'
     runs-on: ubuntu-latest
     outputs:
       release_version: ${{ steps.semantic.outputs.release_version }}
@@ -173,11 +100,13 @@ jobs:
 
   resolve-release:
     needs:
-      - validate-release
+      - resolve-release-input
+      - ci-gate
       - semantic-release
     if: >-
       always() &&
-      needs.validate-release.result == 'success' &&
+      needs.resolve-release-input.result == 'success' &&
+      needs.ci-gate.result == 'success' &&
       (needs.semantic-release.result == 'success' || needs.semantic-release.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
@@ -194,14 +123,14 @@ jobs:
         id: resolve
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
           REQUESTED_TAG: ${{ inputs.tag }}
           SEMANTIC_VERSION: ${{ needs.semantic-release.outputs.release_version }}
+          REBUILD: ${{ needs.resolve-release-input.outputs.rebuild }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+          if [[ "${REBUILD}" == "true" ]]; then
             tag="${REQUESTED_TAG}"
             if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "Invalid release tag: ${tag}" >&2
@@ -224,11 +153,16 @@ jobs:
           echo "release_version=${version}" >> "${GITHUB_OUTPUT}"
 
   build-release-assets:
-    needs: resolve-release
-    if: needs.resolve-release.outputs.has_release == 'true'
+    needs:
+      - ci-gate
+      - resolve-release
+    if: >-
+      needs.ci-gate.result == 'success' &&
+      needs.resolve-release.result == 'success' &&
+      needs.resolve-release.outputs.has_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - os: macos-latest
@@ -254,6 +188,51 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+
+      - name: Configure macOS compiler cache
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "ELECTRON_CACHE=${GITHUB_WORKSPACE}/.electron-cache" >> "${GITHUB_ENV}"
+          echo "ELECTRON_BUILDER_CACHE=${GITHUB_WORKSPACE}/.electron-builder-cache" >> "${GITHUB_ENV}"
+
+          if ! command -v ccache >/dev/null 2>&1; then
+            if ! command -v brew >/dev/null 2>&1 || ! brew install ccache; then
+              echo "ccache unavailable; falling back to the native clang compiler."
+              echo "CC=clang" >> "${GITHUB_ENV}"
+              echo "CXX=clang++" >> "${GITHUB_ENV}"
+              exit 0
+            fi
+          fi
+
+          echo "CCACHE_DIR=${GITHUB_WORKSPACE}/.ccache" >> "${GITHUB_ENV}"
+          echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CCACHE_COMPILERCHECK=content" >> "${GITHUB_ENV}"
+          echo "CC=ccache clang" >> "${GITHUB_ENV}"
+          echo "CXX=ccache clang++" >> "${GITHUB_ENV}"
+
+      - name: Restore macOS build caches
+        if: runner.os == 'macOS'
+        uses: actions/cache@v5
+        with:
+          path: |
+            .ccache
+            .electron-cache
+            .electron-builder-cache
+            ~/Library/Caches/node-gyp
+          key: macos-ccache-v1-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'package.json', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            macos-ccache-v1-${{ runner.arch }}-
+
+      - name: Reset macOS compiler cache statistics
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            ccache --zero-stats
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -368,11 +347,23 @@ jobs:
 
           gh release upload "${tag}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
 
+      - name: Report macOS compiler cache statistics
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            ccache --show-stats || true
+          fi
+
   verify-private-release:
     needs:
+      - ci-gate
       - resolve-release
       - build-release-assets
-    if: needs.resolve-release.outputs.has_release == 'true'
+    if: >-
+      needs.ci-gate.result == 'success' &&
+      needs.resolve-release.result == 'success' &&
+      needs.resolve-release.outputs.has_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout private release tag
@@ -407,9 +398,14 @@ jobs:
 
   publish-public-release:
     needs:
+      - ci-gate
       - resolve-release
       - verify-private-release
-    if: needs.resolve-release.outputs.has_release == 'true'
+    if: >-
+      needs.ci-gate.result == 'success' &&
+      needs.resolve-release.result == 'success' &&
+      needs.verify-private-release.result == 'success' &&
+      needs.resolve-release.outputs.has_release == 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/publish-public-release.yml

@@ -111,13 +111,13 @@ describe("electron-builder release configuration", () => {
       expect(builderIndex).toBeGreaterThan(verifyIndex);
     }
 
-    expect(releaseWorkflow.match(/run: pnpm run build:native:windows/gu)).toHaveLength(2);
-    expect(releaseWorkflow.match(/run: pnpm run test:native:windows/gu)).toHaveLength(2);
+    expect(releaseWorkflow.match(/run: pnpm run build:native:windows/gu)).toHaveLength(1);
+    expect(releaseWorkflow.match(/run: pnpm run test:native:windows/gu)).toHaveLength(1);
     expect(
       releaseWorkflow.match(/run: node scripts\/verifyWindowsWindowFrameHelper\.mjs/gu)
-    ).toHaveLength(2);
-    expect(releaseWorkflow.match(/- os: macos-latest/gu)).toHaveLength(2);
-    expect(releaseWorkflow.match(/- os: windows-latest/gu)).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(releaseWorkflow.match(/- os: macos-latest/gu)).toHaveLength(1);
+    expect(releaseWorkflow.match(/- os: windows-latest/gu)).toHaveLength(1);
   });
 
   it("includes the entitlements required for ad-hoc hardened runtime Electron bundles", async () => {

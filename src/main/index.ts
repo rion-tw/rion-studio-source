@@ -700,6 +700,20 @@ async function initializeApplication(): Promise<void> {
         if (!probe.isDestroyed()) probe.destroy();
       }
     },
+    onLoginDataTransfer: (summary) => {
+      logService.info("browser", "chrome_profile_import_data_transfer", "Chrome profile login data transfer completed.", {
+        cookieFailedCount: summary.cookieFailedCount,
+        cookieInjectedCount: summary.cookieInjectedCount,
+        cookieReadCount: summary.cookieReadCount,
+        localStorageFailedOriginCount: summary.localStorageFailedOriginCount,
+        localStorageInjectedKeyCount: summary.localStorageInjectedKeyCount,
+        localStorageInjectedOriginCount: summary.localStorageInjectedOriginCount,
+        localStorageKeyCount: summary.localStorageKeyCount,
+        localStorageOriginCount: summary.localStorageOriginCount,
+        readFailed: summary.readFailed,
+        roleId: summary.roleId
+      });
+    },
     readChromeLoginData: readChromeLoginDataWithCdp,
     roleStore,
     showOpenDialog: (options) =>

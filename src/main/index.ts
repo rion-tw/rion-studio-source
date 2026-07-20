@@ -22,6 +22,11 @@ import {
 } from "electron";
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
+import {
+  ChromeProfileImportManager,
+  readChromeSessionWithCdp,
+  recoverChromeProfileImport
+} from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
@@ -461,9 +466,11 @@ async function initializeApplication(): Promise<void> {
   const withDataMutation = <T>(operation: () => Promise<T>): Promise<T> =>
     dataMutationQueue.run(operation);
   const roleStore = new RoleStore(userDataDir);
-  const transactionalRoleAuthStore: Pick<RoleStore, "updateAuthState"> = {
+  await recoverChromeProfileImport(userDataDir, roleStore);
+  const transactionalRoleAuthStore: Pick<RoleStore, "updateAuthState"> & Pick<RoleStore, "updateRole"> = {
     updateAuthState: (id, authState, messageTimestamp) =>
-      withDataMutation(() => roleStore.updateAuthState(id, authState, messageTimestamp))
+      withDataMutation(() => roleStore.updateAuthState(id, authState, messageTimestamp)),
+    updateRole: (id, input) => withDataMutation(() => roleStore.updateRole(id, input))
   };
   const gameStore = new GameStore(userDataDir, roleStore);
   await gameStore.initialize();
@@ -597,6 +604,9 @@ async function initializeApplication(): Promise<void> {
       if (!role) {
         return globalMode;
       }
+      if (role.preferredBrowserLaunchMode) {
+        return role.preferredBrowserLaunchMode;
+      }
       const game = await gameStore.getGame(role.gameId);
       return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
     },
@@ -669,6 +679,37 @@ async function initializeApplication(): Promise<void> {
     browserManager,
     getSession: (partition) => electronSession.fromPartition(partition),
     roleStore
+  });
+  const chromeProfileImportManager = new ChromeProfileImportManager({
+    gameStore,
+    getSession: (partition) => electronSession.fromPartition(partition),
+    injectEmbeddedStorage: async (partition, url, values) => {
+      const probe = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          partition,
+          sandbox: true
+        }
+      });
+      try {
+        await probe.loadURL(url);
+        await probe.webContents.executeJavaScript(
+          `Object.entries(${JSON.stringify(values)}).forEach(([key, value]) => localStorage.setItem(key, value));`,
+          true
+        );
+      } finally {
+        if (!probe.isDestroyed()) probe.destroy();
+      }
+    },
+    readChromeSession: readChromeSessionWithCdp,
+    roleStore,
+    showOpenDialog: (options) =>
+      mainWindow && !mainWindow.isDestroyed()
+        ? dialog.showOpenDialog(mainWindow, options)
+        : dialog.showOpenDialog(options),
+    userDataDir
   });
   const macroOverlayInjector = new MacroOverlayInjector(
     macroStore,
@@ -809,6 +850,7 @@ async function initializeApplication(): Promise<void> {
     macroStore,
     macroSettingsStore,
     portableDataManager,
+    chromeProfileImportManager,
     roleBrowserDataManager,
     systemFontService,
     updateManager,

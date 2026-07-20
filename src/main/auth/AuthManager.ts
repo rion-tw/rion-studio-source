@@ -17,7 +17,7 @@ export class AuthManager extends EventEmitter<AuthManagerEvents> {
   private readonly flows = new Map<string, AuthFlowStatus>();
 
   constructor(
-    private readonly roleStore: Pick<RoleStore, "updateAuthState">,
+    private readonly roleStore: Pick<RoleStore, "updateAuthState"> & Partial<Pick<RoleStore, "updateRole">>,
     private readonly browserManager: Pick<
       BrowserManager,
       "startLogin" | "waitForAuthentication"
@@ -64,6 +64,9 @@ export class AuthManager extends EventEmitter<AuthManagerEvents> {
       const result = await this.browserManager.waitForAuthentication(role.id);
       this.setStatus(role.id, "checking_session", "Checking embedded login session.");
       await this.roleStore.updateAuthState(role.id, result.authState);
+      if (result.authState === "authenticated") {
+        await this.roleStore.updateRole?.(role.id, { preferredBrowserLaunchMode: null }).catch(() => undefined);
+      }
       this.emit("result", role, result.authState);
 
       if (result.authState !== "authenticated") {

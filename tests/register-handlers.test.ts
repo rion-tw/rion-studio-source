@@ -8,6 +8,7 @@ import {
   type BrowserManager
 } from "../src/main/browser/BrowserManager";
 import { registerIpcHandlers } from "../src/main/ipc/registerHandlers";
+import type { ChromeProfileImportManager } from "../src/main/browser/ChromeProfileImportManager";
 import type { MacroManager } from "../src/main/macros/MacroManager";
 import type { MacroStore } from "../src/main/macros/MacroStore";
 import type { GameStore } from "../src/main/games/GameStore";
@@ -135,6 +136,7 @@ describe("registerIpcHandlers workspace handlers", () => {
   let onRolesChanged: AnyMock;
   let onWorkspacesChanged: AnyMock;
   let roleBrowserDataManager: { clear: AnyMock };
+  let chromeProfileImportManager: Pick<ChromeProfileImportManager, "applyImport" | "discardImport" | "previewImport">;
   let consumePendingWorkspaceLaunchRequest: AnyMock;
   let quitApplication: AnyMock;
   let legalAcceptanceStore: {
@@ -215,6 +217,28 @@ describe("registerIpcHandlers workspace handlers", () => {
     roleBrowserDataManager = {
       clear: vi.fn(async (id: string) => ({ ...authenticatedRole, id, authState: "login_required" as const }))
     };
+    chromeProfileImportManager = {
+      applyImport: vi.fn(async () => ({
+        roles: [{ ...authenticatedRole, id: "imported-role" }],
+        results: [{
+          authState: "authenticated" as const,
+          embedded: "authenticated" as const,
+          external: "login_required" as const,
+          profileId: "Default",
+          profileName: "Primary",
+          roleId: "imported-role",
+          roleName: "Primary"
+        }],
+        warnings: [{ code: "passwords_excluded" as const }]
+      })),
+      discardImport: vi.fn().mockResolvedValue(undefined),
+      previewImport: vi.fn().mockResolvedValue({
+        importId: "import-1",
+        profiles: [{ directoryName: "Default", id: "Default", name: "Primary" }],
+        sourceLabel: "Chrome",
+        warnings: [{ code: "passwords_excluded" as const }]
+      })
+    };
     consumePendingWorkspaceLaunchRequest = vi.fn(() => ({
       workspaceId: workspace.id,
       workspaceName: workspace.name,
@@ -274,7 +298,8 @@ describe("registerIpcHandlers workspace handlers", () => {
         onRolesChanged,
         onWorkspacesChanged,
         quitApplication,
-        roleBrowserDataManager
+        roleBrowserDataManager,
+        chromeProfileImportManager
       }
     );
   });
@@ -514,6 +539,36 @@ describe("registerIpcHandlers workspace handlers", () => {
 
     expect(roleBrowserDataManager.clear).toHaveBeenCalledWith(authenticatedRole.id);
     expect(onRolesChanged).toHaveBeenCalledOnce();
+  });
+
+  it("requires consent and coordinates Chrome profile import through the mutation lock", async () => {
+    await expect(handlers.get(IPC_CHANNELS.chromeProfileImportPreview)?.({})).resolves.toMatchObject({
+      importId: "import-1"
+    });
+    expect(() => handlers.get(IPC_CHANNELS.chromeProfileImportApply)?.({}, {
+      consentAccepted: false,
+      gameId: customGame.id,
+      importId: "import-1",
+      profileIds: ["Default"]
+    })).toThrow("Chrome profile import input is invalid.");
+
+    const result = await handlers.get(IPC_CHANNELS.chromeProfileImportApply)?.({}, {
+      consentAccepted: true,
+      gameId: customGame.id,
+      importId: "import-1",
+      profileIds: ["Default"]
+    });
+    expect(result).toMatchObject({ roles: [{ id: "imported-role" }] });
+    expect(chromeProfileImportManager.applyImport).toHaveBeenCalledWith({
+      consentAccepted: true,
+      gameId: customGame.id,
+      importId: "import-1",
+      profileIds: ["Default"]
+    });
+    expect(onRolesChanged).toHaveBeenCalledOnce();
+
+    await handlers.get(IPC_CHANNELS.chromeProfileImportDiscard)?.({}, "import-1");
+    expect(chromeProfileImportManager.discardImport).toHaveBeenCalledWith("import-1");
   });
 
   it("persists role and workspace orders and reports both collections changed", async () => {

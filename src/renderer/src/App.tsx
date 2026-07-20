@@ -27,6 +27,9 @@ import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type {
   GameBrowserSettings,
+  ChromeProfileImportInput,
+  ChromeProfileImportPreview,
+  ChromeProfileImportResult,
   GraphicsDiagnostics,
   MacroSettings,
   PortableExportInput,
@@ -196,6 +199,26 @@ export function App(): JSX.Element {
     },
     [data, preferences]
   );
+  const previewChromeProfileImport = useCallback(async (): Promise<ChromeProfileImportPreview | null> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+    return window.rionStudio.previewChromeProfileImport();
+  }, []);
+  const applyChromeProfileImport = useCallback(async (input: ChromeProfileImportInput): Promise<ChromeProfileImportResult> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+    const result = await window.rionStudio.applyChromeProfileImport(input);
+    await data.loadData();
+    return result;
+  }, [data]);
+  const discardChromeProfileImport = useCallback(async (importId: string): Promise<void> => {
+    if (!window.rionStudio) {
+      throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+    }
+    await window.rionStudio.discardChromeProfileImport(importId);
+  }, []);
 
   useEffect(() => {
     if (!hasBridge || data.initialLoadState !== "ready") {
@@ -697,6 +720,7 @@ export function App(): JSX.Element {
               element={
                 <SettingsRoute
                   gameBrowserSettings={gameBrowserSettings}
+                  games={data.games}
                   hasRunningRoles={data.statuses.some(
                     (status) => status.state === "launching" || status.state === "running"
                   )}
@@ -724,6 +748,9 @@ export function App(): JSX.Element {
                   onPreviewPortableImport={previewPortableImport}
                   onApplyPortableImport={applyPortableImport}
                   onDiscardPortableImport={discardPortableImport}
+                  onPreviewChromeProfileImport={previewChromeProfileImport}
+                  onApplyChromeProfileImport={applyChromeProfileImport}
+                  onDiscardChromeProfileImport={discardChromeProfileImport}
                   onOpenUpdateDownload={updates.openUpdateDownload}
                   onInstallDownloadedUpdate={updates.installDownloadedUpdate}
                   onRestartApplication={restartApplication}

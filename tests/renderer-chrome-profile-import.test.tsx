@@ -92,7 +92,7 @@ describe("Chrome profile import flow", () => {
 
     const noticeConsent = screen.getByRole("checkbox");
     expect(noticeConsent.className).toContain("mt-[3px]");
-    expect(noticeConsent.parentElement?.className).toContain("gap-1");
+    expect(noticeConsent.parentElement?.className).toContain("gap-2");
     expect(noticeConsent.nextElementSibling?.className).not.toContain("pt-1.5");
     const chooseFolderButton = screen.getByRole("button", { name: "Choose Chrome folder" });
     expect(chooseFolderButton).toHaveProperty("disabled", true);
@@ -126,7 +126,7 @@ describe("Chrome profile import flow", () => {
     expect(importButton).toHaveProperty("disabled", true);
     const consentCheckbox = screen.getByRole("checkbox");
     expect(consentCheckbox.className).toContain("mt-[3px]");
-    expect(consentCheckbox.parentElement?.className).toContain("gap-1");
+    expect(consentCheckbox.parentElement?.className).toContain("gap-2");
     expect(consentCheckbox.nextElementSibling?.className).not.toContain("pt-1.5");
     expect(profileCard?.getAttribute("aria-pressed")).toBe("false");
 

@@ -7,6 +7,7 @@ import {
   app,
   BaseWindow,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -93,6 +94,7 @@ import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecyc
 import { IPC_CHANNELS } from "../shared/ipc";
 import { EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL } from "../shared/embeddedRuntimeDiagnostics";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
+import { formatMacroCoordinateClipboard } from "../shared/macroCoordinates";
 import {
   RUNTIME_TABS_ACTION_CHANNEL,
   isRuntimeTabAction,
@@ -689,7 +691,8 @@ async function initializeApplication(): Promise<void> {
         details
       );
     },
-    async () => (await gameBrowserSettingsStore.getSettings()).macroBadgePosition
+    async () => (await gameBrowserSettingsStore.getSettings()).macroBadgePosition,
+    (coordinate) => clipboard.writeText(formatMacroCoordinateClipboard(coordinate))
   );
   browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
   browserManager.setExternalMacroOverlayInstaller((role, target) => macroOverlayInjector.installExternal(role, target));

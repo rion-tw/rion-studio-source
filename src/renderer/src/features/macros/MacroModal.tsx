@@ -16,6 +16,7 @@ import {
   X
 } from "lucide-react";
 import {
+  type ClipboardEvent,
   type DragEvent,
   type FormEvent,
   type JSX,
@@ -51,6 +52,7 @@ import {
 } from "../../../../shared/macroShortcuts";
 import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
+import { parseMacroCoordinateClipboard } from "../../../../shared/macroCoordinates";
 import type { Game, Macro, MacroActivationMode, MacroCallMode, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
@@ -641,6 +643,7 @@ interface AffixedInputProps {
   max: number;
   min: number;
   onChange: (value: number) => void;
+  onPaste?: (event: ClipboardEvent<HTMLInputElement>) => void;
   prefix?: string;
   suffix?: string;
   step?: number;
@@ -654,6 +657,7 @@ function AffixedInput({
   max,
   min,
   onChange,
+  onPaste,
   prefix,
   suffix,
   step,
@@ -681,6 +685,7 @@ function AffixedInput({
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
+        onPaste={onPaste}
         disabled={disabled}
       />
       {suffix ? (
@@ -1395,6 +1400,22 @@ function MacroStepFields({
     const isPixel = unit === "px";
     const x = step.unit === "px" ? step.xPx : step.xPercent;
     const y = step.unit === "px" ? step.yPx : step.yPercent;
+    const handleCoordinatePaste = (event: ClipboardEvent<HTMLInputElement>): void => {
+      const measurement = parseMacroCoordinateClipboard(event.clipboardData.getData("text"));
+      if (!measurement) {
+        return;
+      }
+
+      event.preventDefault();
+      onUpdate(isPixel
+        ? { id: step.id, type: "click", unit: "px", xPx: measurement.xPx, yPx: measurement.yPx }
+        : {
+            id: step.id,
+            type: "click",
+            xPercent: measurement.xPercent,
+            yPercent: measurement.yPercent
+          });
+    };
     return (
       <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
         <Select
@@ -1422,6 +1443,7 @@ function MacroStepFields({
           onChange={(value) => onUpdate(isPixel
             ? { id: step.id, type: "click", unit: "px", xPx: value, yPx: y }
             : { id: step.id, type: "click", xPercent: value, yPercent: y })}
+          onPaste={handleCoordinatePaste}
         />
         <AffixedInput
           aria-label={t("macroForm.clickY")}
@@ -1435,6 +1457,7 @@ function MacroStepFields({
           onChange={(value) => onUpdate(isPixel
             ? { id: step.id, type: "click", unit: "px", xPx: x, yPx: value }
             : { id: step.id, type: "click", xPercent: x, yPercent: value })}
+          onPaste={handleCoordinatePaste}
         />
       </div>
     );

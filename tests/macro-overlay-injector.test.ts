@@ -6,9 +6,11 @@ import {
   MACRO_SHORTCUT_GUARD_SOURCE,
   MACRO_OVERLAY_SCRIPT,
   MacroOverlayInjector,
+  isMacroOverlayRequest,
   shouldIgnoreMacroShortcutEvent,
   type MacroOverlayRequest
 } from "../src/main/macros/MacroOverlayInjector";
+import { formatMacroCoordinateClipboard } from "../src/shared/macroCoordinates";
 import type {
   Macro,
   MacroBadgePositionSettings,
@@ -83,7 +85,8 @@ describe("MacroOverlayInjector", () => {
       stop: vi.fn().mockResolvedValue(undefined)
     };
     const onMacroPageRequested = vi.fn();
-    const injector = createInjector({ macroManager, onMacroPageRequested });
+    const copyCoordinateToClipboard = vi.fn();
+    const injector = createInjector({ macroManager, onMacroPageRequested, copyCoordinateToClipboard });
 
     await injector.installExternal(role, host as never);
     expect(host.installMacroOverlay).toHaveBeenCalledWith(MACRO_OVERLAY_SCRIPT, expect.any(Function));
@@ -93,6 +96,16 @@ describe("MacroOverlayInjector", () => {
     await expect(requestHandler?.({ type: "game-input-context", active: true })).resolves.toEqual({
       macros: [],
       statuses: []
+    });
+    const coordinate = { type: "copy-coordinate", xPercent: 12.34, xPx: 123, yPercent: 56.78, yPx: 456 };
+    await expect(requestHandler?.(coordinate)).resolves.toMatchObject({
+      macros: [{ id: assignedMacro.id }]
+    });
+    expect(copyCoordinateToClipboard).toHaveBeenCalledWith({
+      xPercent: coordinate.xPercent,
+      xPx: coordinate.xPx,
+      yPercent: coordinate.yPercent,
+      yPx: coordinate.yPx
     });
     await requestHandler?.({ type: "open" });
     await expect(requestHandler?.({ type: "unknown" })).rejects.toThrow("Invalid macro overlay request");
@@ -524,9 +537,9 @@ describe("MacroOverlayInjector", () => {
     expect(page.page.executeJavaScript).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a stable trigger while removing the action menu and focus restoration", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v44"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.2"');
+  it("keeps a stable trigger while exposing the coordinate action menu", () => {
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v45"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.3"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -539,16 +552,36 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("mousedown"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('triggerElement?.addEventListener("click"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="active-badges" aria-hidden="true"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('class="panel"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("macro-enabled-switch");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("macro-edit");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain("macro-row");
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('type: "create"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('type: "edit"');
-    expect(MACRO_OVERLAY_SCRIPT).not.toContain('type: "set-enabled"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('class="action-menu" hidden role="menu"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('type: "copy-coordinate"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain("coordinateMeasureActive");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("focusAutomationTarget");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("document.activeElement === element");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('querySelectorAll("canvas");');
+  });
+
+  it("routes coordinate copies to the injected clipboard writer", async () => {
+    const copyCoordinateToClipboard = vi.fn();
+    const injector = createInjector({ copyCoordinateToClipboard });
+    const coordinate = { xPercent: 12.34, xPx: 123, yPercent: 56.78, yPx: 456 };
+
+    await expect(injector.handleRequest(role.id, { type: "copy-coordinate", ...coordinate }))
+      .resolves.toMatchObject({ macros: [{ id: assignedMacro.id }] });
+
+    expect(copyCoordinateToClipboard).toHaveBeenCalledWith(coordinate);
+  });
+
+  it.each([
+    { type: "copy-coordinate", xPercent: 12, xPx: 123, yPercent: 45, yPx: -1 },
+    { type: "copy-coordinate", xPercent: 101, xPx: 123, yPercent: 45, yPx: 456 },
+    { type: "copy-coordinate", xPercent: 12, xPx: 123.5, yPercent: 45, yPx: 456 }
+  ])("rejects invalid coordinate request %j", (request) => {
+    expect(isMacroOverlayRequest(request)).toBe(false);
+  });
+
+  it("uses the shared coordinate clipboard format", () => {
+    expect(formatMacroCoordinateClipboard({ xPercent: 12.345, xPx: 123, yPercent: 56.789, yPx: 456 }))
+      .toBe("X: 123px (12.35%), Y: 456px (56.79%)");
   });
 
   it("localizes the open action and renders passive running badges", () => {
@@ -693,7 +726,8 @@ function createInjector({
   },
   onMacroPageRequested,
   onEmbeddedRefresh,
-  getMacroBadgePosition
+  getMacroBadgePosition,
+  copyCoordinateToClipboard
 }: {
   macroManager?: {
     listStatuses: AnyMock;
@@ -707,6 +741,7 @@ function createInjector({
   onMacroPageRequested?: AnyMock;
   onEmbeddedRefresh?: AnyMock;
   getMacroBadgePosition?: () => Promise<MacroBadgePositionSettings>;
+  copyCoordinateToClipboard?: AnyMock;
 } = {}): MacroOverlayInjector {
   const roleAwareMacroManager = {
     listStatuses: macroManager.listStatuses,
@@ -733,7 +768,8 @@ function createInjector({
     getRoleStatus,
     undefined,
     onEmbeddedRefresh,
-    getMacroBadgePosition
+    getMacroBadgePosition,
+    copyCoordinateToClipboard
   );
 }
 

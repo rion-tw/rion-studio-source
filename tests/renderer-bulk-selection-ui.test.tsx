@@ -236,7 +236,7 @@ describe("bulk selection UI", () => {
     expect(checkboxLayout?.parentElement?.className).toContain("p-0");
     const macroRow = checkbox.closest("tr");
     expect(macroRow?.className).toContain("align-middle");
-    expect(macroRow?.querySelector("td:nth-child(2)")?.className).toContain("py-1");
+    expect(macroRow?.querySelector("td:nth-child(2)")?.className).toContain("py-2");
     expect(macroRow?.querySelector("td:nth-child(2)")?.className).toContain("align-middle");
     expect(screen.getByText("None")).toBeTruthy();
 

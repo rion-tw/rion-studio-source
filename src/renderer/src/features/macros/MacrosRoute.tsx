@@ -315,7 +315,7 @@ function MacrosRoute({
                         />
                       </div>
                     </td>
-                    <td className="max-w-[240px] px-4 py-1 align-middle">
+                    <td className="max-w-[240px] px-4 py-2 align-middle">
                       <button
                         className="-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                         type="button"
@@ -326,7 +326,7 @@ function MacrosRoute({
                         <span className="block truncate">{macro.name}</span>
                       </button>
                     </td>
-                    <td className="max-w-[240px] px-4 py-1 align-middle">
+                    <td className="max-w-[240px] px-4 py-2 align-middle">
                       <MacroRoleBadge
                         macro={macro}
                         roleById={roleById}
@@ -334,18 +334,18 @@ function MacrosRoute({
                         t={t}
                       />
                     </td>
-                    <td className="px-4 py-1 align-middle text-muted-foreground">
+                    <td className="px-4 py-2 align-middle text-muted-foreground">
                       <span className="block">
                         {macro.trigger ? formatMacroShortcut(macro.trigger, t) : t("macros.noShortcutShort")}
                       </span>
                     </td>
-                    <td className="px-4 py-1 align-middle text-muted-foreground">
+                    <td className="px-4 py-2 align-middle text-muted-foreground">
                       {formatMacroActivationMode(macro.activationMode, t)}
                     </td>
-                    <td className="px-4 py-1 align-middle text-muted-foreground">
+                    <td className="px-4 py-2 align-middle text-muted-foreground">
                       {formatMacroRepeat(macro.repeat, t)}
                     </td>
-                    <td className="max-w-[320px] px-4 py-1 align-middle text-muted-foreground">
+                    <td className="max-w-[320px] px-4 py-2 align-middle text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t, macroNameById)}
                     </td>
                     <td className="relative w-32 p-0">

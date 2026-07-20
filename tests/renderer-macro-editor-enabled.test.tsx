@@ -740,6 +740,73 @@ describe("macro editor controls", () => {
     })));
   });
 
+  it("supports minute, hour, and day delay units", async () => {
+    const selectedMacro = macro({
+      repeat: { type: "loop", intervalMs: 1234 },
+      steps: [{ id: "delay", type: "delay", ms: 1500 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    const intervalTimeUnit = screen.getAllByRole("combobox", { name: "Time unit" })[0];
+    const delayTimeUnit = screen.getAllByRole("combobox", { name: "Time unit" })[1];
+    const intervalInput = screen.getByRole("spinbutton", { name: "Custom interval" }) as HTMLInputElement;
+    const delayInput = screen.getByRole("spinbutton", { name: "Delay" }) as HTMLInputElement;
+    expect(intervalInput.value).toBe("1.234");
+
+    fireEvent.click(intervalTimeUnit);
+    fireEvent.click(screen.getByRole("option", { name: "min" }));
+    expect(intervalInput.max).toBe("1440");
+    expect(intervalInput.value).toBe("0.021");
+    fireEvent.change(intervalInput, { target: { value: "1.5" } });
+
+    expect(delayInput.max).toBe("86400");
+    expect(delayInput.step).toBe("0.001");
+
+    fireEvent.click(delayTimeUnit);
+    fireEvent.click(screen.getByRole("option", { name: "min" }));
+    expect(delayInput.max).toBe("1440");
+    expect(delayInput.value).toBe("0.025");
+    fireEvent.change(delayInput, { target: { value: "1.5" } });
+
+    fireEvent.click(delayTimeUnit);
+    fireEvent.click(screen.getByRole("option", { name: "h" }));
+    expect(delayInput.max).toBe("24");
+    expect(delayInput.value).toBe("0.025");
+    fireEvent.change(delayInput, { target: { value: "1.5" } });
+
+    fireEvent.click(delayTimeUnit);
+    fireEvent.click(screen.getByRole("option", { name: "d" }));
+    expect(delayInput.max).toBe("1");
+    expect(delayInput.value).toBe("0.063");
+    fireEvent.change(delayInput, { target: { value: "0.5" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      repeat: { type: "loop", intervalMs: 90_000 },
+      steps: [{ id: "delay", type: "delay", ms: 43_200_000 }]
+    })));
+  });
+
   it("reorders steps by dragging", () => {
     const selectedMacro = macro({
       steps: [

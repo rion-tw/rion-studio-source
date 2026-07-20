@@ -740,9 +740,9 @@ function MacroIntervalControl({
           <AffixedInput
             aria-label={t("macroForm.intervalCustomValue")}
             disabled={disabled}
-            max={unit === "s" ? MACRO_DELAY_MAX_MS / 1000 : MACRO_DELAY_MAX_MS}
+            max={getTimeUnitMax(unit)}
             min={0}
-            step={unit === "s" ? 0.001 : 1}
+            step={getTimeUnitStep(unit)}
             suffix={unit}
             value={toDisplayTime(value, unit)}
             widthClassName="h-[30px] min-w-0 flex-1"
@@ -764,14 +764,30 @@ function MacroIntervalControl({
   );
 }
 
-type TimeUnit = "ms" | "s";
+type TimeUnit = "ms" | "s" | "min" | "h" | "d";
+
+const TIME_UNIT_FACTORS: Record<TimeUnit, number> = {
+  ms: 1,
+  s: 1_000,
+  min: 60_000,
+  h: 3_600_000,
+  d: 86_400_000
+};
+
+function getTimeUnitMax(unit: TimeUnit): number {
+  return MACRO_DELAY_MAX_MS / TIME_UNIT_FACTORS[unit];
+}
+
+function getTimeUnitStep(unit: TimeUnit): number {
+  return unit === "ms" ? 1 : 0.001;
+}
 
 function toDisplayTime(ms: number, unit: TimeUnit): number {
-  return unit === "s" ? Number((ms / 1000).toFixed(3)) : ms;
+  return unit === "ms" ? ms : Number((ms / TIME_UNIT_FACTORS[unit]).toFixed(3));
 }
 
 function fromDisplayTime(value: number, unit: TimeUnit): number {
-  return Math.round(unit === "s" ? value * 1000 : value);
+  return Math.round(value * TIME_UNIT_FACTORS[unit]);
 }
 
 function TimeUnitSelect({
@@ -789,8 +805,11 @@ function TimeUnitSelect({
     <Select value={unit} disabled={disabled} onValueChange={(value) => onChange(value as TimeUnit)}>
       <SelectTrigger aria-label={t("macroForm.timeUnit")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
       <SelectContent>
-        <SelectItem value="s">{t("macroForm.seconds")}</SelectItem>
         <SelectItem value="ms">{t("macroForm.milliseconds")}</SelectItem>
+        <SelectItem value="s">{t("macroForm.seconds")}</SelectItem>
+        <SelectItem value="min">{t("macroForm.minutes")}</SelectItem>
+        <SelectItem value="h">{t("macroForm.hours")}</SelectItem>
+        <SelectItem value="d">{t("macroForm.days")}</SelectItem>
       </SelectContent>
     </Select>
   );
@@ -1474,9 +1493,9 @@ function MacroStepFields({
       <AffixedInput
       aria-label={t("macroForm.delayMs")}
       disabled={isSaving}
-      max={timeUnit === "s" ? MACRO_DELAY_MAX_MS / 1000 : MACRO_DELAY_MAX_MS}
+      max={getTimeUnitMax(timeUnit)}
       min={0}
-      step={timeUnit === "s" ? 0.001 : 1}
+      step={getTimeUnitStep(timeUnit)}
       suffix={timeUnit}
       value={toDisplayTime(step.ms, timeUnit)}
       widthClassName="w-fit shrink-0"

@@ -213,7 +213,7 @@ function ChromeProfileImportNoticeDialog({
           <p>{t("settings.chromeProfileImportNoticeData")}</p>
           <p>{t("settings.chromeProfileImportNoticeLocalOnly")}</p>
           <p>{t("settings.chromeProfileImportNoticeCloseChrome")}</p>
-          <label className="mt-1 flex items-start gap-2 text-xs leading-5 text-foreground">
+          <label className="mt-1 flex items-start gap-1 text-xs leading-5 text-foreground">
             <Checkbox
               className="mt-0.5"
               checked={consentAccepted}
@@ -303,7 +303,7 @@ function ChromeProfileImportDialog({
               <label
                 key={profile.id}
                 className={cn(
-                  "glass-control flex min-h-12 w-full items-center gap-2 rounded-lg p-1.5 text-left transition-[background-color,border-color,color,box-shadow] focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-500/25",
+                  "glass-control flex min-h-10 w-full items-center gap-2 rounded-lg px-3 py-1 text-left transition-[background-color,border-color,color,box-shadow] focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-500/25",
                   selectedProfileIds.includes(profile.id)
                     ? "macro-role-card-selected text-foreground"
                     : isBusy
@@ -318,7 +318,7 @@ function ChromeProfileImportDialog({
                 />
                 <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
                   <span className="min-w-0 truncate text-xs font-semibold">{profile.name}</span>
-                  <span className="max-w-[45%] shrink-0 truncate pr-1 text-right text-[11px] text-muted-foreground">
+                  <span className="max-w-[45%] shrink-0 truncate text-right text-[11px] text-muted-foreground">
                     {profile.directoryName}
                   </span>
                 </span>
@@ -343,7 +343,7 @@ function ChromeProfileImportDialog({
             <p className="mt-1">{t("settings.chromeProfileImportPasswordNotice")}</p>
             <p className="mt-1">{t("settings.chromeProfileImportLoginDataNotice")}</p>
           </div>
-          <label className="flex items-start gap-2 text-xs leading-5 text-foreground">
+          <label className="flex items-start gap-1 text-xs leading-5 text-foreground">
             <Checkbox
               className="mt-0.5"
               checked={consentAccepted}

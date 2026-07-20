@@ -9,6 +9,38 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes Electron-wrapped custom errors", async () => {
+    await loadTranslations("zh-TW");
+
+    expect(
+      localizeErrorMessage(
+        "Error invoking remote method 'chrome-profile:import-preview':\nChromeProfileImportError: " +
+          "Chrome is still using the selected profile. Quit Chrome and try again.",
+        "zh-TW"
+      )
+    ).toBe("Chrome 仍在使用選取的個人資料。請關閉 Chrome 後再試一次。");
+  });
+
+  it("localizes Electron-wrapped standard errors", async () => {
+    await loadTranslations("zh-TW");
+
+    expect(
+      localizeErrorMessage(
+        "Error invoking remote method 'roles:create': Error: Role name is required.",
+        "zh-TW"
+      )
+    ).toBe("角色名稱為必填。");
+  });
+
+  it("removes Electron IPC details from unknown errors", () => {
+    expect(
+      localizeErrorMessage(
+        "Error invoking remote method 'roles:create': Error: A new unknown failure occurred.",
+        "en"
+      )
+    ).toBe("A new unknown failure occurred.");
+  });
+
   it("localizes game page load failures", async () => {
     const message =
       "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings.";

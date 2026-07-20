@@ -37,6 +37,9 @@ import type {
   PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
+  ChromeProfileImportInput,
+  ChromeProfileImportPreview,
+  ChromeProfileImportResult,
   ReorderItemsInput,
   Role,
   RolePaths,
@@ -111,6 +114,9 @@ export interface RionStudioApi {
   previewPortableImport: () => Promise<PortableImportPreview | null>;
   applyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
   discardPortableImport: (importId: string) => Promise<void>;
+  previewChromeProfileImport: () => Promise<ChromeProfileImportPreview | null>;
+  applyChromeProfileImport: (input: ChromeProfileImportInput) => Promise<ChromeProfileImportResult>;
+  discardChromeProfileImport: (importId: string) => Promise<void>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   getGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;

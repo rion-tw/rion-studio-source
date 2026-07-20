@@ -71,6 +71,7 @@ export interface Role {
   launchUrl: string;
   notes: string;
   authState: AuthState;
+  preferredBrowserLaunchMode?: BrowserLaunchMode;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
   lastAuthCheckAt?: string;
@@ -84,12 +85,14 @@ export interface CreateRoleInput {
   name: string;
   launchUrl?: string;
   notes?: string;
+  preferredBrowserLaunchMode?: BrowserLaunchMode;
   coverImageDataUrl?: string | null;
   coverImageDominantColor?: string | null;
 }
 
-export type UpdateRoleInput = Partial<Omit<CreateRoleInput, "name">> & {
+export type UpdateRoleInput = Partial<Omit<CreateRoleInput, "name" | "preferredBrowserLaunchMode">> & {
   name?: string;
+  preferredBrowserLaunchMode?: BrowserLaunchMode | null;
 };
 
 export interface ReorderItemsInput {
@@ -872,6 +875,65 @@ export interface PortableImportResult {
   selection: PortableDataSelection;
   operations: PortableImportOperations;
   warnings: PortableImportWarning[];
+}
+
+export type ChromeProfileImportRuntimeState =
+  | "authenticated"
+  | "login_required"
+  | "unavailable"
+  | "not_checked";
+
+export interface ChromeProfileEntry {
+  id: string;
+  directoryName: string;
+  name: string;
+}
+
+export interface ChromeProfileImportWarning {
+  code:
+    | "unsupported_platform"
+    | "source_invalid"
+    | "chrome_running"
+    | "profile_invalid"
+    | "profile_selection_empty"
+    | "passwords_excluded"
+    | "embedded_unavailable"
+    | "external_unavailable"
+    | "login_not_detected"
+    | "name_renamed";
+  profileId?: string;
+  profileName?: string;
+  replacementName?: string;
+}
+
+export interface ChromeProfileImportPreview {
+  importId: string;
+  sourceLabel: string;
+  profiles: ChromeProfileEntry[];
+  warnings: ChromeProfileImportWarning[];
+}
+
+export interface ChromeProfileImportInput {
+  importId: string;
+  profileIds: string[];
+  gameId: string;
+  consentAccepted: boolean;
+}
+
+export interface ChromeProfileImportRoleResult {
+  profileId: string;
+  profileName: string;
+  roleId?: string;
+  roleName?: string;
+  embedded: ChromeProfileImportRuntimeState;
+  external: ChromeProfileImportRuntimeState;
+  authState: AuthState;
+}
+
+export interface ChromeProfileImportResult {
+  roles: Role[];
+  results: ChromeProfileImportRoleResult[];
+  warnings: ChromeProfileImportWarning[];
 }
 
 export type AppUpdateState =

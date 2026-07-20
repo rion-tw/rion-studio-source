@@ -12,6 +12,7 @@ import type {
   BulkDeleteInput,
   BulkDeleteResult,
   BulkDeleteSkippedItem,
+  ChromeProfileImportInput,
   CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
@@ -47,6 +48,7 @@ import {
   type BrowserManager
 } from "../browser/BrowserManager";
 import type { RoleBrowserDataManager } from "../browser/RoleBrowserDataManager";
+import type { ChromeProfileImportManager } from "../browser/ChromeProfileImportManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { SystemFontService } from "../game-browser/SystemFontService";
 import type { GameCompatibilityManager } from "../games/GameCompatibilityManager";
@@ -90,6 +92,10 @@ interface RegisterIpcHandlersOptions {
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
   roleBrowserDataManager?: Pick<RoleBrowserDataManager, "clear">;
+  chromeProfileImportManager?: Pick<
+    ChromeProfileImportManager,
+    "applyImport" | "discardImport" | "previewImport"
+  >;
   workspaceLauncher?: Pick<WorkspaceLaunchCoordinator, "launch">;
   withDataMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
   getDefaultWorkspaceDisplayId?: () => number;
@@ -367,6 +373,42 @@ export function registerIpcHandlers(
       throw new Error("Portable data import is not available.");
     }
     options.portableDataManager.discardImport(importId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.chromeProfileImportPreview, () => {
+    if (!options.chromeProfileImportManager) {
+      throw new Error("Chrome profile import is not available.");
+    }
+
+    return options.chromeProfileImportManager.previewImport();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.chromeProfileImportApply, (_event, input: ChromeProfileImportInput) => {
+    if (
+      !options.chromeProfileImportManager ||
+      !input ||
+      typeof input.importId !== "string" ||
+      !input.importId.trim() ||
+      !Array.isArray(input.profileIds) ||
+      typeof input.gameId !== "string" ||
+      !input.gameId.trim() ||
+      input.consentAccepted !== true
+    ) {
+      throw new Error("Chrome profile import input is invalid.");
+    }
+
+    return runDataMutation(options, async () => {
+      const result = await options.chromeProfileImportManager!.applyImport(input);
+      options.onRolesChanged?.();
+      return result;
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.chromeProfileImportDiscard, (_event, importId: string) => {
+    if (!options.chromeProfileImportManager || typeof importId !== "string" || !importId.trim()) {
+      throw new Error("Chrome profile import is not available.");
+    }
+    return options.chromeProfileImportManager.discardImport(importId);
   });
 
   ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsGet, () => {

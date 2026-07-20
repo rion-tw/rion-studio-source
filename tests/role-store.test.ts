@@ -139,6 +139,19 @@ describe("RoleStore", () => {
     expect(updated.lastSuccessfulLoginAt).toBeUndefined();
   });
 
+  it("persists and clears a per-role browser launch preference", async () => {
+    const role = await store.createRole({
+      gameId: "game-1",
+      name: "Imported",
+      preferredBrowserLaunchMode: "external"
+    });
+
+    await expect(store.getRole(role.id)).resolves.toMatchObject({ preferredBrowserLaunchMode: "external" });
+    await expect(store.updateRole(role.id, { preferredBrowserLaunchMode: null })).resolves.toMatchObject({
+      preferredBrowserLaunchMode: undefined
+    });
+  });
+
   it("updates auth state and records auth timestamps", async () => {
     const role = await store.createRole({ gameId: "game-1", name: "Main" });
     const updated = await store.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");

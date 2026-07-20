@@ -35,6 +35,12 @@ import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExtern
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
 import { AuthManager } from "./auth/AuthManager";
+import { classifyAuthSession } from "./auth/authSessionClassification";
+import {
+  createLoginStorageSnapshot,
+  isPersistedLoginStorageReady,
+  LOGIN_STORAGE_EXPRESSION
+} from "./auth/loginEvidence";
 import {
   BrowserManager,
   createRoleSessionPartition,
@@ -604,9 +610,6 @@ async function initializeApplication(): Promise<void> {
       if (!role) {
         return globalMode;
       }
-      if (role.preferredBrowserLaunchMode) {
-        return role.preferredBrowserLaunchMode;
-      }
       const game = await gameStore.getGame(role.gameId);
       return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
     },
@@ -699,6 +702,29 @@ async function initializeApplication(): Promise<void> {
           `Object.entries(${JSON.stringify(values)}).forEach(([key, value]) => localStorage.setItem(key, value));`,
           true
         );
+        await probe.loadURL(url);
+        const [cookies, runtimeValue] = await Promise.all([
+          probe.webContents.session.cookies.get({ url }),
+          probe.webContents.executeJavaScript(LOGIN_STORAGE_EXPRESSION, true)
+        ]);
+        const snapshot = createLoginStorageSnapshot(cookies, runtimeValue);
+        const auth = classifyAuthSession(
+          probe.webContents.getURL(),
+          snapshot.bodyText,
+          isPersistedLoginStorageReady(snapshot)
+        );
+        return {
+          authState: auth.authState,
+          ...(auth.authState === "authenticated"
+            ? {}
+            : {
+                reason: auth.authState === "auth_failed"
+                  ? "embedded_verification_failed" as const
+                  : Object.keys(snapshot.indexedDb).length > 0
+                    ? "embedded_indexeddb_required" as const
+                    : "embedded_login_not_detected" as const
+              })
+        };
       } finally {
         if (!probe.isDestroyed()) probe.destroy();
       }

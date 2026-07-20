@@ -32,7 +32,6 @@ describe("AuthManager embedded login", () => {
     authentication.resolve({ authState: "authenticated", finalUrl: role.launchUrl });
     await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
     expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "authenticated");
-    expect(roleStore.updateRole).toHaveBeenCalledWith(role.id, { preferredBrowserLaunchMode: null });
   });
 
   it("surfaces an embedded browser rejection as auth_failed", async () => {
@@ -104,15 +103,8 @@ describe("AuthManager embedded login", () => {
 function createRoleStore() {
   return {
     updateAuthState: vi.fn().mockImplementation(async (_roleId: string, authState: Role["authState"]) => ({
-        ...role,
-        authState
-      })),
-    updateRole: vi.fn().mockImplementation(async (_roleId: string, input: Partial<Role>) => ({
       ...role,
-      ...input,
-      preferredBrowserLaunchMode: input.preferredBrowserLaunchMode === null
-        ? undefined
-        : input.preferredBrowserLaunchMode
+      authState
     }))
   };
 }

@@ -139,17 +139,19 @@ describe("RoleStore", () => {
     expect(updated.lastSuccessfulLoginAt).toBeUndefined();
   });
 
-  it("persists and clears a per-role browser launch preference", async () => {
-    const role = await store.createRole({
-      gameId: "game-1",
-      name: "Imported",
-      preferredBrowserLaunchMode: "external"
-    });
+  it("removes the legacy imported launch preference during migration", async () => {
+    const role = await store.createRole({ gameId: "game-1", name: "Imported" });
+    const rolesPath = join(baseDir, "roles.json");
+    const file = JSON.parse(await readFile(rolesPath, "utf8")) as { roles: Array<Record<string, unknown>> };
+    file.roles[0].preferredBrowserLaunchMode = "external";
+    await writeFile(rolesPath, JSON.stringify(file), "utf8");
 
-    await expect(store.getRole(role.id)).resolves.toMatchObject({ preferredBrowserLaunchMode: "external" });
-    await expect(store.updateRole(role.id, { preferredBrowserLaunchMode: null })).resolves.toMatchObject({
-      preferredBrowserLaunchMode: undefined
-    });
+    const migratedStore = new RoleStore(baseDir);
+    await expect(migratedStore.removeLegacyLaunchPresets()).resolves.toBe(true);
+    await expect(migratedStore.listRoles()).resolves.toMatchObject([
+      { id: role.id, name: "Imported", authState: "login_required" }
+    ]);
+    await expect(readFile(rolesPath, "utf8")).resolves.not.toContain("preferredBrowserLaunchMode");
   });
 
   it("updates auth state and records auth timestamps", async () => {

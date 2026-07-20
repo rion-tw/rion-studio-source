@@ -37,6 +37,7 @@ import type {
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
   ChromeProfileImportResult,
+  ChromeProfileImportRuntimeReason,
   ChromeProfileImportRuntimeState,
   BrowserCdnCompatibilityMode,
   BrowserFontFamilyRole,
@@ -1884,6 +1885,17 @@ const chromeProfileRuntimeStateKeys: Record<ChromeProfileImportRuntimeState, Tra
   not_checked: "settings.chromeProfileImportNotChecked"
 };
 
+const chromeProfileRuntimeReasonKeys: Record<ChromeProfileImportRuntimeReason, TranslationKey> = {
+  embedded_cookie_injection_failed: "settings.chromeProfileImportReasonEmbeddedCookieInjectionFailed",
+  embedded_storage_injection_failed: "settings.chromeProfileImportReasonEmbeddedStorageInjectionFailed",
+  embedded_login_not_detected: "settings.chromeProfileImportReasonEmbeddedLoginNotDetected",
+  embedded_indexeddb_required: "settings.chromeProfileImportReasonEmbeddedIndexedDbRequired",
+  embedded_verification_failed: "settings.chromeProfileImportReasonEmbeddedVerificationFailed",
+  external_cookie_decryption_failed: "settings.chromeProfileImportReasonExternalCookieDecryptionFailed",
+  external_login_not_detected: "settings.chromeProfileImportReasonExternalLoginNotDetected",
+  external_verification_failed: "settings.chromeProfileImportReasonExternalVerificationFailed"
+};
+
 function ChromeProfileImportResultDialog({
   isBusy,
   result,
@@ -1914,6 +1926,22 @@ function ChromeProfileImportResultDialog({
                   .replace("{embedded}", t(chromeProfileRuntimeStateKeys[item.embedded]))
                   .replace("{external}", t(chromeProfileRuntimeStateKeys[item.external]))}
               </p>
+              {item.embeddedReason ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {t("settings.chromeProfileImportEmbeddedReason").replace(
+                    "{reason}",
+                    t(chromeProfileRuntimeReasonKeys[item.embeddedReason])
+                  )}
+                </p>
+              ) : null}
+              {item.externalReason ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {t("settings.chromeProfileImportExternalReason").replace(
+                    "{reason}",
+                    t(chromeProfileRuntimeReasonKeys[item.externalReason])
+                  )}
+                </p>
+              ) : null}
             </div>
           ))}
           {result.warnings.length > 0 ? (

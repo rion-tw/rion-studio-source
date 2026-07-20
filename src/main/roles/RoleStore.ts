@@ -5,7 +5,6 @@ import { join } from "node:path";
 import {
   DEFAULT_LAUNCH_URL,
   type AuthState,
-  type BrowserLaunchMode,
   type CreateRoleInput,
   type ReorderItemsInput,
   type Role,
@@ -132,7 +131,6 @@ export class RoleStore {
         launchUrl,
         notes: input.notes?.trim() ?? "",
         authState: "login_required",
-        preferredBrowserLaunchMode: input.preferredBrowserLaunchMode,
         coverImageDataUrl,
         coverImageDominantColor: coverImageDataUrl ? coverImageDominantColor : undefined,
         createdAt: now,
@@ -182,13 +180,6 @@ export class RoleStore {
         launchUrl: nextLaunchUrl,
         notes: input.notes === undefined ? current.notes : input.notes.trim(),
         authState: isSessionIdentityChanged ? "login_required" : current.authState,
-        preferredBrowserLaunchMode: isSessionIdentityChanged
-          ? undefined
-          : input.preferredBrowserLaunchMode === null
-            ? undefined
-            : input.preferredBrowserLaunchMode === undefined
-              ? current.preferredBrowserLaunchMode
-              : input.preferredBrowserLaunchMode,
         lastAuthCheckAt: isSessionIdentityChanged ? undefined : current.lastAuthCheckAt,
         lastSuccessfulLoginAt: isSessionIdentityChanged ? undefined : current.lastSuccessfulLoginAt,
         coverImageDataUrl,
@@ -406,6 +397,7 @@ export class RoleStore {
       launchPreset: _launchPreset,
       windowWidth: _windowWidth,
       windowHeight: _windowHeight,
+      preferredBrowserLaunchMode: _preferredBrowserLaunchMode,
       ...storedRole
     } = role as Role & {
       gameUrl?: unknown;
@@ -413,6 +405,7 @@ export class RoleStore {
       launchPreset?: unknown;
       windowWidth?: unknown;
       windowHeight?: unknown;
+      preferredBrowserLaunchMode?: unknown;
     };
     const launchUrl = this.normalizeLaunchUrl(
       typeof storedRole.launchUrl === "string"
@@ -428,7 +421,6 @@ export class RoleStore {
       gameId: typeof storedRole.gameId === "string" ? storedRole.gameId.trim() : "",
       launchUrl,
       authState: this.normalizeAuthState(storedRole.authState),
-      preferredBrowserLaunchMode: this.normalizePreferredBrowserLaunchMode(storedRole.preferredBrowserLaunchMode),
       notes: storedRole.notes ?? "",
       coverImageDataUrl,
       coverImageDominantColor: coverImageDataUrl
@@ -478,10 +470,6 @@ export class RoleStore {
     }
 
     return "unknown";
-  }
-
-  private normalizePreferredBrowserLaunchMode(value: unknown): BrowserLaunchMode | undefined {
-    return value === "auto" || value === "embedded" || value === "external" ? value : undefined;
   }
 
   private normalizeCoverImageDataUrl(value: string | null | undefined): string | undefined {

@@ -14,7 +14,7 @@
 
 namespace {
 
-constexpr int32_t kProtocolVersion = 5;
+constexpr int32_t kProtocolVersion = 6;
 
 struct ControllerRecord {
   __strong RionRuntimeTabsController *controller = nil;
@@ -193,6 +193,12 @@ RionRuntimeTabsState *ParseState(napi_env env, napi_value value) {
   if (!labels) return nil;
   state.addLabel = GetNSString(env, GetNamed(env, labels, "add"),
                                "Invalid add label in runtime tabs state.");
+  state.audioMutedLabel = GetNSString(
+      env, GetNamed(env, labels, "audioMuted"),
+      "Invalid audio muted label in runtime tabs state.");
+  state.audioPlayingLabel = GetNSString(
+      env, GetNamed(env, labels, "audioPlaying"),
+      "Invalid audio playing label in runtime tabs state.");
   state.closeLabel = GetNSString(env, GetNamed(env, labels, "close"),
                                  "Invalid close label in runtime tabs state.");
 
@@ -220,6 +226,21 @@ RionRuntimeTabsState *ParseState(napi_env env, napi_value value) {
                              "Invalid runtime tab type.");
     model.iconDataURL = GetOptionalNSString(env, tab, "iconDataUrl");
     model.workspaceTemplate = GetOptionalNSString(env, tab, "workspaceTemplate");
+    napi_value audible = GetNamed(env, tab, "audible");
+    bool audible_value = false;
+    if (!audible || napi_get_value_bool(env, audible, &audible_value) != napi_ok) {
+      Throw(env, "Invalid audible state for runtime tab.");
+      return nil;
+    }
+    model.audible = audible_value;
+    napi_value audio_muted = GetNamed(env, tab, "audioMuted");
+    bool audio_muted_value = false;
+    if (!audio_muted ||
+        napi_get_value_bool(env, audio_muted, &audio_muted_value) != napi_ok) {
+      Throw(env, "Invalid muted state for runtime tab.");
+      return nil;
+    }
+    model.audioMuted = audio_muted_value;
     napi_value active = GetNamed(env, tab, "active");
     bool active_value = false;
     if (!active || napi_get_value_bool(env, active, &active_value) != napi_ok) {

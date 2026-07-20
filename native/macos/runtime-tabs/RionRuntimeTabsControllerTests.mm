@@ -351,6 +351,8 @@ static RionRuntimeTabModel *MakeTab(NSString *identifier, NSString *name,
 static RionRuntimeTabsState *MakeState(NSArray<RionRuntimeTabModel *> *tabs) {
   RionRuntimeTabsState *state = [[RionRuntimeTabsState alloc] init];
   state.addLabel = @"Add";
+  state.audioMutedLabel = @"Tab muted";
+  state.audioPlayingLabel = @"Playing audio";
   state.displayID = 11;
   state.closeLabel = @"Stop and close tab";
   state.tabs = tabs;
@@ -359,9 +361,12 @@ static RionRuntimeTabsState *MakeState(NSArray<RionRuntimeTabModel *> *tabs) {
 
 static void AssertItemSubviewsDoNotOverlap(NSView *item) {
   NSView *icon = [item valueForKey:@"_iconView"];
+  NSView *audio = [item valueForKey:@"_audioView"];
   NSView *title = [item valueForKey:@"_titleField"];
   NSView *more = [item valueForKey:@"_moreButton"];
   if (NSIntersectsRect(icon.frame, title.frame) ||
+      NSIntersectsRect(audio.frame, title.frame) ||
+      NSIntersectsRect(audio.frame, more.frame) ||
       NSIntersectsRect(title.frame, more.frame)) {
     std::cerr << "Overlapping tab frames: item=" << NSStringFromRect(item.frame).UTF8String
               << " icon=" << NSStringFromRect(icon.frame).UTF8String
@@ -370,6 +375,10 @@ static void AssertItemSubviewsDoNotOverlap(NSView *item) {
   }
   Assert(!NSIntersectsRect(icon.frame, title.frame),
          "Icon and title frames must not overlap.");
+  Assert(!NSIntersectsRect(audio.frame, title.frame),
+         "Audio indicator and title frames must not overlap.");
+  Assert(!NSIntersectsRect(audio.frame, more.frame),
+         "Audio indicator and close-button frames must not overlap.");
   Assert(!NSIntersectsRect(title.frame, more.frame),
          "Title and more-button frames must not overlap.");
   if (item.frame.size.width < 279.5) {
@@ -706,6 +715,8 @@ int main() {
 
     RionRuntimeTabModel *role = MakeTab(@"tab-1", @"Mina", YES, NO);
     RionRuntimeTabModel *workspace = MakeTab(@"tab-2", @"Team", NO, YES);
+    role.audible = YES;
+    workspace.audioMuted = YES;
     workspace.tooltip = @"Team：Mina, Alt";
     RionRuntimeTabsState *state = MakeState(@[ role, workspace ]);
     [controller updateState:state];
@@ -807,6 +818,17 @@ int main() {
       AssertTitleTextVerticallyCentered(item);
     }
     NSButton *tabCloseButton = [tabItems[0] valueForKey:@"_moreButton"];
+    NSImageView *playingAudio = [tabItems[0] valueForKey:@"_audioView"];
+    NSImageView *mutedAudio = [tabItems[1] valueForKey:@"_audioView"];
+    Assert(!playingAudio.hidden && playingAudio.image != nil &&
+               [playingAudio.toolTip isEqualToString:@"Playing audio"],
+           "Audible tabs must show the native speaker indicator.");
+    Assert(!mutedAudio.hidden && mutedAudio.image != nil &&
+               [mutedAudio.toolTip isEqualToString:@"Tab muted"],
+           "Muted tabs must show the native slashed speaker indicator.");
+    Assert([tabItems[0].accessibilityLabel isEqualToString:@"Mina, Playing audio"] &&
+               [tabItems[1].accessibilityLabel isEqualToString:@"Team, Tab muted"],
+           "Tab audio state must be included in native accessibility labels.");
     Assert([tabCloseButton.accessibilityLabel isEqualToString:@"Stop and close tab"],
            "The native tab close button must expose the stop-and-close label.");
     Assert([tabItems[1].toolTip isEqualToString:@"Team：Mina, Alt"],

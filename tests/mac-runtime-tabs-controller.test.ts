@@ -25,7 +25,9 @@ const state: RuntimeTabChromeState = {
       name: "米娜醬",
       roleIds: ["role-1"],
       sourceId: "role-1",
-      type: "role"
+      type: "role",
+      audible: true,
+      audioMuted: false
     },
     {
       active: false,
@@ -36,7 +38,9 @@ const state: RuntimeTabChromeState = {
       roleIds: ["role-1", "role-2", "role-3", "role-4"],
       roleNames: ["米娜醬", "阿爾", "露娜", "凱文"],
       sourceId: "workspace-1",
-      type: "workspace"
+      type: "workspace",
+      audible: false,
+      audioMuted: true
     },
     {
       active: false,
@@ -46,7 +50,9 @@ const state: RuntimeTabChromeState = {
       name: "Other",
       roleIds: ["role-5"],
       sourceId: "role-5",
-      type: "role"
+      type: "role",
+      audible: false,
+      audioMuted: false
     },
     {
       active: false,
@@ -56,7 +62,9 @@ const state: RuntimeTabChromeState = {
       name: "Hidden",
       roleIds: ["role-6"],
       sourceId: "role-6",
-      type: "role"
+      type: "role",
+      audible: false,
+      audioMuted: false
     }
   ],
   toolbarVisible: true,
@@ -70,11 +78,15 @@ describe("MacRuntimeTabsController", () => {
       displayId: 11,
       labels: {
         add: "開啟角色或工作區",
+        audioMuted: "分頁已靜音",
+        audioPlaying: "正在播放聲音",
         close: "停止並關閉分頁"
       },
       tabs: [
         {
           active: true,
+          audible: true,
+          audioMuted: false,
           iconDataUrl: "data:image/png;base64,aWNvbg==",
           id: "role",
           name: "米娜醬",
@@ -83,6 +95,8 @@ describe("MacRuntimeTabsController", () => {
         },
         {
           active: false,
+          audible: false,
+          audioMuted: true,
           id: "workspace",
           name: "四人隊伍",
           tooltip: "四人隊伍：米娜醬, 阿爾, 露娜, 凱文",
@@ -109,7 +123,7 @@ describe("MacRuntimeTabsController", () => {
         yOffset: 8
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 5,
+      protocolVersion: 6,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()
@@ -187,7 +201,7 @@ describe("MacRuntimeTabsController", () => {
         yOffset: 1
       })),
       prepareFullscreenTransition: vi.fn(),
-      protocolVersion: 5,
+      protocolVersion: 6,
       setFullscreenPolicy: vi.fn(),
       setRevealLocked: vi.fn(),
       updateController: vi.fn()

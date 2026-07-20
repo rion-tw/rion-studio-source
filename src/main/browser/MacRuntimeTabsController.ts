@@ -36,6 +36,8 @@ export type MacRuntimeTabsControllerFactory = (
 
 interface MacRuntimeTabsNativeTab {
   active: boolean;
+  audible: boolean;
+  audioMuted: boolean;
   iconDataUrl?: string;
   id: string;
   name: string;
@@ -48,6 +50,8 @@ export interface MacRuntimeTabsNativeState {
   displayId: number;
   labels: {
     add: string;
+    audioMuted: string;
+    audioPlaying: string;
     close: string;
   };
   tabs: MacRuntimeTabsNativeTab[];
@@ -74,23 +78,31 @@ export interface MacRuntimeTabsNativeAddon {
 const labels: Record<AppLanguage, MacRuntimeTabsNativeState["labels"]> = {
   en: {
     add: "Open role or workspace",
+    audioMuted: "Tab muted",
+    audioPlaying: "Playing audio",
     close: "Stop and close tab"
   },
   "zh-TW": {
     add: "開啟角色或工作區",
+    audioMuted: "分頁已靜音",
+    audioPlaying: "正在播放聲音",
     close: "停止並關閉分頁"
   },
   "zh-CN": {
     add: "打开角色或工作区",
+    audioMuted: "标签页已静音",
+    audioPlaying: "正在播放声音",
     close: "停止并关闭标签页"
   },
   ja: {
     add: "ロールまたはワークスペースを開く",
+    audioMuted: "タブをミュート中",
+    audioPlaying: "音声を再生中",
     close: "タブを停止して閉じる"
   }
 };
 
-const NATIVE_PROTOCOL_VERSION = 5;
+const NATIVE_PROTOCOL_VERSION = 6;
 const INVALID_CONTENT_LAYOUT: MacRuntimeTabsContentLayout = {
   heightInset: 0,
   valid: false,
@@ -120,6 +132,8 @@ export function toMacRuntimeTabsNativeState(
       .filter((tab) => tab.displayId === state.displayId && !tab.hidden)
       .map((tab) => ({
         active: tab.active,
+        audible: tab.audible,
+        audioMuted: tab.audioMuted,
         ...(state.tabIconDataUrls[tab.id]
           ? { iconDataUrl: state.tabIconDataUrls[tab.id] }
           : {}),

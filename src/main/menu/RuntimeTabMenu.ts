@@ -8,7 +8,7 @@ import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import type { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCoordinator";
 
 type RuntimeMenuLabelKey = "roles" | "workspaces" | "noRoles" | "noWorkspaces" |
-  "move" | "display" | "hide" | "stop";
+  "move" | "display" | "hide" | "stop" | "mute" | "unmute";
 
 const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
   en: {
@@ -19,7 +19,9 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
     move: "Move to Display",
     display: "Display",
     hide: "Hide tab (keeps running)",
-    stop: "Stop and Close"
+    stop: "Stop and Close",
+    mute: "Mute Tab",
+    unmute: "Unmute Tab"
   },
   "zh-TW": {
     roles: "角色",
@@ -29,7 +31,9 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
     move: "移至顯示器",
     display: "顯示器",
     hide: "隱藏分頁（保持運行）",
-    stop: "停止並關閉"
+    stop: "停止並關閉",
+    mute: "將分頁靜音",
+    unmute: "取消分頁靜音"
   },
   "zh-CN": {
     roles: "角色",
@@ -39,7 +43,9 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
     move: "移至显示器",
     display: "显示器",
     hide: "隐藏标签页（保持运行）",
-    stop: "停止并关闭"
+    stop: "停止并关闭",
+    mute: "将标签页静音",
+    unmute: "取消标签页静音"
   },
   ja: {
     roles: "ロール",
@@ -49,7 +55,9 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
     move: "ディスプレイへ移動",
     display: "ディスプレイ",
     hide: "タブを非表示（実行を継続）",
-    stop: "停止して閉じる"
+    stop: "停止して閉じる",
+    mute: "タブをミュート",
+    unmute: "タブのミュートを解除"
   }
 };
 
@@ -58,7 +66,8 @@ interface RuntimeTabMenuOptions {
   browserManager: Pick<
     BrowserManager,
     "acquireRuntimeToolbarRevealLock" | "launch" | "listEmbeddedRuntimeState" |
-      "hideRuntimeTab" | "moveRuntimeTab" | "showRuntimeTab" | "stopRuntimeTab"
+      "hideRuntimeTab" | "moveRuntimeTab" | "setRuntimeTabAudioMuted" |
+      "showRuntimeTab" | "stopRuntimeTab"
   >;
   getWorkspaceDisplays: () => WorkspaceDisplayInfo[];
   logger?: Pick<Console, "error">;
@@ -157,6 +166,19 @@ export class RuntimeTabMenuController {
           label: display.label || `${text.display} ${display.id}`,
           click: () => void this.options.browserManager.moveRuntimeTab(tabId, display.id)
         }))
+      },
+      {
+        checked: tab.audioMuted,
+        click: () => {
+          const currentTab = this.options.browserManager.listEmbeddedRuntimeState().tabs.find(
+            (candidate) => candidate.id === tabId
+          );
+          if (currentTab) {
+            this.options.browserManager.setRuntimeTabAudioMuted(tabId, !currentTab.audioMuted);
+          }
+        },
+        label: tab.audioMuted ? text.unmute : text.mute,
+        type: "checkbox"
       },
       { type: "separator" },
       {

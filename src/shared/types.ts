@@ -141,6 +141,10 @@ export interface EmbeddedRuntimeTabSummary {
   roleNames?: string[];
   hidden: boolean;
   active: boolean;
+  /** True when any role or popup in the tab is currently producing audio. */
+  audible: boolean;
+  /** True when Rion Studio has explicitly muted the whole runtime tab. */
+  audioMuted: boolean;
 }
 
 export interface EmbeddedRuntimeWindowSummary {

@@ -45,6 +45,29 @@ describe("runtime tabs HTML preload", () => {
       type: "stop",
       tabId: "tab-1"
     });
+    expect(document.querySelector(".runtime-tab-audio")).toBeNull();
+  });
+
+  it("renders audio indicators immediately before close without adding a mute action", () => {
+    renderState("role", { audible: true });
+
+    const tab = document.querySelector<HTMLElement>('[role="tab"]');
+    const indicator = document.querySelector<HTMLElement>(".runtime-tab-audio");
+    const closeButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="停止並關閉分頁"]'
+    );
+    expect(indicator).not.toBeNull();
+    expect(indicator?.getAttribute("aria-label")).toBe("正在播放聲音");
+    expect([...indicator?.querySelectorAll("path") ?? []].map((path) => path.getAttribute("d")))
+      .toContain("M15.5 8.5a5 5 0 0 1 0 7");
+    expect(tab?.children[tab.children.length - 2]).toBe(indicator);
+    expect(tab?.lastElementChild).toBe(closeButton);
+
+    renderState("role", { audioMuted: true });
+    const mutedIndicator = document.querySelector<HTMLElement>(".runtime-tab-audio");
+    expect(mutedIndicator?.getAttribute("aria-label")).toBe("分頁已靜音");
+    expect([...mutedIndicator?.querySelectorAll("path") ?? []].map((path) => path.getAttribute("d")))
+      .toContain("m16 9 5 6");
   });
 
   it("opens the native tab menu from the HTML tab context menu", () => {
@@ -83,7 +106,10 @@ describe("runtime tabs HTML preload", () => {
   });
 });
 
-function renderState(kind: "role" | "workspace" = "role"): void {
+function renderState(
+  kind: "role" | "workspace" = "role",
+  audio: { audible?: boolean; audioMuted?: boolean } = {}
+): void {
   const workspace = kind === "workspace";
   window.dispatchEvent(new Event("DOMContentLoaded"));
   stateListener({}, {
@@ -107,7 +133,9 @@ function renderState(kind: "role" | "workspace" = "role"): void {
         ? { roleNames: ["角色 1", "角色 2", "角色 3", "角色 4"] }
         : {}),
       sourceId: "role-1",
-      type: kind
+      type: kind,
+      audible: audio.audible ?? false,
+      audioMuted: audio.audioMuted ?? false
     }],
     toolbarVisible: true,
     windowFullscreen: false,

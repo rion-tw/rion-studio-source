@@ -684,15 +684,59 @@ describe("macro editor controls", () => {
 
     const interval = screen.getByRole("spinbutton", { name: "Custom interval" }) as HTMLInputElement;
     const delay = screen.getByRole("spinbutton", { name: "Delay" }) as HTMLInputElement;
-    expect(interval.value).toBe(String(MACRO_DELAY_MAX_MS));
-    expect(interval.max).toBe(String(MACRO_DELAY_MAX_MS));
-    expect(delay.value).toBe(String(MACRO_DELAY_MAX_MS));
-    expect(delay.max).toBe(String(MACRO_DELAY_MAX_MS));
+    expect(interval.value).toBe(String(MACRO_DELAY_MAX_MS / 1000));
+    expect(interval.max).toBe(String(MACRO_DELAY_MAX_MS / 1000));
+    expect(delay.value).toBe(String(MACRO_DELAY_MAX_MS / 1000));
+    expect(delay.max).toBe(String(MACRO_DELAY_MAX_MS / 1000));
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       repeat: { type: "loop", intervalMs: MACRO_DELAY_MAX_MS },
       steps: [{ id: "daily-delay", type: "delay", ms: MACRO_DELAY_MAX_MS }]
+    })));
+  });
+
+  it("edits pixel clicks and converts seconds back to milliseconds", async () => {
+    const selectedMacro = macro({
+      steps: [
+        { id: "click", type: "click", xPercent: 12, yPercent: 34 },
+        { id: "delay", type: "delay", ms: 1500 }
+      ]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Coordinate unit" }));
+    fireEvent.click(screen.getByRole("option", { name: "px" }));
+    const delayInput = screen.getByRole("spinbutton", { name: "Delay" }) as HTMLInputElement;
+    expect(delayInput.value).toBe("1.5");
+    fireEvent.change(delayInput, { target: { value: "2.25" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [
+        { id: "click", type: "click", unit: "px", xPx: 12, yPx: 34 },
+        { id: "delay", type: "delay", ms: 2250 }
+      ]
     })));
   });
 

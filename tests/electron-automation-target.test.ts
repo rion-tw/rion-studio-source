@@ -153,6 +153,18 @@ describe("ElectronAutomationTarget", () => {
     ]);
   });
 
+  it("clamps pixel clicks to the current embedded view bounds", async () => {
+    const harness = createHarness({ width: 800, height: 600 });
+    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+
+    await target.dispatchClickPixels(900, -20);
+
+    expect(mouseEvents(harness)).toEqual([
+      { type: "mousePressed", button: "left", clickCount: 1, x: 799, y: 0 },
+      { type: "mouseReleased", button: "left", clickCount: 1, x: 799, y: 0 }
+    ]);
+  });
+
   it("holds keys and keeps the post-input delay inside the shared target queue", async () => {
     vi.useFakeTimers();
     const harness = createHarness();

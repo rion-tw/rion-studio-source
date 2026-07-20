@@ -331,6 +331,18 @@ describe("MacroStore", () => {
     ).rejects.toMatchObject({ code: "MACRO_STEPS_REQUIRED" });
   });
 
+  it("stores and normalizes pixel click steps", async () => {
+    const macro = await store.createMacro({
+      name: "Pixel click",
+      roleIds: ["role-1"],
+      steps: [{ id: "pixel", type: "click", unit: "px", xPx: 120.7, yPx: 45.2 }]
+    });
+
+    expect(macro.steps).toEqual([
+      { id: "pixel", type: "click", unit: "px", xPx: 121, yPx: 45 }
+    ]);
+  });
+
   it("normalizes stored macros", async () => {
     await writeFile(
       join(baseDir, "macros.json"),

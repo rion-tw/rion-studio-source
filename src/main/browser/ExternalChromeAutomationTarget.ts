@@ -485,6 +485,10 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, options));
   }
 
+  dispatchClickPixels(xPx: number, yPx: number, options: BrowserInputDispatchOptions = {}): Promise<void> {
+    return this.enqueueInput(() => this.dispatchClickPixelsUnlocked(xPx, yPx, options));
+  }
+
   private async dispatchClickUnlocked(
     xPercent: number,
     yPercent: number,
@@ -500,6 +504,37 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     const height = Math.max(1, metrics.cssVisualViewport?.clientHeight ?? 1);
     const x = clamp(Math.round((width * xPercent) / 100), 0, width - 1);
     const y = clamp(Math.round((height * yPercent) / 100), 0, height - 1);
+    const release = { type: "mouseReleased", button: "left", clickCount: 1, x, y };
+    let didPress = false;
+    let didRelease = false;
+    try {
+      await this.client.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, x, y });
+      didPress = true;
+      signal?.throwIfAborted();
+      await this.client.send("Input.dispatchMouseEvent", release);
+      didRelease = true;
+    } finally {
+      if (didPress && !didRelease) {
+        await this.client.send("Input.dispatchMouseEvent", release).catch(() => undefined);
+      }
+    }
+    await waitForInputDelay(postDelayMs, signal);
+  }
+
+  private async dispatchClickPixelsUnlocked(
+    xPx: number,
+    yPx: number,
+    options: BrowserInputDispatchOptions
+  ): Promise<void> {
+    const { postDelayMs = 0, signal } = options;
+    signal?.throwIfAborted();
+    const metrics = await this.client.send<{
+      cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
+    }>("Page.getLayoutMetrics");
+    const width = Math.max(1, metrics.cssVisualViewport?.clientWidth ?? 1);
+    const height = Math.max(1, metrics.cssVisualViewport?.clientHeight ?? 1);
+    const x = Math.max(0, Math.min(width - 1, Math.round(xPx)));
+    const y = Math.max(0, Math.min(height - 1, Math.round(yPx)));
     const release = { type: "mouseReleased", button: "left", clickCount: 1, x, y };
     let didPress = false;
     let didRelease = false;

@@ -376,7 +376,9 @@ export function formatMacroStep(
         ? `${t("macro.step.hold")}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`
         : `${t(macroStepLabelKeys.key)}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`;
     case "click":
-      return `${t(macroStepLabelKeys.click)}:X ${step.xPercent}%, Y ${step.yPercent}%`;
+      return step.unit === "px"
+        ? `${t(macroStepLabelKeys.click)}:X ${step.xPx}px, Y ${step.yPx}px`
+        : `${t(macroStepLabelKeys.click)}:X ${step.xPercent}%, Y ${step.yPercent}%`;
     case "delay":
       return `${t(macroStepLabelKeys.delay)}:${step.ms}ms`;
     case "macro":

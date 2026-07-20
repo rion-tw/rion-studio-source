@@ -518,6 +518,15 @@ export class MacroStore {
           };
           }
         case "click":
+          if (step.unit === "px") {
+            return {
+              id,
+              type: "click",
+              unit: "px",
+              xPx: this.normalizePixel(step.xPx, "Macro click X must be a non-negative pixel value."),
+              yPx: this.normalizePixel(step.yPx, "Macro click Y must be a non-negative pixel value.")
+            };
+          }
           return {
             id,
             type: "click",
@@ -541,6 +550,13 @@ export class MacroStore {
           throw new MacroStoreError("MACRO_STEP_INVALID", "Macro step is invalid.");
       }
     });
+  }
+
+  private normalizePixel(value: unknown, message: string): number {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      throw new MacroStoreError("MACRO_STEP_INVALID", message);
+    }
+    return Math.round(value);
   }
 
   private normalizeCode(code: string | undefined, message: string): string {

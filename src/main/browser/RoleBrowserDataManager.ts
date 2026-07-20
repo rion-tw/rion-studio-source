@@ -22,7 +22,7 @@ interface RoleBrowserDataManagerOptions {
   roleStore: Pick<
     RoleStore,
     "getRole" | "resetBrowserUserDataDir" | "updateAuthState"
-  > & Partial<Pick<RoleStore, "updateRole">>;
+  >;
 }
 
 export class RoleBrowserDataClearError extends Error {
@@ -46,9 +46,6 @@ export class RoleBrowserDataManager {
         this.clearEmbeddedData(roleId),
         this.options.roleStore.resetBrowserUserDataDir(roleId)
       ]);
-      if (this.options.roleStore.updateRole) {
-        await this.options.roleStore.updateRole(roleId, { preferredBrowserLaunchMode: null });
-      }
       const storageFailures = storageResults.flatMap(
         (result) => result.status === "rejected" ? [result.reason] : []
       );
@@ -60,11 +57,9 @@ export class RoleBrowserDataManager {
         ]);
       }
 
-      return this.options.roleStore.updateRole
-        ? this.options.roleStore.getRole(roleId)
-        : authResult.status === "fulfilled"
-          ? authResult.value
-          : this.options.roleStore.getRole(roleId);
+      return authResult.status === "fulfilled"
+        ? authResult.value
+        : this.options.roleStore.getRole(roleId);
     });
   }
 

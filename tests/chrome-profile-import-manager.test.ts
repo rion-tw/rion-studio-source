@@ -115,9 +115,8 @@ describe("ChromeProfileImportManager", () => {
     expect(importedRoles.map((role) => role.name)).toEqual(["Primary", "Alt"]);
     expect(importedRoles.find((role) => role.name === "Primary")?.id).toBe(existingRole.id);
     expect(importedRoles.every((role) => role.authState === "authenticated")).toBe(true);
-    expect(importedRoles.map((role) => role.preferredBrowserLaunchMode)).toEqual(["external", "embedded"]);
     expect(result.results.map((item) => [item.embedded, item.external])).toEqual([
-      ["unavailable", "authenticated"],
+      ["authenticated", "authenticated"],
       ["authenticated", "authenticated"]
     ]);
     expect(readChromeSession).toHaveBeenCalledTimes(2);
@@ -286,10 +285,10 @@ describe("ChromeProfileImportManager", () => {
       getRolePaths: roleStore.getRolePaths.bind(roleStore),
       listRoles: roleStore.listRoles.bind(roleStore),
       replaceRolesForImport: roleStore.replaceRolesForImport.bind(roleStore),
-      updateAuthState: roleStore.updateAuthState.bind(roleStore),
-      updateRole: async () => {
-        throw new Error("simulated role preference failure");
-      }
+      updateAuthState: async () => {
+        throw new Error("simulated auth state failure");
+      },
+      updateRole: roleStore.updateRole.bind(roleStore)
     };
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-3",
@@ -311,7 +310,7 @@ describe("ChromeProfileImportManager", () => {
       gameId: game.id,
       importId: "import-3",
       profileIds: ["Default"]
-    })).rejects.toThrow("simulated role preference failure");
+    })).rejects.toThrow("simulated auth state failure");
     await expect(roleStore.listRoles()).resolves.toEqual([]);
     await expect(access(join(userDataDir, ".chrome-profile-import"))).rejects.toMatchObject({ code: "ENOENT" });
 
@@ -356,7 +355,7 @@ describe("ChromeProfileImportManager", () => {
       updateAuthState: roleStore.updateAuthState.bind(roleStore),
       updateRole: async (id: string, input: Parameters<RoleStore["updateRole"]>[1]) => {
         updateRoleCalls += 1;
-        if (updateRoleCalls === 2) {
+        if (updateRoleCalls === 1) {
           throw new Error("simulated overwrite failure");
         }
         return roleStore.updateRole(id, input);

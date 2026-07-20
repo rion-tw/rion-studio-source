@@ -71,7 +71,6 @@ export interface Role {
   launchUrl: string;
   notes: string;
   authState: AuthState;
-  preferredBrowserLaunchMode?: BrowserLaunchMode;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
   lastAuthCheckAt?: string;
@@ -85,14 +84,12 @@ export interface CreateRoleInput {
   name: string;
   launchUrl?: string;
   notes?: string;
-  preferredBrowserLaunchMode?: BrowserLaunchMode;
   coverImageDataUrl?: string | null;
   coverImageDominantColor?: string | null;
 }
 
-export type UpdateRoleInput = Partial<Omit<CreateRoleInput, "name" | "preferredBrowserLaunchMode">> & {
+export type UpdateRoleInput = Partial<Omit<CreateRoleInput, "name">> & {
   name?: string;
-  preferredBrowserLaunchMode?: BrowserLaunchMode | null;
 };
 
 export interface ReorderItemsInput {
@@ -883,6 +880,16 @@ export type ChromeProfileImportRuntimeState =
   | "unavailable"
   | "not_checked";
 
+export type ChromeProfileImportRuntimeReason =
+  | "embedded_cookie_injection_failed"
+  | "embedded_storage_injection_failed"
+  | "embedded_login_not_detected"
+  | "embedded_indexeddb_required"
+  | "embedded_verification_failed"
+  | "external_cookie_decryption_failed"
+  | "external_login_not_detected"
+  | "external_verification_failed";
+
 export interface ChromeProfileEntry {
   id: string;
   directoryName: string;
@@ -926,7 +933,9 @@ export interface ChromeProfileImportRoleResult {
   roleId?: string;
   roleName?: string;
   embedded: ChromeProfileImportRuntimeState;
+  embeddedReason?: ChromeProfileImportRuntimeReason;
   external: ChromeProfileImportRuntimeState;
+  externalReason?: ChromeProfileImportRuntimeReason;
   authState: AuthState;
 }
 

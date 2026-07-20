@@ -6,7 +6,13 @@ import { mergeAuthStatus, mergeStatus } from "../app/statusUtils";
 import type { RoleFormState, SidebarFilter } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { AuthFlowStatus, LaunchWorkspace, Macro, Role, RoleStatus } from "../../../shared/types";
+import type {
+  AuthFlowStatus,
+  LaunchWorkspace,
+  Macro,
+  Role,
+  RoleStatus
+} from "../../../shared/types";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseRoleWorkflowOptions {

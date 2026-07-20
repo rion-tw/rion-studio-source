@@ -5,7 +5,7 @@ import type { GameStore } from "../games/GameStore";
 import type { RoleStore } from "../roles/RoleStore";
 import { writeJsonFileAtomically } from "./atomicJsonFile";
 
-export const BACKGROUND_ACTIVITY_MIGRATION_VERSION = 2;
+export const BACKGROUND_ACTIVITY_MIGRATION_VERSION = 3;
 export const BACKGROUND_ACTIVITY_MIGRATION_FILE = "background-activity-migration.json";
 
 interface BackgroundActivityMigrationStores {

@@ -13,6 +13,7 @@ import type {
   ChromeProfileImportResult,
   ChromeProfileImportRoleResult,
   ChromeProfileImportRuntimeState,
+  ChromeProfileImportRuntimeReason,
   ChromeProfileImportWarning,
   Role
 } from "../../shared/types";
@@ -68,6 +69,11 @@ interface ChromeSessionSnapshot {
   localStorage: Record<string, string>;
 }
 
+export interface ChromeProfileEmbeddedVerification {
+  authState: Exclude<AuthState, "unknown">;
+  reason?: ChromeProfileImportRuntimeReason;
+}
+
 interface PendingImport {
   importId: string;
   sourceUserDataDir: string;
@@ -91,7 +97,7 @@ interface ChromeProfileImportManagerOptions {
     partition: string,
     url: string,
     values: Record<string, string>
-  ) => Promise<void>;
+  ) => Promise<ChromeProfileEmbeddedVerification | void>;
   lstat?: typeof lstat;
   platform?: NodeJS.Platform;
   readChromeSession?: (
@@ -275,8 +281,7 @@ export class ChromeProfileImportManager {
               gameId: game.id,
               launchUrl: game.defaultLaunchUrl,
               name: assignment.roleName,
-              notes: "Imported from a local Chrome profile.",
-              preferredBrowserLaunchMode: null
+              notes: "Imported from a local Chrome profile."
             })
           : await this.options.roleStore.createRole({
               gameId: game.id,
@@ -316,15 +321,14 @@ export class ChromeProfileImportManager {
             profileName: assignment.profile.name
           });
         }
-        let updatedRole = await this.options.roleStore.updateAuthState(role.id, runtime.authState);
-        updatedRole = await this.options.roleStore.updateRole(role.id, {
-          preferredBrowserLaunchMode: runtime.preferredBrowserLaunchMode ?? null
-        });
+        const updatedRole = await this.options.roleStore.updateAuthState(role.id, runtime.authState);
 
         results.push({
           authState: updatedRole.authState,
           embedded: runtime.embedded,
+          ...(runtime.embeddedReason ? { embeddedReason: runtime.embeddedReason } : {}),
           external: runtime.external,
+          ...(runtime.externalReason ? { externalReason: runtime.externalReason } : {}),
           profileId: assignment.profile.id,
           profileName: assignment.profile.name,
           roleId: updatedRole.id,
@@ -381,8 +385,9 @@ export class ChromeProfileImportManager {
     verificationUrl: string
   ): Promise<{
     embedded: ChromeProfileImportRuntimeState;
+    embeddedReason?: ChromeProfileImportRuntimeReason;
     external: ChromeProfileImportRuntimeState;
-    preferredBrowserLaunchMode?: "embedded" | "external";
+    externalReason?: ChromeProfileImportRuntimeReason;
     authState: AuthState;
   }> {
     if (!this.options.readChromeSession) {
@@ -400,43 +405,69 @@ export class ChromeProfileImportManager {
       return {
         authState: "login_required",
         embedded: "unavailable",
-        external: "unavailable"
+        external: "unavailable",
+        externalReason: "external_verification_failed"
       };
     }
 
     const external = snapshot.authState === "authenticated" ? "authenticated" : "login_required";
+    const externalReason = snapshot.authState === "authenticated"
+      ? undefined
+      : snapshot.authState === "login_required"
+        ? "external_login_not_detected" as const
+        : "external_verification_failed" as const;
     let embedded: ChromeProfileImportRuntimeState = "unavailable";
+    let embeddedReason: ChromeProfileImportRuntimeReason | undefined;
     if (this.options.getSession && this.options.injectEmbeddedStorage) {
+      const partition = `persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
       try {
-        const session = this.options.getSession(`persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`);
+        const session = this.options.getSession(partition);
         for (const cookie of snapshot.cookies) {
           await session.cookies.set(normalizeElectronCookie(cookie, verificationUrl));
         }
-        await this.options.injectEmbeddedStorage(
-          `persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
-          verificationUrl,
-          snapshot.localStorage
-        );
-        embedded = Object.keys(snapshot.indexedDb ?? {}).length > 0
-          ? "unavailable"
-          : snapshot.authState === "authenticated"
-            ? "authenticated"
-            : "login_required";
       } catch {
-        embedded = "unavailable";
+        embeddedReason = "embedded_cookie_injection_failed";
       }
+      if (!embeddedReason) {
+        try {
+          const verification = await this.options.injectEmbeddedStorage(
+            partition,
+            verificationUrl,
+            snapshot.localStorage
+          );
+          const result = verification ?? {
+            authState: snapshot.authState,
+            reason: snapshot.authState === "authenticated" ? undefined : "embedded_login_not_detected"
+          };
+          embedded = result.authState === "authenticated"
+            ? "authenticated"
+            : result.authState === "auth_failed"
+              ? "unavailable"
+              : "login_required";
+          embeddedReason = result.reason ?? (result.authState === "auth_failed"
+            ? "embedded_verification_failed"
+            : result.authState === "authenticated"
+              ? undefined
+              : "embedded_login_not_detected");
+        } catch {
+          embeddedReason = "embedded_storage_injection_failed";
+        }
+      }
+    } else {
+      embeddedReason = "embedded_verification_failed";
     }
 
     const authState: AuthState = embedded === "authenticated" || external === "authenticated"
       ? "authenticated"
       : "login_required";
-    const preferredBrowserLaunchMode = embedded === "authenticated"
-      ? "embedded"
-      : external === "authenticated"
-        ? "external"
-        : undefined;
 
-    return { authState, embedded, external, preferredBrowserLaunchMode };
+    return {
+      authState,
+      embedded,
+      ...(embeddedReason ? { embeddedReason } : {}),
+      external,
+      ...(externalReason ? { externalReason } : {})
+    };
   }
 }
 

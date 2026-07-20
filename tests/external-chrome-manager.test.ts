@@ -110,10 +110,40 @@ describe("ExternalChromeManager", () => {
       width: 1200,
       height: 800
     });
+    expect(harness.automationTargets[0].focus).toHaveBeenCalledOnce();
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
     expect(status.automationState).toBe("ready");
     }
   );
+
+  it("restores focus when launching an existing external role", async () => {
+    const harness = createHarness();
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launchPromise;
+    harness.automationTargets[0].focus.mockClear();
+
+    const status = await harness.manager.launch(role);
+
+    expect(harness.automationTargets[0].focus).toHaveBeenCalledOnce();
+    expect(status).toMatchObject({ roleId: role.id, state: "running", runtimeMode: "external" });
+  });
+
+  it("keeps an external role running when focus restoration fails", async () => {
+    const harness = createHarness();
+
+    const launchPromise = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launchPromise;
+    harness.automationTargets[0].focus.mockRejectedValueOnce(new Error("focus unavailable"));
+
+    const status = await harness.manager.launch(role);
+
+    expect(status).toMatchObject({ roleId: role.id, state: "running", runtimeMode: "external" });
+  });
 
   it("aligns a single Windows Chrome visible frame after CDP positioning", async () => {
     const windowBoundsAdapter = createWindowBoundsAdapter((bounds) => ({

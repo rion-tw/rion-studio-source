@@ -34,6 +34,15 @@ const OVERLAY_BINDING_NAME = "rionStudioMacroOverlay";
 const OVERLAY_BRIDGE_KEY = "__rionStudioExternalMacroBridge";
 const DIAGNOSTICS_BINDING_NAME = "rionStudioExternalDiagnostics";
 const DIAGNOSTICS_STATE_KEY = "__rionStudioExternalDiagnosticsV1";
+const HELD_KEY_REASSERTION_EVENTS = new Set([
+  "blur",
+  "focus",
+  "pagehide",
+  "pageshow",
+  "visibilitychange",
+  "freeze",
+  "resume"
+]);
 
 export type ExternalMacroOverlayHandler = (request: unknown) => Promise<unknown>;
 
@@ -177,6 +186,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
               event: notification.params.name,
               source: "cdp"
             });
+            this.scheduleHeldKeyReassertion();
           }
           break;
       }
@@ -423,6 +433,42 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         await this.clearShortcutPhase(code, "keyup");
       }
     }
+  }
+
+  private scheduleHeldKeyReassertion(): void {
+    if (this.heldKeyOwners.size === 0) {
+      return;
+    }
+
+    void this.enqueueInput(() => this.reassertHeldKeysUnlocked()).catch(() => undefined);
+  }
+
+  private async reassertHeldKeysUnlocked(): Promise<void> {
+    if (this.heldKeyOwners.size === 0) {
+      return;
+    }
+
+    const activeCodes = new Set(this.heldKeyOwners.keys());
+    for (const code of activeCodes) {
+      const isModifier = this.isModifierCode(code);
+      if (!isModifier) {
+        await this.suppressShortcutPhase(code, "keydown");
+      }
+      try {
+        await this.sendKeyDown(code, activeCodes);
+      } finally {
+        if (!isModifier) {
+          await this.clearShortcutPhase(code, "keydown");
+        }
+      }
+    }
+  }
+
+  private isModifierCode(code: string): boolean {
+    return code === "AltLeft" || code === "AltRight" ||
+      code === "ControlLeft" || code === "ControlRight" ||
+      code === "MetaLeft" || code === "MetaRight" ||
+      code === "ShiftLeft" || code === "ShiftRight";
   }
 
   private sendKeyDown(
@@ -761,6 +807,9 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         webglRenderer: typeof payload.webglRenderer === "string" ? payload.webglRenderer : undefined,
         webglVendor: typeof payload.webglVendor === "string" ? payload.webglVendor : undefined
       });
+      if (HELD_KEY_REASSERTION_EVENTS.has(payload.event)) {
+        this.scheduleHeldKeyReassertion();
+      }
     } catch {
       // Ignore malformed diagnostics from the inspected page.
     }

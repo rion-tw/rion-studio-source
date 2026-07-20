@@ -62,7 +62,7 @@ describe("Chrome profile import flow", () => {
 
     const noticeConsent = screen.getByRole("checkbox");
     expect(noticeConsent.className).toContain("mt-0.5");
-    expect(noticeConsent.parentElement?.className).toContain("gap-2");
+    expect(noticeConsent.parentElement?.className).toContain("gap-1");
     expect(noticeConsent.nextElementSibling?.className).toContain("pt-1.5");
     const chooseFolderButton = screen.getByRole("button", { name: "Choose Chrome folder" });
     expect(chooseFolderButton).toHaveProperty("disabled", true);
@@ -80,12 +80,12 @@ describe("Chrome profile import flow", () => {
     expect(profileDirectory.className).toContain("max-w-[45%]");
     expect(profileDirectory.className).toContain("shrink-0");
     expect(profileDirectory.className).toContain("truncate");
-    expect(profileDirectory.className).toContain("pr-1");
     expect(profileDirectory.className).toContain("text-right");
     expect(profileCard?.className).toContain("glass-control");
-    expect(profileCard?.className).toContain("min-h-12");
+    expect(profileCard?.className).toContain("min-h-10");
     expect(profileCard?.className).toContain("rounded-lg");
-    expect(profileCard?.className).toContain("p-1.5");
+    expect(profileCard?.className).toContain("px-3");
+    expect(profileCard?.className).toContain("py-1");
     expect(profileCard?.className).toContain("text-muted-foreground");
 
     const importButton = screen.getByRole("button", { name: "Import selected profiles" });
@@ -94,7 +94,7 @@ describe("Chrome profile import flow", () => {
     expect(checkboxes).toHaveLength(2);
     expect(checkboxes[0].getAttribute("data-state")).toBe("unchecked");
     expect(checkboxes[1].className).toContain("mt-0.5");
-    expect(checkboxes[1].parentElement?.className).toContain("gap-2");
+    expect(checkboxes[1].parentElement?.className).toContain("gap-1");
     expect(checkboxes[1].nextElementSibling?.className).toContain("pt-1.5");
 
     fireEvent.click(checkboxes[0]);

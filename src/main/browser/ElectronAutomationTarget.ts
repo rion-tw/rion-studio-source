@@ -8,6 +8,8 @@ import {
   resolveMacroKeyInput,
   type MacroKeyInput
 } from "../../shared/macroKeys";
+import { resolveMacroClickOffset } from "../../shared/macroCoordinates";
+import type { MacroClickAnchor, MacroClickUnit } from "../../shared/types";
 import { getCdpKeyDescriptor, getCdpModifierMask } from "./CdpInput";
 import {
   getElectronDebuggerSession,
@@ -24,6 +26,13 @@ export interface BrowserAutomationTarget {
   dispatchClickPixels?: (
     xPx: number,
     yPx: number,
+    options?: BrowserInputDispatchOptions
+  ) => Promise<void>;
+  dispatchClickAnchored?: (
+    anchor: MacroClickAnchor | undefined,
+    unit: MacroClickUnit,
+    x: number,
+    y: number,
     options?: BrowserInputDispatchOptions
   ) => Promise<void>;
   dispatchKey: (input: MacroKeyInput | string, options?: BrowserInputDispatchOptions) => Promise<void>;
@@ -341,6 +350,16 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     return this.enqueueInput(() => this.dispatchClickPixelsUnlocked(xPx, yPx, options));
   }
 
+  dispatchClickAnchored(
+    anchor: MacroClickAnchor | undefined,
+    unit: MacroClickUnit,
+    x: number,
+    y: number,
+    options: BrowserInputDispatchOptions = {}
+  ): Promise<void> {
+    return this.enqueueInput(() => this.dispatchClickAnchoredUnlocked(anchor, unit, x, y, options));
+  }
+
   private async dispatchClickUnlocked(
     xPercent: number,
     yPercent: number,
@@ -403,6 +422,53 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       try {
         await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", {
           type: "mousePressed", button: "left", clickCount: 1, x, y
+        });
+        didPress = true;
+        signal?.throwIfAborted();
+        await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release);
+        didRelease = true;
+      } finally {
+        if (didPress && !didRelease && !this.webContents.isDestroyed() && this.debuggerSession.isAttached()) {
+          await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", release).catch(() => undefined);
+        }
+      }
+      await waitForInputDelay(postDelayMs, signal);
+    } finally {
+      this.releaseInputLeaseIfIdle();
+    }
+  }
+
+  private async dispatchClickAnchoredUnlocked(
+    anchor: MacroClickAnchor | undefined,
+    unit: MacroClickUnit,
+    xOffset: number,
+    yOffset: number,
+    options: BrowserInputDispatchOptions
+  ): Promise<void> {
+    const { postDelayMs = 0, signal } = options;
+    signal?.throwIfAborted();
+    if (this.webContents.isDestroyed()) return;
+    await this.ensureInputLease();
+    try {
+      const viewport = await this.getInputViewport();
+      const resolved = resolveMacroClickOffset({ anchor, unit, x: xOffset, y: yOffset }, viewport);
+      const x = Math.max(0, Math.min(viewport.width - 1, Math.round(
+        unit === "percent" ? (viewport.width * resolved.x) / 100 : resolved.x
+      )));
+      const y = Math.max(0, Math.min(viewport.height - 1, Math.round(
+        unit === "percent" ? (viewport.height * resolved.y) / 100 : resolved.y
+      )));
+      const release = { type: "mouseReleased", button: "left", clickCount: 1, x, y };
+      let didPress = false;
+      let didRelease = false;
+      try {
+        signal?.throwIfAborted();
+        await this.debuggerSession.sendCommand("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          button: "left",
+          clickCount: 1,
+          x,
+          y
         });
         didPress = true;
         signal?.throwIfAborted();

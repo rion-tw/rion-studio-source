@@ -188,6 +188,16 @@ export type MacroRepeat =
 
 export type MacroCallMode = "wait" | "trigger";
 export type MacroClickUnit = "percent" | "px";
+export type MacroClickAnchor =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "center-left"
+  | "center"
+  | "center-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
 
 export type MacroStep =
   | {
@@ -202,6 +212,7 @@ export type MacroStep =
       id: string;
       type: "click";
       unit?: "percent";
+      anchor?: MacroClickAnchor;
       xPercent: number;
       yPercent: number;
     }
@@ -209,6 +220,7 @@ export type MacroStep =
       id: string;
       type: "click";
       unit: "px";
+      anchor?: MacroClickAnchor;
       xPx: number;
       yPx: number;
     }

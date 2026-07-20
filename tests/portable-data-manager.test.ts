@@ -914,6 +914,33 @@ describe("PortableDataManager", () => {
     );
   });
 
+  it("round-trips anchored signed click offsets through portable data", async () => {
+    const importPath = join(baseDir, "anchored-click.json");
+    const fixture = createPortableV2Fixture();
+    fixture.macros[0].steps = [{
+      id: "anchored-click",
+      type: "click",
+      unit: "px",
+      anchor: "bottom-right",
+      xPx: -24,
+      yPx: -32
+    }];
+    await writeFile(importPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    const manager = createManager({ importPath, macroStore, roleStore, workspaceStore });
+
+    const preview = await manager.previewImport();
+    await manager.applyImport({ importId: preview!.importId, selection: ALL_PORTABLE_DATA });
+
+    expect((await macroStore.listMacros())[0].steps).toEqual([{
+      id: "anchored-click",
+      type: "click",
+      unit: "px",
+      anchor: "bottom-right",
+      xPx: -24,
+      yPx: -32
+    }]);
+  });
+
   it("imports only preferences when all stored data categories are unselected", async () => {
     const importPath = join(baseDir, "preferences-only.json");
     await writeFile(importPath, `${JSON.stringify(createPortableFixture(), null, 2)}\n`, "utf8");

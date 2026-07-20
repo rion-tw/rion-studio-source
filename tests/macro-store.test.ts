@@ -324,6 +324,14 @@ describe("MacroStore", () => {
 
     await expect(
       store.createMacro({
+        name: "Bad offset",
+        roleIds: ["role-1"],
+        steps: [{ id: "step-1", type: "click", xPercent: -101, yPercent: 50 }]
+      })
+    ).rejects.toMatchObject({ code: "MACRO_CLICK_PERCENT_INVALID" });
+
+    await expect(
+      store.createMacro({
         name: "Empty",
         roleIds: ["role-1"],
         steps: []
@@ -341,6 +349,28 @@ describe("MacroStore", () => {
     expect(macro.steps).toEqual([
       { id: "pixel", type: "click", unit: "px", xPx: 121, yPx: 45 }
     ]);
+  });
+
+  it("stores signed anchored click offsets", async () => {
+    const macro = await store.createMacro({
+      name: "Anchored click",
+      roleIds: ["role-1"],
+      steps: [{
+        id: "anchored",
+        type: "click",
+        anchor: "bottom-right",
+        xPercent: -12.345,
+        yPercent: -6.789
+      }]
+    });
+
+    expect(macro.steps).toEqual([{
+      id: "anchored",
+      type: "click",
+      anchor: "bottom-right",
+      xPercent: -12.34,
+      yPercent: -6.79
+    }]);
   });
 
   it("normalizes stored macros", async () => {

@@ -59,6 +59,8 @@ export type MacroOverlayRequest =
     }
   | (MacroCoordinateMeasurement & {
       type: "copy-coordinate";
+      viewportHeightPx: number;
+      viewportWidthPx: number;
     })
   | {
       macroId: string;
@@ -262,6 +264,8 @@ export class MacroOverlayInjector {
         await this.copyCoordinateToClipboard({
           xPercent: request.xPercent,
           xPx: request.xPx,
+          viewportHeightPx: request.viewportHeightPx,
+          viewportWidthPx: request.viewportWidthPx,
           yPercent: request.yPercent,
           yPx: request.yPx
         });
@@ -523,6 +527,8 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
     releaseMode?: unknown;
     xPercent?: unknown;
     xPx?: unknown;
+    viewportHeightPx?: unknown;
+    viewportWidthPx?: unknown;
     yPercent?: unknown;
     yPx?: unknown;
   };
@@ -534,8 +540,14 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
   }
   if (request.type === "copy-coordinate") {
     return (
+      isFiniteNonNegativeInteger(request.viewportWidthPx) &&
+      isFiniteNonNegativeInteger(request.viewportHeightPx) &&
+      request.viewportWidthPx > 0 &&
+      request.viewportHeightPx > 0 &&
       isFiniteNonNegativeInteger(request.xPx) &&
       isFiniteNonNegativeInteger(request.yPx) &&
+      request.xPx < request.viewportWidthPx &&
+      request.yPx < request.viewportHeightPx &&
       isFinitePercent(request.xPercent) &&
       isFinitePercent(request.yPercent)
     );
@@ -560,7 +572,7 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
 }
 
 function isFiniteNonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isFinitePercent(value: unknown): value is number {

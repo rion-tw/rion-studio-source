@@ -761,6 +761,18 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
               : {}),
             signal: run.abortController.signal
           };
+          if (target.dispatchClickAnchored) {
+            return target.dispatchClickAnchored(
+              step.anchor,
+              step.unit === "px" ? "px" : "percent",
+              step.unit === "px" ? step.xPx : step.xPercent,
+              step.unit === "px" ? step.yPx : step.yPercent,
+              options
+            );
+          }
+          if (step.anchor && step.anchor !== "top-left") {
+            throw new Error("Anchored click input is not supported by this browser target.");
+          }
           if (step.unit === "px") {
             if (!target.dispatchClickPixels) {
               throw new Error("Pixel click input is not supported by this browser target.");

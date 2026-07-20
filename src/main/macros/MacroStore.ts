@@ -8,6 +8,7 @@ import type {
   Macro,
   MacroActivationMode,
   MacroCallMode,
+  MacroClickAnchor,
   MacroKeyAction,
   MacroKeyModifier,
   MacroRepeat,
@@ -15,6 +16,7 @@ import type {
   MacroTrigger,
   UpdateMacroInput
 } from "../../shared/types";
+import { isMacroClickAnchor } from "../../shared/macroCoordinates";
 import {
   canonicalizeMacroKeyModifiers,
   hasPrimaryModifierConflict,
@@ -518,21 +520,26 @@ export class MacroStore {
           };
           }
         case "click":
+          {
+            const anchor = this.normalizeClickAnchor(step.anchor);
           if (step.unit === "px") {
             return {
               id,
               type: "click",
               unit: "px",
-              xPx: this.normalizePixel(step.xPx, "Macro click X must be a non-negative pixel value."),
-              yPx: this.normalizePixel(step.yPx, "Macro click Y must be a non-negative pixel value.")
+              ...(anchor ? { anchor } : {}),
+              xPx: this.normalizePixel(step.xPx, "Macro click X offset must be a safe pixel integer."),
+              yPx: this.normalizePixel(step.yPx, "Macro click Y offset must be a safe pixel integer.")
             };
           }
           return {
             id,
             type: "click",
-            xPercent: this.normalizePercent(step.xPercent, "Macro click X must be between 0 and 100."),
-            yPercent: this.normalizePercent(step.yPercent, "Macro click Y must be between 0 and 100.")
+            ...(anchor ? { anchor } : {}),
+            xPercent: this.normalizePercent(step.xPercent, "Macro click X offset must be between -100 and 100."),
+            yPercent: this.normalizePercent(step.yPercent, "Macro click Y offset must be between -100 and 100.")
           };
+          }
         case "delay":
           return {
             id,
@@ -553,10 +560,20 @@ export class MacroStore {
   }
 
   private normalizePixel(value: unknown, message: string): number {
-    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(Math.round(value))) {
       throw new MacroStoreError("MACRO_STEP_INVALID", message);
     }
     return Math.round(value);
+  }
+
+  private normalizeClickAnchor(value: unknown): MacroClickAnchor | undefined {
+    if (value === undefined || value === "top-left") {
+      return undefined;
+    }
+    if (!isMacroClickAnchor(value)) {
+      throw new MacroStoreError("MACRO_STEP_INVALID", "Macro click anchor is invalid.");
+    }
+    return value;
   }
 
   private normalizeCode(code: string | undefined, message: string): string {
@@ -656,7 +673,7 @@ export class MacroStore {
   }
 
   private normalizePercent(value: number, message: string): number {
-    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < -100 || value > 100) {
       throw new MacroStoreError("MACRO_CLICK_PERCENT_INVALID", message);
     }
 

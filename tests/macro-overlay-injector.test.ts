@@ -97,13 +97,23 @@ describe("MacroOverlayInjector", () => {
       macros: [],
       statuses: []
     });
-    const coordinate = { type: "copy-coordinate", xPercent: 12.34, xPx: 123, yPercent: 56.78, yPx: 456 };
+    const coordinate = {
+      type: "copy-coordinate",
+      viewportHeightPx: 800,
+      viewportWidthPx: 1000,
+      xPercent: 12.34,
+      xPx: 123,
+      yPercent: 56.78,
+      yPx: 456
+    };
     await expect(requestHandler?.(coordinate)).resolves.toMatchObject({
       macros: [{ id: assignedMacro.id }]
     });
     expect(copyCoordinateToClipboard).toHaveBeenCalledWith({
       xPercent: coordinate.xPercent,
       xPx: coordinate.xPx,
+      viewportHeightPx: coordinate.viewportHeightPx,
+      viewportWidthPx: coordinate.viewportWidthPx,
       yPercent: coordinate.yPercent,
       yPx: coordinate.yPx
     });
@@ -538,8 +548,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while exposing the coordinate action menu", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v45"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.3"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v46"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.4"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -563,7 +573,14 @@ describe("MacroOverlayInjector", () => {
   it("routes coordinate copies to the injected clipboard writer", async () => {
     const copyCoordinateToClipboard = vi.fn();
     const injector = createInjector({ copyCoordinateToClipboard });
-    const coordinate = { xPercent: 12.34, xPx: 123, yPercent: 56.78, yPx: 456 };
+    const coordinate = {
+      viewportHeightPx: 800,
+      viewportWidthPx: 1000,
+      xPercent: 12.34,
+      xPx: 123,
+      yPercent: 56.78,
+      yPx: 456
+    };
 
     await expect(injector.handleRequest(role.id, { type: "copy-coordinate", ...coordinate }))
       .resolves.toMatchObject({ macros: [{ id: assignedMacro.id }] });
@@ -574,7 +591,9 @@ describe("MacroOverlayInjector", () => {
   it.each([
     { type: "copy-coordinate", xPercent: 12, xPx: 123, yPercent: 45, yPx: -1 },
     { type: "copy-coordinate", xPercent: 101, xPx: 123, yPercent: 45, yPx: 456 },
-    { type: "copy-coordinate", xPercent: 12, xPx: 123.5, yPercent: 45, yPx: 456 }
+    { type: "copy-coordinate", xPercent: 12, xPx: 123.5, yPercent: 45, yPx: 456 },
+    { type: "copy-coordinate", viewportWidthPx: 100, viewportHeightPx: 100, xPercent: 12, xPx: 100, yPercent: 45, yPx: 45 },
+    { type: "copy-coordinate", viewportWidthPx: 0, viewportHeightPx: 100, xPercent: 12, xPx: 0, yPercent: 45, yPx: 45 }
   ])("rejects invalid coordinate request %j", (request) => {
     expect(isMacroOverlayRequest(request)).toBe(false);
   });

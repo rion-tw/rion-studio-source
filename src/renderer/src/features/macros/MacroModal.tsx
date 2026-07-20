@@ -52,8 +52,13 @@ import {
 } from "../../../../shared/macroShortcuts";
 import { DEFAULT_MACRO_SETTINGS, MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
 import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
-import { parseMacroCoordinateClipboard } from "../../../../shared/macroCoordinates";
-import type { Game, Macro, MacroActivationMode, MacroCallMode, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
+import {
+  convertMacroCoordinateToOffset,
+  DEFAULT_MACRO_CLICK_ANCHOR,
+  MACRO_CLICK_ANCHORS,
+  parseMacroCoordinateClipboard
+} from "../../../../shared/macroCoordinates";
+import type { Game, Macro, MacroActivationMode, MacroCallMode, MacroClickAnchor, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroRepeat, MacroSettings, MacroStep, MacroTrigger, Role } from "../../../../shared/types";
 import {
   commonMacroKeyCodes,
   createClientId,
@@ -1149,6 +1154,20 @@ const macroStepTypeOrder: Array<MacroStep["type"]> = ["key", "click", "delay", "
 const macroKeyModifiers: MacroKeyModifier[] = ["primary", "ctrl", "alt", "shift", "meta"];
 const MODIFIERS_NONE_VALUE = "__no_modifiers__";
 
+function macroClickAnchorLabel(anchor: MacroClickAnchor, t: Translator): string {
+  switch (anchor) {
+    case "top-left": return t("macroForm.clickAnchor.topLeft");
+    case "top-center": return t("macroForm.clickAnchor.topCenter");
+    case "top-right": return t("macroForm.clickAnchor.topRight");
+    case "center-left": return t("macroForm.clickAnchor.centerLeft");
+    case "center": return t("macroForm.clickAnchor.center");
+    case "center-right": return t("macroForm.clickAnchor.centerRight");
+    case "bottom-left": return t("macroForm.clickAnchor.bottomLeft");
+    case "bottom-center": return t("macroForm.clickAnchor.bottomCenter");
+    case "bottom-right": return t("macroForm.clickAnchor.bottomRight");
+  }
+}
+
 function getModifierComboOptions(t: Translator): Array<{ value: string; label: string }> {
   const combinations: Array<{ value: string; label: string }> = [];
 
@@ -1398,22 +1417,28 @@ function MacroStepFields({
   if (step.type === "click") {
     const unit: MacroClickUnit = step.unit ?? "percent";
     const isPixel = unit === "px";
+    const anchor = step.anchor ?? DEFAULT_MACRO_CLICK_ANCHOR;
+    const storedAnchor = anchor === DEFAULT_MACRO_CLICK_ANCHOR ? {} : { anchor };
     const x = step.unit === "px" ? step.xPx : step.xPercent;
     const y = step.unit === "px" ? step.yPx : step.yPercent;
     const handleCoordinatePaste = (event: ClipboardEvent<HTMLInputElement>): void => {
       const measurement = parseMacroCoordinateClipboard(event.clipboardData.getData("text"));
-      if (!measurement) {
+      const offset = measurement
+        ? convertMacroCoordinateToOffset(measurement, anchor, unit)
+        : undefined;
+      if (!offset) {
         return;
       }
 
       event.preventDefault();
       onUpdate(isPixel
-        ? { id: step.id, type: "click", unit: "px", xPx: measurement.xPx, yPx: measurement.yPx }
+        ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: offset.x, yPx: offset.y }
         : {
             id: step.id,
             type: "click",
-            xPercent: measurement.xPercent,
-            yPercent: measurement.yPercent
+            ...storedAnchor,
+            xPercent: offset.x,
+            yPercent: offset.y
           });
     };
     return (
@@ -1422,8 +1447,8 @@ function MacroStepFields({
           disabled={isSaving}
           value={unit}
           onValueChange={(nextUnit) => onUpdate(nextUnit === "px"
-            ? { id: step.id, type: "click", unit: "px", xPx: step.unit === "px" ? step.xPx : step.xPercent, yPx: step.unit === "px" ? step.yPx : step.yPercent }
-            : { id: step.id, type: "click", xPercent: step.unit === "px" ? step.xPx : step.xPercent, yPercent: step.unit === "px" ? step.yPx : step.yPercent })}
+            ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: step.unit === "px" ? step.xPx : step.xPercent, yPx: step.unit === "px" ? step.yPx : step.yPercent }
+            : { id: step.id, type: "click", ...storedAnchor, xPercent: step.unit === "px" ? step.xPx : step.xPercent, yPercent: step.unit === "px" ? step.yPx : step.yPercent })}
         >
           <SelectTrigger aria-label={t("macroForm.clickUnit")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -1431,12 +1456,31 @@ function MacroStepFields({
             <SelectItem value="px">px</SelectItem>
           </SelectContent>
         </Select>
+        <Select
+          disabled={isSaving}
+          value={anchor}
+          onValueChange={(nextAnchor) => {
+            const nextStoredAnchor = nextAnchor === DEFAULT_MACRO_CLICK_ANCHOR
+              ? {}
+              : { anchor: nextAnchor as MacroClickAnchor };
+            onUpdate(isPixel
+              ? { id: step.id, type: "click", unit: "px", ...nextStoredAnchor, xPx: x, yPx: y }
+              : { id: step.id, type: "click", ...nextStoredAnchor, xPercent: x, yPercent: y });
+          }}
+        >
+          <SelectTrigger aria-label={t("macroForm.clickAnchor")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {MACRO_CLICK_ANCHORS.map((option) => (
+              <SelectItem key={option} value={option}>{macroClickAnchorLabel(option, t)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <AffixedInput
-          aria-label={t("macroForm.clickX")}
+          aria-label={t("macroForm.clickXOffset")}
           disabled={isSaving}
           max={unit === "px" ? Number.MAX_SAFE_INTEGER : 100}
-          min={0}
-          prefix={t("macroForm.clickX")}
+          min={unit === "px" ? Number.MIN_SAFE_INTEGER : -100}
+          prefix={t("macroForm.clickXOffset")}
           suffix={unit === "px" ? "px" : "%"}
           value={x}
           widthClassName="w-full max-w-30 shrink-0"
@@ -1446,11 +1490,11 @@ function MacroStepFields({
           onPaste={handleCoordinatePaste}
         />
         <AffixedInput
-          aria-label={t("macroForm.clickY")}
+          aria-label={t("macroForm.clickYOffset")}
           disabled={isSaving}
           max={unit === "px" ? Number.MAX_SAFE_INTEGER : 100}
-          min={0}
-          prefix={t("macroForm.clickY")}
+          min={unit === "px" ? Number.MIN_SAFE_INTEGER : -100}
+          prefix={t("macroForm.clickYOffset")}
           suffix={unit === "px" ? "px" : "%"}
           value={y}
           widthClassName="w-full max-w-30 shrink-0"

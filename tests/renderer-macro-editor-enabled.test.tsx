@@ -889,6 +889,43 @@ describe("macro editor controls", () => {
     })));
   });
 
+  it("applies the copied anchor when pasting a measured percent coordinate", async () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", xPercent: 10, yPercent: 20 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "X offset" }), {
+      clipboardData: {
+        getData: () => "X: 100px (9.77%), Y: 700px (91.15%), Anchor: bottom-right, Viewport: 1024x768px"
+      }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", anchor: "bottom-right", xPercent: -90.23, yPercent: -8.85 }]
+    })));
+  });
+
   it("converts measured coordinates into bottom-right pixel offsets using viewport metadata", async () => {
     const selectedMacro = macro({
       steps: [{ id: "click", type: "click", unit: "px", anchor: "bottom-right", xPx: -10, yPx: -20 }]
@@ -917,6 +954,43 @@ describe("macro editor controls", () => {
     fireEvent.paste(screen.getByRole("spinbutton", { name: "Y offset" }), {
       clipboardData: {
         getData: () => "X: 100px (9.77%), Y: 700px (91.15%), Viewport: 1024x768px"
+      }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", unit: "px", anchor: "bottom-right", xPx: -924, yPx: -68 }]
+    })));
+  });
+
+  it("applies the copied anchor when pasting a measured pixel coordinate", async () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", unit: "px", xPx: 10, yPx: 20 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "Y offset" }), {
+      clipboardData: {
+        getData: () => "X: 100px (9.77%), Y: 700px (91.15%), Anchor: bottom-right, Viewport: 1024x768px"
       }
     });
     fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);

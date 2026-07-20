@@ -1373,20 +1373,22 @@ function MacroStepFields({
     const y = step.unit === "px" ? step.yPx : step.yPercent;
     const handleCoordinatePaste = (event: ClipboardEvent<HTMLInputElement>): void => {
       const measurement = parseMacroCoordinateClipboard(event.clipboardData.getData("text"));
+      const nextAnchor = measurement?.anchor ?? anchor;
       const offset = measurement
-        ? convertMacroCoordinateToOffset(measurement, anchor, unit)
+        ? convertMacroCoordinateToOffset(measurement, nextAnchor, unit)
         : undefined;
       if (!offset) {
         return;
       }
 
       event.preventDefault();
+      const nextStoredAnchor = nextAnchor === DEFAULT_MACRO_CLICK_ANCHOR ? {} : { anchor: nextAnchor };
       onUpdate(isPixel
-        ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: offset.x, yPx: offset.y }
+        ? { id: step.id, type: "click", unit: "px", ...nextStoredAnchor, xPx: offset.x, yPx: offset.y }
         : {
             id: step.id,
             type: "click",
-            ...storedAnchor,
+            ...nextStoredAnchor,
             xPercent: offset.x,
             yPercent: offset.y
           });
@@ -1435,8 +1437,8 @@ function MacroStepFields({
           value={x}
           widthClassName="w-full max-w-36 shrink-0"
           onChange={(value) => onUpdate(isPixel
-            ? { id: step.id, type: "click", unit: "px", xPx: value, yPx: y }
-            : { id: step.id, type: "click", xPercent: value, yPercent: y })}
+            ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: value, yPx: y }
+            : { id: step.id, type: "click", ...storedAnchor, xPercent: value, yPercent: y })}
           onPaste={handleCoordinatePaste}
         />
         <AffixedInput
@@ -1449,8 +1451,8 @@ function MacroStepFields({
           value={y}
           widthClassName="w-full max-w-36 shrink-0"
           onChange={(value) => onUpdate(isPixel
-            ? { id: step.id, type: "click", unit: "px", xPx: x, yPx: value }
-            : { id: step.id, type: "click", xPercent: x, yPercent: value })}
+            ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: x, yPx: value }
+            : { id: step.id, type: "click", ...storedAnchor, xPercent: x, yPercent: value })}
           onPaste={handleCoordinatePaste}
         />
       </div>

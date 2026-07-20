@@ -192,18 +192,18 @@ describe("macro overlay interactions", () => {
         "bottom-left", "bottom-center", "bottom-right"
       ]);
       expect(markers.map((marker) => [marker.style.left, marker.style.top])).toEqual([
-        ["0px", "0px"], ["500px", "0px"], ["1000px", "0px"],
-        ["0px", "400px"], ["500px", "400px"], ["1000px", "400px"],
-        ["0px", "800px"], ["500px", "800px"], ["1000px", "800px"]
+        ["0px", "0px"], ["500px", "0px"], ["999px", "0px"],
+        ["0px", "400px"], ["500px", "400px"], ["999px", "400px"],
+        ["0px", "799px"], ["500px", "799px"], ["999px", "799px"]
       ]);
 
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
       Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
       window.dispatchEvent(new Event("resize"));
       expect(markers.map((marker) => [marker.style.left, marker.style.top])).toEqual([
-        ["0px", "0px"], ["600px", "0px"], ["1200px", "0px"],
-        ["0px", "300px"], ["600px", "300px"], ["1200px", "300px"],
-        ["0px", "600px"], ["600px", "600px"], ["1200px", "600px"]
+        ["0px", "0px"], ["600px", "0px"], ["1199px", "0px"],
+        ["0px", "300px"], ["600px", "300px"], ["1199px", "300px"],
+        ["0px", "599px"], ["600px", "599px"], ["1199px", "599px"]
       ]);
 
       markers[4]?.dispatchEvent(new MouseEvent("click", {
@@ -1064,7 +1064,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v47")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v48")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -1130,7 +1130,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v47")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v48")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

@@ -1,11 +1,11 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v47";
+  const hostId = "rion-studio-macro-overlay-v48";
   const legacyHostIds = [
     "rion-studio-macro-overlay",
-    ...Array.from({ length: 45 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
+    ...Array.from({ length: 46 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-20.5";
+  const scriptVersion = "2026-07-20.6";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -406,8 +406,8 @@
     coordinateAnchorDefinitions.forEach((definition, index) => {
       const marker = markers[index];
       if (!marker) return;
-      marker.style.left = String((viewport.width * definition.xPercent) / 100) + "px";
-      marker.style.top = String((viewport.height * definition.yPercent) / 100) + "px";
+      marker.style.left = String(clampCoordinate((viewport.width * definition.xPercent) / 100, viewport.width)) + "px";
+      marker.style.top = String(clampCoordinate((viewport.height * definition.yPercent) / 100, viewport.height)) + "px";
     });
   }
 

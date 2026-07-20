@@ -548,8 +548,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while exposing the coordinate action menu", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v47"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.5"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v48"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.6"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -566,7 +566,8 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="coordinate-anchor-layer" hidden aria-hidden="true"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="coordinate-anchor-marker" data-anchor="');
     expect(MACRO_OVERLAY_SCRIPT).toContain(".coordinate-anchor-marker::before");
-    expect(MACRO_OVERLAY_SCRIPT).toContain("border-top:1px dashed rgba(255,255,255,.78)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("border-top:1px dashed rgba(236,72,153,.78)");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("border-left:1px dashed rgba(236,72,153,.78)");
     expect(MACRO_OVERLAY_SCRIPT).toContain("pointer-events:none;position:absolute");
     expect(MACRO_OVERLAY_SCRIPT).toContain('type: "copy-coordinate"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("coordinateMeasureActive");

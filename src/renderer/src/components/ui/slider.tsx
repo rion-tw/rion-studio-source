@@ -11,7 +11,7 @@ export const Slider = forwardRef<
     ref={ref}
     aria-label={ariaLabel}
     className={cn(
-      "relative flex w-full touch-none select-none items-center py-2 focus-visible:outline-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45",
+      "control-hit-target relative flex h-3.5 w-full touch-none select-none items-center focus-visible:outline-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45",
       className
     )}
     {...props}

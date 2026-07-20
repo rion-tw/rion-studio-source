@@ -11,7 +11,7 @@ export const Checkbox = forwardRef<
   <CheckboxPrimitive.Root
     ref={ref}
     className={cn(
-      "group/checkbox peer inline-grid size-[var(--control-min-size)] shrink-0 place-items-center rounded-md text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-45",
+      "group/checkbox peer inline-grid size-3.5 shrink-0 place-items-center rounded-[4px] text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/25 disabled:cursor-not-allowed disabled:opacity-45",
       className
     )}
     {...props}

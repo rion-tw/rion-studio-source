@@ -127,8 +127,6 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Chrome profile import preview expired. Choose the folder again.": "error.chromeProfileImportExpired",
   "Select at least one Chrome profile to import.": "error.chromeProfileImportSelectionEmpty",
   "Chrome profile contains an unsupported symbolic link.": "error.chromeProfileImportProfileInvalid",
-  "Unable to inspect the imported Chrome profile.": "error.chromeProfileImportExternalUnavailable",
-  "Imported Chrome profile did not expose a page target.": "error.chromeProfileImportTargetMissing",
   "Chrome profile import is not available.": "error.chromeProfileImportUnavailable",
   "Chrome profile import input is invalid.": "error.chromeProfileImportInputInvalid",
   "Chrome profile import id is invalid.": "error.chromeProfileImportIdInvalid",

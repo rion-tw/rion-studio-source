@@ -220,15 +220,6 @@ describe("registerIpcHandlers workspace handlers", () => {
     chromeProfileImportManager = {
       applyImport: vi.fn(async () => ({
         roles: [{ ...authenticatedRole, id: "imported-role" }],
-        results: [{
-          authState: "authenticated" as const,
-          embedded: "authenticated" as const,
-          external: "login_required" as const,
-          profileId: "Default",
-          profileName: "Primary",
-          roleId: "imported-role",
-          roleName: "Primary"
-        }],
         warnings: [{ code: "passwords_excluded" as const }]
       })),
       discardImport: vi.fn().mockResolvedValue(undefined),

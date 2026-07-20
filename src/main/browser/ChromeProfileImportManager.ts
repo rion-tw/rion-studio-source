@@ -6,23 +6,14 @@ import { basename, dirname, join } from "node:path";
 import type { Session } from "electron";
 
 import type {
-  AuthState,
   ChromeProfileEntry,
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
   ChromeProfileImportResult,
-  ChromeProfileImportRoleResult,
-  ChromeProfileImportRuntimeState,
-  ChromeProfileImportRuntimeReason,
   ChromeProfileImportWarning,
   Role
 } from "../../shared/types";
-import {
-  createLoginStorageSnapshot,
-  isPersistedLoginStorageReady,
-  LOGIN_STORAGE_EXPRESSION
-} from "../auth/loginEvidence";
-import { classifyAuthSession } from "../auth/authSessionClassification";
+import { createLoginStorageSnapshot } from "../auth/loginEvidence";
 import type { GameStore } from "../games/GameStore";
 import {
   CdpClient,
@@ -50,6 +41,21 @@ const IMPORT_COPY_FILES = [
   "Secure Preferences"
 ] as const;
 const LOCK_FILES = ["SingletonCookie", "SingletonLock", "SingletonSocket"] as const;
+const CHROME_LOGIN_DATA_EXPRESSION = `(() => {
+  const values = {};
+  try {
+    const storage = window.localStorage;
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key !== null) {
+        values[key] = storage.getItem(key) ?? "";
+      }
+    }
+  } catch {
+    // Best effort only; the persisted profile snapshot remains available.
+  }
+  return { localStorage: values };
+})()`;
 
 interface OpenDirectoryDialogOptions {
   properties: Array<"openDirectory">;
@@ -62,16 +68,9 @@ interface OpenDirectoryDialogResult {
   filePaths: string[];
 }
 
-interface ChromeSessionSnapshot {
-  authState: Exclude<AuthState, "unknown">;
+interface ChromeLoginDataSnapshot {
   cookies: Array<Record<string, unknown>>;
-  indexedDb?: Record<string, string>;
   localStorage: Record<string, string>;
-}
-
-export interface ChromeProfileEmbeddedVerification {
-  authState: Exclude<AuthState, "unknown">;
-  reason?: ChromeProfileImportRuntimeReason;
 }
 
 interface PendingImport {
@@ -97,14 +96,14 @@ interface ChromeProfileImportManagerOptions {
     partition: string,
     url: string,
     values: Record<string, string>
-  ) => Promise<ChromeProfileEmbeddedVerification | void>;
+  ) => Promise<void>;
   lstat?: typeof lstat;
   platform?: NodeJS.Platform;
-  readChromeSession?: (
+  readChromeLoginData?: (
     userDataDir: string,
     role: Pick<Role, "launchUrl">,
-    verificationUrl?: string
-  ) => Promise<ChromeSessionSnapshot>;
+    loginDataUrl?: string
+  ) => Promise<ChromeLoginDataSnapshot>;
   roleStore: Pick<
     RoleStore,
     | "createRole"
@@ -241,7 +240,6 @@ export class ChromeProfileImportManager {
     const overwrittenRoleIds = assignments.flatMap((assignment) =>
       assignment.existing ? [assignment.existing.id] : []
     );
-    const results: ChromeProfileImportRoleResult[] = [];
     const warnings: ChromeProfileImportWarning[] = [{ code: "passwords_excluded" }];
     const journal: ChromeImportJournal = {
       createdRoleIds,
@@ -299,41 +297,12 @@ export class ChromeProfileImportManager {
         await rm(targetBrowserDir, { force: true, recursive: true });
         await copyDirectory(stageBrowserDir, targetBrowserDir);
 
-        const runtime = await this.verifyAndSeedRuntime(targetBrowserDir, role, game.loginUrl ?? role.launchUrl);
-        if (runtime.embedded === "unavailable") {
-          warnings.push({
-            code: "embedded_unavailable",
-            profileId: assignment.profile.id,
-            profileName: assignment.profile.name
-          });
-        }
-        if (runtime.external === "unavailable") {
-          warnings.push({
-            code: "external_unavailable",
-            profileId: assignment.profile.id,
-            profileName: assignment.profile.name
-          });
-        }
-        if (runtime.embedded === "login_required" && runtime.external === "login_required") {
-          warnings.push({
-            code: "login_not_detected",
-            profileId: assignment.profile.id,
-            profileName: assignment.profile.name
-          });
-        }
-        const updatedRole = await this.options.roleStore.updateAuthState(role.id, runtime.authState);
-
-        results.push({
-          authState: updatedRole.authState,
-          embedded: runtime.embedded,
-          ...(runtime.embeddedReason ? { embeddedReason: runtime.embeddedReason } : {}),
-          external: runtime.external,
-          ...(runtime.externalReason ? { externalReason: runtime.externalReason } : {}),
-          profileId: assignment.profile.id,
-          profileName: assignment.profile.name,
-          roleId: updatedRole.id,
-          roleName: updatedRole.name
-        });
+        await this.seedImportedLoginData(
+          targetBrowserDir,
+          role,
+          game.loginUrl ?? role.launchUrl
+        );
+        await this.options.roleStore.updateAuthState(role.id, "authenticated");
       }
 
       await writeJsonFileAtomically(journalPath, { ...journal, phase: "committed" });
@@ -345,7 +314,6 @@ export class ChromeProfileImportManager {
       const affectedRoleIds = new Set([...overwrittenRoleIds, ...createdRoleIds]);
       return {
         roles: roles.filter((role) => affectedRoleIds.has(role.id)),
-        results,
         warnings
       };
     } catch (error) {
@@ -379,95 +347,37 @@ export class ChromeProfileImportManager {
     await removeStagingDirectory(this.options.userDataDir, importId);
   }
 
-  private async verifyAndSeedRuntime(
+  private async seedImportedLoginData(
     browserUserDataDir: string,
     role: Role,
-    verificationUrl: string
-  ): Promise<{
-    embedded: ChromeProfileImportRuntimeState;
-    embeddedReason?: ChromeProfileImportRuntimeReason;
-    external: ChromeProfileImportRuntimeState;
-    externalReason?: ChromeProfileImportRuntimeReason;
-    authState: AuthState;
-  }> {
-    if (!this.options.readChromeSession) {
-      return {
-        authState: "login_required",
-        embedded: "not_checked",
-        external: "not_checked"
-      };
+    loginDataUrl: string
+  ): Promise<void> {
+    if (!this.options.readChromeLoginData || !this.options.getSession || !this.options.injectEmbeddedStorage) {
+      return;
     }
 
-    let snapshot: ChromeSessionSnapshot;
+    let snapshot: ChromeLoginDataSnapshot;
     try {
-      snapshot = await this.options.readChromeSession(browserUserDataDir, role, verificationUrl);
+      snapshot = await this.options.readChromeLoginData(browserUserDataDir, role, loginDataUrl);
     } catch {
-      return {
-        authState: "login_required",
-        embedded: "unavailable",
-        external: "unavailable",
-        externalReason: "external_verification_failed"
-      };
+      return;
     }
 
-    const external = snapshot.authState === "authenticated" ? "authenticated" : "login_required";
-    const externalReason = snapshot.authState === "authenticated"
-      ? undefined
-      : snapshot.authState === "login_required"
-        ? "external_login_not_detected" as const
-        : "external_verification_failed" as const;
-    let embedded: ChromeProfileImportRuntimeState = "unavailable";
-    let embeddedReason: ChromeProfileImportRuntimeReason | undefined;
-    if (this.options.getSession && this.options.injectEmbeddedStorage) {
-      const partition = `persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-      try {
-        const session = this.options.getSession(partition);
-        for (const cookie of snapshot.cookies) {
-          await session.cookies.set(normalizeElectronCookie(cookie, verificationUrl));
-        }
-      } catch {
-        embeddedReason = "embedded_cookie_injection_failed";
+    const partition = `persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    try {
+      const session = this.options.getSession(partition);
+      for (const cookie of snapshot.cookies) {
+        await session.cookies.set(normalizeElectronCookie(cookie, loginDataUrl));
       }
-      if (!embeddedReason) {
-        try {
-          const verification = await this.options.injectEmbeddedStorage(
-            partition,
-            verificationUrl,
-            snapshot.localStorage
-          );
-          const result = verification ?? {
-            authState: snapshot.authState,
-            reason: snapshot.authState === "authenticated" ? undefined : "embedded_login_not_detected"
-          };
-          embedded = result.authState === "authenticated"
-            ? "authenticated"
-            : result.authState === "auth_failed"
-              ? "unavailable"
-              : "login_required";
-          embeddedReason = result.reason ?? (result.authState === "auth_failed"
-            ? "embedded_verification_failed"
-            : result.authState === "authenticated"
-              ? undefined
-              : "embedded_login_not_detected");
-        } catch {
-          embeddedReason = "embedded_storage_injection_failed";
-        }
-      }
-    } else {
-      embeddedReason = "embedded_verification_failed";
+    } catch {
+      // Cookie transfer is best effort; the role is still treated as authenticated
+      // by import policy and the existing re-login flow remains available.
     }
-
-    const authState: AuthState = embedded === "authenticated" || external === "authenticated"
-      ? "authenticated"
-      : "login_required";
-
-    return {
-      authState,
-      embedded,
-      ...(embeddedReason ? { embeddedReason } : {}),
-      external,
-      ...(externalReason ? { externalReason } : {})
-    };
+    try {
+      await this.options.injectEmbeddedStorage(partition, loginDataUrl, snapshot.localStorage);
+    } catch {
+      // Website storage transfer is best effort for the same reason.
+    }
   }
 }
 
@@ -769,20 +679,20 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
 
-export async function readChromeSessionWithCdp(
+export async function readChromeLoginDataWithCdp(
   userDataDir: string,
   role: Pick<Role, "launchUrl">,
-  verificationUrl = role.launchUrl,
+  loginDataUrl = role.launchUrl,
   options: {
     findExecutable?: () => string;
     spawnChrome?: (executable: string, args: string[]) => ChildProcess;
     timeoutMs?: number;
   } = {}
-): Promise<ChromeSessionSnapshot> {
+): Promise<ChromeLoginDataSnapshot> {
   const executable = (options.findExecutable ?? findSystemChromeExecutable)();
   const child = (options.spawnChrome ?? ((path, args) => spawn(path, args, { stdio: "ignore" })))(executable, [
     `--user-data-dir=${userDataDir}`,
-    `--app=${verificationUrl}`,
+    `--app=${loginDataUrl}`,
     "--no-first-run",
     "--no-default-browser-check",
     "--remote-debugging-address=127.0.0.1",
@@ -793,34 +703,27 @@ export async function readChromeSessionWithCdp(
     await waitForChildSpawn(child);
     const port = await waitForDevToolsPort(userDataDir, { timeoutMs: options.timeoutMs ?? 10_000 });
     if (port.state !== "available") {
-      throw new ChromeProfileImportError("EXTERNAL_UNAVAILABLE", "Unable to inspect the imported Chrome profile.");
+      throw new ChromeProfileImportError("LOGIN_DATA_READ_FAILED", "Unable to read imported Chrome login data.");
     }
-    const target = await waitForPageTarget(port.port, verificationUrl, options.timeoutMs ?? 10_000);
+    const target = await waitForPageTarget(port.port, loginDataUrl, options.timeoutMs ?? 10_000);
     if (!target?.webSocketDebuggerUrl) {
-      throw new ChromeProfileImportError("EXTERNAL_UNAVAILABLE", "Imported Chrome profile did not expose a page target.");
+      throw new ChromeProfileImportError("LOGIN_DATA_TARGET_MISSING", "Imported Chrome profile did not expose a login data page.");
     }
     const client = new CdpClient(target.webSocketDebuggerUrl);
     try {
       const [cookieResult, runtimeResult] = await Promise.all([
         client.send<{ cookies?: unknown[] }>("Network.getAllCookies"),
         client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
-          expression: LOGIN_STORAGE_EXPRESSION,
+          expression: CHROME_LOGIN_DATA_EXPRESSION,
           returnByValue: true,
           awaitPromise: true
         })
       ]);
       const snapshot = createLoginStorageSnapshot(cookieResult.cookies, runtimeResult.result?.value);
-      const auth = classifyAuthSession(
-        target.url ?? verificationUrl,
-        snapshot.bodyText,
-        isPersistedLoginStorageReady(snapshot)
-      );
       return {
-        authState: auth.authState,
         cookies: Array.isArray(cookieResult.cookies)
           ? cookieResult.cookies.filter(isRecord)
           : [],
-        indexedDb: snapshot.indexedDb,
         localStorage: snapshot.localStorage
       };
     } finally {

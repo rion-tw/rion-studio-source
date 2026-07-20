@@ -59,15 +59,12 @@ describe("ChromeProfileImportManager", () => {
     const session = { cookies: { set: vi.fn().mockResolvedValue(undefined) } };
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [source] }));
     const injectEmbeddedStorage = vi.fn(async () => undefined);
-    const readChromeSession = vi.fn()
+    const readChromeLoginData = vi.fn()
       .mockResolvedValueOnce({
-        authState: "authenticated" as const,
         cookies: [{ domain: "example.test", name: "session", value: "secret", path: "/" }],
-        indexedDb: { auth: "present" },
         localStorage: { session: "present" }
       })
       .mockResolvedValueOnce({
-        authState: "authenticated" as const,
         cookies: [{ domain: "example.test", name: "session", value: "secret", path: "/" }],
         localStorage: { session: "present" }
       });
@@ -78,7 +75,7 @@ describe("ChromeProfileImportManager", () => {
       homeDirectory: "/Users/test",
       injectEmbeddedStorage,
       platform: "darwin",
-      readChromeSession,
+      readChromeLoginData,
       roleStore,
       showOpenDialog,
       userDataDir
@@ -115,11 +112,9 @@ describe("ChromeProfileImportManager", () => {
     expect(importedRoles.map((role) => role.name)).toEqual(["Primary", "Alt"]);
     expect(importedRoles.find((role) => role.name === "Primary")?.id).toBe(existingRole.id);
     expect(importedRoles.every((role) => role.authState === "authenticated")).toBe(true);
-    expect(result.results.map((item) => [item.embedded, item.external])).toEqual([
-      ["authenticated", "authenticated"],
-      ["authenticated", "authenticated"]
-    ]);
-    expect(readChromeSession).toHaveBeenCalledTimes(2);
+    expect(importedRoles.every((role) => role.lastAuthCheckAt && role.lastSuccessfulLoginAt)).toBe(true);
+    expect(result).not.toHaveProperty("results");
+    expect(readChromeLoginData).toHaveBeenCalledTimes(2);
     expect(session.cookies.set).toHaveBeenCalledTimes(2);
     expect(injectEmbeddedStorage).toHaveBeenCalledTimes(2);
     await expect(readFile(join(roleStore.getRolePaths(importedRoles[0].id).browserUserDataDir, "Default", "Cookies"), "utf8"))
@@ -294,11 +289,6 @@ describe("ChromeProfileImportManager", () => {
       createImportId: () => "import-3",
       gameStore: { getGame: async () => game },
       platform: "darwin",
-      readChromeSession: async () => ({
-        authState: "authenticated" as const,
-        cookies: [],
-        localStorage: {}
-      }),
       roleStore: failingRoleStore,
       showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
       userDataDir

@@ -41,6 +41,7 @@ describe("SystemChromeLauncher", () => {
 
     expect(args).toEqual([
       "--user-data-dir=/tmp/rion-studio/role-1/browser",
+      "--profile-directory=Default",
       "--new-window",
       "https://example.com/play"
     ]);

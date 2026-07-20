@@ -34,6 +34,7 @@ describe("ExternalChromeManager", () => {
       }, undefined, "automatic", "linux")
     ).toEqual([
       "--user-data-dir=/tmp/rion/role-1/browser",
+      "--profile-directory=Default",
       "--app=https://example.com/play",
       "--window-position=-1280,-120",
       "--window-size=1280,720",

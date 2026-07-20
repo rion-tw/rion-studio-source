@@ -511,6 +511,7 @@ export function buildExternalChromeArgs(
 ): string[] {
   return [
     `--user-data-dir=${browserUserDataDir}`,
+    "--profile-directory=Default",
     `--app=${role.launchUrl}`,
     `--window-position=${bounds.x},${bounds.y}`,
     `--window-size=${bounds.width},${bounds.height}`,

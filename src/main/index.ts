@@ -18,7 +18,8 @@ import {
   session as electronSession,
   shell,
   Tray,
-  WebContentsView
+  WebContentsView,
+  type Session
 } from "electron";
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
@@ -704,17 +705,36 @@ async function initializeApplication(): Promise<void> {
     },
     onLoginDataTransfer: (summary) => {
       logService.info("browser", "chrome_profile_import_data_transfer", "Chrome profile login data transfer completed.", {
-        cookieFailedCount: summary.cookieFailedCount,
-        cookieInjectedCount: summary.cookieInjectedCount,
-        cookieReadCount: summary.cookieReadCount,
-        localStorageFailedOriginCount: summary.localStorageFailedOriginCount,
-        localStorageInjectedKeyCount: summary.localStorageInjectedKeyCount,
-        localStorageInjectedOriginCount: summary.localStorageInjectedOriginCount,
-        localStorageKeyCount: summary.localStorageKeyCount,
-        localStorageOriginCount: summary.localStorageOriginCount,
+        failedItemCount: summary.failedItemCount,
+        failedStorageOriginCount: summary.failedStorageOriginCount,
+        readbackFailed: summary.readbackFailed,
         readFailed: summary.readFailed,
+        resetFailed: summary.resetFailed,
+        sourceItemCount: summary.sourceItemCount,
+        sourceStorageKeyCount: summary.sourceStorageKeyCount,
+        sourceStorageOriginCount: summary.sourceStorageOriginCount,
+        visibleItemCount: summary.visibleItemCount,
+        writtenItemCount: summary.writtenItemCount,
+        writtenStorageKeyCount: summary.writtenStorageKeyCount,
+        writtenStorageOriginCount: summary.writtenStorageOriginCount,
         roleId: summary.roleId
       });
+    },
+    resetEmbeddedSession: async (partition) => {
+      const session = electronSession.fromPartition(partition);
+      await session.closeAllConnections();
+      await session.clearData({
+        dataTypes: [
+          "cache",
+          "cookies",
+          "fileSystems",
+          "indexedDB",
+          "localStorage",
+          "serviceWorkers",
+          "webSQL"
+        ] as NonNullable<Parameters<Session["clearData"]>[0]>["dataTypes"]
+      });
+      await session.clearStorageData({ storages: ["cachestorage"] });
     },
     readChromeLoginData: readChromeLoginDataWithCdp,
     roleStore,

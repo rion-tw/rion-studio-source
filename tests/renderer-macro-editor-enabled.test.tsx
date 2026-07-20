@@ -740,6 +740,107 @@ describe("macro editor controls", () => {
     })));
   });
 
+  it("pastes a measured coordinate pair into both percent click fields", async () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", xPercent: 10, yPercent: 20 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "X" }), {
+      clipboardData: {
+        getData: () => "X: 123px (12.35%), Y: 456px (56.79%)"
+      }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", xPercent: 12.35, yPercent: 56.79 }]
+    })));
+  });
+
+  it("pastes a measured coordinate pair into both pixel click fields", async () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", unit: "px", xPx: 10, yPx: 20 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "Y" }), {
+      clipboardData: {
+        getData: () => "X: 123px (12.35%), Y: 456px (56.79%)"
+      }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", unit: "px", xPx: 123, yPx: 456 }]
+    })));
+  });
+
+  it("leaves click fields unchanged for malformed coordinate paste", () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", xPercent: 10, yPercent: 20 }]
+    });
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={vi.fn()}
+        />
+      }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "X" }), {
+      clipboardData: { getData: () => "X: 123px, Y: 456px" }
+    });
+
+    expect((screen.getByRole("spinbutton", { name: "X" }) as HTMLInputElement).value).toBe("10");
+    expect((screen.getByRole("spinbutton", { name: "Y" }) as HTMLInputElement).value).toBe("20");
+  });
+
   it("supports minute, hour, and day delay units", async () => {
     const selectedMacro = macro({
       repeat: { type: "loop", intervalMs: 1234 },

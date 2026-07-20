@@ -4,6 +4,7 @@ import macroOverlayCss from "./overlay/macroOverlay.css?raw";
 import macroOverlayRuntimeSource from "./overlay/macroOverlayRuntime.js?raw";
 
 import { findUnassignedMacroDependency } from "../../shared/macroDependencies";
+import type { MacroCoordinateMeasurement } from "../../shared/macroCoordinates";
 import { DEFAULT_MACRO_BADGE_POSITION } from "../../shared/macroOverlay";
 import type {
   AppLanguage,
@@ -56,6 +57,9 @@ export type MacroOverlayRequest =
   | {
       type: "open";
     }
+  | (MacroCoordinateMeasurement & {
+      type: "copy-coordinate";
+    })
   | {
       macroId: string;
       type: "start";
@@ -113,7 +117,10 @@ export class MacroOverlayInjector {
       source: string;
       trailing: boolean;
     }) => void,
-    private readonly getMacroBadgePosition?: () => Promise<MacroBadgePositionSettings>
+    private readonly getMacroBadgePosition?: () => Promise<MacroBadgePositionSettings>,
+    private readonly copyCoordinateToClipboard?: (
+      coordinate: MacroCoordinateMeasurement
+    ) => void | Promise<void>
   ) {}
 
   async install(role: Role, webContents: WebContents): Promise<void> {
@@ -247,6 +254,17 @@ export class MacroOverlayInjector {
         break;
       case "open":
         await this.onMacroPageRequested?.({ roleId });
+        break;
+      case "copy-coordinate":
+        if (!this.copyCoordinateToClipboard) {
+          throw new Error("Coordinate clipboard support is unavailable.");
+        }
+        await this.copyCoordinateToClipboard({
+          xPercent: request.xPercent,
+          xPx: request.xPx,
+          yPercent: request.yPercent,
+          yPx: request.yPx
+        });
         break;
       case "start":
         return this.withStartSummary(
@@ -503,12 +521,24 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
     macroId?: unknown;
     pressId?: unknown;
     releaseMode?: unknown;
+    xPercent?: unknown;
+    xPx?: unknown;
+    yPercent?: unknown;
+    yPx?: unknown;
   };
   if (request.type === "game-input-context") {
     return typeof request.active === "boolean";
   }
   if (request.type === "list" || request.type === "open") {
     return true;
+  }
+  if (request.type === "copy-coordinate") {
+    return (
+      isFiniteNonNegativeInteger(request.xPx) &&
+      isFiniteNonNegativeInteger(request.yPx) &&
+      isFinitePercent(request.xPercent) &&
+      isFinitePercent(request.yPercent)
+    );
   }
   return (
     (request.type === "start" || request.type === "stop") &&
@@ -527,6 +557,14 @@ export function isMacroOverlayRequest(value: unknown): value is MacroOverlayRequ
       request.releaseMode === "immediate"
     )
   );
+}
+
+function isFiniteNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0;
+}
+
+function isFinitePercent(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
 }
 
 function isBenignFrameInstallError(error: unknown): boolean {

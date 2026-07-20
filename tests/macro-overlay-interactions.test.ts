@@ -68,7 +68,7 @@ describe("macro overlay interactions", () => {
     expect(binding).toHaveBeenCalledWith({ type: "game-input-context", active: true });
   });
 
-  it("opens the app once from a physical trigger click without rendering an action menu", async () => {
+  it("opens the app once from a physical trigger click while keeping the action menu hidden", async () => {
     const { canvas } = createGameSurface(document);
     canvas.tabIndex = -1;
     canvas.focus();
@@ -98,6 +98,137 @@ describe("macro overlay interactions", () => {
     expect(binding.mock.calls.filter(([request]) => isRecord(request) && request.type === "open")).toHaveLength(1);
     expect(root.querySelector(".panel")).toBeNull();
     expect(root.querySelector(".macro-row")).toBeNull();
+    expect(root.querySelector<HTMLElement>(".action-menu")?.hidden).toBe(true);
+  });
+
+  it("opens the coordinate action on hover and copies a measured viewport point", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    const binding = vi.fn(async (request: unknown) => ({
+      macros: [assignedMacro],
+      statuses: [],
+      ...(isRecord(request) && request.type === "copy-coordinate" ? { copied: true } : {})
+    }));
+    installOverlay(window, binding);
+    await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+
+    const root = getOverlayRoot(document);
+    const trigger = root.querySelector<HTMLButtonElement>(".trigger");
+    const menu = root.querySelector<HTMLElement>(".action-menu");
+    const measureAction = root.querySelector<HTMLButtonElement>(".action-menu-item");
+    if (!trigger || !menu || !measureAction) throw new Error("Expected coordinate menu controls.");
+
+    expect(menu.hidden).toBe(true);
+    trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
+    expect(menu.hidden).toBe(false);
+    expect(measureAction.textContent).toContain("Measure coordinates");
+
+    measureAction.dispatchEvent(createMouseEvent(window, "click"));
+    const picker = root.querySelector<HTMLElement>(".coordinate-picker");
+    const readout = root.querySelector<HTMLElement>(".coordinate-readout");
+    if (!picker || !readout) throw new Error("Expected coordinate picker.");
+    expect(picker.hidden).toBe(false);
+
+    const move = new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 256,
+      clientY: 192
+    });
+    expect(picker.dispatchEvent(move)).toBe(false);
+    expect(readout.textContent).toContain("X: 256px");
+    expect(readout.textContent).toContain("Y: 192px");
+
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 256,
+      clientY: 192
+    });
+    expect(picker.dispatchEvent(click)).toBe(false);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "copy-coordinate",
+      xPx: 256,
+      yPx: 192
+    })));
+    await vi.waitFor(() => expect(picker.hidden).toBe(true));
+  });
+
+  it("blocks macro shortcuts while measuring and lets Escape cancel without copying", async () => {
+    createGameSurface(document);
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [assignedMacro], statuses: [] }));
+    installOverlay(window, binding);
+    await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+
+    const root = getOverlayRoot(document);
+    root.querySelector<HTMLButtonElement>(".trigger")?.dispatchEvent(
+      createMouseEvent(window, "pointerenter")
+    );
+    root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
+      createMouseEvent(window, "click")
+    );
+    const picker = root.querySelector<HTMLElement>(".coordinate-picker");
+    if (!picker) throw new Error("Expected coordinate picker.");
+
+    const shortcut = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+    expect(document.dispatchEvent(shortcut)).toBe(false);
+    expect(binding.mock.calls.some(([request]) => isRecord(request) && request.type === "start")).toBe(false);
+
+    const escape = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Escape",
+      key: "Escape"
+    });
+    expect(document.dispatchEvent(escape)).toBe(false);
+    expect(picker.hidden).toBe(true);
+    expect(binding.mock.calls.some(([request]) => isRecord(request) && request.type === "copy-coordinate")).toBe(false);
+  });
+
+  it("keeps the measurement layer visible when clipboard copying fails", async () => {
+    createGameSurface(document);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const binding = vi.fn(async (request: unknown) => {
+      if (isRecord(request) && request.type === "copy-coordinate") {
+        throw new Error("clipboard unavailable");
+      }
+      return { macros: [assignedMacro], statuses: [] };
+    });
+    installOverlay(window, binding);
+    await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+
+    const root = getOverlayRoot(document);
+    root.querySelector<HTMLButtonElement>(".trigger")?.dispatchEvent(
+      createMouseEvent(window, "pointerenter")
+    );
+    root.querySelector<HTMLButtonElement>(".action-menu-item")?.dispatchEvent(
+      createMouseEvent(window, "click")
+    );
+    const picker = root.querySelector<HTMLElement>(".coordinate-picker");
+    const readout = root.querySelector<HTMLElement>(".coordinate-readout");
+    if (!picker || !readout) throw new Error("Expected coordinate picker.");
+
+    picker.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 128,
+      clientY: 96
+    }));
+    picker.dispatchEvent(new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 128,
+      clientY: 96
+    }));
+
+    await vi.waitFor(() => expect(readout.dataset.status).toBe("failed"));
+    expect(picker.hidden).toBe(false);
   });
 
   it("positions active badges from the shared overlay state", async () => {
@@ -865,7 +996,7 @@ describe("macro overlay interactions", () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v44")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v45")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -931,7 +1062,7 @@ function runningStatus(): Record<string, unknown> {
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v44")?.shadowRoot;
+    const root = ownerDocument.getElementById("rion-studio-macro-overlay-v45")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

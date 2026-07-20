@@ -694,6 +694,8 @@
   "roleForm.coverRemove": "移除",
   "roleForm.coverEmpty": "尚未選擇封面",
   "roleForm.relogin": "重新登入",
+  "roleForm.reloginTitle": "重新登入",
+  "roleForm.reloginDescription": "將停止目前的角色視窗並重新完成登入，以更新此角色已儲存的工作階段。",
   "roleForm.savedData": "已儲存的瀏覽器資料",
   "roleForm.savedDataDescription": "重設此角色隔離的登入、網站與快取資料，不會變更角色本身。",
   "roleForm.cancel": "取消",

@@ -202,7 +202,7 @@ function RoleForm({
     <>
           <div className="grid gap-4">
             <Surface className="grid gap-3 p-4" padding="none" variant="inset">
-              <FormGrid>
+              <FormGrid columns={2}>
                 <FormField
                   htmlFor="role-game"
                   label={t("roleForm.game")}
@@ -240,6 +240,10 @@ function RoleForm({
             {selectedRole &&
             (shouldShowLoginGuidance(authStatus) || selectedRole.authState === "authenticated") ? (
               <Surface className="grid gap-3 p-4" padding="none" variant="inset">
+                <FieldHeader
+                  title={t("roleForm.reloginTitle")}
+                  description={t("roleForm.reloginDescription")}
+                />
                 {shouldShowLoginGuidance(authStatus) ? (
                   <LoginSessionGuide authStatus={authStatus} roleName={selectedRole.name} t={t} />
                 ) : null}

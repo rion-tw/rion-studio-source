@@ -697,6 +697,8 @@
   "roleForm.coverRemove": "Remove",
   "roleForm.coverEmpty": "No cover image",
   "roleForm.relogin": "Re-login",
+  "roleForm.reloginTitle": "Re-login",
+  "roleForm.reloginDescription": "Stop the current role window and sign in again to refresh this role's saved session.",
   "roleForm.savedData": "Saved browser data",
   "roleForm.savedDataDescription": "Reset this role's isolated login, website, and cached browser data without changing the role itself.",
   "roleForm.cancel": "Cancel",

@@ -566,8 +566,8 @@ describe("MacroOverlayInjector", () => {
   });
 
   it("keeps a stable trigger while exposing the coordinate action menu", () => {
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v52"');
-    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.10"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const hostId = "rion-studio-macro-overlay-v54"');
+    expect(MACRO_OVERLAY_SCRIPT).toContain('const scriptVersion = "2026-07-20.12"');
     expect(MACRO_OVERLAY_SCRIPT).toContain("let refreshInFlight = null");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain('case "primary"');
     expect(MACRO_OVERLAY_SCRIPT).toContain('root.innerHTML = [');
@@ -585,6 +585,8 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("stroke-width:1;width:100%");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".click-marker-ring{fill:none;}");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".click-marker-dot{fill:currentColor;stroke:none;");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("color:#fff");
+    expect(MACRO_OVERLAY_SCRIPT).toContain("var(--click-flash-duration,120ms)");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".click-marker.is-click-flash");
     expect(MACRO_OVERLAY_SCRIPT).toContain(".click-marker-layer{inset:0;pointer-events:none");
     expect(MACRO_OVERLAY_SCRIPT).toContain('class="action-menu" hidden role="menu"');

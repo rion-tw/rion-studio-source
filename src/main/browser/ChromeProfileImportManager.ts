@@ -41,9 +41,12 @@ const IMPORT_COPY_FILES = [
   "Secure Preferences"
 ] as const;
 const LOCK_FILES = ["SingletonCookie", "SingletonLock", "SingletonSocket"] as const;
-const CHROME_LOGIN_DATA_EXPRESSION = `(() => {
+const CHROME_LOGIN_DATA_EXPRESSION = `(async () => {
   const values = {};
   try {
+    if (document.readyState === "loading") {
+      await new Promise((resolve) => document.addEventListener("DOMContentLoaded", resolve, { once: true }));
+    }
     const storage = window.localStorage;
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
@@ -54,7 +57,7 @@ const CHROME_LOGIN_DATA_EXPRESSION = `(() => {
   } catch {
     // Best effort only; the persisted profile snapshot remains available.
   }
-  return { localStorage: values };
+  return { localStorage: values, origin: window.location.origin };
 })()`;
 
 interface OpenDirectoryDialogOptions {
@@ -70,7 +73,20 @@ interface OpenDirectoryDialogResult {
 
 interface ChromeLoginDataSnapshot {
   cookies: Array<Record<string, unknown>>;
-  localStorage: Record<string, string>;
+  localStorageByOrigin: Record<string, Record<string, string>>;
+}
+
+export interface ChromeProfileImportLoginDataTransferSummary {
+  cookieFailedCount: number;
+  cookieInjectedCount: number;
+  cookieReadCount: number;
+  localStorageFailedOriginCount: number;
+  localStorageInjectedKeyCount: number;
+  localStorageInjectedOriginCount: number;
+  localStorageKeyCount: number;
+  localStorageOriginCount: number;
+  readFailed: boolean;
+  roleId: string;
 }
 
 interface PendingImport {
@@ -98,11 +114,12 @@ interface ChromeProfileImportManagerOptions {
     values: Record<string, string>
   ) => Promise<void>;
   lstat?: typeof lstat;
+  onLoginDataTransfer?: (summary: ChromeProfileImportLoginDataTransferSummary) => void;
   platform?: NodeJS.Platform;
   readChromeLoginData?: (
     userDataDir: string,
     role: Pick<Role, "launchUrl">,
-    loginDataUrl?: string
+    loginDataUrls: readonly string[]
   ) => Promise<ChromeLoginDataSnapshot>;
   roleStore: Pick<
     RoleStore,
@@ -297,11 +314,7 @@ export class ChromeProfileImportManager {
         await rm(targetBrowserDir, { force: true, recursive: true });
         await copyDirectory(stageBrowserDir, targetBrowserDir);
 
-        await this.seedImportedLoginData(
-          targetBrowserDir,
-          role,
-          game.loginUrl ?? role.launchUrl
-        );
+        await this.seedImportedLoginData(targetBrowserDir, role, createLoginDataUrls(role, game.loginUrl));
         await this.options.roleStore.updateAuthState(role.id, "authenticated");
       }
 
@@ -350,34 +363,81 @@ export class ChromeProfileImportManager {
   private async seedImportedLoginData(
     browserUserDataDir: string,
     role: Role,
-    loginDataUrl: string
+    loginDataUrls: readonly string[]
   ): Promise<void> {
+    const summary: ChromeProfileImportLoginDataTransferSummary = {
+      cookieFailedCount: 0,
+      cookieInjectedCount: 0,
+      cookieReadCount: 0,
+      localStorageFailedOriginCount: 0,
+      localStorageInjectedKeyCount: 0,
+      localStorageInjectedOriginCount: 0,
+      localStorageKeyCount: 0,
+      localStorageOriginCount: 0,
+      readFailed: false,
+      roleId: role.id
+    };
+
+    const reportSummary = (): void => {
+      try {
+        this.options.onLoginDataTransfer?.(summary);
+      } catch {
+        // Diagnostics must never affect the import transaction.
+      }
+    };
+
     if (!this.options.readChromeLoginData || !this.options.getSession || !this.options.injectEmbeddedStorage) {
+      reportSummary();
       return;
     }
 
     let snapshot: ChromeLoginDataSnapshot;
     try {
-      snapshot = await this.options.readChromeLoginData(browserUserDataDir, role, loginDataUrl);
+      snapshot = await this.options.readChromeLoginData(browserUserDataDir, role, loginDataUrls);
     } catch {
+      summary.readFailed = true;
+      reportSummary();
       return;
     }
 
+    summary.cookieReadCount = snapshot.cookies.length;
+    summary.localStorageOriginCount = Object.keys(snapshot.localStorageByOrigin).length;
+    summary.localStorageKeyCount = Object.values(snapshot.localStorageByOrigin)
+      .reduce((count, values) => count + Object.keys(values).length, 0);
     const partition = `persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+
+    let session: Pick<Session, "cookies"> | undefined;
     try {
-      const session = this.options.getSession(partition);
+      session = this.options.getSession(partition);
+    } catch {
+      summary.cookieFailedCount = snapshot.cookies.length;
+    }
+    if (session) {
       for (const cookie of snapshot.cookies) {
-        await session.cookies.set(normalizeElectronCookie(cookie, loginDataUrl));
+        try {
+          await session.cookies.set(normalizeElectronCookie(cookie, role.launchUrl));
+          summary.cookieInjectedCount += 1;
+        } catch {
+          summary.cookieFailedCount += 1;
+        }
       }
-    } catch {
-      // Cookie transfer is best effort; the role is still treated as authenticated
-      // by import policy and the existing re-login flow remains available.
     }
-    try {
-      await this.options.injectEmbeddedStorage(partition, loginDataUrl, snapshot.localStorage);
-    } catch {
-      // Website storage transfer is best effort for the same reason.
+
+    for (const [origin, values] of Object.entries(snapshot.localStorageByOrigin)) {
+      const url = loginDataUrls.find((candidate) => getUrlOrigin(candidate) === origin);
+      if (!url || Object.keys(values).length === 0) {
+        continue;
+      }
+      try {
+        await this.options.injectEmbeddedStorage(partition, url, values);
+        summary.localStorageInjectedOriginCount += 1;
+        summary.localStorageInjectedKeyCount += Object.keys(values).length;
+      } catch {
+        summary.localStorageFailedOriginCount += 1;
+      }
     }
+
+    reportSummary();
   }
 }
 
@@ -656,19 +716,85 @@ function isSafeImportId(value: unknown): value is string {
 
 function normalizeElectronCookie(cookie: Record<string, unknown>, fallbackUrl: string): Parameters<Session["cookies"]["set"]>[0] {
   const domain = typeof cookie.domain === "string" ? cookie.domain : undefined;
+  const name = typeof cookie.name === "string" ? cookie.name : "";
+  const secure = typeof cookie.secure === "boolean" ? cookie.secure : undefined;
+  const cookieUrl = createElectronCookieUrl(domain, cookie.path, secure, fallbackUrl);
+  const sameSite = normalizeElectronSameSite(cookie.sameSite);
   return {
-    url: fallbackUrl,
-    name: typeof cookie.name === "string" ? cookie.name : "",
+    url: cookieUrl,
+    name,
     value: typeof cookie.value === "string" ? cookie.value : "",
-    ...(domain ? { domain } : {}),
-    ...(typeof cookie.path === "string" ? { path: cookie.path } : {}),
+    ...(domain?.startsWith(".") && !name.startsWith("__Host-") ? { domain } : {}),
+    ...(typeof cookie.path === "string" && cookie.path.startsWith("/") ? { path: cookie.path } : {}),
     ...(typeof cookie.expirationDate === "number" ? { expirationDate: cookie.expirationDate } : {}),
     ...(typeof cookie.httpOnly === "boolean" ? { httpOnly: cookie.httpOnly } : {}),
-    ...(typeof cookie.secure === "boolean" ? { secure: cookie.secure } : {}),
-    ...(cookie.sameSite === "strict" || cookie.sameSite === "lax" || cookie.sameSite === "no_restriction" || cookie.sameSite === "unspecified"
-      ? { sameSite: cookie.sameSite }
-      : {})
+    ...(secure !== undefined ? { secure } : {}),
+    ...(sameSite ? { sameSite } : {})
   } as Parameters<Session["cookies"]["set"]>[0];
+}
+
+function createElectronCookieUrl(
+  domain: string | undefined,
+  cookiePath: unknown,
+  secure: boolean | undefined,
+  fallbackUrl: string
+): string {
+  if (!domain) {
+    return fallbackUrl;
+  }
+
+  const fallback = new URL(fallbackUrl);
+  const host = domain.replace(/^\.+/, "");
+  const protocol = secure === true || fallback.protocol === "https:" ? "https:" : "http:";
+  const path = typeof cookiePath === "string" && cookiePath.startsWith("/") ? cookiePath : "/";
+  return `${protocol}//${host}${path}`;
+}
+
+function normalizeElectronSameSite(value: unknown): "strict" | "lax" | "no_restriction" | "unspecified" | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  switch (value.toLowerCase()) {
+    case "strict":
+      return "strict";
+    case "lax":
+      return "lax";
+    case "none":
+    case "no_restriction":
+      return "no_restriction";
+    case "unset":
+    case "unspecified":
+      return "unspecified";
+    default:
+      return undefined;
+  }
+}
+
+function createLoginDataUrls(role: Pick<Role, "launchUrl">, loginUrl?: string): string[] {
+  return normalizeLoginDataUrls(role, loginUrl ? [loginUrl] : []);
+}
+
+function normalizeLoginDataUrls(role: Pick<Role, "launchUrl">, extraUrls: readonly string[]): string[] {
+  const urls = [role.launchUrl, ...extraUrls].filter((value): value is string => Boolean(value));
+  const seenOrigins = new Set<string>();
+  return urls.filter((url) => {
+    const origin = getUrlOrigin(url);
+    if (!origin || seenOrigins.has(origin)) {
+      return false;
+    }
+    seenOrigins.add(origin);
+    return true;
+  });
+}
+
+function getUrlOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -682,17 +808,20 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 export async function readChromeLoginDataWithCdp(
   userDataDir: string,
   role: Pick<Role, "launchUrl">,
-  loginDataUrl = role.launchUrl,
+  loginDataUrls: readonly string[] = [role.launchUrl],
   options: {
     findExecutable?: () => string;
     spawnChrome?: (executable: string, args: string[]) => ChildProcess;
     timeoutMs?: number;
   } = {}
 ): Promise<ChromeLoginDataSnapshot> {
+  const urls = normalizeLoginDataUrls(role, loginDataUrls);
+  const requestedOrigins = new Set(urls.map((url) => getUrlOrigin(url)).filter((origin): origin is string => Boolean(origin)));
+  const initialUrl = urls[0] ?? role.launchUrl;
   const executable = (options.findExecutable ?? findSystemChromeExecutable)();
   const child = (options.spawnChrome ?? ((path, args) => spawn(path, args, { stdio: "ignore" })))(executable, [
     `--user-data-dir=${userDataDir}`,
-    `--app=${loginDataUrl}`,
+    `--app=${initialUrl}`,
     "--no-first-run",
     "--no-default-browser-check",
     "--remote-debugging-address=127.0.0.1",
@@ -705,26 +834,35 @@ export async function readChromeLoginDataWithCdp(
     if (port.state !== "available") {
       throw new ChromeProfileImportError("LOGIN_DATA_READ_FAILED", "Unable to read imported Chrome login data.");
     }
-    const target = await waitForPageTarget(port.port, loginDataUrl, options.timeoutMs ?? 10_000);
+    const target = await waitForPageTarget(port.port, initialUrl, options.timeoutMs ?? 10_000);
     if (!target?.webSocketDebuggerUrl) {
       throw new ChromeProfileImportError("LOGIN_DATA_TARGET_MISSING", "Imported Chrome profile did not expose a login data page.");
     }
     const client = new CdpClient(target.webSocketDebuggerUrl);
     try {
-      const [cookieResult, runtimeResult] = await Promise.all([
-        client.send<{ cookies?: unknown[] }>("Network.getAllCookies"),
-        client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
+      await client.send("Page.enable").catch(() => undefined);
+      const localStorageByOrigin: Record<string, Record<string, string>> = {};
+      for (const [index, url] of urls.entries()) {
+        if (index > 0) {
+          await navigateChromePage(client, url, options.timeoutMs ?? 10_000);
+        }
+        const runtimeResult = await client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
           expression: CHROME_LOGIN_DATA_EXPRESSION,
           returnByValue: true,
           awaitPromise: true
-        })
-      ]);
-      const snapshot = createLoginStorageSnapshot(cookieResult.cookies, runtimeResult.result?.value);
+        });
+        const runtimeValue = runtimeResult.result?.value;
+        const origin = readRuntimeOrigin(runtimeValue);
+        if (origin && requestedOrigins.has(origin)) {
+          localStorageByOrigin[origin] = createLoginStorageSnapshot(undefined, runtimeValue).localStorage;
+        }
+      }
+      const cookieResult = await client.send<{ cookies?: unknown[] }>("Network.getAllCookies");
       return {
         cookies: Array.isArray(cookieResult.cookies)
           ? cookieResult.cookies.filter(isRecord)
           : [],
-        localStorage: snapshot.localStorage
+        localStorageByOrigin
       };
     } finally {
       client.close();
@@ -732,6 +870,36 @@ export async function readChromeLoginDataWithCdp(
   } finally {
     await terminateChrome(child);
   }
+}
+
+async function navigateChromePage(client: CdpClient, url: string, timeoutMs: number): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let removeListener: (() => void) | undefined;
+  const pageLoaded = new Promise<void>((resolve) => {
+    const finish = (): void => {
+      if (timeout) clearTimeout(timeout);
+      resolve();
+    };
+    removeListener = client.onNotification((notification) => {
+      if (notification.method === "Page.loadEventFired") finish();
+    });
+    timeout = setTimeout(finish, Math.min(timeoutMs, 2_000));
+  });
+
+  try {
+    await client.send("Page.navigate", { url });
+    await pageLoaded;
+  } finally {
+    removeListener?.();
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function readRuntimeOrigin(value: unknown): string | undefined {
+  if (!isRecord(value) || typeof value.origin !== "string") {
+    return undefined;
+  }
+  return getUrlOrigin(value.origin);
 }
 
 async function waitForPageTarget(port: number, launchUrl: string, timeoutMs: number): Promise<DevToolsTarget | undefined> {

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ChromeProfileImportManager,
+  type ChromeProfileImportLoginDataTransferSummary,
   getDefaultChromeUserDataDirectory,
   recoverChromeProfileImport
 } from "../src/main/browser/ChromeProfileImportManager";
@@ -17,6 +18,7 @@ const game: Game = {
   source: "custom",
   name: "Example game",
   defaultLaunchUrl: "https://example.test/play",
+  loginUrl: "https://accounts.example.test/login",
   browserLaunchMode: "inherit",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
@@ -56,17 +58,33 @@ describe("ChromeProfileImportManager", () => {
 
     const roleStore = new RoleStore(userDataDir);
     const existingRole = await roleStore.createRole({ gameId: game.id, name: "Primary" });
-    const session = { cookies: { set: vi.fn().mockResolvedValue(undefined) } };
+    const cookieSet = vi.fn()
+      .mockRejectedValueOnce(new Error("cookie transfer failed"))
+      .mockResolvedValue(undefined);
+    const session = { cookies: { set: cookieSet } };
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [source] }));
     const injectEmbeddedStorage = vi.fn(async () => undefined);
+    const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
     const readChromeLoginData = vi.fn()
       .mockResolvedValueOnce({
-        cookies: [{ domain: "example.test", name: "session", value: "secret", path: "/" }],
-        localStorage: { session: "present" }
+        cookies: [
+          { domain: ".example.test", name: "session", value: "secret", path: "/", secure: true },
+          { domain: "accounts.example.test", name: "sso", value: "secret", path: "/", secure: true }
+        ],
+        localStorageByOrigin: {
+          "https://accounts.example.test": { sso: "present" },
+          "https://example.test": { session: "present" }
+        }
       })
       .mockResolvedValueOnce({
-        cookies: [{ domain: "example.test", name: "session", value: "secret", path: "/" }],
-        localStorage: { session: "present" }
+        cookies: [
+          { domain: ".example.test", name: "session", value: "secret", path: "/", secure: true },
+          { domain: "accounts.example.test", name: "sso", value: "secret", path: "/", secure: true }
+        ],
+        localStorageByOrigin: {
+          "https://accounts.example.test": { sso: "present" },
+          "https://example.test": { session: "present" }
+        }
       });
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-1",
@@ -74,6 +92,7 @@ describe("ChromeProfileImportManager", () => {
       getSession: () => session as never,
       homeDirectory: "/Users/test",
       injectEmbeddedStorage,
+      onLoginDataTransfer: (summary) => transferSummaries.push(summary),
       platform: "darwin",
       readChromeLoginData,
       roleStore,
@@ -115,8 +134,49 @@ describe("ChromeProfileImportManager", () => {
     expect(importedRoles.every((role) => role.lastAuthCheckAt && role.lastSuccessfulLoginAt)).toBe(true);
     expect(result).not.toHaveProperty("results");
     expect(readChromeLoginData).toHaveBeenCalledTimes(2);
-    expect(session.cookies.set).toHaveBeenCalledTimes(2);
-    expect(injectEmbeddedStorage).toHaveBeenCalledTimes(2);
+    expect(readChromeLoginData).toHaveBeenNthCalledWith(
+      1,
+      expect.any(String),
+      expect.objectContaining({ launchUrl: game.defaultLaunchUrl }),
+      [game.defaultLaunchUrl, game.loginUrl]
+    );
+    expect(cookieSet).toHaveBeenCalledTimes(4);
+    expect(cookieSet).toHaveBeenCalledWith(expect.objectContaining({
+      domain: ".example.test",
+      url: "https://example.test/"
+    }));
+    expect(cookieSet).toHaveBeenCalledWith(expect.objectContaining({
+      url: "https://accounts.example.test/"
+    }));
+    expect(injectEmbeddedStorage).toHaveBeenCalledTimes(4);
+    expect(injectEmbeddedStorage).toHaveBeenCalledWith(
+      expect.any(String),
+      game.defaultLaunchUrl,
+      { session: "present" }
+    );
+    expect(injectEmbeddedStorage).toHaveBeenCalledWith(
+      expect.any(String),
+      game.loginUrl,
+      { sso: "present" }
+    );
+    expect(transferSummaries).toEqual([
+      expect.objectContaining({
+        cookieFailedCount: 1,
+        cookieInjectedCount: 1,
+        cookieReadCount: 2,
+        localStorageFailedOriginCount: 0,
+        localStorageInjectedKeyCount: 2,
+        localStorageInjectedOriginCount: 2,
+        localStorageKeyCount: 2,
+        localStorageOriginCount: 2,
+        readFailed: false
+      }),
+      expect.objectContaining({
+        cookieFailedCount: 0,
+        cookieInjectedCount: 2,
+        cookieReadCount: 2
+      })
+    ]);
     await expect(readFile(join(roleStore.getRolePaths(importedRoles[0].id).browserUserDataDir, "Default", "Cookies"), "utf8"))
       .resolves.toBe("cookie-db");
     await expect(access(join(roleStore.getRolePaths(importedRoles[0].id).browserUserDataDir, "Default", "Login Data")))

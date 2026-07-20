@@ -184,6 +184,9 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       if (existing.zoomFactor !== zoomFactor) {
         existing.notice = appendNotice(existing.notice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
       }
+      await existing.automationTarget?.focus().catch((error) => {
+        console.warn("Failed to restore focus to the external Chrome role.", error);
+      });
       return this.toStatus(role.id, existing);
     }
 
@@ -196,6 +199,9 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       options.notice,
       zoomFactor
     );
+    await session.automationTarget?.focus().catch((error) => {
+      console.warn("Failed to focus the external Chrome role after launch.", error);
+    });
     return this.toStatus(role.id, session);
   }
 

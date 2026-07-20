@@ -103,6 +103,68 @@ describe("ExternalChromeAutomationTarget", () => {
     ]);
   });
 
+  it("reasserts held keys across external page focus and visibility changes", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client, "win32");
+    await target.initialize();
+
+    await target.holdKey("KeyW", "owner");
+    const lifecycleEvents = [
+      { event: "blur", hidden: false, visibilityState: "visible" },
+      { event: "visibilitychange", hidden: true, visibilityState: "hidden" },
+      { event: "focus", hidden: false, visibilityState: "visible" },
+      { event: "pageshow", hidden: false, visibilityState: "visible" }
+    ];
+
+    for (const lifecycle of lifecycleEvents) {
+      harness.notify({
+        method: "Runtime.bindingCalled",
+        params: {
+          name: "rionStudioExternalDiagnostics",
+          payload: JSON.stringify({ ...lifecycle, hasFocus: lifecycle.event !== "blur" })
+        }
+      });
+      await vi.waitFor(() => expect(
+        harness.send.mock.calls.filter(([method, params]) =>
+          method === "Input.dispatchKeyEvent" && params?.type === "rawKeyDown" && params.code === "KeyW"
+        ).length
+      ).toBeGreaterThanOrEqual(lifecycleEvents.indexOf(lifecycle) + 2));
+    }
+
+    await target.releaseKey("KeyW", "owner");
+    const rawKeyDownCount = harness.send.mock.calls.filter(([method, params]) =>
+      method === "Input.dispatchKeyEvent" && params?.type === "rawKeyDown" && params.code === "KeyW"
+    ).length;
+    harness.notify({
+      method: "Page.lifecycleEvent",
+      params: { name: "resumed" }
+    });
+    await Promise.resolve();
+
+    expect(harness.send.mock.calls.filter(([method, params]) =>
+      method === "Input.dispatchKeyEvent" && params?.type === "keyUp" && params.code === "KeyW"
+    ).length).toBe(1);
+    expect(harness.send.mock.calls.filter(([method, params]) =>
+      method === "Input.dispatchKeyEvent" && params?.type === "rawKeyDown" && params.code === "KeyW"
+    ).length).toBe(rawKeyDownCount);
+    expect(harness.send).not.toHaveBeenCalledWith("Page.bringToFront");
+  });
+
+  it("reasserts held keys when CDP reports a frozen page resuming", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+    await target.holdKey("KeyW", "owner");
+
+    harness.notify({ method: "Page.lifecycleEvent", params: { name: "frozen" } });
+    harness.notify({ method: "Page.lifecycleEvent", params: { name: "resumed" } });
+
+    await vi.waitFor(() => expect(harness.send.mock.calls.filter(([method, params]) =>
+      method === "Input.dispatchKeyEvent" && params?.type === "rawKeyDown" && params.code === "KeyW"
+    ).length).toBeGreaterThan(1));
+    await target.releaseKey("KeyW", "owner");
+  });
+
   it("records browser, lifecycle, CDP health, and disconnect diagnostics", async () => {
     const harness = createHarness();
     const onDiagnostic = vi.fn();

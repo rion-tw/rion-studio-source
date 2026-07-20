@@ -1434,6 +1434,7 @@ function MacroStepFields({
           min={unit === "px" ? Number.MIN_SAFE_INTEGER : -100}
           prefix={t("macroForm.clickXOffset")}
           suffix={unit === "px" ? "px" : "%"}
+          step={unit === "px" ? 1 : 0.01}
           value={x}
           widthClassName="w-full max-w-36 shrink-0"
           onChange={(value) => onUpdate(isPixel
@@ -1448,6 +1449,7 @@ function MacroStepFields({
           min={unit === "px" ? Number.MIN_SAFE_INTEGER : -100}
           prefix={t("macroForm.clickYOffset")}
           suffix={unit === "px" ? "px" : "%"}
+          step={unit === "px" ? 1 : 0.01}
           value={y}
           widthClassName="w-full max-w-36 shrink-0"
           onChange={(value) => onUpdate(isPixel

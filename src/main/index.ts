@@ -78,6 +78,7 @@ import {
 import { SerialTaskQueue } from "./persistence/SerialTaskQueue";
 import { runBackgroundActivityMigration } from "./persistence/BackgroundActivityMigration";
 import { RoleStore } from "./roles/RoleStore";
+import { requestGracefulChromeQuit } from "./system-browser/SystemChromeCloser";
 import { findSystemChromeExecutable } from "./system-browser/SystemChromeLauncher";
 import {
   createStartupPageUrl,
@@ -678,6 +679,7 @@ async function initializeApplication(): Promise<void> {
     roleStore
   });
   const chromeProfileImportManager = new ChromeProfileImportManager({
+    closeChrome: () => requestGracefulChromeQuit({ platform: process.platform }),
     gameStore,
     getSession: (partition) => electronSession.fromPartition(partition),
     injectEmbeddedStorage: async (partition, url, values) => {

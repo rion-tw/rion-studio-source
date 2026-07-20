@@ -115,6 +115,7 @@ export interface RionStudioApi {
   applyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
   discardPortableImport: (importId: string) => Promise<void>;
   previewChromeProfileImport: () => Promise<ChromeProfileImportPreview | null>;
+  closeChromeForImport: () => Promise<void>;
   applyChromeProfileImport: (input: ChromeProfileImportInput) => Promise<ChromeProfileImportResult>;
   discardChromeProfileImport: (importId: string) => Promise<void>;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;

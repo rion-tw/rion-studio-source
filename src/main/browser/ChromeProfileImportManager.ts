@@ -105,6 +105,7 @@ interface ChromeImportJournal {
 }
 
 interface ChromeProfileImportManagerOptions {
+  closeChrome?: () => Promise<void>;
   createImportId?: () => string;
   getSession?: (partition: string) => Pick<Session, "cookies">;
   homeDirectory?: string;
@@ -156,6 +157,28 @@ export class ChromeProfileImportManager {
     this.createImportId = options.createImportId ?? randomUUID;
     this.lstat = options.lstat ?? lstat;
     this.platform = options.platform ?? process.platform;
+  }
+
+  async closeChrome(): Promise<void> {
+    if (!this.options.closeChrome) {
+      throw new ChromeProfileImportError(
+        "CHROME_CLOSE_UNAVAILABLE",
+        "Chrome profile import is not available."
+      );
+    }
+
+    try {
+      await this.options.closeChrome();
+    } catch (error) {
+      if (error instanceof ChromeProfileImportError) {
+        throw error;
+      }
+
+      throw new ChromeProfileImportError(
+        "CHROME_CLOSE_FAILED",
+        "Unable to ask Google Chrome to close. Close Chrome manually and try again."
+      );
+    }
   }
 
   async previewImport(): Promise<ChromeProfileImportPreview | null> {

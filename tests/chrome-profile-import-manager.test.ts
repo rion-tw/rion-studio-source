@@ -32,6 +32,37 @@ describe("ChromeProfileImportManager", () => {
     expect(getDefaultChromeUserDataDirectory(platform, home, localAppData)).toBe(expected);
   });
 
+  it("requests a graceful Chrome close through the injected platform service", async () => {
+    const closeChrome = vi.fn().mockResolvedValue(undefined);
+    const manager = new ChromeProfileImportManager({
+      closeChrome,
+      gameStore: { getGame: async () => game },
+      roleStore: new RoleStore(await mkdtemp(join(tmpdir(), "rion-chrome-import-"))),
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      userDataDir: await mkdtemp(join(tmpdir(), "rion-chrome-import-"))
+    });
+
+    await manager.closeChrome();
+
+    expect(closeChrome).toHaveBeenCalledOnce();
+  });
+
+  it("normalizes graceful Chrome close failures", async () => {
+    const manager = new ChromeProfileImportManager({
+      closeChrome: async () => {
+        throw new Error("close failed");
+      },
+      gameStore: { getGame: async () => game },
+      roleStore: new RoleStore(await mkdtemp(join(tmpdir(), "rion-chrome-import-"))),
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      userDataDir: await mkdtemp(join(tmpdir(), "rion-chrome-import-"))
+    });
+
+    await expect(manager.closeChrome()).rejects.toMatchObject({
+      code: "CHROME_CLOSE_FAILED"
+    });
+  });
+
   it("previews profiles without exposing the source path and imports only the allowlisted session data", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const source = join(root, "Chrome User Data");
@@ -185,12 +216,12 @@ describe("ChromeProfileImportManager", () => {
     await expect(access(join(userDataDir, "chrome-profile-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rejects an active Chrome data folder and cleans a discarded staging directory", async () => {
+  it.each(["SingletonCookie", "SingletonLock", "SingletonSocket"] as const)("rejects an active Chrome data folder marked by %s and cleans a discarded staging directory", async (lockFile) => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const source = join(root, "Chrome User Data");
     const userDataDir = join(root, "rion-data");
     await mkdir(join(source, "Default"), { recursive: true });
-    await writeFile(join(source, "SingletonLock"), "locked", "utf8");
+    await writeFile(join(source, lockFile), "locked", "utf8");
 
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-2",

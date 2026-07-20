@@ -2,8 +2,6 @@ import {
   AlertTriangle,
   Check,
   Copy,
-  ChevronDown,
-  ChevronUp,
   CircleDot,
   Keyboard,
   ListChecks,
@@ -323,22 +321,6 @@ function MacroForm({
     }));
   }
 
-  function moveStep(stepId: string, direction: -1 | 1): void {
-    update((current) => {
-      const index = current.steps.findIndex((step) => step.id === stepId);
-      const nextIndex = index + direction;
-
-      if (index === -1 || nextIndex < 0 || nextIndex >= current.steps.length) {
-        return current;
-      }
-
-      const steps = [...current.steps];
-      const [step] = steps.splice(index, 1);
-      steps.splice(nextIndex, 0, step);
-      return { ...current, steps };
-    });
-  }
-
   function moveStepById(stepId: string, targetStepId: string): void {
     update((current) => {
       const nextSteps = moveItemById(current.steps, stepId, targetStepId);
@@ -600,8 +582,6 @@ function MacroForm({
                           index={index}
                           isDragging={draggedStepId === step.id}
                           isDropTarget={dropTargetStepId === step.id}
-                          isFirst={index === 0}
-                          isLast={index === form.steps.length - 1}
                           isSaving={isSaving}
                           macroTargetOptions={macroTargetOptions}
                           step={step}
@@ -610,8 +590,6 @@ function MacroForm({
                           onDragOver={(event) => handleStepDragOver(event, step.id)}
                           onDragStart={(event) => handleStepDragStart(event, step.id)}
                           onDrop={(event) => handleStepDrop(event, step.id)}
-                          onMoveDown={() => moveStep(step.id, 1)}
-                          onMoveUp={() => moveStep(step.id, -1)}
                           onDuplicate={() => duplicateStep(step.id)}
                           onRemove={() => removeStep(step.id)}
                           onUpdate={(nextStep) => updateStep(step.id, nextStep)}
@@ -1006,13 +984,9 @@ interface MacroStepEditorProps {
   index: number;
   isDragging: boolean;
   isDropTarget: boolean;
-  isFirst: boolean;
-  isLast: boolean;
   isSaving: boolean;
   macroTargetOptions: MacroTargetOption[];
   onDragEnd: () => void;
-  onMoveDown: () => void;
-  onMoveUp: () => void;
   onRemove: () => void;
   onDragOver: (event: DragEvent<HTMLDivElement>) => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
@@ -1027,13 +1001,9 @@ function MacroStepEditor({
   index,
   isDragging,
   isDropTarget,
-  isFirst,
-  isLast,
   isSaving,
   macroTargetOptions,
   onDragEnd,
-  onMoveDown,
-  onMoveUp,
   onDuplicate,
   onRemove,
   onDragOver,
@@ -1105,26 +1075,6 @@ function MacroStepEditor({
       />
 
       <div className="ml-auto flex shrink-0 justify-end gap-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          title={t("macroForm.moveUp")}
-          onClick={onMoveUp}
-          disabled={isSaving || isFirst}
-        >
-          <ChevronUp size={14} />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          title={t("macroForm.moveDown")}
-          onClick={onMoveDown}
-          disabled={isSaving || isLast}
-        >
-          <ChevronDown size={14} />
-        </Button>
         <Button
           type="button"
           variant="ghost"

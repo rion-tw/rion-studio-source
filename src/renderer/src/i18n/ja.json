@@ -670,6 +670,8 @@
   "roleForm.coverRemove": "削除",
   "roleForm.coverEmpty": "No cover image",
   "roleForm.relogin": "再ログイン",
+  "roleForm.reloginTitle": "再ログイン",
+  "roleForm.reloginDescription": "現在のロールウィンドウを停止して再度ログインし、このロールの保存済みセッションを更新します。",
   "roleForm.savedData": "保存済みブラウザデータ",
   "roleForm.savedDataDescription": "ロール自体を変更せず、分離されたログイン、サイト、キャッシュデータをリセットします。",
   "roleForm.cancel": "キャンセル",

@@ -9,7 +9,7 @@ import { ConfirmationProvider } from "../src/renderer/src/components/Confirmatio
 import RoleEditorRoute from "../src/renderer/src/features/roles/RoleModal";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
-import type { Game, Role } from "../src/shared/types";
+import type { AuthFlowStatus, Game, Role } from "../src/shared/types";
 
 beforeAll(() => {
   Object.defineProperties(HTMLDialogElement.prototype, {
@@ -43,9 +43,29 @@ describe("role saved browser data controls", () => {
 
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
 
+    expect(screen.getByText("Re-login", { selector: "p" })).toBeTruthy();
+    expect(screen.getByText("Stop the current role window and sign in again to refresh this role's saved session.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Re-login" })).toBeTruthy();
     expect(screen.getByText("Saved browser data")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Clear saved data" }));
     expect(onClearBrowserData).toHaveBeenCalledWith(selectedRole);
+  });
+
+  it("keeps the re-login context visible and disabled while login guidance is active", () => {
+    const selectedRole = role();
+    const router = createRoleRouter({
+      authStatusByRole: new Map([[selectedRole.id, authStatus(selectedRole.id)]]),
+      initialEntry: `/roles/${selectedRole.id}/edit`,
+      onClearBrowserData: vi.fn(),
+      roles: [selectedRole]
+    });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    expect(screen.getByText("Re-login", { selector: "p" })).toBeTruthy();
+    expect(screen.getByText("Stop the current role window and sign in again to refresh this role's saved session.")).toBeTruthy();
+    expect(screen.getByText('Finish login for "Main"')).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Re-login" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("does not show the action while creating a role", () => {
@@ -80,8 +100,10 @@ function createRoleRouter({
   initialEntry,
   onClearBrowserData,
   roles,
+  authStatusByRole = new Map(),
   busyRoleIds = new Set()
 }: {
+  authStatusByRole?: Map<string, AuthFlowStatus>;
   busyRoleIds?: ReadonlySet<string>;
   initialEntry: string;
   onClearBrowserData: (role: Role) => Promise<boolean>;
@@ -90,11 +112,11 @@ function createRoleRouter({
   return createMemoryRouter([
     {
       path: "/roles/new",
-      element: roleEditor(roles, onClearBrowserData, busyRoleIds)
+      element: roleEditor(roles, onClearBrowserData, authStatusByRole, busyRoleIds)
     },
     {
       path: "/roles/:id/edit",
-      element: roleEditor(roles, onClearBrowserData, busyRoleIds)
+      element: roleEditor(roles, onClearBrowserData, authStatusByRole, busyRoleIds)
     },
     { path: "/roles", element: <div>Role list</div> }
   ], { initialEntries: [initialEntry] });
@@ -103,11 +125,12 @@ function createRoleRouter({
 function roleEditor(
   roles: Role[],
   onClearBrowserData: (role: Role) => Promise<boolean>,
+  authStatusByRole: Map<string, AuthFlowStatus>,
   busyRoleIds: ReadonlySet<string>
 ) {
   return (
     <RoleEditorRoute
-      authStatusByRole={new Map()}
+      authStatusByRole={authStatusByRole}
       busyRoleIds={busyRoleIds}
       games={[game]}
       isSaving={false}
@@ -145,3 +168,12 @@ function role(): Role {
 }
 
 const t: Translator = (key) => en[key];
+
+function authStatus(roleId: string): AuthFlowStatus {
+  return {
+    roleId,
+    state: "waiting_for_login",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  };
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   convertMacroCoordinateToOffset,
+  findNearestMacroClickAnchor,
   formatMacroCoordinateClipboard,
   parseMacroCoordinateClipboard,
   resolveMacroClickOffset
@@ -25,7 +26,7 @@ describe("macro coordinate clipboard format", () => {
       xPx: 123,
       yPercent: 56.789,
       yPx: 456
-    })).toBe("X: 123px (12.35%), Y: 456px (56.79%), Viewport: 1024x768px");
+    })).toBe("X: 123px (12.35%), Y: 456px (56.79%), Anchor: center-left, Viewport: 1024x768px");
   });
 
   it("parses the copied format and rounds values to macro precision", () => {
@@ -48,6 +49,48 @@ describe("macro coordinate clipboard format", () => {
       yPercent: 91.15,
       yPx: 700
     });
+  });
+
+  it("parses an explicit anchor from the new clipboard format", () => {
+    expect(parseMacroCoordinateClipboard(
+      "X: 100px (9.77%), Y: 700px (91.15%), Anchor: bottom-right, Viewport: 1024x768px"
+    )).toEqual({
+      anchor: "bottom-right",
+      viewportHeightPx: 768,
+      viewportWidthPx: 1024,
+      xPercent: 9.77,
+      xPx: 100,
+      yPercent: 91.15,
+      yPx: 700
+    });
+  });
+
+  it.each([
+    ["top-left", 0, 0],
+    ["top-center", 500, 0],
+    ["top-right", 1000, 0],
+    ["center-left", 0, 400],
+    ["center", 500, 400],
+    ["center-right", 1000, 400],
+    ["bottom-left", 0, 800],
+    ["bottom-center", 500, 800],
+    ["bottom-right", 1000, 800]
+  ] as const)("finds the nearest %s anchor in CSS pixels", (anchor, xPx, yPx) => {
+    expect(findNearestMacroClickAnchor({
+      viewportHeightPx: 800,
+      viewportWidthPx: 1000,
+      xPx,
+      yPx
+    })).toBe(anchor);
+  });
+
+  it("uses the fixed anchor order to break equal-distance ties", () => {
+    expect(findNearestMacroClickAnchor({
+      viewportHeightPx: 800,
+      viewportWidthPx: 1000,
+      xPx: 250,
+      yPx: 0
+    })).toBe("top-left");
   });
 
   it("converts measured absolute coordinates into anchor offsets", () => {
@@ -94,6 +137,7 @@ describe("macro coordinate clipboard format", () => {
     "",
     "X: 123px, Y: 456px",
     "X: 123px (10%), Y: 456px (50%), Viewport: 100x100px",
+    "X: 123px (10%), Y: 456px (50%), Anchor: invalid, Viewport: 1000x1000px",
     "X: -1px (0%), Y: 456px (50%)",
     "X: 123px (101%), Y: 456px (50%)"
   ])("rejects malformed clipboard text %j", (value) => {

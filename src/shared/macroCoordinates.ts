@@ -20,6 +20,7 @@ export interface MacroViewportSize {
 }
 
 export interface MacroCoordinateMeasurement {
+  anchor?: MacroClickAnchor;
   xPercent: number;
   xPx: number;
   viewportHeightPx?: number;
@@ -29,21 +30,27 @@ export interface MacroCoordinateMeasurement {
 }
 
 export function formatMacroCoordinateClipboard(measurement: MacroCoordinateMeasurement): string {
+  const anchor = measurement.anchor ?? findNearestMacroClickAnchor(measurement);
+  const anchorSuffix = anchor === undefined ? "" : `, Anchor: ${anchor}`;
   const viewportSuffix = measurement.viewportWidthPx !== undefined && measurement.viewportHeightPx !== undefined
     ? `, Viewport: ${measurement.viewportWidthPx}x${measurement.viewportHeightPx}px`
     : "";
-  return `X: ${measurement.xPx}px (${formatPercent(measurement.xPercent)}%), Y: ${measurement.yPx}px (${formatPercent(measurement.yPercent)}%)${viewportSuffix}`;
+  return `X: ${measurement.xPx}px (${formatPercent(measurement.xPercent)}%), Y: ${measurement.yPx}px (${formatPercent(measurement.yPercent)}%)${anchorSuffix}${viewportSuffix}`;
 }
 
 export function parseMacroCoordinateClipboard(value: string): MacroCoordinateMeasurement | undefined {
-  const match = /^\s*X\s*:\s*(\d+(?:\.\d+)?)\s*px\s*\(\s*(\d+(?:\.\d+)?)\s*%\s*\)\s*,\s*Y\s*:\s*(\d+(?:\.\d+)?)\s*px\s*\(\s*(\d+(?:\.\d+)?)\s*%\s*\)(?:\s*,\s*Viewport\s*:\s*(\d+)\s*x\s*(\d+)\s*px)?\s*$/i.exec(value);
+  const match = /^\s*X\s*:\s*(\d+(?:\.\d+)?)\s*px\s*\(\s*(\d+(?:\.\d+)?)\s*%\s*\)\s*,\s*Y\s*:\s*(\d+(?:\.\d+)?)\s*px\s*\(\s*(\d+(?:\.\d+)?)\s*%\s*\)(?:\s*,\s*Anchor\s*:\s*([A-Za-z]+(?:-[A-Za-z]+)*))?(?:\s*,\s*Viewport\s*:\s*(\d+)\s*x\s*(\d+)\s*px)?\s*$/i.exec(value);
   if (!match) {
     return undefined;
   }
 
   const [xPx, xPercent, yPx, yPercent] = match.slice(1, 5).map(Number);
-  const viewportWidthPx = match[5] === undefined ? undefined : Number(match[5]);
-  const viewportHeightPx = match[6] === undefined ? undefined : Number(match[6]);
+  const anchorValue = match[5]?.toLowerCase();
+  const parsedAnchor = anchorValue !== undefined && isMacroClickAnchor(anchorValue)
+    ? anchorValue
+    : undefined;
+  const viewportWidthPx = match[6] === undefined ? undefined : Number(match[6]);
+  const viewportHeightPx = match[7] === undefined ? undefined : Number(match[7]);
   const roundedXPx = Math.round(xPx);
   const roundedYPx = Math.round(yPx);
   if (
@@ -57,6 +64,7 @@ export function parseMacroCoordinateClipboard(value: string): MacroCoordinateMea
     xPercent > 100 ||
     yPercent < 0 ||
     yPercent > 100 ||
+    (anchorValue !== undefined && parsedAnchor === undefined) ||
     (viewportWidthPx !== undefined && (!isPositiveSafeInteger(viewportWidthPx) || roundedXPx >= viewportWidthPx)) ||
     (viewportHeightPx !== undefined && (!isPositiveSafeInteger(viewportHeightPx) || roundedYPx >= viewportHeightPx))
   ) {
@@ -64,6 +72,7 @@ export function parseMacroCoordinateClipboard(value: string): MacroCoordinateMea
   }
 
   return {
+    ...(parsedAnchor === undefined ? {} : { anchor: parsedAnchor }),
     xPercent: roundPercent(xPercent),
     xPx: roundedXPx,
     ...(viewportHeightPx === undefined ? {} : { viewportHeightPx }),
@@ -71,6 +80,41 @@ export function parseMacroCoordinateClipboard(value: string): MacroCoordinateMea
     yPercent: roundPercent(yPercent),
     yPx: roundedYPx
   };
+}
+
+export function findNearestMacroClickAnchor(
+  measurement: Pick<MacroCoordinateMeasurement, "xPx" | "yPx" | "viewportWidthPx" | "viewportHeightPx">
+): MacroClickAnchor | undefined {
+  const { viewportHeightPx: height, viewportWidthPx: width } = measurement;
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    !Number.isFinite(measurement.xPx) ||
+    !Number.isFinite(measurement.yPx)
+  ) {
+    return undefined;
+  }
+
+  let nearestAnchor: MacroClickAnchor | undefined;
+  let nearestDistanceSquared = Number.POSITIVE_INFINITY;
+  for (const anchor of MACRO_CLICK_ANCHORS) {
+    const base = getMacroClickAnchorBase(anchor);
+    const anchorX = (width * base.xPercent) / 100;
+    const anchorY = (height * base.yPercent) / 100;
+    const deltaX = measurement.xPx - anchorX;
+    const deltaY = measurement.yPx - anchorY;
+    const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+    if (distanceSquared < nearestDistanceSquared) {
+      nearestDistanceSquared = distanceSquared;
+      nearestAnchor = anchor;
+    }
+  }
+
+  return nearestAnchor;
 }
 
 export interface MacroClickOffset {

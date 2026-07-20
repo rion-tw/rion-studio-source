@@ -28,7 +28,7 @@ describe("Chrome profile import flow", () => {
       importId: "import-1",
       profiles: [
         { directoryName: "Profile 11", id: "profile-11", name: "小胖" },
-        { directoryName: "Profile 12", id: "profile-12", name: "阿明" }
+        { directoryName: "Profile 12 (Work Account)", id: "profile-12", name: "阿明" }
       ],
       sourceLabel: "Chrome",
       warnings: [{ code: "passwords_excluded" as const }]
@@ -80,9 +80,8 @@ describe("Chrome profile import flow", () => {
     expect(profileName.parentElement).toBe(profileDirectory.parentElement);
     expect(profileName.className).toContain("min-w-0");
     expect(profileName.className).toContain("truncate");
-    expect(profileDirectory.className).toContain("max-w-[45%]");
     expect(profileDirectory.className).toContain("shrink-0");
-    expect(profileDirectory.className).toContain("truncate");
+    expect(profileDirectory.className).toContain("whitespace-nowrap");
     expect(profileDirectory.className).toContain("text-right");
     expect(profileCard?.className).toContain("inline-flex");
     expect(profileCard?.className).toContain("w-auto");
@@ -91,6 +90,7 @@ describe("Chrome profile import flow", () => {
     expect(profileCard?.className).toContain("min-h-[var(--control-min-size)]");
     expect(profileCard?.className).toContain("rounded-md");
     expect(profileCard?.className).toContain("px-2.5");
+    expect(profileCard?.className).toContain("gap-1");
     expect(profileCard?.className).toContain("text-muted-foreground");
     expect(profileCard?.parentElement?.className).toContain("flex-wrap");
     expect(screen.getByText("阿明")).toBeTruthy();

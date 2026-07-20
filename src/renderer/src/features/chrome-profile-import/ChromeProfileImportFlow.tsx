@@ -266,7 +266,7 @@ function ChromeProfileImportNoticeDialog({
               {t("settings.chromeProfileImportCloseChromeFailed")}
             </p>
           ) : null}
-          <label className="mt-1 flex items-start gap-1 text-xs leading-5 text-foreground">
+          <label className="mt-1 flex items-start gap-2 text-xs leading-5 text-foreground">
             <Checkbox
               className="mt-[3px]"
               checked={consentAccepted}
@@ -410,7 +410,7 @@ function ChromeProfileImportDialog({
             <p className="mt-1">{t("settings.chromeProfileImportPasswordNotice")}</p>
             <p className="mt-1">{t("settings.chromeProfileImportLoginDataNotice")}</p>
           </div>
-          <label className="flex items-start gap-1 text-xs leading-5 text-foreground">
+          <label className="flex items-start gap-2 text-xs leading-5 text-foreground">
             <Checkbox
               className="mt-[3px]"
               checked={consentAccepted}

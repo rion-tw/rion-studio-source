@@ -299,31 +299,33 @@ function ChromeProfileImportDialog({
             <p className="text-xs font-semibold leading-5 text-foreground">
               {t("settings.chromeProfileImportProfiles")}
             </p>
-            {preview.profiles.map((profile) => (
-              <label
-                key={profile.id}
-                className={cn(
-                  "glass-control flex min-h-10 w-full items-center gap-2 rounded-lg px-3 py-1 text-left transition-[background-color,border-color,color,box-shadow] focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-500/25",
-                  selectedProfileIds.includes(profile.id)
-                    ? "macro-role-card-selected text-foreground"
-                    : isBusy
-                      ? "cursor-not-allowed text-muted-foreground opacity-60"
-                      : "cursor-pointer text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Checkbox
-                  checked={selectedProfileIds.includes(profile.id)}
-                  disabled={isBusy}
-                  onCheckedChange={() => toggleProfile(profile)}
-                />
-                <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                  <span className="min-w-0 truncate text-xs font-semibold">{profile.name}</span>
-                  <span className="max-w-[45%] shrink-0 truncate text-right text-[11px] text-muted-foreground">
-                    {profile.directoryName}
+            <div className="flex max-h-52 flex-wrap gap-2 overflow-auto p-0.5">
+              {preview.profiles.map((profile) => (
+                <label
+                  key={profile.id}
+                  className={cn(
+                    "glass-control inline-flex h-[30px] min-h-[var(--control-min-size)] w-auto max-w-full flex-none items-center gap-1.5 rounded-md px-2.5 text-left transition-[background-color,border-color,color,box-shadow] focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-500/25",
+                    selectedProfileIds.includes(profile.id)
+                      ? "macro-role-card-selected text-foreground"
+                      : isBusy
+                        ? "cursor-not-allowed text-muted-foreground opacity-60"
+                        : "cursor-pointer text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Checkbox
+                    checked={selectedProfileIds.includes(profile.id)}
+                    disabled={isBusy}
+                    onCheckedChange={() => toggleProfile(profile)}
+                  />
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 truncate text-xs font-semibold leading-none">{profile.name}</span>
+                    <span className="max-w-[45%] shrink-0 truncate text-right text-[11px] leading-none text-muted-foreground">
+                      {profile.directoryName}
+                    </span>
                   </span>
-                </span>
-              </label>
-            ))}
+                </label>
+              ))}
+            </div>
           </div>
           <label className="grid gap-1.5">
             <span className="text-xs font-semibold leading-5 text-foreground">

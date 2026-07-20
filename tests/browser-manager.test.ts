@@ -332,6 +332,82 @@ describe("BrowserManager game host windows", () => {
     expect(gameView.webContents.focus).toHaveBeenCalledOnce();
   });
 
+  it.each(["darwin", "win32"] as const)(
+    "tracks and applies embedded tab audio state on %s",
+    async (platform) => {
+      const harness = createHarness({ platform });
+
+      await harness.manager.launch(role);
+      const tabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+      const gameWebContents = harness.views[0].webContents;
+
+      expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+        audible: false,
+        audioMuted: false
+      });
+
+      gameWebContents.isCurrentlyAudible.mockReturnValue(true);
+      gameWebContents.emit("audio-state-changed", {}, { audible: true });
+      expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+        audible: true,
+        audioMuted: false
+      });
+
+      harness.manager.setRuntimeTabAudioMuted(tabId, true);
+      expect(gameWebContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+      expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+        audible: true,
+        audioMuted: true
+      });
+
+      gameWebContents.isCurrentlyAudible.mockReturnValue(false);
+      gameWebContents.emit("audio-state-changed", {}, { audible: false });
+      expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+        audible: false,
+        audioMuted: true
+      });
+
+      harness.manager.setRuntimeTabAudioMuted(tabId, false);
+      expect(gameWebContents.setAudioMuted).toHaveBeenLastCalledWith(false);
+      expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+        audible: false,
+        audioMuted: false
+      });
+    }
+  );
+
+  it.each(["darwin", "win32"] as const)(
+    "aggregates workspace role and popup audio and inherits mute on %s",
+    async (platform) => {
+      const harness = createHarness({ platform });
+      const secondRole = createRole("role-2", "Alt");
+
+      await harness.manager.launchWorkspace(workspace, [
+        { role, rect: workspace.slots[0].rect },
+        { role: secondRole, rect: workspace.slots[1].rect }
+      ]);
+      const tabId = harness.manager.listEmbeddedRuntimeState().tabs[0].id;
+      const popup = createOAuthPopup(harness.views[0], harness.views);
+      harness.views[1].webContents.isCurrentlyAudible.mockReturnValue(true);
+      popup.webContents.isCurrentlyAudible.mockReturnValue(true);
+      harness.views[1].webContents.emit("audio-state-changed", {}, { audible: true });
+      popup.webContents.emit("audio-state-changed", {}, { audible: true });
+
+      expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+        audible: true,
+        audioMuted: false
+      });
+
+      harness.manager.setRuntimeTabAudioMuted(tabId, true);
+      expect(harness.views[0].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+      expect(harness.views[1].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+      expect(popup.webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+
+      const newPopup = createOAuthPopup(harness.views[1], harness.views);
+      expect(newPopup.webContents.setAudioMuted).toHaveBeenCalledWith(true);
+    }
+  );
+
   it("restores focus only to the active runtime tab", async () => {
     const harness = createHarness({ platform: "win32" });
     const secondRole = createRole("role-2", "Alt");
@@ -4320,6 +4396,8 @@ function createMockView(
   let currentUrl = "about:blank";
   let currentZoomFactor = initialZoomFactor;
   let destroyed = false;
+  let audioMuted = false;
+  const audible = false;
   let debuggerAttached = false;
   const debuggerApi = Object.assign(new EventEmitter(), {
     attach: vi.fn(() => {
@@ -4354,6 +4432,8 @@ function createMockView(
     getOSProcessId: vi.fn(() => processId),
     getURL: vi.fn(() => currentUrl),
     getZoomFactor: vi.fn(() => currentZoomFactor),
+    isAudioMuted: vi.fn(() => audioMuted),
+    isCurrentlyAudible: vi.fn(() => audible),
     isDestroyed: vi.fn(() => destroyed),
     isDevToolsOpened: vi.fn(() => false),
     loadURL: vi.fn(async (url: string) => {
@@ -4370,6 +4450,9 @@ function createMockView(
     session: { cookies: { get: vi.fn().mockResolvedValue([]) }, setProxy: vi.fn().mockResolvedValue(undefined) },
     setWindowOpenHandler: vi.fn(),
     setIgnoreMenuShortcuts: vi.fn(),
+    setAudioMuted: vi.fn((muted: boolean) => {
+      audioMuted = muted;
+    }),
     setZoomFactor: vi.fn((zoomFactor: number) => {
       currentZoomFactor = zoomFactor;
     })

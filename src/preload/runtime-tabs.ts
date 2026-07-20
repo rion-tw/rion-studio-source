@@ -15,7 +15,7 @@ import type {
 import { workspaceLayoutIconNodes } from "../shared/workspaceLayoutIcons";
 
 type LabelKey = "add" | "close" | "enterFullScreen" | "exitFullScreen" |
-  "minimize" | "stopAndClose" | "zoom";
+  "minimize" | "stopAndClose" | "zoom" | "audioPlaying" | "audioMuted";
 
 const translations: Record<AppLanguage, Record<LabelKey, string>> = {
   en: {
@@ -25,7 +25,9 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     exitFullScreen: "Exit full screen",
     minimize: "Minimize game window",
     stopAndClose: "Stop and close tab",
-    zoom: "Zoom game window"
+    zoom: "Zoom game window",
+    audioPlaying: "Playing audio",
+    audioMuted: "Tab muted"
   },
   "zh-TW": {
     add: "開啟角色或工作區",
@@ -34,7 +36,9 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     exitFullScreen: "離開全螢幕",
     minimize: "最小化遊戲視窗",
     stopAndClose: "停止並關閉分頁",
-    zoom: "縮放遊戲視窗"
+    zoom: "縮放遊戲視窗",
+    audioPlaying: "正在播放聲音",
+    audioMuted: "分頁已靜音"
   },
   "zh-CN": {
     add: "打开角色或工作区",
@@ -43,7 +47,9 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     exitFullScreen: "退出全屏",
     minimize: "最小化游戏窗口",
     stopAndClose: "停止并关闭标签页",
-    zoom: "缩放游戏窗口"
+    zoom: "缩放游戏窗口",
+    audioPlaying: "正在播放声音",
+    audioMuted: "标签页已静音"
   },
   ja: {
     add: "ロールまたはワークスペースを開く",
@@ -52,7 +58,9 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
     exitFullScreen: "フルスクリーンを解除",
     minimize: "ゲームウインドウを最小化",
     stopAndClose: "タブを停止して閉じる",
-    zoom: "ゲームウインドウを拡大／復元"
+    zoom: "ゲームウインドウを拡大／復元",
+    audioPlaying: "音声を再生中",
+    audioMuted: "タブをミュート中"
   }
 };
 
@@ -148,7 +156,10 @@ function render(): void {
     name.textContent = tab.name;
     const close = iconButton("×", label("stopAndClose"), () => send({ type: "stop", tabId: tab.id }));
     close.classList.add("runtime-tab-action");
-    tabButton.append(marker, name, close);
+    const audio = createTabAudioIndicator(tab);
+    tabButton.append(marker, name);
+    if (audio) tabButton.append(audio);
+    tabButton.append(close);
     tabs.append(tabButton);
   }
 
@@ -221,6 +232,42 @@ function createGamepadIcon(): SVGSVGElement {
     "M17.32 5H6.68a4 4 0 0 0-3.79 2.7l-1.71 5.12A3.2 3.2 0 0 0 4.22 17H5a2 2 0 0 0 1.6-.8l.6-.8a2 2 0 0 1 1.6-.8h6.4a2 2 0 0 1 1.6.8l.6.8A2 2 0 0 0 19 17h.78a3.2 3.2 0 0 0 3.04-4.18L21.11 7.7A4 4 0 0 0 17.32 5Z"
   ];
   paths.forEach((value) => {
+    const path = document.createElementNS(namespace, "path");
+    path.setAttribute("d", value);
+    svg.append(path);
+  });
+  return svg;
+}
+
+function createTabAudioIndicator(tab: EmbeddedRuntimeTabSummary): HTMLSpanElement | undefined {
+  if (!tab.audioMuted && !tab.audible) return undefined;
+
+  const indicator = element("span", "runtime-tab-audio");
+  const labelText = label(tab.audioMuted ? "audioMuted" : "audioPlaying");
+  indicator.title = labelText;
+  indicator.setAttribute("aria-label", labelText);
+  indicator.setAttribute("role", "img");
+  indicator.append(createSpeakerIcon(tab.audioMuted));
+  return indicator;
+}
+
+function createSpeakerIcon(muted: boolean): SVGSVGElement {
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("aria-hidden", "true");
+
+  [
+    "M11 5 6 9H3v6h3l5 4V5Z",
+    ...(muted
+      ? ["m16 9 5 6", "m21 9-5 6"]
+      : ["M15.5 8.5a5 5 0 0 1 0 7", "M18 5.5a9 9 0 0 1 0 13"])
+  ].forEach((value) => {
     const path = document.createElementNS(namespace, "path");
     path.setAttribute("d", value);
     svg.append(path);
@@ -411,6 +458,18 @@ function installStyles(): void {
     .runtime-tab-marker img { border-radius: 3px; display: block; height: 14px; object-fit: cover; width: 14px; }
     .runtime-tab-marker svg { display: block; height: 14px; width: 14px; }
     .runtime-tab-marker.workspace { color: var(--runtime-workspace); font-size: 11px; }
+    .runtime-tab-audio {
+      align-items: center;
+      color: var(--runtime-muted);
+      display: inline-flex;
+      flex: 0 0 14px;
+      height: 14px;
+      justify-content: center;
+      margin-left: auto;
+      width: 14px;
+    }
+    .runtime-tab-audio svg { display: block; height: 14px; width: 14px; }
+    .runtime-tab-audio + .runtime-tab-action { margin-left: 0; }
     .runtime-tab-name {
       flex: 0 1 auto;
       font-size: 12px;

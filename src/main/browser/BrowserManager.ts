@@ -215,6 +215,7 @@ export class BrowserWorkspaceDisplayOccupiedError extends Error {
 
 interface GameHostWindow {
   activeDividerResize?: ActiveGameDividerResize;
+  audioMuted: boolean;
   closing: boolean;
   dividers: GameDivider[];
   gameIconDataUrl?: string;
@@ -493,12 +494,24 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
                   }
                 : {}),
               hidden: tab.hidden,
-              active: displayHost.activeTabId === tab.id && !tab.hidden && isWindowVisible(displayHost.window)
+              active: displayHost.activeTabId === tab.id && !tab.hidden && isWindowVisible(displayHost.window),
+              ...this.getRuntimeTabAudioState(tab)
             }]
           : [];
       })
     );
     return { windows, tabs };
+  }
+
+  setRuntimeTabAudioMuted(tabId: string, muted: boolean): void {
+    const tab = this.hosts.get(tabId);
+    if (!tab || tab.audioMuted === muted) return;
+
+    tab.audioMuted = muted;
+    this.getRuntimeTabWebContents(tab).forEach((webContents) => {
+      if (!webContents.isDestroyed()) webContents.setAudioMuted(muted);
+    });
+    this.emitChange();
   }
 
   setRuntimeTabsLanguage(language: AppLanguage): void {
@@ -1220,6 +1233,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       : { displayId, workArea: launchBounds ?? this.options.getLaunchWorkArea() };
     const displayHost = this.getOrCreateDisplayHost(target);
     const host: GameHostWindow = {
+      audioMuted: false,
       closing: false,
       displayHostId: displayHost.id,
       dividers: [],
@@ -2047,6 +2061,31 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     webContents.once("destroyed", () => this.setHtmlFullscreen(host, webContents.id, false));
   }
 
+  private configureAudioState(host: GameHostWindow, webContents: WebContents): void {
+    if (host.audioMuted && !webContents.isDestroyed()) {
+      webContents.setAudioMuted(true);
+    }
+    webContents.on("audio-state-changed", () => {
+      if (this.hosts.get(host.id) === host) this.emitChange();
+    });
+  }
+
+  private getRuntimeTabWebContents(host: GameHostWindow): WebContents[] {
+    return [...host.roleIds].flatMap((roleId) => {
+      const session = this.sessions.get(roleId);
+      return session ? [session.view.webContents, ...[...session.popupViews].map((view) => view.webContents)] : [];
+    });
+  }
+
+  private getRuntimeTabAudioState(host: GameHostWindow): Pick<EmbeddedRuntimeTabSummary, "audible" | "audioMuted"> {
+    return {
+      audible: this.getRuntimeTabWebContents(host).some((webContents) =>
+        !webContents.isDestroyed() && webContents.isCurrentlyAudible()
+      ),
+      audioMuted: host.audioMuted
+    };
+  }
+
   private async reconcileRuntimeTabs(): Promise<void> {
     const hiddenRuntimeTabIds = [...this.hosts.values()].flatMap((tab) => {
       const displayHost = this.getDisplayHost(tab);
@@ -2124,6 +2163,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }, view.webContents);
     this.layoutDisplayHost(this.getDisplayHost(host));
     this.configureZoomPersistence(session, view.webContents);
+    this.configureAudioState(host, view.webContents);
     this.configureNativeZoomShortcuts(host, session, view.webContents);
     this.configureWindowOpenHandler(session, view.webContents);
     this.configureCloseShortcut(host, session, view.webContents);
@@ -2414,6 +2454,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       ...(host.workspaceId ? { workspaceId: host.workspaceId } : {})
     }, popupView.webContents);
     this.configureZoomPersistence(session, popupView.webContents);
+    this.configureAudioState(host, popupView.webContents);
     this.configureNativeZoomShortcuts(host, session, popupView.webContents);
     this.configureWindowOpenHandler(session, popupView.webContents);
     this.configureCloseShortcut(host, session, popupView.webContents);
@@ -2424,6 +2465,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (!host.window.isDestroyed()) {
         host.window.contentView.removeChildView(popupView);
       }
+      if (this.hosts.get(host.id) === host) this.emitChange();
     });
     return popupView;
   }

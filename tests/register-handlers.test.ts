@@ -314,7 +314,9 @@ describe("registerIpcHandlers workspace handlers", () => {
         displayId: 11,
         roleIds: [authenticatedRole.id],
         hidden: false,
-        active: false
+        active: false,
+        audible: false,
+        audioMuted: false
       }]
     };
     vi.mocked(browserManager.listEmbeddedRuntimeState).mockReturnValue(runtimeState);

@@ -18,6 +18,8 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 @interface RionRuntimeTabModel : NSObject
 
 @property(nonatomic) BOOL active;
+@property(nonatomic) BOOL audible;
+@property(nonatomic) BOOL audioMuted;
 @property(nonatomic, copy, nullable) NSString *iconDataURL;
 @property(nonatomic, copy) NSString *identifier;
 @property(nonatomic, copy) NSString *name;
@@ -31,6 +33,8 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 
 @property(nonatomic) NSInteger displayID;
 @property(nonatomic, copy) NSString *addLabel;
+@property(nonatomic, copy) NSString *audioMutedLabel;
+@property(nonatomic, copy) NSString *audioPlayingLabel;
 @property(nonatomic, copy) NSString *closeLabel;
 @property(nonatomic, copy) NSArray<RionRuntimeTabModel *> *tabs;
 

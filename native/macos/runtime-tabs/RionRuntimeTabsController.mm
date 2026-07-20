@@ -19,6 +19,7 @@ static const CGFloat kRionTabLeadingPadding = 10.0;
 static const CGFloat kRionTabIconSize = 16.0;
 static const CGFloat kRionTabIconTitleSpacing = 6.0;
 static const CGFloat kRionTabAccessorySpacing = 4.0;
+static const CGFloat kRionTabAudioIconSize = 14.0;
 static const CGFloat kRionTabMoreButtonWidth = 20.0;
 static const CGFloat kRionTabTrailingPadding = 8.0;
 static const CGFloat kRionAddButtonSpacing = 8.0;
@@ -485,6 +486,8 @@ static BOOL RionInstallTitlebarWidgetInsetHook(NSView *frameView) {
 - (void)configureWithTab:(RionRuntimeTabModel *)tab
                     image:(NSImage *)image
                closeLabel:(NSString *)closeLabel
+        audioPlayingLabel:(NSString *)audioPlayingLabel
+           audioMutedLabel:(NSString *)audioMutedLabel
              windowActive:(BOOL)windowActive;
 - (void)updateWindowActive:(BOOL)windowActive;
 
@@ -801,6 +804,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 @implementation RionRuntimeTabItemView {
   BOOL _hovered;
+  NSImageView *_audioView;
   NSImageView *_iconView;
   NSButton *_moreButton;
   NSTrackingArea *_trackingArea;
@@ -821,6 +825,12 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _iconView.wantsLayer = YES;
   _iconView.layer.cornerRadius = 4.0;
   _iconView.layer.masksToBounds = YES;
+
+  _audioView = [[NSImageView alloc] initWithFrame:NSZeroRect];
+  _audioView.imageAlignment = NSImageAlignCenter;
+  _audioView.imageScaling = NSImageScaleProportionallyDown;
+  _audioView.contentTintColor = NSColor.secondaryLabelColor;
+  _audioView.toolTip = @"";
 
   RionRuntimeVerticallyCenteredTextFieldCell *titleCell =
       [[RionRuntimeVerticallyCenteredTextFieldCell alloc] initTextCell:@""];
@@ -850,6 +860,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
   [self addSubview:_iconView];
   [self addSubview:_titleField];
+  [self addSubview:_audioView];
   [self addSubview:_moreButton];
   return self;
 }
@@ -864,6 +875,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   }].width;
   CGFloat fixedWidth = kRionTabLeadingPadding + kRionTabIconSize +
       kRionTabIconTitleSpacing + kRionTabAccessorySpacing +
+      kRionTabAudioIconSize + kRionTabAccessorySpacing +
       kRionTabMoreButtonWidth + kRionTabTrailingPadding;
   return MIN(kRionTabMaximumWidth,
              MAX(kRionTabMinimumWidth, ceil(labelWidth) + fixedWidth));
@@ -876,17 +888,30 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)configureWithTab:(RionRuntimeTabModel *)tab
                     image:(NSImage *)image
                closeLabel:(NSString *)closeLabel
+        audioPlayingLabel:(NSString *)audioPlayingLabel
+           audioMutedLabel:(NSString *)audioMutedLabel
              windowActive:(BOOL)windowActive {
   _windowActive = windowActive;
   self.tabIdentifier = tab.identifier;
   self.activeTab = tab.active;
   _iconView.image = image;
   _titleField.stringValue = tab.name;
+  NSString *audioLabel = tab.audioMuted ? audioMutedLabel : audioPlayingLabel;
+  NSString *audioSymbol = tab.audioMuted ? @"speaker.slash.fill" : @"speaker.wave.2.fill";
+  NSImage *audioImage = [NSImage imageWithSystemSymbolName:audioSymbol
+                                       accessibilityDescription:nil];
+  _audioView.image = [audioImage imageWithSymbolConfiguration:
+      [NSImageSymbolConfiguration configurationWithPointSize:12.0
+                                                       weight:NSFontWeightMedium]];
+  _audioView.hidden = !tab.audioMuted && !tab.audible;
+  _audioView.toolTip = _audioView.hidden ? @"" : audioLabel;
   _moreButton.identifier = tab.identifier;
   _moreButton.toolTip = closeLabel;
   _moreButton.accessibilityLabel = closeLabel;
   self.toolTip = tab.tooltip.length > 0 ? tab.tooltip : tab.name;
-  self.accessibilityLabel = tab.name;
+  self.accessibilityLabel = _audioView.hidden
+      ? tab.name
+      : [NSString stringWithFormat:@"%@, %@", tab.name, audioLabel];
   self.accessibilityValue = @(tab.active);
 
   [self invalidateIntrinsicContentSize];
@@ -907,7 +932,11 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       x, width - kRionTabTrailingPadding - kRionTabMoreButtonWidth);
   _moreButton.frame =
       NSMakeRect(moreX, 0, kRionTabMoreButtonWidth, kRionTabHeight);
-  CGFloat titleEnd = moreX - kRionTabAccessorySpacing;
+  CGFloat audioX = moreX - kRionTabAccessorySpacing - kRionTabAudioIconSize;
+  _audioView.frame =
+      NSMakeRect(audioX, (kRionTabHeight - kRionTabAudioIconSize) / 2.0,
+                 kRionTabAudioIconSize, kRionTabAudioIconSize);
+  CGFloat titleEnd = audioX - kRionTabAccessorySpacing;
   _titleField.frame =
       NSMakeRect(x, 0, MAX(1.0, titleEnd - x), kRionTabHeight);
 }
@@ -2111,7 +2140,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [item configureWithTab:tab
                      image:[self imageForTab:tab]
                 closeLabel:state.closeLabel
-             windowActive:_window.isKeyWindow];
+         audioPlayingLabel:state.audioPlayingLabel
+            audioMutedLabel:state.audioMutedLabel
+               windowActive:_window.isKeyWindow];
     [nextItems addObject:item];
     [nextSurfaces addObject:surface];
   }

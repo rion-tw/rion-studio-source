@@ -89,7 +89,9 @@ describe("RuntimeTabMenuController", () => {
           displayId: 11,
           roleIds: [role.id],
           hidden: false,
-          active: true
+          active: true,
+          audible: false,
+          audioMuted: false
         }]
       }),
       showRuntimeTab
@@ -146,6 +148,46 @@ describe("RuntimeTabMenuController", () => {
     await vi.waitFor(() => expect(stopRuntimeTab).toHaveBeenCalledWith("tab-1"));
   });
 
+  it("builds a checked mute-tab action and resolves the latest state when clicked", () => {
+    let audioMuted = false;
+    const setRuntimeTabAudioMuted = vi.fn((_tabId: string, muted: boolean) => {
+      audioMuted = muted;
+    });
+    const controller = createController({
+      listEmbeddedRuntimeState: () => ({
+        windows: [],
+        tabs: [{
+          id: "tab-1",
+          type: "role",
+          sourceId: role.id,
+          name: role.name,
+          displayId: 11,
+          roleIds: [role.id],
+          hidden: false,
+          active: true,
+          audible: true,
+          audioMuted
+        }]
+      }),
+      setRuntimeTabAudioMuted
+    });
+    const window = { isDestroyed: () => false } as never;
+
+    controller.openTabMenu(window, 11, "tab-1");
+    const firstTemplate = buildFromTemplate.mock.calls.at(-1)![0];
+    const muteItem = firstTemplate.find((item) => item.label === "Mute Tab");
+    expect(muteItem).toMatchObject({ checked: false, type: "checkbox" });
+    muteItem?.click?.({} as never, undefined, {} as never);
+    expect(setRuntimeTabAudioMuted).toHaveBeenLastCalledWith("tab-1", true);
+
+    controller.openTabMenu(window, 11, "tab-1");
+    const secondTemplate = buildFromTemplate.mock.calls.at(-1)![0];
+    const unmuteItem = secondTemplate.find((item) => item.label === "Unmute Tab");
+    expect(unmuteItem).toMatchObject({ checked: true, type: "checkbox" });
+    unmuteItem?.click?.({} as never, undefined, {} as never);
+    expect(setRuntimeTabAudioMuted).toHaveBeenLastCalledWith("tab-1", false);
+  });
+
   it("starts login for an unauthenticated role on the source display", async () => {
     const startLogin = vi.fn();
     const unauthenticatedRole: Role = { ...role, authState: "login_required" };
@@ -172,6 +214,7 @@ function createController(overrides: {
   listEmbeddedRuntimeState?: () => EmbeddedRuntimeState;
   moveRuntimeTab?: ReturnType<typeof vi.fn>;
   role?: Role;
+  setRuntimeTabAudioMuted?: ReturnType<typeof vi.fn>;
   showRuntimeTab?: ReturnType<typeof vi.fn>;
   startLogin?: ReturnType<typeof vi.fn>;
   stopRuntimeTab?: ReturnType<typeof vi.fn>;
@@ -187,7 +230,9 @@ function createController(overrides: {
       displayId: 11,
       roleIds: [role.id],
       hidden: false,
-      active: true
+      active: true,
+      audible: false,
+      audioMuted: false
     }]
   }));
   const configuredRole = overrides.role ?? role;
@@ -200,6 +245,7 @@ function createController(overrides: {
       launch: vi.fn(),
       listEmbeddedRuntimeState,
       moveRuntimeTab: (overrides.moveRuntimeTab ?? vi.fn()) as never,
+      setRuntimeTabAudioMuted: (overrides.setRuntimeTabAudioMuted ?? vi.fn()) as never,
       showRuntimeTab: (overrides.showRuntimeTab ?? vi.fn()) as never,
       stopRuntimeTab: (overrides.stopRuntimeTab ?? vi.fn().mockResolvedValue(undefined)) as never
     },

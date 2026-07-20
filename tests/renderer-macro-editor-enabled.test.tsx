@@ -777,6 +777,46 @@ describe("macro editor controls", () => {
     })));
   });
 
+  it("allows percent click offsets to be entered to two decimal places", async () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", xPercent: 10, yPercent: 20 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    const xOffset = screen.getByRole("spinbutton", { name: "X offset" }) as HTMLInputElement;
+    const yOffset = screen.getByRole("spinbutton", { name: "Y offset" }) as HTMLInputElement;
+    expect(xOffset.step).toBe("0.01");
+    expect(yOffset.step).toBe("0.01");
+
+    fireEvent.change(xOffset, { target: { value: "12.34" } });
+    fireEvent.change(yOffset, { target: { value: "56.78" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ id: "click", type: "click", xPercent: 12.34, yPercent: 56.78 }]
+    })));
+  });
+
   it("pastes a measured coordinate pair into both pixel click fields", async () => {
     const selectedMacro = macro({
       steps: [{ id: "click", type: "click", unit: "px", xPx: 10, yPx: 20 }]

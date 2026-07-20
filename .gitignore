@@ -14,6 +14,11 @@ pnpm-debug.log*
 /build/native/
 /native/macos/runtime-tabs/build/
 
+# CI compiler and packaging caches
+/.ccache/
+/.electron-cache/
+/.electron-builder-cache/
+
 # Local runtime data
 /profiles/
 /profile-data/

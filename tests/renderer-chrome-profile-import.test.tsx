@@ -2,13 +2,8 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router";
-
-import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
-import SettingsView from "../src/renderer/src/features/settings/SettingsRoute";
+import { ChromeProfileImportFlow } from "../src/renderer/src/features/chrome-profile-import/ChromeProfileImportFlow";
 import en from "../src/renderer/src/i18n/en.json";
-import { DEFAULT_GAME_BROWSER_SETTINGS } from "../src/shared/browserFonts";
-import { DEFAULT_MACRO_SETTINGS } from "../src/shared/macroSettings";
 import type { Game } from "../src/shared/types";
 import type { Translator } from "../src/renderer/src/i18n";
 
@@ -27,7 +22,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Chrome profile import settings flow", () => {
+describe("Chrome profile import flow", () => {
   it("shows a first notice, starts with no profiles selected, and requires final consent", async () => {
     const onPreviewChromeProfileImport = vi.fn(async () => ({
       importId: "import-1",
@@ -50,50 +45,18 @@ describe("Chrome profile import settings flow", () => {
     }));
 
     render(
-      <MemoryRouter initialEntries={["/settings?section=data"]}>
-        <ConfirmationProvider>
-          <SettingsView
-            gameBrowserSettings={DEFAULT_GAME_BROWSER_SETTINGS}
-            games={[game]}
-            hasRunningRoles={false}
-            language="en"
-            macroSettings={DEFAULT_MACRO_SETTINGS}
-            onApplyChromeProfileImport={onApplyChromeProfileImport}
-            onApplyPortableImport={async () => {
-              throw new Error("not used");
-            }}
-            onCheckForUpdates={async () => undefined}
-            onDiscardPortableImport={async () => undefined}
-            onError={vi.fn()}
-            onExportPortableData={async () => null}
-            onGameBrowserSettingsChange={async (settings) => settings}
-            onInstallDownloadedUpdate={async () => undefined}
-            onLanguageChange={() => undefined}
-            onLoadGraphicsDiagnostics={async () => {
-              throw new Error("not used");
-            }}
-            onLoadSystemFonts={async () => []}
-            onMacroSettingsChange={async (settings) => settings}
-            onOpenUpdateDownload={async () => undefined}
-            onPreviewChromeProfileImport={onPreviewChromeProfileImport}
-            onPreviewPortableImport={async () => null}
-            onRestartApplication={async () => undefined}
-            onThemeModeChange={() => undefined}
-            onDiscardChromeProfileImport={async () => undefined}
-            resolvedTheme="light"
-            systemFonts={[]}
-            t={t}
-            themeMode="system"
-            updateStatus={null}
-            updateVersion=""
-            isUpdateBusy={false}
-            portableDataCounts={{ gameCount: 0, macroCount: 0, roleCount: 0, workspaceCount: 0 }}
-          />
-        </ConfirmationProvider>
-      </MemoryRouter>
+      <ChromeProfileImportFlow
+        games={[game]}
+        isOpen
+        t={t}
+        onApply={onApplyChromeProfileImport}
+        onDiscard={async () => undefined}
+        onError={vi.fn()}
+        onOpenChange={vi.fn()}
+        onPreview={onPreviewChromeProfileImport}
+      />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Import Chrome profiles" }));
     expect(screen.getByText("Sensitive local browser data")).toBeTruthy();
     expect(onPreviewChromeProfileImport).not.toHaveBeenCalled();
 
@@ -125,5 +88,39 @@ describe("Chrome profile import settings flow", () => {
     }));
     expect(screen.getByText("Chrome profile import complete")).toBeTruthy();
     expect(screen.getByText("Embedded: login available · External Chrome: login available")).toBeTruthy();
+  });
+
+  it("discards a pending preview when the import is cancelled", async () => {
+    const onPreview = vi.fn(async () => ({
+      importId: "import-1",
+      profiles: [{ directoryName: "Default", id: "Default", name: "Primary" }],
+      sourceLabel: "Chrome",
+      warnings: []
+    }));
+    const onDiscard = vi.fn(async () => undefined);
+    const onOpenChange = vi.fn();
+
+    render(
+      <ChromeProfileImportFlow
+        games={[game]}
+        isOpen
+        t={t}
+        onApply={async () => {
+          throw new Error("not used");
+        }}
+        onDiscard={onDiscard}
+        onError={vi.fn()}
+        onOpenChange={onOpenChange}
+        onPreview={onPreview}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Choose Chrome folder" }));
+    await waitFor(() => expect(screen.getByText("Choose Chrome profiles")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(onDiscard).toHaveBeenCalledWith("import-1"));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

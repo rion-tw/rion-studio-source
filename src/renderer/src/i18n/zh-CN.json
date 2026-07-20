@@ -82,6 +82,7 @@
   "roles.filter.needsLogin": "未登录",
   "roles.searchPlaceholder": "搜索角色",
   "roles.refresh": "重新整理",
+  "roles.importChromeProfiles": "导入 Chrome Profiles",
   "roles.newRole": "新增角色",
   "roles.summary.total": "角色总数",
   "roles.summary.running": "当前启动",

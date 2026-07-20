@@ -33,12 +33,6 @@ import {
 import { CURRENT_LEGAL_RELEASE, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 import type {
   AppUpdateStatus,
-  ChromeProfileEntry,
-  ChromeProfileImportInput,
-  ChromeProfileImportPreview,
-  ChromeProfileImportResult,
-  ChromeProfileImportRuntimeReason,
-  ChromeProfileImportRuntimeState,
   BrowserCdnCompatibilityMode,
   BrowserFontFamilyRole,
   BrowserGraphicsMode,
@@ -112,9 +106,7 @@ interface SettingsViewProps {
   onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
   onApplyPortableImport: (input: PortableImportInput) => Promise<PortableImportResult>;
   onDiscardPortableImport: (importId: string) => Promise<void>;
-  onPreviewChromeProfileImport?: () => Promise<ChromeProfileImportPreview | null>;
-  onApplyChromeProfileImport?: (input: ChromeProfileImportInput) => Promise<ChromeProfileImportResult>;
-  onDiscardChromeProfileImport?: (importId: string) => Promise<void>;
+  onOpenChromeProfileImport?: () => void;
   onOpenUpdateDownload: () => Promise<void>;
   onInstallDownloadedUpdate: () => Promise<void>;
   onRestartApplication: () => Promise<void>;
@@ -185,9 +177,7 @@ function SettingsViewBase({
   onPreviewPortableImport,
   onApplyPortableImport,
   onDiscardPortableImport,
-  onPreviewChromeProfileImport,
-  onApplyChromeProfileImport,
-  onDiscardChromeProfileImport,
+  onOpenChromeProfileImport = () => undefined,
   onOpenUpdateDownload,
   onInstallDownloadedUpdate,
   onRestartApplication,
@@ -207,13 +197,6 @@ function SettingsViewBase({
   const [portableImportResolutions, setPortableImportResolutions] = useState<PortableMacroConflictResolution[]>([]);
   const [portableMessage, setPortableMessage] = useState<string | null>(null);
   const [isPortableBusy, setIsPortableBusy] = useState(false);
-  const [isChromeImportNoticeOpen, setIsChromeImportNoticeOpen] = useState(false);
-  const [chromeImportNoticeConsent, setChromeImportNoticeConsent] = useState(false);
-  const [chromeImportPreview, setChromeImportPreview] = useState<ChromeProfileImportPreview | null>(null);
-  const [chromeImportSelection, setChromeImportSelection] = useState<string[]>([]);
-  const [chromeImportGameId, setChromeImportGameId] = useState<string>(games[0]?.id ?? "");
-  const [chromeImportConsent, setChromeImportConsent] = useState(false);
-  const [chromeImportResult, setChromeImportResult] = useState<ChromeProfileImportResult | null>(null);
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
   const [graphicsDiagnostics, setGraphicsDiagnostics] = useState<GraphicsDiagnostics | null>(null);
   const [isGraphicsBusy, setIsGraphicsBusy] = useState(false);
@@ -423,62 +406,6 @@ function SettingsViewBase({
     }
     try {
       await onDiscardPortableImport(preview.importId);
-    } catch (error) {
-      onError(error);
-    }
-  }
-
-  async function handleStartChromeProfileImport(): Promise<void> {
-    if (!onPreviewChromeProfileImport || !chromeImportNoticeConsent) return;
-    setIsChromeImportNoticeOpen(false);
-    setIsPortableBusy(true);
-    try {
-      const preview = await onPreviewChromeProfileImport();
-      if (preview) {
-        setChromeImportPreview(preview);
-        setChromeImportSelection([]);
-        setChromeImportGameId(games[0]?.id ?? "");
-        setChromeImportConsent(false);
-        setChromeImportResult(null);
-      }
-    } catch (error) {
-      onError(error);
-    } finally {
-      setIsPortableBusy(false);
-    }
-  }
-
-  async function handleApplyChromeProfileImport(): Promise<void> {
-    if (!onApplyChromeProfileImport || !chromeImportPreview || chromeImportSelection.length === 0 || !chromeImportGameId || !chromeImportConsent) {
-      return;
-    }
-    setIsPortableBusy(true);
-    try {
-      const result = await onApplyChromeProfileImport({
-        consentAccepted: true,
-        gameId: chromeImportGameId,
-        importId: chromeImportPreview.importId,
-        profileIds: chromeImportSelection
-      });
-      setChromeImportResult(result);
-      setChromeImportPreview(null);
-    } catch (error) {
-      onError(error);
-    } finally {
-      setIsPortableBusy(false);
-    }
-  }
-
-  async function handleCancelChromeProfileImport(): Promise<void> {
-    const preview = chromeImportPreview;
-    setChromeImportPreview(null);
-    setChromeImportSelection([]);
-    setChromeImportConsent(false);
-    setChromeImportNoticeConsent(false);
-    if (!preview) return;
-    if (!onDiscardChromeProfileImport) return;
-    try {
-      await onDiscardChromeProfileImport(preview.importId);
     } catch (error) {
       onError(error);
     }
@@ -789,10 +716,7 @@ function SettingsViewBase({
                   type="button"
                   variant="outline"
                   disabled={isPortableBusy || games.length === 0}
-                  onClick={() => {
-                    setChromeImportNoticeConsent(false);
-                    setIsChromeImportNoticeOpen(true);
-                  }}
+                  onClick={onOpenChromeProfileImport}
                 >
                   <ShieldAlert size={14} />
                   {t("settings.chromeProfileImportAction")}
@@ -916,43 +840,6 @@ function SettingsViewBase({
           onChange={setPortableImportSelection}
           onResolutionsChange={setPortableImportResolutions}
           onConfirm={() => void handleApplyPortableImport()}
-        />
-      ) : null}
-
-      {isChromeImportNoticeOpen ? (
-        <ChromeProfileImportNoticeDialog
-          consentAccepted={chromeImportNoticeConsent}
-          isBusy={isPortableBusy}
-          t={t}
-          onCancel={() => setIsChromeImportNoticeOpen(false)}
-          onConsentChange={setChromeImportNoticeConsent}
-          onConfirm={() => void handleStartChromeProfileImport()}
-        />
-      ) : null}
-
-      {chromeImportPreview ? (
-        <ChromeProfileImportDialog
-          games={games}
-          isBusy={isPortableBusy}
-          preview={chromeImportPreview}
-          selectedGameId={chromeImportGameId}
-          selectedProfileIds={chromeImportSelection}
-          consentAccepted={chromeImportConsent}
-          t={t}
-          onCancel={() => void handleCancelChromeProfileImport()}
-          onConsentChange={setChromeImportConsent}
-          onGameChange={setChromeImportGameId}
-          onProfileSelectionChange={setChromeImportSelection}
-          onConfirm={() => void handleApplyChromeProfileImport()}
-        />
-      ) : null}
-
-      {chromeImportResult ? (
-        <ChromeProfileImportResultDialog
-          isBusy={isPortableBusy}
-          result={chromeImportResult}
-          t={t}
-          onClose={() => setChromeImportResult(null)}
         />
       ) : null}
 
@@ -1690,272 +1577,6 @@ interface PortableExportDialogProps {
   onCancel: () => void;
   onChange: (selection: PortableDataSelection) => void;
   onConfirm: () => void;
-}
-
-interface ChromeProfileImportNoticeDialogProps {
-  consentAccepted: boolean;
-  isBusy: boolean;
-  t: Translator;
-  onCancel: () => void;
-  onConsentChange: (accepted: boolean) => void;
-  onConfirm: () => void;
-}
-
-function ChromeProfileImportNoticeDialog({
-  consentAccepted,
-  isBusy,
-  t,
-  onCancel,
-  onConsentChange,
-  onConfirm
-}: ChromeProfileImportNoticeDialogProps): JSX.Element {
-  return (
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
-      <Surface
-        className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-[560px] flex-col overflow-hidden"
-        radius="lg"
-        variant="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="chrome-profile-import-notice-title"
-      >
-        <div className="glass-divider border-b px-5 py-4">
-          <h2 id="chrome-profile-import-notice-title" className="text-[15px] font-semibold leading-6 text-foreground">
-            {t("settings.chromeProfileImportNoticeTitle")}
-          </h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {t("settings.chromeProfileImportNoticeDescription")}
-          </p>
-        </div>
-        <div className="grid gap-2 overflow-y-auto px-5 py-4 text-xs leading-5 text-muted-foreground">
-          <p>{t("settings.chromeProfileImportNoticeData")}</p>
-          <p>{t("settings.chromeProfileImportNoticeLocalOnly")}</p>
-          <p>{t("settings.chromeProfileImportNoticeCloseChrome")}</p>
-          <label className="mt-1 flex items-start gap-3 text-xs leading-5 text-foreground">
-            <Checkbox
-              checked={consentAccepted}
-              disabled={isBusy}
-              onCheckedChange={(checked) => onConsentChange(checked === true)}
-            />
-            <span>{t("settings.chromeProfileImportConsent")}</span>
-          </label>
-        </div>
-        <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">
-          <Button type="button" variant="outline" disabled={isBusy} onClick={onCancel}>
-            {t("settings.importCancel")}
-          </Button>
-          <Button type="button" disabled={isBusy || !consentAccepted} onClick={onConfirm}>
-            <ShieldAlert size={14} />
-            {t("settings.chromeProfileImportChooseFolder")}
-          </Button>
-        </div>
-      </Surface>
-    </div>
-  );
-}
-
-interface ChromeProfileImportDialogProps {
-  consentAccepted: boolean;
-  games: Game[];
-  isBusy: boolean;
-  preview: ChromeProfileImportPreview;
-  selectedGameId: string;
-  selectedProfileIds: string[];
-  t: Translator;
-  onCancel: () => void;
-  onConsentChange: (accepted: boolean) => void;
-  onGameChange: (gameId: string) => void;
-  onProfileSelectionChange: (profileIds: string[]) => void;
-  onConfirm: () => void;
-}
-
-function ChromeProfileImportDialog({
-  consentAccepted,
-  games,
-  isBusy,
-  preview,
-  selectedGameId,
-  selectedProfileIds,
-  t,
-  onCancel,
-  onConsentChange,
-  onGameChange,
-  onProfileSelectionChange,
-  onConfirm
-}: ChromeProfileImportDialogProps): JSX.Element {
-  function toggleProfile(profile: ChromeProfileEntry): void {
-    onProfileSelectionChange(
-      selectedProfileIds.includes(profile.id)
-        ? selectedProfileIds.filter((id) => id !== profile.id)
-        : [...selectedProfileIds, profile.id]
-    );
-  }
-
-  const canConfirm = selectedProfileIds.length > 0 && Boolean(selectedGameId) && consentAccepted;
-
-  return (
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
-      <Surface
-        className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-[600px] flex-col overflow-hidden"
-        radius="lg"
-        variant="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="chrome-profile-import-title"
-      >
-        <div className="glass-divider border-b px-5 py-4">
-          <h2 id="chrome-profile-import-title" className="text-[15px] font-semibold leading-6 text-foreground">
-            {t("settings.chromeProfileImportPreview")}
-          </h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {t("settings.chromeProfileImportSource").replace("{source}", preview.sourceLabel)}
-          </p>
-        </div>
-        <div className="grid gap-4 overflow-y-auto px-5 py-4">
-          <div className="grid gap-2">
-            <p className="text-xs font-semibold leading-5 text-foreground">
-              {t("settings.chromeProfileImportProfiles")}
-            </p>
-            {preview.profiles.map((profile) => (
-              <label key={profile.id} className="glass-inset flex items-center gap-3 rounded-md px-3 py-2.5">
-                <Checkbox
-                  checked={selectedProfileIds.includes(profile.id)}
-                  disabled={isBusy}
-                  onCheckedChange={() => toggleProfile(profile)}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-semibold text-foreground">{profile.name}</span>
-                  <span className="block text-[11px] text-muted-foreground">{profile.directoryName}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <label className="grid gap-1.5">
-            <span className="text-xs font-semibold leading-5 text-foreground">
-              {t("settings.chromeProfileImportGame")}
-            </span>
-            <Select value={selectedGameId} onValueChange={onGameChange} disabled={isBusy || games.length === 0}>
-              <SelectTrigger aria-label={t("settings.chromeProfileImportGame")}>
-                <SelectValue placeholder={t("settings.chromeProfileImportGamePlaceholder")} />
-              </SelectTrigger>
-              <SelectContent>
-                {games.map((game) => <SelectItem key={game.id} value={game.id}>{game.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </label>
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-[11px] leading-5 text-muted-foreground">
-            <p>{t("settings.chromeProfileImportFinalNotice")}</p>
-            <p className="mt-1">{t("settings.chromeProfileImportPasswordNotice")}</p>
-            <p className="mt-1">{t("settings.chromeProfileImportRuntimeNotice")}</p>
-          </div>
-          <label className="flex items-start gap-3 text-xs leading-5 text-foreground">
-            <Checkbox
-              checked={consentAccepted}
-              disabled={isBusy}
-              onCheckedChange={(checked) => onConsentChange(checked === true)}
-            />
-            <span>{t("settings.chromeProfileImportConsent")}</span>
-          </label>
-        </div>
-        <div className="glass-divider flex justify-end gap-2 border-t px-5 py-4">
-          <Button type="button" variant="outline" disabled={isBusy} onClick={onCancel}>
-            {t("settings.importCancel")}
-          </Button>
-          <Button type="button" disabled={isBusy || !canConfirm} onClick={onConfirm}>
-            <Upload size={14} />
-            {t("settings.chromeProfileImportConfirm")}
-          </Button>
-        </div>
-      </Surface>
-    </div>
-  );
-}
-
-interface ChromeProfileImportResultDialogProps {
-  isBusy: boolean;
-  result: ChromeProfileImportResult;
-  t: Translator;
-  onClose: () => void;
-}
-
-const chromeProfileRuntimeStateKeys: Record<ChromeProfileImportRuntimeState, TranslationKey> = {
-  authenticated: "settings.chromeProfileImportAuthenticated",
-  login_required: "settings.chromeProfileImportLoginRequired",
-  unavailable: "settings.chromeProfileImportUnavailable",
-  not_checked: "settings.chromeProfileImportNotChecked"
-};
-
-const chromeProfileRuntimeReasonKeys: Record<ChromeProfileImportRuntimeReason, TranslationKey> = {
-  embedded_cookie_injection_failed: "settings.chromeProfileImportReasonEmbeddedCookieInjectionFailed",
-  embedded_storage_injection_failed: "settings.chromeProfileImportReasonEmbeddedStorageInjectionFailed",
-  embedded_login_not_detected: "settings.chromeProfileImportReasonEmbeddedLoginNotDetected",
-  embedded_indexeddb_required: "settings.chromeProfileImportReasonEmbeddedIndexedDbRequired",
-  embedded_verification_failed: "settings.chromeProfileImportReasonEmbeddedVerificationFailed",
-  external_cookie_decryption_failed: "settings.chromeProfileImportReasonExternalCookieDecryptionFailed",
-  external_login_not_detected: "settings.chromeProfileImportReasonExternalLoginNotDetected",
-  external_verification_failed: "settings.chromeProfileImportReasonExternalVerificationFailed"
-};
-
-function ChromeProfileImportResultDialog({
-  isBusy,
-  result,
-  t,
-  onClose
-}: ChromeProfileImportResultDialogProps): JSX.Element {
-  return (
-    <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm">
-      <Surface
-        className="flex max-h-[calc(100vh-2.5rem)] w-full max-w-[600px] flex-col overflow-hidden"
-        radius="lg"
-        variant="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="chrome-profile-import-result-title"
-      >
-        <div className="glass-divider border-b px-5 py-4">
-          <h2 id="chrome-profile-import-result-title" className="text-[15px] font-semibold leading-6 text-foreground">
-            {t("settings.chromeProfileImportComplete")}
-          </h2>
-        </div>
-        <div className="grid gap-2 overflow-y-auto px-5 py-4">
-          {result.results.map((item) => (
-            <div key={item.profileId} className="glass-inset rounded-md px-3 py-2.5 text-xs">
-              <p className="font-semibold text-foreground">{item.roleName ?? item.profileName}</p>
-              <p className="mt-1 text-muted-foreground">
-                {t("settings.chromeProfileImportRuntimeSummary")
-                  .replace("{embedded}", t(chromeProfileRuntimeStateKeys[item.embedded]))
-                  .replace("{external}", t(chromeProfileRuntimeStateKeys[item.external]))}
-              </p>
-              {item.embeddedReason ? (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {t("settings.chromeProfileImportEmbeddedReason").replace(
-                    "{reason}",
-                    t(chromeProfileRuntimeReasonKeys[item.embeddedReason])
-                  )}
-                </p>
-              ) : null}
-              {item.externalReason ? (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {t("settings.chromeProfileImportExternalReason").replace(
-                    "{reason}",
-                    t(chromeProfileRuntimeReasonKeys[item.externalReason])
-                  )}
-                </p>
-              ) : null}
-            </div>
-          ))}
-          {result.warnings.length > 0 ? (
-            <p className="text-[11px] leading-5 text-muted-foreground">
-              {t("settings.chromeProfileImportWarnings").replace("{count}", String(result.warnings.length))}
-            </p>
-          ) : null}
-        </div>
-        <div className="glass-divider flex justify-end border-t px-5 py-4">
-          <Button type="button" disabled={isBusy} onClick={onClose}>{t("common.close")}</Button>
-        </div>
-      </Surface>
-    </div>
-  );
 }
 
 function PortableExportDialog({

@@ -50,6 +50,7 @@ const IMPORT_COPY_FILES = [
   "Secure Preferences"
 ] as const;
 const LOCK_FILES = ["SingletonCookie", "SingletonLock", "SingletonSocket"] as const;
+const PROFILE_IMPORT_CAPTURE_CONCURRENCY = 3;
 const MAX_TOTAL_DURABLE_STORAGE_BYTES = 32 * 1024 * 1024;
 const CHROME_LOGIN_DATA_EXPRESSION = `(async () => {
   const readStorage = (name) => {
@@ -537,8 +538,13 @@ export class ChromeProfileImportManager {
       }
       await writeJsonFileAtomically(journalPath, journal);
 
+      const preparedImports: Array<{
+        profile: ChromeProfileEntry;
+        resetExistingSession: boolean;
+        role: Role;
+        targetBrowserDir: string;
+      }> = [];
       for (const assignment of assignments) {
-        reportProgress("importing", assignment.profile);
         const role = assignment.existing
           ? await this.options.roleStore.updateRole(assignment.existing.id, {
               gameId: game.id,
@@ -562,16 +568,30 @@ export class ChromeProfileImportManager {
         await rm(targetBrowserDir, { force: true, recursive: true });
         await copyDirectory(stageBrowserDir, targetBrowserDir);
 
-        await this.seedImportedLoginData(
-          targetBrowserDir,
+        preparedImports.push({
+          profile: assignment.profile,
+          resetExistingSession: Boolean(assignment.existing),
           role,
-          createLoginDataUrls(role, game.loginUrl),
-          Boolean(assignment.existing)
-        );
-        await this.options.roleStore.updateAuthState(role.id, "authenticated");
-        completedProfileCount += 1;
-        reportProgress("importing", assignment.profile);
+          targetBrowserDir
+        });
       }
+
+      await runWithConcurrency(
+        preparedImports,
+        PROFILE_IMPORT_CAPTURE_CONCURRENCY,
+        async ({ profile, resetExistingSession, role, targetBrowserDir }) => {
+          reportProgress("importing", profile);
+          await this.seedImportedLoginData(
+            targetBrowserDir,
+            role,
+            createLoginDataUrls(role, game.loginUrl),
+            resetExistingSession
+          );
+          await this.options.roleStore.updateAuthState(role.id, "authenticated");
+          completedProfileCount += 1;
+          reportProgress("importing", profile);
+        }
+      );
 
       await writeJsonFileAtomically(journalPath, { ...journal, phase: "committed" });
       journal.phase = "committed";
@@ -1497,12 +1517,43 @@ export function buildChromeProfileImportChromeArgs(userDataDir: string, initialU
   return [
     `--user-data-dir=${userDataDir}`,
     "--profile-directory=Default",
+    "--headless",
     `--app=${initialUrl}`,
     "--no-first-run",
     "--no-default-browser-check",
     "--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0"
   ];
+}
+
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  task: (item: T) => Promise<void>
+): Promise<void> {
+  let failed = false;
+  let firstError: unknown;
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (!failed) {
+      const index = nextIndex;
+      if (index >= items.length) return;
+      nextIndex += 1;
+
+      try {
+        await task(items[index]);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  if (failed) throw firstError;
 }
 
 async function navigateChromePage(client: CdpClient, url: string, timeoutMs: number): Promise<void> {

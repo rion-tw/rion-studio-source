@@ -166,6 +166,27 @@ describe("ChromeProfileImportManager", () => {
     await expect(access(join(userDataDir, "chrome-profile-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("restores a pending preview after the main import manager is recreated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
+    const { source } = await createChromeProfileSource(root, ["Primary"]);
+    const userDataDir = join(root, "rion-data");
+    const roleStore = new RoleStore(userDataDir);
+    const firstManager = createManager({ roleStore, source, userDataDir });
+
+    const preview = await firstManager.previewImport();
+    expect(preview?.importId).toBe("import-1");
+    await expect(access(join(userDataDir, "chrome-profile-import-previews.json"))).resolves.toBeUndefined();
+
+    const restartedManager = createManager({ roleStore, source, userDataDir });
+    await expect(restartedManager.applyImport({
+      consentAccepted: true,
+      gameId: game.id,
+      importId: preview!.importId,
+      profileIds: ["Default"]
+    })).resolves.toMatchObject({ roles: [expect.objectContaining({ name: "Primary" })] });
+    await expect(access(join(userDataDir, "chrome-profile-import-previews.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it.each(["SingletonCookie", "SingletonLock", "SingletonSocket"] as const)("rejects an active Chrome folder marked by %s", async (lockFile) => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const { source } = await createChromeProfileSource(root, ["Primary"]);
@@ -222,6 +243,7 @@ describe("ChromeProfileImportManager", () => {
     await expect(manager.applyImport({ consentAccepted: true, gameId: game.id, importId: "import-1", profileIds: ["Default"] }))
       .rejects.toThrow("simulated injection failure");
     await expect(roleStore.listRoles()).resolves.toEqual([]);
+    await expect(access(join(userDataDir, "chrome-profile-import-previews.json"))).resolves.toBeUndefined();
     await expect(access(join(userDataDir, ".chrome-profile-import"))).rejects.toMatchObject({ code: "ENOENT" });
 
     const recoveredRole = await roleStore.createRole({ gameId: game.id, name: "Recovered" });

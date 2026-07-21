@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { createDecipheriv, pbkdf2Sync } from "node:crypto";
+import { createDecipheriv, createHash, pbkdf2Sync } from "node:crypto";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,10 @@ import type { Role } from "../../shared/types";
 
 const execFile = promisify(execFileCallback);
 const CHROME_EPOCH_OFFSET_SECONDS = 11_644_473_600;
+const DOMAIN_HASH_SCHEMA_VERSION = 24;
+const SHA256_LENGTH = 32;
+
+type DecryptedChromeCookieValue = string | Uint8Array;
 
 interface ChromeCookieRow {
   host_key: string;
@@ -18,17 +22,22 @@ interface ChromeCookieRow {
   value: string;
   path: string;
   expires_utc: number | bigint;
-  is_secure: number;
-  is_httponly: number;
-  samesite: number;
+  is_secure: number | bigint;
+  is_httponly: number | bigint;
+  samesite: number | bigint;
   encrypted_value: Uint8Array | Buffer | string;
+}
+
+interface ChromeCookieDatabase {
+  cookies: ChromeCookieRow[];
+  schemaVersion: number;
 }
 
 export interface ChromeProfileSessionImporterOptions {
   platform?: NodeJS.Platform;
-  decryptCookie?: (encryptedValue: Uint8Array) => Promise<string>;
-  decryptMacCookie?: (encryptedValue: Uint8Array) => Promise<string>;
-  decryptWindowsCookie?: (encryptedValue: Uint8Array) => Promise<string>;
+  decryptCookie?: (encryptedValue: Uint8Array) => Promise<DecryptedChromeCookieValue>;
+  decryptMacCookie?: (encryptedValue: Uint8Array) => Promise<DecryptedChromeCookieValue>;
+  decryptWindowsCookie?: (encryptedValue: Uint8Array) => Promise<DecryptedChromeCookieValue>;
 }
 
 /**
@@ -52,23 +61,31 @@ export class ChromeProfileSessionImporter {
       return;
     }
 
-    const cookies = this.readCookies(cookiesPath);
+    const { cookies, schemaVersion } = this.readCookies(cookiesPath);
     for (const cookie of cookies) {
-      const host = cookie.host_key.startsWith(".") ? cookie.host_key.slice(1) : cookie.host_key;
+      const isDomainCookie = cookie.host_key.startsWith(".");
+      const host = isDomainCookie ? cookie.host_key.slice(1) : cookie.host_key;
       if (!host || !cookie.name) continue;
 
-      const value = await this.resolveCookieValue(cookie.encrypted_value, cookie.value);
+      const value = await this.resolveCookieValue(
+        cookie.encrypted_value,
+        cookie.value,
+        cookie.host_key,
+        schemaVersion
+      );
       const expirationDate = toUnixExpiration(cookie.expires_utc);
       if (expirationDate !== undefined && expirationDate <= Date.now() / 1000) continue;
+      const path = cookie.path || "/";
+      const secure = Number(cookie.is_secure) === 1;
 
       await session.cookies.set({
-        url: `${cookie.is_secure ? "https" : "http"}://${host}${cookie.path || "/"}`,
+        url: `${secure ? "https" : "http"}://${host}${path}`,
         name: cookie.name,
         value,
-        domain: cookie.host_key,
-        path: cookie.path || "/",
-        secure: cookie.is_secure === 1,
-        httpOnly: cookie.is_httponly === 1,
+        ...(isDomainCookie ? { domain: cookie.host_key } : {}),
+        path,
+        secure,
+        httpOnly: Number(cookie.is_httponly) === 1,
         sameSite: normalizeSameSite(cookie.samesite),
         ...(expirationDate === undefined ? {} : { expirationDate })
       });
@@ -80,33 +97,87 @@ export class ChromeProfileSessionImporter {
     void role;
   }
 
-  private readCookies(cookiesPath: string): ChromeCookieRow[] {
-    const database = new DatabaseSync(cookiesPath, { readOnly: true });
+  private readCookies(cookiesPath: string): ChromeCookieDatabase {
+    // Chrome stores expires_utc as a 17-digit microsecond timestamp. Reading
+    // SQLite integers as JS numbers makes node:sqlite reject that value before
+    // we can convert it, so keep integer columns as bigint.
+    const database = new DatabaseSync(cookiesPath, { readOnly: true, readBigInts: true });
     try {
       const rows = database.prepare(`
         SELECT host_key, name, value, path, expires_utc, is_secure,
                is_httponly, samesite, encrypted_value
         FROM cookies
       `).all() as unknown as ChromeCookieRow[];
-      return rows;
+      return {
+        cookies: rows,
+        schemaVersion: readCookieDatabaseVersion(database)
+      };
     } finally {
       database.close();
     }
   }
 
-  private async resolveCookieValue(encryptedValue: Uint8Array | Buffer | string, plainValue: string): Promise<string> {
+  private async resolveCookieValue(
+    encryptedValue: Uint8Array | Buffer | string,
+    plainValue: string,
+    hostKey: string,
+    schemaVersion: number
+  ): Promise<string> {
     const bytes = toBytes(encryptedValue);
     if (bytes.length === 0) return plainValue;
-    if (this.options.decryptCookie) return this.options.decryptCookie(bytes);
 
-    if (this.platform === "darwin") {
-      return this.options.decryptMacCookie?.(bytes) ?? decryptMacChromeCookie(bytes);
+    let decryptedValue: DecryptedChromeCookieValue;
+    if (this.options.decryptCookie) {
+      decryptedValue = await this.options.decryptCookie(bytes);
+    } else if (this.platform === "darwin") {
+      decryptedValue = await (this.options.decryptMacCookie?.(bytes) ?? decryptMacChromeCookie(bytes));
+    } else if (this.platform === "win32") {
+      decryptedValue = await (this.options.decryptWindowsCookie?.(bytes) ?? decryptWindowsChromeCookie(bytes));
+    } else {
+      throw new Error("Chrome cookie decryption is supported only on macOS and Windows.");
     }
-    if (this.platform === "win32") {
-      return this.options.decryptWindowsCookie?.(bytes) ?? decryptWindowsChromeCookie(bytes);
+
+    let valueBytes: Buffer = typeof decryptedValue === "string"
+      ? Buffer.from(decryptedValue, "utf8")
+      : Buffer.from(decryptedValue);
+    if (schemaVersion >= DOMAIN_HASH_SCHEMA_VERSION) {
+      valueBytes = removeAndVerifyDomainHash(valueBytes, hostKey);
     }
-    throw new Error("Chrome cookie decryption is supported only on macOS and Windows.");
+
+    const value = valueBytes.toString("utf8");
+    if (containsDisallowedCookieCharacter(value)) {
+      throw new Error("Chrome cookie decryption produced a value with disallowed control characters.");
+    }
+    return value;
   }
+}
+
+function containsDisallowedCookieCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.charCodeAt(index);
+    if (codePoint <= 0x1f || codePoint === 0x7f) return true;
+  }
+  return false;
+}
+
+function readCookieDatabaseVersion(database: DatabaseSync): number {
+  try {
+    const row = database.prepare("SELECT value FROM meta WHERE key = 'version'").get() as
+      | { value?: number | bigint | string }
+      | undefined;
+    const version = Number(row?.value);
+    return Number.isSafeInteger(version) && version >= 0 ? version : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function removeAndVerifyDomainHash(value: Buffer, hostKey: string): Buffer {
+  const expectedHash = createHash("sha256").update(hostKey, "utf8").digest();
+  if (value.length < SHA256_LENGTH || !value.subarray(0, SHA256_LENGTH).equals(expectedHash)) {
+    throw new Error("Chrome cookie domain integrity check failed.");
+  }
+  return value.subarray(SHA256_LENGTH);
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -136,10 +207,11 @@ function toUnixExpiration(value: number | bigint): number | undefined {
   return chromeMicroseconds / 1_000_000 - CHROME_EPOCH_OFFSET_SECONDS;
 }
 
-function normalizeSameSite(value: number): "unspecified" | "no_restriction" | "lax" | "strict" {
-  if (value === 0) return "no_restriction";
-  if (value === 2) return "strict";
-  if (value === 1) return "lax";
+function normalizeSameSite(value: number | bigint): "unspecified" | "no_restriction" | "lax" | "strict" {
+  const normalized = Number(value);
+  if (normalized === 0) return "no_restriction";
+  if (normalized === 2) return "strict";
+  if (normalized === 1) return "lax";
   return "unspecified";
 }
 
@@ -150,17 +222,37 @@ async function readMacChromeSafeStorageKey(): Promise<Buffer> {
   return pbkdf2Sync(Buffer.from(password), Buffer.from("saltysalt"), 1003, 16, "sha1");
 }
 
-async function decryptMacChromeCookie(encryptedValue: Uint8Array): Promise<string> {
+async function decryptMacChromeCookie(encryptedValue: Uint8Array): Promise<Buffer> {
   const bytes = Buffer.from(encryptedValue);
   if (bytes.length < 4) throw new Error("Chrome cookie ciphertext is invalid.");
   const key = await readMacChromeSafeStorageKey();
-  const decipher = createDecipheriv("aes-128-cbc", key, Buffer.alloc(16, 0x20));
-  decipher.setAutoPadding(false);
-  const decrypted = Buffer.concat([decipher.update(bytes.subarray(3)), decipher.final()]);
-  return decrypted.toString("utf8").replace(/\0+$/g, "");
+  return decryptMacChromeCookiePayload(bytes, key);
 }
 
-async function decryptWindowsChromeCookie(encryptedValue: Uint8Array): Promise<string> {
+export function decryptMacChromeCookiePayload(encryptedValue: Uint8Array, key: Uint8Array): Buffer {
+  const bytes = Buffer.from(encryptedValue);
+  if (bytes.length < 4) throw new Error("Chrome cookie ciphertext is invalid.");
+  const ciphertext = bytes.subarray(3);
+
+  try {
+    // Chromium's AES-CBC implementation uses PKCS padding. Leaving padding
+    // enabled prevents its padding bytes (ASCII control characters) from
+    // being passed to Electron as part of the cookie value.
+    const decipher = createDecipheriv("aes-128-cbc", key, Buffer.alloc(16, 0x20));
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return decrypted;
+  } catch {
+    // Older Chrome databases can contain the legacy zero-padded form.
+    const decipher = createDecipheriv("aes-128-cbc", key, Buffer.alloc(16, 0x20));
+    decipher.setAutoPadding(false);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    let end = decrypted.length;
+    while (end > 0 && decrypted[end - 1] === 0) end -= 1;
+    return decrypted.subarray(0, end);
+  }
+}
+
+async function decryptWindowsChromeCookie(encryptedValue: Uint8Array): Promise<Buffer> {
   const payload = Buffer.from(encryptedValue);
   const encoded = payload.subarray(payload.subarray(0, 3).toString("ascii").startsWith("v") ? 3 : 0)
     .toString("base64");
@@ -173,5 +265,5 @@ async function decryptWindowsChromeCookie(encryptedValue: Uint8Array): Promise<s
   const result = await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script, encoded]);
   const decoded = result.stdout.trim();
   if (!decoded) throw new Error("Windows DPAPI returned an empty Chrome cookie.");
-  return Buffer.from(decoded, "base64").toString("utf8");
+  return Buffer.from(decoded, "base64");
 }

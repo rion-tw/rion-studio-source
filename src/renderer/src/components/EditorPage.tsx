@@ -176,10 +176,12 @@ function EditableEditorTitle({
     <span
       ref={titleRef}
       aria-label={ariaLabel}
+      aria-placeholder={placeholder}
       aria-required="true"
-      className="app-editor-title inline-block max-w-full cursor-text truncate border-b border-transparent align-bottom outline-none transition-colors hover:border-border focus:border-primary data-[disabled=true]:cursor-default data-[disabled=true]:hover:border-transparent"
+      className="app-editor-title inline-block min-w-48 max-w-full cursor-text truncate border-b border-transparent align-bottom outline-none transition-colors hover:border-border focus:border-primary data-[disabled=true]:cursor-default data-[disabled=true]:hover:border-transparent"
       contentEditable={disabled ? false : "plaintext-only"}
       data-disabled={disabled}
+      data-empty={value.length === 0}
       data-placeholder={placeholder}
       role="textbox"
       spellCheck="false"

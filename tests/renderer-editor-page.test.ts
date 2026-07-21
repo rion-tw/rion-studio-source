@@ -37,6 +37,20 @@ describe("editor page title", () => {
     expect(element.textContent).toBe("New title");
   });
 
+  it("removes browser-inserted nodes when an editable title is cleared", () => {
+    const setTextContent = vi.fn();
+    const element = { childNodes: [{}] } as unknown as HTMLElement;
+    Object.defineProperty(element, "textContent", {
+      configurable: true,
+      get: () => "",
+      set: setTextContent
+    });
+
+    syncEditorTitle(element, "");
+
+    expect(setTextContent).toHaveBeenCalledWith("");
+  });
+
   it("focuses the name with the caret at the end when an editor opens", () => {
     const element = { focus: vi.fn() } as unknown as HTMLElement;
     const range = {

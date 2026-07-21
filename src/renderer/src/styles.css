@@ -450,7 +450,7 @@
     line-height: 1.12;
   }
 
-  .app-editor-title:empty::before {
+  .app-editor-title[data-empty="true"]::before {
     color: hsl(var(--muted-foreground));
     content: attr(data-placeholder);
     opacity: 0.65;

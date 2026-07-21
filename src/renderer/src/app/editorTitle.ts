@@ -3,7 +3,9 @@ export function normalizeEditorTitle(value: string): string {
 }
 
 export function syncEditorTitle(element: HTMLElement, value: string): void {
-  if (element.textContent !== value) {
+  const hasEmptyBrowserContent = value.length === 0 && element.childNodes.length > 0;
+
+  if (element.textContent !== value || hasEmptyBrowserContent) {
     element.textContent = value;
   }
 }

@@ -126,10 +126,10 @@ describe("create controls at the end of lists", () => {
         busyRunKeys={new Set()}
         macroStatuses={[]}
         macroStatusByRun={new Map()}
-        macros={[macro()]}
+        macros={[macro({ roleIds: ["role-1"] })]}
         query=""
-        roleFilterId=""
-        roles={[]}
+        roleFilterId="role-1"
+        roles={[role()]}
         scrollPositionRef={{ current: 0 }}
         sort={DEFAULT_MACRO_LIST_SORT}
         statusByRole={new Map()}
@@ -160,8 +160,10 @@ describe("create controls at the end of lists", () => {
     expect(createButton.closest("table")).toBeNull();
     expect(createButton.closest(".mac-list-surface")).toBeNull();
     expect(createButton.previousElementSibling?.className).toContain("mac-list-surface");
+    await user.click(headerCreateButton);
     await user.click(createButton);
-    expect(onNewMacro).toHaveBeenCalledOnce();
+    expect(onNewMacro).toHaveBeenNthCalledWith(1, "role-1");
+    expect(onNewMacro).toHaveBeenNthCalledWith(2, "role-1");
   });
 });
 
@@ -207,7 +209,7 @@ function workspace(): LaunchWorkspace {
   };
 }
 
-function macro(): Macro {
+function macro(overrides: Partial<Macro> = {}): Macro {
   return {
     id: "macro-1",
     enabled: true,
@@ -216,6 +218,7 @@ function macro(): Macro {
     repeat: { type: "once" },
     steps: [{ id: "step-1", type: "delay", ms: 100 }],
     createdAt: "2026-07-15T00:00:00.000Z",
-    updatedAt: "2026-07-15T00:00:00.000Z"
+    updatedAt: "2026-07-15T00:00:00.000Z",
+    ...overrides
   };
 }

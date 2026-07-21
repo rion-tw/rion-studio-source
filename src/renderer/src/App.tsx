@@ -717,7 +717,7 @@ export function App(): JSX.Element {
                     onDeleteMacro={(macro) => void macroWorkflow.handleDeleteMacro(macro)}
                     onDeleteMacros={macroWorkflow.handleDeleteMacros}
                     onEditMacro={(macro) => navigateToEditMacro(macro.id)}
-                    onNewMacro={() => navigateToNewMacro()}
+                    onNewMacro={navigateToNewMacro}
                     onQueryChange={macroWorkflow.setQuery}
                     onRoleFilterChange={macroWorkflow.setRoleFilterId}
                     onSetMacroEnabled={(macro, enabled) => void macroWorkflow.handleSetMacroEnabled(macro, enabled)}

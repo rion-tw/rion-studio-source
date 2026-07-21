@@ -39,6 +39,45 @@ describe("useMacroWorkflow", () => {
     expect(result.current.sort).toEqual({ direction: "desc", key: "repeat" });
   });
 
+  it("keeps the role filter after creating a macro", async () => {
+    const savedMacro: Macro = {
+      id: "macro-1",
+      enabled: true,
+      name: "New macro",
+      roleIds: ["role-1"],
+      repeat: { type: "once" },
+      steps: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    };
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createMacro: vi.fn().mockResolvedValue(savedMacro) }
+    });
+    const { result } = renderHook(() => useMacroWorkflow({
+      beginErrorOperation: () => vi.fn(),
+      macros: [],
+      setMacros: vi.fn(),
+      setMacroStatuses: vi.fn(),
+      setNotice: vi.fn(),
+      t: ((key: string) => key) as Translator
+    }), { wrapper: ConfirmationWrapper });
+
+    act(() => result.current.setRoleFilterId("role-1"));
+    await act(async () => {
+      await result.current.saveMacro({
+        enabled: true,
+        activationMode: "toggle",
+        name: "New macro",
+        roleIds: ["role-1"],
+        repeat: { type: "once" },
+        steps: []
+      });
+    });
+
+    expect(result.current.roleFilterId).toBe("role-1");
+  });
+
   it("copies an unassigned macro as another unassigned macro without a shortcut", async () => {
     const source: Macro = {
       id: "macro-1",

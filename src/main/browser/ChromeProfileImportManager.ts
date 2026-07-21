@@ -15,7 +15,14 @@ import type {
 } from "../../shared/types";
 import { createLoginStorageSnapshot } from "../auth/loginEvidence";
 import { waitForSettledAuthSession } from "../auth/settledAuthSession";
-import type { SessionStorageByOrigin } from "./EncryptedSessionStorageSeedStore";
+import {
+  createEmbeddedStorageSeed,
+  normalizeEmbeddedStorageSeed,
+  type EmbeddedStorageOriginSeed,
+  type EmbeddedStorageSeed,
+  type SessionStorageByOrigin
+} from "./EncryptedSessionStorageSeedStore";
+import type { EmbeddedStorageBootstrapSummary } from "./EmbeddedStorageBootstrapper";
 import type { GameStore } from "../games/GameStore";
 import {
   CdpClient,
@@ -43,6 +50,7 @@ const IMPORT_COPY_FILES = [
   "Secure Preferences"
 ] as const;
 const LOCK_FILES = ["SingletonCookie", "SingletonLock", "SingletonSocket"] as const;
+const MAX_TOTAL_DURABLE_STORAGE_BYTES = 32 * 1024 * 1024;
 const CHROME_LOGIN_DATA_EXPRESSION = `(async () => {
   const readStorage = (name) => {
     const values = {};
@@ -74,6 +82,140 @@ const CHROME_LOGIN_DATA_EXPRESSION = `(async () => {
   };
 })()`;
 
+const CHROME_DURABLE_STORAGE_EXPRESSION = `(async () => {
+  const MAX_CACHE_ENTRIES = 500;
+  const MAX_CACHE_RESPONSE_BYTES = 4 * 1024 * 1024;
+  const MAX_ORIGIN_BYTES = 8 * 1024 * 1024;
+  const MAX_RECORDS_PER_STORE = 2000;
+  let usedBytes = 0;
+  const addWithinLimit = (value) => {
+    const bytes = JSON.stringify(value).length;
+    if (usedBytes + bytes > MAX_ORIGIN_BYTES) return false;
+    usedBytes += bytes;
+    return true;
+  };
+  const toBase64 = (value) => {
+    const bytes = new Uint8Array(value);
+    let binary = "";
+    for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+    return btoa(binary);
+  };
+  const encode = async (value, seen = new WeakSet()) => {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : { type: "number", value: String(value) };
+    }
+    if (typeof value === "undefined") return { type: "undefined" };
+    if (typeof value === "bigint") return { type: "bigint", value: String(value) };
+    if (value instanceof Date) return { type: "date", value: value.toISOString() };
+    if (value instanceof ArrayBuffer) return { type: "array-buffer", value: toBase64(value) };
+    if (ArrayBuffer.isView(value)) return {
+      type: "typed-array",
+      name: value.constructor.name,
+      value: toBase64(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength))
+    };
+    if (value instanceof Blob) return {
+      type: "blob",
+      mimeType: value.type,
+      value: toBase64(await value.arrayBuffer())
+    };
+    if (typeof value !== "object" || seen.has(value)) throw new Error("Unsupported IndexedDB value");
+    seen.add(value);
+    if (Array.isArray(value)) return { type: "array", values: await Promise.all(value.map((item) => encode(item, seen))) };
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error("Unsupported IndexedDB object");
+    return {
+      type: "object",
+      entries: await Promise.all(Object.keys(value).map(async (key) => [key, await encode(value[key], seen)]))
+    };
+  };
+  const request = (value) => new Promise((resolve, reject) => {
+    value.onsuccess = () => resolve(value.result);
+    value.onerror = () => reject(value.error ?? new Error("IndexedDB request failed"));
+  });
+  const transactionDone = (transaction) => new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB transaction aborted"));
+    transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB transaction failed"));
+  });
+  const readIndexedDb = async () => {
+    const databases = [];
+    if (!("indexedDB" in window) || typeof indexedDB.databases !== "function") return databases;
+    for (const descriptor of await indexedDB.databases()) {
+      if (!descriptor.name) continue;
+      let database;
+      try {
+        database = await request(indexedDB.open(descriptor.name));
+        const objectStores = [];
+        for (const storeName of Array.from(database.objectStoreNames)) {
+          const transaction = database.transaction(storeName, "readonly");
+          const store = transaction.objectStore(storeName);
+          const indexes = Array.from(store.indexNames).map((indexName) => {
+            const index = store.index(indexName);
+            return { keyPath: index.keyPath, multiEntry: index.multiEntry, name: index.name, unique: index.unique };
+          });
+          const [keys, values] = await Promise.all([
+            request(store.getAllKeys(undefined, MAX_RECORDS_PER_STORE)),
+            request(store.getAll(undefined, MAX_RECORDS_PER_STORE))
+          ]);
+          await transactionDone(transaction);
+          const records = [];
+          for (let index = 0; index < Math.min(keys.length, values.length); index += 1) {
+            try {
+              const record = { key: await encode(keys[index]), value: await encode(values[index]) };
+              if (addWithinLimit(record)) records.push(record);
+            } catch {
+              // Only safely serializable structured-clone records are migrated.
+            }
+          }
+          objectStores.push({ autoIncrement: store.autoIncrement, indexes, keyPath: store.keyPath, name: store.name, records });
+        }
+        databases.push({ name: database.name, objectStores, version: database.version });
+      } catch {
+        // One inaccessible database must not prevent other login data from being captured.
+      } finally {
+        database?.close();
+      }
+    }
+    return databases;
+  };
+  const readCacheStorage = async () => {
+    const entries = [];
+    if (!("caches" in window)) return entries;
+    for (const cacheName of await caches.keys()) {
+      const cache = await caches.open(cacheName);
+      const requests = await cache.keys();
+      for (const requestValue of requests.slice(0, MAX_CACHE_ENTRIES)) {
+        try {
+          if (requestValue.method !== "GET") continue;
+          const response = await cache.match(requestValue);
+          if (!response || response.type === "opaque" || response.type === "opaqueredirect") continue;
+          const body = await response.clone().arrayBuffer();
+          if (body.byteLength > MAX_CACHE_RESPONSE_BYTES) continue;
+          const entry = {
+            bodyBase64: toBase64(body),
+            cacheName,
+            requestHeaders: Array.from(requestValue.headers.entries()),
+            requestUrl: requestValue.url,
+            responseHeaders: Array.from(response.headers.entries()),
+            responseStatus: response.status,
+            responseStatusText: response.statusText
+          };
+          if (entry.responseStatus > 0 && addWithinLimit(entry)) entries.push(entry);
+        } catch {
+          // Opaque, stale, or unreadable responses are intentionally skipped.
+        }
+      }
+    }
+    return entries;
+  };
+  return {
+    cacheStorage: await readCacheStorage(),
+    indexedDb: await readIndexedDb(),
+    origin: window.location.origin
+  };
+})()`;
+
 interface OpenDirectoryDialogOptions {
   properties: Array<"openDirectory">;
   title: string;
@@ -87,6 +229,7 @@ interface OpenDirectoryDialogResult {
 
 interface ChromeLoginDataSnapshot {
   cookies: Array<Record<string, unknown>>;
+  durableStorageByOrigin?: Record<string, Pick<EmbeddedStorageOriginSeed, "cacheStorage" | "indexedDb">>;
   localStorageByOrigin: Record<string, Record<string, string>>;
   sessionStorageByOrigin: SessionStorageByOrigin;
 }
@@ -98,14 +241,27 @@ export interface ChromeProfileImportLoginDataTransferSummary {
   readbackFailed: boolean;
   readFailed: boolean;
   resetFailed: boolean;
+  bootstrapCacheEntryCount: number;
+  bootstrapFailedOriginCount: number;
+  bootstrapIndexedDbRecordCount: number;
+  bootstrapPersistenceFailed: boolean;
+  bootstrapSucceededOriginCount: number;
+  queuedCacheEntryCount: number;
+  queuedDurableOriginCount: number;
+  queuedIndexedDbDatabaseCount: number;
+  queuedIndexedDbRecordCount: number;
   sourceItemCount: number;
-  sourceSessionStorageKeyCount: number;
-  sourceSessionStorageOriginCount: number;
+  sourceCacheEntryCount: number;
+  sourceDocumentStateKeyCount: number;
+  sourceDocumentStateOriginCount: number;
+  sourceDurableOriginCount: number;
+  sourceIndexedDbDatabaseCount: number;
+  sourceIndexedDbRecordCount: number;
   sourceStorageKeyCount: number;
   sourceStorageOriginCount: number;
-  queuedSessionStorageKeyCount: number;
-  queuedSessionStorageOriginCount: number;
-  sessionStorageSeedFailed: boolean;
+  queuedDocumentStateKeyCount: number;
+  queuedDocumentStateOriginCount: number;
+  seedPersistFailed: boolean;
   visibleItemCount: number;
   writtenItemCount: number;
   writtenStorageKeyCount: number;
@@ -138,6 +294,10 @@ interface ChromeProfileImportManagerOptions {
     url: string,
     values: Record<string, string>
   ) => Promise<void>;
+  bootstrapEmbeddedStorage?: (
+    roleId: string,
+    partition: string
+  ) => Promise<EmbeddedStorageBootstrapSummary>;
   lstat?: typeof lstat;
   onLoginDataTransfer?: (summary: ChromeProfileImportLoginDataTransferSummary) => void;
   platform?: NodeJS.Platform;
@@ -147,9 +307,9 @@ interface ChromeProfileImportManagerOptions {
     role: Pick<Role, "launchUrl">,
     loginDataUrls: readonly string[]
   ) => Promise<ChromeLoginDataSnapshot>;
-  storeEmbeddedSessionStorageSeed?: (
+  storeEmbeddedStorageSeed?: (
     roleId: string,
-    values: SessionStorageByOrigin
+    seed: EmbeddedStorageSeed
   ) => Promise<void>;
   roleStore: Pick<
     RoleStore,
@@ -448,20 +608,33 @@ export class ChromeProfileImportManager {
     resetExistingSession: boolean
   ): Promise<void> {
     const summary: ChromeProfileImportLoginDataTransferSummary = {
+      bootstrapCacheEntryCount: 0,
+      bootstrapFailedOriginCount: 0,
+      bootstrapIndexedDbRecordCount: 0,
+      bootstrapPersistenceFailed: false,
+      bootstrapSucceededOriginCount: 0,
       failedItemCount: 0,
       failedStorageOriginCount: 0,
       flushFailed: false,
+      queuedCacheEntryCount: 0,
+      queuedDocumentStateKeyCount: 0,
+      queuedDocumentStateOriginCount: 0,
+      queuedDurableOriginCount: 0,
+      queuedIndexedDbDatabaseCount: 0,
+      queuedIndexedDbRecordCount: 0,
       readbackFailed: false,
       readFailed: false,
       resetFailed: false,
       sourceItemCount: 0,
-      sourceSessionStorageKeyCount: 0,
-      sourceSessionStorageOriginCount: 0,
+      sourceCacheEntryCount: 0,
+      sourceDocumentStateKeyCount: 0,
+      sourceDocumentStateOriginCount: 0,
+      sourceDurableOriginCount: 0,
+      sourceIndexedDbDatabaseCount: 0,
+      sourceIndexedDbRecordCount: 0,
       sourceStorageKeyCount: 0,
       sourceStorageOriginCount: 0,
-      queuedSessionStorageKeyCount: 0,
-      queuedSessionStorageOriginCount: 0,
-      sessionStorageSeedFailed: false,
+      seedPersistFailed: false,
       visibleItemCount: 0,
       writtenItemCount: 0,
       writtenStorageKeyCount: 0,
@@ -487,7 +660,7 @@ export class ChromeProfileImportManager {
       snapshot = await this.options.readChromeLoginData(browserUserDataDir, role, loginDataUrls);
     } catch {
       summary.readFailed = true;
-      await this.replaceEmbeddedSessionStorageSeed(role.id, {}, summary);
+      await this.replaceEmbeddedStorageSeed(role.id, createEmbeddedStorageSeed({}), summary);
       reportSummary();
       return;
     }
@@ -496,9 +669,15 @@ export class ChromeProfileImportManager {
     summary.sourceStorageOriginCount = Object.keys(snapshot.localStorageByOrigin).length;
     summary.sourceStorageKeyCount = Object.values(snapshot.localStorageByOrigin)
       .reduce((count, values) => count + Object.keys(values).length, 0);
-    summary.sourceSessionStorageOriginCount = Object.keys(snapshot.sessionStorageByOrigin).length;
-    summary.sourceSessionStorageKeyCount = Object.values(snapshot.sessionStorageByOrigin)
+    summary.sourceDocumentStateOriginCount = Object.keys(snapshot.sessionStorageByOrigin).length;
+    summary.sourceDocumentStateKeyCount = Object.values(snapshot.sessionStorageByOrigin)
       .reduce((count, values) => count + Object.keys(values).length, 0);
+    const durableStorageByOrigin = snapshot.durableStorageByOrigin ?? {};
+    const durableCounts = countDurableStorage(durableStorageByOrigin);
+    summary.sourceDurableOriginCount = durableCounts.originCount;
+    summary.sourceIndexedDbDatabaseCount = durableCounts.indexedDbDatabaseCount;
+    summary.sourceIndexedDbRecordCount = durableCounts.indexedDbRecordCount;
+    summary.sourceCacheEntryCount = durableCounts.cacheEntryCount;
     const partition = `persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
     if (resetExistingSession && this.options.resetEmbeddedSession) {
@@ -509,7 +688,8 @@ export class ChromeProfileImportManager {
       }
     }
 
-    await this.replaceEmbeddedSessionStorageSeed(role.id, snapshot.sessionStorageByOrigin, summary);
+    const storageSeed = createEmbeddedStorageSeed(snapshot.sessionStorageByOrigin, durableStorageByOrigin);
+    await this.replaceEmbeddedStorageSeed(role.id, storageSeed, summary);
 
     if (!this.options.getSession || !this.options.injectEmbeddedStorage) {
       reportSummary();
@@ -560,6 +740,19 @@ export class ChromeProfileImportManager {
       }
     }
 
+    if (this.options.bootstrapEmbeddedStorage) {
+      try {
+        const bootstrap = await this.options.bootstrapEmbeddedStorage(role.id, partition);
+        summary.bootstrapCacheEntryCount = bootstrap.cacheEntryCount;
+        summary.bootstrapFailedOriginCount = bootstrap.failedOriginCount;
+        summary.bootstrapIndexedDbRecordCount = bootstrap.indexedDbRecordCount;
+        summary.bootstrapPersistenceFailed = bootstrap.persistenceFailed;
+        summary.bootstrapSucceededOriginCount = bootstrap.succeededOriginCount;
+      } catch {
+        summary.bootstrapFailedOriginCount = Math.max(summary.bootstrapFailedOriginCount, 1);
+      }
+    }
+
     if (session) {
       try {
         await session.flushStorageData();
@@ -571,22 +764,47 @@ export class ChromeProfileImportManager {
     reportSummary();
   }
 
-  private async replaceEmbeddedSessionStorageSeed(
+  private async replaceEmbeddedStorageSeed(
     roleId: string,
-    values: SessionStorageByOrigin,
+    seed: EmbeddedStorageSeed,
     summary: ChromeProfileImportLoginDataTransferSummary
   ): Promise<void> {
-    if (!this.options.storeEmbeddedSessionStorageSeed) return;
+    if (!this.options.storeEmbeddedStorageSeed) return;
 
     try {
-      await this.options.storeEmbeddedSessionStorageSeed(roleId, values);
-      summary.queuedSessionStorageOriginCount = Object.keys(values).length;
-      summary.queuedSessionStorageKeyCount = Object.values(values)
-        .reduce((count, originValues) => count + Object.keys(originValues).length, 0);
+      await this.options.storeEmbeddedStorageSeed(roleId, seed);
+      summary.queuedDocumentStateOriginCount = Object.values(seed.origins)
+        .filter((origin) => Object.keys(origin.sessionStorage ?? {}).length > 0).length;
+      summary.queuedDocumentStateKeyCount = Object.values(seed.origins)
+        .reduce((count, origin) => count + Object.keys(origin.sessionStorage ?? {}).length, 0);
+      const durableCounts = countDurableStorage(seed.origins);
+      summary.queuedDurableOriginCount = durableCounts.originCount;
+      summary.queuedIndexedDbDatabaseCount = durableCounts.indexedDbDatabaseCount;
+      summary.queuedIndexedDbRecordCount = durableCounts.indexedDbRecordCount;
+      summary.queuedCacheEntryCount = durableCounts.cacheEntryCount;
     } catch {
-      summary.sessionStorageSeedFailed = true;
+      summary.seedPersistFailed = true;
     }
   }
+}
+
+function countDurableStorage(
+  origins: Record<string, Pick<EmbeddedStorageOriginSeed, "cacheStorage" | "indexedDb">>
+): {
+  cacheEntryCount: number;
+  indexedDbDatabaseCount: number;
+  indexedDbRecordCount: number;
+  originCount: number;
+} {
+  const values = Object.values(origins);
+  return {
+    cacheEntryCount: values.reduce((count, origin) => count + (origin.cacheStorage?.length ?? 0), 0),
+    indexedDbDatabaseCount: values.reduce((count, origin) => count + (origin.indexedDb?.length ?? 0), 0),
+    indexedDbRecordCount: values.reduce((count, origin) => count + (origin.indexedDb ?? [])
+      .reduce((databaseCount, database) => databaseCount + database.objectStores
+        .reduce((storeCount, store) => storeCount + store.records.length, 0), 0), 0),
+    originCount: values.filter((origin) => (origin.cacheStorage?.length ?? 0) > 0 || (origin.indexedDb?.length ?? 0) > 0).length
+  };
 }
 
 function createRoleIdentityKey(gameId: string, name: string): string {
@@ -961,7 +1179,8 @@ export async function readChromeLoginDataWithCdp(
 ): Promise<ChromeLoginDataSnapshot> {
   const readOnce = options.readOnce ?? ((nextUserDataDir, nextRole, nextUrls) =>
     readChromeLoginDataOnceWithCdp(nextUserDataDir, nextRole, nextUrls, options));
-  return readOnce(userDataDir, role, loginDataUrls);
+  const snapshot = await readOnce(userDataDir, role, loginDataUrls);
+  return { ...snapshot, durableStorageByOrigin: snapshot.durableStorageByOrigin ?? {} };
 }
 
 interface ReadChromeLoginDataOptions {
@@ -1006,16 +1225,20 @@ async function readChromeLoginDataOnceWithCdp(
     }
     client = new CdpClient(target.webSocketDebuggerUrl);
     let lastNetworkActivityAt = Date.now();
+    const defaultExecutionContextIds = new Set<number>();
     const removeNetworkListener = client.onNotification((notification) => {
       if (notification.method.startsWith("Network.") || notification.method.startsWith("Page.")) {
         lastNetworkActivityAt = Date.now();
       }
+      trackDefaultExecutionContext(notification, defaultExecutionContextIds);
     });
     try {
       await Promise.all([
         client.send("Page.enable").catch(() => undefined),
-        client.send("Network.enable").catch(() => undefined)
+        client.send("Network.enable").catch(() => undefined),
+        client.send("Runtime.enable").catch(() => undefined)
       ]);
+      const durableStorageByOrigin: Record<string, Pick<EmbeddedStorageOriginSeed, "cacheStorage" | "indexedDb">> = {};
       const localStorageByOrigin: Record<string, Record<string, string>> = {};
       const sessionStorageByOrigin: SessionStorageByOrigin = {};
       const captureSettledStorage = async (url: string): Promise<void> => {
@@ -1035,6 +1258,11 @@ async function readChromeLoginDataOnceWithCdp(
             sessionStorageByOrigin[origin] = settled.snapshot.sessionStorage;
           }
         }
+        await captureDurableStorageByExecutionContext(
+          client!,
+          defaultExecutionContextIds,
+          durableStorageByOrigin
+        );
       };
 
       for (const [index, url] of urls.entries()) {
@@ -1056,6 +1284,7 @@ async function readChromeLoginDataOnceWithCdp(
         cookies: Array.isArray(cookieResult.cookies)
           ? cookieResult.cookies.filter(isRecord)
           : [],
+        durableStorageByOrigin,
         localStorageByOrigin,
         sessionStorageByOrigin
       };
@@ -1069,6 +1298,76 @@ async function readChromeLoginDataOnceWithCdp(
     } else {
       await terminateChrome(child);
     }
+  }
+}
+
+function trackDefaultExecutionContext(
+  notification: { method: string; params?: Record<string, unknown> },
+  contextIds: Set<number>
+): void {
+  if (notification.method === "Runtime.executionContextsCleared") {
+    contextIds.clear();
+    return;
+  }
+  if (notification.method === "Runtime.executionContextDestroyed") {
+    const contextId = notification.params?.executionContextId;
+    if (typeof contextId === "number") contextIds.delete(contextId);
+    return;
+  }
+  if (notification.method !== "Runtime.executionContextCreated") return;
+  const context = notification.params?.context;
+  if (!isRecord(context) || typeof context.id !== "number") return;
+  const auxData = isRecord(context.auxData) ? context.auxData : undefined;
+  if (!auxData || auxData.isDefault !== true) return;
+  contextIds.add(context.id);
+}
+
+async function captureDurableStorageByExecutionContext(
+  client: CdpClient,
+  contextIds: ReadonlySet<number>,
+  output: Record<string, Pick<EmbeddedStorageOriginSeed, "cacheStorage" | "indexedDb">>
+): Promise<void> {
+  const identifiers = contextIds.size > 0 ? [...contextIds] : [undefined];
+  let usedBytes = Object.values(output).reduce((total, value) => total + estimateSerializedBytes(value), 0);
+
+  for (const contextId of identifiers) {
+    try {
+      const result = await client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
+        awaitPromise: true,
+        expression: CHROME_DURABLE_STORAGE_EXPRESSION,
+        returnByValue: true,
+        ...(contextId === undefined ? {} : { contextId })
+      }, 20_000);
+      const value = result.result?.value;
+      if (!isRecord(value) || typeof value.origin !== "string" || output[value.origin]) continue;
+      const normalized = normalizeEmbeddedStorageSeed({
+        origins: {
+          [value.origin]: {
+            ...(Array.isArray(value.indexedDb) ? { indexedDb: value.indexedDb } : {}),
+            ...(Array.isArray(value.cacheStorage) ? { cacheStorage: value.cacheStorage } : {})
+          }
+        },
+        version: 2
+      });
+      const originSeed = normalized.origins[value.origin];
+      if (!originSeed || ((originSeed.indexedDb?.length ?? 0) === 0 && (originSeed.cacheStorage?.length ?? 0) === 0)) {
+        continue;
+      }
+      const bytes = estimateSerializedBytes(originSeed);
+      if (usedBytes + bytes > MAX_TOTAL_DURABLE_STORAGE_BYTES) continue;
+      output[value.origin] = originSeed;
+      usedBytes += bytes;
+    } catch {
+      // Cross-origin frames can disappear while the CDP capture is running.
+    }
+  }
+}
+
+function estimateSerializedBytes(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return MAX_TOTAL_DURABLE_STORAGE_BYTES;
   }
 }
 

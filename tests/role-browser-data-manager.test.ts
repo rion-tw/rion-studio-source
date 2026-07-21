@@ -33,6 +33,7 @@ describe("RoleBrowserDataManager", () => {
       expect.any(Function)
     );
     expect(harness.browserManager.clearEmbeddedSessionStorageSeed).toHaveBeenCalledWith(role.id);
+    expect(harness.clearEmbeddedStorageSeed).toHaveBeenCalledWith(role.id);
     expect(harness.getSession).toHaveBeenCalledWith(createRoleSessionPartition(role.id));
     expect(harness.session.closeAllConnections).toHaveBeenCalledOnce();
     expect(harness.session.clearData).toHaveBeenCalledWith({
@@ -94,12 +95,15 @@ function createHarness() {
       async (_id: string, operation: () => Promise<unknown>) => operation()
     )
   };
+  const clearEmbeddedStorageSeed = vi.fn().mockResolvedValue(undefined);
 
   return {
     browserManager,
+    clearEmbeddedStorageSeed,
     getSession,
     manager: new RoleBrowserDataManager({
       browserManager: browserManager as never,
+      clearEmbeddedStorageSeed,
       getSession: getSession as never,
       roleStore
     }),

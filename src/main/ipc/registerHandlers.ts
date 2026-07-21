@@ -89,6 +89,7 @@ interface RegisterIpcHandlersOptions {
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
   onLegalAccepted?: () => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
+  clearRoleEmbeddedStorageSeed?: (roleId: string) => Promise<void>;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
   roleBrowserDataManager?: Pick<RoleBrowserDataManager, "clear">;
@@ -588,7 +589,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.rolesDelete, (_event, id: string) =>
     runDataMutation(options, async () => {
-      await deleteRoleRecord(roleStore, workspaceStore, browserManager, options.macroStore, id);
+      await deleteRoleRecord(
+        roleStore,
+        workspaceStore,
+        browserManager,
+        options.macroStore,
+        options.clearRoleEmbeddedStorageSeed,
+        id
+      );
       options.onRolesChanged?.();
       options.onWorkspacesChanged?.();
       options.onMacrosChanged?.();
@@ -597,7 +605,14 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.rolesDeleteMany, (_event, input: BulkDeleteInput) =>
     runDataMutation(options, async () => {
       const result = await runBulkDelete(input, (id) =>
-        deleteRoleRecord(roleStore, workspaceStore, browserManager, options.macroStore, id)
+        deleteRoleRecord(
+          roleStore,
+          workspaceStore,
+          browserManager,
+          options.macroStore,
+          options.clearRoleEmbeddedStorageSeed,
+          id
+        )
       );
       if (result.deletedIds.length > 0) {
         options.onRolesChanged?.();
@@ -839,10 +854,12 @@ async function deleteRoleRecord(
   workspaceStore: LaunchWorkspaceStore,
   browserManager: BrowserManager,
   macroStore: MacroStore | undefined,
+  clearRoleEmbeddedStorageSeed: ((roleId: string) => Promise<void>) | undefined,
   id: string
 ): Promise<void> {
   await browserManager.stopRoleAndRunMutation(id, async () => {
     browserManager.clearEmbeddedSessionStorageSeed(id);
+    await clearRoleEmbeddedStorageSeed?.(id);
     await roleStore.deleteRole(id);
     await workspaceStore.clearRole(id);
     await macroStore?.clearRoleAssignment(id);

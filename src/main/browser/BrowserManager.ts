@@ -75,7 +75,9 @@ import type { SystemPressureSource } from "./SystemPressureMonitor";
 import { WorkspaceResourceCoordinator } from "./WorkspaceResourceCoordinator";
 import {
   cloneSessionStorageByOrigin,
+  getSessionStorageByOrigin,
   normalizeSessionStorageByOrigin,
+  type EmbeddedStorageSeed,
   type SessionStorageByOrigin
 } from "./EncryptedSessionStorageSeedStore";
 
@@ -160,7 +162,10 @@ export interface BrowserManagerOptions {
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
+  /** @deprecated kept for in-process callers while encrypted seed v1 is migrated. */
   loadEmbeddedSessionStorageSeed?: (roleId: string) => Promise<SessionStorageByOrigin | undefined>;
+  loadEmbeddedStorageSeed?: (roleId: string) => Promise<EmbeddedStorageSeed | undefined>;
+  prepareEmbeddedPersistentStorage?: (role: Role, partition: string) => Promise<void>;
   authSessionSettleOptions?: WaitForSettledAuthSessionOptions;
   onEmbeddedWebContentsCreated?: (
     context: EmbeddedRuntimeDiagnosticContext,
@@ -2239,8 +2244,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     view.webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
       if (isMainFrame) this.setGameInputContext(view.webContents.id, false);
     });
+    const webContentsId = view.webContents.id;
     view.webContents.once("destroyed", () => {
-      this.embeddedSessionStorageSeedsByWebContentsId.delete(view.webContents.id);
+      this.embeddedSessionStorageSeedsByWebContentsId.delete(webContentsId);
       if (session.zoomPersistenceTimer) {
         clearTimeout(session.zoomPersistenceTimer);
         session.zoomPersistenceTimer = undefined;
@@ -2312,6 +2318,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await this.applyZoom(session, zoomFactor);
     await this.applyBrowserProxy(session);
     await this.applyCdnCompatibility(session);
+    if (this.options.prepareEmbeddedPersistentStorage) {
+      try {
+        await this.options.prepareEmbeddedPersistentStorage(
+          session.role,
+          createRoleSessionPartition(session.role.id)
+        );
+      } catch {
+        console.warn("Unable to prepare embedded persistent storage.");
+      }
+    }
     await this.prepareEmbeddedSessionStorageSeed(session);
     try {
       await session.view.webContents.loadURL(session.role.launchUrl);
@@ -2328,11 +2344,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private async prepareEmbeddedSessionStorageSeed(session: BrowserSession): Promise<void> {
     this.embeddedSessionStorageSeedsByWebContentsId.delete(session.view.webContents.id);
-    if (!this.embeddedSessionStorageSeedsByRoleId.has(session.role.id) && this.options.loadEmbeddedSessionStorageSeed) {
+    if (!this.embeddedSessionStorageSeedsByRoleId.has(session.role.id) &&
+      (this.options.loadEmbeddedStorageSeed || this.options.loadEmbeddedSessionStorageSeed)) {
       try {
-        const persisted = await this.options.loadEmbeddedSessionStorageSeed(session.role.id);
-        if (persisted) {
-          this.setEmbeddedSessionStorageSeed(session.role.id, persisted);
+        const persisted = this.options.loadEmbeddedStorageSeed
+          ? await this.options.loadEmbeddedStorageSeed(session.role.id)
+          : undefined;
+        const sessionStorage = persisted
+          ? getSessionStorageByOrigin(persisted)
+          : await this.options.loadEmbeddedSessionStorageSeed?.(session.role.id) ?? {};
+        if (Object.keys(sessionStorage).length > 0) {
+          this.setEmbeddedSessionStorageSeed(session.role.id, sessionStorage);
         }
       } catch {
         console.warn("Unable to load the embedded session storage seed.");
@@ -2591,8 +2613,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.configureCloseShortcut(host, session, popupView.webContents);
     this.configureHtmlFullscreen(host, popupView.webContents);
     this.trackGameViewFocus(host, popupView);
+    const popupWebContentsId = popupView.webContents.id;
     popupView.webContents.once("destroyed", () => {
-      this.embeddedSessionStorageSeedsByWebContentsId.delete(popupView.webContents.id);
+      this.embeddedSessionStorageSeedsByWebContentsId.delete(popupWebContentsId);
       session.popupViews.delete(popupView);
       if (!host.window.isDestroyed()) {
         host.window.contentView.removeChildView(popupView);

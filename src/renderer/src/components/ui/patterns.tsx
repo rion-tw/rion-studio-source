@@ -92,7 +92,7 @@ export function PageFrame({
   return (
     <section
       ref={setFrameRef}
-      className={cn("app-page h-full overflow-auto px-6 py-7 md:px-10 md:py-10", className)}
+      className={cn("app-page relative h-full overflow-auto px-6 py-7 md:px-10 md:py-10", className)}
       onScroll={(event) => {
         if (scrollPositionRef) {
           scrollPositionRef.current = event.currentTarget.scrollTop;

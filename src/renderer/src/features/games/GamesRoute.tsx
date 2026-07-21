@@ -234,7 +234,7 @@ function GamesRoute({
           <CreateItemCard label={t("games.new")} onClick={onNewGame} />
         </div>
       )}
-      <SelectionMarquee rect={selection.selectionRect} />
+      <SelectionMarquee container={pageRef.current} rect={selection.selectionRect} />
     </PageFrame>
   );
 }

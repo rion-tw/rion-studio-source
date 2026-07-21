@@ -122,16 +122,23 @@ export function SelectionActionBar({
   return createPortal(toolbar, host ?? document.body);
 }
 
-export function SelectionMarquee({ rect }: { rect: SelectionRect | null }): JSX.Element | null {
-  if (!rect) {
+export function SelectionMarquee({
+  container,
+  rect
+}: {
+  container: HTMLElement | null;
+  rect: SelectionRect | null;
+}): JSX.Element | null {
+  if (!container || !rect) {
     return null;
   }
   return createPortal(
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed z-[60] rounded-sm border border-blue-500/80 bg-blue-500/15 shadow-[0_0_0_1px_hsl(var(--background)/0.35)]"
+      className="pointer-events-none absolute z-[60] rounded-sm border border-blue-500/80 bg-blue-500/15 shadow-[0_0_0_1px_hsl(var(--background)/0.35)]"
+      data-selection-marquee
       style={{ height: rect.height, left: rect.left, top: rect.top, width: rect.width }}
     />,
-    document.body
+    container
   );
 }

@@ -266,7 +266,7 @@ function LaunchWorkspacesView({
           <CreateItemCard label={t("workspaces.newWorkspace")} onClick={onCreateWorkspace} />
         </div>
       )}
-      <SelectionMarquee rect={selection.selectionRect} />
+      <SelectionMarquee container={pageRef.current} rect={selection.selectionRect} />
     </PageFrame>
   );
 }

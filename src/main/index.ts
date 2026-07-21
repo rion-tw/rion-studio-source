@@ -36,8 +36,6 @@ import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExtern
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
 import { AuthManager } from "./auth/AuthManager";
-import { createLoginStorageSnapshot, LOGIN_STORAGE_EXPRESSION } from "./auth/loginEvidence";
-import { waitForSettledAuthSession } from "./auth/settledAuthSession";
 import {
   BrowserManager,
   createRoleSessionPartition,
@@ -109,11 +107,7 @@ import {
   isRuntimeTabAction,
   type RuntimeTabAction
 } from "../shared/runtimeTabs";
-import type {
-  ChromeProfileImportRuntimeVerification,
-  MacroPageRequest,
-  PendingWorkspaceLaunchRequest
-} from "../shared/types";
+import type { MacroPageRequest, PendingWorkspaceLaunchRequest } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
 
@@ -705,46 +699,6 @@ async function initializeApplication(): Promise<void> {
           `Object.entries(${JSON.stringify(values)}).forEach(([key, value]) => localStorage.setItem(key, value));`,
           true
         );
-      } finally {
-        if (!probe.isDestroyed()) probe.destroy();
-      }
-    },
-    verifyEmbeddedSession: async (partition, role): Promise<ChromeProfileImportRuntimeVerification> => {
-      const probe = new BrowserWindow({
-        show: false,
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-          partition,
-          sandbox: true
-        }
-      });
-      try {
-        await browserProxyApplier.applyToSession(probe.webContents.session);
-        await cdnCompatibilityManager.applyToSession(probe.webContents.session);
-        await probe.loadURL(role.launchUrl);
-        const verification = await waitForSettledAuthSession(async () => {
-          const [cookies, runtimeValue] = await Promise.all([
-            probe.webContents.session.cookies.get({ url: role.launchUrl }),
-            probe.webContents.executeJavaScript(LOGIN_STORAGE_EXPRESSION)
-          ]);
-          return {
-            finalUrl: probe.webContents.getURL(),
-            snapshot: createLoginStorageSnapshot(cookies, runtimeValue)
-          };
-        });
-        return {
-          durationMs: verification.durationMs,
-          message: verification.message,
-          mode: "embedded",
-          state: verification.authState
-        };
-      } catch (error) {
-        return {
-          message: error instanceof Error ? error.message : "Unable to verify the embedded login session.",
-          mode: "embedded",
-          state: "auth_failed"
-        };
       } finally {
         if (!probe.isDestroyed()) probe.destroy();
       }

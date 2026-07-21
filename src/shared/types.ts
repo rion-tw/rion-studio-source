@@ -888,10 +888,7 @@ export interface ChromeProfileImportWarning {
     | "profile_invalid"
     | "profile_selection_empty"
     | "passwords_excluded"
-    | "name_renamed"
-    | "login_not_preserved"
-    | "login_verification_failed";
-  mode?: BrowserRuntimeMode;
+    | "name_renamed";
   profileId?: string;
   profileName?: string;
   replacementName?: string;
@@ -913,8 +910,6 @@ export interface ChromeProfileImportInput {
 
 export interface ChromeProfileImportResult {
   roles: Role[];
-  verifications: ChromeProfileImportRoleVerification[];
-  warnings: ChromeProfileImportWarning[];
 }
 
 export interface ChromeProfileImportProgress {
@@ -924,21 +919,6 @@ export interface ChromeProfileImportProgress {
   importId: string;
   phase: "preparing" | "importing" | "completed";
   totalProfileCount: number;
-}
-
-export interface ChromeProfileImportRuntimeVerification {
-  durationMs?: number;
-  message?: string;
-  mode: BrowserRuntimeMode;
-  state: Exclude<AuthState, "unknown">;
-}
-
-export interface ChromeProfileImportRoleVerification {
-  embedded: ChromeProfileImportRuntimeVerification;
-  external: ChromeProfileImportRuntimeVerification;
-  profileId: string;
-  profileName: string;
-  roleId: string;
 }
 
 export type AppUpdateState =

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   EncryptedSessionStorageSeedStore,
+  getPendingDurableOrigins,
   type SafeStorageAdapter
 } from "../src/main/browser/EncryptedSessionStorageSeedStore";
 
@@ -106,6 +107,34 @@ describe("EncryptedSessionStorageSeedStore", () => {
     }).load("role-1")).resolves.toEqual(seed);
     await expect(readFile(join(root, "role-1", "browser", seedFileName), "utf8"))
       .resolves.not.toContain("zh-TW");
+  });
+
+  it("acknowledges localStorage without removing sessionStorage or treating it as durable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion-session-seed-"));
+    const store = new EncryptedSessionStorageSeedStore({
+      getBrowserUserDataDir: (roleId) => join(root, roleId, "browser"),
+      safeStorage: createSafeStorage()
+    });
+    const seed = {
+      origins: {
+        "https://game.example.test": {
+          localStorage: { language: "zh-TW" },
+          sessionStorage: { session: "opaque" }
+        }
+      },
+      version: 2 as const
+    };
+    await store.save("role-1", seed);
+
+    expect(getPendingDurableOrigins(seed)).toEqual([]);
+    await expect(store.acknowledgeLocalStorage("role-1", "https://game.example.test"))
+      .resolves.toBe(true);
+    await expect(store.load("role-1")).resolves.toEqual({
+      origins: {
+        "https://game.example.test": { sessionStorage: { session: "opaque" } }
+      },
+      version: 2
+    });
   });
 
   it("keeps no persistent seed when system encryption is unavailable or writing fails", async () => {

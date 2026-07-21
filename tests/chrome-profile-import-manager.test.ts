@@ -145,9 +145,11 @@ describe("ChromeProfileImportManager", () => {
     const bootstrapEmbeddedStorage = vi.fn(async () => ({
       attemptedOriginCount: 2,
       cacheEntryCount: 0,
+      cancelledOriginCount: 0,
       failedOriginCount: 0,
+      failureReasons: {},
       indexedDbRecordCount: 1,
-      localStorageKeyCount: 2,
+      localStorageKeyCount: 0,
       persistenceFailed: false,
       succeededOriginCount: 2
     }));
@@ -296,13 +298,13 @@ describe("ChromeProfileImportManager", () => {
         sourceDocumentStateOriginCount: 2,
         sourceStorageKeyCount: 2,
         sourceStorageOriginCount: 2,
-        queuedDocumentStateKeyCount: 2,
+        queuedDocumentStateKeyCount: 4,
         queuedDocumentStateOriginCount: 2,
         seedPersistFailed: false,
         visibleItemCount: 1,
         writtenItemCount: 1,
-        writtenStorageKeyCount: 2,
-        writtenStorageOriginCount: 2
+        writtenStorageKeyCount: 0,
+        writtenStorageOriginCount: 0
       }),
       expect.objectContaining({
         failedItemCount: 0,
@@ -555,7 +557,9 @@ describe("ChromeProfileImportManager", () => {
       bootstrapEmbeddedStorage: vi.fn().mockResolvedValue({
         attemptedOriginCount: 1,
         cacheEntryCount: 0,
+        cancelledOriginCount: 0,
         failedOriginCount: 1,
+        failureReasons: { storage_restore_failed: 1 },
         indexedDbRecordCount: 0,
         localStorageKeyCount: 0,
         persistenceFailed: false,
@@ -585,7 +589,7 @@ describe("ChromeProfileImportManager", () => {
     expect(result.roles[0].authState).toBe("authenticated");
     expect(transferSummaries).toEqual([
       expect.objectContaining({
-        failedStorageOriginCount: 1,
+        failedStorageOriginCount: 0,
         flushFailed: true,
         readFailed: false,
         seedPersistFailed: true

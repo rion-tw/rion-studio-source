@@ -167,6 +167,84 @@ describe("BrowserManager game host windows", () => {
     }
   );
 
+  it("queues localStorage and sessionStorage together and acknowledges the delivered origin", async () => {
+    const acknowledgeEmbeddedDocumentStorage = vi.fn().mockResolvedValue(true);
+    const harness = createHarness({
+      acknowledgeEmbeddedDocumentStorage,
+      loadEmbeddedStorageSeed: vi.fn().mockResolvedValue({
+        origins: {
+          "https://example.com": {
+            localStorage: { language: "zh-TW" },
+            sessionStorage: { gameSession: "opaque-token" }
+          }
+        },
+        version: 2
+      })
+    });
+
+    await harness.manager.launch(role);
+    const webContentsId = harness.views[0].webContents.id;
+    expect(harness.manager.consumeEmbeddedDocumentStorageSeed(webContentsId, "https://example.com"))
+      .toEqual({
+        localStorage: { language: "zh-TW" },
+        sessionStorage: { gameSession: "opaque-token" }
+      });
+    await expect(harness.manager.acknowledgeEmbeddedDocumentStorage(webContentsId, {
+      localStorageApplied: true,
+      localStorageKeyCount: 1,
+      origin: "https://example.com",
+      sessionStorageApplied: true,
+      sessionStorageKeyCount: 1
+    })).resolves.toBe(true);
+    expect(acknowledgeEmbeddedDocumentStorage).toHaveBeenCalledWith(
+      role.id,
+      expect.objectContaining({ origin: "https://example.com" }),
+      webContentsId
+    );
+  });
+
+  it.each(["darwin", "win32"] as const)(
+    "keeps a launching %s tab hidden and cancels without rereading a destroyed view",
+    async (platform) => {
+      let markPrepareStarted!: () => void;
+      const prepareStarted = new Promise<void>((resolve) => {
+        markPrepareStarted = resolve;
+      });
+      const prepareEmbeddedPersistentStorage = vi.fn((
+        _role: Role,
+        _partition: string,
+        signal?: AbortSignal
+      ) => new Promise<void>((resolve) => {
+        markPrepareStarted();
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      }));
+      const harness = createHarness({ platform, prepareEmbeddedPersistentStorage });
+      const launch = harness.manager.launch(role);
+      await prepareStarted;
+
+      const runtimeTab = harness.manager.listEmbeddedRuntimeState().tabs[0];
+      expect(runtimeTab).toMatchObject({ hidden: true, active: false });
+      expect(harness.hosts[0].show).not.toHaveBeenCalled();
+
+      const mockView = harness.views[0];
+      const originalWebContents = mockView.webContents;
+      let destroyed = false;
+      Object.defineProperty(mockView.view, "webContents", {
+        configurable: true,
+        get: () => destroyed ? undefined : originalWebContents
+      });
+      originalWebContents.isDestroyed.mockImplementation(() => destroyed);
+      originalWebContents.close.mockImplementation(() => {
+        destroyed = true;
+        originalWebContents.emit("destroyed");
+      });
+
+      await harness.manager.stopRuntimeTab(runtimeTab.id);
+      await expect(launch).resolves.toBeNull();
+      expect(harness.manager.listStatuses()).toEqual([]);
+    }
+  );
+
   it("cleans a destroyed game view without reading WebContentsView.webContents again", async () => {
     const harness = createHarness({
       loadEmbeddedSessionStorageSeed: vi.fn().mockResolvedValue({
@@ -4334,7 +4412,10 @@ function createHarness(options: {
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
   getLoginUrl?: (role: Role) => string | Promise<string>;
+  acknowledgeEmbeddedDocumentStorage?: BrowserManagerOptions["acknowledgeEmbeddedDocumentStorage"];
+  loadEmbeddedStorageSeed?: BrowserManagerOptions["loadEmbeddedStorageSeed"];
   loadEmbeddedSessionStorageSeed?: BrowserManagerOptions["loadEmbeddedSessionStorageSeed"];
+  prepareEmbeddedPersistentStorage?: BrowserManagerOptions["prepareEmbeddedPersistentStorage"];
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
@@ -4447,6 +4528,9 @@ function createHarness(options: {
   };
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
   const manager = new BrowserManager(roleStore, {
+    ...(options.acknowledgeEmbeddedDocumentStorage
+      ? { acknowledgeEmbeddedDocumentStorage: options.acknowledgeEmbeddedDocumentStorage }
+      : {}),
     ...(options.applyCdnCompatibility ? { applyCdnCompatibility: options.applyCdnCompatibility } : {}),
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
     ...(options.applyBrowserProxy ? { applyBrowserProxy: options.applyBrowserProxy } : {}),
@@ -4463,6 +4547,9 @@ function createHarness(options: {
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
     ...(options.getLoginUrl ? { getLoginUrl: options.getLoginUrl } : {}),
+    ...(options.loadEmbeddedStorageSeed
+      ? { loadEmbeddedStorageSeed: options.loadEmbeddedStorageSeed }
+      : {}),
     ...(options.loadEmbeddedSessionStorageSeed
       ? { loadEmbeddedSessionStorageSeed: options.loadEmbeddedSessionStorageSeed }
       : {}),
@@ -4483,6 +4570,9 @@ function createHarness(options: {
       : {}),
     ...(options.persistWorkspaceRoleZoom
       ? { persistWorkspaceRoleZoom: options.persistWorkspaceRoleZoom }
+      : {}),
+    ...(options.prepareEmbeddedPersistentStorage
+      ? { prepareEmbeddedPersistentStorage: options.prepareEmbeddedPersistentStorage }
       : {}),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     ...(options.defaultLaunchTarget ? { getDefaultLaunchTarget: () => options.defaultLaunchTarget! } : {}),

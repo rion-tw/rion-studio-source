@@ -15,6 +15,7 @@ import type {
 } from "../../shared/types";
 import { createLoginStorageSnapshot } from "../auth/loginEvidence";
 import { waitForSettledAuthSession } from "../auth/settledAuthSession";
+import type { SessionStorageByOrigin } from "./EncryptedSessionStorageSeedStore";
 import type { GameStore } from "../games/GameStore";
 import {
   CdpClient,
@@ -87,6 +88,7 @@ interface OpenDirectoryDialogResult {
 interface ChromeLoginDataSnapshot {
   cookies: Array<Record<string, unknown>>;
   localStorageByOrigin: Record<string, Record<string, string>>;
+  sessionStorageByOrigin: SessionStorageByOrigin;
 }
 
 export interface ChromeProfileImportLoginDataTransferSummary {
@@ -97,8 +99,13 @@ export interface ChromeProfileImportLoginDataTransferSummary {
   readFailed: boolean;
   resetFailed: boolean;
   sourceItemCount: number;
+  sourceSessionStorageKeyCount: number;
+  sourceSessionStorageOriginCount: number;
   sourceStorageKeyCount: number;
   sourceStorageOriginCount: number;
+  queuedSessionStorageKeyCount: number;
+  queuedSessionStorageOriginCount: number;
+  sessionStorageSeedFailed: boolean;
   visibleItemCount: number;
   writtenItemCount: number;
   writtenStorageKeyCount: number;
@@ -140,6 +147,10 @@ interface ChromeProfileImportManagerOptions {
     role: Pick<Role, "launchUrl">,
     loginDataUrls: readonly string[]
   ) => Promise<ChromeLoginDataSnapshot>;
+  storeEmbeddedSessionStorageSeed?: (
+    roleId: string,
+    values: SessionStorageByOrigin
+  ) => Promise<void>;
   roleStore: Pick<
     RoleStore,
     | "createRole"
@@ -444,8 +455,13 @@ export class ChromeProfileImportManager {
       readFailed: false,
       resetFailed: false,
       sourceItemCount: 0,
+      sourceSessionStorageKeyCount: 0,
+      sourceSessionStorageOriginCount: 0,
       sourceStorageKeyCount: 0,
       sourceStorageOriginCount: 0,
+      queuedSessionStorageKeyCount: 0,
+      queuedSessionStorageOriginCount: 0,
+      sessionStorageSeedFailed: false,
       visibleItemCount: 0,
       writtenItemCount: 0,
       writtenStorageKeyCount: 0,
@@ -461,7 +477,7 @@ export class ChromeProfileImportManager {
       }
     };
 
-    if (!this.options.readChromeLoginData || !this.options.getSession || !this.options.injectEmbeddedStorage) {
+    if (!this.options.readChromeLoginData) {
       reportSummary();
       return;
     }
@@ -471,6 +487,7 @@ export class ChromeProfileImportManager {
       snapshot = await this.options.readChromeLoginData(browserUserDataDir, role, loginDataUrls);
     } catch {
       summary.readFailed = true;
+      await this.replaceEmbeddedSessionStorageSeed(role.id, {}, summary);
       reportSummary();
       return;
     }
@@ -478,6 +495,9 @@ export class ChromeProfileImportManager {
     summary.sourceItemCount = snapshot.cookies.length;
     summary.sourceStorageOriginCount = Object.keys(snapshot.localStorageByOrigin).length;
     summary.sourceStorageKeyCount = Object.values(snapshot.localStorageByOrigin)
+      .reduce((count, values) => count + Object.keys(values).length, 0);
+    summary.sourceSessionStorageOriginCount = Object.keys(snapshot.sessionStorageByOrigin).length;
+    summary.sourceSessionStorageKeyCount = Object.values(snapshot.sessionStorageByOrigin)
       .reduce((count, values) => count + Object.keys(values).length, 0);
     const partition = `persist:rion-role-${role.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
@@ -487,6 +507,13 @@ export class ChromeProfileImportManager {
       } catch {
         summary.resetFailed = true;
       }
+    }
+
+    await this.replaceEmbeddedSessionStorageSeed(role.id, snapshot.sessionStorageByOrigin, summary);
+
+    if (!this.options.getSession || !this.options.injectEmbeddedStorage) {
+      reportSummary();
+      return;
     }
 
     let session: Pick<Session, "cookies" | "flushStorageData"> | undefined;
@@ -542,6 +569,23 @@ export class ChromeProfileImportManager {
     }
 
     reportSummary();
+  }
+
+  private async replaceEmbeddedSessionStorageSeed(
+    roleId: string,
+    values: SessionStorageByOrigin,
+    summary: ChromeProfileImportLoginDataTransferSummary
+  ): Promise<void> {
+    if (!this.options.storeEmbeddedSessionStorageSeed) return;
+
+    try {
+      await this.options.storeEmbeddedSessionStorageSeed(roleId, values);
+      summary.queuedSessionStorageOriginCount = Object.keys(values).length;
+      summary.queuedSessionStorageKeyCount = Object.values(values)
+        .reduce((count, originValues) => count + Object.keys(originValues).length, 0);
+    } catch {
+      summary.sessionStorageSeedFailed = true;
+    }
   }
 }
 
@@ -973,6 +1017,7 @@ async function readChromeLoginDataOnceWithCdp(
         client.send("Network.enable").catch(() => undefined)
       ]);
       const localStorageByOrigin: Record<string, Record<string, string>> = {};
+      const sessionStorageByOrigin: SessionStorageByOrigin = {};
       const captureSettledStorage = async (url: string): Promise<void> => {
         const settled = await waitForSettledAuthSession(
           () => readChromeAuthSample(client!, url),
@@ -983,7 +1028,12 @@ async function readChromeLoginDataOnceWithCdp(
         );
         const origin = getUrlOrigin(settled.finalUrl ?? url);
         if (origin && requestedOrigins.has(origin) && settled.snapshot) {
-          localStorageByOrigin[origin] = settled.snapshot.localStorage;
+          if (Object.keys(settled.snapshot.localStorage).length > 0) {
+            localStorageByOrigin[origin] = settled.snapshot.localStorage;
+          }
+          if (Object.keys(settled.snapshot.sessionStorage).length > 0) {
+            sessionStorageByOrigin[origin] = settled.snapshot.sessionStorage;
+          }
         }
       };
 
@@ -1006,7 +1056,8 @@ async function readChromeLoginDataOnceWithCdp(
         cookies: Array.isArray(cookieResult.cookies)
           ? cookieResult.cookies.filter(isRecord)
           : [],
-        localStorageByOrigin
+        localStorageByOrigin,
+        sessionStorageByOrigin
       };
     } finally {
       removeNetworkListener();

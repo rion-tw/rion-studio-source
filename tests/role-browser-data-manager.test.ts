@@ -32,6 +32,7 @@ describe("RoleBrowserDataManager", () => {
       role.id,
       expect.any(Function)
     );
+    expect(harness.browserManager.clearEmbeddedSessionStorageSeed).toHaveBeenCalledWith(role.id);
     expect(harness.getSession).toHaveBeenCalledWith(createRoleSessionPartition(role.id));
     expect(harness.session.closeAllConnections).toHaveBeenCalledOnce();
     expect(harness.session.clearData).toHaveBeenCalledWith({
@@ -88,6 +89,7 @@ function createHarness() {
     }))
   };
   const browserManager = {
+    clearEmbeddedSessionStorageSeed: vi.fn(),
     stopRoleAndRunRecoverableMutation: vi.fn(
       async (_id: string, operation: () => Promise<unknown>) => operation()
     )

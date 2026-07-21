@@ -73,6 +73,11 @@ import type {
 } from "./MacRuntimeTabsController";
 import type { SystemPressureSource } from "./SystemPressureMonitor";
 import { WorkspaceResourceCoordinator } from "./WorkspaceResourceCoordinator";
+import {
+  cloneSessionStorageByOrigin,
+  normalizeSessionStorageByOrigin,
+  type SessionStorageByOrigin
+} from "./EncryptedSessionStorageSeedStore";
 
 export interface BrowserManagerEvents {
   change: [RoleStatus[]];
@@ -155,6 +160,7 @@ export interface BrowserManagerOptions {
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
+  loadEmbeddedSessionStorageSeed?: (roleId: string) => Promise<SessionStorageByOrigin | undefined>;
   authSessionSettleOptions?: WaitForSettledAuthSessionOptions;
   onEmbeddedWebContentsCreated?: (
     context: EmbeddedRuntimeDiagnosticContext,
@@ -406,6 +412,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
   private readonly displayHosts = new Map<number, EmbeddedDisplayHost>();
   private readonly displayHostByChromeWebContentsId = new Map<number, EmbeddedDisplayHost>();
+  private readonly embeddedSessionStorageSeedsByRoleId = new Map<string, SessionStorageByOrigin>();
+  private readonly embeddedSessionStorageSeedsByWebContentsId = new Map<number, SessionStorageByOrigin>();
   private readonly hosts = new Map<string, GameHostWindow>();
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly pendingWorkspaceLaunchIds = new Set<string>();
@@ -835,6 +843,41 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return [...this.sessions.entries()].find(([, session]) => session.view.webContents.id === webContentsId)?.[0];
   }
 
+  setEmbeddedSessionStorageSeed(roleId: string, values: SessionStorageByOrigin): void {
+    const normalized = normalizeSessionStorageByOrigin(values);
+    this.clearEmbeddedSessionStorageSeed(roleId);
+    if (Object.keys(normalized).length === 0) {
+      return;
+    }
+    this.embeddedSessionStorageSeedsByRoleId.set(roleId, normalized);
+  }
+
+  clearEmbeddedSessionStorageSeed(roleId: string): void {
+    this.embeddedSessionStorageSeedsByRoleId.delete(roleId);
+    const session = this.sessions.get(roleId);
+    if (session) {
+      this.embeddedSessionStorageSeedsByWebContentsId.delete(session.view.webContents.id);
+      session.popupViews.forEach((popupView) => {
+        this.embeddedSessionStorageSeedsByWebContentsId.delete(popupView.webContents.id);
+      });
+    }
+  }
+
+  consumeEmbeddedSessionStorageSeed(webContentsId: number, origin: string): Record<string, string> | undefined {
+    const normalizedOrigin = normalizeHttpOrigin(origin);
+    if (!normalizedOrigin) return undefined;
+
+    const byOrigin = this.embeddedSessionStorageSeedsByWebContentsId.get(webContentsId);
+    const values = byOrigin?.[normalizedOrigin];
+    if (!values) return undefined;
+
+    delete byOrigin[normalizedOrigin];
+    if (Object.keys(byOrigin).length === 0) {
+      this.embeddedSessionStorageSeedsByWebContentsId.delete(webContentsId);
+    }
+    return { ...values };
+  }
+
   setGameInputContext(webContentsId: number, active: boolean): void {
     const session = [...this.sessions.values()].find(
       (candidate) => candidate.view.webContents.id === webContentsId
@@ -1049,6 +1092,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (!currentUrl || currentUrl === "about:blank") {
       await this.applyBrowserProxy(session);
       await this.applyCdnCompatibility(session);
+      await this.prepareEmbeddedSessionStorageSeed(session);
       await session.view.webContents.loadURL(await this.getLoginUrl(role));
     }
     await this.focusSession(session);
@@ -2177,6 +2221,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (isMainFrame) this.setGameInputContext(view.webContents.id, false);
     });
     view.webContents.once("destroyed", () => {
+      this.embeddedSessionStorageSeedsByWebContentsId.delete(view.webContents.id);
       if (session.zoomPersistenceTimer) {
         clearTimeout(session.zoomPersistenceTimer);
         session.zoomPersistenceTimer = undefined;
@@ -2248,6 +2293,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await this.applyZoom(session, zoomFactor);
     await this.applyBrowserProxy(session);
     await this.applyCdnCompatibility(session);
+    await this.prepareEmbeddedSessionStorageSeed(session);
     try {
       await session.view.webContents.loadURL(session.role.launchUrl);
     } catch {
@@ -2259,6 +2305,28 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     session.launchedAt = new Date().toISOString();
     await this.installMacroOverlay(session.role, session.view.webContents);
     this.emitChange();
+  }
+
+  private async prepareEmbeddedSessionStorageSeed(session: BrowserSession): Promise<void> {
+    this.embeddedSessionStorageSeedsByWebContentsId.delete(session.view.webContents.id);
+    if (!this.embeddedSessionStorageSeedsByRoleId.has(session.role.id) && this.options.loadEmbeddedSessionStorageSeed) {
+      try {
+        const persisted = await this.options.loadEmbeddedSessionStorageSeed(session.role.id);
+        if (persisted) {
+          this.setEmbeddedSessionStorageSeed(session.role.id, persisted);
+        }
+      } catch {
+        console.warn("Unable to load the embedded session storage seed.");
+      }
+    }
+    this.queueEmbeddedSessionStorageSeed(session.role.id, session.view.webContents.id);
+  }
+
+  private queueEmbeddedSessionStorageSeed(roleId: string, webContentsId: number): void {
+    const seed = this.embeddedSessionStorageSeedsByRoleId.get(roleId);
+    if (seed && Object.keys(seed).length > 0) {
+      this.embeddedSessionStorageSeedsByWebContentsId.set(webContentsId, cloneSessionStorageByOrigin(seed));
+    }
   }
 
   private getBrowserLaunchMode(role?: Role): BrowserLaunchMode | Promise<BrowserLaunchMode> {
@@ -2443,6 +2511,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         contextIsolation: true,
         nodeIntegration: false,
         partition: createRoleSessionPartition(session.role.id),
+        preload: this.options.embeddedPreloadPath,
         sandbox: true,
         spellcheck: false,
         webgl: true,
@@ -2454,6 +2523,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     host.window.contentView.addChildView(popupView);
     this.bringRuntimeChromeToFront(this.getDisplayHost(host));
     session.popupViews.add(popupView);
+    this.queueEmbeddedSessionStorageSeed(session.role.id, popupView.webContents.id);
     this.options.onEmbeddedWebContentsCreated?.({
       hostId: host.id,
       kind: "popup",
@@ -2468,6 +2538,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.configureHtmlFullscreen(host, popupView.webContents);
     this.trackGameViewFocus(host, popupView);
     popupView.webContents.once("destroyed", () => {
+      this.embeddedSessionStorageSeedsByWebContentsId.delete(popupView.webContents.id);
       session.popupViews.delete(popupView);
       if (!host.window.isDestroyed()) {
         host.window.contentView.removeChildView(popupView);
@@ -3338,6 +3409,17 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
     typeof payload.screenPosition === "number" &&
     Number.isFinite(payload.screenPosition)
   );
+}
+
+function normalizeHttpOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.origin === value
+      ? url.origin
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function delay(ms: number): Promise<void> {

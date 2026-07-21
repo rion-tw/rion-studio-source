@@ -103,6 +103,7 @@ describe("ChromeProfileImportManager", () => {
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [source] }));
     const injectEmbeddedStorage = vi.fn(async () => undefined);
     const resetEmbeddedSession = vi.fn(async () => undefined);
+    const storeEmbeddedSessionStorageSeed = vi.fn(async () => undefined);
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
     const readChromeLoginData = vi.fn()
       .mockResolvedValueOnce({
@@ -113,6 +114,10 @@ describe("ChromeProfileImportManager", () => {
         localStorageByOrigin: {
           "https://accounts.example.test": { sso: "present" },
           "https://example.test": { session: "present" }
+        },
+        sessionStorageByOrigin: {
+          "https://accounts.example.test": { loginStep: "complete" },
+          "https://example.test": { gameSession: "active" }
         }
       })
       .mockResolvedValueOnce({
@@ -123,6 +128,10 @@ describe("ChromeProfileImportManager", () => {
         localStorageByOrigin: {
           "https://accounts.example.test": { sso: "present" },
           "https://example.test": { session: "present" }
+        },
+        sessionStorageByOrigin: {
+          "https://accounts.example.test": { loginStep: "complete" },
+          "https://example.test": { gameSession: "active" }
         }
       });
     const manager = new ChromeProfileImportManager({
@@ -137,6 +146,7 @@ describe("ChromeProfileImportManager", () => {
       resetEmbeddedSession,
       roleStore,
       showOpenDialog,
+      storeEmbeddedSessionStorageSeed,
       userDataDir
     });
 
@@ -197,6 +207,14 @@ describe("ChromeProfileImportManager", () => {
       url: "https://accounts.example.test/"
     }));
     expect(resetEmbeddedSession).toHaveBeenCalledOnce();
+    expect(storeEmbeddedSessionStorageSeed).toHaveBeenCalledTimes(2);
+    expect(storeEmbeddedSessionStorageSeed).toHaveBeenCalledWith(
+      existingRole.id,
+      {
+        "https://accounts.example.test": { loginStep: "complete" },
+        "https://example.test": { gameSession: "active" }
+      }
+    );
     expect(flushStorageData).toHaveBeenCalledTimes(2);
     expect(progressEvents).toEqual([
       expect.objectContaining({ completedProfileCount: 0, phase: "preparing", totalProfileCount: 2 }),
@@ -225,8 +243,13 @@ describe("ChromeProfileImportManager", () => {
         readFailed: false,
         resetFailed: false,
         sourceItemCount: 2,
+        sourceSessionStorageKeyCount: 2,
+        sourceSessionStorageOriginCount: 2,
         sourceStorageKeyCount: 2,
         sourceStorageOriginCount: 2,
+        queuedSessionStorageKeyCount: 2,
+        queuedSessionStorageOriginCount: 2,
+        sessionStorageSeedFailed: false,
         visibleItemCount: 1,
         writtenItemCount: 1,
         writtenStorageKeyCount: 2,
@@ -264,7 +287,8 @@ describe("ChromeProfileImportManager", () => {
   it("reads each imported Chrome profile once", async () => {
     const snapshot = {
       cookies: [{ name: "session", value: "initial" }],
-      localStorageByOrigin: { "https://example.test": { session: "initial" } }
+      localStorageByOrigin: { "https://example.test": { session: "initial" } },
+      sessionStorageByOrigin: { "https://example.test": { session: "initial" } }
     };
     const readOnce = vi.fn().mockResolvedValue(snapshot);
 
@@ -291,6 +315,7 @@ describe("ChromeProfileImportManager", () => {
     );
     const roleStore = new RoleStore(userDataDir);
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
+    const storeEmbeddedSessionStorageSeed = vi.fn().mockResolvedValue(undefined);
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-login-warning",
       gameStore: { getGame: async () => game },
@@ -307,6 +332,7 @@ describe("ChromeProfileImportManager", () => {
       readChromeLoginData: vi.fn().mockRejectedValue(new Error("Chrome data unavailable")),
       roleStore,
       showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
+      storeEmbeddedSessionStorageSeed,
       userDataDir
     });
 
@@ -322,6 +348,7 @@ describe("ChromeProfileImportManager", () => {
 
     expect(result.roles).toHaveLength(1);
     expect(result.roles[0].authState).toBe("authenticated");
+    expect(storeEmbeddedSessionStorageSeed).toHaveBeenCalledWith(result.roles[0].id, {});
     expect(transferSummaries).toEqual([
       expect.objectContaining({ readFailed: true, roleId: result.roles[0].id })
     ]);
@@ -339,6 +366,7 @@ describe("ChromeProfileImportManager", () => {
     );
     const roleStore = new RoleStore(userDataDir);
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
+    const storeEmbeddedSessionStorageSeed = vi.fn().mockRejectedValue(new Error("system encryption unavailable"));
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-transfer-warning",
       gameStore: { getGame: async () => game },
@@ -354,10 +382,12 @@ describe("ChromeProfileImportManager", () => {
       platform: "darwin",
       readChromeLoginData: vi.fn().mockResolvedValue({
         cookies: [{ domain: ".example.test", name: "session", path: "/", value: "secret" }],
-        localStorageByOrigin: { "https://example.test": { session: "secret" } }
+        localStorageByOrigin: { "https://example.test": { session: "secret" } },
+        sessionStorageByOrigin: {}
       }),
       roleStore,
       showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
+      storeEmbeddedSessionStorageSeed,
       userDataDir
     });
 
@@ -371,7 +401,12 @@ describe("ChromeProfileImportManager", () => {
 
     expect(result.roles[0].authState).toBe("authenticated");
     expect(transferSummaries).toEqual([
-      expect.objectContaining({ failedStorageOriginCount: 1, flushFailed: true, readFailed: false })
+      expect.objectContaining({
+        failedStorageOriginCount: 1,
+        flushFailed: true,
+        readFailed: false,
+        sessionStorageSeedFailed: true
+      })
     ]);
   });
 

@@ -117,6 +117,7 @@ describe("registerIpcHandlers workspace handlers", () => {
     BrowserManager,
     | "launch"
     | "launchWorkspace"
+    | "clearEmbeddedSessionStorageSeed"
     | "listEmbeddedRuntimeState"
     | "listStatuses"
     | "listWorkspaceDisplayReservations"
@@ -186,6 +187,7 @@ describe("registerIpcHandlers workspace handlers", () => {
       updateWorkspace: vi.fn().mockResolvedValue(workspace)
     };
     browserManager = {
+      clearEmbeddedSessionStorageSeed: vi.fn(),
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
       launchWorkspace: vi.fn(async (_workspace: LaunchWorkspace, items: Array<{ role: Role }>) =>
         items.map(({ role }) => ({ roleId: role.id, state: "running" as const }))
@@ -945,7 +947,7 @@ describe("registerIpcHandlers macro handlers", () => {
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
   let browserManager: Pick<
     BrowserManager,
-    "launch" | "listStatuses" | "on" | "runRoleOperation" | "stop" | "stopRoleAndRunMutation"
+    "clearEmbeddedSessionStorageSeed" | "launch" | "listStatuses" | "on" | "runRoleOperation" | "stop" | "stopRoleAndRunMutation"
   >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let macroStore: Pick<
@@ -970,6 +972,7 @@ describe("registerIpcHandlers macro handlers", () => {
       getWorkspace: vi.fn().mockResolvedValue(workspace)
     };
     browserManager = {
+      clearEmbeddedSessionStorageSeed: vi.fn(),
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
       listStatuses: vi.fn(() => []),
       on: vi.fn(),

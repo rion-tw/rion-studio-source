@@ -842,6 +842,7 @@ async function deleteRoleRecord(
   id: string
 ): Promise<void> {
   await browserManager.stopRoleAndRunMutation(id, async () => {
+    browserManager.clearEmbeddedSessionStorageSeed(id);
     await roleStore.deleteRole(id);
     await workspaceStore.clearRole(id);
     await macroStore?.clearRoleAssignment(id);

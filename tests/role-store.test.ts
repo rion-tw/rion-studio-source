@@ -166,6 +166,21 @@ describe("RoleStore", () => {
     });
   });
 
+  it("resets imported authentication state and clears login timestamps", async () => {
+    const role = await store.createRole({ gameId: "game-1", name: "Imported" });
+    await store.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
+
+    const reset = await store.resetAuthentication(role.id, "2026-07-11T01:00:00.000Z");
+
+    expect(reset).toMatchObject({
+      id: role.id,
+      authState: "login_required",
+      updatedAt: "2026-07-11T01:00:00.000Z"
+    });
+    expect(reset.lastAuthCheckAt).toBeUndefined();
+    expect(reset.lastSuccessfulLoginAt).toBeUndefined();
+  });
+
   it("drops legacy login provider fields from stored roles", async () => {
     await writeFile(
       join(baseDir, "roles.json"),

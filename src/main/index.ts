@@ -25,10 +25,10 @@ import {
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
 import {
   ChromeProfileImportManager,
-  readChromeLoginDataWithCdp,
   recoverChromeProfileImport
 } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
+import { ImportedChromeProfileLoginVerifier } from "./browser/ImportedChromeProfileLoginVerifier";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
@@ -679,46 +679,36 @@ async function initializeApplication(): Promise<void> {
     getSession: (partition) => electronSession.fromPartition(partition),
     roleStore
   });
+  const resetEmbeddedRoleSession = async (partition: string) => {
+    const session = electronSession.fromPartition(partition);
+    await session.closeAllConnections();
+    await session.clearData({
+      dataTypes: [
+        "cache",
+        "cookies",
+        "fileSystems",
+        "indexedDB",
+        "localStorage",
+        "serviceWorkers",
+        "webSQL"
+      ] as NonNullable<Parameters<Session["clearData"]>[0]>["dataTypes"]
+    });
+    await session.clearStorageData({ storages: ["cachestorage"] });
+  };
   const chromeProfileImportManager = new ChromeProfileImportManager({
     closeChrome: () => requestGracefulChromeQuit({ platform: process.platform }),
     gameStore,
-    getSession: (partition) => electronSession.fromPartition(partition),
-    onLoginDataTransfer: (summary) => {
-      logService.info("browser", "chrome_profile_import_data_transfer", "Chrome profile login data transfer completed.", {
-        failedItemCount: summary.failedItemCount,
-        flushFailed: summary.flushFailed,
-        readbackFailed: summary.readbackFailed,
-        readFailed: summary.readFailed,
-        resetFailed: summary.resetFailed,
-        sourceItemCount: summary.sourceItemCount,
-        visibleItemCount: summary.visibleItemCount,
-        writtenItemCount: summary.writtenItemCount,
-        roleId: summary.roleId
-      });
-    },
-    resetEmbeddedSession: async (partition) => {
-      const session = electronSession.fromPartition(partition);
-      await session.closeAllConnections();
-      await session.clearData({
-        dataTypes: [
-          "cache",
-          "cookies",
-          "fileSystems",
-          "indexedDB",
-          "localStorage",
-          "serviceWorkers",
-          "webSQL"
-        ] as NonNullable<Parameters<Session["clearData"]>[0]>["dataTypes"]
-      });
-      await session.clearStorageData({ storages: ["cachestorage"] });
-    },
-    readChromeLoginData: readChromeLoginDataWithCdp,
     roleStore,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
         ? dialog.showOpenDialog(mainWindow, options)
         : dialog.showOpenDialog(options),
     userDataDir
+  });
+  const importedChromeProfileLoginVerifier = new ImportedChromeProfileLoginVerifier({
+    getSession: (partition) => electronSession.fromPartition(partition),
+    resetEmbeddedSession: resetEmbeddedRoleSession,
+    roleStore
   });
   const macroOverlayInjector = new MacroOverlayInjector(
     macroStore,
@@ -758,7 +748,9 @@ async function initializeApplication(): Promise<void> {
       statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state, runtimeMode: status.runtimeMode }))
     });
   });
-  const authManager = new AuthManager(transactionalRoleAuthStore, browserManager);
+  const authManager = new AuthManager(transactionalRoleAuthStore, browserManager, {
+    importedChromeProfileLoginVerifier
+  });
   authManager.on("change", (statuses) => {
     logService.info("auth", "auth_status_changed", "Authentication status changed.", {
       statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state }))

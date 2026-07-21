@@ -20,6 +20,8 @@ export function LoginSessionGuide({
   roleName,
   t
 }: LoginSessionGuideProps): JSX.Element {
+  const isExternalChromeLogin = authStatus?.state === "opening_chrome";
+
   return (
     <Surface
       className={cn(
@@ -45,19 +47,28 @@ export function LoginSessionGuide({
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("loginGuide.description")}</p>
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+            {t(isExternalChromeLogin ? "loginGuide.chromeDescription" : "loginGuide.description")}
+          </p>
         </div>
       </div>
 
       <ol className="grid gap-2 sm:grid-cols-3">
-        <GuideStep number={1}>{t("loginGuide.step.account")}</GuideStep>
-        <GuideStep number={2}>{t("loginGuide.step.character").replace("{name}", roleName)}</GuideStep>
-        <GuideStep number={3}>{t("loginGuide.step.game")}</GuideStep>
+        <GuideStep number={1}>
+          {t(isExternalChromeLogin ? "loginGuide.chrome.step.account" : "loginGuide.step.account")}
+        </GuideStep>
+        <GuideStep number={2}>
+          {t(isExternalChromeLogin ? "loginGuide.chrome.step.character" : "loginGuide.step.character")
+            .replace("{name}", roleName)}
+        </GuideStep>
+        <GuideStep number={3}>
+          {t(isExternalChromeLogin ? "loginGuide.chrome.step.game" : "loginGuide.step.game")}
+        </GuideStep>
       </ol>
 
       <p className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2 text-[11px] font-medium leading-5 text-foreground">
         <AlertTriangle className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" size={14} />
-        <span>{t("loginGuide.warning")}</span>
+        <span>{t(isExternalChromeLogin ? "loginGuide.chromeWarning" : "loginGuide.warning")}</span>
       </p>
       <p className="rounded-md border border-border/35 bg-background/25 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
         {t("loginGuide.security")}

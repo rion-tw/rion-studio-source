@@ -76,6 +76,7 @@ export interface BrowserManagerEvents {
 }
 
 export interface BrowserLaunchOptions {
+  forceLaunchUrl?: boolean;
   zoomFactor?: number;
   target?: BrowserWorkspaceLaunchTarget;
 }
@@ -1076,12 +1077,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await this.applyZoom(session, DEFAULT_BROWSER_ZOOM_FACTOR);
     this.assertSessionActive(session);
     const currentUrl = session.webContents.getURL();
-    if (!currentUrl || currentUrl === "about:blank") {
+    if (!currentUrl || currentUrl === "about:blank" || options.forceLaunchUrl) {
       await this.applyBrowserProxy(session);
       this.assertSessionActive(session);
       await this.applyCdnCompatibility(session);
       this.assertSessionActive(session);
-      const loginUrl = await this.getLoginUrl(role);
+      const loginUrl = options.forceLaunchUrl ? role.launchUrl : await this.getLoginUrl(role);
       this.assertSessionActive(session);
       await session.webContents.loadURL(loginUrl);
       this.assertSessionActive(session);

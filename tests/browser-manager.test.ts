@@ -1341,6 +1341,96 @@ describe("BrowserManager game host windows", () => {
     }
   );
 
+  it.each(["darwin", "win32"] as const)(
+    "applies consecutive runtime tab shortcuts immediately without refocusing the window on %s",
+    async (platform) => {
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        platform,
+        useTabbedHostWindow: true,
+        workspaceDisplays: runtimeDisplays
+      });
+      const secondRole = createRole("role-2", "Alt");
+      const thirdRole = createRole("role-3", "Third");
+
+      await harness.manager.launch(role);
+      await harness.manager.launch(secondRole);
+      await harness.manager.launch(thirdRole);
+      const [firstTab, secondTab, thirdTab] = harness.manager.listEmbeddedRuntimeState().tabs;
+      const windowFocusCalls = harness.hosts[0].focus.mock.calls.length;
+      const firstViewFocusCalls = harness.views[0].webContents.focus.mock.calls.length;
+      const secondViewFocusCalls = harness.views[1].webContents.focus.mock.calls.length;
+      const thirdViewFocusCalls = harness.views[2].webContents.focus.mock.calls.length;
+      const nextEvents = [{ preventDefault: vi.fn() }, { preventDefault: vi.fn() }];
+      const previousEvents = [{ preventDefault: vi.fn() }, { preventDefault: vi.fn() }];
+
+      harness.views.forEach((view) => harness.manager.setGameInputContext(view.webContents.id, true));
+      harness.views[2].webContents.emit("before-input-event", nextEvents[0], {
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        key: "Tab",
+        meta: false,
+        shift: false,
+        type: "keyDown"
+      });
+      harness.views[0].webContents.emit("before-input-event", nextEvents[1], {
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        key: "Tab",
+        meta: false,
+        shift: false,
+        type: "keyDown"
+      });
+
+      expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ active: false, id: firstTab.id }),
+        expect.objectContaining({ active: true, id: secondTab.id }),
+        expect.objectContaining({ active: false, id: thirdTab.id })
+      ]));
+      nextEvents.forEach((event) => expect(event.preventDefault).toHaveBeenCalledOnce());
+      expect(harness.hosts[0].focus).toHaveBeenCalledTimes(windowFocusCalls);
+      expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(firstViewFocusCalls + 1);
+      expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(secondViewFocusCalls + 1);
+      expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(thirdViewFocusCalls);
+
+      harness.views[1].webContents.emit("before-input-event", previousEvents[0], {
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        key: "Tab",
+        meta: false,
+        shift: true,
+        type: "keyDown"
+      });
+      harness.views[0].webContents.emit("before-input-event", previousEvents[1], {
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        key: "Tab",
+        meta: false,
+        shift: true,
+        type: "keyDown"
+      });
+
+      expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ active: false, id: firstTab.id }),
+        expect.objectContaining({ active: false, id: secondTab.id }),
+        expect.objectContaining({ active: true, id: thirdTab.id })
+      ]));
+      previousEvents.forEach((event) => expect(event.preventDefault).toHaveBeenCalledOnce());
+      expect(harness.hosts[0].focus).toHaveBeenCalledTimes(windowFocusCalls);
+      expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(firstViewFocusCalls + 2);
+      expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(secondViewFocusCalls + 1);
+      expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(thirdViewFocusCalls + 1);
+    }
+  );
+
   it("overlays macOS fullscreen chrome without relaying out or reloading the game", async () => {
     vi.useFakeTimers();
     let cursor = { x: 100, y: 120 };

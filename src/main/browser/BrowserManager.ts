@@ -444,7 +444,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly roleOperationTails = new Map<string, Promise<void>>();
   private readonly workspaceDisplayReservations = new Map<string, { displayId: number; name: string }>();
   private readonly workspaceHostIds = new Map<string, string>();
-  private runtimeTabSwitchTail: Promise<void> = Promise.resolve();
   private runtimeTabsLanguage: AppLanguage = "en";
   private alwaysShowToolbarInFullScreen = false;
   private readonly resourceCoordinator: WorkspaceResourceCoordinator;
@@ -2521,7 +2520,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       const tabSwitchDirection = classifyRuntimeTabSwitchShortcut(input);
       if (tabSwitchDirection) {
         event.preventDefault();
-        this.queueRuntimeTabSwitch(displayHost, tabSwitchDirection);
+        this.switchRuntimeTabFromShortcut(displayHost, tabSwitchDirection);
         return;
       }
 
@@ -2539,32 +2538,30 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
   }
 
-  private queueRuntimeTabSwitch(
+  private switchRuntimeTabFromShortcut(
     displayHost: EmbeddedDisplayHost,
     direction: RuntimeTabSwitchDirection
   ): void {
-    this.runtimeTabSwitchTail = this.runtimeTabSwitchTail
-      .catch(() => undefined)
-      .then(async () => {
-        const visibleTabIds = displayHost.tabIds.filter((tabId) => {
-          const tab = this.hosts.get(tabId);
-          return Boolean(tab && !tab.hidden && !tab.closing);
-        });
-        if (visibleTabIds.length < 2) {
-          return;
-        }
+    const visibleTabIds = displayHost.tabIds.filter((tabId) => {
+      const tab = this.hosts.get(tabId);
+      return Boolean(tab && !tab.hidden && !tab.closing);
+    });
+    if (visibleTabIds.length < 2) {
+      return;
+    }
 
-        const currentIndex = visibleTabIds.indexOf(displayHost.activeTabId ?? "");
-        const nextIndex = currentIndex < 0
-          ? 0
-          : direction === "next"
-            ? (currentIndex + 1) % visibleTabIds.length
-            : (currentIndex - 1 + visibleTabIds.length) % visibleTabIds.length;
-        await this.showRuntimeTab(visibleTabIds[nextIndex]);
-      })
-      .catch((error) => {
-        console.warn("Failed to switch runtime tabs with a keyboard shortcut.", error);
-      });
+    const currentIndex = visibleTabIds.indexOf(displayHost.activeTabId ?? "");
+    const nextIndex = currentIndex < 0
+      ? 0
+      : direction === "next"
+        ? (currentIndex + 1) % visibleTabIds.length
+        : (currentIndex - 1 + visibleTabIds.length) % visibleTabIds.length;
+    displayHost.activeTabId = visibleTabIds[nextIndex];
+
+    // Keep input handling synchronous. Resource throttling reconciles in the
+    // background, while the selected tab and its focus update immediately.
+    void this.reconcileRuntimeTabs();
+    this.restoreActiveGameViewFocus(displayHost);
   }
 
   private isProtectedGameInputActive(session: BrowserSession, webContents: WebContents): boolean {

@@ -117,32 +117,39 @@ describe("ExternalChromeManager", () => {
     }
   );
 
-  it("stops an external launch when the imported session still requires login", async () => {
-    const automationTarget = createAutomationTarget();
-    automationTarget.evaluate.mockResolvedValue("https://example.com/login");
-    automationTarget.readLoginStorageSnapshot.mockResolvedValue({
-      bodyText: "Sign in",
-      cookies: {},
-      indexedDb: {},
-      localStorage: {},
-      sessionStorage: {}
-    });
-    const harness = createHarness({
-      connectAutomation: vi.fn().mockResolvedValue(automationTarget)
-    });
+  it.each(["darwin", "win32"] as const)(
+    "does not inspect or stop an external %s launch based on login-page state",
+    async (platform) => {
+      const automationTarget = createAutomationTarget();
+      automationTarget.evaluate.mockResolvedValue("https://example.com/login");
+      automationTarget.readLoginStorageSnapshot.mockResolvedValue({
+        bodyText: "Sign in",
+        cookies: {},
+        indexedDb: {},
+        localStorage: {},
+        sessionStorage: {}
+      });
+      const harness = createHarness({
+        connectAutomation: vi.fn().mockResolvedValue(automationTarget),
+        platform
+      });
 
-    const launchPromise = harness.manager.launch(role);
-    await waitForChild(harness.children, 0);
-    harness.children[0].emit("spawn");
+      const launchPromise = harness.manager.launch(role);
+      await waitForChild(harness.children, 0);
+      harness.children[0].emit("spawn");
 
-    await expect(launchPromise).rejects.toMatchObject({
-      code: "LOGIN_REQUIRED_AFTER_LAUNCH"
-    });
-    expect(harness.roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
-    expect(automationTarget.close).toHaveBeenCalledOnce();
-    expect(harness.children[0].kill).toHaveBeenCalledOnce();
-    expect(harness.manager.listStatuses()).toEqual([]);
-  });
+      await expect(launchPromise).resolves.toMatchObject({
+        roleId: role.id,
+        runtimeMode: "external",
+        state: "running"
+      });
+      expect(automationTarget.evaluate).not.toHaveBeenCalled();
+      expect(automationTarget.readLoginStorageSnapshot).not.toHaveBeenCalled();
+      expect(automationTarget.close).not.toHaveBeenCalled();
+      expect(harness.children[0].kill).not.toHaveBeenCalled();
+      expect(harness.manager.listStatuses()).toHaveLength(1);
+    }
+  );
 
   it("restores focus when launching an existing external role", async () => {
     const harness = createHarness();
@@ -853,8 +860,7 @@ function createHarness(options: {
   const automationTargets: Array<ReturnType<typeof createAutomationTarget>> = [];
   const automationTargetsByRoleId = new Map<string, ReturnType<typeof createAutomationTarget>>();
   const roleStore = {
-    ensureBrowserUserDataDir: vi.fn(async (roleId: string) => `/profiles/${roleId}/browser`),
-    updateAuthState: vi.fn().mockResolvedValue(undefined)
+    ensureBrowserUserDataDir: vi.fn(async (roleId: string) => `/profiles/${roleId}/browser`)
   };
   const spawnChrome = vi.fn(() => {
     const child = createChild(
@@ -873,11 +879,6 @@ function createHarness(options: {
   const applyBrowserZoom = options.applyBrowserZoom ?? vi.fn().mockResolvedValue(undefined);
   const manager = new ExternalChromeManager(roleStore, {
     applyBrowserZoom,
-    authSessionSettleOptions: {
-      idleMs: 0,
-      pollIntervalMs: 0,
-      requiredStableSamples: 1
-    },
     connectAutomation,
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),

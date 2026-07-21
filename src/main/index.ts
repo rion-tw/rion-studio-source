@@ -576,7 +576,7 @@ async function initializeApplication(): Promise<void> {
   embeddedRuntimeDiagnostics = new EmbeddedRuntimeDiagnostics(logService);
   powerMonitor.on("suspend", () => embeddedRuntimeDiagnostics?.handleSuspend());
   powerMonitor.on("resume", () => embeddedRuntimeDiagnostics?.handleResume());
-  browserManager = new BrowserManager(transactionalRoleAuthStore, {
+  browserManager = new BrowserManager({
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
       await browserFontApplier.applyToRoleLaunch(browserUserDataDir, partition);

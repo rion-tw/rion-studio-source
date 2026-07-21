@@ -4,11 +4,6 @@ import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { RoleStore } from "../roles/RoleStore";
-import { NO_PERSISTED_LOGIN_SESSION_MESSAGE } from "../auth/authSessionClassification";
-import {
-  waitForSettledAuthSession,
-  type WaitForSettledAuthSessionOptions
-} from "../auth/settledAuthSession";
 import {
   CDN_COMPATIBILITY_EXTERNAL_NOTICE,
   CDN_COMPATIBILITY_UNAVAILABLE_NOTICE
@@ -83,7 +78,6 @@ export interface ExternalChromeManagerOptions {
       "cdnCompatibilityEnabled" | "onDiagnostic" | "platform"
     >
   ) => Promise<ExternalBrowserAutomationTarget>;
-  authSessionSettleOptions?: WaitForSettledAuthSessionOptions;
 }
 
 export type ExternalMacroOverlayInstaller = (
@@ -112,22 +106,13 @@ export class ExternalChromeRoleAlreadyRunningError extends Error {
   }
 }
 
-export class ExternalChromeLaunchAuthError extends Error {
-  readonly code = "LOGIN_REQUIRED_AFTER_LAUNCH";
-
-  constructor(message = NO_PERSISTED_LOGIN_SESSION_MESSAGE) {
-    super(message);
-    this.name = "ExternalChromeLaunchAuthError";
-  }
-}
-
 export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEvents> {
   private readonly sessions = new Map<string, ExternalChromeSession>();
   private beforeRoleStop?: (roleId: string) => Promise<void>;
   private macroOverlayInstaller?: ExternalMacroOverlayInstaller;
 
   constructor(
-    private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir" | "updateAuthState">,
+    private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">,
     private readonly options: ExternalChromeManagerOptions
   ) {
     super();
@@ -411,33 +396,6 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_UNAVAILABLE_NOTICE);
       }
       session.notice = appendNotice(session.notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
-    }
-
-    if (session.automationTarget) {
-      const target = session.automationTarget;
-      const verification = await waitForSettledAuthSession(async () => {
-        const [finalUrl, snapshot] = await Promise.all([
-          target.evaluate<string>("window.location.href"),
-          target.readLoginStorageSnapshot(role.launchUrl)
-        ]);
-        return {
-          finalUrl: typeof finalUrl === "string" ? finalUrl : role.launchUrl,
-          snapshot
-        };
-      }, this.options.authSessionSettleOptions);
-      if (verification.authState !== "authenticated") {
-        await this.roleStore.updateAuthState(role.id, verification.authState);
-        if (this.sessions.get(role.id) === session) {
-          this.sessions.delete(role.id);
-          session.automationTarget = undefined;
-          target.close();
-          terminateChild(child);
-          this.emitChange();
-        }
-        throw new ExternalChromeLaunchAuthError(
-          verification.message ?? NO_PERSISTED_LOGIN_SESSION_MESSAGE
-        );
-      }
     }
 
     await this.alignVisibleWindow(child, physicalBounds);

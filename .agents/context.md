@@ -64,16 +64,16 @@ adding persisted data.
 ## Login And Browser Launch
 
 Each role uses an isolated persistent Electron session partition and browser
-directory. Login and normal launches use a `WebContentsView`; the main process
-checks persisted session evidence before reporting the role as running. Auto mode
-falls back to an external system Chrome app window only when the embedded game
-page cannot load.
+directory. Login and normal launches use a `WebContentsView`. Normal launches
+trust the role's stored auth marker and display the view before navigation finishes;
+only the explicit login flow checks live session evidence. Auto mode falls back to
+an external system Chrome app window only when the embedded game page cannot load.
 
 Important runtime pieces:
 
 - `AuthManager` coordinates login state transitions and session checks.
-- `BrowserManager` owns embedded `BaseWindow`/`WebContentsView` hosts, session
-  verification, workspace layout, focus, popups, and lifecycle.
+- `BrowserManager` owns embedded `BaseWindow`/`WebContentsView` hosts, workspace
+  layout, focus, popups, and lifecycle.
 - `ExternalChromeManager` owns external Chrome compatibility sessions. Chrome
   discovery can be overridden with `RION_STUDIO_CHROME_PATH` or `CHROME_PATH`.
 - `authSessionClassification` and `loginEvidence` classify whether a persisted

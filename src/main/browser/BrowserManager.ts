@@ -13,10 +13,7 @@ import type {
   WebContentsViewConstructorOptions
 } from "electron";
 
-import {
-  NO_PERSISTED_LOGIN_SESSION_MESSAGE,
-  type AuthSessionCheckResult
-} from "../auth/authSessionClassification";
+import type { AuthSessionCheckResult } from "../auth/authSessionClassification";
 import {
   createLoginStorageSnapshot,
   LOGIN_STORAGE_EXPRESSION
@@ -25,7 +22,6 @@ import {
   waitForSettledAuthSession,
   type WaitForSettledAuthSessionOptions
 } from "../auth/settledAuthSession";
-import type { RoleStore } from "../roles/RoleStore";
 import { DEFAULT_WORKSPACE_APPEARANCE_SETTINGS } from "../../shared/browserFonts";
 import type {
   AppLanguage,
@@ -163,15 +159,6 @@ export interface BrowserManagerOptions {
   performNativeZoom?: NativeZoomPerformer;
   persistWorkspaceRoleZoom?: WorkspaceRoleZoomPersister;
   resourcePressureMonitor?: SystemPressureSource;
-}
-
-export class BrowserLaunchAuthError extends Error {
-  readonly code = "LOGIN_REQUIRED_AFTER_LAUNCH";
-
-  constructor(message = NO_PERSISTED_LOGIN_SESSION_MESSAGE) {
-    super(message);
-    this.name = "BrowserLaunchAuthError";
-  }
 }
 
 export class BrowserGameLoadError extends Error {
@@ -449,7 +436,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
 
   constructor(
-    private readonly roleStore: Pick<RoleStore, "updateAuthState">,
     private readonly options: BrowserManagerOptions
   ) {
     super();
@@ -904,10 +890,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const existing = this.sessions.get(role.id);
     if (existing) {
       existing.role = role;
-      await this.applyZoom(existing, zoomFactor);
-      await this.ensureSessionAuthenticated(role, existing);
-      await this.installMacroOverlay(role, existing.webContents);
       await this.focusSession(existing);
+      await this.applyZoom(existing, zoomFactor);
+      await this.installMacroOverlay(role, existing.webContents);
       return this.toStatus(role.id, existing);
     }
 
@@ -915,22 +900,27 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return this.launchExternal(role, undefined, zoomFactor, target.workArea);
     }
 
-    const gameIconDataUrl = await this.resolveRuntimeTabGameIcon(role);
+    const gameIconPromise = this.resolveRuntimeTabGameIcon(role);
     const host = this.createHost(
       role.name,
       undefined,
       target.workArea,
       undefined,
       target.displayId,
-      role.id,
-      gameIconDataUrl
+      role.id
     );
     await this.applyBrowserFonts(role);
     const session = this.createSession(role, host, FULL_WINDOW_RECT, zoomFactor);
 
     try {
-      await this.finishLaunch(session, zoomFactor);
       await this.showRuntimeTab(host.id);
+      const launchPromise = this.finishLaunch(session, zoomFactor);
+      const iconPromise = gameIconPromise.then((gameIconDataUrl) => {
+        if (!gameIconDataUrl || this.hosts.get(host.id) !== host || host.closing) return;
+        host.gameIconDataUrl = gameIconDataUrl;
+        this.emitChange();
+      });
+      await Promise.all([launchPromise, iconPromise]);
       this.assertSessionActive(session);
       await this.resourceCoordinator.activateWorkspace(
         host.id,
@@ -1009,9 +999,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
             item.browserZoomPercent === undefined ? workspace.browserZoomMode : "fixed"
           )
         );
-        await this.createHostDividers(host);
+        const dividersReady = this.createHostDividers(host);
+        await this.showRuntimeTab(host.id);
         const launchResults = await Promise.allSettled(
-          sessions.map((session) => this.finishLaunch(session, session.zoomFactor))
+          [
+            dividersReady,
+            ...sessions.map((session) => this.finishLaunch(session, session.zoomFactor))
+          ]
         );
         const failedLaunch = launchResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected"
@@ -1020,7 +1014,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         if (host.closing || host.window.isDestroyed()) {
           return [];
         }
-        await this.showRuntimeTab(host.id);
         sessions.forEach((session) => this.assertSessionActive(session));
         await this.resourceCoordinator.activateWorkspace(
           host.id,
@@ -2306,8 +2299,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.assertSessionActive(session);
     await this.applyZoom(session, zoomFactor);
     this.assertSessionActive(session);
-    await this.ensureSessionAuthenticated(session.role, session);
-    this.assertSessionActive(session);
     session.state = "running";
     session.launchedAt = new Date().toISOString();
     await this.installMacroOverlay(session.role, session.webContents);
@@ -2379,16 +2370,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       zoomFactor: workspace.browserZoomPercent / 100
     });
     return statuses;
-  }
-
-  private async ensureSessionAuthenticated(role: Role, session: BrowserSession): Promise<void> {
-    const result = await this.checkSessionAuthentication(role, session);
-    if (result.authState === "authenticated") {
-      return;
-    }
-
-    await this.roleStore.updateAuthState(role.id, result.authState);
-    throw new BrowserLaunchAuthError(result.message ?? NO_PERSISTED_LOGIN_SESSION_MESSAGE);
   }
 
   private async applyBrowserProxy(session: BrowserSession): Promise<void> {

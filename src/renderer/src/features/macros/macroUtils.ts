@@ -21,7 +21,7 @@ export const MACRO_INTERVAL_PRESETS = [0, 250, 500, 1000, 2000, 5000, 10000] as 
 export const MACRO_INTERVAL_CUSTOM_VALUE = "custom";
 export const MACRO_INTERVAL_OPTIONS = [...MACRO_INTERVAL_PRESETS, MACRO_INTERVAL_CUSTOM_VALUE] as const;
 
-export type MacroTargetUnavailableReason = "missing" | "self" | "hold" | "cycle";
+export type MacroTargetUnavailableReason = "missing" | "self" | "cycle";
 
 export interface MacroTargetOption {
   macro: Macro;
@@ -36,9 +36,6 @@ export function getMacroTargetUnavailableReason(
   const target = macros.find((macro) => macro.id === targetMacroId);
   if (!target) return "missing";
   if (target.id === currentMacroId) return "self";
-  if (target.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")) {
-    return "hold";
-  }
   if (currentMacroId && macroDependsOn(macros, target.id, currentMacroId)) {
     return "cycle";
   }

@@ -332,12 +332,6 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         throw new Error(UNASSIGNED_WORKFLOW_MESSAGE);
       }
     }
-    if (
-      parentAncestry.length > 0 &&
-      macro.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")
-    ) {
-      throw new Error(`Called macro "${macro.name}" cannot hold a key until stopped.`);
-    }
     if (parentAncestry.length > 0 && this.hasActiveMacroRun(macroId)) {
       throw new Error(`Called macro "${macro.name}" is already running.`);
     }

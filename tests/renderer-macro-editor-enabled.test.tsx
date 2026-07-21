@@ -111,7 +111,7 @@ describe("macro editor controls", () => {
     });
   });
 
-  it("shows every macro target with one-iteration and unavailable reasons", () => {
+  it("shows held macro targets as available while preserving dependency reasons", () => {
     const loopingTarget = macro({
       id: "macro-loop",
       name: "Loop target",
@@ -164,9 +164,7 @@ describe("macro editor controls", () => {
       name: "Loop target (runs with its loop setting when triggered)"
     });
     const selfOption = screen.getByRole("option", { name: "Auto heal (current macro)" });
-    const heldOption = screen.getByRole("option", {
-      name: "Held target (holds a key until stopped)"
-    });
+    const heldOption = screen.getByRole("option", { name: "Held target" });
     const cycleOption = screen.getByRole("option", {
       name: "Cycle target (would create a dependency cycle)"
     });
@@ -174,15 +172,20 @@ describe("macro editor controls", () => {
 
     expect(loopOption.hasAttribute("data-disabled")).toBe(false);
     expect(selfOption.hasAttribute("data-disabled")).toBe(true);
-    expect(heldOption.hasAttribute("data-disabled")).toBe(true);
+    expect(heldOption.hasAttribute("data-disabled")).toBe(false);
     expect(cycleOption.hasAttribute("data-disabled")).toBe(true);
     expect(disabledOption.hasAttribute("data-disabled")).toBe(false);
   });
 
-  it("saves while-held activation and a hold-until-stop key action", async () => {
+  it("saves a referenced macro with while-held activation and a hold-until-stop key action", async () => {
     const selectedMacro = macro({
       trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
       steps: [{ id: "step-1", type: "key", code: "F2", action: "hold_until_stop" }]
+    });
+    const parentMacro = macro({
+      id: "macro-parent",
+      name: "Parent",
+      steps: [{ id: "call", type: "macro", macroId: selectedMacro.id }]
     });
     const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
       ...selectedMacro,
@@ -195,7 +198,7 @@ describe("macro editor controls", () => {
         element: <MacroEditorRoute
           games={[game()]}
           isSaving={false}
-          macros={[selectedMacro]}
+          macros={[selectedMacro, parentMacro]}
           roles={[role()]}
           t={t}
           onSave={onSave}

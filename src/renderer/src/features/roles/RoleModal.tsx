@@ -1,4 +1,4 @@
-import { Check, Eraser, ImagePlus, Loader2, LogIn, Save, Trash2 } from "lucide-react";
+import { Check, Eraser, ImagePlus, Loader2, Save, Trash2 } from "lucide-react";
 import { type ChangeEvent, type FormEvent, type JSX, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
@@ -8,42 +8,35 @@ import { Input } from "../../components/ui/input";
 import { FieldHeader, FormField, FormGrid, Surface } from "../../components/ui/patterns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
-import { shouldShowLoginGuidance } from "../../app/statusUtils";
 import type { RoleFormState } from "../../app/types";
 import { areEditorFormsEqual, createNewRoleForm, createRoleFormState } from "../../app/editorFormState";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
-import type { AuthFlowStatus, Game, Role } from "../../../../shared/types";
+import type { Game, Role } from "../../../../shared/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { createCoverImageDataUrl } from "./roleCover";
-import { LoginSessionGuide } from "./LoginSessionGuide";
 
 interface RoleEditorRouteProps {
-  authStatusByRole: Map<string, AuthFlowStatus>;
-  busyRoleIds: ReadonlySet<string>;
+  busyRoleIds?: ReadonlySet<string>;
   games: Game[];
   isSaving: boolean;
   roles: Role[];
   t: Translator;
   onError: (error: unknown | null) => void;
   onClearBrowserData: (role: Role) => Promise<boolean>;
-  onRelogin: (roleId: string) => void;
   onSave: (form: RoleFormState) => Promise<Role | undefined>;
 }
 
 interface RoleFormProps {
-  authStatus?: AuthFlowStatus;
   form: RoleFormState;
   games: Game[];
   isGameLocked: boolean;
-  isLoginBusy: boolean;
   isSaving: boolean;
   selectedRole?: Role;
   t: Translator;
   onChange: (form: RoleFormState | ((current: RoleFormState) => RoleFormState)) => void;
   onClearBrowserData: (role: Role) => Promise<boolean>;
   onError: (error: unknown | null) => void;
-  onRelogin: (roleId: string) => void;
 }
 
 function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
@@ -70,8 +63,6 @@ function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
 }
 
 function RoleEditor({
-  authStatusByRole,
-  busyRoleIds,
   games,
   initialForm,
   isGameLocked,
@@ -80,7 +71,6 @@ function RoleEditor({
   t,
   onError,
   onClearBrowserData,
-  onRelogin,
   onSave
 }: RoleEditorRouteProps & { initialForm: RoleFormState; isGameLocked: boolean; selectedRole?: Role }): JSX.Element {
   const navigate = useNavigate();
@@ -96,10 +86,6 @@ function RoleEditor({
     tone: "destructive" as const
   }), [t]);
   const allowNavigation = useUnsavedChangesGuard(isDirty, confirmationOptions, isSaving);
-  const authStatus = selectedRole ? authStatusByRole.get(selectedRole.id) : undefined;
-  const isLoginBusy = Boolean(
-    selectedRole && (busyRoleIds.has(selectedRole.id) || shouldShowLoginGuidance(authStatus))
-  );
 
   function handleCancel(): void {
     navigate("/roles", { replace: true });
@@ -132,36 +118,30 @@ function RoleEditor({
       contentClassName="min-[1180px]:grid-cols-[minmax(0,1fr)_240px] min-[1180px]:items-start xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]"
     >
       <RoleForm
-        authStatus={authStatus}
         form={form}
         games={games}
         isGameLocked={isGameLocked}
-        isLoginBusy={isLoginBusy}
         isSaving={isSaving}
         selectedRole={selectedRole}
         t={t}
         onChange={setForm}
         onClearBrowserData={onClearBrowserData}
         onError={onError}
-        onRelogin={onRelogin}
       />
     </EditorPage>
   );
 }
 
 function RoleForm({
-  authStatus,
   form,
   games,
   isGameLocked,
-  isLoginBusy,
   isSaving,
   selectedRole,
   t,
   onChange,
   onClearBrowserData,
   onError,
-  onRelogin
 }: RoleFormProps): JSX.Element {
   const coverInputRef = useRef<HTMLInputElement>(null);
   const hasCoverPreview = Boolean(form.coverImageDataUrl);
@@ -237,32 +217,6 @@ function RoleForm({
               </FormGrid>
             </Surface>
 
-            {selectedRole &&
-            (shouldShowLoginGuidance(authStatus) || selectedRole.authState === "authenticated") ? (
-              <Surface className="grid gap-3 p-4" padding="none" variant="inset">
-                <FieldHeader
-                  title={t("roleForm.reloginTitle")}
-                  description={t("roleForm.reloginDescription")}
-                />
-                {shouldShowLoginGuidance(authStatus) ? (
-                  <LoginSessionGuide authStatus={authStatus} roleName={selectedRole.name} t={t} />
-                ) : null}
-
-                {selectedRole.authState === "authenticated" ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="w-full"
-                    onClick={() => onRelogin(selectedRole.id)}
-                    disabled={isSaving || isLoginBusy}
-                  >
-                    {isLoginBusy ? <Loader2 className="spin" size={17} /> : <LogIn size={17} />}
-                    {t("roleForm.relogin")}
-                  </Button>
-                ) : null}
-              </Surface>
-            ) : null}
-
             {selectedRole ? (
               <Surface className="grid gap-3 p-4" padding="none" variant="inset">
                 <FieldHeader
@@ -274,9 +228,9 @@ function RoleForm({
                   variant="destructive"
                   className="w-full"
                   onClick={() => void onClearBrowserData(selectedRole)}
-                  disabled={isSaving || isLoginBusy}
+                  disabled={isSaving}
                 >
-                  {isLoginBusy ? <Loader2 className="spin" size={17} /> : <Eraser size={17} />}
+                  {isSaving ? <Loader2 className="spin" size={17} /> : <Eraser size={17} />}
                   {t("role.clearSavedData")}
                 </Button>
               </Surface>

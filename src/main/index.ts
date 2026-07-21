@@ -18,8 +18,7 @@ import {
   session as electronSession,
   shell,
   Tray,
-  WebContentsView,
-  type Session
+  WebContentsView
 } from "electron";
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
@@ -29,14 +28,13 @@ import {
 } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { WindowsGraphicsEventCollector } from "./browser/WindowsGraphicsEventCollector";
-import { ImportedChromeProfileLoginVerifier } from "./browser/ImportedChromeProfileLoginVerifier";
+import { ChromeProfileSessionImporter } from "./browser/ChromeProfileSessionImporter";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
-import { AuthManager } from "./auth/AuthManager";
 import {
   BrowserManager,
   createRoleSessionPartition,
@@ -494,11 +492,6 @@ async function initializeApplication(): Promise<void> {
     dataMutationQueue.run(operation);
   const roleStore = new RoleStore(userDataDir);
   await recoverChromeProfileImport(userDataDir, roleStore);
-  const transactionalRoleAuthStore: Pick<RoleStore, "updateAuthState"> & Pick<RoleStore, "updateRole"> = {
-    updateAuthState: (id, authState, messageTimestamp) =>
-      withDataMutation(() => roleStore.updateAuthState(id, authState, messageTimestamp)),
-    updateRole: (id, input) => withDataMutation(() => roleStore.updateRole(id, input))
-  };
   const gameStore = new GameStore(userDataDir, roleStore);
   await gameStore.initialize();
   await runBackgroundActivityMigration(userDataDir, { gameStore, roleStore });
@@ -643,7 +636,9 @@ async function initializeApplication(): Promise<void> {
       const game = await gameStore.getGame(role.gameId);
       return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
     },
-    getLoginUrl: async (role) => (await gameStore.getGame(role.gameId)).loginUrl ?? role.launchUrl,
+    getRoleSession: (role) => role.browserSessionSource === "chrome-profile"
+      ? electronSession.fromPath(join(roleStore.getRolePaths(role.id).browserUserDataDir, "Default"))
+      : undefined,
     getRuntimeTabGameIcon: async (role) => {
       const game = await gameStore.getGame(role.gameId);
       return createRuntimeGameIconDataUrl(
@@ -738,25 +733,12 @@ async function initializeApplication(): Promise<void> {
   });
   const roleBrowserDataManager = new RoleBrowserDataManager({
     browserManager,
-    getSession: (partition) => electronSession.fromPartition(partition),
+    getSession: (role) => role.browserSessionSource === "chrome-profile"
+      ? electronSession.fromPath(join(roleStore.getRolePaths(role.id).browserUserDataDir, "Default"))
+      : electronSession.fromPartition(createRoleSessionPartition(role.id)),
     roleStore
   });
-  const resetEmbeddedRoleSession = async (partition: string) => {
-    const session = electronSession.fromPartition(partition);
-    await session.closeAllConnections();
-    await session.clearData({
-      dataTypes: [
-        "cache",
-        "cookies",
-        "fileSystems",
-        "indexedDB",
-        "localStorage",
-        "serviceWorkers",
-        "webSQL"
-      ] as NonNullable<Parameters<Session["clearData"]>[0]>["dataTypes"]
-    });
-    await session.clearStorageData({ storages: ["cachestorage"] });
-  };
+  const chromeProfileSessionImporter = new ChromeProfileSessionImporter({ platform: process.platform });
   const chromeProfileImportManager = new ChromeProfileImportManager({
     closeChrome: () => requestGracefulChromeQuit({ platform: process.platform }),
     gameStore,
@@ -765,12 +747,15 @@ async function initializeApplication(): Promise<void> {
       mainWindow && !mainWindow.isDestroyed()
         ? dialog.showOpenDialog(mainWindow, options)
         : dialog.showOpenDialog(options),
-    userDataDir
-  });
-  const importedChromeProfileLoginVerifier = new ImportedChromeProfileLoginVerifier({
-    getSession: (partition) => electronSession.fromPartition(partition),
-    resetEmbeddedSession: resetEmbeddedRoleSession,
-    roleStore
+    userDataDir,
+    prepareImportedSession: async (role, browserUserDataDir) => {
+      const importedSession = electronSession.fromPath(join(browserUserDataDir, "Default"));
+      await chromeProfileSessionImporter.importSession(role, browserUserDataDir, importedSession);
+    },
+    stopRoles: async (roleIds) => {
+      if (!browserManager) return;
+      await Promise.all(roleIds.map((roleId) => browserManager!.stop(roleId)));
+    }
   });
   const macroOverlayInjector = new MacroOverlayInjector(
     macroStore,
@@ -810,14 +795,6 @@ async function initializeApplication(): Promise<void> {
       statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state, runtimeMode: status.runtimeMode }))
     });
   });
-  const authManager = new AuthManager(transactionalRoleAuthStore, browserManager, {
-    importedChromeProfileLoginVerifier
-  });
-  authManager.on("change", (statuses) => {
-    logService.info("auth", "auth_status_changed", "Authentication status changed.", {
-      statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state }))
-    });
-  });
   const gameCompatibilityManager = new GameCompatibilityManager({
     applyCdnCompatibility: async (session) => {
       await cdnCompatibilityManager.applyToSession(session);
@@ -837,11 +814,6 @@ async function initializeApplication(): Promise<void> {
       }
     }
   });
-  authManager.on("result", (role, authState) => {
-    void gameCompatibilityManager.recordObservation(role.gameId, authState === "authenticated"
-      ? { lastAuthSuccessAt: new Date().toISOString() }
-      : { lastAuthFailureAt: new Date().toISOString() });
-  });
   const graphicsDiagnosticsService = new GraphicsDiagnosticsService({
     app,
     appliedMode: appliedBrowserGraphicsMode,
@@ -860,7 +832,6 @@ async function initializeApplication(): Promise<void> {
   });
 
   runtimeTabMenu = new RuntimeTabMenuController({
-    authManager,
     browserManager,
     getWorkspaceDisplays: getWorkspaceDisplayInfos,
     onWorkspaceDisplaySelectionRequired: requestWorkspaceDisplaySelection,
@@ -896,7 +867,7 @@ async function initializeApplication(): Promise<void> {
     dispatchRuntimeTabAction(runtimeWindow, displayId, action);
   });
 
-  registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
+  registerIpcHandlers(roleStore, workspaceStore, browserManager, {
     captureExternalRoleDiagnostics: async (roleId) => {
       const capturedAt = new Date();
       latestExternalFreezeReportedAt = capturedAt;
@@ -1015,7 +986,6 @@ async function initializeApplication(): Promise<void> {
       workspaceStore,
       workspaceLauncher,
       browserManager,
-      authManager,
       canUseApp: () => legalAcceptanceStore.isAccepted(),
       includeQuit: process.platform === "win32",
       onWorkspaceDisplaySelectionRequired: requestWorkspaceDisplaySelection,
@@ -1027,9 +997,6 @@ async function initializeApplication(): Promise<void> {
       appQuickMenu?.scheduleRefresh();
     });
     browserManager.on("runtimeChange", () => {
-      appQuickMenu?.scheduleRefresh();
-    });
-    authManager.on("change", () => {
       appQuickMenu?.scheduleRefresh();
     });
     appQuickMenu.scheduleRefresh();

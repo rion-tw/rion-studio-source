@@ -42,7 +42,6 @@ export interface GameFormState {
   iconImageDataUrl?: string;
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
-  loginUrl: string;
   browserLaunchMode: InheritableBrowserLaunchMode;
 }
 
@@ -57,7 +56,7 @@ export interface MacroFormState {
   trigger?: MacroTrigger;
 }
 
-export type SidebarFilter = "all" | "running" | "stopped" | "needsLogin";
+export type SidebarFilter = "all" | "running" | "stopped";
 export type ThemeMode = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
@@ -65,6 +64,4 @@ export interface AppStats {
   total: number;
   running: number;
   stopped: number;
-  needsLogin: number;
-  authFailed: number;
 }

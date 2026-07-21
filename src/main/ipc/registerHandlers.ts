@@ -8,7 +8,6 @@ import type {
   AppRendererReadyState,
   AppUpdateStatus,
   EmbeddedRuntimeState,
-  AuthFlowStatus,
   BulkDeleteInput,
   BulkDeleteResult,
   BulkDeleteSkippedItem,
@@ -42,7 +41,6 @@ import {
   createWorkspaceDisplayTarget,
   resolveWorkspaceDisplayTarget
 } from "../../shared/workspaceDisplays";
-import type { AuthManager } from "../auth/AuthManager";
 import {
   BrowserLaunchCancelledError,
   EXTERNAL_COMPAT_NOTICE,
@@ -126,7 +124,6 @@ export function registerIpcHandlers(
   roleStore: RoleStore,
   workspaceStore: LaunchWorkspaceStore,
   browserManager: BrowserManager,
-  authManager: AuthManager,
   options: RegisterIpcHandlersOptions = {}
 ): void {
   const workspaceLauncher = options.workspaceLauncher ?? new WorkspaceLaunchCoordinator({
@@ -143,9 +140,6 @@ export function registerIpcHandlers(
   });
   browserManager.on("runtimeChange", (state) => {
     broadcastRuntimeStateChange(state);
-  });
-  authManager.on("change", (statuses) => {
-    broadcastAuthStatusChange(statuses);
   });
   options.macroManager?.on("change", (statuses) => {
     broadcastMacroStatusChange(statuses);
@@ -181,7 +175,6 @@ export function registerIpcHandlers(
       gameCompatibilityStatuses: options.gameCompatibilityManager?.listStatuses() ?? [],
       roles,
       roleStatuses: browserManager.listStatuses(),
-      authStatuses: authManager.listStatuses(),
       launchWorkspaces,
       workspaceDisplays: getWorkspaceDisplays(options),
       macros,
@@ -635,19 +628,8 @@ export function registerIpcHandlers(
     return roleStore.getRolePaths(id);
   });
 
-  ipcMain.handle(IPC_CHANNELS.rolesStartLogin, async (_event, id: string) => {
-    const role = await roleStore.getRole(id);
-    return authManager.startLogin(role);
-  });
-
-  ipcMain.handle(IPC_CHANNELS.rolesAuthStatuses, () => authManager.listStatuses());
-
   ipcMain.handle(IPC_CHANNELS.rolesLaunch, async (_event, id: string) => {
     const role = await roleStore.getRole(id);
-
-    if (role.authState !== "authenticated") {
-      throw new Error("Login required. Use Login before launching this role.");
-    }
 
     try {
       const status = await browserManager.launch(role);
@@ -672,12 +654,6 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.rolesRecoverExternal, async (_event, id: string) => {
     assertRoleId(id);
     return browserManager.recoverExternalRole(id);
-  });
-
-  ipcMain.handle(IPC_CHANNELS.rolesOpenSystemLogin, async (_event, id: string) => {
-    const role = await roleStore.getRole(id);
-    await browserManager.stop(id);
-    return authManager.startLogin(role);
   });
 
   ipcMain.handle(IPC_CHANNELS.rolesStop, async (_event, id: string) => {
@@ -1089,12 +1065,6 @@ export function broadcastWorkspacesChanged(workspaces: LaunchWorkspace[]): void 
 export function broadcastMacrosChanged(macros: Macro[]): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.macrosChanged, macros);
-  });
-}
-
-function broadcastAuthStatusChange(statuses: AuthFlowStatus[]): void {
-  BrowserWindow.getAllWindows().forEach((window) => {
-    window.webContents.send(IPC_CHANNELS.rolesAuthStatusChanged, statuses);
   });
 }
 

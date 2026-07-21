@@ -1848,7 +1848,6 @@ const macroRole = {
   name: "Main",
   launchUrl: "https://example.com/play",
   notes: "",
-  authState: "authenticated" as const,
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
 };

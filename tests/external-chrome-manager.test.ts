@@ -18,7 +18,6 @@ const role: Role = {
   name: "Main",
   launchUrl: "https://example.com/play",
   notes: "",
-  authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
@@ -278,7 +277,7 @@ describe("ExternalChromeManager", () => {
   });
 
   it.each(["darwin", "win32"] as const)(
-    "does not inspect or stop an external %s launch based on login-page state",
+    "does not inspect or stop an external %s launch based on page content",
     async (platform) => {
       const automationTarget = createAutomationTarget();
       automationTarget.evaluate.mockResolvedValue("https://example.com/login");

@@ -9,7 +9,6 @@ import {
   getDefaultChromeUserDataDirectory,
   recoverChromeProfileImport
 } from "../src/main/browser/ChromeProfileImportManager";
-import { getImportedChromeProfileMarkerPath } from "../src/main/browser/ImportedChromeProfileMarker";
 import { RoleStore } from "../src/main/roles/RoleStore";
 import type { Game } from "../src/shared/types";
 
@@ -18,7 +17,6 @@ const game: Game = {
   source: "custom",
   name: "Example game",
   defaultLaunchUrl: "https://example.test/play",
-  loginUrl: "https://accounts.example.test/login",
   browserLaunchMode: "inherit",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
@@ -54,6 +52,7 @@ function createManager(options: {
   roleStore: ConstructorParameters<typeof ChromeProfileImportManager>[0]["roleStore"];
   source: string;
   userDataDir: string;
+  prepareImportedSession?: ConstructorParameters<typeof ChromeProfileImportManager>[0]["prepareImportedSession"];
 }): ChromeProfileImportManager {
   return new ChromeProfileImportManager({
     createImportId: options.createImportId ?? (() => "import-1"),
@@ -61,6 +60,7 @@ function createManager(options: {
     lstat: options.lstat,
     platform: options.platform ?? "darwin",
     roleStore: options.roleStore,
+    ...(options.prepareImportedSession ? { prepareImportedSession: options.prepareImportedSession } : {}),
     showOpenDialog: async () => ({ canceled: false, filePaths: [options.source] }),
     userDataDir: options.userDataDir
   });
@@ -89,7 +89,7 @@ describe("ChromeProfileImportManager", () => {
     expect(closeChrome).toHaveBeenCalledOnce();
   });
 
-  it("copies only safe session data, marks roles as requiring login, and never starts browser transfer work", async () => {
+  it("copies only safe session data and never starts an external verifier", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const source = join(root, "Chrome User Data");
     const userDataDir = join(root, "rion-data");
@@ -116,7 +116,6 @@ describe("ChromeProfileImportManager", () => {
 
     const roleStore = new RoleStore(userDataDir);
     const existingRole = await roleStore.createRole({ gameId: game.id, name: "Primary" });
-    await roleStore.updateAuthState(existingRole.id, "authenticated", "2026-07-01T00:00:00.000Z");
     const manager = createManager({ roleStore, source, userDataDir });
 
     const preview = await manager.previewImport();
@@ -141,8 +140,7 @@ describe("ChromeProfileImportManager", () => {
     expect(result.roles.map((role) => role.name)).toEqual(["Primary", "Alt"]);
     const importedRoles = await roleStore.listRoles();
     expect(importedRoles).toHaveLength(2);
-    expect(importedRoles.every((role) => role.authState === "login_required")).toBe(true);
-    expect(importedRoles.every((role) => !role.lastAuthCheckAt && !role.lastSuccessfulLoginAt)).toBe(true);
+    expect(importedRoles.every((role) => role.browserSessionSource === "chrome-profile")).toBe(true);
     expect(progress).toEqual(["preparing", "importing", "importing", "completed"]);
 
     const primary = importedRoles.find((role) => role.name === "Primary")!;
@@ -161,7 +159,6 @@ describe("ChromeProfileImportManager", () => {
       .resolves.toBe("indexed");
     await expect(readFile(join(primaryBrowserDir, "Default", "Service Worker", "CacheStorage", "cache.log"), "utf8"))
       .resolves.toBe("cache");
-    await expect(access(getImportedChromeProfileMarkerPath(primaryBrowserDir))).resolves.toBeUndefined();
     for (const relativePath of ["Bookmarks", "Extensions", "History", "Login Data", "Preferences", "Web Data"]) {
       await expect(access(join(primaryBrowserDir, "Default", relativePath))).rejects.toMatchObject({ code: "ENOENT" });
     }
@@ -203,31 +200,27 @@ describe("ChromeProfileImportManager", () => {
     await manager.previewImport();
     await manager.applyImport({ consentAccepted: true, gameId: game.id, importId: "import-1", profileIds: ["Default"] });
     await expect(roleStore.listRoles()).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ gameId: "game-1", name: "Same", authState: "login_required" }),
+      expect.objectContaining({ gameId: "game-1", name: "Same", browserSessionSource: "chrome-profile" }),
       expect.objectContaining({ gameId: "game-2", name: "Same" })
     ]));
   });
 
-  it("rolls back role and browser changes when resetting imported authentication fails", async () => {
+  it("rolls back role and browser changes when session injection fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const { source } = await createChromeProfileSource(root, ["Primary"]);
     const userDataDir = join(root, "rion-data");
     await writeFile(join(source, "Default", "Cookies"), "session", "utf8");
     const roleStore = new RoleStore(userDataDir);
-    const failingRoleStore = {
-      createRole: roleStore.createRole.bind(roleStore),
-      deleteRole: roleStore.deleteRole.bind(roleStore),
-      getRolePaths: roleStore.getRolePaths.bind(roleStore),
-      listRoles: roleStore.listRoles.bind(roleStore),
-      replaceRolesForImport: roleStore.replaceRolesForImport.bind(roleStore),
-      resetAuthentication: async () => { throw new Error("simulated reset failure"); },
-      updateRole: roleStore.updateRole.bind(roleStore)
-    };
-    const manager = createManager({ roleStore: failingRoleStore, source, userDataDir });
+    const manager = createManager({
+      roleStore,
+      source,
+      userDataDir,
+      prepareImportedSession: async () => { throw new Error("simulated injection failure"); }
+    });
 
     await manager.previewImport();
     await expect(manager.applyImport({ consentAccepted: true, gameId: game.id, importId: "import-1", profileIds: ["Default"] }))
-      .rejects.toThrow("simulated reset failure");
+      .rejects.toThrow("simulated injection failure");
     await expect(roleStore.listRoles()).resolves.toEqual([]);
     await expect(access(join(userDataDir, ".chrome-profile-import"))).rejects.toMatchObject({ code: "ENOENT" });
 
@@ -245,7 +238,6 @@ describe("ChromeProfileImportManager", () => {
     await writeFile(join(source, "Default", "Cookies"), "imported", "utf8");
     const roleStore = new RoleStore(userDataDir);
     const existingRole = await roleStore.createRole({ gameId: game.id, name: "Primary", notes: "Original" });
-    await roleStore.updateAuthState(existingRole.id, "authenticated", "2020-01-01T00:00:00.000Z");
     await writeFile(join(roleStore.getRolePaths(existingRole.id).browserUserDataDir, "original.txt"), "keep", "utf8");
     const failingRoleStore = {
       createRole: roleStore.createRole.bind(roleStore),
@@ -253,7 +245,7 @@ describe("ChromeProfileImportManager", () => {
       getRolePaths: roleStore.getRolePaths.bind(roleStore),
       listRoles: roleStore.listRoles.bind(roleStore),
       replaceRolesForImport: roleStore.replaceRolesForImport.bind(roleStore),
-      resetAuthentication: roleStore.resetAuthentication.bind(roleStore),
+      updateBrowserSessionSource: roleStore.updateBrowserSessionSource.bind(roleStore),
       updateRole: async () => { throw new Error("simulated overwrite failure"); }
     };
     const manager = createManager({ roleStore: failingRoleStore, source, userDataDir });
@@ -264,8 +256,7 @@ describe("ChromeProfileImportManager", () => {
     await expect(roleStore.getRole(existingRole.id)).resolves.toMatchObject({
       id: existingRole.id,
       notes: "Original",
-      authState: "authenticated",
-      lastSuccessfulLoginAt: "2020-01-01T00:00:00.000Z"
+      browserSessionSource: "embedded"
     });
     await expect(readFile(join(roleStore.getRolePaths(existingRole.id).browserUserDataDir, "original.txt"), "utf8"))
       .resolves.toBe("keep");

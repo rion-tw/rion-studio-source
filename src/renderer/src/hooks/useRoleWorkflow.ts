@@ -2,12 +2,11 @@ import { useMemo, useRef, useState, type Dispatch, type SetStateAction } from "r
 
 import { createCopyName } from "../app/copyName";
 import { formatBulkDeleteResult } from "../app/bulkDelete";
-import { mergeAuthStatus, mergeStatus } from "../app/statusUtils";
+import { mergeStatus } from "../app/statusUtils";
 import type { RoleFormState, SidebarFilter } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
 import type {
-  AuthFlowStatus,
   LaunchWorkspace,
   Macro,
   Role,
@@ -19,7 +18,6 @@ interface UseRoleWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
   roles: Role[];
   gameNamesById: Map<string, string>;
-  setAuthStatuses: Dispatch<SetStateAction<AuthFlowStatus[]>>;
   setMacros: Dispatch<SetStateAction<Macro[]>>;
   setNotice?: (message: string | null) => void;
   setRoles: Dispatch<SetStateAction<Role[]>>;
@@ -33,7 +31,6 @@ export function useRoleWorkflow({
   beginErrorOperation,
   roles,
   gameNamesById,
-  setAuthStatuses,
   setMacros,
   setNotice,
   setRoles,
@@ -63,10 +60,6 @@ export function useRoleWorkflow({
       }
 
       if (activeFilter === "stopped" && isActive) {
-        return false;
-      }
-
-      if (activeFilter === "needsLogin" && role.authState === "authenticated") {
         return false;
       }
 
@@ -182,25 +175,6 @@ export function useRoleWorkflow({
     }
   }
 
-  async function handleSystemLogin(roleId: string): Promise<void> {
-    const finishBusy = beginBusy(roleId);
-    if (!finishBusy) {
-      return;
-    }
-
-    const reportError = beginErrorOperation();
-
-    try {
-      const authStatus = await window.rionStudio.startLogin(roleId);
-      setAuthStatuses((current) => mergeAuthStatus(current, authStatus));
-      setStatuses((current) => current.filter((status) => status.roleId !== roleId));
-    } catch (loginError) {
-      reportError(loginError);
-    } finally {
-      finishBusy();
-    }
-  }
-
   async function handleDeleteMany(selectedRoles: Role[]): Promise<boolean> {
     if (selectedRoles.length === 0) {
       return false;
@@ -234,7 +208,6 @@ export function useRoleWorkflow({
       const confirmedDeletedIds = new Set(result.deletedIds);
       setRoles((current) => current.filter((item) => !confirmedDeletedIds.has(item.id)));
       setStatuses((current) => current.filter((status) => !confirmedDeletedIds.has(status.roleId)));
-      setAuthStatuses((current) => current.filter((status) => !confirmedDeletedIds.has(status.roleId)));
       setWorkspaces((current) => current.map((workspace) => ({
         ...workspace,
         slots: workspace.slots.map((slot) => {
@@ -257,16 +230,14 @@ export function useRoleWorkflow({
         })));
 
       try {
-        const [nextRoles, nextStatuses, nextAuthStatuses, nextWorkspaces, nextMacros] = await Promise.all([
+        const [nextRoles, nextStatuses, nextWorkspaces, nextMacros] = await Promise.all([
           window.rionStudio.listRoles(),
           window.rionStudio.listRoleStatuses(),
-          window.rionStudio.listAuthStatuses(),
           window.rionStudio.listLaunchWorkspaces(),
           window.rionStudio.listMacros()
         ]);
         setRoles(nextRoles);
         setStatuses(nextStatuses);
-        setAuthStatuses(nextAuthStatuses);
         setWorkspaces(nextWorkspaces);
         setMacros(nextMacros);
       } catch (recoveryError) {
@@ -317,20 +288,17 @@ export function useRoleWorkflow({
       const updatedRole = await window.rionStudio.clearRoleBrowserData(role.id);
       setRoles((current) => current.map((item) => item.id === updatedRole.id ? updatedRole : item));
       setStatuses((current) => current.filter((status) => status.roleId !== role.id));
-      setAuthStatuses((current) => current.filter((status) => status.roleId !== role.id));
       setNotice?.(t("notice.roleBrowserDataCleared").replace("{name}", role.name));
       return true;
     } catch (clearError) {
       reportError(clearError);
       try {
-        const [nextRoles, nextStatuses, nextAuthStatuses] = await Promise.all([
+        const [nextRoles, nextStatuses] = await Promise.all([
           window.rionStudio.listRoles(),
-          window.rionStudio.listRoleStatuses(),
-          window.rionStudio.listAuthStatuses()
+          window.rionStudio.listRoleStatuses()
         ]);
         setRoles(nextRoles);
         setStatuses(nextStatuses);
-        setAuthStatuses(nextAuthStatuses);
       } catch (recoveryError) {
         reportError(recoveryError);
       }
@@ -412,12 +380,10 @@ export function useRoleWorkflow({
     handleLaunch,
     handleReorder,
     handleStop,
-    handleSystemLogin,
     isReorderingRoles,
     isSaving,
     listScrollTopRef,
     query,
-    requestSystemLogin: handleSystemLogin,
     saveRole,
     setActiveFilter,
     setQuery

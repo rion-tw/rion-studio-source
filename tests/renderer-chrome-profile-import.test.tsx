@@ -61,7 +61,7 @@ describe("Chrome profile import flow", () => {
     }));
     const importResult = {
       roles: [{
-        authState: "login_required" as const,
+        browserSessionSource: "chrome-profile" as const,
         createdAt: "2026-07-10T00:00:00.000Z",
         gameId: game.id,
         id: "role-1",
@@ -175,7 +175,7 @@ describe("Chrome profile import flow", () => {
     resolveImport?.(importResult);
     await waitFor(() => expect(screen.getByText("Chrome profile import complete")).toBeTruthy());
     expect(screen.getByText("小胖")).toBeTruthy();
-    expect(screen.getByText(/Imported roles are intentionally marked as needing login/)).toBeTruthy();
+    expect(screen.getByText(/The imported browser session is ready to use/)).toBeTruthy();
     expect(screen.queryByText("Embedded browser")).toBeNull();
     expect(screen.queryByText("External Chrome")).toBeNull();
   });

@@ -129,7 +129,7 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
               </Select>
               <Select value={source} onValueChange={(value) => setSource(value as LogSource | typeof ALL)}>
                 <SelectTrigger className="w-36 settings-menu-control"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value={ALL}>{t("settings.logsAllSources")}</SelectItem>{(["main", "preload", "renderer", "ipc", "browser", "auth", "macro", "persistence", "update"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+                <SelectContent><SelectItem value={ALL}>{t("settings.logsAllSources")}</SelectItem>{(["main", "preload", "renderer", "ipc", "browser", "macro", "persistence", "update"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
               </Select>
               <Button type="button" variant={live ? "default" : "outline"} onClick={() => setLive((value) => !value)}>{t(live ? "settings.logsLiveOn" : "settings.logsLiveOff")}</Button>
             </div>

@@ -1,7 +1,6 @@
 import { Menu, type BaseWindow, type MenuItemConstructorOptions } from "electron";
 
 import type { AppLanguage, PendingWorkspaceLaunchRequest, WorkspaceDisplayInfo } from "../../shared/types";
-import type { AuthManager } from "../auth/AuthManager";
 import type { BrowserManager } from "../browser/BrowserManager";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
@@ -62,7 +61,6 @@ const labels: Record<AppLanguage, Record<RuntimeMenuLabelKey, string>> = {
 };
 
 interface RuntimeTabMenuOptions {
-  authManager: Pick<AuthManager, "startLogin">;
   browserManager: Pick<
     BrowserManager,
     "acquireRuntimeToolbarRevealLock" | "launch" | "listEmbeddedRuntimeState" |
@@ -226,10 +224,6 @@ export class RuntimeTabMenuController {
       const launchOptions = display
         ? { target: { displayId, workArea: display.workArea } }
         : undefined;
-      if (role.authState !== "authenticated") {
-        this.options.authManager.startLogin(role, launchOptions);
-        return;
-      }
       await this.options.browserManager.launch(role, launchOptions);
     } catch (error) {
       this.logger.error(`Failed to launch role from runtime menu: ${roleId}`, error);

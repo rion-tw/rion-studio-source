@@ -1,6 +1,5 @@
 import type {
   AcceptLegalDocumentsInput,
-  AuthFlowStatus,
   AppLanguage,
   AppRendererReadyState,
   AppSnapshot,
@@ -85,10 +84,7 @@ export interface RionStudioApi {
   deleteRoles: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   clearRoleBrowserData: (id: string) => Promise<Role>;
   getRolePaths: (id: string) => Promise<RolePaths>;
-  startLogin: (id: string) => Promise<AuthFlowStatus>;
-  listAuthStatuses: () => Promise<AuthFlowStatus[]>;
   launchRole: (id: string) => Promise<RoleStatus | null>;
-  openSystemLoginWindow: (id: string) => Promise<void>;
   captureExternalRoleDiagnostics: (id: string) => Promise<void>;
   recoverExternalRole: (id: string) => Promise<RoleStatus>;
   stopRole: (id: string) => Promise<void>;
@@ -149,7 +145,6 @@ export interface RionStudioApi {
   ) => () => void;
   onWorkspaceDisplaysChanged: (callback: (displays: WorkspaceDisplayInfo[]) => void) => () => void;
   onWorkspaceLaunchRequested: (callback: (request: PendingWorkspaceLaunchRequest) => void) => () => void;
-  onAuthStatusChanged: (callback: (statuses: AuthFlowStatus[]) => void) => () => void;
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;

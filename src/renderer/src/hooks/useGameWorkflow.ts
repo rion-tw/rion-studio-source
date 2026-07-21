@@ -37,7 +37,6 @@ export function useGameWorkflow({
         iconImageDataUrl: form.source === "custom" ? form.iconImageDataUrl ?? null : undefined,
         coverImageDataUrl: form.source === "custom" ? form.coverImageDataUrl ?? null : undefined,
         defaultLaunchUrl: form.defaultLaunchUrl,
-        loginUrl: form.loginUrl.trim() || null,
         browserLaunchMode: form.browserLaunchMode
       };
       const saved = form.id

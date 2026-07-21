@@ -46,8 +46,6 @@ export function GameCompatibilityPanel({
     ["games.compatibility.observation.external", observations.lastExternalSuccessAt],
     ["games.compatibility.observation.fallback", observations.lastFallbackAt],
     ["games.compatibility.observation.launchFailure", observations.lastLaunchFailureAt, observations.lastLaunchFailureCode],
-    ["games.compatibility.observation.authSuccess", observations.lastAuthSuccessAt],
-    ["games.compatibility.observation.authFailure", observations.lastAuthFailureAt]
   ].filter((item) => item[1]) : [];
 
   return (

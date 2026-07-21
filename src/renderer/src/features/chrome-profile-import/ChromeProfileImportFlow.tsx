@@ -432,7 +432,7 @@ function ChromeProfileImportDialog({
           <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-[11px] leading-5 text-muted-foreground">
             <p>{t("settings.chromeProfileImportFinalNotice")}</p>
             <p className="mt-1">{t("settings.chromeProfileImportPasswordNotice")}</p>
-            <p className="mt-1">{t("settings.chromeProfileImportLoginDataNotice")}</p>
+            <p className="mt-1">{t("settings.chromeProfileImportSessionDataNotice")}</p>
           </div>
           <label className="flex items-start gap-2 text-xs leading-5 text-foreground">
             <Checkbox
@@ -504,7 +504,7 @@ function ChromeProfileImportResultDialog({
             </div>
           ))}
           <p className="text-[11px] leading-5 text-muted-foreground">
-            {t("settings.chromeProfileImportReLoginReminder")}
+            {t("settings.chromeProfileImportReadyNotice")}
           </p>
         </div>
         <div className="glass-divider flex justify-end border-t px-5 py-4">

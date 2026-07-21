@@ -30,7 +30,7 @@ describe("RoleStore", () => {
     expect(role).toMatchObject({
       name: "Main",
       launchUrl: DEFAULT_LAUNCH_URL,
-      authState: "login_required"
+      browserSessionSource: "embedded"
     });
     await expect(mkdir(store.getRolePaths(role.id).browserUserDataDir)).rejects.toMatchObject({
       code: "EEXIST"
@@ -126,19 +126,6 @@ describe("RoleStore", () => {
     });
   });
 
-  it("resets login state when the launch URL changes", async () => {
-    const role = await store.createRole({ gameId: "game-1", name: "Main", launchUrl: "https://example.com/play" });
-    await store.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
-
-    const updated = await store.updateRole(role.id, { launchUrl: "https://example.org/play" });
-
-    expect(updated).toMatchObject({
-      launchUrl: "https://example.org/play",
-      authState: "login_required"
-    });
-    expect(updated.lastSuccessfulLoginAt).toBeUndefined();
-  });
-
   it("removes the legacy imported launch preference during migration", async () => {
     const role = await store.createRole({ gameId: "game-1", name: "Imported" });
     const rolesPath = join(baseDir, "roles.json");
@@ -149,36 +136,9 @@ describe("RoleStore", () => {
     const migratedStore = new RoleStore(baseDir);
     await expect(migratedStore.removeLegacyLaunchPresets()).resolves.toBe(true);
     await expect(migratedStore.listRoles()).resolves.toMatchObject([
-      { id: role.id, name: "Imported", authState: "login_required" }
+      { id: role.id, name: "Imported", browserSessionSource: "embedded" }
     ]);
     await expect(readFile(rolesPath, "utf8")).resolves.not.toContain("preferredBrowserLaunchMode");
-  });
-
-  it("updates auth state and records auth timestamps", async () => {
-    const role = await store.createRole({ gameId: "game-1", name: "Main" });
-    const updated = await store.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
-
-    expect(updated).toMatchObject({
-      id: role.id,
-      authState: "authenticated",
-      lastAuthCheckAt: "2026-07-10T01:00:00.000Z",
-      lastSuccessfulLoginAt: "2026-07-10T01:00:00.000Z"
-    });
-  });
-
-  it("resets imported authentication state and clears login timestamps", async () => {
-    const role = await store.createRole({ gameId: "game-1", name: "Imported" });
-    await store.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
-
-    const reset = await store.resetAuthentication(role.id, "2026-07-11T01:00:00.000Z");
-
-    expect(reset).toMatchObject({
-      id: role.id,
-      authState: "login_required",
-      updatedAt: "2026-07-11T01:00:00.000Z"
-    });
-    expect(reset.lastAuthCheckAt).toBeUndefined();
-    expect(reset.lastSuccessfulLoginAt).toBeUndefined();
   });
 
   it("drops legacy login provider fields from stored roles", async () => {
@@ -217,8 +177,12 @@ describe("RoleStore", () => {
     const stored = JSON.parse(await readFile(join(baseDir, "roles.json"), "utf8")) as {
       roles: Array<Record<string, unknown>>;
     };
+    expect(stored.roles[0]).toMatchObject({ browserSessionSource: "embedded" });
     expect(stored.roles[0]).not.toHaveProperty("windowWidth");
     expect(stored.roles[0]).not.toHaveProperty("windowHeight");
+    expect(stored.roles[0]).not.toHaveProperty("authState");
+    expect(stored.roles[0]).not.toHaveProperty("lastAuthCheckAt");
+    expect(stored.roles[0]).not.toHaveProperty("lastSuccessfulLoginAt");
   });
 
   it("migrates legacy runtime URL fields to launch URLs", async () => {

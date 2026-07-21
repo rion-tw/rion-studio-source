@@ -274,7 +274,6 @@ function createConfigurationFingerprint(
 ): string {
   const input = JSON.stringify({
     defaultLaunchUrl: game.defaultLaunchUrl,
-    loginUrl: game.loginUrl ?? "",
     network: settings.network,
     graphics: settings.graphics,
     chrome: versions.chrome ?? "unknown",

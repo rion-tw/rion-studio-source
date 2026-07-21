@@ -24,18 +24,6 @@ export interface AppWindowState {
   fullscreen: boolean;
 }
 
-export type AuthState = "unknown" | "login_required" | "authenticated" | "auth_failed";
-export type AuthFlowState =
-  | "opening_app"
-  | "opening_chrome"
-  | "waiting_for_login"
-  | "closing_login_window"
-  | "waiting_for_chrome_close"
-  | "waiting_for_user_data_release"
-  | "checking_session"
-  | "launching"
-  | "failed";
-
 export type GameSource = "builtin" | "custom";
 export type BuiltinGameKey = "flyff-universe" | "feifei-infinite-universe";
 
@@ -47,7 +35,6 @@ export interface Game {
   iconImageDataUrl?: string;
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
-  loginUrl?: string;
   browserLaunchMode: InheritableBrowserLaunchMode;
   createdAt: string;
   updatedAt: string;
@@ -58,7 +45,6 @@ export interface CreateGameInput {
   iconImageDataUrl?: string | null;
   coverImageDataUrl?: string | null;
   defaultLaunchUrl: string;
-  loginUrl?: string | null;
   browserLaunchMode?: InheritableBrowserLaunchMode;
 }
 
@@ -70,14 +56,15 @@ export interface Role {
   name: string;
   launchUrl: string;
   notes: string;
-  authState: AuthState;
+  browserSessionSource?: RoleBrowserSessionSource;
   coverImageDataUrl?: string;
   coverImageDominantColor?: string;
-  lastAuthCheckAt?: string;
-  lastSuccessfulLoginAt?: string;
   createdAt: string;
   updatedAt: string;
 }
+
+/** Selects the browser storage backend; this is not an authentication state. */
+export type RoleBrowserSessionSource = "embedded" | "chrome-profile";
 
 export interface CreateRoleInput {
   gameId: string;
@@ -289,14 +276,6 @@ export interface MacroRunStatus {
   error?: string;
 }
 
-export interface AuthFlowStatus {
-  roleId: string;
-  state: AuthFlowState;
-  message?: string;
-  startedAt: string;
-  updatedAt: string;
-}
-
 export interface RolePaths {
   browserUserDataDir: string;
 }
@@ -414,7 +393,6 @@ export interface AppSnapshot {
   gameCompatibilityStatuses: GameCompatibilityRunStatus[];
   roles: Role[];
   roleStatuses: RoleStatus[];
-  authStatuses: AuthFlowStatus[];
   launchWorkspaces: LaunchWorkspace[];
   workspaceDisplays: WorkspaceDisplayInfo[];
   macros: Macro[];
@@ -594,8 +572,6 @@ export interface GameCompatibilityObservations {
   lastFallbackAt?: string;
   lastLaunchFailureAt?: string;
   lastLaunchFailureCode?: string;
-  lastAuthSuccessAt?: string;
-  lastAuthFailureAt?: string;
 }
 
 export interface GameCompatibilityReport {
@@ -732,7 +708,6 @@ export interface PortableGame {
   iconImageDataUrl?: string;
   coverImageDataUrl?: string;
   defaultLaunchUrl: string;
-  loginUrl?: string;
   browserLaunchMode: InheritableBrowserLaunchMode;
 }
 
@@ -958,7 +933,6 @@ export const LOG_SOURCES = [
   "renderer",
   "ipc",
   "browser",
-  "auth",
   "macro",
   "persistence",
   "update"

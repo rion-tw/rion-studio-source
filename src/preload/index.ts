@@ -5,7 +5,6 @@ import type { RionStudioApi } from "../shared/api";
 import type {
   AppUpdateStatus,
   AppWindowState,
-  AuthFlowStatus,
   ChromeProfileImportProgress,
   Game,
   GameCompatibilityReport,
@@ -52,10 +51,7 @@ const api: RionStudioApi = {
   deleteRoles: (input) => ipcRenderer.invoke(IPC_CHANNELS.rolesDeleteMany, input),
   clearRoleBrowserData: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesClearBrowserData, id),
   getRolePaths: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesPaths, id),
-  startLogin: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesStartLogin, id),
-  listAuthStatuses: () => ipcRenderer.invoke(IPC_CHANNELS.rolesAuthStatuses),
   launchRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesLaunch, id),
-  openSystemLoginWindow: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesOpenSystemLogin, id),
   captureExternalRoleDiagnostics: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesCaptureExternalDiagnostics, id),
   recoverExternalRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesRecoverExternal, id),
   stopRole: (id) => ipcRenderer.invoke(IPC_CHANNELS.rolesStop, id),
@@ -177,17 +173,6 @@ const api: RionStudioApi = {
 
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.workspacesLaunchRequested, listener);
-    };
-  },
-  onAuthStatusChanged: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, statuses: AuthFlowStatus[]) => {
-      callback(statuses);
-    };
-
-    ipcRenderer.on(IPC_CHANNELS.rolesAuthStatusChanged, listener);
-
-    return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.rolesAuthStatusChanged, listener);
     };
   },
   onMacroStatusChanged: (callback) => {

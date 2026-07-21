@@ -44,12 +44,6 @@ export class WorkspaceLaunchCoordinator {
         role: await this.options.roleStore.getRole(slot.roleId ?? "")
       }))
     );
-    const unauthenticatedRole = launchItems.find((item) => item.role.authState !== "authenticated");
-
-    if (unauthenticatedRole) {
-      throw new Error("Login required. Use Login before launching every role in this workspace.");
-    }
-
     const displays = this.getWorkspaceDisplays();
     const targetDisplay = input?.displayId !== undefined
       ? displays.find((display) => display.id === input.displayId)

@@ -111,7 +111,6 @@ function GameEditor({
         <Surface className="grid gap-4 p-4" variant="inset">
           <FieldHeader title={t("games.form.urls")} description={t("games.form.urlsDescription")} />
           <FormField htmlFor="game-launch-url" label={t("games.form.defaultLaunchUrl")}><Input id="game-launch-url" type="url" maxLength={2048} required value={form.defaultLaunchUrl} onChange={(e) => setForm({ ...form, defaultLaunchUrl: e.target.value })} /></FormField>
-          <FormField htmlFor="game-login-url" label={t("games.form.loginUrl")} description={t("games.form.loginUrlDescription")}><Input id="game-login-url" type="url" maxLength={2048} value={form.loginUrl} onChange={(e) => setForm({ ...form, loginUrl: e.target.value })} /></FormField>
         </Surface>
         <Surface className="grid gap-4 p-4" variant="inset">
           <FormField label={t("games.form.launchMode")}><Select value={form.browserLaunchMode} onValueChange={(value) => setForm({ ...form, browserLaunchMode: value as InheritableBrowserLaunchMode })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inherit">{t("games.mode.inherit")}</SelectItem><SelectItem value="auto">{t("games.mode.auto")}</SelectItem><SelectItem value="embedded">{t("games.mode.embedded")}</SelectItem><SelectItem value="external">{t("games.mode.external")}</SelectItem></SelectContent></Select></FormField>

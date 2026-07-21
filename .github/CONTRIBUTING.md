@@ -36,18 +36,17 @@ roles/{roleId}/browser
 
 The app stores browser session data only. It does not store login passwords.
 
-### Login Architecture
+### Browser Session Architecture
 
-Google can block sign-in from browsers that are controlled by automation. Use the
-`Login` button on a role to open the same role directory in system Chrome
-without Playwright control or remote debugging flags. After signing in, close the
-temporary Chrome window manually; Rion Studio then checks the session and
-automatically launches the normal automation-ready Chrome window when login is
-confirmed.
+Roles always launch their configured game URL directly. A role uses either its
+isolated embedded Electron partition or an imported Chrome profile session; the
+`browserSessionSource` field selects that storage backend and is not an auth
+status. Chrome profile import requires Chrome to be closed, copies only the
+approved browser storage, decrypts and injects cookies through platform APIs, and
+rolls back role and profile data if injection fails.
 
-Roles that have a confirmed login show `Launch` as the primary card action. The
-card hides `Login` until the session check fails or the role is explicitly
-re-logged from the edit panel.
+External Chrome remains available only as a game compatibility mode. Normal
+embedded launches do not add remote debugging flags.
 
 ### Packaging Notes
 

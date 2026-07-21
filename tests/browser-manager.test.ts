@@ -13,7 +13,6 @@ import {
   isExpectedNativeZoomResult,
   normalizedRectToPixelBounds
 } from "../src/main/browser/BrowserManager";
-import { LOGIN_STORAGE_EXPRESSION } from "../src/main/auth/loginEvidence";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
 import type {
   BrowserLaunchMode,
@@ -34,7 +33,7 @@ const role: Role = {
   name: "Main",
   launchUrl: "https://example.com/play",
   notes: "",
-  authState: "authenticated",
+  browserSessionSource: "embedded",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
@@ -153,8 +152,6 @@ describe("BrowserManager game host windows", () => {
         .toBeLessThan(harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]);
       expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
       expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
-      expect(harness.views[0].webContents.executeJavaScript)
-        .not.toHaveBeenCalledWith(LOGIN_STORAGE_EXPRESSION);
     }
   );
 
@@ -4125,12 +4122,7 @@ describe("BrowserManager game host windows", () => {
   });
 
   it("does not inspect or reject workspace roles based on login-page snapshots", async () => {
-    const harness = createHarness({
-      snapshotsByView: [
-        { bodyText: "Welcome", localStorage: { authToken: "token-1" } },
-        { bodyText: "Log in with Google", localStorage: {} }
-      ]
-    });
+    const harness = createHarness();
 
     await expect(harness.manager.launchWorkspace(workspace, [
         { role, rect: workspace.slots[0].rect },
@@ -4317,47 +4309,6 @@ describe("BrowserManager game host windows", () => {
     }, popup.webContents);
   });
 
-  it("keeps a login host open until authentication evidence appears", async () => {
-    const harness = createHarness({
-      snapshotsByView: [{ bodyText: "Welcome", localStorage: { authToken: "token-1" } }]
-    });
-
-    await harness.manager.startLogin({ ...role, authState: "login_required" });
-    await expect(harness.manager.waitForAuthentication(role.id)).resolves.toMatchObject({
-      authState: "authenticated"
-    });
-    expect(harness.hosts[0].show).toHaveBeenCalledTimes(1);
-    expect(harness.manager.listStatuses()).toMatchObject([{ roleId: role.id, state: "running" }]);
-  });
-
-  it("opens the game login URL but verifies persisted cookies against the role launch URL", async () => {
-    const loginUrl = "https://accounts.example.com/login";
-    const getLoginUrl = vi.fn().mockResolvedValue(loginUrl);
-    const harness = createHarness({ getLoginUrl });
-
-    await harness.manager.startLogin({ ...role, authState: "login_required" });
-    await harness.views[0].webContents.loadURL(role.launchUrl);
-    await expect(harness.manager.waitForAuthentication(role.id)).resolves.toMatchObject({
-      authState: "authenticated"
-    });
-
-    expect(getLoginUrl).toHaveBeenCalledWith(expect.objectContaining({ id: role.id }));
-    expect(harness.views[0].webContents.loadURL).toHaveBeenNthCalledWith(1, loginUrl);
-    expect(harness.views[0].webContents.session.cookies.get).toHaveBeenCalledWith({
-      url: role.launchUrl
-    });
-  });
-
-  it("opens the launch URL after an imported Chrome profile has synchronized its cookies", async () => {
-    const loginUrl = "https://accounts.example.com/login";
-    const getLoginUrl = vi.fn().mockResolvedValue(loginUrl);
-    const harness = createHarness({ getLoginUrl });
-
-    await harness.manager.startLogin({ ...role, authState: "login_required" }, { forceLaunchUrl: true });
-
-    expect(getLoginUrl).not.toHaveBeenCalled();
-    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
-  });
 });
 
 describe("normalizedRectToPixelBounds", () => {
@@ -4466,7 +4417,6 @@ function createHarness(options: {
   externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
-  getLoginUrl?: (role: Role) => string | Promise<string>;
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
@@ -4480,7 +4430,6 @@ function createHarness(options: {
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   resourcePressureMonitor?: BrowserManagerOptions["resourcePressureMonitor"];
-  snapshotsByView?: Array<{ bodyText: string; localStorage: Record<string, string> }>;
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
   useTabbedHostWindow?: boolean;
@@ -4499,7 +4448,6 @@ function createHarness(options: {
     update: ReturnType<typeof vi.fn>;
   }> = [];
   const views: ReturnType<typeof createMockView>[] = [];
-  const defaultSnapshot = { bodyText: "Welcome", localStorage: { authToken: "token-1" } };
   const createHostWindow = vi.fn((windowOptions: {
     x?: number;
     y?: number;
@@ -4533,10 +4481,8 @@ function createHarness(options: {
     return host as never;
   });
   const createView = vi.fn((viewOptions: { webPreferences?: { zoomFactor?: number } }) => {
-    const snapshot = options.snapshotsByView?.[views.length] ?? defaultSnapshot;
     const loadUrlHandler = options.loadUrlHandlers?.[views.length];
     const view = createMockView(
-      () => snapshot,
       loadUrlHandler,
       viewOptions.webPreferences?.zoomFactor ?? 1
     );
@@ -4544,7 +4490,7 @@ function createHarness(options: {
     return view.view as never;
   });
   const createRuntimeChromeView = vi.fn(() => {
-    const view = createMockView(() => defaultSnapshot);
+    const view = createMockView();
     chromeViews.push(view);
     return view.view as never;
   });
@@ -4588,7 +4534,6 @@ function createHarness(options: {
     ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
-    ...(options.getLoginUrl ? { getLoginUrl: options.getLoginUrl } : {}),
     ...(options.getRuntimeTabGameIcon
       ? { getRuntimeTabGameIcon: options.getRuntimeTabGameIcon }
       : {}),
@@ -4610,12 +4555,6 @@ function createHarness(options: {
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     ...(options.defaultLaunchTarget ? { getDefaultLaunchTarget: () => options.defaultLaunchTarget! } : {}),
     ...(options.workspaceDisplays ? { getWorkspaceDisplays: () => options.workspaceDisplays! } : {}),
-    authSessionSettleOptions: {
-      idleMs: 0,
-      pollIntervalMs: 0,
-      requiredStableSamples: 1
-    },
-    loginPollIntervalMs: 0,
     platform: options.platform ?? (options.useTabbedHostWindow ? "win32" : process.platform),
     ...(options.prefersReducedTransparency
       ? { prefersReducedTransparency: options.prefersReducedTransparency }
@@ -4791,7 +4730,6 @@ function getMockNativeZoomFactor(
 }
 
 function createMockView(
-  readSnapshot: () => { bodyText: string; localStorage: Record<string, string> },
   loadUrlHandler?: (url: string) => Promise<void>,
   initialZoomFactor = 1
 ) {
@@ -4820,18 +4758,7 @@ function createMockView(
     close: vi.fn(() => {
       destroyed = true;
     }),
-    executeJavaScript: vi.fn(async (source: string) => {
-      if (source === LOGIN_STORAGE_EXPRESSION) {
-        const snapshot = readSnapshot();
-        return {
-          bodyText: snapshot.bodyText,
-          indexedDb: {},
-          localStorage: snapshot.localStorage,
-          sessionStorage: {}
-        };
-      }
-      return "";
-    }),
+    executeJavaScript: vi.fn(async () => ""),
     focus: vi.fn(),
     getOSProcessId: vi.fn(() => processId),
     getURL: vi.fn(() => currentUrl),

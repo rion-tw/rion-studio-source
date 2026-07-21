@@ -121,13 +121,12 @@ describe("bulk selection UI", () => {
     render(
       <RolesRoute
         activeFilter="all"
-        authStatusByRole={new Map()}
         busyRoleIds={new Set()}
         filteredRoles={[item]}
         games={[]}
         isReordering={false}
         language="en"
-        roleStats={{ total: 1, running: 0, stopped: 1, needsLogin: 1, authFailed: 0 }}
+        roleStats={{ total: 1, running: 0, stopped: 1 }}
         roles={[item]}
         scrollPositionRef={{ current: 0 }}
         query=""
@@ -141,7 +140,6 @@ describe("bulk selection UI", () => {
         onEdit={vi.fn()}
         onFilterChange={vi.fn()}
         onLaunch={vi.fn()}
-        onLogin={vi.fn()}
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
@@ -164,13 +162,12 @@ describe("bulk selection UI", () => {
     render(
       <RolesRoute
         activeFilter="all"
-        authStatusByRole={new Map()}
         busyRoleIds={new Set()}
         filteredRoles={[item]}
         games={[]}
         isReordering={false}
         language="en"
-        roleStats={{ total: 1, running: 1, stopped: 0, needsLogin: 1, authFailed: 0 }}
+        roleStats={{ total: 1, running: 1, stopped: 0 }}
         roles={[item]}
         scrollPositionRef={{ current: 0 }}
         query=""
@@ -191,7 +188,6 @@ describe("bulk selection UI", () => {
         onEdit={vi.fn()}
         onFilterChange={vi.fn()}
         onLaunch={vi.fn()}
-        onLogin={vi.fn()}
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onRecoverExternalRole={onRecoverExternalRole}
@@ -326,7 +322,6 @@ function role(id: string, name: string): Role {
     name,
     launchUrl: "https://example.test/play",
     notes: "",
-    authState: "login_required",
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   };

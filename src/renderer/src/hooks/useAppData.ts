@@ -9,7 +9,6 @@ import {
 } from "react";
 
 import type {
-  AuthFlowStatus,
   EmbeddedRuntimeState,
   Game,
   GameCompatibilityReport,
@@ -62,7 +61,6 @@ export function useAppData() {
   const workspaceDisplayState = useVersionedState<WorkspaceDisplayInfo[]>([]);
   const macroState = useVersionedState<Macro[]>([]);
   const statusState = useVersionedState<RoleStatus[]>([]);
-  const authStatusState = useVersionedState<AuthFlowStatus[]>([]);
   const macroStatusState = useVersionedState<MacroRunStatus[]>([]);
   const [error, setErrorState] = useState<unknown | null>(null);
   const [initialLoadState, setInitialLoadState] = useState<InitialLoadState>("loading");
@@ -124,12 +122,6 @@ export function useAppData() {
     value: statuses
   } = statusState;
   const {
-    beginRequest: beginAuthStatusesRequest,
-    commitRequest: commitAuthStatusesRequest,
-    setValue: setAuthStatuses,
-    value: authStatuses
-  } = authStatusState;
-  const {
     beginRequest: beginMacroStatusesRequest,
     commitRequest: commitMacroStatusesRequest,
     setValue: setMacroStatuses,
@@ -166,17 +158,13 @@ export function useAppData() {
     return new Map(statuses.map((status) => [status.roleId, status]));
   }, [statuses]);
 
-  const authStatusByRole = useMemo(() => {
-    return new Map(authStatuses.map((status) => [status.roleId, status]));
-  }, [authStatuses]);
-
   const macroStatusByRun = useMemo(() => {
     return new Map(macroStatuses.map((status) => [`${status.roleId}:${status.macroId}`, status]));
   }, [macroStatuses]);
 
   const roleStats = useMemo(() => {
-    return createRoleStats(roles, statuses, authStatuses);
-  }, [authStatuses, roles, statuses]);
+    return createRoleStats(roles, statuses);
+  }, [roles, statuses]);
 
   const loadData = useCallback(async (options: { markInitialLoad?: boolean; resetError?: boolean } = {}) => {
     const gamesRequest = beginGamesRequest();
@@ -185,7 +173,6 @@ export function useAppData() {
     const rolesRequest = beginRolesRequest();
     const embeddedRuntimeRequest = beginEmbeddedRuntimeRequest();
     const statusesRequest = beginStatusesRequest();
-    const authStatusesRequest = beginAuthStatusesRequest();
     const workspacesRequest = beginWorkspacesRequest();
     const macrosRequest = beginMacrosRequest();
     const macroStatusesRequest = beginMacroStatusesRequest();
@@ -209,7 +196,6 @@ export function useAppData() {
       commitCompatibilityStatusesRequest(compatibilityStatusesRequest, snapshot.gameCompatibilityStatuses);
       commitRolesRequest(rolesRequest, snapshot.roles);
       commitStatusesRequest(statusesRequest, snapshot.roleStatuses);
-      commitAuthStatusesRequest(authStatusesRequest, snapshot.authStatuses);
       commitWorkspacesRequest(workspacesRequest, snapshot.launchWorkspaces);
       commitMacrosRequest(macrosRequest, snapshot.macros);
       commitMacroStatusesRequest(macroStatusesRequest, snapshot.macroStatuses);
@@ -228,7 +214,6 @@ export function useAppData() {
     beginCompatibilityStatusesRequest,
     beginEmbeddedRuntimeRequest,
     beginGamesRequest,
-    beginAuthStatusesRequest,
     beginErrorOperation,
     beginMacrosRequest,
     beginMacroStatusesRequest,
@@ -237,7 +222,6 @@ export function useAppData() {
     beginWorkspaceDisplaysRequest,
     beginWorkspacesRequest,
     captureErrorReporter,
-    commitAuthStatusesRequest,
     commitCompatibilityReportsRequest,
     commitCompatibilityStatusesRequest,
     commitEmbeddedRuntimeRequest,
@@ -266,25 +250,6 @@ export function useAppData() {
     if (!window.rionStudio) return;
     return window.rionStudio.onEmbeddedRuntimeStateChanged(setEmbeddedRuntimeState);
   }, [setEmbeddedRuntimeState]);
-
-  useEffect(() => {
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onAuthStatusChanged((nextStatuses) => {
-      setAuthStatuses(nextStatuses);
-      if (!nextStatuses.some((status) => status.state === "launching" || status.state === "failed")) {
-        return;
-      }
-
-      const rolesRequest = beginRolesRequest();
-      const reportError = captureErrorReporter();
-      void window.rionStudio.listRoles().then((nextRoles) => {
-        commitRolesRequest(rolesRequest, nextRoles);
-      }).catch(reportError);
-    });
-  }, [beginRolesRequest, captureErrorReporter, commitRolesRequest, setAuthStatuses]);
 
   useEffect(() => {
     if (!window.rionStudio) {
@@ -340,8 +305,6 @@ export function useAppData() {
   }, [setCompatibilityReports, setCompatibilityStatuses]);
 
   return {
-    authStatusByRole,
-    authStatuses,
     beginErrorOperation,
     embeddedRuntime,
     error,
@@ -355,7 +318,6 @@ export function useAppData() {
     macroStatusByRun,
     roles,
     roleStats,
-    setAuthStatuses,
     setError,
     setGames,
     setCompatibilityReports,

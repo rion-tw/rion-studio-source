@@ -48,13 +48,12 @@ describe("create controls at the end of lists", () => {
     render(
       <RolesRoute
         activeFilter="all"
-        authStatusByRole={new Map()}
         busyRoleIds={new Set()}
         filteredRoles={[role()]}
         games={[]}
         isReordering={false}
         language="en"
-        roleStats={{ total: 1, running: 0, stopped: 1, needsLogin: 1, authFailed: 0 }}
+        roleStats={{ total: 1, running: 0, stopped: 1 }}
         roles={[role()]}
         scrollPositionRef={{ current: 0 }}
         query=""
@@ -68,7 +67,6 @@ describe("create controls at the end of lists", () => {
         onEdit={vi.fn()}
         onFilterChange={vi.fn()}
         onLaunch={vi.fn()}
-        onLogin={vi.fn()}
         onNewRole={onNewRole}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
@@ -188,7 +186,6 @@ function role(): Role {
     name: "Role one",
     launchUrl: "https://example.test/play",
     notes: "",
-    authState: "login_required",
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   };

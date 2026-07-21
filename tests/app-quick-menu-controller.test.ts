@@ -16,7 +16,6 @@ const role: Role = {
   name: "Main",
   launchUrl: "https://example.com/play",
   notes: "",
-  authState: "authenticated",
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
@@ -46,7 +45,6 @@ describe("AppQuickMenu", () => {
     const onWorkspaceDisplaySelectionRequired = vi.fn();
     const setMenu = vi.fn();
     const menu = new AppQuickMenu({
-      authManager: { listStatuses: vi.fn(() => []), startLogin: vi.fn() },
       browserManager: {
         launch: vi.fn(),
         listEmbeddedRuntimeState: vi.fn(() => ({ windows: [], tabs: [] })),
@@ -86,7 +84,6 @@ describe("AppQuickMenu", () => {
     const stopWorkspace = vi.fn().mockResolvedValue(undefined);
     const workspaceLauncher = { launch: vi.fn() };
     const menu = new AppQuickMenu({
-      authManager: { listStatuses: vi.fn(() => []), startLogin: vi.fn() },
       browserManager: {
         launch: vi.fn(),
         listEmbeddedRuntimeState: vi.fn(() => ({ windows: [], tabs: [] })),

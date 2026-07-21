@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Gamepad2,
+  FileWarning,
   Keyboard,
   LayoutDashboard,
   Loader2,
@@ -10,6 +11,7 @@ import {
   MonitorUp,
   Play,
   Square,
+  RotateCcw,
   Users
 } from "lucide-react";
 import { type JSX, useMemo } from "react";
@@ -63,6 +65,7 @@ interface DashboardRouteProps {
   workspaces: LaunchWorkspace[];
   workspaceDisplays: WorkspaceDisplayInfo[];
   onCreateWorkspace: () => void;
+  onCaptureExternalDiagnostics: (roleId: string) => void;
   onShowGameWindows: (displayId?: number) => void;
   onLaunchRole: (roleId: string) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
@@ -71,6 +74,7 @@ interface DashboardRouteProps {
   onNavigateGames: () => void;
   onNavigateRoles: (filter: SidebarFilter) => void;
   onNavigateWorkspaces: () => void;
+  onRecoverExternalRole: (roleId: string) => void;
   onNewMacro: () => void;
   onNewRole: () => void;
   onStartMacro: (macroId: string) => void;
@@ -97,6 +101,7 @@ function DashboardRoute({
   workspaces,
   workspaceDisplays,
   onCreateWorkspace,
+  onCaptureExternalDiagnostics,
   onShowGameWindows,
   onLaunchRole,
   onLaunchWorkspace,
@@ -105,6 +110,7 @@ function DashboardRoute({
   onNavigateGames,
   onNavigateRoles,
   onNavigateWorkspaces,
+  onRecoverExternalRole,
   onNewMacro,
   onNewRole,
   onStartMacro,
@@ -243,6 +249,8 @@ function DashboardRoute({
                     t={t}
                     onLaunch={() => onLaunchRole(item.role.id)}
                     onLogin={() => onLoginRole(item.role.id)}
+                    onCaptureDiagnostics={() => onCaptureExternalDiagnostics(item.role.id)}
+                    onRecover={() => onRecoverExternalRole(item.role.id)}
                     onStop={() => onStopRole(item.role.id)}
                   />
                 ))}
@@ -576,18 +584,25 @@ function RoleLaunchRow({
   item,
   onLaunch,
   onLogin,
+  onCaptureDiagnostics,
+  onRecover,
   onStop,
   t
 }: {
   item: DashboardRoleItem;
   onLaunch: () => void;
   onLogin: () => void;
+  onCaptureDiagnostics: () => void;
+  onRecover: () => void;
   onStop: () => void;
   t: Translator;
 }): JSX.Element {
   const actionLabel = getRoleActionLabel(item.action.kind, t);
   const actionIcon = getRoleActionIcon(item.action.kind);
   const coverImageUrl = item.role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
+  const status = item.status;
+  const isExternalCompatibilitySession = status?.runtimeMode === "external" && status.state === "running";
+  const isPageUnresponsive = isExternalCompatibilitySession && status?.pageHealth === "unresponsive";
 
   function handleAction(): void {
     if (item.action.disabled) {
@@ -608,7 +623,7 @@ function RoleLaunchRow({
   }
 
   return (
-    <div className="grid min-w-0 grid-cols-[34px_minmax(0,1fr)_auto_76px] items-center gap-2.5 rounded-md border border-border/35 bg-background/18 px-2.5 py-2 transition-colors hover:border-border/55 hover:bg-background/25">
+    <div className="grid min-w-0 grid-cols-[34px_minmax(0,1fr)_auto_auto_76px] items-center gap-2.5 rounded-md border border-border/35 bg-background/18 px-2.5 py-2 transition-colors hover:border-border/55 hover:bg-background/25">
       <img
         aria-hidden="true"
         alt=""
@@ -626,17 +641,30 @@ function RoleLaunchRow({
       <Badge className="h-[18px] justify-self-end px-1.5 text-[10px]" variant={getRoleBadgeVariant(item)}>
         {getRoleStatusLabel(item, t)}
       </Badge>
+      {isExternalCompatibilitySession ? (
+        <Button
+          aria-label={`${t("roles.reportGameFreeze")}: ${item.role.name}`}
+          className="size-[30px] p-0"
+          type="button"
+          variant="ghost"
+          size="sm"
+          title={t("roles.reportGameFreeze")}
+          onClick={onCaptureDiagnostics}
+        >
+          <FileWarning aria-hidden="true" size={14} />
+        </Button>
+      ) : <span aria-hidden="true" />}
       <Button
-        aria-label={`${actionLabel}: ${item.role.name}`}
+        aria-label={`${isPageUnresponsive ? t("roles.recoverExternal") : actionLabel}: ${item.role.name}`}
         className="w-[76px] gap-1.5 px-2"
         type="button"
-        variant={item.action.kind === "stop" ? "destructive" : "secondary"}
+        variant={isPageUnresponsive ? "secondary" : item.action.kind === "stop" ? "destructive" : "secondary"}
         size="sm"
-        onClick={handleAction}
+        onClick={isPageUnresponsive ? onRecover : handleAction}
         disabled={item.action.disabled}
       >
-        {item.action.isBusy ? <Loader2 aria-hidden="true" className="spin" size={14} /> : actionIcon}
-        {actionLabel}
+        {item.action.isBusy ? <Loader2 aria-hidden="true" className="spin" size={14} /> : isPageUnresponsive ? <RotateCcw aria-hidden="true" size={14} /> : actionIcon}
+        {isPageUnresponsive ? t("roles.recoverExternal") : actionLabel}
       </Button>
     </div>
   );
@@ -821,6 +849,9 @@ function getRoleStatusLabel(item: DashboardRoleItem, t: Translator): string {
   }
 
   if (item.status?.state === "running") {
+    if (item.status.pageHealth === "unresponsive") {
+      return t("dashboard.status.unresponsive");
+    }
     return t("dashboard.status.running");
   }
 
@@ -845,6 +876,9 @@ function getRoleBadgeVariant(item: DashboardRoleItem): "destructive" | "muted" |
   }
 
   if (item.status?.state === "running") {
+    if (item.status.pageHealth === "unresponsive") {
+      return "warning";
+    }
     return "success";
   }
 

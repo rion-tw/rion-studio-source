@@ -210,6 +210,63 @@ describe("ExternalChromeAutomationTarget", () => {
     });
   });
 
+  it("collects bounded page, CDP, performance, and window diagnostics without page content", async () => {
+    const harness = createHarness();
+    harness.send.mockImplementation(async (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+      if (method === "Browser.getVersion") return { product: "Chrome/596.36" };
+      if (method === "Performance.getMetrics") {
+        return { metrics: [{ name: "TaskDuration", value: 12.5 }, { name: "JSHeapUsedSize", value: 2048 }] };
+      }
+      if (method === "Browser.getWindowForTarget") {
+        return { bounds: { height: 1440, width: 2560, windowState: "fullscreen" }, windowId: 1 };
+      }
+      if (method === "Runtime.evaluate" && String(params?.expression).includes("document.fullscreenElement")) {
+        return {
+          result: {
+            value: {
+              fullscreen: true,
+              hasFocus: true,
+              hidden: false,
+              monotonicMs: 123.4,
+              visibilityState: "visible"
+            }
+          }
+        };
+      }
+      return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+    });
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+
+    const diagnostics = await target.collectDiagnostics();
+
+    expect(diagnostics).toMatchObject({
+      cdp: { consecutiveEvaluateFailures: 0 },
+      page: { fullscreen: true, hidden: false, visibilityState: "visible" },
+      performanceMetrics: { JSHeapUsedSize: 2048, TaskDuration: 12.5 },
+      window: { height: 1440, width: 2560, windowState: "fullscreen" }
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain("https://");
+  });
+
+  it("redacts URL and local-path fragments from diagnostic capture errors", async () => {
+    const harness = createHarness();
+    const target = new ExternalChromeAutomationTarget(harness.client);
+    await target.initialize();
+    harness.send.mockImplementation(async (method: string): Promise<unknown> => {
+      if (method === "Performance.getMetrics") {
+        throw new Error("https://game.example.test failed while reading C:\\profiles\\role-1\\browser");
+      }
+      return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+    });
+
+    const diagnostics = await target.collectDiagnostics();
+
+    expect(diagnostics.errors).toEqual([expect.stringContaining("<URL>")]);
+    expect(JSON.stringify(diagnostics)).not.toContain("game.example.test");
+    expect(JSON.stringify(diagnostics)).not.toContain("profiles\\role-1");
+  });
+
   it("dispatches a key combination atomically with CDP modifier state", async () => {
     const harness = createHarness();
     const target = new ExternalChromeAutomationTarget(harness.client, "win32");

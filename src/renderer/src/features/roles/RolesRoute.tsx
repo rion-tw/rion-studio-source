@@ -2,6 +2,7 @@ import {
   AlertCircle,
   Copy,
   Eraser,
+  FileWarning,
   Globe2,
   Loader2,
   LogIn,
@@ -12,7 +13,8 @@ import {
   Search,
   Square,
   Trash2,
-  Upload
+  Upload,
+  RotateCcw
 } from "lucide-react";
 import {
   type DragEvent,
@@ -74,6 +76,7 @@ interface RolesViewProps {
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   onClearQuery: () => void;
+  onCaptureExternalDiagnostics?: (roleId: string) => void;
   onClearBrowserData: (role: Role) => void;
   onCopy: (role: Role) => void;
   onDelete: (role: Role) => void;
@@ -83,6 +86,7 @@ interface RolesViewProps {
   onLaunch: (roleId: string) => void;
   onLogin: (roleId: string) => void;
   onOpenChromeProfileImport?: () => void;
+  onRecoverExternalRole?: (roleId: string) => void;
   onNewRole: () => void;
   onQueryChange: (query: string) => void;
   onReorder: (orderedIds: string[]) => void;
@@ -105,6 +109,7 @@ function RolesView({
   statusByRole,
   t,
   onClearQuery,
+  onCaptureExternalDiagnostics = () => undefined,
   onClearBrowserData,
   onCopy,
   onDelete,
@@ -114,6 +119,7 @@ function RolesView({
   onLaunch,
   onLogin,
   onOpenChromeProfileImport = () => undefined,
+  onRecoverExternalRole = () => undefined,
   onNewRole,
   onQueryChange,
   onReorder,
@@ -308,10 +314,12 @@ function RolesView({
                 t={t}
                 onCopy={() => onCopy(role)}
                 onClearBrowserData={() => onClearBrowserData(role)}
+                onCaptureExternalDiagnostics={() => onCaptureExternalDiagnostics(role.id)}
                 onDelete={() => onDelete(role)}
                 onEdit={() => onEdit(role)}
                 onLaunch={() => onLaunch(role.id)}
                 onLogin={() => onLogin(role.id)}
+                onRecoverExternalRole={() => onRecoverExternalRole(role.id)}
                 onDragEnd={clearDragState}
                 onDragOver={(event) => handleDragOver(event, role.id)}
                 onDragStart={(event) => handleDragStart(event, role.id)}
@@ -362,6 +370,7 @@ interface RoleCardProps {
   language: Language;
   onCopy: () => void;
   onClearBrowserData: () => void;
+  onCaptureExternalDiagnostics: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onDragEnd: () => void;
@@ -370,6 +379,7 @@ interface RoleCardProps {
   onDrop: (event: DragEvent<HTMLElement>) => void;
   onLaunch: () => void;
   onLogin: () => void;
+  onRecoverExternalRole: () => void;
   onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
   role: Role;
@@ -389,6 +399,7 @@ function RoleCard({
   language,
   onCopy,
   onClearBrowserData,
+  onCaptureExternalDiagnostics,
   onDelete,
   onEdit,
   onDragEnd,
@@ -397,6 +408,7 @@ function RoleCard({
   onDrop,
   onLaunch,
   onLogin,
+  onRecoverExternalRole,
   onStop,
   onSelectionClick,
   role,
@@ -407,6 +419,8 @@ function RoleCard({
   const isActive = Boolean(status);
   const isAuthFlowRunning = Boolean(authStatus && authStatus.state !== "failed");
   const isAuthenticated = role.authState === "authenticated";
+  const isExternalCompatibilitySession = status?.runtimeMode === "external" && status.state === "running";
+  const isPageUnresponsive = isExternalCompatibilitySession && status.pageHealth === "unresponsive";
   const coverImageUrl = role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
   const canUsePrimaryOverlayAction = isAuthenticated && !isAuthFlowRunning;
   const hasBottomAction = isAuthFlowRunning || !isAuthenticated;
@@ -497,6 +511,43 @@ function RoleCard({
               <AlertCircle className="mt-0.5 shrink-0" size={14} />
               {authStatus.message ? localizeErrorMessage(authStatus.message, language) : t("error.loginFailedSentence")}
             </p>
+          ) : null}
+
+          {isExternalCompatibilitySession ? (
+            <div className={cn(
+              "flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-1.5 text-[10px] font-medium backdrop-blur-md",
+              isPageUnresponsive
+                ? "border-warning-foreground/35 bg-warning/20 text-white"
+                : "border-white/20 bg-black/20 text-white/85"
+            )}>
+              {isPageUnresponsive ? <AlertCircle aria-hidden="true" size={13} /> : null}
+              <span className="min-w-0 flex-1">
+                {isPageUnresponsive ? t("roles.externalUnresponsive") : t("roles.externalDiagnosticsReady")}
+              </span>
+              <Button
+                className="h-6 gap-1 rounded-full px-1.5 text-[10px] text-white shadow-none hover:text-white"
+                type="button"
+                variant="secondary"
+                size="sm"
+                title={t("roles.reportGameFreeze")}
+                onClick={onCaptureExternalDiagnostics}
+              >
+                <FileWarning aria-hidden="true" size={12} />
+                {t("roles.reportShort")}
+              </Button>
+              {isPageUnresponsive ? (
+                <Button
+                  className="h-6 gap-1 rounded-full px-1.5 text-[10px] text-white shadow-none hover:text-white"
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={onRecoverExternalRole}
+                >
+                  <RotateCcw aria-hidden="true" size={12} />
+                  {t("roles.recoverExternal")}
+                </Button>
+              ) : null}
+            </div>
           ) : null}
 
           <div

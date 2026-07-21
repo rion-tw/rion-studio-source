@@ -1,5 +1,5 @@
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
-import { lazy, Suspense, type JSX, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, type JSX, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 
 import appIconUrl from "./assets/app-icon.png";
@@ -64,6 +64,7 @@ export function App(): JSX.Element {
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
   const [macroSettings, setMacroSettings] = useState<MacroSettings>(DEFAULT_MACRO_SETTINGS);
   const [notice, setNotice] = useState<string | null>(null);
+  const [busyExternalRoleIds, setBusyExternalRoleIds] = useState<ReadonlySet<string>>(() => new Set());
   const [isChromeProfileImportOpen, setIsChromeProfileImportOpen] = useState(false);
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
   const updates = useAppUpdates({
@@ -300,6 +301,37 @@ export function App(): JSX.Element {
     setNotice,
     t: preferences.t
   });
+  const busyRoleIds = useMemo(
+    () => new Set([...roleWorkflow.busyRoleIds, ...busyExternalRoleIds]),
+    [busyExternalRoleIds, roleWorkflow.busyRoleIds]
+  );
+  const runExternalRoleAction = useCallback(async (roleId: string, action: () => Promise<void>): Promise<void> => {
+    setBusyExternalRoleIds((current) => new Set(current).add(roleId));
+    try {
+      await action();
+    } finally {
+      setBusyExternalRoleIds((current) => {
+        const next = new Set(current);
+        next.delete(roleId);
+        return next;
+      });
+    }
+  }, []);
+  const handleCaptureExternalDiagnostics = useCallback((roleId: string): void => {
+    if (!window.rionStudio) return;
+    void runExternalRoleAction(roleId, async () => {
+      await window.rionStudio.captureExternalRoleDiagnostics(roleId);
+      setNotice(preferences.t("roles.freezeReportCaptured"));
+    }).catch(data.setError);
+  }, [data, preferences, runExternalRoleAction]);
+  const handleRecoverExternalRole = useCallback((roleId: string): void => {
+    if (!window.rionStudio) return;
+    void runExternalRoleAction(roleId, async () => {
+      const status = await window.rionStudio.recoverExternalRole(roleId);
+      data.setStatuses((current) => [...current.filter((item) => item.roleId !== roleId), status]);
+      setNotice(preferences.t("roles.externalRecoveryStarted"));
+    }).catch(data.setError);
+  }, [data, preferences, runExternalRoleAction]);
   const { openListForRole } = macroWorkflow;
   const { initialLoadState, setError } = data;
 
@@ -586,7 +618,7 @@ export function App(): JSX.Element {
                     embeddedRuntime={data.embeddedRuntime}
                     gameCount={data.games.length}
                     busyMacroIds={macroWorkflow.busyMacroIds}
-                    busyRoleIds={roleWorkflow.busyRoleIds}
+                    busyRoleIds={busyRoleIds}
                     busyRunKeys={macroWorkflow.busyRunKeys}
                     busyWorkspaceIds={workspaceWorkflow.busyWorkspaceIds}
                     macroStatusByRun={data.macroStatusByRun}
@@ -599,6 +631,7 @@ export function App(): JSX.Element {
                     workspaces={data.workspaces}
                     workspaceDisplays={data.workspaceDisplays}
                     onCreateWorkspace={navigateToNewWorkspace}
+                    onCaptureExternalDiagnostics={handleCaptureExternalDiagnostics}
                     onShowGameWindows={(displayId) => void window.rionStudio.showEmbeddedRuntimeWindows(displayId)}
                     onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
@@ -611,6 +644,7 @@ export function App(): JSX.Element {
                       navigate("/roles");
                     }}
                     onNavigateWorkspaces={() => navigate("/workspaces")}
+                    onRecoverExternalRole={handleRecoverExternalRole}
                     onNewMacro={() => navigateToNewMacro()}
                     onNewRole={navigateToNewRole}
                     onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
@@ -630,7 +664,7 @@ export function App(): JSX.Element {
                   <RolesRoute
                     activeFilter={roleWorkflow.activeFilter}
                     authStatusByRole={data.authStatusByRole}
-                    busyRoleIds={roleWorkflow.busyRoleIds}
+                    busyRoleIds={busyRoleIds}
                     filteredRoles={roleWorkflow.filteredRoles}
                     games={data.games}
                     isChromeProfileImportOpen={isChromeProfileImportOpen}
@@ -643,6 +677,7 @@ export function App(): JSX.Element {
                     t={preferences.t}
                     onClearBrowserData={(role) => void roleWorkflow.handleClearBrowserData(role)}
                     onClearQuery={() => roleWorkflow.setQuery("")}
+                    onCaptureExternalDiagnostics={handleCaptureExternalDiagnostics}
                     onCopy={(role) => void roleWorkflow.handleCopy(role)}
                     onDelete={(role) => void roleWorkflow.handleDelete(role)}
                     onDeleteMany={roleWorkflow.handleDeleteMany}
@@ -651,6 +686,7 @@ export function App(): JSX.Element {
                     onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLogin={roleWorkflow.requestSystemLogin}
                     onOpenChromeProfileImport={openChromeProfileImport}
+                    onRecoverExternalRole={handleRecoverExternalRole}
                     onNewRole={navigateToNewRole}
                     onQueryChange={roleWorkflow.setQuery}
                     onReorder={(orderedIds) => void roleWorkflow.handleReorder(orderedIds)}

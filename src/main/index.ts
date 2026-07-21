@@ -28,6 +28,7 @@ import {
   recoverChromeProfileImport
 } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
+import { WindowsGraphicsEventCollector } from "./browser/WindowsGraphicsEventCollector";
 import { ImportedChromeProfileLoginVerifier } from "./browser/ImportedChromeProfileLoginVerifier";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
@@ -49,7 +50,7 @@ import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
 import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
 import { CdnCompatibilityManager } from "./game-browser/CdnCompatibilityManager";
 import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStore";
-import { GraphicsDiagnosticsService } from "./game-browser/GraphicsDiagnosticsService";
+import { GraphicsDiagnosticsService, readGpuDevice } from "./game-browser/GraphicsDiagnosticsService";
 import {
   configureChromiumCommandLine,
   readAppliedBrowserGraphicsMode
@@ -122,6 +123,7 @@ let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let embeddedRuntimeDiagnostics: EmbeddedRuntimeDiagnostics | null = null;
+let latestExternalFreezeReportedAt: Date | undefined;
 let appQuickMenu: AppQuickMenu | null = null;
 let applicationMenu: ApplicationMenuController | null = null;
 let runtimeTabMenu: RuntimeTabMenuController | null = null;
@@ -221,8 +223,18 @@ async function exportDiagnostics() {
   const logFiles = await logService.getFiles();
   const logStatus = await logService.getStatus();
   const cpu = cpus()[0];
+  const displays = screen.getAllDisplays();
+  const capturedAt = new Date();
+  const graphicsEventWindowStart = latestExternalFreezeReportedAt
+    ? new Date(latestExternalFreezeReportedAt.getTime() - 30 * 60_000)
+    : new Date(capturedAt.getTime() - 30 * 60_000);
+  const [gpuInfo, windowsGraphicsEvents, externalChrome] = await Promise.all([
+    gpuInfoReady ? app.getGPUInfo("basic").catch(() => undefined) : Promise.resolve(undefined),
+    new WindowsGraphicsEventCollector().collect(graphicsEventWindowStart),
+    browserManager?.captureAllExternalRoleDiagnostics() ?? Promise.resolve([])
+  ]);
   const diagnostics = {
-    generatedAt: new Date().toISOString(),
+    generatedAt: capturedAt.toISOString(),
     application: { name: app.getName(), version: app.getVersion(), packaged: app.isPackaged },
     runtime: { electron: process.versions.electron, chromium: process.versions.chrome, node: process.versions.node },
     system: {
@@ -232,8 +244,21 @@ async function exportDiagnostics() {
       locale: app.getLocale(),
       cpu: cpu ? { model: cpu.model, cores: cpus().length } : undefined,
       memory: { totalBytes: totalmem(), freeBytes: freemem() },
-      displayCount: screen.getAllDisplays().length,
-      gpuFeatureStatus: app.getGPUFeatureStatus()
+      displayCount: displays.length,
+      displays: displays.map((display) => ({
+        bounds: display.bounds,
+        resolution: display.size,
+        scaleFactor: display.scaleFactor
+      })),
+      gpuFeatureStatus: app.getGPUFeatureStatus(),
+      ...(readGpuDevice(gpuInfo) ? { gpuDevice: readGpuDevice(gpuInfo) } : {})
+    },
+    externalChrome,
+    windowsGraphicsEvents,
+    windowsGraphicsEventWindow: {
+      ...(latestExternalFreezeReportedAt ? { freezeReportedAt: latestExternalFreezeReportedAt.toISOString() } : {}),
+      since: graphicsEventWindowStart.toISOString(),
+      until: capturedAt.toISOString()
     },
     dataCounts: await getDiagnosticDataCounts(),
     logging: { ...logStatus, directory: "<USER_DATA>/logs" }
@@ -558,6 +583,9 @@ async function initializeApplication(): Promise<void> {
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
     graphicsMode: appliedBrowserGraphicsMode,
     onDiagnostic: ({ details, roleId, type }) => {
+      if (type === "page_heartbeat") {
+        return;
+      }
       const context = { roleId, ...details };
       if (type === "cdp_evaluate_failed" || type === "disconnect") {
         logService.warn("browser", `external_chrome_${type}`, "External Chrome automation diagnostic.", context);
@@ -574,8 +602,14 @@ async function initializeApplication(): Promise<void> {
     : undefined;
   embeddedRuntimeDiagnostics?.stop();
   embeddedRuntimeDiagnostics = new EmbeddedRuntimeDiagnostics(logService);
-  powerMonitor.on("suspend", () => embeddedRuntimeDiagnostics?.handleSuspend());
-  powerMonitor.on("resume", () => embeddedRuntimeDiagnostics?.handleResume());
+  powerMonitor.on("suspend", () => {
+    embeddedRuntimeDiagnostics?.handleSuspend();
+    externalChromeManager.handleSuspend();
+  });
+  powerMonitor.on("resume", () => {
+    embeddedRuntimeDiagnostics?.handleResume();
+    externalChromeManager.handleResume();
+  });
   browserManager = new BrowserManager({
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
@@ -651,6 +685,34 @@ async function initializeApplication(): Promise<void> {
     browserManager?.handleDividerPointer(event.sender.id, payload);
   });
   const macroManager = new MacroManager(browserManager, macroStore, macroSettingsStore);
+  externalChromeManager.on("health", (roleId, health, diagnostics) => {
+    const context = { roleId, pageHealth: health, ...(diagnostics ? { diagnostics } : {}) };
+    if (health === "unresponsive") {
+      latestExternalFreezeReportedAt = new Date();
+      logService.warn(
+        "browser",
+        "external_chrome_page_unresponsive",
+        "An external Chrome game page stopped responding.",
+        context
+      );
+      void macroManager.stopRole(roleId);
+      return;
+    }
+    logService.info(
+      "browser",
+      "external_chrome_page_recovered",
+      "An external Chrome game page diagnostics heartbeat recovered.",
+      context
+    );
+  });
+  externalChromeManager.on("diagnostics", (roleId, diagnostics) => {
+    logService.warn(
+      "browser",
+      "external_chrome_unresponsive_snapshot",
+      "Captured diagnostics for an unresponsive external Chrome game page.",
+      { roleId, diagnostics }
+    );
+  });
   const portableDataManager = new PortableDataManager({
     gameBrowserSettingsStore,
     gameStore,
@@ -835,6 +897,20 @@ async function initializeApplication(): Promise<void> {
   });
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
+    captureExternalRoleDiagnostics: async (roleId) => {
+      const capturedAt = new Date();
+      latestExternalFreezeReportedAt = capturedAt;
+      const [diagnostics, windowsGraphicsEvents] = await Promise.all([
+        externalChromeManager.captureDiagnostics(roleId),
+        new WindowsGraphicsEventCollector().collect(new Date(capturedAt.getTime() - 30 * 60_000))
+      ]);
+      logService.warn(
+        "browser",
+        "external_chrome_manual_diagnostics",
+        "Captured user-requested diagnostics for an external Chrome game page.",
+        { roleId, diagnostics, windowsGraphicsEvents }
+      );
+    },
     consumePendingMacroPageRequest,
     consumePendingWorkspaceLaunchRequest,
     gameCompatibilityManager,

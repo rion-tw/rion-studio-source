@@ -37,7 +37,7 @@ const ATTACH_POLL_INTERVAL_MS = 500;
 const OVERLAY_BINDING_NAME = "rionStudioMacroOverlay";
 const OVERLAY_BRIDGE_KEY = "__rionStudioExternalMacroBridge";
 const DIAGNOSTICS_BINDING_NAME = "rionStudioExternalDiagnostics";
-const DIAGNOSTICS_STATE_KEY = "__rionStudioExternalDiagnosticsV1";
+const DIAGNOSTICS_STATE_KEY = "__rionStudioExternalDiagnosticsV2";
 const HELD_KEY_REASSERTION_EVENTS = new Set([
   "blur",
   "focus",
@@ -52,11 +52,41 @@ export type ExternalMacroOverlayHandler = (request: unknown) => Promise<unknown>
 
 export interface ExternalChromeDiagnosticEvent {
   details: Record<string, unknown>;
-  type: "browser_version" | "cdp_evaluate_failed" | "cdp_recovered" | "disconnect" | "page_lifecycle";
+  type:
+    | "browser_version"
+    | "cdp_evaluate_failed"
+    | "cdp_recovered"
+    | "cdp_round_trip_timeout"
+    | "disconnect"
+    | "page_heartbeat"
+    | "page_lifecycle";
+}
+
+export interface ExternalChromePageDiagnostics {
+  capturedAt: string;
+  cdp: {
+    consecutiveEvaluateFailures: number;
+    lastSuccessfulCdpReplyAt?: string;
+  };
+  page?: {
+    fullscreen: boolean;
+    hasFocus: boolean;
+    hidden: boolean;
+    monotonicMs: number;
+    visibilityState: string;
+  };
+  performanceMetrics?: Record<string, number>;
+  window?: {
+    height?: number;
+    width?: number;
+    windowState?: string;
+  };
+  errors?: string[];
 }
 
 export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget {
   close: () => void;
+  collectDiagnostics: () => Promise<ExternalChromePageDiagnostics>;
   installMacroOverlay: (source: string, handler: ExternalMacroOverlayHandler) => Promise<void>;
   onDisconnect: (listener: () => void) => () => void;
   onNavigation: (listener: () => void) => () => void;
@@ -281,10 +311,101 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     );
   }
 
+  async collectDiagnostics(): Promise<ExternalChromePageDiagnostics> {
+    const diagnostics: ExternalChromePageDiagnostics = {
+      capturedAt: new Date().toISOString(),
+      cdp: {
+        consecutiveEvaluateFailures: this.consecutiveEvaluateFailures,
+        ...(this.lastSuccessfulCdpReplyAt
+          ? { lastSuccessfulCdpReplyAt: this.lastSuccessfulCdpReplyAt }
+          : {})
+      }
+    };
+    const errors: string[] = [];
+
+    const [metrics, page, window] = await Promise.all([
+      this.readPerformanceMetrics(errors),
+      this.readPageDiagnostics(errors),
+      this.readWindowDiagnostics(errors)
+    ]);
+    if (metrics) diagnostics.performanceMetrics = metrics;
+    if (page) diagnostics.page = page;
+    if (window) diagnostics.window = window;
+    if (errors.length > 0) diagnostics.errors = errors;
+    return diagnostics;
+  }
+
   private async focusPageTarget(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     await this.evaluate(createExternalFocusSource(true)).catch(() => undefined);
     signal?.throwIfAborted();
+  }
+
+  private async readPerformanceMetrics(errors: string[]): Promise<Record<string, number> | undefined> {
+    try {
+      const response = await this.client.send<{ metrics?: Array<{ name?: unknown; value?: unknown }> }>(
+        "Performance.getMetrics"
+      );
+      const metrics = Object.fromEntries(
+        (response.metrics ?? [])
+          .filter((metric): metric is { name: string; value: number } =>
+            typeof metric.name === "string" && typeof metric.value === "number" && Number.isFinite(metric.value)
+          )
+          .map((metric) => [metric.name, metric.value])
+      );
+      return Object.keys(metrics).length > 0 ? metrics : undefined;
+    } catch (error) {
+      errors.push(formatDiagnosticCaptureError("Performance.getMetrics", error));
+      return undefined;
+    }
+  }
+
+  private async readPageDiagnostics(errors: string[]): Promise<ExternalChromePageDiagnostics["page"] | undefined> {
+    try {
+      const response = await this.client.send<{
+        result?: { value?: unknown };
+      }>("Runtime.evaluate", {
+        expression: "({ fullscreen: Boolean(document.fullscreenElement), hasFocus: document.hasFocus(), hidden: document.hidden, monotonicMs: performance.now(), visibilityState: document.visibilityState })",
+        returnByValue: true
+      });
+      const value = response.result?.value;
+      if (!isRecord(value) ||
+        typeof value.fullscreen !== "boolean" ||
+        typeof value.hasFocus !== "boolean" ||
+        typeof value.hidden !== "boolean" ||
+        typeof value.monotonicMs !== "number" ||
+        typeof value.visibilityState !== "string") {
+        return undefined;
+      }
+      return {
+        fullscreen: value.fullscreen,
+        hasFocus: value.hasFocus,
+        hidden: value.hidden,
+        monotonicMs: value.monotonicMs,
+        visibilityState: value.visibilityState
+      };
+    } catch (error) {
+      errors.push(formatDiagnosticCaptureError("Runtime.evaluate", error));
+      return undefined;
+    }
+  }
+
+  private async readWindowDiagnostics(errors: string[]): Promise<ExternalChromePageDiagnostics["window"] | undefined> {
+    try {
+      const response = await this.client.send<{
+        bounds?: { height?: unknown; width?: unknown; windowState?: unknown };
+      }>("Browser.getWindowForTarget");
+      const bounds = response.bounds;
+      if (!bounds) return undefined;
+      return {
+        ...(typeof bounds.height === "number" ? { height: bounds.height } : {}),
+        ...(typeof bounds.width === "number" ? { width: bounds.width } : {}),
+        ...(typeof bounds.windowState === "string" ? { windowState: bounds.windowState } : {})
+      };
+    } catch (error) {
+      errors.push(formatDiagnosticCaptureError("Browser.getWindowForTarget", error));
+      return undefined;
+    }
   }
 
   dispatchKey(input: MacroKeyInput | string, options: BrowserInputDispatchOptions = {}): Promise<void> {
@@ -810,16 +931,19 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       if (!isRecord(payload) || typeof payload.event !== "string") {
         return;
       }
-      this.emitDiagnostic("page_lifecycle", {
+      const details = {
         event: payload.event,
         hasFocus: typeof payload.hasFocus === "boolean" ? payload.hasFocus : undefined,
         hidden: typeof payload.hidden === "boolean" ? payload.hidden : undefined,
+        monotonicMs: typeof payload.monotonicMs === "number" ? payload.monotonicMs : undefined,
+        sequence: typeof payload.sequence === "number" ? payload.sequence : undefined,
         source: "page",
         visibilityState: typeof payload.visibilityState === "string" ? payload.visibilityState : undefined,
         wasDiscarded: typeof payload.wasDiscarded === "boolean" ? payload.wasDiscarded : undefined,
         webglRenderer: typeof payload.webglRenderer === "string" ? payload.webglRenderer : undefined,
         webglVendor: typeof payload.webglVendor === "string" ? payload.webglVendor : undefined
-      });
+      };
+      this.emitDiagnostic(payload.event === "heartbeat" ? "page_heartbeat" : "page_lifecycle", details);
       if (HELD_KEY_REASSERTION_EVENTS.has(payload.event)) {
         this.scheduleHeldKeyReassertion();
       }
@@ -898,7 +1022,7 @@ function createExternalPageDiagnosticsSource(): string {
     const bindingName = ${JSON.stringify(DIAGNOSTICS_BINDING_NAME)};
     const stateKey = ${JSON.stringify(DIAGNOSTICS_STATE_KEY)};
     if (window.top !== window || typeof window[bindingName] !== "function") return;
-    if (window[stateKey]?.version === 1) {
+    if (window[stateKey]?.version === 2) {
       window[stateKey].report("reinstall");
       return;
     }
@@ -914,19 +1038,22 @@ function createExternalPageDiagnosticsSource(): string {
         } : {};
       } catch { return {}; }
     })();
+    let sequence = 0;
     const report = (event) => {
       try {
         binding(JSON.stringify({
           event,
           hasFocus: document.hasFocus(),
           hidden: document.hidden,
+          monotonicMs: performance.now(),
+          sequence: sequence++,
           visibilityState: document.visibilityState,
           wasDiscarded: Boolean(document.wasDiscarded),
           ...(event === "install" || event === "reinstall" ? graphics : {})
         }));
       } catch {}
     };
-    window[stateKey] = { report, version: 1 };
+    window[stateKey] = { report, version: 2 };
     ["focus", "blur", "pageshow", "pagehide"].forEach((event) => {
       window.addEventListener(event, () => report(event), true);
     });
@@ -934,8 +1061,22 @@ function createExternalPageDiagnosticsSource(): string {
       document.addEventListener(event, () => report(event), true);
     });
     document.addEventListener("visibilitychange", () => report("visibilitychange"), true);
+    const reportHeartbeat = () => requestAnimationFrame(() => report("heartbeat"));
+    window.setInterval(reportHeartbeat, 5000);
     report("install");
+    reportHeartbeat();
   })()`;
+}
+
+function formatDiagnosticCaptureError(method: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  return `${method}: ${redactDiagnosticMessage(message).slice(0, 256)}`;
+}
+
+function redactDiagnosticMessage(message: string): string {
+  return message
+    .replace(/\bhttps?:\/\/[^\s"']+/gi, "<URL>")
+    .replace(/(?:[A-Za-z]:)?[\\/](?:[^\s"']+[\\/])+[^\s"']*/g, "<PATH>");
 }
 
 function createExternalFocusSource(allowBodyFallback: boolean): string {

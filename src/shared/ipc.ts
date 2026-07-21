@@ -37,6 +37,8 @@ export const IPC_CHANNELS = {
   rolesAuthStatusChanged: "roles:auth-status-changed",
   rolesLaunch: "roles:launch",
   rolesOpenSystemLogin: "roles:open-system-login",
+  rolesCaptureExternalDiagnostics: "roles:capture-external-diagnostics",
+  rolesRecoverExternal: "roles:recover-external",
   rolesStop: "roles:stop",
   rolesStatuses: "roles:statuses",
   rolesStatusChanged: "roles:status-changed",

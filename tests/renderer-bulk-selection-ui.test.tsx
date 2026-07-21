@@ -11,6 +11,7 @@ import RolesRoute from "../src/renderer/src/features/roles/RolesRoute";
 import LaunchWorkspacesRoute from "../src/renderer/src/features/workspaces/LaunchWorkspacesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
+import zhTw from "../src/renderer/src/i18n/zh-TW.json";
 import type { Game, LaunchWorkspace, Macro, Role } from "../src/shared/types";
 
 beforeAll(() => {
@@ -153,6 +154,58 @@ describe("bulk selection UI", () => {
     await user.click(card);
     expect(screen.getByText("1 selected")).toBeTruthy();
     expectSelectedCardOverlay(card);
+  });
+
+  it("shows an external-page warning with report and single-role recovery actions", async () => {
+    const user = userEvent.setup();
+    const item = role("role-1", "Main role");
+    const onCaptureExternalDiagnostics = vi.fn();
+    const onRecoverExternalRole = vi.fn();
+    render(
+      <RolesRoute
+        activeFilter="all"
+        authStatusByRole={new Map()}
+        busyRoleIds={new Set()}
+        filteredRoles={[item]}
+        games={[]}
+        isReordering={false}
+        language="en"
+        roleStats={{ total: 1, running: 1, stopped: 0, needsLogin: 1, authFailed: 0 }}
+        roles={[item]}
+        scrollPositionRef={{ current: 0 }}
+        query=""
+        statusByRole={new Map([[item.id, {
+          automationState: "ready",
+          pageHealth: "unresponsive",
+          roleId: item.id,
+          runtimeMode: "external",
+          state: "running"
+        }]])}
+        t={t}
+        onCaptureExternalDiagnostics={onCaptureExternalDiagnostics}
+        onClearQuery={vi.fn()}
+        onClearBrowserData={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
+        onEdit={vi.fn()}
+        onFilterChange={vi.fn()}
+        onLaunch={vi.fn()}
+        onLogin={vi.fn()}
+        onNewRole={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRecoverExternalRole={onRecoverExternalRole}
+        onReorder={vi.fn()}
+        onStop={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Game page is not responding. Macros have been stopped.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Report" }));
+    await user.click(screen.getByRole("button", { name: "Restart" }));
+    expect(onCaptureExternalDiagnostics).toHaveBeenCalledWith(item.id);
+    expect(onRecoverExternalRole).toHaveBeenCalledWith(item.id);
+    expect(zhTw["roles.externalUnresponsive"]).toBe("遊戲頁面沒有回應，已停止巨集。");
   });
 
   it("adds a selectable state to workspace cards", async () => {

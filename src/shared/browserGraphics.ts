@@ -12,6 +12,12 @@ export const BROWSER_BASE_SWITCHES = [
   "disable-search-engine-choice-screen"
 ] as const;
 
+// External compatibility sessions deliberately use Chromium's normal background
+// scheduling. When one 2K game is fullscreen, this lets Chromium reduce the
+// renderer work performed by the other occluded game windows instead of keeping
+// every GPU-heavy renderer at foreground priority.
+export const EXTERNAL_CHROME_FOREGROUND_PRIORITY_SWITCHES: readonly string[] = [];
+
 export function getGraphicsModeSwitches(mode: BrowserGraphicsMode): string[] {
   if (mode === "automatic") {
     return [];

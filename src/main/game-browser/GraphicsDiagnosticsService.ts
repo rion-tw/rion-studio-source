@@ -153,7 +153,7 @@ function normalizeFeatureStatus(value: unknown): Record<string, string> {
   );
 }
 
-function readGpuDevice(value: unknown): GraphicsDeviceDiagnostics | undefined {
+export function readGpuDevice(value: unknown): GraphicsDeviceDiagnostics | undefined {
   if (!isRecord(value) || !Array.isArray(value.gpuDevice)) {
     return undefined;
   }

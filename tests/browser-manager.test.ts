@@ -2388,6 +2388,22 @@ describe("BrowserManager game host windows", () => {
     expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external" });
   });
 
+  it("delegates external freeze capture and single-role recovery to the external Chrome manager", async () => {
+    const externalChromeManager = createExternalChromeManager();
+    const harness = createHarness({
+      externalChromeManager,
+      getBrowserLaunchMode: vi.fn().mockResolvedValue("external")
+    });
+    const recoveredStatus = { ...externalChromeManager.listStatuses()[0], pageHealth: "healthy" as const };
+    externalChromeManager.recover.mockResolvedValue(recoveredStatus);
+
+    await expect(harness.manager.captureExternalRoleDiagnostics(role.id)).resolves.toEqual({ roleId: role.id });
+    await expect(harness.manager.recoverExternalRole(role.id)).resolves.toEqual(recoveredStatus);
+
+    expect(externalChromeManager.captureDiagnostics).toHaveBeenCalledWith(role.id);
+    expect(externalChromeManager.recover).toHaveBeenCalledWith(role.id);
+  });
+
   it("uses an explicitly selected display work area for a direct external launch", async () => {
     const externalChromeManager = createExternalChromeManager();
     const target = {
@@ -4633,6 +4649,7 @@ function createExternalChromeManager() {
   };
 
   return {
+    captureDiagnostics: vi.fn().mockResolvedValue({ roleId: role.id }),
     getAutomationSession: vi.fn((
       _roleId: string
     ): { role: Role; target: ReturnType<typeof createExternalResourceTarget>["target"] } | undefined => undefined),
@@ -4640,8 +4657,10 @@ function createExternalChromeManager() {
     hasWorkspace: vi.fn(() => true),
     launch: vi.fn().mockResolvedValue(status),
     launchWorkspace: vi.fn().mockResolvedValue([status]),
+    listDiagnostics: vi.fn(() => [{ roleId: role.id }]),
     listStatuses: vi.fn(() => [status]),
     on: vi.fn(),
+    recover: vi.fn().mockResolvedValue(status),
     setBeforeRoleStop: vi.fn(),
     setMacroOverlayInstaller: vi.fn(),
     stop: vi.fn().mockResolvedValue(undefined),

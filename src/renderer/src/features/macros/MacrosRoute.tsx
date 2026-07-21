@@ -522,7 +522,8 @@ function MacroActionMenu({
   const hasRunnableRole = macro.roleIds.some(
     (roleId) =>
       statusByRole.get(roleId)?.state === "running" &&
-      statusByRole.get(roleId)?.automationState !== "unavailable"
+      statusByRole.get(roleId)?.automationState !== "unavailable" &&
+      statusByRole.get(roleId)?.pageHealth !== "unresponsive"
   );
   const isRunning = macroRunStatuses.some((status) => status.state === "running");
   const isStopping = macroRunStatuses.some((status) => status.state === "stopping");

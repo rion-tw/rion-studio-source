@@ -44,7 +44,9 @@ interface PendingClickStatus {
 interface OverlayRefreshState {
   disconnected: boolean;
   inFlight: boolean;
+  lastStartedAt: number;
   source: string;
+  timer?: ReturnType<typeof setTimeout>;
   trailing: boolean;
 }
 
@@ -93,6 +95,7 @@ export type MacroOverlayRequest =
 
 export class MacroOverlayInjector {
   private static readonly CLICK_MARKER_STATUS_RETENTION_MS = 180;
+  private static readonly EXTERNAL_REFRESH_MIN_INTERVAL_MS = 250;
   private readonly externalHosts = new Set<ExternalMacroOverlayHost>();
   private readonly externalHostRoleIds = new WeakMap<ExternalMacroOverlayHost, string>();
   private readonly externalRefreshStates = new WeakMap<ExternalMacroOverlayHost, OverlayRefreshState>();
@@ -157,6 +160,7 @@ export class MacroOverlayInjector {
     const refreshState: OverlayRefreshState = {
       disconnected: false,
       inFlight: false,
+      lastStartedAt: 0,
       source: "install",
       trailing: false
     };
@@ -165,6 +169,8 @@ export class MacroOverlayInjector {
       this.externalHosts.delete(host);
       refreshState.disconnected = true;
       refreshState.trailing = false;
+      if (refreshState.timer) clearTimeout(refreshState.timer);
+      refreshState.timer = undefined;
       void this.macroManager.releaseHeldTriggersForRole?.(role.id);
     });
     host.onNavigation?.(() => {
@@ -364,6 +370,7 @@ export class MacroOverlayInjector {
     const refreshState: OverlayRefreshState = {
       disconnected: false,
       inFlight: false,
+      lastStartedAt: 0,
       source: "install",
       trailing: false
     };
@@ -463,13 +470,40 @@ export class MacroOverlayInjector {
     if (!state || state.disconnected || !this.externalHosts.has(host)) {
       return;
     }
+    const roleId = this.externalHostRoleIds.get(host);
+    if (roleId && this.getRoleStatus?.(roleId)?.pageHealth === "unresponsive") {
+      state.trailing = false;
+      if (state.timer) clearTimeout(state.timer);
+      state.timer = undefined;
+      return;
+    }
     if (state.inFlight) {
       state.trailing = true;
       state.source = source;
       return;
     }
 
+    const remainingDelay = Math.max(
+      0,
+      MacroOverlayInjector.EXTERNAL_REFRESH_MIN_INTERVAL_MS - (Date.now() - state.lastStartedAt)
+    );
+    if (remainingDelay > 0) {
+      state.trailing = true;
+      state.source = source;
+      if (!state.timer) {
+        state.timer = setTimeout(() => {
+          state.timer = undefined;
+          if (!state.trailing) return;
+          const trailingSource = state.source;
+          state.trailing = false;
+          this.scheduleExternalRefresh(host, trailingSource, true);
+        }, remainingDelay);
+      }
+      return;
+    }
+
     state.inFlight = true;
+    state.lastStartedAt = Date.now();
     state.source = source;
     this.onExternalRefresh?.({
       roleId: this.externalHostRoleIds.get(host),

@@ -174,6 +174,47 @@ describe("MacroOverlayInjector", () => {
     expect(host.evaluate).toHaveBeenCalledTimes(2);
   });
 
+  it("limits external overlay refresh starts to four per second while retaining the latest update", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-21T00:00:00.000Z"));
+      const host = createExternalHost();
+      const injector = createInjector();
+      await injector.installExternal(role, host.host);
+
+      injector.refreshInstalledOverlays(role.id, "first");
+      injector.refreshInstalledOverlays(role.id, "latest");
+      await vi.runAllTicks();
+      expect(host.host.evaluate).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(249);
+      expect(host.host.evaluate).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(host.host.evaluate).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not refresh an external overlay after that role is marked unresponsive", async () => {
+    const host = createExternalHost();
+    const injector = createInjector({
+      getRoleStatus: () => ({
+        automationState: "ready",
+        pageHealth: "unresponsive",
+        roleId: role.id,
+        runtimeMode: "external",
+        state: "running"
+      })
+    });
+    await injector.installExternal(role, host.host);
+
+    injector.refreshInstalledOverlays(role.id, "health_change");
+    await Promise.resolve();
+
+    expect(host.host.evaluate).not.toHaveBeenCalled();
+  });
+
   it("drops a queued external refresh when the host disconnects", async () => {
     const firstRefresh = createDeferred<void>();
     let disconnect: (() => void) | undefined;

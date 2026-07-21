@@ -106,6 +106,7 @@ interface RegisterIpcHandlersOptions {
     "applyImport" | "discardImport" | "exportData" | "previewImport"
   >;
   getGraphicsDiagnostics?: (sender: Electron.WebContents) => Promise<unknown>;
+  captureExternalRoleDiagnostics?: (roleId: string) => Promise<void>;
   quitApplication?: () => void;
   restartApplication?: () => void;
   logService?: {
@@ -659,6 +660,20 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.rolesCaptureExternalDiagnostics, async (_event, id: string) => {
+    assertRoleId(id);
+    if (options.captureExternalRoleDiagnostics) {
+      await options.captureExternalRoleDiagnostics(id);
+      return;
+    }
+    await browserManager.captureExternalRoleDiagnostics(id);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.rolesRecoverExternal, async (_event, id: string) => {
+    assertRoleId(id);
+    return browserManager.recoverExternalRole(id);
+  });
+
   ipcMain.handle(IPC_CHANNELS.rolesOpenSystemLogin, async (_event, id: string) => {
     const role = await roleStore.getRole(id);
     await browserManager.stop(id);
@@ -1045,6 +1060,12 @@ function broadcastStatusChange(statuses: RoleStatus[]): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.rolesStatusChanged, statuses);
   });
+}
+
+function assertRoleId(value: unknown): asserts value is string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Role id is invalid.");
+  }
 }
 
 function broadcastRuntimeStateChange(state: EmbeddedRuntimeState): void {

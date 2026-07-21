@@ -324,7 +324,7 @@ function RolesView({
           <CreateItemCard className="aspect-[4/5]" label={t("roles.newRole")} onClick={onNewRole} />
         </div>
       )}
-      <SelectionMarquee rect={selection.selectionRect} />
+      <SelectionMarquee container={pageRef.current} rect={selection.selectionRect} />
     </PageFrame>
   );
 }

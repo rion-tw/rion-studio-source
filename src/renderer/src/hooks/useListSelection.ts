@@ -28,6 +28,8 @@ interface MarqueeState {
   currentY: number;
   hasStarted: boolean;
   pointerId: number;
+  startContentX: number;
+  startContentY: number;
   startX: number;
   startY: number;
 }
@@ -147,14 +149,20 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
   }, [clearSelection, commitSelection, selectRange, toggleSelection]);
 
   const updateMarqueeSelection = useCallback((state: MarqueeState): void => {
-    const rect = createSelectionRect(state.startX, state.startY, state.currentX, state.currentY);
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    const currentPoint = getContainerPoint(state.currentX, state.currentY, scrollContainer);
+    const rect = createSelectionRect(state.startContentX, state.startContentY, currentPoint.x, currentPoint.y);
     setSelectionRect(rect);
     const hitIds = orderedIdsRef.current.filter((id) => {
       const bounds = itemElementsRef.current.get(id)?.getBoundingClientRect();
-      return bounds ? rectanglesIntersect(rect, bounds) : false;
+      return bounds ? rectanglesIntersect(rect, getContainerRect(bounds, scrollContainer)) : false;
     });
     commitSelection(state.additive ? new Set([...state.baseSelection, ...hitIds]) : hitIds);
-  }, [commitSelection]);
+  }, [commitSelection, scrollContainerRef]);
 
   const stopAutoScroll = useCallback((): void => {
     if (autoScrollFrameRef.current !== null) {
@@ -217,6 +225,10 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     if (event.button !== 0 || event.isPrimary === false || isInteractiveTarget(event.target as HTMLElement)) {
       return;
     }
+    const scrollContainer = scrollContainerRef.current;
+    const startPoint = scrollContainer
+      ? getContainerPoint(event.clientX, event.clientY, scrollContainer)
+      : { x: event.clientX, y: event.clientY };
     marqueeRef.current = {
       additive: event.metaKey || event.ctrlKey,
       baseSelection: new Set(selectedIdsRef.current),
@@ -224,11 +236,13 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
       currentY: event.clientY,
       hasStarted: false,
       pointerId: event.pointerId,
+      startContentX: startPoint.x,
+      startContentY: startPoint.y,
       startX: event.clientX,
       startY: event.clientY
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
-  }, []);
+  }, [scrollContainerRef]);
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLElement>): void => {
     const state = marqueeRef.current;
@@ -359,11 +373,29 @@ function createSelectionRect(startX: number, startY: number, currentX: number, c
   };
 }
 
-function rectanglesIntersect(selection: SelectionRect, item: DOMRect): boolean {
+function getContainerPoint(clientX: number, clientY: number, scrollContainer: HTMLElement): { x: number; y: number } {
+  const bounds = scrollContainer.getBoundingClientRect();
+  return {
+    x: clientX - bounds.left - scrollContainer.clientLeft + scrollContainer.scrollLeft,
+    y: clientY - bounds.top - scrollContainer.clientTop + scrollContainer.scrollTop
+  };
+}
+
+function getContainerRect(bounds: DOMRect, scrollContainer: HTMLElement): SelectionRect {
+  const containerBounds = scrollContainer.getBoundingClientRect();
+  return {
+    height: bounds.height,
+    left: bounds.left - containerBounds.left - scrollContainer.clientLeft + scrollContainer.scrollLeft,
+    top: bounds.top - containerBounds.top - scrollContainer.clientTop + scrollContainer.scrollTop,
+    width: bounds.width
+  };
+}
+
+function rectanglesIntersect(selection: SelectionRect, item: SelectionRect): boolean {
   return (
-    selection.left <= item.right &&
+    selection.left <= item.left + item.width &&
     selection.left + selection.width >= item.left &&
-    selection.top <= item.bottom &&
+    selection.top <= item.top + item.height &&
     selection.top + selection.height >= item.top
   );
 }

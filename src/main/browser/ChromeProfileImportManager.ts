@@ -14,6 +14,7 @@ import type {
   Role
 } from "../../shared/types";
 import { createLoginStorageSnapshot } from "../auth/loginEvidence";
+import { waitForSettledAuthSession } from "../auth/settledAuthSession";
 import type { GameStore } from "../games/GameStore";
 import {
   CdpClient,
@@ -534,7 +535,7 @@ export class ChromeProfileImportManager {
 
     if (session) {
       try {
-        session.flushStorageData();
+        await session.flushStorageData();
       } catch {
         summary.flushFailed = true;
       }
@@ -960,31 +961,56 @@ async function readChromeLoginDataOnceWithCdp(
       throw new ChromeProfileImportError("LOGIN_DATA_TARGET_MISSING", "Imported Chrome profile did not expose a login data page.");
     }
     client = new CdpClient(target.webSocketDebuggerUrl);
-    await client.send("Page.enable").catch(() => undefined);
-    const localStorageByOrigin: Record<string, Record<string, string>> = {};
-    for (const [index, url] of urls.entries()) {
-      if (index > 0) {
-        await navigateChromePage(client, url, options.timeoutMs ?? 10_000);
+    let lastNetworkActivityAt = Date.now();
+    const removeNetworkListener = client.onNotification((notification) => {
+      if (notification.method.startsWith("Network.") || notification.method.startsWith("Page.")) {
+        lastNetworkActivityAt = Date.now();
       }
-      const runtimeResult = await client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
-        expression: CHROME_LOGIN_DATA_EXPRESSION,
-        returnByValue: true,
-        awaitPromise: true
-      });
-      const runtimeValue = runtimeResult.result?.value;
-      const origin = readRuntimeOrigin(runtimeValue);
-      if (origin && requestedOrigins.has(origin)) {
-        localStorageByOrigin[origin] = createLoginStorageSnapshot(undefined, runtimeValue).localStorage;
-      }
-    }
+    });
+    try {
+      await Promise.all([
+        client.send("Page.enable").catch(() => undefined),
+        client.send("Network.enable").catch(() => undefined)
+      ]);
+      const localStorageByOrigin: Record<string, Record<string, string>> = {};
+      const captureSettledStorage = async (url: string): Promise<void> => {
+        const settled = await waitForSettledAuthSession(
+          () => readChromeAuthSample(client!, url),
+          {
+            isIdle: () => Date.now() - lastNetworkActivityAt >= 1_500,
+            timeoutMs: options.timeoutMs ?? 20_000
+          }
+        );
+        const origin = getUrlOrigin(settled.finalUrl ?? url);
+        if (origin && requestedOrigins.has(origin) && settled.snapshot) {
+          localStorageByOrigin[origin] = settled.snapshot.localStorage;
+        }
+      };
 
-    const cookieResult = await client.send<{ cookies?: unknown[] }>("Network.getAllCookies");
-    return {
-      cookies: Array.isArray(cookieResult.cookies)
-        ? cookieResult.cookies.filter(isRecord)
-        : [],
-      localStorageByOrigin
-    };
+      for (const [index, url] of urls.entries()) {
+        if (index > 0) {
+          await navigateChromePage(client, url, options.timeoutMs ?? 10_000);
+          lastNetworkActivityAt = Date.now();
+        }
+        await captureSettledStorage(url);
+      }
+
+      if (urls.length > 1) {
+        await navigateChromePage(client, initialUrl, options.timeoutMs ?? 10_000);
+        lastNetworkActivityAt = Date.now();
+        await captureSettledStorage(initialUrl);
+      }
+
+      const cookieResult = await client.send<{ cookies?: unknown[] }>("Network.getAllCookies");
+      return {
+        cookies: Array.isArray(cookieResult.cookies)
+          ? cookieResult.cookies.filter(isRecord)
+          : [],
+        localStorageByOrigin
+      };
+    } finally {
+      removeNetworkListener();
+    }
   } finally {
     if (client) {
       await closeChromeGracefully(child, client);
@@ -993,6 +1019,22 @@ async function readChromeLoginDataOnceWithCdp(
       await terminateChrome(child);
     }
   }
+}
+
+async function readChromeAuthSample(client: CdpClient, fallbackUrl: string) {
+  const [cookieResult, runtimeResult] = await Promise.all([
+    client.send<{ cookies?: unknown[] }>("Network.getCookies", { urls: [fallbackUrl] }),
+    client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
+      expression: CHROME_LOGIN_DATA_EXPRESSION,
+      returnByValue: true,
+      awaitPromise: true
+    })
+  ]);
+  const runtimeValue = runtimeResult.result?.value;
+  return {
+    finalUrl: readRuntimeHref(runtimeValue) ?? fallbackUrl,
+    snapshot: createLoginStorageSnapshot(cookieResult.cookies, runtimeValue)
+  };
 }
 
 async function closeChromeGracefully(child: ChildProcess, client: CdpClient): Promise<void> {
@@ -1049,11 +1091,11 @@ async function navigateChromePage(client: CdpClient, url: string, timeoutMs: num
   }
 }
 
-function readRuntimeOrigin(value: unknown): string | undefined {
-  if (!isRecord(value) || typeof value.origin !== "string") {
+function readRuntimeHref(value: unknown): string | undefined {
+  if (!isRecord(value) || typeof value.href !== "string") {
     return undefined;
   }
-  return getUrlOrigin(value.origin);
+  return value.href;
 }
 
 async function waitForPageTarget(port: number, launchUrl: string, timeoutMs: number): Promise<DevToolsTarget | undefined> {

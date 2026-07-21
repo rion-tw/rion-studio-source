@@ -1047,6 +1047,7 @@
   "settings.chromeProfileImportLoginDataNotice": "Imported cookies and website storage will be prepared for the role. If the session expires, use the existing re-login action.",
   "settings.chromeProfileImportConsent": "I understand and authorize Rion Studio to copy the selected local Chrome session data.",
   "settings.chromeProfileImportConfirm": "Import selected profiles",
+  "settings.chromeProfileImportProgress": "Imported {completed}/{total}",
   "settings.chromeProfileImportComplete": "Chrome profile import complete",
   "settings.chromeProfileImportWarnings": "{count} notice(s) apply.",
   "settings.chromeProfileImportEmbeddedMode": "Embedded browser",

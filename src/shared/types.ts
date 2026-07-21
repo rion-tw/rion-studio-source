@@ -917,6 +917,15 @@ export interface ChromeProfileImportResult {
   warnings: ChromeProfileImportWarning[];
 }
 
+export interface ChromeProfileImportProgress {
+  completedProfileCount: number;
+  currentProfileId?: string;
+  currentProfileName?: string;
+  importId: string;
+  phase: "preparing" | "importing" | "completed";
+  totalProfileCount: number;
+}
+
 export interface ChromeProfileImportRuntimeVerification {
   durationMs?: number;
   message?: string;

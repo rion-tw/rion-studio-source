@@ -753,6 +753,7 @@ async function initializeApplication(): Promise<void> {
       logService.info("browser", "chrome_profile_import_data_transfer", "Chrome profile login data transfer completed.", {
         failedItemCount: summary.failedItemCount,
         failedStorageOriginCount: summary.failedStorageOriginCount,
+        flushFailed: summary.flushFailed,
         readbackFailed: summary.readbackFailed,
         readFailed: summary.readFailed,
         resetFailed: summary.resetFailed,

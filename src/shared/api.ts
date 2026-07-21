@@ -39,6 +39,7 @@ import type {
   PortableImportResult,
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
+  ChromeProfileImportProgress,
   ChromeProfileImportResult,
   ReorderItemsInput,
   Role,
@@ -151,5 +152,6 @@ export interface RionStudioApi {
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
+  onChromeProfileImportProgress: (callback: (progress: ChromeProfileImportProgress) => void) => () => void;
   onLogEntryAdded: (callback: (entry: LogEntry) => void) => () => void;
 }

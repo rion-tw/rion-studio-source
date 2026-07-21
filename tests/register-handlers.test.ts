@@ -218,17 +218,25 @@ describe("registerIpcHandlers workspace handlers", () => {
       clear: vi.fn(async (id: string) => ({ ...authenticatedRole, id, authState: "login_required" as const }))
     };
     chromeProfileImportManager = {
-      applyImport: vi.fn(async () => ({
-        roles: [{ ...authenticatedRole, id: "imported-role" }],
-        verifications: [{
-          embedded: { mode: "embedded" as const, state: "authenticated" as const },
-          external: { mode: "external" as const, state: "authenticated" as const },
-          profileId: "Default",
-          profileName: "Primary",
-          roleId: "imported-role"
-        }],
-        warnings: [{ code: "passwords_excluded" as const }]
-      })),
+      applyImport: vi.fn(async (_input, onProgress) => {
+        onProgress?.({
+          completedProfileCount: 1,
+          importId: "import-1",
+          phase: "completed",
+          totalProfileCount: 1
+        });
+        return {
+          roles: [{ ...authenticatedRole, id: "imported-role" }],
+          verifications: [{
+            embedded: { mode: "embedded" as const, state: "authenticated" as const },
+            external: { mode: "external" as const, state: "authenticated" as const },
+            profileId: "Default",
+            profileName: "Primary",
+            roleId: "imported-role"
+          }],
+          warnings: [{ code: "passwords_excluded" as const }]
+        };
+      }),
       closeChrome: vi.fn().mockResolvedValue(undefined),
       discardImport: vi.fn().mockResolvedValue(undefined),
       previewImport: vi.fn().mockResolvedValue({
@@ -551,20 +559,28 @@ describe("registerIpcHandlers workspace handlers", () => {
       profileIds: ["Default"]
     })).toThrow("Chrome profile import input is invalid.");
 
-    const result = await handlers.get(IPC_CHANNELS.chromeProfileImportApply)?.({}, {
+    const sender = { isDestroyed: vi.fn(() => false), send: vi.fn() };
+    const result = await handlers.get(IPC_CHANNELS.chromeProfileImportApply)?.({ sender }, {
       consentAccepted: true,
       gameId: customGame.id,
       importId: "import-1",
       profileIds: ["Default"]
     });
     expect(result).toMatchObject({ roles: [{ id: "imported-role" }] });
-    expect(chromeProfileImportManager.applyImport).toHaveBeenCalledWith({
-      consentAccepted: true,
-      gameId: customGame.id,
-      importId: "import-1",
-      profileIds: ["Default"]
-    });
+    expect(chromeProfileImportManager.applyImport).toHaveBeenCalledWith(
+      {
+        consentAccepted: true,
+        gameId: customGame.id,
+        importId: "import-1",
+        profileIds: ["Default"]
+      },
+      expect.any(Function)
+    );
     expect(onRolesChanged).toHaveBeenCalledOnce();
+    expect(sender.send).toHaveBeenCalledWith(
+      IPC_CHANNELS.chromeProfileImportProgress,
+      expect.objectContaining({ completedProfileCount: 1, totalProfileCount: 1 })
+    );
 
     await handlers.get(IPC_CHANNELS.chromeProfileImportDiscard)?.({}, "import-1");
     expect(chromeProfileImportManager.discardImport).toHaveBeenCalledWith("import-1");

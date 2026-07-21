@@ -853,6 +853,7 @@
   "settings.chromeProfileImportLoginDataNotice": "导入的 Cookie 和网站存储数据会准备给角色使用；如果会话失效，请使用现有的重新登录功能。",
   "settings.chromeProfileImportConsent": "我了解并授权 Rion Studio 复制所选的本地 Chrome 会话数据。",
   "settings.chromeProfileImportConfirm": "导入所选个人资料",
+  "settings.chromeProfileImportProgress": "已导入 {completed}/{total}",
   "settings.chromeProfileImportComplete": "Chrome 个人资料导入完成",
   "settings.chromeProfileImportWarnings": "有 {count} 项注意事项。",
   "settings.chromeProfileImportEmbeddedMode": "内嵌浏览器",

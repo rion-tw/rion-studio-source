@@ -173,37 +173,46 @@ function EditableEditorTitle({
   }, [disabled]);
 
   return (
-    <span
-      ref={titleRef}
-      aria-label={ariaLabel}
-      aria-placeholder={placeholder}
-      aria-required="true"
-      className="app-editor-title inline-block min-w-48 max-w-full cursor-text truncate border-b border-transparent align-bottom outline-none transition-colors hover:border-border focus:border-primary data-[disabled=true]:cursor-default data-[disabled=true]:hover:border-transparent"
-      contentEditable={disabled ? false : "plaintext-only"}
-      data-disabled={disabled}
-      data-empty={value.length === 0}
-      data-placeholder={placeholder}
-      role="textbox"
-      spellCheck="false"
-      suppressContentEditableWarning
-      tabIndex={disabled ? -1 : 0}
-      onInput={(event) => {
-        const element = event.currentTarget;
-        const nextValue = normalizeEditorTitle(element.textContent ?? "");
+    <span className="relative inline-block min-w-48 max-w-full align-bottom">
+      {value.trim().length === 0 ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 truncate text-muted-foreground opacity-[0.65]"
+          data-editor-title-placeholder
+        >
+          {placeholder}
+        </span>
+      ) : null}
+      <span
+        ref={titleRef}
+        aria-label={ariaLabel}
+        aria-placeholder={placeholder}
+        aria-required="true"
+        className="app-editor-title relative inline-block min-w-48 max-w-full cursor-text truncate border-b border-transparent align-bottom outline-none transition-colors hover:border-border focus:border-primary data-[disabled=true]:cursor-default data-[disabled=true]:hover:border-transparent"
+        contentEditable={disabled ? false : "plaintext-only"}
+        data-disabled={disabled}
+        role="textbox"
+        spellCheck="false"
+        suppressContentEditableWarning
+        tabIndex={disabled ? -1 : 0}
+        onInput={(event) => {
+          const element = event.currentTarget;
+          const nextValue = normalizeEditorTitle(element.textContent ?? "");
 
-        if (element.textContent !== nextValue) {
-          element.textContent = nextValue;
-          moveCaretToEnd(element);
-        }
+          if (element.textContent !== nextValue) {
+            element.textContent = nextValue;
+            moveCaretToEnd(element);
+          }
 
-        onChange(nextValue);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-        }
-      }}
-    />
+          onChange(nextValue);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+          }
+        }}
+      />
+    </span>
   );
 }
 

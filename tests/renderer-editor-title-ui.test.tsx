@@ -29,10 +29,12 @@ describe("editor page title", () => {
     );
 
     const title = screen.getByRole("textbox", { name: "Item name" });
+    const placeholder = screen.getByText("Untitled item");
 
     expect(title.getAttribute("aria-placeholder")).toBe("Untitled item");
-    expect(title.getAttribute("data-placeholder")).toBe("Untitled item");
-    expect(title.getAttribute("data-empty")).toBe("true");
     expect(title.className).toContain("min-w-48");
+    expect(placeholder.hasAttribute("data-editor-title-placeholder")).toBe(true);
+    expect(placeholder.getAttribute("aria-hidden")).toBe("true");
+    expect(placeholder.className).toContain("pointer-events-none");
   });
 });

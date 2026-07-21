@@ -18,6 +18,7 @@ import type { RoleStore } from "../roles/RoleStore";
 const PROFILE_DIRECTORY_PATTERN = /^(Default|Profile \d+)$/;
 const IMPORT_DIRECTORY = ".chrome-profile-import";
 const IMPORT_JOURNAL = "chrome-profile-import-transaction.json";
+const PENDING_IMPORTS_FILE = "chrome-profile-import-previews.json";
 const IMPORT_COPY_PATHS = [
   "Cookies",
   "Network/Cookies",
@@ -43,6 +44,12 @@ interface PendingImport {
   importId: string;
   sourceUserDataDir: string;
   profiles: Map<string, ChromeProfileEntry>;
+}
+
+interface PersistedPendingImport {
+  importId: string;
+  profiles: ChromeProfileEntry[];
+  sourceUserDataDir: string;
 }
 
 interface ChromeImportJournal {
@@ -151,11 +158,18 @@ export class ChromeProfileImportManager {
 
     const profiles = await readChromeProfiles(sourceUserDataDir);
     const importId = this.createImportId();
-    this.pending.set(importId, {
+    const pendingImport: PendingImport = {
       importId,
       profiles: new Map(profiles.map((profile) => [profile.id, profile])),
       sourceUserDataDir
-    });
+    };
+    this.pending.set(importId, pendingImport);
+    try {
+      await this.writePendingImport(pendingImport);
+    } catch (error) {
+      this.pending.delete(importId);
+      throw error;
+    }
 
     return {
       importId,
@@ -176,7 +190,13 @@ export class ChromeProfileImportManager {
       );
     }
 
-    const pending = this.pending.get(input.importId);
+    let pending = this.pending.get(input.importId);
+    if (!pending) {
+      pending = await this.restorePendingImport(input.importId);
+      if (pending) {
+        this.pending.set(input.importId, pending);
+      }
+    }
     if (!pending) {
       throw new ChromeProfileImportError(
         "IMPORT_EXPIRED",
@@ -339,7 +359,14 @@ export class ChromeProfileImportManager {
       }
       throw error;
     } finally {
-      this.pending.delete(input.importId);
+      if (journal.phase === "committed") {
+        this.pending.delete(input.importId);
+        try {
+          await this.removePendingImport(input.importId);
+        } catch {
+          // The committed import must not be replaced by preview cleanup.
+        }
+      }
     }
   }
 
@@ -348,7 +375,61 @@ export class ChromeProfileImportManager {
       throw new ChromeProfileImportError("IMPORT_INVALID", "Chrome profile import id is invalid.");
     }
     this.pending.delete(importId);
+    await this.removePendingImport(importId);
     await removeStagingDirectory(this.options.userDataDir, importId);
+  }
+
+  private async writePendingImport(pending: PendingImport): Promise<void> {
+    const imports = await this.readPersistedPendingImports();
+    const persisted: PersistedPendingImport = {
+      importId: pending.importId,
+      profiles: [...pending.profiles.values()],
+      sourceUserDataDir: pending.sourceUserDataDir
+    };
+    const nextImports = [
+      ...imports.filter((item) => item.importId !== pending.importId),
+      persisted
+    ];
+    await writeJsonFileAtomically(
+      join(this.options.userDataDir, PENDING_IMPORTS_FILE),
+      { imports: nextImports }
+    );
+  }
+
+  private async restorePendingImport(importId: string): Promise<PendingImport | undefined> {
+    const persisted = (await this.readPersistedPendingImports()).find((item) => item.importId === importId);
+    if (!persisted) return undefined;
+    return {
+      importId: persisted.importId,
+      profiles: new Map(persisted.profiles.map((profile) => [profile.id, profile])),
+      sourceUserDataDir: persisted.sourceUserDataDir
+    };
+  }
+
+  private async removePendingImport(importId: string): Promise<void> {
+    const imports = await this.readPersistedPendingImports();
+    const nextImports = imports.filter((item) => item.importId !== importId);
+    if (nextImports.length === 0) {
+      await rm(join(this.options.userDataDir, PENDING_IMPORTS_FILE), { force: true });
+      return;
+    }
+    await writeJsonFileAtomically(
+      join(this.options.userDataDir, PENDING_IMPORTS_FILE),
+      { imports: nextImports }
+    );
+  }
+
+  private async readPersistedPendingImports(): Promise<PersistedPendingImport[]> {
+    try {
+      const parsed = JSON.parse(
+        await readFile(join(this.options.userDataDir, PENDING_IMPORTS_FILE), "utf8")
+      ) as { imports?: unknown };
+      if (!Array.isArray(parsed.imports)) return [];
+      return parsed.imports.filter(isPersistedPendingImport);
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return [];
+      return [];
+    }
   }
 
 }
@@ -631,6 +712,23 @@ function isSafeImportId(value: unknown): value is string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPersistedPendingImport(value: unknown): value is PersistedPendingImport {
+  if (!isRecord(value) || typeof value.importId !== "string" || !isSafeImportId(value.importId)) {
+    return false;
+  }
+  if (typeof value.sourceUserDataDir !== "string" || !value.sourceUserDataDir) {
+    return false;
+  }
+  return Array.isArray(value.profiles) && value.profiles.every(isChromeProfileEntry);
+}
+
+function isChromeProfileEntry(value: unknown): value is ChromeProfileEntry {
+  return isRecord(value) &&
+    typeof value.directoryName === "string" &&
+    typeof value.id === "string" &&
+    typeof value.name === "string";
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

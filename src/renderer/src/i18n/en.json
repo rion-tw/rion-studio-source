@@ -1049,11 +1049,6 @@
   "settings.chromeProfileImportConfirm": "Import selected profiles",
   "settings.chromeProfileImportProgress": "Imported {completed}/{total}",
   "settings.chromeProfileImportComplete": "Chrome profile import complete",
-  "settings.chromeProfileImportWarnings": "{count} notice(s) apply.",
-  "settings.chromeProfileImportEmbeddedMode": "Embedded browser",
-  "settings.chromeProfileImportExternalMode": "External Chrome",
-  "settings.chromeProfileImportLoginPreserved": "Login preserved",
-  "settings.chromeProfileImportLoginRequired": "Login required",
-  "settings.chromeProfileImportVerificationFailed": "Verification failed",
+  "settings.chromeProfileImportReLoginReminder": "Imported roles are marked as signed in. If a role asks you to sign in when opened, use the existing re-login action.",
   "common.close": "Close"
 }

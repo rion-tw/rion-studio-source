@@ -11,13 +11,9 @@ import type {
   ChromeProfileImportProgress,
   ChromeProfileImportPreview,
   ChromeProfileImportResult,
-  ChromeProfileImportRoleVerification,
-  ChromeProfileImportRuntimeVerification,
-  ChromeProfileImportWarning,
   Role
 } from "../../shared/types";
 import { createLoginStorageSnapshot } from "../auth/loginEvidence";
-import { waitForSettledAuthSession } from "../auth/settledAuthSession";
 import type { GameStore } from "../games/GameStore";
 import {
   CdpClient,
@@ -89,7 +85,6 @@ interface OpenDirectoryDialogResult {
 
 interface ChromeLoginDataSnapshot {
   cookies: Array<Record<string, unknown>>;
-  externalVerification?: ChromeProfileImportRuntimeVerification;
   localStorageByOrigin: Record<string, Record<string, string>>;
 }
 
@@ -144,10 +139,6 @@ interface ChromeProfileImportManagerOptions {
     role: Pick<Role, "launchUrl">,
     loginDataUrls: readonly string[]
   ) => Promise<ChromeLoginDataSnapshot>;
-  verifyEmbeddedSession?: (
-    partition: string,
-    role: Pick<Role, "launchUrl">
-  ) => Promise<ChromeProfileImportRuntimeVerification>;
   roleStore: Pick<
     RoleStore,
     | "createRole"
@@ -328,8 +319,6 @@ export class ChromeProfileImportManager {
     const overwrittenRoleIds = assignments.flatMap((assignment) =>
       assignment.existing ? [assignment.existing.id] : []
     );
-    const verifications: ChromeProfileImportRoleVerification[] = [];
-    const warnings: ChromeProfileImportWarning[] = [{ code: "passwords_excluded" }];
     const journal: ChromeImportJournal = {
       createdRoleIds,
       importId: input.importId,
@@ -387,34 +376,13 @@ export class ChromeProfileImportManager {
         await rm(targetBrowserDir, { force: true, recursive: true });
         await copyDirectory(stageBrowserDir, targetBrowserDir);
 
-        const runtimeVerification = await this.seedImportedLoginData(
+        await this.seedImportedLoginData(
           targetBrowserDir,
           role,
           createLoginDataUrls(role, game.loginUrl),
           Boolean(assignment.existing)
         );
-        verifications.push({
-          embedded: runtimeVerification.embedded,
-          external: runtimeVerification.external,
-          profileId: assignment.profile.id,
-          profileName: assignment.profile.name,
-          roleId: role.id
-        });
-        for (const verification of [runtimeVerification.external, runtimeVerification.embedded]) {
-          if (verification.state === "authenticated") continue;
-          warnings.push({
-            code: verification.state === "auth_failed"
-              ? "login_verification_failed"
-              : "login_not_preserved",
-            mode: verification.mode,
-            profileId: assignment.profile.id,
-            profileName: assignment.profile.name
-          });
-        }
-        await this.options.roleStore.updateAuthState(
-          role.id,
-          combineRuntimeAuthStates(runtimeVerification.external, runtimeVerification.embedded)
-        );
+        await this.options.roleStore.updateAuthState(role.id, "authenticated");
         completedProfileCount += 1;
         reportProgress("importing", assignment.profile);
       }
@@ -428,9 +396,7 @@ export class ChromeProfileImportManager {
       reportProgress("completed");
       const affectedRoleIds = new Set([...overwrittenRoleIds, ...createdRoleIds]);
       return {
-        roles: roles.filter((role) => affectedRoleIds.has(role.id)),
-        verifications,
-        warnings
+        roles: roles.filter((role) => affectedRoleIds.has(role.id))
       };
     } catch (error) {
       if (journal.phase !== "committed") {
@@ -468,10 +434,7 @@ export class ChromeProfileImportManager {
     role: Role,
     loginDataUrls: readonly string[],
     resetExistingSession: boolean
-  ): Promise<{
-    embedded: ChromeProfileImportRuntimeVerification;
-    external: ChromeProfileImportRuntimeVerification;
-  }> {
+  ): Promise<void> {
     const summary: ChromeProfileImportLoginDataTransferSummary = {
       failedItemCount: 0,
       failedStorageOriginCount: 0,
@@ -499,21 +462,17 @@ export class ChromeProfileImportManager {
 
     if (!this.options.readChromeLoginData || !this.options.getSession || !this.options.injectEmbeddedStorage) {
       reportSummary();
-      return createUnavailableRuntimeVerifications("Chrome login data transfer is unavailable.");
+      return;
     }
 
     let snapshot: ChromeLoginDataSnapshot;
     try {
       snapshot = await this.options.readChromeLoginData(browserUserDataDir, role, loginDataUrls);
-    } catch (error) {
+    } catch {
       summary.readFailed = true;
       reportSummary();
-      return createUnavailableRuntimeVerifications(
-        error instanceof Error ? error.message : "Unable to read Chrome login data."
-      );
+      return;
     }
-
-    const external = snapshot.externalVerification ?? createRuntimeVerification("external", "authenticated");
 
     summary.sourceItemCount = snapshot.cookies.length;
     summary.sourceStorageOriginCount = Object.keys(snapshot.localStorageByOrigin).length;
@@ -582,66 +541,7 @@ export class ChromeProfileImportManager {
     }
 
     reportSummary();
-    let embedded: ChromeProfileImportRuntimeVerification;
-    if (summary.flushFailed) {
-      embedded = createRuntimeVerification(
-        "embedded",
-        "auth_failed",
-        "Unable to flush the embedded login session to disk."
-      );
-    } else if (!this.options.verifyEmbeddedSession) {
-      embedded = createRuntimeVerification("embedded", "authenticated");
-    } else {
-      try {
-        embedded = await this.options.verifyEmbeddedSession(partition, role);
-      } catch (error) {
-        embedded = createRuntimeVerification(
-          "embedded",
-          "auth_failed",
-          error instanceof Error ? error.message : "Unable to verify the embedded login session."
-        );
-      }
-    }
-
-    return { embedded, external };
   }
-}
-
-function createRuntimeVerification(
-  mode: ChromeProfileImportRuntimeVerification["mode"],
-  state: ChromeProfileImportRuntimeVerification["state"],
-  message?: string,
-  durationMs?: number
-): ChromeProfileImportRuntimeVerification {
-  return {
-    mode,
-    state,
-    ...(message ? { message } : {}),
-    ...(durationMs === undefined ? {} : { durationMs })
-  };
-}
-
-function createUnavailableRuntimeVerifications(message: string): {
-  embedded: ChromeProfileImportRuntimeVerification;
-  external: ChromeProfileImportRuntimeVerification;
-} {
-  return {
-    embedded: createRuntimeVerification("embedded", "auth_failed", message),
-    external: createRuntimeVerification("external", "auth_failed", message)
-  };
-}
-
-function combineRuntimeAuthStates(
-  external: ChromeProfileImportRuntimeVerification,
-  embedded: ChromeProfileImportRuntimeVerification
-): Role["authState"] {
-  if (external.state === "authenticated" && embedded.state === "authenticated") {
-    return "authenticated";
-  }
-  if (external.state === "auth_failed" || embedded.state === "auth_failed") {
-    return "auth_failed";
-  }
-  return "login_required";
 }
 
 function createRoleIdentityKey(gameId: string, name: string): string {
@@ -1016,13 +916,6 @@ export async function readChromeLoginDataWithCdp(
 ): Promise<ChromeLoginDataSnapshot> {
   const readOnce = options.readOnce ?? ((nextUserDataDir, nextRole, nextUrls) =>
     readChromeLoginDataOnceWithCdp(nextUserDataDir, nextRole, nextUrls, options));
-  const initial = await readOnce(userDataDir, role, loginDataUrls);
-  if (initial.externalVerification?.state !== "authenticated") {
-    return initial;
-  }
-
-  // Reopen the profile after Browser.close so success proves that the renewed
-  // session was persisted to disk, not only held by the first Chrome process.
   return readOnce(userDataDir, role, loginDataUrls);
 }
 
@@ -1067,78 +960,31 @@ async function readChromeLoginDataOnceWithCdp(
       throw new ChromeProfileImportError("LOGIN_DATA_TARGET_MISSING", "Imported Chrome profile did not expose a login data page.");
     }
     client = new CdpClient(target.webSocketDebuggerUrl);
-    let lastNetworkActivityAt = Date.now();
-    const removeNetworkListener = client.onNotification((notification) => {
-      if (notification.method.startsWith("Network.") || notification.method.startsWith("Page.")) {
-        lastNetworkActivityAt = Date.now();
+    await client.send("Page.enable").catch(() => undefined);
+    const localStorageByOrigin: Record<string, Record<string, string>> = {};
+    for (const [index, url] of urls.entries()) {
+      if (index > 0) {
+        await navigateChromePage(client, url, options.timeoutMs ?? 10_000);
       }
-    });
-    try {
-      await Promise.all([
-        client.send("Page.enable").catch(() => undefined),
-        client.send("Network.enable").catch(() => undefined)
-      ]);
-      const localStorageByOrigin: Record<string, Record<string, string>> = {};
-      let externalVerification = createRuntimeVerification(
-        "external",
-        "auth_failed",
-        "Unable to verify the imported Chrome login session."
-      );
-      for (const [index, url] of urls.entries()) {
-        if (index > 0) {
-          await navigateChromePage(client, url, options.timeoutMs ?? 10_000);
-          lastNetworkActivityAt = Date.now();
-        }
-        const settled = await waitForSettledAuthSession(
-          () => readChromeAuthSample(client!, url),
-          {
-            isIdle: () => Date.now() - lastNetworkActivityAt >= 1_500,
-            timeoutMs: options.timeoutMs ?? 20_000
-          }
-        );
-        const origin = getUrlOrigin(settled.finalUrl ?? url);
-        if (origin && requestedOrigins.has(origin) && settled.snapshot) {
-          localStorageByOrigin[origin] = settled.snapshot.localStorage;
-        }
-        if (index === 0) {
-          externalVerification = createRuntimeVerification(
-            "external",
-            settled.authState,
-            settled.message,
-            settled.durationMs
-          );
-        }
+      const runtimeResult = await client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
+        expression: CHROME_LOGIN_DATA_EXPRESSION,
+        returnByValue: true,
+        awaitPromise: true
+      });
+      const runtimeValue = runtimeResult.result?.value;
+      const origin = readRuntimeOrigin(runtimeValue);
+      if (origin && requestedOrigins.has(origin)) {
+        localStorageByOrigin[origin] = createLoginStorageSnapshot(undefined, runtimeValue).localStorage;
       }
-
-      if (urls.length > 1) {
-        await navigateChromePage(client, initialUrl, options.timeoutMs ?? 10_000);
-        lastNetworkActivityAt = Date.now();
-        const settled = await waitForSettledAuthSession(
-          () => readChromeAuthSample(client!, initialUrl),
-          {
-            isIdle: () => Date.now() - lastNetworkActivityAt >= 1_500,
-            timeoutMs: options.timeoutMs ?? 20_000
-          }
-        );
-        externalVerification = createRuntimeVerification(
-          "external",
-          settled.authState,
-          settled.message,
-          settled.durationMs
-        );
-      }
-
-      const cookieResult = await client.send<{ cookies?: unknown[] }>("Network.getAllCookies");
-      return {
-        cookies: Array.isArray(cookieResult.cookies)
-          ? cookieResult.cookies.filter(isRecord)
-          : [],
-        externalVerification,
-        localStorageByOrigin
-      };
-    } finally {
-      removeNetworkListener();
     }
+
+    const cookieResult = await client.send<{ cookies?: unknown[] }>("Network.getAllCookies");
+    return {
+      cookies: Array.isArray(cookieResult.cookies)
+        ? cookieResult.cookies.filter(isRecord)
+        : [],
+      localStorageByOrigin
+    };
   } finally {
     if (client) {
       await closeChromeGracefully(child, client);
@@ -1147,22 +993,6 @@ async function readChromeLoginDataOnceWithCdp(
       await terminateChrome(child);
     }
   }
-}
-
-async function readChromeAuthSample(client: CdpClient, fallbackUrl: string) {
-  const [cookieResult, runtimeResult] = await Promise.all([
-    client.send<{ cookies?: unknown[] }>("Network.getCookies", { urls: [fallbackUrl] }),
-    client.send<{ result?: { value?: unknown } }>("Runtime.evaluate", {
-      expression: CHROME_LOGIN_DATA_EXPRESSION,
-      returnByValue: true,
-      awaitPromise: true
-    })
-  ]);
-  const runtimeValue = runtimeResult.result?.value;
-  return {
-    finalUrl: readRuntimeHref(runtimeValue) ?? fallbackUrl,
-    snapshot: createLoginStorageSnapshot(cookieResult.cookies, runtimeValue)
-  };
 }
 
 async function closeChromeGracefully(child: ChildProcess, client: CdpClient): Promise<void> {
@@ -1219,11 +1049,11 @@ async function navigateChromePage(client: CdpClient, url: string, timeoutMs: num
   }
 }
 
-function readRuntimeHref(value: unknown): string | undefined {
-  if (!isRecord(value) || typeof value.href !== "string") {
+function readRuntimeOrigin(value: unknown): string | undefined {
+  if (!isRecord(value) || typeof value.origin !== "string") {
     return undefined;
   }
-  return value.href;
+  return getUrlOrigin(value.origin);
 }
 
 async function waitForPageTarget(port: number, launchUrl: string, timeoutMs: number): Promise<DevToolsTarget | undefined> {

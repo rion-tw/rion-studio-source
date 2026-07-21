@@ -103,11 +103,6 @@ describe("ChromeProfileImportManager", () => {
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [source] }));
     const injectEmbeddedStorage = vi.fn(async () => undefined);
     const resetEmbeddedSession = vi.fn(async () => undefined);
-    const verifyEmbeddedSession = vi.fn(async () => ({
-      durationMs: 25,
-      mode: "embedded" as const,
-      state: "authenticated" as const
-    }));
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
     const readChromeLoginData = vi.fn()
       .mockResolvedValueOnce({
@@ -118,11 +113,6 @@ describe("ChromeProfileImportManager", () => {
         localStorageByOrigin: {
           "https://accounts.example.test": { sso: "present" },
           "https://example.test": { session: "present" }
-        },
-        externalVerification: {
-          durationMs: 50,
-          mode: "external" as const,
-          state: "authenticated" as const
         }
       })
       .mockResolvedValueOnce({
@@ -133,11 +123,6 @@ describe("ChromeProfileImportManager", () => {
         localStorageByOrigin: {
           "https://accounts.example.test": { sso: "present" },
           "https://example.test": { session: "present" }
-        },
-        externalVerification: {
-          durationMs: 50,
-          mode: "external" as const,
-          state: "authenticated" as const
         }
       });
     const manager = new ChromeProfileImportManager({
@@ -152,8 +137,7 @@ describe("ChromeProfileImportManager", () => {
       resetEmbeddedSession,
       roleStore,
       showOpenDialog,
-      userDataDir,
-      verifyEmbeddedSession
+      userDataDir
     });
 
     const preview = await manager.previewImport();
@@ -194,15 +178,9 @@ describe("ChromeProfileImportManager", () => {
     expect(importedRoles.every((role) => role.authState === "authenticated")).toBe(true);
     expect(importedRoles.every((role) => role.lastAuthCheckAt && role.lastSuccessfulLoginAt)).toBe(true);
     expect(result).not.toHaveProperty("results");
-    expect(result.verifications).toHaveLength(2);
-    expect(result.verifications).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        embedded: expect.objectContaining({ mode: "embedded", state: "authenticated" }),
-        external: expect.objectContaining({ mode: "external", state: "authenticated" }),
-        profileName: "Primary"
-      }),
-      expect.objectContaining({ profileName: "Alt" })
-    ]));
+    expect(result).not.toHaveProperty("verifications");
+    expect(result).not.toHaveProperty("warnings");
+    expect(result.roles.map((role) => role.name)).toEqual(["Primary", "Alt"]);
     expect(readChromeLoginData).toHaveBeenCalledTimes(2);
     expect(readChromeLoginData).toHaveBeenNthCalledWith(
       1,
@@ -220,7 +198,6 @@ describe("ChromeProfileImportManager", () => {
     }));
     expect(resetEmbeddedSession).toHaveBeenCalledOnce();
     expect(flushStorageData).toHaveBeenCalledTimes(2);
-    expect(verifyEmbeddedSession).toHaveBeenCalledTimes(2);
     expect(progressEvents).toEqual([
       expect.objectContaining({ completedProfileCount: 0, phase: "preparing", totalProfileCount: 2 }),
       expect.objectContaining({ completedProfileCount: 0, phase: "importing", totalProfileCount: 2 }),
@@ -284,18 +261,12 @@ describe("ChromeProfileImportManager", () => {
     ]);
   });
 
-  it("reopens an authenticated Chrome profile before accepting persisted login data", async () => {
-    const readOnce = vi.fn()
-      .mockResolvedValueOnce({
-        cookies: [{ name: "session", value: "initial" }],
-        externalVerification: { mode: "external", state: "authenticated" },
-        localStorageByOrigin: {}
-      })
-      .mockResolvedValueOnce({
-        cookies: [{ name: "session", value: "persisted" }],
-        externalVerification: { mode: "external", state: "authenticated" },
-        localStorageByOrigin: { "https://example.test": { session: "persisted" } }
-      });
+  it("reads each imported Chrome profile once", async () => {
+    const snapshot = {
+      cookies: [{ name: "session", value: "initial" }],
+      localStorageByOrigin: { "https://example.test": { session: "initial" } }
+    };
+    const readOnce = vi.fn().mockResolvedValue(snapshot);
 
     const result = await readChromeLoginDataWithCdp(
       "/profiles/role-1/browser",
@@ -304,31 +275,11 @@ describe("ChromeProfileImportManager", () => {
       { readOnce }
     );
 
-    expect(readOnce).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({
-      cookies: [{ value: "persisted" }],
-      externalVerification: { state: "authenticated" }
-    });
-  });
-
-  it("does not reopen Chrome when the first verification already requires login", async () => {
-    const readOnce = vi.fn().mockResolvedValue({
-      cookies: [],
-      externalVerification: { mode: "external", state: "login_required" },
-      localStorageByOrigin: {}
-    });
-
-    await readChromeLoginDataWithCdp(
-      "/profiles/role-1/browser",
-      { launchUrl: game.defaultLaunchUrl },
-      [game.defaultLaunchUrl],
-      { readOnce }
-    );
-
     expect(readOnce).toHaveBeenCalledOnce();
+    expect(result).toEqual(snapshot);
   });
 
-  it("keeps a role but reports each runtime that did not preserve login", async () => {
+  it("marks imported roles authenticated when login data transfer fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const source = join(root, "Chrome User Data");
     const userDataDir = join(root, "rion-data");
@@ -339,6 +290,7 @@ describe("ChromeProfileImportManager", () => {
       "utf8"
     );
     const roleStore = new RoleStore(userDataDir);
+    const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-login-warning",
       gameStore: { getGame: async () => game },
@@ -350,23 +302,12 @@ describe("ChromeProfileImportManager", () => {
         flushStorageData: vi.fn()
       }) as never,
       injectEmbeddedStorage: vi.fn().mockResolvedValue(undefined),
+      onLoginDataTransfer: (summary) => transferSummaries.push(summary),
       platform: "darwin",
-      readChromeLoginData: vi.fn().mockResolvedValue({
-        cookies: [],
-        externalVerification: {
-          mode: "external",
-          state: "authenticated"
-        },
-        localStorageByOrigin: {}
-      }),
+      readChromeLoginData: vi.fn().mockRejectedValue(new Error("Chrome data unavailable")),
       roleStore,
       showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
-      userDataDir,
-      verifyEmbeddedSession: vi.fn().mockResolvedValue({
-        message: "Login is still required.",
-        mode: "embedded",
-        state: "login_required"
-      })
+      userDataDir
     });
 
     await manager.previewImport();
@@ -380,17 +321,60 @@ describe("ChromeProfileImportManager", () => {
     });
 
     expect(result.roles).toHaveLength(1);
-    expect(result.roles[0].authState).toBe("login_required");
-    expect(result.verifications[0]).toMatchObject({
-      embedded: { mode: "embedded", state: "login_required" },
-      external: { mode: "external", state: "authenticated" }
+    expect(result.roles[0].authState).toBe("authenticated");
+    expect(transferSummaries).toEqual([
+      expect.objectContaining({ readFailed: true, roleId: result.roles[0].id })
+    ]);
+  });
+
+  it("marks imported roles authenticated when storage injection or flushing fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
+    const source = join(root, "Chrome User Data");
+    const userDataDir = join(root, "rion-data");
+    await mkdir(join(source, "Default"), { recursive: true });
+    await writeFile(
+      join(source, "Local State"),
+      JSON.stringify({ profile: { info_cache: { Default: { name: "Primary" } } } }),
+      "utf8"
+    );
+    const roleStore = new RoleStore(userDataDir);
+    const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
+    const manager = new ChromeProfileImportManager({
+      createImportId: () => "import-transfer-warning",
+      gameStore: { getGame: async () => game },
+      getSession: () => ({
+        cookies: {
+          get: vi.fn().mockResolvedValue([]),
+          set: vi.fn().mockResolvedValue(undefined)
+        },
+        flushStorageData: vi.fn(() => {
+          throw new Error("flush failed");
+        })
+      }) as never,
+      injectEmbeddedStorage: vi.fn().mockRejectedValue(new Error("storage injection failed")),
+      onLoginDataTransfer: (summary) => transferSummaries.push(summary),
+      platform: "darwin",
+      readChromeLoginData: vi.fn().mockResolvedValue({
+        cookies: [{ domain: ".example.test", name: "session", path: "/", value: "secret" }],
+        localStorageByOrigin: { "https://example.test": { session: "secret" } }
+      }),
+      roleStore,
+      showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
+      userDataDir
     });
-    expect(result.warnings).toContainEqual({
-      code: "login_not_preserved",
-      mode: "embedded",
-      profileId: "Default",
-      profileName: "Primary"
+
+    await manager.previewImport();
+    const result = await manager.applyImport({
+      consentAccepted: true,
+      gameId: game.id,
+      importId: "import-transfer-warning",
+      profileIds: ["Default"]
     });
+
+    expect(result.roles[0].authState).toBe("authenticated");
+    expect(transferSummaries).toEqual([
+      expect.objectContaining({ failedStorageOriginCount: 1, flushFailed: true, readFailed: false })
+    ]);
   });
 
   it.each(["SingletonCookie", "SingletonLock", "SingletonSocket"] as const)("rejects an active Chrome data folder marked by %s and cleans a discarded staging directory", async (lockFile) => {

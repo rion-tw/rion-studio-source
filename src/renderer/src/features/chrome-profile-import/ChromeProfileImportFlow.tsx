@@ -8,7 +8,6 @@ import { Surface } from "../../components/ui/patterns";
 import { type Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
-  BrowserRuntimeMode,
   ChromeProfileEntry,
   ChromeProfileImportInput,
   ChromeProfileImportProgress,
@@ -499,44 +498,14 @@ function ChromeProfileImportResultDialog({
           </h2>
         </div>
         <div className="grid gap-2 overflow-y-auto px-5 py-4">
-          {result.roles.map((role) => {
-            const verification = result.verifications.find((item) => item.roleId === role.id);
-            return (
-              <div key={role.id} className="glass-inset grid gap-2 rounded-md px-3 py-2.5 text-xs">
-                <p className="font-semibold text-foreground">{role.name}</p>
-                {verification ? (
-                  <div className="grid gap-1.5">
-                    {[verification.embedded, verification.external].map((runtime) => (
-                      <div key={runtime.mode} className="flex items-center justify-between gap-3 text-[11px]">
-                        <span className="text-muted-foreground">
-                          {getRuntimeModeLabel(runtime.mode, t)}
-                        </span>
-                        <span
-                          className={cn(
-                            "font-medium",
-                            runtime.state === "authenticated"
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-amber-700 dark:text-amber-400"
-                          )}
-                        >
-                          {runtime.state === "authenticated"
-                            ? t("settings.chromeProfileImportLoginPreserved")
-                            : runtime.state === "login_required"
-                              ? t("settings.chromeProfileImportLoginRequired")
-                              : t("settings.chromeProfileImportVerificationFailed")}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-          {result.warnings.length > 0 ? (
-            <p className="text-[11px] leading-5 text-muted-foreground">
-              {t("settings.chromeProfileImportWarnings").replace("{count}", String(result.warnings.length))}
-            </p>
-          ) : null}
+          {result.roles.map((role) => (
+            <div key={role.id} className="glass-inset rounded-md px-3 py-2.5 text-xs">
+              <p className="font-semibold text-foreground">{role.name}</p>
+            </div>
+          ))}
+          <p className="text-[11px] leading-5 text-muted-foreground">
+            {t("settings.chromeProfileImportReLoginReminder")}
+          </p>
         </div>
         <div className="glass-divider flex justify-end border-t px-5 py-4">
           <Button type="button" disabled={isBusy} onClick={onClose}>{t("common.close")}</Button>
@@ -544,10 +513,4 @@ function ChromeProfileImportResultDialog({
       </Surface>
     </div>
   );
-}
-
-function getRuntimeModeLabel(mode: BrowserRuntimeMode, t: Translator): string {
-  return mode === "embedded"
-    ? t("settings.chromeProfileImportEmbeddedMode")
-    : t("settings.chromeProfileImportExternalMode");
 }

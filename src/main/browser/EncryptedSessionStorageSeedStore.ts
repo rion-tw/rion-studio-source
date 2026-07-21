@@ -56,6 +56,7 @@ export interface CacheStorageEntrySeed {
 export interface EmbeddedStorageOriginSeed {
   cacheStorage?: CacheStorageEntrySeed[];
   indexedDb?: IndexedDbDatabaseSeed[];
+  localStorage?: Record<string, string>;
   sessionStorage?: Record<string, string>;
 }
 
@@ -171,16 +172,22 @@ export class EncryptedSessionStorageSeedStore {
 
 export function createEmbeddedStorageSeed(
   sessionStorageByOrigin: SessionStorageByOrigin,
-  durableByOrigin: Record<string, Pick<EmbeddedStorageOriginSeed, "cacheStorage" | "indexedDb">> = {}
+  durableByOrigin: Record<string, Pick<EmbeddedStorageOriginSeed, "cacheStorage" | "indexedDb">> = {},
+  localStorageByOrigin: Record<string, Record<string, string>> = {}
 ): EmbeddedStorageSeed {
   return normalizeEmbeddedStorageSeed({
     origins: Object.fromEntries(
-      [...new Set([...Object.keys(sessionStorageByOrigin), ...Object.keys(durableByOrigin)])]
+      [...new Set([
+        ...Object.keys(sessionStorageByOrigin),
+        ...Object.keys(durableByOrigin),
+        ...Object.keys(localStorageByOrigin)
+      ])]
         .map((origin) => [
           origin,
           {
             ...(sessionStorageByOrigin[origin] ? { sessionStorage: sessionStorageByOrigin[origin] } : {}),
-            ...(durableByOrigin[origin] ?? {})
+            ...(durableByOrigin[origin] ?? {}),
+            ...(localStorageByOrigin[origin] ? { localStorage: localStorageByOrigin[origin] } : {})
           }
         ])
     ),
@@ -203,6 +210,7 @@ export function getSessionStorageByOrigin(seed: EmbeddedStorageSeed | undefined)
 
 export function hasPendingDurableStorage(seed: EmbeddedStorageSeed | undefined): boolean {
   return Boolean(seed && Object.values(seed.origins).some((origin) =>
+    Object.keys(origin.localStorage ?? {}).length > 0 ||
     (origin.indexedDb?.length ?? 0) > 0 || (origin.cacheStorage?.length ?? 0) > 0
   ));
 }
@@ -211,6 +219,7 @@ export function removeDurableStorageForOrigin(seed: EmbeddedStorageSeed, origin:
   const next = cloneEmbeddedStorageSeed(seed);
   const originSeed = next.origins[origin];
   if (!originSeed) return next;
+  delete originSeed.localStorage;
   delete originSeed.indexedDb;
   delete originSeed.cacheStorage;
   if (!originSeed.sessionStorage || Object.keys(originSeed.sessionStorage).length === 0) {
@@ -222,7 +231,8 @@ export function removeDurableStorageForOrigin(seed: EmbeddedStorageSeed, origin:
 export function getPendingDurableOrigins(seed: EmbeddedStorageSeed | undefined): string[] {
   if (!seed) return [];
   return Object.entries(seed.origins)
-    .filter(([, origin]) => (origin.indexedDb?.length ?? 0) > 0 || (origin.cacheStorage?.length ?? 0) > 0)
+    .filter(([, origin]) => Object.keys(origin.localStorage ?? {}).length > 0 ||
+      (origin.indexedDb?.length ?? 0) > 0 || (origin.cacheStorage?.length ?? 0) > 0)
     .map(([origin]) => origin);
 }
 
@@ -262,16 +272,18 @@ function normalizePersistedSeed(value: unknown): EmbeddedStorageSeed {
 }
 
 function normalizeOriginSeed(value: unknown): EmbeddedStorageOriginSeed | undefined {
-  const raw = isRecord(value) && ("sessionStorage" in value || "indexedDb" in value || "cacheStorage" in value)
+  const raw = isRecord(value) && ("localStorage" in value || "sessionStorage" in value || "indexedDb" in value || "cacheStorage" in value)
     ? value
     : { sessionStorage: value };
   const sessionStorage = normalizeStringRecord(raw.sessionStorage);
+  const localStorage = normalizeStringRecord(raw.localStorage);
   const indexedDb = Array.isArray(raw.indexedDb) ? raw.indexedDb.filter(isIndexedDbDatabaseSeed) : [];
   const cacheStorage = Array.isArray(raw.cacheStorage) ? raw.cacheStorage.filter(isCacheStorageEntrySeed) : [];
-  if (Object.keys(sessionStorage).length === 0 && indexedDb.length === 0 && cacheStorage.length === 0) {
+  if (Object.keys(localStorage).length === 0 && Object.keys(sessionStorage).length === 0 && indexedDb.length === 0 && cacheStorage.length === 0) {
     return undefined;
   }
   return {
+    ...(Object.keys(localStorage).length > 0 ? { localStorage } : {}),
     ...(Object.keys(sessionStorage).length > 0 ? { sessionStorage } : {}),
     ...(indexedDb.length > 0 ? { indexedDb: structuredClone(indexedDb) } : {}),
     ...(cacheStorage.length > 0 ? { cacheStorage: structuredClone(cacheStorage) } : {})

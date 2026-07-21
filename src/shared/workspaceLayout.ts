@@ -67,6 +67,7 @@ interface WorkspaceRectEdgeReference {
 }
 
 export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
+  "single",
   "two_columns",
   "three_columns",
   "main_left_stack_right",
@@ -80,8 +81,6 @@ export const workspaceLayoutTemplates: WorkspaceLayoutTemplate[] = [
   "eight_grid",
   "nine_grid"
 ];
-
-const readableWorkspaceLayoutTemplates: WorkspaceLayoutTemplate[] = ["single", ...workspaceLayoutTemplates];
 
 export function getDefaultWorkspaceBrowserZoomPercent(
   template: WorkspaceLayoutTemplate
@@ -432,5 +431,5 @@ export function createDefaultWorkspaceSlots(template: WorkspaceLayoutTemplate): 
 }
 
 export function isWorkspaceLayoutTemplate(value: unknown): value is WorkspaceLayoutTemplate {
-  return typeof value === "string" && readableWorkspaceLayoutTemplates.includes(value as WorkspaceLayoutTemplate);
+  return typeof value === "string" && workspaceLayoutTemplates.includes(value as WorkspaceLayoutTemplate);
 }

@@ -117,11 +117,13 @@ describe("registerIpcHandlers workspace handlers", () => {
     BrowserManager,
     | "launch"
     | "launchWorkspace"
+    | "captureExternalRoleDiagnostics"
     | "listEmbeddedRuntimeState"
     | "listStatuses"
     | "listWorkspaceDisplayReservations"
     | "moveRuntimeTab"
     | "on"
+    | "recoverExternalRole"
     | "runRoleOperation"
     | "showEmbeddedRuntimeWindows"
     | "showRuntimeTab"
@@ -186,6 +188,7 @@ describe("registerIpcHandlers workspace handlers", () => {
       updateWorkspace: vi.fn().mockResolvedValue(workspace)
     };
     browserManager = {
+      captureExternalRoleDiagnostics: vi.fn().mockResolvedValue(undefined),
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
       launchWorkspace: vi.fn(async (_workspace: LaunchWorkspace, items: Array<{ role: Role }>) =>
         items.map(({ role }) => ({ roleId: role.id, state: "running" as const }))
@@ -195,6 +198,11 @@ describe("registerIpcHandlers workspace handlers", () => {
       listWorkspaceDisplayReservations: vi.fn(() => []),
       moveRuntimeTab: vi.fn(),
       on: vi.fn(),
+      recoverExternalRole: vi.fn().mockResolvedValue({
+        roleId: authenticatedRole.id,
+        runtimeMode: "external",
+        state: "running"
+      }),
       runRoleOperation: vi.fn(async (_roleIds: string[], operation: () => Promise<unknown>) => operation()) as never,
       showEmbeddedRuntimeWindows: vi.fn(),
       showRuntimeTab: vi.fn(),
@@ -514,6 +522,20 @@ describe("registerIpcHandlers workspace handlers", () => {
       lastLaunchFailureAt: expect.any(String),
       lastLaunchFailureCode: "GAME_PAGE_LOAD_FAILED"
     }));
+  });
+
+  it("validates and exposes external Chrome freeze capture and single-role recovery", async () => {
+    await handlers.get(IPC_CHANNELS.rolesCaptureExternalDiagnostics)?.({}, authenticatedRole.id);
+    await expect(handlers.get(IPC_CHANNELS.rolesRecoverExternal)?.({}, authenticatedRole.id)).resolves.toMatchObject({
+      roleId: authenticatedRole.id,
+      runtimeMode: "external"
+    });
+    expect(browserManager.captureExternalRoleDiagnostics).toHaveBeenCalledWith(authenticatedRole.id);
+    expect(browserManager.recoverExternalRole).toHaveBeenCalledWith(authenticatedRole.id);
+
+    await expect(handlers.get(IPC_CHANNELS.rolesCaptureExternalDiagnostics)?.({}, "")).rejects.toThrow(
+      "Role id is invalid."
+    );
   });
 
   it("stops a role before changing its game or launch URL but not for metadata-only edits", async () => {

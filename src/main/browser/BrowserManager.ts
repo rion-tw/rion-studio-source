@@ -876,6 +876,28 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return { role: session.role, target: session.target };
   }
 
+  captureExternalRoleDiagnostics(roleId: string) {
+    if (!this.options.externalChromeManager) {
+      throw new Error("External Chrome compatibility mode is not available.");
+    }
+    return this.options.externalChromeManager.captureDiagnostics(roleId);
+  }
+
+  recoverExternalRole(roleId: string): Promise<RoleStatus> {
+    if (!this.options.externalChromeManager) {
+      throw new Error("External Chrome compatibility mode is not available.");
+    }
+    return this.withRoleOperationLocks([roleId], () => this.options.externalChromeManager!.recover(roleId));
+  }
+
+  listExternalRoleDiagnostics() {
+    return this.options.externalChromeManager?.listDiagnostics() ?? [];
+  }
+
+  captureAllExternalRoleDiagnostics() {
+    return this.options.externalChromeManager?.captureAllDiagnostics() ?? Promise.resolve([]);
+  }
+
   launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus | null> {
     return this.runRoleOperation([role.id], () => this.launchUnlocked(role, options));
   }

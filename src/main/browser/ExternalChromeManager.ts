@@ -12,6 +12,7 @@ import { findSystemChromeExecutable } from "../system-browser/SystemChromeLaunch
 import {
   BROWSER_BACKGROUND_FEATURES_TO_DISABLE,
   BROWSER_BASE_SWITCHES,
+  EXTERNAL_CHROME_FOREGROUND_PRIORITY_SWITCHES,
   getGraphicsModeSwitches
 } from "../../shared/browserGraphics";
 import type {
@@ -31,6 +32,7 @@ import {
   connectExternalChromeAutomation,
   type ConnectExternalChromeAutomationOptions,
   type ExternalChromeDiagnosticEvent,
+  type ExternalChromePageDiagnostics,
   type ExternalBrowserAutomationTarget
 } from "./ExternalChromeAutomationTarget";
 import type { ExternalChromeWindowBoundsAdapter } from "./WindowsExternalChromeWindowBoundsAdapter";
@@ -41,6 +43,26 @@ import type {
 
 export interface ExternalChromeManagerEvents {
   change: [RoleStatus[]];
+  diagnostics: [roleId: string, diagnostics: ExternalChromeSessionDiagnostics];
+  health: [roleId: string, health: "healthy" | "unresponsive", diagnostics?: ExternalChromeSessionDiagnostics];
+}
+
+export interface ExternalChromeSessionDiagnostics {
+  automationState: "ready" | "unavailable";
+  bounds: PixelBounds;
+  capturedAt: string;
+  cdp?: {
+    lastRoundTripAt?: string;
+    lastTimeoutAt?: string;
+  };
+  externalRoleCount: number;
+  pageHealth?: "healthy" | "unresponsive";
+  physicalBounds?: PixelBounds;
+  roleId: string;
+  runtimeMode: "external";
+  workspaceId?: string;
+  zoomFactor: number;
+  chrome?: ExternalChromePageDiagnostics;
 }
 
 export interface ExternalChromeLaunchItem {
@@ -67,7 +89,9 @@ export interface ExternalChromeManagerOptions {
   getLaunchWorkArea: () => PixelBounds;
   graphicsMode?: BrowserGraphicsMode;
   onDiagnostic?: (event: ExternalChromeDiagnosticEvent & { roleId: string }) => void;
+  now?: () => number;
   platform?: NodeJS.Platform;
+  setInterval?: (callback: () => void, intervalMs: number) => ReturnType<typeof setInterval>;
   windowBoundsAdapter?: ExternalChromeWindowBoundsAdapter;
   spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
   connectAutomation?: (
@@ -87,10 +111,18 @@ export type ExternalMacroOverlayInstaller = (
 
 interface ExternalChromeSession {
   automationTarget?: ExternalBrowserAutomationTarget;
+  bounds: PixelBounds;
+  cdpProbeInFlight?: boolean;
   cdnCompatibilityActive: boolean;
   child: ChildProcess;
   launchedAt?: string;
+  lastHeartbeatAt?: number;
+  lastCdpRoundTripAt?: number;
+  lastCdpTimeoutAt?: number;
   notice?: string;
+  pageHealth?: "healthy" | "unresponsive";
+  pageHidden: boolean;
+  physicalBounds?: PixelBounds;
   role: Role;
   state: RoleStatus["state"];
   workspaceId?: string;
@@ -110,12 +142,20 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   private readonly sessions = new Map<string, ExternalChromeSession>();
   private beforeRoleStop?: (roleId: string) => Promise<void>;
   private macroOverlayInstaller?: ExternalMacroOverlayInstaller;
+  private readonly now: () => number;
+  private suspended = false;
 
   constructor(
     private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">,
     private readonly options: ExternalChromeManagerOptions
   ) {
     super();
+    this.now = options.now ?? Date.now;
+    const setIntervalFn = options.setInterval ?? setInterval;
+    const healthTimer = setIntervalFn(() => this.checkPageHealth(), EXTERNAL_HEARTBEAT_INTERVAL_MS);
+    if (typeof healthTimer !== "number") {
+      healthTimer.unref?.();
+    }
   }
 
   hasSession(roleId: string): boolean {
@@ -132,7 +172,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
   getAutomationSession(roleId: string): { role: Role; target: ExternalBrowserAutomationTarget } | undefined {
     const session = this.sessions.get(roleId);
-    if (session?.state !== "running" || !session.automationTarget) {
+    if (session?.state !== "running" || !session.automationTarget || session.pageHealth === "unresponsive") {
       return undefined;
     }
     return { role: session.role, target: session.automationTarget };
@@ -140,6 +180,101 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
   listStatuses(): RoleStatus[] {
     return [...this.sessions.entries()].map(([roleId, session]) => this.toStatus(roleId, session));
+  }
+
+  listDiagnostics(): ExternalChromeSessionDiagnostics[] {
+    return [...this.sessions.entries()].map(([roleId, session]) => this.createDiagnostics(roleId, session));
+  }
+
+  async captureAllDiagnostics(): Promise<ExternalChromeSessionDiagnostics[]> {
+    return Promise.all(
+      [...this.sessions.keys()].map(async (roleId) => {
+        try {
+          return await this.captureDiagnostics(roleId);
+        } catch {
+          const session = this.sessions.get(roleId);
+          if (!session) {
+            throw new Error("External Chrome role stopped while diagnostics were captured.");
+          }
+          return this.createDiagnostics(roleId, session);
+        }
+      })
+    );
+  }
+
+  handleSuspend(): void {
+    this.suspended = true;
+  }
+
+  handleResume(): void {
+    const resumedAt = this.now();
+    this.suspended = false;
+    this.sessions.forEach((session) => {
+      session.lastHeartbeatAt = resumedAt;
+    });
+  }
+
+  async captureDiagnostics(roleId: string): Promise<ExternalChromeSessionDiagnostics> {
+    const session = this.sessions.get(roleId);
+    if (!session) {
+      throw new Error("External Chrome role is not running.");
+    }
+    let chrome: ExternalChromePageDiagnostics | undefined;
+    if (session.automationTarget) {
+      try {
+        chrome = await withCdpRoundTripTimeout(
+          session.automationTarget.collectDiagnostics(),
+          EXTERNAL_CDP_ROUND_TRIP_TIMEOUT_MS
+        );
+      } catch {
+        chrome = {
+          capturedAt: new Date().toISOString(),
+          cdp: { consecutiveEvaluateFailures: 0 },
+          errors: ["Chrome diagnostics did not respond before the timeout."]
+        };
+      }
+    }
+    return this.createDiagnostics(roleId, session, chrome);
+  }
+
+  async recover(roleId: string): Promise<RoleStatus> {
+    const session = this.sessions.get(roleId);
+    if (!session || session.state !== "running") {
+      throw new Error("External Chrome role is not running.");
+    }
+    if (session.pageHealth !== "unresponsive") {
+      throw new Error("External Chrome role does not need recovery.");
+    }
+
+    const restored = {
+      bounds: { ...session.bounds },
+      notice: removeNotice(session.notice, EXTERNAL_PAGE_UNRESPONSIVE_NOTICE),
+      physicalBounds: session.physicalBounds ? { ...session.physicalBounds } : undefined,
+      role: session.role,
+      workspaceId: session.workspaceId,
+      zoomFactor: session.zoomFactor
+    };
+    await this.stopForRecovery(roleId, session);
+    let replacement: ExternalChromeSession;
+    try {
+      replacement = await this.launchSession(
+        restored.role,
+        restored.bounds,
+        restored.physicalBounds,
+        restored.workspaceId,
+        restored.notice,
+        restored.zoomFactor
+      );
+    } catch (error) {
+      // The workspace reservation may now be released because recovery did
+      // not manage to create a replacement session.
+      this.emitChange();
+      throw error;
+    }
+    await replacement.automationTarget?.focus().catch((error) => {
+      console.warn("Failed to focus the recovered external Chrome role.", error);
+    });
+    return this.toStatus(roleId, replacement);
   }
 
   hasWorkspace(workspaceId: string): boolean {
@@ -294,6 +429,22 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     await Promise.all(roleIds.map((roleId) => this.stop(roleId)));
   }
 
+  private async stopForRecovery(roleId: string, session: ExternalChromeSession): Promise<void> {
+    session.state = "stopping";
+    this.emitChange();
+    await this.beforeRoleStop?.(roleId);
+    if (this.sessions.get(roleId) !== session) {
+      throw new Error("External Chrome role stopped before recovery could begin.");
+    }
+    this.sessions.delete(roleId);
+    const target = session.automationTarget;
+    session.automationTarget = undefined;
+    target?.close();
+    terminateChild(session.child);
+    // Do not emit an empty workspace state here. launchSession emits the next
+    // state as soon as it owns the preserved workspace again.
+  }
+
   private async launchSession(
     role: Role,
     bounds: PixelBounds,
@@ -337,7 +488,10 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     const session: ExternalChromeSession = {
       cdnCompatibilityActive: false,
       child,
+      bounds: { ...bounds },
       notice: sessionNotice,
+      pageHidden: false,
+      ...(physicalBounds ? { physicalBounds: { ...physicalBounds } } : {}),
       role,
       state: "launching",
       workspaceId,
@@ -363,7 +517,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         role.launchUrl,
         {
           cdnCompatibilityEnabled: cdnCompatibilityRequested,
-          onDiagnostic: (event) => this.options.onDiagnostic?.({ ...event, roleId: role.id }),
+          onDiagnostic: (event) => this.handleAutomationDiagnostic(role.id, session, event),
           platform: this.options.platform ?? process.platform
         }
       );
@@ -372,6 +526,9 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         throw new Error("External Chrome closed before macro control connected.");
       }
       session.automationTarget = target;
+      session.lastHeartbeatAt = this.now();
+      session.lastCdpRoundTripAt = session.lastHeartbeatAt;
+      session.pageHealth = "healthy";
       session.cdnCompatibilityActive = cdnCompatibilityRequested;
       if (session.cdnCompatibilityActive) {
         session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_EXTERNAL_NOTICE);
@@ -448,6 +605,136 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     }
   }
 
+  private handleAutomationDiagnostic(
+    roleId: string,
+    session: ExternalChromeSession,
+    event: ExternalChromeDiagnosticEvent
+  ): void {
+    if (this.sessions.get(roleId) !== session) {
+      return;
+    }
+
+    if (event.type === "page_heartbeat") {
+      session.lastHeartbeatAt = this.now();
+      if (typeof event.details.hidden === "boolean") {
+        session.pageHidden = event.details.hidden;
+      }
+      if (session.pageHealth === "unresponsive") {
+        session.pageHealth = "healthy";
+        session.notice = removeNotice(session.notice, EXTERNAL_PAGE_UNRESPONSIVE_NOTICE);
+        this.emit("health", roleId, "healthy");
+        this.emitChange();
+      }
+    } else if (event.type === "page_lifecycle" && typeof event.details.hidden === "boolean") {
+      session.pageHidden = event.details.hidden;
+      // A page becoming visible again may report its next animation-frame
+      // heartbeat just after this lifecycle event. Give that transition the
+      // same grace period as a system resume.
+      if (!event.details.hidden) {
+        session.lastHeartbeatAt = this.now();
+      }
+    }
+
+    this.options.onDiagnostic?.({ ...event, roleId });
+  }
+
+  private checkPageHealth(): void {
+    if (this.suspended) {
+      return;
+    }
+    const now = this.now();
+    this.sessions.forEach((session, roleId) => {
+      this.probeCdpRoundTrip(roleId, session, now);
+      if (
+        session.state !== "running" ||
+        !session.automationTarget ||
+        session.pageHealth === "unresponsive" ||
+        session.pageHidden ||
+        session.lastHeartbeatAt === undefined ||
+        now - session.lastHeartbeatAt < EXTERNAL_HEARTBEAT_STALL_MS
+      ) {
+        return;
+      }
+
+      session.pageHealth = "unresponsive";
+      session.notice = appendNotice(session.notice, EXTERNAL_PAGE_UNRESPONSIVE_NOTICE);
+      this.emitChange();
+      this.emit("health", roleId, "unresponsive");
+      void this.captureDiagnostics(roleId)
+        .then((diagnostics) => this.emit("diagnostics", roleId, diagnostics))
+        .catch(() => undefined);
+    });
+  }
+
+  private probeCdpRoundTrip(roleId: string, session: ExternalChromeSession, now: number): void {
+    if (
+      this.suspended ||
+      session.state !== "running" ||
+      !session.automationTarget ||
+      session.cdpProbeInFlight ||
+      (session.lastCdpRoundTripAt !== undefined && now - session.lastCdpRoundTripAt < EXTERNAL_CDP_ROUND_TRIP_INTERVAL_MS)
+    ) {
+      return;
+    }
+
+    const target = session.automationTarget;
+    session.cdpProbeInFlight = true;
+    void withCdpRoundTripTimeout(target.evaluate("void 0"), EXTERNAL_CDP_ROUND_TRIP_TIMEOUT_MS)
+      .then(() => {
+        if (this.sessions.get(roleId) !== session) return;
+        session.lastCdpRoundTripAt = this.now();
+      })
+      .catch((error) => {
+        if (this.sessions.get(roleId) !== session) return;
+        session.lastCdpTimeoutAt = this.now();
+        this.options.onDiagnostic?.({
+          roleId,
+          type: "cdp_round_trip_timeout",
+          details: {
+            message: error instanceof Error ? error.message.slice(0, 256) : "CDP round trip failed.",
+            timeoutMs: EXTERNAL_CDP_ROUND_TRIP_TIMEOUT_MS
+          }
+        });
+      })
+      .finally(() => {
+        if (this.sessions.get(roleId) === session) {
+          session.cdpProbeInFlight = false;
+        }
+      });
+  }
+
+  private createDiagnostics(
+    roleId: string,
+    session: ExternalChromeSession,
+    chrome?: ExternalChromePageDiagnostics
+  ): ExternalChromeSessionDiagnostics {
+    return {
+      automationState: session.automationTarget ? "ready" : "unavailable",
+      bounds: { ...session.bounds },
+      capturedAt: new Date().toISOString(),
+      ...(session.lastCdpRoundTripAt !== undefined || session.lastCdpTimeoutAt !== undefined
+        ? {
+            cdp: {
+              ...(session.lastCdpRoundTripAt !== undefined
+                ? { lastRoundTripAt: new Date(session.lastCdpRoundTripAt).toISOString() }
+                : {}),
+              ...(session.lastCdpTimeoutAt !== undefined
+                ? { lastTimeoutAt: new Date(session.lastCdpTimeoutAt).toISOString() }
+                : {})
+            }
+          }
+        : {}),
+      externalRoleCount: this.sessions.size,
+      ...(session.pageHealth ? { pageHealth: session.pageHealth } : {}),
+      ...(session.physicalBounds ? { physicalBounds: { ...session.physicalBounds } } : {}),
+      roleId,
+      runtimeMode: "external",
+      ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
+      zoomFactor: session.zoomFactor,
+      ...(chrome ? { chrome } : {})
+    };
+  }
+
   private handleAutomationDisconnect(
     roleId: string,
     session: ExternalChromeSession,
@@ -495,7 +782,10 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       notice: session.notice,
       runtimeMode: "external",
       ...(session.state === "running"
-        ? { automationState: session.automationTarget ? "ready" as const : "unavailable" as const }
+        ? {
+            automationState: session.automationTarget ? "ready" as const : "unavailable" as const,
+            ...(session.pageHealth ? { pageHealth: session.pageHealth } : {})
+          }
         : {})
     };
   }
@@ -526,15 +816,17 @@ export function buildExternalChromeArgs(
 }
 
 export function getExternalChromeBackgroundSwitches(platform: NodeJS.Platform): string[] {
-  return [
-    "disable-background-timer-throttling",
-    "disable-renderer-backgrounding",
-    ...(platform === "win32" ? ["disable-backgrounding-occluded-windows"] : [])
-  ];
+  // Keep the platform argument so callers and platform-table tests retain the
+  // same contract. Foreground priority intentionally relies on Chrome's native
+  // background handling on both supported desktop platforms.
+  void platform;
+  return [...EXTERNAL_CHROME_FOREGROUND_PRIORITY_SWITCHES];
 }
 
 const EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE =
   "Macro control could not connect to compatibility mode. Restart this role to try again.";
+export const EXTERNAL_PAGE_UNRESPONSIVE_NOTICE =
+  "The external Chrome game page stopped responding. Capture diagnostics or restart this role.";
 export const EXTERNAL_ZOOM_UNAVAILABLE_NOTICE =
   "Workspace zoom could not be applied in external Chrome. Restart this role to try again.";
 
@@ -546,6 +838,10 @@ export const EXTERNAL_ZOOM_UNAVAILABLE_NOTICE =
 const MACOS_SEAM_OVERLAP = 12;
 const WINDOWS_DIP_SEAM_OVERLAP = 1;
 const WINDOWS_PHYSICAL_SEAM_OVERLAP = 1;
+export const EXTERNAL_HEARTBEAT_INTERVAL_MS = 5_000;
+export const EXTERNAL_HEARTBEAT_STALL_MS = 15_000;
+export const EXTERNAL_CDP_ROUND_TRIP_INTERVAL_MS = 15_000;
+export const EXTERNAL_CDP_ROUND_TRIP_TIMEOUT_MS = 4_000;
 
 async function removeStaleDevToolsPort(browserUserDataDir: string): Promise<void> {
   await unlink(join(browserUserDataDir, "DevToolsActivePort")).catch((error: NodeJS.ErrnoException) => {
@@ -561,9 +857,25 @@ function appendNotice(current: string | undefined, next: string): string {
   return `${current} ${next}`;
 }
 
+function removeNotice(current: string | undefined, notice: string): string | undefined {
+  const remaining = current?.replace(notice, "").replace(/\s{2,}/g, " ").trim();
+  return remaining || undefined;
+}
+
 function replaceNotice(current: string | undefined, previous: string, next: string): string {
   const remaining = current?.replace(previous, "").trim();
   return appendNotice(remaining || undefined, next);
+}
+
+function withCdpRoundTripTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("Chrome DevTools round trip timed out.")), timeoutMs);
+    timeoutId.unref?.();
+  });
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
 }
 
 function spawnChrome(executablePath: string, args: string[]): ChildProcess {

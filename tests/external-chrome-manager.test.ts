@@ -45,19 +45,13 @@ describe("ExternalChromeManager", () => {
       "--metrics-recording-only",
       "--no-service-autorun",
       "--disable-search-engine-choice-screen",
-      "--disable-background-timer-throttling",
-      "--disable-renderer-backgrounding",
       "--disable-features=MediaRouter,OptimizationHints,Translate",
       "--remote-debugging-address=127.0.0.1",
       "--remote-debugging-port=0"
     ]);
   });
 
-  it.each([
-    ["win32", true],
-    ["darwin", false],
-    ["linux", false]
-  ] as const)("uses platform-scoped background switches on %s", (platform, hasOcclusionSwitch) => {
+  it.each(["win32", "darwin", "linux"] as const)("keeps external Chrome on native foreground-priority scheduling on %s", (platform) => {
     const args = buildExternalChromeArgs(
       role,
       "/tmp/profile",
@@ -67,9 +61,9 @@ describe("ExternalChromeManager", () => {
       platform
     );
 
-    expect(args).toContain("--disable-background-timer-throttling");
-    expect(args).toContain("--disable-renderer-backgrounding");
-    expect(args.includes("--disable-backgrounding-occluded-windows")).toBe(hasOcclusionSwitch);
+    expect(args).not.toContain("--disable-background-timer-throttling");
+    expect(args).not.toContain("--disable-renderer-backgrounding");
+    expect(args).not.toContain("--disable-backgrounding-occluded-windows");
   });
 
   it("adds only the graphics switches selected by the applied startup mode", () => {
@@ -116,6 +110,172 @@ describe("ExternalChromeManager", () => {
     expect(status.automationState).toBe("ready");
     }
   );
+
+  it("marks a visible page with a missing heartbeat as unresponsive without stopping its Chrome session", async () => {
+    let now = 0;
+    let runHealthCheck: (() => void) | undefined;
+    const harness = createHarness({
+      now: () => now,
+      setInterval: (callback) => {
+        runHealthCheck = callback;
+        return -1 as never;
+      }
+    });
+    const healthEvents = vi.fn();
+    harness.manager.on("health", healthEvents);
+
+    const launch = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launch;
+
+    now = 15_001;
+    runHealthCheck?.();
+
+    await vi.waitFor(() => expect(harness.automationTargets[0].collectDiagnostics).toHaveBeenCalledOnce());
+    expect(harness.manager.listStatuses()).toEqual([
+      expect.objectContaining({ pageHealth: "unresponsive", roleId: role.id, state: "running" })
+    ]);
+    expect(harness.manager.getAutomationSession(role.id)).toBeUndefined();
+    expect(harness.children[0].kill).not.toHaveBeenCalled();
+    expect(healthEvents).toHaveBeenCalledWith(role.id, "unresponsive");
+
+    harness.automationTargets[0].emitDiagnostic({
+      details: { hidden: false },
+      type: "page_heartbeat"
+    });
+
+    expect(harness.manager.listStatuses()).toEqual([
+      expect.objectContaining({ pageHealth: "healthy", roleId: role.id, state: "running" })
+    ]);
+    expect(harness.manager.getAutomationSession(role.id)).toEqual(expect.objectContaining({ role }));
+    expect(healthEvents).toHaveBeenLastCalledWith(role.id, "healthy");
+  });
+
+  it("does not mark hidden pages or a just-resumed system as unresponsive", async () => {
+    let now = 0;
+    let runHealthCheck: (() => void) | undefined;
+    const harness = createHarness({
+      now: () => now,
+      setInterval: (callback) => {
+        runHealthCheck = callback;
+        return -1 as never;
+      }
+    });
+    const healthEvents = vi.fn();
+    harness.manager.on("health", healthEvents);
+
+    const launch = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launch;
+
+    harness.automationTargets[0].emitDiagnostic({
+      details: { hidden: true },
+      type: "page_lifecycle"
+    });
+    now = 30_000;
+    runHealthCheck?.();
+    expect(healthEvents).not.toHaveBeenCalled();
+
+    harness.automationTargets[0].emitDiagnostic({
+      details: { hidden: false },
+      type: "page_lifecycle"
+    });
+    harness.manager.handleSuspend();
+    now = 60_000;
+    runHealthCheck?.();
+    expect(healthEvents).not.toHaveBeenCalled();
+
+    harness.manager.handleResume();
+    runHealthCheck?.();
+    expect(healthEvents).not.toHaveBeenCalled();
+  });
+
+  it("records a timed-out low-frequency CDP round trip without treating it as proof of a page freeze", async () => {
+    let now = 0;
+    let runHealthCheck: (() => void) | undefined;
+    const onDiagnostic = vi.fn();
+    const harness = createHarness({
+      now: () => now,
+      onDiagnostic,
+      setInterval: (callback) => {
+        runHealthCheck = callback;
+        return -1 as never;
+      }
+    });
+    const launch = harness.manager.launch(role);
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await launch;
+
+    now = 10_000;
+    harness.automationTargets[0].emitDiagnostic({ details: { hidden: false }, type: "page_heartbeat" });
+    harness.automationTargets[0].evaluate.mockImplementation(() => new Promise(() => undefined));
+    vi.useFakeTimers();
+    try {
+      now = 15_000;
+      runHealthCheck?.();
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.runAllTicks();
+
+      expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+        roleId: role.id,
+        type: "cdp_round_trip_timeout"
+      }));
+      expect(harness.manager.listStatuses()).toEqual([
+        expect.objectContaining({ pageHealth: "healthy", roleId: role.id })
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("captures only safe external-session diagnostics and restores bounds and zoom during recovery", async () => {
+    let now = 0;
+    let runHealthCheck: (() => void) | undefined;
+    const harness = createHarness({
+      now: () => now,
+      setInterval: (callback) => {
+        runHealthCheck = callback;
+        return -1 as never;
+      },
+      windowBoundsAdapter: createWindowBoundsAdapter((bounds) => ({ ...bounds, width: bounds.width * 2, height: bounds.height * 2 }))
+    });
+    const firstLaunch = harness.manager.launch(role, { zoomFactor: 1.25 });
+    await waitForChild(harness.children, 0);
+    harness.children[0].emit("spawn");
+    await firstLaunch;
+    harness.automationTargets[0].collectDiagnostics.mockResolvedValue({
+      capturedAt: "2026-07-21T00:00:00.000Z",
+      cdp: { consecutiveEvaluateFailures: 1 },
+      page: { fullscreen: true, hasFocus: true, hidden: false, monotonicMs: 42, visibilityState: "visible" }
+    });
+
+    const capture = await harness.manager.captureDiagnostics(role.id);
+    expect(JSON.stringify(capture)).not.toContain(role.launchUrl);
+    expect(JSON.stringify(capture)).not.toContain("/profiles/");
+    expect(capture).toMatchObject({
+      bounds: { x: 100, y: 50, width: 1200, height: 800 },
+      physicalBounds: { x: 100, y: 50, width: 2400, height: 1600 },
+      zoomFactor: 1.25
+    });
+
+    now = 15_001;
+    runHealthCheck?.();
+    await vi.waitFor(() => expect(harness.manager.listStatuses()[0]?.pageHealth).toBe("unresponsive"));
+
+    const recovery = harness.manager.recover(role.id);
+    await waitForChild(harness.children, 1);
+    harness.children[1].emit("spawn");
+    await expect(recovery).resolves.toMatchObject({ pageHealth: "healthy", roleId: role.id, state: "running" });
+    expect(harness.children[0].kill).toHaveBeenCalledOnce();
+    expect(harness.spawnChrome).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.arrayContaining(["--window-position=100,50", "--window-size=1200,800"])
+    );
+    expect(harness.applyBrowserZoom).toHaveBeenLastCalledWith("/profiles/role-1/browser", 1.25);
+  });
 
   it.each(["darwin", "win32"] as const)(
     "does not inspect or stop an external %s launch based on login-page state",
@@ -853,7 +1013,10 @@ function createHarness(options: {
   childPid?: number;
   connectAutomation?: AnyMock;
   platform?: NodeJS.Platform;
+  onDiagnostic?: AnyMock;
   prepareCdnCompatibility?: AnyMock;
+  now?: () => number;
+  setInterval?: (callback: () => void, intervalMs: number) => ReturnType<typeof setInterval>;
   windowBoundsAdapter?: ReturnType<typeof createWindowBoundsAdapter>;
 } = {}) {
   const children: Array<ReturnType<typeof createChild>> = [];
@@ -869,8 +1032,15 @@ function createHarness(options: {
     children.push(child);
     return child as never;
   });
-  const connectAutomation = options.connectAutomation ?? vi.fn(async (browserUserDataDir: string) => {
+  const connectAutomation = options.connectAutomation ?? vi.fn(async (
+    browserUserDataDir: string,
+    _launchUrl: string,
+    automationOptions?: { onDiagnostic?: (event: { details: Record<string, unknown>; type: string }) => void }
+  ) => {
     const target = createAutomationTarget();
+    target.emitDiagnostic = (event) => {
+      automationOptions?.onDiagnostic?.(event);
+    };
     automationTargets.push(target);
     const roleId = /^\/profiles\/(.+)\/browser$/.exec(browserUserDataDir)?.[1];
     if (roleId) automationTargetsByRoleId.set(roleId, target);
@@ -882,7 +1052,10 @@ function createHarness(options: {
     connectAutomation,
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
+    ...(options.onDiagnostic ? { onDiagnostic: options.onDiagnostic } : {}),
     platform: options.platform ?? "linux",
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.setInterval ? { setInterval: options.setInterval } : {}),
     ...(options.prepareCdnCompatibility
       ? { prepareCdnCompatibility: options.prepareCdnCompatibility }
       : {}),
@@ -906,9 +1079,14 @@ function createAutomationTarget() {
   const disconnectListeners = new Set<() => void>();
   return {
     close: vi.fn(),
+    collectDiagnostics: vi.fn().mockResolvedValue({
+      capturedAt: "2026-07-21T00:00:00.000Z",
+      cdp: { consecutiveEvaluateFailures: 0 }
+    }),
     disconnect: () => disconnectListeners.forEach((listener) => listener()),
     dispatchClick: vi.fn().mockResolvedValue(undefined),
     dispatchKey: vi.fn().mockResolvedValue(undefined),
+    emitDiagnostic: (_event: { details: Record<string, unknown>; type: string }) => undefined,
     evaluate: vi.fn().mockResolvedValue("https://game.example.test/play"),
     focus: vi.fn().mockResolvedValue(undefined),
     installMacroOverlay: vi.fn().mockResolvedValue(undefined),

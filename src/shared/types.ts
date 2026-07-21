@@ -122,6 +122,8 @@ export interface RoleStatus {
   notice?: string;
   runtimeMode?: BrowserRuntimeMode;
   automationState?: "ready" | "unavailable";
+  /** Health reported by the external Chrome page diagnostics bridge. */
+  pageHealth?: "healthy" | "unresponsive";
   resourceState?: WorkspaceResourceState;
   cpuThrottleRate?: WorkspaceCpuThrottleRate | 1;
   resourcePressureLevel?: WorkspacePressureLevel;

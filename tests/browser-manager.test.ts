@@ -140,87 +140,39 @@ describe("BrowserManager game host windows", () => {
   });
 
   it.each(["darwin", "win32"] as const)(
-    "loads and queues one-time session storage before an embedded %s launch",
+    "loads an embedded %s game directly after proxy and CDN preparation",
     async (platform) => {
-      const loadEmbeddedSessionStorageSeed = vi.fn().mockResolvedValue({
-        "https://accounts.example.test": { loginStep: "complete" },
-        "https://example.com": { gameSession: "opaque-token" }
-      });
-      const harness = createHarness({ platform, loadEmbeddedSessionStorageSeed });
+      const applyBrowserProxy = vi.fn().mockResolvedValue(undefined);
+      const applyCdnCompatibility = vi.fn().mockResolvedValue(undefined);
+      const harness = createHarness({ applyBrowserProxy, applyCdnCompatibility, platform });
 
       await harness.manager.launch(role);
 
-      const webContentsId = harness.views[0].webContents.id;
-      expect(loadEmbeddedSessionStorageSeed).toHaveBeenCalledWith(role.id);
-      expect(loadEmbeddedSessionStorageSeed.mock.invocationCallOrder[0])
+      expect(applyBrowserProxy).toHaveBeenCalledOnce();
+      expect(applyCdnCompatibility).toHaveBeenCalledOnce();
+      expect(applyCdnCompatibility.mock.invocationCallOrder[0])
         .toBeLessThan(harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]);
-      expect(harness.manager.consumeEmbeddedSessionStorageSeed(webContentsId, "https://example.com"))
-        .toEqual({ gameSession: "opaque-token" });
-      expect(harness.manager.consumeEmbeddedSessionStorageSeed(webContentsId, "https://example.com")).toBeUndefined();
-      expect(harness.manager.consumeEmbeddedSessionStorageSeed(webContentsId, "https://unrelated.example.test")).toBeUndefined();
-      expect(harness.manager.consumeEmbeddedSessionStorageSeed(webContentsId, "https://accounts.example.test"))
-        .toEqual({ loginStep: "complete" });
-
-      const popup = createOAuthPopup(harness.views[0], harness.views);
-      expect(harness.manager.consumeEmbeddedSessionStorageSeed(popup.webContents.id, "https://example.com"))
-        .toEqual({ gameSession: "opaque-token" });
+      expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
     }
   );
-
-  it("queues localStorage and sessionStorage together and acknowledges the delivered origin", async () => {
-    const acknowledgeEmbeddedDocumentStorage = vi.fn().mockResolvedValue(true);
-    const harness = createHarness({
-      acknowledgeEmbeddedDocumentStorage,
-      loadEmbeddedStorageSeed: vi.fn().mockResolvedValue({
-        origins: {
-          "https://example.com": {
-            localStorage: { language: "zh-TW" },
-            sessionStorage: { gameSession: "opaque-token" }
-          }
-        },
-        version: 2
-      })
-    });
-
-    await harness.manager.launch(role);
-    const webContentsId = harness.views[0].webContents.id;
-    expect(harness.manager.consumeEmbeddedDocumentStorageSeed(webContentsId, "https://example.com"))
-      .toEqual({
-        localStorage: { language: "zh-TW" },
-        sessionStorage: { gameSession: "opaque-token" }
-      });
-    await expect(harness.manager.acknowledgeEmbeddedDocumentStorage(webContentsId, {
-      localStorageApplied: true,
-      localStorageKeyCount: 1,
-      origin: "https://example.com",
-      sessionStorageApplied: true,
-      sessionStorageKeyCount: 1
-    })).resolves.toBe(true);
-    expect(acknowledgeEmbeddedDocumentStorage).toHaveBeenCalledWith(
-      role.id,
-      expect.objectContaining({ origin: "https://example.com" }),
-      webContentsId
-    );
-  });
 
   it.each(["darwin", "win32"] as const)(
     "keeps a launching %s tab hidden and cancels without rereading a destroyed view",
     async (platform) => {
-      let markPrepareStarted!: () => void;
-      const prepareStarted = new Promise<void>((resolve) => {
-        markPrepareStarted = resolve;
+      let markLoadStarted!: () => void;
+      let releaseLoad!: () => void;
+      const loadStarted = new Promise<void>((resolve) => {
+        markLoadStarted = resolve;
       });
-      const prepareEmbeddedPersistentStorage = vi.fn((
-        _role: Role,
-        _partition: string,
-        signal?: AbortSignal
-      ) => new Promise<void>((resolve) => {
-        markPrepareStarted();
-        signal?.addEventListener("abort", () => resolve(), { once: true });
-      }));
-      const harness = createHarness({ platform, prepareEmbeddedPersistentStorage });
+      const harness = createHarness({
+        loadUrlHandlers: [() => new Promise<void>((resolve) => {
+          releaseLoad = resolve;
+          markLoadStarted();
+        })],
+        platform
+      });
       const launch = harness.manager.launch(role);
-      await prepareStarted;
+      await loadStarted;
 
       const runtimeTab = harness.manager.listEmbeddedRuntimeState().tabs[0];
       expect(runtimeTab).toMatchObject({ hidden: true, active: false });
@@ -236,6 +188,7 @@ describe("BrowserManager game host windows", () => {
       originalWebContents.isDestroyed.mockImplementation(() => destroyed);
       originalWebContents.close.mockImplementation(() => {
         destroyed = true;
+        releaseLoad();
         originalWebContents.emit("destroyed");
       });
 
@@ -246,11 +199,7 @@ describe("BrowserManager game host windows", () => {
   );
 
   it("cleans a destroyed game view without reading WebContentsView.webContents again", async () => {
-    const harness = createHarness({
-      loadEmbeddedSessionStorageSeed: vi.fn().mockResolvedValue({
-        "https://example.com": { gameSession: "opaque-token" }
-      })
-    });
+    const harness = createHarness();
     await harness.manager.launch(role);
 
     const mockView = harness.views[0];
@@ -4412,10 +4361,6 @@ function createHarness(options: {
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
   getLoginUrl?: (role: Role) => string | Promise<string>;
-  acknowledgeEmbeddedDocumentStorage?: BrowserManagerOptions["acknowledgeEmbeddedDocumentStorage"];
-  loadEmbeddedStorageSeed?: BrowserManagerOptions["loadEmbeddedStorageSeed"];
-  loadEmbeddedSessionStorageSeed?: BrowserManagerOptions["loadEmbeddedSessionStorageSeed"];
-  prepareEmbeddedPersistentStorage?: BrowserManagerOptions["prepareEmbeddedPersistentStorage"];
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
@@ -4528,9 +4473,6 @@ function createHarness(options: {
   };
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
   const manager = new BrowserManager(roleStore, {
-    ...(options.acknowledgeEmbeddedDocumentStorage
-      ? { acknowledgeEmbeddedDocumentStorage: options.acknowledgeEmbeddedDocumentStorage }
-      : {}),
     ...(options.applyCdnCompatibility ? { applyCdnCompatibility: options.applyCdnCompatibility } : {}),
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
     ...(options.applyBrowserProxy ? { applyBrowserProxy: options.applyBrowserProxy } : {}),
@@ -4547,12 +4489,6 @@ function createHarness(options: {
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
     ...(options.getLoginUrl ? { getLoginUrl: options.getLoginUrl } : {}),
-    ...(options.loadEmbeddedStorageSeed
-      ? { loadEmbeddedStorageSeed: options.loadEmbeddedStorageSeed }
-      : {}),
-    ...(options.loadEmbeddedSessionStorageSeed
-      ? { loadEmbeddedSessionStorageSeed: options.loadEmbeddedSessionStorageSeed }
-      : {}),
     ...(options.getRuntimeTabGameIcon
       ? { getRuntimeTabGameIcon: options.getRuntimeTabGameIcon }
       : {}),
@@ -4570,9 +4506,6 @@ function createHarness(options: {
       : {}),
     ...(options.persistWorkspaceRoleZoom
       ? { persistWorkspaceRoleZoom: options.persistWorkspaceRoleZoom }
-      : {}),
-    ...(options.prepareEmbeddedPersistentStorage
-      ? { prepareEmbeddedPersistentStorage: options.prepareEmbeddedPersistentStorage }
       : {}),
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
     ...(options.defaultLaunchTarget ? { getDefaultLaunchTarget: () => options.defaultLaunchTarget! } : {}),

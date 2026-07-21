@@ -29,14 +29,14 @@ describe("log sanitizer", () => {
     expect(sanitizeText("x".repeat(5_000))).toHaveLength(4_001);
   });
 
-  it("keeps non-sensitive diagnostic counts while continuing to redact storage values", () => {
+  it("keeps non-sensitive Cookie diagnostics while continuing to redact storage values", () => {
     expect(sanitizeValue({
-      sourceDocumentStateKeyCount: 4,
-      seedPersistFailed: true,
+      sourceItemCount: 4,
+      flushFailed: true,
       sessionStorage: "opaque-token"
     })).toEqual({
-      sourceDocumentStateKeyCount: 4,
-      seedPersistFailed: true,
+      sourceItemCount: 4,
+      flushFailed: true,
       sessionStorage: "<REDACTED>"
     });
   });

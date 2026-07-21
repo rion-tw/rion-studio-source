@@ -26,7 +26,6 @@ export default defineConfig({
         input: {
           divider: resolve(__dirname, "src/preload/divider.ts"),
           embedded: resolve(__dirname, "src/preload/embedded.ts"),
-          "embedded-storage-bootstrap": resolve(__dirname, "src/preload/embedded-storage-bootstrap.ts"),
           "runtime-tabs": resolve(__dirname, "src/preload/runtime-tabs.ts"),
           index: resolve(__dirname, "src/preload/index.ts")
         },

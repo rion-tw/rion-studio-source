@@ -175,7 +175,7 @@ describe("Chrome profile import flow", () => {
     resolveImport?.(importResult);
     await waitFor(() => expect(screen.getByText("Chrome profile import complete")).toBeTruthy());
     expect(screen.getByText("小胖")).toBeTruthy();
-    expect(screen.getByText(/Imported roles are marked as signed in/)).toBeTruthy();
+    expect(screen.getByText(/Only Cookie-based sign-in data was imported/)).toBeTruthy();
     expect(screen.queryByText("Embedded browser")).toBeNull();
     expect(screen.queryByText("External Chrome")).toBeNull();
   });

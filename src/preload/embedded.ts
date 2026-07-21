@@ -5,7 +5,6 @@ import {
   type EmbeddedRuntimeDiagnosticPayload,
   type EmbeddedRuntimeLifecycleEvent
 } from "../shared/embeddedRuntimeDiagnostics";
-import { installDocumentStorageSeedAtDocumentStart } from "./documentStorageSeed";
 import {
   isWorkspaceResizeIndicatorPayload,
   type WorkspaceResizeIndicatorPayload
@@ -15,22 +14,11 @@ const MACRO_OVERLAY_REQUEST_CHANNEL = "macros:overlay-request";
 const DIAGNOSTIC_HEARTBEAT_INTERVAL_MS = 15_000;
 // Keep these literals aligned with src/shared/internalIpc.ts. Sandboxed Electron
 // preloads cannot require Rollup's shared relative chunks at runtime.
-const EMBEDDED_DOCUMENT_STORAGE_ACK_CHANNEL:
-  typeof import("../shared/internalIpc").EMBEDDED_DOCUMENT_STORAGE_ACK_CHANNEL =
-    "embedded:document-storage-ack";
-const EMBEDDED_DOCUMENT_STORAGE_SEED_CHANNEL:
-  typeof import("../shared/internalIpc").EMBEDDED_DOCUMENT_STORAGE_SEED_CHANNEL =
-    "embedded:document-storage-seed";
 const WORKSPACE_RESIZE_INDICATOR_CHANNEL:
   typeof import("../shared/internalIpc").WORKSPACE_RESIZE_INDICATOR_CHANNEL =
     "workspace:resize-indicator";
 
 let diagnosticSequence = 0;
-
-installDocumentStorageSeedAtDocumentStart(window, () => window.localStorage, () => window.sessionStorage, (origin) =>
-  ipcRenderer.sendSync(EMBEDDED_DOCUMENT_STORAGE_SEED_CHANNEL, { origin }),
-  (acknowledgement) => ipcRenderer.send(EMBEDDED_DOCUMENT_STORAGE_ACK_CHANNEL, acknowledgement)
-);
 
 function diagnosticPageState() {
   return {

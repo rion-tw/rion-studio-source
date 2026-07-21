@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,7 +25,19 @@ describe("EncryptedSessionStorageSeedStore", () => {
     };
 
     await expect(store.save("role-1", values)).resolves.toBe(true);
-    await expect(store.load("role-1")).resolves.toEqual(values);
+    const reloadedStore = new EncryptedSessionStorageSeedStore({
+      getBrowserUserDataDir: (roleId) => join(root, roleId, "browser"),
+      safeStorage
+    });
+    await expect(reloadedStore.load("role-1")).resolves.toEqual({
+      origins: {
+        "https://accounts.example.test": { sessionStorage: { loginStep: "complete" } },
+        "https://game.example.test": {
+          sessionStorage: { activeCharacter: "character-1", gameSession: "opaque-token" }
+        }
+      },
+      version: 2
+    });
 
     const persisted = await readFile(join(root, "role-1", "browser", seedFileName), "utf8");
     expect(persisted).not.toContain("opaque-token");
@@ -47,6 +59,29 @@ describe("EncryptedSessionStorageSeedStore", () => {
     await expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("loads a version 1 session seed as a version 2 embedded storage seed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion-session-seed-"));
+    const safeStorage = createSafeStorage();
+    const browserDir = join(root, "role-1", "browser");
+    await mkdir(browserDir, { recursive: true });
+    await writeFile(
+      join(browserDir, seedFileName),
+      safeStorage.encryptString(JSON.stringify({
+        origins: { "https://game.example.test": { gameSession: "opaque-token" } },
+        version: 1
+      }))
+    );
+    const store = new EncryptedSessionStorageSeedStore({
+      getBrowserUserDataDir: () => browserDir,
+      safeStorage
+    });
+
+    await expect(store.load("role-1")).resolves.toEqual({
+      origins: { "https://game.example.test": { sessionStorage: { gameSession: "opaque-token" } } },
+      version: 2
+    });
+  });
+
   it("keeps no persistent seed when system encryption is unavailable or writing fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-session-seed-"));
     const getBrowserUserDataDir = (roleId: string) => join(root, roleId, "browser");
@@ -64,8 +99,10 @@ describe("EncryptedSessionStorageSeedStore", () => {
 
     await expect(unavailableStore.save("role-1", { "https://game.example.test": { session: "opaque-token" } }))
       .resolves.toBe(false);
-    await expect(unavailableStore.load("role-1")).resolves.toBeUndefined();
-    await expect(persistedStore.load("role-1")).resolves.toBeUndefined();
+    await expect(unavailableStore.load("role-1")).resolves.toEqual({
+      origins: { "https://game.example.test": { sessionStorage: { session: "opaque-token" } } },
+      version: 2
+    });
     expect(unavailableStorage.encryptString).not.toHaveBeenCalled();
 
     await persistedStore.save("role-2", { "https://game.example.test": { session: "stale-token" } });
@@ -79,7 +116,10 @@ describe("EncryptedSessionStorageSeedStore", () => {
     await expect(failedStore.save("role-2", { "https://game.example.test": { session: "opaque-token" } }))
       .resolves.toBe(false);
     expect(writeFile).toHaveBeenCalledOnce();
-    await expect(persistedStore.load("role-2")).resolves.toBeUndefined();
+    await expect(new EncryptedSessionStorageSeedStore({
+      getBrowserUserDataDir,
+      safeStorage: createSafeStorage()
+    }).load("role-2")).resolves.toBeUndefined();
   });
 });
 

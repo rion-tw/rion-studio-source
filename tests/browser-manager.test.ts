@@ -167,6 +167,30 @@ describe("BrowserManager game host windows", () => {
     }
   );
 
+  it("cleans a destroyed game view without reading WebContentsView.webContents again", async () => {
+    const harness = createHarness({
+      loadEmbeddedSessionStorageSeed: vi.fn().mockResolvedValue({
+        "https://example.com": { gameSession: "opaque-token" }
+      })
+    });
+    await harness.manager.launch(role);
+
+    const mockView = harness.views[0];
+    const originalWebContents = mockView.webContents;
+    let destroyed = false;
+    Object.defineProperty(mockView.view, "webContents", {
+      configurable: true,
+      get: () => destroyed ? undefined : originalWebContents
+    });
+    originalWebContents.isDestroyed.mockImplementation(() => destroyed);
+    originalWebContents.close.mockImplementation(() => {
+      destroyed = true;
+      originalWebContents.emit("destroyed");
+    });
+
+    await expect(harness.manager.stop(role.id)).resolves.toBeUndefined();
+  });
+
   it("serializes role deletion after active work and rejects stale queued work", async () => {
     const harness = createHarness();
     const events: string[] = [];

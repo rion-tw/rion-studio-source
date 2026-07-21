@@ -26,6 +26,22 @@ const game: Game = {
   updatedAt: "2026-07-10T00:00:00.000Z"
 };
 
+function createDurableStorageSeed() {
+  return {
+    indexedDb: [{
+      name: "auth",
+      objectStores: [{
+        autoIncrement: false,
+        indexes: [],
+        keyPath: null,
+        name: "state",
+        records: [{ key: "current", value: { type: "object", entries: [["ready", true]] } }]
+      }],
+      version: 1
+    }]
+  };
+}
+
 describe("ChromeProfileImportManager", () => {
   it.each([
     ["darwin", "/Users/test", undefined, "/Users/test/Library/Application Support/Google/Chrome"],
@@ -103,7 +119,15 @@ describe("ChromeProfileImportManager", () => {
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [source] }));
     const injectEmbeddedStorage = vi.fn(async () => undefined);
     const resetEmbeddedSession = vi.fn(async () => undefined);
-    const storeEmbeddedSessionStorageSeed = vi.fn(async () => undefined);
+    const storeEmbeddedStorageSeed = vi.fn(async () => undefined);
+    const bootstrapEmbeddedStorage = vi.fn(async () => ({
+      attemptedOriginCount: 1,
+      cacheEntryCount: 0,
+      failedOriginCount: 0,
+      indexedDbRecordCount: 1,
+      persistenceFailed: false,
+      succeededOriginCount: 1
+    }));
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
     const readChromeLoginData = vi.fn()
       .mockResolvedValueOnce({
@@ -111,6 +135,7 @@ describe("ChromeProfileImportManager", () => {
           { domain: ".example.test", name: "session", value: "secret", path: "/", secure: true },
           { domain: "accounts.example.test", name: "sso", value: "secret", path: "/", secure: true }
         ],
+        durableStorageByOrigin: { "https://example.test": createDurableStorageSeed() },
         localStorageByOrigin: {
           "https://accounts.example.test": { sso: "present" },
           "https://example.test": { session: "present" }
@@ -125,6 +150,7 @@ describe("ChromeProfileImportManager", () => {
           { domain: ".example.test", name: "session", value: "secret", path: "/", secure: true },
           { domain: "accounts.example.test", name: "sso", value: "secret", path: "/", secure: true }
         ],
+        durableStorageByOrigin: { "https://example.test": createDurableStorageSeed() },
         localStorageByOrigin: {
           "https://accounts.example.test": { sso: "present" },
           "https://example.test": { session: "present" }
@@ -136,6 +162,7 @@ describe("ChromeProfileImportManager", () => {
       });
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-1",
+      bootstrapEmbeddedStorage,
       gameStore: { getGame: async () => game },
       getSession: () => session as never,
       homeDirectory: "/Users/test",
@@ -146,7 +173,7 @@ describe("ChromeProfileImportManager", () => {
       resetEmbeddedSession,
       roleStore,
       showOpenDialog,
-      storeEmbeddedSessionStorageSeed,
+      storeEmbeddedStorageSeed,
       userDataDir
     });
 
@@ -207,15 +234,22 @@ describe("ChromeProfileImportManager", () => {
       url: "https://accounts.example.test/"
     }));
     expect(resetEmbeddedSession).toHaveBeenCalledOnce();
-    expect(storeEmbeddedSessionStorageSeed).toHaveBeenCalledTimes(2);
-    expect(storeEmbeddedSessionStorageSeed).toHaveBeenCalledWith(
+    expect(storeEmbeddedStorageSeed).toHaveBeenCalledTimes(2);
+    expect(storeEmbeddedStorageSeed).toHaveBeenCalledWith(
       existingRole.id,
       {
-        "https://accounts.example.test": { loginStep: "complete" },
-        "https://example.test": { gameSession: "active" }
+        origins: {
+          "https://accounts.example.test": { sessionStorage: { loginStep: "complete" } },
+          "https://example.test": {
+            indexedDb: createDurableStorageSeed().indexedDb,
+            sessionStorage: { gameSession: "active" }
+          }
+        },
+        version: 2
       }
     );
     expect(flushStorageData).toHaveBeenCalledTimes(2);
+    expect(bootstrapEmbeddedStorage).toHaveBeenCalledTimes(2);
     expect(progressEvents).toEqual([
       expect.objectContaining({ completedProfileCount: 0, phase: "preparing", totalProfileCount: 2 }),
       expect.objectContaining({ completedProfileCount: 0, phase: "importing", totalProfileCount: 2 }),
@@ -243,13 +277,13 @@ describe("ChromeProfileImportManager", () => {
         readFailed: false,
         resetFailed: false,
         sourceItemCount: 2,
-        sourceSessionStorageKeyCount: 2,
-        sourceSessionStorageOriginCount: 2,
+        sourceDocumentStateKeyCount: 2,
+        sourceDocumentStateOriginCount: 2,
         sourceStorageKeyCount: 2,
         sourceStorageOriginCount: 2,
-        queuedSessionStorageKeyCount: 2,
-        queuedSessionStorageOriginCount: 2,
-        sessionStorageSeedFailed: false,
+        queuedDocumentStateKeyCount: 2,
+        queuedDocumentStateOriginCount: 2,
+        seedPersistFailed: false,
         visibleItemCount: 1,
         writtenItemCount: 1,
         writtenStorageKeyCount: 2,
@@ -300,7 +334,7 @@ describe("ChromeProfileImportManager", () => {
     );
 
     expect(readOnce).toHaveBeenCalledOnce();
-    expect(result).toEqual(snapshot);
+    expect(result).toEqual({ ...snapshot, durableStorageByOrigin: {} });
   });
 
   it("marks imported roles authenticated when login data transfer fails", async () => {
@@ -315,7 +349,7 @@ describe("ChromeProfileImportManager", () => {
     );
     const roleStore = new RoleStore(userDataDir);
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
-    const storeEmbeddedSessionStorageSeed = vi.fn().mockResolvedValue(undefined);
+    const storeEmbeddedStorageSeed = vi.fn().mockResolvedValue(undefined);
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-login-warning",
       gameStore: { getGame: async () => game },
@@ -332,7 +366,7 @@ describe("ChromeProfileImportManager", () => {
       readChromeLoginData: vi.fn().mockRejectedValue(new Error("Chrome data unavailable")),
       roleStore,
       showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
-      storeEmbeddedSessionStorageSeed,
+      storeEmbeddedStorageSeed,
       userDataDir
     });
 
@@ -348,7 +382,7 @@ describe("ChromeProfileImportManager", () => {
 
     expect(result.roles).toHaveLength(1);
     expect(result.roles[0].authState).toBe("authenticated");
-    expect(storeEmbeddedSessionStorageSeed).toHaveBeenCalledWith(result.roles[0].id, {});
+    expect(storeEmbeddedStorageSeed).toHaveBeenCalledWith(result.roles[0].id, { origins: {}, version: 2 });
     expect(transferSummaries).toEqual([
       expect.objectContaining({ readFailed: true, roleId: result.roles[0].id })
     ]);
@@ -366,7 +400,7 @@ describe("ChromeProfileImportManager", () => {
     );
     const roleStore = new RoleStore(userDataDir);
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
-    const storeEmbeddedSessionStorageSeed = vi.fn().mockRejectedValue(new Error("system encryption unavailable"));
+    const storeEmbeddedStorageSeed = vi.fn().mockRejectedValue(new Error("system encryption unavailable"));
     const manager = new ChromeProfileImportManager({
       createImportId: () => "import-transfer-warning",
       gameStore: { getGame: async () => game },
@@ -387,7 +421,7 @@ describe("ChromeProfileImportManager", () => {
       }),
       roleStore,
       showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
-      storeEmbeddedSessionStorageSeed,
+      storeEmbeddedStorageSeed,
       userDataDir
     });
 
@@ -405,7 +439,7 @@ describe("ChromeProfileImportManager", () => {
         failedStorageOriginCount: 1,
         flushFailed: true,
         readFailed: false,
-        sessionStorageSeedFailed: true
+        seedPersistFailed: true
       })
     ]);
   });

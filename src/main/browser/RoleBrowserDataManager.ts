@@ -18,6 +18,7 @@ type RoleDataSession = Pick<Session, "clearData" | "clearStorageData" | "closeAl
 
 interface RoleBrowserDataManagerOptions {
   browserManager: Pick<BrowserManager, "clearEmbeddedSessionStorageSeed" | "stopRoleAndRunRecoverableMutation">;
+  clearEmbeddedStorageSeed?: (roleId: string) => Promise<void>;
   getSession: (partition: string) => RoleDataSession;
   roleStore: Pick<
     RoleStore,
@@ -42,10 +43,16 @@ export class RoleBrowserDataManager {
 
     return this.options.browserManager.stopRoleAndRunRecoverableMutation(roleId, async () => {
       this.options.browserManager.clearEmbeddedSessionStorageSeed(roleId);
-      const [authResult, ...storageResults] = await Promise.allSettled([
-        this.options.roleStore.updateAuthState(roleId, "login_required"),
+      const storageOperations: Array<Promise<unknown>> = [
         this.clearEmbeddedData(roleId),
         this.options.roleStore.resetBrowserUserDataDir(roleId)
+      ];
+      if (this.options.clearEmbeddedStorageSeed) {
+        storageOperations.push(this.options.clearEmbeddedStorageSeed(roleId));
+      }
+      const [authResult, ...storageResults] = await Promise.allSettled([
+        this.options.roleStore.updateAuthState(roleId, "login_required"),
+        ...storageOperations
       ]);
       const storageFailures = storageResults.flatMap(
         (result) => result.status === "rejected" ? [result.reason] : []

@@ -30,7 +30,11 @@ import {
   recoverChromeProfileImport
 } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
-import { EncryptedSessionStorageSeedStore } from "./browser/EncryptedSessionStorageSeedStore";
+import { EmbeddedStorageBootstrapper } from "./browser/EmbeddedStorageBootstrapper";
+import {
+  EncryptedSessionStorageSeedStore,
+  getSessionStorageByOrigin
+} from "./browser/EncryptedSessionStorageSeedStore";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
@@ -103,7 +107,11 @@ import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecyc
 import { IPC_CHANNELS } from "../shared/ipc";
 import { EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL } from "../shared/embeddedRuntimeDiagnostics";
 import {
+  EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL,
+  EMBEDDED_STORAGE_BOOTSTRAP_SEED_CHANNEL,
   EMBEDDED_SESSION_STORAGE_SEED_CHANNEL,
+  isEmbeddedStorageBootstrapCompleted,
+  isEmbeddedStorageBootstrapSeedRequest,
   isEmbeddedSessionStorageSeedRequest
 } from "../shared/internalIpc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
@@ -127,6 +135,7 @@ app.on("gpu-info-update", () => {
 let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
+let embeddedStorageBootstrapper: EmbeddedStorageBootstrapper | null = null;
 let embeddedRuntimeDiagnostics: EmbeddedRuntimeDiagnostics | null = null;
 let appQuickMenu: AppQuickMenu | null = null;
 let applicationMenu: ApplicationMenuController | null = null;
@@ -160,6 +169,23 @@ ipcMain.on(EMBEDDED_SESSION_STORAGE_SEED_CHANNEL, (event, payload: unknown) => {
     return;
   }
   event.returnValue = browserManager.consumeEmbeddedSessionStorageSeed(event.sender.id, payload.origin);
+});
+ipcMain.on(EMBEDDED_STORAGE_BOOTSTRAP_SEED_CHANNEL, (event, payload: unknown) => {
+  const senderFrame = event.senderFrame;
+  if (!embeddedStorageBootstrapper || !senderFrame || senderFrame.parent !== null ||
+    !isEmbeddedStorageBootstrapSeedRequest(payload) || senderFrame.origin !== payload.origin) {
+    event.returnValue = undefined;
+    return;
+  }
+  event.returnValue = embeddedStorageBootstrapper.consumeSeed(event.sender.id, payload.origin);
+});
+ipcMain.on(EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL, (event, payload: unknown) => {
+  const senderFrame = event.senderFrame;
+  if (!embeddedStorageBootstrapper || !senderFrame || senderFrame.parent !== null ||
+    !isEmbeddedStorageBootstrapCompleted(payload) || senderFrame.origin !== payload.origin) {
+    return;
+  }
+  embeddedStorageBootstrapper.complete(event.sender.id, payload);
 });
 const loggingReady = logService.initialize();
 logService.on("entry", (entry) => {
@@ -487,6 +513,13 @@ async function initializeApplication(): Promise<void> {
     getBrowserUserDataDir: (roleId) => roleStore.getRolePaths(roleId).browserUserDataDir,
     safeStorage
   });
+  embeddedStorageBootstrapper = new EmbeddedStorageBootstrapper({
+    bootstrapPreloadPath: join(__dirname, "../preload/embedded-storage-bootstrap.cjs"),
+    createWindow: (options) => new BrowserWindow(options),
+    flushStorageData: async (partition) => electronSession.fromPartition(partition).flushStorageData(),
+    loadSeed: (roleId) => embeddedSessionStorageSeedStore.load(roleId),
+    saveSeed: (roleId, seed) => embeddedSessionStorageSeedStore.save(roleId, seed)
+  });
   await recoverChromeProfileImport(userDataDir, roleStore);
   const transactionalRoleAuthStore: Pick<RoleStore, "updateAuthState"> & Pick<RoleStore, "updateRole"> = {
     updateAuthState: (id, authState, messageTimestamp) =>
@@ -629,7 +662,20 @@ async function initializeApplication(): Promise<void> {
       return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
     },
     getLoginUrl: async (role) => (await gameStore.getGame(role.gameId)).loginUrl ?? role.launchUrl,
-    loadEmbeddedSessionStorageSeed: (roleId) => embeddedSessionStorageSeedStore.load(roleId),
+    loadEmbeddedStorageSeed: (roleId) => embeddedSessionStorageSeedStore.load(roleId),
+    prepareEmbeddedPersistentStorage: async (role, partition) => {
+      const summary = await embeddedStorageBootstrapper?.prepareRole(role.id, partition);
+      if (!summary || summary.attemptedOriginCount === 0) return;
+      logService.info("browser", "embedded_storage_bootstrap", "Embedded persistent storage bootstrap completed.", {
+        attemptedOriginCount: summary.attemptedOriginCount,
+        cacheEntryCount: summary.cacheEntryCount,
+        failedOriginCount: summary.failedOriginCount,
+        indexedDbRecordCount: summary.indexedDbRecordCount,
+        persistenceFailed: summary.persistenceFailed,
+        roleId: role.id,
+        succeededOriginCount: summary.succeededOriginCount
+      });
+    },
     getRuntimeTabGameIcon: async (role) => {
       const game = await gameStore.getGame(role.gameId);
       return createRuntimeGameIconDataUrl(
@@ -696,6 +742,9 @@ async function initializeApplication(): Promise<void> {
   });
   const roleBrowserDataManager = new RoleBrowserDataManager({
     browserManager,
+    clearEmbeddedStorageSeed: async (roleId) => {
+      await embeddedSessionStorageSeedStore.clear(roleId);
+    },
     getSession: (partition) => electronSession.fromPartition(partition),
     roleStore
   });
@@ -725,20 +774,33 @@ async function initializeApplication(): Promise<void> {
     },
     onLoginDataTransfer: (summary) => {
       logService.info("browser", "chrome_profile_import_data_transfer", "Chrome profile login data transfer completed.", {
+        bootstrapCacheEntryCount: summary.bootstrapCacheEntryCount,
+        bootstrapFailedOriginCount: summary.bootstrapFailedOriginCount,
+        bootstrapIndexedDbRecordCount: summary.bootstrapIndexedDbRecordCount,
+        bootstrapPersistenceFailed: summary.bootstrapPersistenceFailed,
+        bootstrapSucceededOriginCount: summary.bootstrapSucceededOriginCount,
         failedItemCount: summary.failedItemCount,
         failedStorageOriginCount: summary.failedStorageOriginCount,
         flushFailed: summary.flushFailed,
+        queuedCacheEntryCount: summary.queuedCacheEntryCount,
+        queuedDocumentStateKeyCount: summary.queuedDocumentStateKeyCount,
+        queuedDocumentStateOriginCount: summary.queuedDocumentStateOriginCount,
+        queuedDurableOriginCount: summary.queuedDurableOriginCount,
+        queuedIndexedDbDatabaseCount: summary.queuedIndexedDbDatabaseCount,
+        queuedIndexedDbRecordCount: summary.queuedIndexedDbRecordCount,
         readbackFailed: summary.readbackFailed,
         readFailed: summary.readFailed,
         resetFailed: summary.resetFailed,
+        seedPersistFailed: summary.seedPersistFailed,
+        sourceCacheEntryCount: summary.sourceCacheEntryCount,
+        sourceDocumentStateKeyCount: summary.sourceDocumentStateKeyCount,
+        sourceDocumentStateOriginCount: summary.sourceDocumentStateOriginCount,
+        sourceDurableOriginCount: summary.sourceDurableOriginCount,
+        sourceIndexedDbDatabaseCount: summary.sourceIndexedDbDatabaseCount,
+        sourceIndexedDbRecordCount: summary.sourceIndexedDbRecordCount,
         sourceItemCount: summary.sourceItemCount,
-        sourceSessionStorageKeyCount: summary.sourceSessionStorageKeyCount,
-        sourceSessionStorageOriginCount: summary.sourceSessionStorageOriginCount,
         sourceStorageKeyCount: summary.sourceStorageKeyCount,
         sourceStorageOriginCount: summary.sourceStorageOriginCount,
-        queuedSessionStorageKeyCount: summary.queuedSessionStorageKeyCount,
-        queuedSessionStorageOriginCount: summary.queuedSessionStorageOriginCount,
-        sessionStorageSeedFailed: summary.sessionStorageSeedFailed,
         visibleItemCount: summary.visibleItemCount,
         writtenItemCount: summary.writtenItemCount,
         writtenStorageKeyCount: summary.writtenStorageKeyCount,
@@ -763,9 +825,18 @@ async function initializeApplication(): Promise<void> {
       await session.clearStorageData({ storages: ["cachestorage"] });
     },
     readChromeLoginData: readChromeLoginDataWithCdp,
-    storeEmbeddedSessionStorageSeed: async (roleId, values) => {
-      browserManager?.setEmbeddedSessionStorageSeed(roleId, values);
-      if (!await embeddedSessionStorageSeedStore.save(roleId, values)) {
+    bootstrapEmbeddedStorage: (roleId, partition) =>
+      embeddedStorageBootstrapper?.prepareRole(roleId, partition) ?? Promise.resolve({
+        attemptedOriginCount: 0,
+        cacheEntryCount: 0,
+        failedOriginCount: 0,
+        indexedDbRecordCount: 0,
+        persistenceFailed: false,
+        succeededOriginCount: 0
+      }),
+    storeEmbeddedStorageSeed: async (roleId, seed) => {
+      browserManager?.setEmbeddedSessionStorageSeed(roleId, getSessionStorageByOrigin(seed));
+      if (!await embeddedSessionStorageSeedStore.save(roleId, seed)) {
         throw new Error("Unable to persist the embedded session storage seed.");
       }
     },
@@ -899,6 +970,9 @@ async function initializeApplication(): Promise<void> {
   });
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
+    clearRoleEmbeddedStorageSeed: async (roleId) => {
+      await embeddedSessionStorageSeedStore.clear(roleId);
+    },
     consumePendingMacroPageRequest,
     consumePendingWorkspaceLaunchRequest,
     gameCompatibilityManager,

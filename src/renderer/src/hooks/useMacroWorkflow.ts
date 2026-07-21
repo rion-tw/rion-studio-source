@@ -74,10 +74,6 @@ export function useMacroWorkflow({
         return [...current, savedMacro];
       });
 
-      if (!form.id) {
-        resetListState();
-      }
-
       return savedMacro;
     } catch (submitError) {
       reportError(submitError);

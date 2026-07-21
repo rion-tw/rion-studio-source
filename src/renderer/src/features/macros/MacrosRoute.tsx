@@ -58,7 +58,7 @@ interface MacrosRouteProps {
   onDeleteMacro: (macro: Macro) => void;
   onDeleteMacros: (macros: Macro[]) => Promise<boolean>;
   onEditMacro: (macro: Macro) => void;
-  onNewMacro: () => void;
+  onNewMacro: (roleId?: string) => void;
   onQueryChange: (query: string) => void;
   onRoleFilterChange: (roleId: string) => void;
   onSetMacroEnabled?: (macro: Macro, enabled: boolean) => void;
@@ -154,6 +154,10 @@ function MacrosRoute({
     }
   }
 
+  function handleNewMacro(): void {
+    onNewMacro(roleFilterId || undefined);
+  }
+
   if (macros.length === 0) {
     return (
       <PageFrame containerRef={pageRef} contentClassName="grid min-h-full place-items-center" scrollPositionRef={scrollPositionRef}>
@@ -163,7 +167,7 @@ function MacrosRoute({
           title={t("macros.empty.title")}
           description={t("macros.empty.description")}
           actionLabel={t("macros.empty.action")}
-          onAction={onNewMacro}
+          onAction={handleNewMacro}
         />
       </PageFrame>
     );
@@ -203,7 +207,7 @@ function MacrosRoute({
               className="flex-1 gap-1.5 px-2.5 sm:flex-none"
               type="button"
               variant="outline"
-              onClick={onNewMacro}
+              onClick={handleNewMacro}
             >
               <Plus size={14} />
               {t("macros.newMacro")}
@@ -388,7 +392,7 @@ function MacrosRoute({
             className="gap-1.5 border-dashed bg-transparent px-2.5 text-muted-foreground shadow-none hover:text-foreground"
             type="button"
             variant="outline"
-            onClick={onNewMacro}
+            onClick={handleNewMacro}
           >
             <Plus aria-hidden="true" size={14} />
             <span>{t("macros.newMacro")}</span>

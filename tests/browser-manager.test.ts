@@ -4,7 +4,6 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   BrowserGameLoadError,
-  BrowserLaunchAuthError,
   BrowserManager,
   type BrowserManagerOptions,
   BrowserWorkspaceDisplayOccupiedError,
@@ -153,11 +152,14 @@ describe("BrowserManager game host windows", () => {
       expect(applyCdnCompatibility.mock.invocationCallOrder[0])
         .toBeLessThan(harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]);
       expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+      expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
+      expect(harness.views[0].webContents.executeJavaScript)
+        .not.toHaveBeenCalledWith(LOGIN_STORAGE_EXPRESSION);
     }
   );
 
   it.each(["darwin", "win32"] as const)(
-    "keeps a launching %s tab hidden and cancels without rereading a destroyed view",
+    "shows a launching %s tab immediately and cancels without rereading a destroyed view",
     async (platform) => {
       let markLoadStarted!: () => void;
       let releaseLoad!: () => void;
@@ -175,8 +177,8 @@ describe("BrowserManager game host windows", () => {
       await loadStarted;
 
       const runtimeTab = harness.manager.listEmbeddedRuntimeState().tabs[0];
-      expect(runtimeTab).toMatchObject({ hidden: true, active: false });
-      expect(harness.hosts[0].show).not.toHaveBeenCalled();
+      expect(runtimeTab).toMatchObject({ hidden: false, active: true });
+      expect(harness.hosts[0].show).toHaveBeenCalledOnce();
 
       const mockView = harness.views[0];
       const originalWebContents = mockView.webContents;
@@ -195,6 +197,83 @@ describe("BrowserManager game host windows", () => {
       await harness.manager.stopRuntimeTab(runtimeTab.id);
       await expect(launch).resolves.toBeNull();
       expect(harness.manager.listStatuses()).toEqual([]);
+    }
+  );
+
+  it.each(["darwin", "win32"] as const)(
+    "activates a new %s tab before navigation and restores the previous tab on failure",
+    async (platform) => {
+      let markSecondLoadStarted!: () => void;
+      let rejectSecondLoad!: (error: Error) => void;
+      const secondLoadStarted = new Promise<void>((resolve) => {
+        markSecondLoadStarted = resolve;
+      });
+      const harness = createHarness({
+        loadUrlHandlers: [
+          async () => undefined,
+          () => new Promise<void>((_resolve, reject) => {
+            rejectSecondLoad = reject;
+            markSecondLoadStarted();
+          })
+        ],
+        platform
+      });
+      await harness.manager.launch(role);
+      const secondRole = createRole("role-2", "Alt");
+
+      const secondLaunch = harness.manager.launch(secondRole);
+      await secondLoadStarted;
+
+      expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
+        { active: false, sourceId: role.id },
+        { active: true, hidden: false, sourceId: secondRole.id }
+      ]);
+      rejectSecondLoad(new Error("navigation failed"));
+      await expect(secondLaunch).rejects.toBeInstanceOf(BrowserGameLoadError);
+      expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
+        { active: true, hidden: false, sourceId: role.id }
+      ]);
+    }
+  );
+
+  it.each(["darwin", "win32"] as const)(
+    "shows a %s workspace while its game pages are still loading",
+    async (platform) => {
+      const releaseLoads: Array<() => void> = [];
+      let markLoadsStarted!: () => void;
+      const loadsStarted = new Promise<void>((resolve) => {
+        markLoadsStarted = resolve;
+      });
+      const deferLoad = () => new Promise<void>((resolve) => {
+        releaseLoads.push(resolve);
+        if (releaseLoads.length === 2) markLoadsStarted();
+      });
+      const harness = createHarness({
+        loadUrlHandlers: [deferLoad, deferLoad],
+        platform
+      });
+      const secondRole = createRole("role-2", "Alt");
+
+      const launch = harness.manager.launchWorkspace(workspace, [
+        { role, rect: workspace.slots[0].rect },
+        { role: secondRole, rect: workspace.slots[1].rect }
+      ]);
+      await loadsStarted;
+
+      expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
+        { active: true, hidden: false, sourceId: workspace.id }
+      ]);
+      expect(harness.hosts[0].show).toHaveBeenCalledOnce();
+      expect(harness.manager.listStatuses()).toEqual([
+        expect.objectContaining({ roleId: role.id, state: "launching" }),
+        expect.objectContaining({ roleId: secondRole.id, state: "launching" })
+      ]);
+
+      releaseLoads.forEach((release) => release());
+      await expect(launch).resolves.toEqual([
+        expect.objectContaining({ roleId: role.id, state: "running" }),
+        expect.objectContaining({ roleId: secondRole.id, state: "running" })
+      ]);
     }
   );
 
@@ -3960,9 +4039,9 @@ describe("BrowserManager game host windows", () => {
     expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([]);
   });
 
-  it("releases a target display when workspace launch fails", async () => {
+  it("releases a target display when workspace navigation fails", async () => {
     const harness = createHarness({
-      snapshotsByView: [{ bodyText: "Log in with Google", localStorage: {} }]
+      loadUrlHandlers: [vi.fn().mockRejectedValue(new Error("navigation failed"))]
     });
 
     await expect(
@@ -3971,7 +4050,7 @@ describe("BrowserManager game host windows", () => {
         [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
         { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
       )
-    ).rejects.toBeInstanceOf(BrowserLaunchAuthError);
+    ).rejects.toBeInstanceOf(BrowserGameLoadError);
     expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
   });
 
@@ -4029,7 +4108,7 @@ describe("BrowserManager game host windows", () => {
     expect(harness.createHostWindow).toHaveBeenCalledTimes(1);
   });
 
-  it("rolls back the complete workspace when a later role fails auth verification", async () => {
+  it("does not inspect or reject workspace roles based on login-page snapshots", async () => {
     const harness = createHarness({
       snapshotsByView: [
         { bodyText: "Welcome", localStorage: { authToken: "token-1" } },
@@ -4037,18 +4116,18 @@ describe("BrowserManager game host windows", () => {
       ]
     });
 
-    await expect(
-      harness.manager.launchWorkspace(workspace, [
+    await expect(harness.manager.launchWorkspace(workspace, [
         { role, rect: workspace.slots[0].rect },
         { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
-      ])
-    ).rejects.toBeInstanceOf(BrowserLaunchAuthError);
+      ])).resolves.toEqual([
+        expect.objectContaining({ roleId: "role-1", state: "running" }),
+        expect.objectContaining({ roleId: "role-2", state: "running" })
+      ]);
 
-    expect(harness.beforeRolesStop).toHaveBeenCalledWith(["role-1", "role-2"]);
-    expect(harness.views[0].webContents.close).toHaveBeenCalledTimes(1);
-    expect(harness.views[1].webContents.close).toHaveBeenCalledTimes(1);
-    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
-    expect(harness.manager.listStatuses()).toEqual([]);
+    expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
+    expect(harness.views[0].webContents.executeJavaScript).not.toHaveBeenCalled();
+    expect(harness.views[1].webContents.session.cookies.get).not.toHaveBeenCalled();
+    expect(harness.views[1].webContents.executeJavaScript).not.toHaveBeenCalled();
   });
 
   it("stops the actual launched host by workspace id", async () => {
@@ -4465,14 +4544,8 @@ function createHarness(options: {
     nativeChromeControllers.push(controller);
     return controller;
   });
-  const roleStore = {
-    updateAuthState: vi.fn().mockImplementation(async (_id: string, authState: Role["authState"]) => ({
-      ...role,
-      authState
-    }))
-  };
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
-  const manager = new BrowserManager(roleStore, {
+  const manager = new BrowserManager({
     ...(options.applyCdnCompatibility ? { applyCdnCompatibility: options.applyCdnCompatibility } : {}),
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
     ...(options.applyBrowserProxy ? { applyBrowserProxy: options.applyBrowserProxy } : {}),
@@ -4537,7 +4610,6 @@ function createHarness(options: {
     hosts,
     manager,
     nativeChromeControllers,
-    roleStore,
     views
   };
 }

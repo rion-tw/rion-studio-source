@@ -156,8 +156,10 @@ describe("macro editor controls", () => {
     const callMode = screen.getByRole("combobox", { name: "Macro call mode" });
     expect(callMode.textContent).toContain("Wait for completion");
     fireEvent.click(callMode);
-    fireEvent.click(screen.getByRole("option", { name: "Trigger and continue" }));
-    expect(callMode.textContent).toContain("Trigger and continue");
+    fireEvent.click(screen.getByRole("option", {
+      name: "Trigger and continue (stops if parent is interrupted)"
+    }));
+    expect(callMode.textContent).toContain("Trigger and continue (stops if parent is interrupted)");
     fireEvent.click(trigger);
 
     const loopOption = screen.getByRole("option", {

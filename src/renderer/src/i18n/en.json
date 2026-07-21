@@ -364,7 +364,7 @@
   "macroForm.macroTarget": "Macro to run",
   "macroForm.macroCallMode": "Macro call mode",
   "macroForm.macroCallMode.wait": "Wait for completion",
-  "macroForm.macroCallMode.trigger": "Trigger and continue",
+  "macroForm.macroCallMode.trigger": "Trigger and continue (stops if parent is interrupted)",
   "macroForm.macroTargetPlaceholder": "Select a macro",
   "macroForm.macroTargetDisabled": "disabled",
   "macroForm.macroTargetRunsOnce": "runs one iteration when called",

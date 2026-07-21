@@ -333,7 +333,7 @@
   "macroForm.macroTarget": "実行するマクロ",
   "macroForm.macroCallMode": "マクロ呼び出し方式",
   "macroForm.macroCallMode.wait": "完了まで待機",
-  "macroForm.macroCallMode.trigger": "トリガーして続行",
+  "macroForm.macroCallMode.trigger": "トリガーして続行（親マクロ中断時に停止）",
   "macroForm.macroTargetPlaceholder": "マクロを選択",
   "macroForm.macroTargetDisabled": "無効",
   "macroForm.macroTargetRunsOnce": "呼び出し時は1回のみ実行",

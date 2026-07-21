@@ -32,6 +32,11 @@ describe("renderer control sizing", () => {
     expect(styles).toContain(".control-hit-target");
     expect(styles).toContain("position: absolute");
     expect(styles).toContain("width: max(100%, var(--control-hit-size))");
+    const hitTargetRulesStart = styles.indexOf(":where(\n    button,");
+    const baseLayerStart = styles.indexOf("@layer base");
+    const utilitiesLayerStart = styles.indexOf("@layer utilities");
+    expect(hitTargetRulesStart).toBeGreaterThan(baseLayerStart);
+    expect(hitTargetRulesStart).toBeLessThan(utilitiesLayerStart);
     expect(styles).not.toContain("min-width: var(--control-hit-size)");
     expect(styles).not.toContain("min-height: var(--control-hit-size)");
   });

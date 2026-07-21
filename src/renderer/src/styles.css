@@ -255,34 +255,34 @@
     background: hsl(var(--muted-foreground) / 0.52);
     background-clip: content-box;
   }
-}
 
-:where(
-  button,
-  [role="button"],
-  [role="checkbox"],
-  [role="switch"],
-  [contenteditable]:not([contenteditable="false"]),
-  .control-hit-target
-) {
-  position: relative;
-}
+  :where(
+    button,
+    [role="button"],
+    [role="checkbox"],
+    [role="switch"],
+    [contenteditable]:not([contenteditable="false"]),
+    .control-hit-target
+  ) {
+    position: relative;
+  }
 
-:where(
-  button,
-  [role="button"],
-  [role="checkbox"],
-  [role="switch"],
-  [contenteditable]:not([contenteditable="false"]),
-  .control-hit-target
-)::before {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: max(100%, var(--control-hit-size));
-  height: max(100%, var(--control-hit-size));
-  content: "";
-  transform: translate(-50%, -50%);
+  :where(
+    button,
+    [role="button"],
+    [role="checkbox"],
+    [role="switch"],
+    [contenteditable]:not([contenteditable="false"]),
+    .control-hit-target
+  )::before {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--control-hit-size));
+    height: max(100%, var(--control-hit-size));
+    content: "";
+    transform: translate(-50%, -50%);
+  }
 }
 
 @layer utilities {

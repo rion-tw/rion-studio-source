@@ -4,6 +4,8 @@ import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { resolveCargoExecutable } from "./cargoExecutable.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const platformDirectory = `${process.platform}-${process.arch}`;
 const outputDirectory = join(repositoryRoot, "build", "native", platformDirectory);
@@ -35,8 +37,8 @@ async function run(command, args) {
   });
 }
 
-await run("cargo", ["build", "--locked", "--release", "-p", "rion-node"]);
+const cargo = await resolveCargoExecutable();
+await run(cargo, ["build", "--locked", "--release", "-p", "rion-node"]);
 await mkdir(outputDirectory, { recursive: true });
 await copyFile(source, destination);
 console.log(`Built Rust application core: ${destination}`);
-

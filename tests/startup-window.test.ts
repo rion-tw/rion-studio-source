@@ -63,6 +63,17 @@ describe("startup page", () => {
     expect(html).toContain('role="alert"');
   });
 
+  it("renders and escapes a concrete native startup error", () => {
+    const html = buildStartupPage({
+      errorDetail: "Rust core <missing> & cannot load",
+      state: "failed",
+      theme: "light"
+    });
+
+    expect(html).toContain("Rust core &lt;missing&gt; &amp; cannot load");
+    expect(html).not.toContain("Rust core <missing>");
+  });
+
   it("escapes an icon URL before placing it in markup", () => {
     const unsafeIcon = 'data:image/png;base64,abc"><script>alert(1)</script>';
     const html = buildStartupPage({ iconDataUrl: unsafeIcon, theme: "light" });

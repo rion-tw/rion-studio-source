@@ -528,7 +528,7 @@ describe("macro overlay interactions", () => {
     expect(getOverlayRoot(document).querySelector(".active-badge")).toBe(nextBadge);
   });
 
-  it("coalesces delayed polling refreshes and runs only one trailing request", async () => {
+  it("coalesces low-frequency reconciliation and runs only one trailing request", async () => {
     vi.useFakeTimers();
     createGameSurface(document);
     const firstResponse = createDeferred<unknown>();
@@ -538,7 +538,7 @@ describe("macro overlay interactions", () => {
 
     installOverlay(window, binding);
     expect(binding).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(6_000);
+    await vi.advanceTimersByTimeAsync(30_000);
     expect(binding).toHaveBeenCalledTimes(1);
 
     firstResponse.resolve({ macros: [assignedMacro], statuses: [] });

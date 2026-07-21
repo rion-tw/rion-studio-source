@@ -27,6 +27,14 @@ export interface WorkspaceResourceStatus {
   resourceReason?: WorkspaceResourceReason;
 }
 
+export type WorkspaceCpuThrottleResolver = (input: {
+  macroActive: boolean;
+  policyMode: WorkspaceResourcePolicy["mode"];
+  pressureLevel: WorkspacePressureLevel;
+  sharesProcessWithMacro: boolean;
+  workspaceHidden: boolean;
+}) => 1 | WorkspaceCpuThrottleRate;
+
 interface ManagedWorkspace {
   id: string;
   macroRoleIds: Set<string>;
@@ -49,7 +57,10 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
   private macroRoleIds = new Set<string>();
   private pressureSnapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
 
-  constructor(pressureMonitor?: SystemPressureSource) {
+  constructor(
+    pressureMonitor?: SystemPressureSource,
+    private readonly resolveCpuThrottle: WorkspaceCpuThrottleResolver = defaultCpuThrottleResolver
+  ) {
     super();
     if (pressureMonitor) {
       this.pressureSnapshot = pressureMonitor.getSnapshot();
@@ -209,7 +220,14 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
   }
 
   private getBackgroundRate(): WorkspaceCpuThrottleRate {
-    return this.pressureSnapshot.level === "constrained" ? 4 : 2;
+    const rate = this.resolveCpuThrottle({
+      macroActive: false,
+      policyMode: "adaptive",
+      pressureLevel: this.pressureSnapshot.level,
+      sharesProcessWithMacro: false,
+      workspaceHidden: true
+    });
+    return rate === 4 ? 4 : 2;
   }
 
   private async removeTargets(managed: ManagedWorkspace, roleIds: string[]): Promise<void> {
@@ -299,3 +317,10 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     this.emit("change");
   }
 }
+
+const defaultCpuThrottleResolver: WorkspaceCpuThrottleResolver = (input) =>
+  input.policyMode === "unrestricted" || !input.workspaceHidden || input.macroActive || input.sharesProcessWithMacro
+    ? 1
+    : input.pressureLevel === "constrained"
+      ? 4
+      : 2;

@@ -16,6 +16,7 @@ import type {
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
 import type { RoleStore } from "../roles/RoleStore";
+import type { StateRepository } from "../core/RustStateRepository";
 
 interface GamesFile {
   games: Game[];
@@ -44,7 +45,8 @@ export class GameStore {
 
   constructor(
     private readonly userDataDir: string,
-    private readonly roleStore: Pick<RoleStore, "assignGameIds" | "listRoles">
+    private readonly roleStore: Pick<RoleStore, "assignGameIds" | "listRoles">,
+    private readonly stateRepository?: StateRepository
   ) {
     this.gamesPath = join(userDataDir, "games.json");
   }
@@ -264,7 +266,9 @@ export class GameStore {
     let storedGames: Game[] = [];
     let shouldWrite: boolean;
     try {
-      const parsed = JSON.parse(await readFile(this.gamesPath, "utf8")) as { games?: unknown };
+      const parsed = this.stateRepository
+        ? { games: await this.stateRepository.read("games", []) }
+        : JSON.parse(await readFile(this.gamesPath, "utf8")) as { games?: unknown };
       if (!Array.isArray(parsed.games)) {
         throw new GameStoreError("GAME_FILE_INVALID", "Game data file is invalid.");
       }
@@ -333,8 +337,12 @@ export class GameStore {
   }
 
   private async writeGamesFile(file: GamesFile, publishCache = true): Promise<void> {
-    await mkdir(this.userDataDir, { recursive: true });
-    await writeJsonFileAtomically(this.gamesPath, file);
+    if (this.stateRepository) {
+      await this.stateRepository.replace("games", file.games);
+    } else {
+      await mkdir(this.userDataDir, { recursive: true });
+      await writeJsonFileAtomically(this.gamesPath, file);
+    }
     if (publishCache) {
       this.cachedFile = structuredClone(file);
     }

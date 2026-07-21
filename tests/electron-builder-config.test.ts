@@ -45,11 +45,11 @@ describe("electron-builder release configuration", () => {
       target: ["nsis"],
       extraResources: [
         {
-          from: "build/native/win32-x64/rion-window-frame-helper.exe",
-          to: "native/rion-window-frame-helper.exe"
+          from: "build/native/win32-x64/rion-core.node",
+          to: "native/rion-core.node"
         }
       ],
-      signExts: ["rion-window-frame-helper.exe"]
+      signExts: ["rion-core.node"]
     });
     expect(config.nsis).toMatchObject({
       oneClick: false,
@@ -87,11 +87,17 @@ describe("electron-builder release configuration", () => {
       entitlementsInherit: "build/entitlements.mac.inherit.plist",
       notarize: false,
       sign: "build/signMacAdHoc.mjs",
-      target: ["dmg", "zip"]
+      target: ["dmg", "zip"],
+      extraResources: expect.arrayContaining([
+        {
+          from: "build/native/darwin-arm64/rion-core.node",
+          to: "native/rion-core.node"
+        }
+      ])
     });
   });
 
-  it("builds and verifies the Windows helper before local and release packaging", async () => {
+  it("builds and verifies the Rust core before local and release packaging", async () => {
     const [packageJsonSource, releaseWorkflow] = await Promise.all([
       readFile("package.json", "utf8"),
       readFile(".github/workflows/release.yml", "utf8")
@@ -102,8 +108,8 @@ describe("electron-builder release configuration", () => {
 
     for (const scriptName of ["package", "dist"]) {
       const script = packageJson.scripts[scriptName];
-      const buildIndex = script.indexOf("pnpm run build:native:windows");
-      const verifyIndex = script.indexOf("pnpm run verify:native:windows");
+      const buildIndex = script.indexOf("pnpm run build:rust");
+      const verifyIndex = script.indexOf("pnpm run verify:rust");
       const builderIndex = script.indexOf("electron-builder");
 
       expect(buildIndex).toBeGreaterThan(-1);
@@ -111,11 +117,7 @@ describe("electron-builder release configuration", () => {
       expect(builderIndex).toBeGreaterThan(verifyIndex);
     }
 
-    expect(releaseWorkflow.match(/run: pnpm run build:native:windows/gu)).toHaveLength(1);
-    expect(releaseWorkflow.match(/run: pnpm run test:native:windows/gu)).toHaveLength(1);
-    expect(
-      releaseWorkflow.match(/run: node scripts\/verifyWindowsWindowFrameHelper\.mjs/gu)
-    ).toHaveLength(1);
+    expect(releaseWorkflow.match(/run: pnpm run build:rust && pnpm run verify:rust/gu)).toHaveLength(1);
     expect(releaseWorkflow.match(/- os: macos-latest/gu)).toHaveLength(1);
     expect(releaseWorkflow.match(/- os: windows-latest/gu)).toHaveLength(1);
   });

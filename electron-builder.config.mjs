@@ -54,6 +54,10 @@ const config = {
     category: "public.app-category.utilities",
     extraResources: [
       {
+        from: "build/native/darwin-arm64/rion-core.node",
+        to: "native/rion-core.node"
+      },
+      {
         from: "build/native/darwin-arm64/rion-runtime-tabs.node",
         to: "native/rion-runtime-tabs.node"
       }
@@ -100,11 +104,11 @@ const config = {
     target: ["nsis"],
     extraResources: [
       {
-        from: "build/native/win32-x64/rion-window-frame-helper.exe",
-        to: "native/rion-window-frame-helper.exe"
+        from: "build/native/win32-x64/rion-core.node",
+        to: "native/rion-core.node"
       }
     ],
-    signExts: ["rion-window-frame-helper.exe"]
+    signExts: ["rion-core.node"]
   },
   nsis: {
     oneClick: false,

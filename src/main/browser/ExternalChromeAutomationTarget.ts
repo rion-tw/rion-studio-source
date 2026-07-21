@@ -92,6 +92,10 @@ export interface ExternalBrowserAutomationTarget extends BrowserAutomationTarget
 export interface ConnectExternalChromeAutomationOptions {
   cdnCompatibilityEnabled?: boolean;
   createClient?: (target: DevToolsTarget) => CdpEventClientLike;
+  connectClient?: (
+    browserUserDataDir: string,
+    launchUrl: string
+  ) => Promise<CdpEventClientLike>;
   fetch?: DevToolsFetch;
   now?: () => number;
   onDiagnostic?: (event: ExternalChromeDiagnosticEvent) => void;
@@ -104,6 +108,21 @@ export async function connectExternalChromeAutomation(
   launchUrl: string,
   options: ConnectExternalChromeAutomationOptions = {}
 ): Promise<ExternalChromeAutomationTarget> {
+  if (options.connectClient) {
+    const client = await options.connectClient(browserUserDataDir, launchUrl);
+    const automationTarget = new ExternalChromeAutomationTarget(
+      client,
+      options.platform ?? "linux",
+      options.onDiagnostic
+    );
+    try {
+      await automationTarget.initialize({ cdnCompatibilityEnabled: options.cdnCompatibilityEnabled });
+      return automationTarget;
+    } catch (error) {
+      automationTarget.close();
+      throw error;
+    }
+  }
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const portResult = await waitForDevToolsPort(browserUserDataDir, {
@@ -416,7 +435,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
   }
 
   private async dispatchKeyUnlocked(input: MacroKeyInput, options: BrowserInputDispatchOptions): Promise<void> {
-    const { holdMs = 0, postDelayMs = 0, signal } = options;
+    const { holdMs = 0, postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
     const activeCodes = new Set(this.heldKeyOwners.keys());
@@ -440,7 +459,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         pressedCodes.push(code);
       }
       await this.clearShortcutPhase(code, "keydown");
-      await waitForInputDelay(holdMs, signal);
+      await waitForDelay(holdMs, signal);
 
       if (pressedCodes.at(-1) === code) {
         signal?.throwIfAborted();
@@ -471,7 +490,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
         this.clearShortcutPhase(code, "keyup")
       ]);
     }
-    await waitForInputDelay(postDelayMs, signal);
+    await waitForDelay(postDelayMs, signal);
   }
 
   private async holdKeyUnlocked(
@@ -479,7 +498,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     ownerId: string,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
-    const { postDelayMs = 0, signal } = options;
+    const { postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
     const codes = [...modifierCodes, code];
@@ -504,7 +523,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
           await this.clearShortcutPhase(code, "keydown");
         }
       }
-      await waitForInputDelay(postDelayMs, signal);
+      await waitForDelay(postDelayMs, signal);
     } catch (error) {
       for (const acquiredCode of [...acquiredCodes].reverse()) {
         await this.releaseOwnedKey(
@@ -677,7 +696,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     yPercent: number,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
-    const { postDelayMs = 0, signal } = options;
+    const { postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     const metrics = await this.client.send<{
       cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
@@ -702,7 +721,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       }
     }
     if (didRelease) options.onClick?.();
-    await waitForInputDelay(postDelayMs, signal);
+    await waitForDelay(postDelayMs, signal);
   }
 
   private async dispatchClickPixelsUnlocked(
@@ -710,7 +729,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     yPx: number,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
-    const { postDelayMs = 0, signal } = options;
+    const { postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     const metrics = await this.client.send<{
       cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
@@ -734,7 +753,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       }
     }
     if (didRelease) options.onClick?.();
-    await waitForInputDelay(postDelayMs, signal);
+    await waitForDelay(postDelayMs, signal);
   }
 
   private async dispatchClickAnchoredUnlocked(
@@ -744,7 +763,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
     yOffset: number,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
-    const { postDelayMs = 0, signal } = options;
+    const { postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     const metrics = await this.client.send<{
       cssVisualViewport?: { clientHeight?: number; clientWidth?: number };
@@ -781,7 +800,7 @@ export class ExternalChromeAutomationTarget implements ExternalBrowserAutomation
       }
     }
     if (didRelease) options.onClick?.();
-    await waitForInputDelay(postDelayMs, signal);
+    await waitForDelay(postDelayMs, signal);
   }
 
   private enqueueInput(operation: () => Promise<void>): Promise<void> {

@@ -34,6 +34,7 @@ import {
 } from "../../shared/macroShortcuts";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
+import type { StateRepository } from "../core/RustStateRepository";
 
 interface MacrosFile {
   macros: Macro[];
@@ -72,7 +73,10 @@ export class MacroStore {
   private readonly macrosPath: string;
   private readonly taskQueue = new SerialTaskQueue();
 
-  constructor(private readonly userDataDir: string) {
+  constructor(
+    private readonly userDataDir: string,
+    private readonly stateRepository?: StateRepository
+  ) {
     this.macrosPath = join(userDataDir, "macros.json");
   }
 
@@ -278,8 +282,9 @@ export class MacroStore {
     }
 
     try {
-      const raw = await readFile(this.macrosPath, "utf8");
-      const parsed = JSON.parse(raw) as MacrosFile;
+      const parsed = this.stateRepository
+        ? { macros: await this.stateRepository.read("macros", []) }
+        : JSON.parse(await readFile(this.macrosPath, "utf8")) as MacrosFile;
 
       if (!Array.isArray(parsed.macros)) {
         throw new MacroStoreError("MACRO_FILE_INVALID", "Macro data file is invalid.");
@@ -321,7 +326,11 @@ export class MacroStore {
   }
 
   private async writeMacrosFile(file: MacrosFile, publishCache = true): Promise<void> {
-    await writeJsonFileAtomically(this.macrosPath, file);
+    if (this.stateRepository) {
+      await this.stateRepository.replace("macros", file.macros);
+    } else {
+      await writeJsonFileAtomically(this.macrosPath, file);
+    }
     if (publishCache) {
       this.cachedFile = cloneMacrosFile(file);
     }

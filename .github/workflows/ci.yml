@@ -40,6 +40,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Check Rust formatting and lints
+        run: pnpm run lint:rust
+
+      - name: Test Rust workspace and generate contracts
+        run: pnpm run test:rust
+
+      - name: Verify generated Rust contracts
+        run: git diff --exit-code -- src/shared/generated
+
+      - name: Build and verify Rust Node-API core
+        run: pnpm run build:rust && pnpm run verify:rust
+
       - name: Typecheck
         run: pnpm run typecheck
 
@@ -51,3 +66,62 @@ jobs:
 
       - name: Build app
         run: pnpm exec electron-vite build
+
+  platform-package-smoke:
+    name: ${{ matrix.name }} package smoke
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+            package_args: --dir --mac --arm64
+            packaged_core: release/0.0.0-development/mac-arm64/Rion Studio.app/Contents/Resources/native/rion-core.node
+            packaged_executable: release/0.0.0-development/mac-arm64/Rion Studio.app/Contents/MacOS/Rion Studio
+          - name: Windows x64
+            os: windows-latest
+            package_args: --dir --win --x64
+            packaged_core: release/0.0.0-development/win-unpacked/resources/native/rion-core.node
+            packaged_executable: release/0.0.0-development/win-unpacked/Rion Studio.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Test Rust workspace
+        run: pnpm run test:rust
+
+      - name: Build and verify Rust Node-API core
+        run: pnpm run build:rust && pnpm run verify:rust
+
+      - name: Build app
+        run: pnpm run build
+
+      - name: Build and test macOS runtime tabs
+        if: runner.os == 'macOS'
+        run: pnpm run build:native:macos && pnpm run test:native:macos
+
+      - name: Build unpacked application
+        run: pnpm exec electron-builder --config electron-builder.config.mjs ${{ matrix.package_args }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Verify packaged Rust Node-API core
+        run: node scripts/verifyPackagedRustCore.mjs "${{ matrix.packaged_executable }}" "${{ matrix.packaged_core }}"

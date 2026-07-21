@@ -5,7 +5,7 @@
     ...Array.from({ length: 54 }, (_value, index) => "rion-studio-macro-overlay-v" + (index + 2))
   ];
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-07-20.14";
+  const scriptVersion = "2026-07-22.1";
   const bindingName = "rionStudioMacroOverlay";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -159,7 +159,6 @@
   const macroIterationTimings = new Map();
   let renderedActiveBadgesMarkup = null;
   let renderedClickMarkersMarkup = null;
-  let cleanupInterval = undefined;
   let coordinateCopyInFlight = false;
   let coordinateMeasureActive = false;
   let coordinateAnchorLayerElement = null;
@@ -174,7 +173,7 @@
   let isInstalled = false;
   let isOpenRequestPending = false;
   let refreshInFlight = null;
-  let refreshInterval = undefined;
+  let reconciliationTimer = undefined;
   let refreshQueued = false;
   let resourceElement = null;
   let root = null;
@@ -1343,9 +1342,32 @@
       reportGameInputContext(false);
       releaseActiveHeldShortcuts();
       stopCoordinateMeasurement();
+      cancelReconciliation();
       return;
     }
     scheduleGameInputContextRefresh();
+    void refresh();
+    scheduleReconciliation();
+  }
+
+  function cancelReconciliation() {
+    if (reconciliationTimer !== undefined) {
+      clearTimeout(reconciliationTimer);
+      reconciliationTimer = undefined;
+    }
+  }
+
+  function scheduleReconciliation() {
+    cancelReconciliation();
+    if (isDisposed || document.visibilityState === "hidden") return;
+    reconciliationTimer = setTimeout(() => {
+      reconciliationTimer = undefined;
+      removeLegacyHosts();
+      if (!shouldRenderUi()) {
+        removeHost(hostId);
+      }
+      void refresh().finally(scheduleReconciliation);
+    }, 30000);
   }
 
   function dispose() {
@@ -1370,14 +1392,7 @@
     document.removeEventListener("pointerlockchange", refreshGameInputContext, true);
     document.removeEventListener("visibilitychange", handleVisibilityChange, true);
 
-    if (cleanupInterval !== undefined) {
-      clearInterval(cleanupInterval);
-      cleanupInterval = undefined;
-    }
-    if (refreshInterval !== undefined) {
-      clearInterval(refreshInterval);
-      refreshInterval = undefined;
-    }
+    cancelReconciliation();
 
     removeHost(hostId);
     if (window[controllerKey]?.version === scriptVersion) {
@@ -1406,13 +1421,7 @@
     document.addEventListener("focusout", handleGameSurfaceFocusOut, true);
     document.addEventListener("pointerlockchange", refreshGameInputContext, true);
     document.addEventListener("visibilitychange", handleVisibilityChange, true);
-    refreshInterval = setInterval(() => void refresh(), 1500);
-    cleanupInterval = setInterval(() => {
-      removeLegacyHosts();
-      if (!shouldRenderUi()) {
-        removeHost(hostId);
-      }
-    }, 300);
+    scheduleReconciliation();
 
     window[controllerKey] = {
       clearSuppressedShortcut,

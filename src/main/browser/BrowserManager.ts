@@ -59,7 +59,10 @@ import type {
   MacRuntimeTabsControllerFactory
 } from "./MacRuntimeTabsController";
 import type { SystemPressureSource } from "./SystemPressureMonitor";
-import { WorkspaceResourceCoordinator } from "./WorkspaceResourceCoordinator";
+import {
+  WorkspaceResourceCoordinator,
+  type WorkspaceCpuThrottleResolver
+} from "./WorkspaceResourceCoordinator";
 
 export interface BrowserManagerEvents {
   change: [RoleStatus[]];
@@ -148,6 +151,7 @@ export interface BrowserManagerOptions {
   performNativeZoom?: NativeZoomPerformer;
   persistWorkspaceRoleZoom?: WorkspaceRoleZoomPersister;
   resourcePressureMonitor?: SystemPressureSource;
+  resourcePolicyResolver?: WorkspaceCpuThrottleResolver;
 }
 
 export class BrowserGameLoadError extends Error {
@@ -421,7 +425,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     private readonly options: BrowserManagerOptions
   ) {
     super();
-    this.resourceCoordinator = new WorkspaceResourceCoordinator(options.resourcePressureMonitor);
+    this.resourceCoordinator = new WorkspaceResourceCoordinator(
+      options.resourcePressureMonitor,
+      options.resourcePolicyResolver
+    );
     this.options.externalChromeManager?.on("change", () => {
       this.cleanupWorkspaceDisplayReservations();
       this.emitChange();

@@ -14,6 +14,7 @@ import {
   nativeImage,
   nativeTheme,
   powerMonitor,
+  safeStorage,
   screen,
   session as electronSession,
   shell,
@@ -29,6 +30,7 @@ import {
   recoverChromeProfileImport
 } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
+import { EncryptedSessionStorageSeedStore } from "./browser/EncryptedSessionStorageSeedStore";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
@@ -100,6 +102,10 @@ import { RuntimeWindowPreferencesStore } from "./window/RuntimeWindowPreferences
 import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecycle";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL } from "../shared/embeddedRuntimeDiagnostics";
+import {
+  EMBEDDED_SESSION_STORAGE_SEED_CHANNEL,
+  isEmbeddedSessionStorageSeedRequest
+} from "../shared/internalIpc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import { formatMacroCoordinateClipboard } from "../shared/macroCoordinates";
 import {
@@ -145,6 +151,15 @@ const logService = new LogService({
 
 ipcMain.on(EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL, (event, payload: unknown) => {
   embeddedRuntimeDiagnostics?.handlePageEvent(event.sender, payload);
+});
+ipcMain.on(EMBEDDED_SESSION_STORAGE_SEED_CHANNEL, (event, payload: unknown) => {
+  const senderFrame = event.senderFrame;
+  if (!browserManager || !senderFrame || senderFrame.parent !== null ||
+    !isEmbeddedSessionStorageSeedRequest(payload) || senderFrame.origin !== payload.origin) {
+    event.returnValue = undefined;
+    return;
+  }
+  event.returnValue = browserManager.consumeEmbeddedSessionStorageSeed(event.sender.id, payload.origin);
 });
 const loggingReady = logService.initialize();
 logService.on("entry", (entry) => {
@@ -468,6 +483,10 @@ async function initializeApplication(): Promise<void> {
   const withDataMutation = <T>(operation: () => Promise<T>): Promise<T> =>
     dataMutationQueue.run(operation);
   const roleStore = new RoleStore(userDataDir);
+  const embeddedSessionStorageSeedStore = new EncryptedSessionStorageSeedStore({
+    getBrowserUserDataDir: (roleId) => roleStore.getRolePaths(roleId).browserUserDataDir,
+    safeStorage
+  });
   await recoverChromeProfileImport(userDataDir, roleStore);
   const transactionalRoleAuthStore: Pick<RoleStore, "updateAuthState"> & Pick<RoleStore, "updateRole"> = {
     updateAuthState: (id, authState, messageTimestamp) =>
@@ -610,6 +629,7 @@ async function initializeApplication(): Promise<void> {
       return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
     },
     getLoginUrl: async (role) => (await gameStore.getGame(role.gameId)).loginUrl ?? role.launchUrl,
+    loadEmbeddedSessionStorageSeed: (roleId) => embeddedSessionStorageSeedStore.load(roleId),
     getRuntimeTabGameIcon: async (role) => {
       const game = await gameStore.getGame(role.gameId);
       return createRuntimeGameIconDataUrl(
@@ -712,8 +732,13 @@ async function initializeApplication(): Promise<void> {
         readFailed: summary.readFailed,
         resetFailed: summary.resetFailed,
         sourceItemCount: summary.sourceItemCount,
+        sourceSessionStorageKeyCount: summary.sourceSessionStorageKeyCount,
+        sourceSessionStorageOriginCount: summary.sourceSessionStorageOriginCount,
         sourceStorageKeyCount: summary.sourceStorageKeyCount,
         sourceStorageOriginCount: summary.sourceStorageOriginCount,
+        queuedSessionStorageKeyCount: summary.queuedSessionStorageKeyCount,
+        queuedSessionStorageOriginCount: summary.queuedSessionStorageOriginCount,
+        sessionStorageSeedFailed: summary.sessionStorageSeedFailed,
         visibleItemCount: summary.visibleItemCount,
         writtenItemCount: summary.writtenItemCount,
         writtenStorageKeyCount: summary.writtenStorageKeyCount,
@@ -738,6 +763,12 @@ async function initializeApplication(): Promise<void> {
       await session.clearStorageData({ storages: ["cachestorage"] });
     },
     readChromeLoginData: readChromeLoginDataWithCdp,
+    storeEmbeddedSessionStorageSeed: async (roleId, values) => {
+      browserManager?.setEmbeddedSessionStorageSeed(roleId, values);
+      if (!await embeddedSessionStorageSeedStore.save(roleId, values)) {
+        throw new Error("Unable to persist the embedded session storage seed.");
+      }
+    },
     roleStore,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()

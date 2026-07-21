@@ -138,6 +138,34 @@ describe("BrowserManager game host windows", () => {
     expect(createRoleSessionPartition("role:one/two")).toBe("persist:rion-role-role-one-two");
   });
 
+  it.each(["darwin", "win32"] as const)(
+    "loads and queues one-time session storage before an embedded %s launch",
+    async (platform) => {
+      const loadEmbeddedSessionStorageSeed = vi.fn().mockResolvedValue({
+        "https://accounts.example.test": { loginStep: "complete" },
+        "https://example.com": { gameSession: "opaque-token" }
+      });
+      const harness = createHarness({ platform, loadEmbeddedSessionStorageSeed });
+
+      await harness.manager.launch(role);
+
+      const webContentsId = harness.views[0].webContents.id;
+      expect(loadEmbeddedSessionStorageSeed).toHaveBeenCalledWith(role.id);
+      expect(loadEmbeddedSessionStorageSeed.mock.invocationCallOrder[0])
+        .toBeLessThan(harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]);
+      expect(harness.manager.consumeEmbeddedSessionStorageSeed(webContentsId, "https://example.com"))
+        .toEqual({ gameSession: "opaque-token" });
+      expect(harness.manager.consumeEmbeddedSessionStorageSeed(webContentsId, "https://example.com")).toBeUndefined();
+      expect(harness.manager.consumeEmbeddedSessionStorageSeed(webContentsId, "https://unrelated.example.test")).toBeUndefined();
+      expect(harness.manager.consumeEmbeddedSessionStorageSeed(webContentsId, "https://accounts.example.test"))
+        .toEqual({ loginStep: "complete" });
+
+      const popup = createOAuthPopup(harness.views[0], harness.views);
+      expect(harness.manager.consumeEmbeddedSessionStorageSeed(popup.webContents.id, "https://example.com"))
+        .toEqual({ gameSession: "opaque-token" });
+    }
+  );
+
   it("serializes role deletion after active work and rejects stale queued work", async () => {
     const harness = createHarness();
     const events: string[] = [];
@@ -4092,6 +4120,7 @@ function createHarness(options: {
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
   getLoginUrl?: (role: Role) => string | Promise<string>;
+  loadEmbeddedSessionStorageSeed?: BrowserManagerOptions["loadEmbeddedSessionStorageSeed"];
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getWorkspaceAppearanceSettings?: () =>
     | WorkspaceAppearanceSettings
@@ -4220,6 +4249,9 @@ function createHarness(options: {
     ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
     ...(options.getLoginUrl ? { getLoginUrl: options.getLoginUrl } : {}),
+    ...(options.loadEmbeddedSessionStorageSeed
+      ? { loadEmbeddedSessionStorageSeed: options.loadEmbeddedSessionStorageSeed }
+      : {}),
     ...(options.getRuntimeTabGameIcon
       ? { getRuntimeTabGameIcon: options.getRuntimeTabGameIcon }
       : {}),

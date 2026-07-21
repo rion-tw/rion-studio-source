@@ -5,7 +5,11 @@ import {
   type EmbeddedRuntimeDiagnosticPayload,
   type EmbeddedRuntimeLifecycleEvent
 } from "../shared/embeddedRuntimeDiagnostics";
-import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../shared/internalIpc";
+import {
+  EMBEDDED_SESSION_STORAGE_SEED_CHANNEL,
+  WORKSPACE_RESIZE_INDICATOR_CHANNEL
+} from "../shared/internalIpc";
+import { installSessionStorageSeedAtDocumentStart } from "./sessionStorageSeed";
 import {
   isWorkspaceResizeIndicatorPayload,
   type WorkspaceResizeIndicatorPayload
@@ -15,6 +19,10 @@ const MACRO_OVERLAY_REQUEST_CHANNEL = "macros:overlay-request";
 const DIAGNOSTIC_HEARTBEAT_INTERVAL_MS = 15_000;
 
 let diagnosticSequence = 0;
+
+installSessionStorageSeedAtDocumentStart(window, sessionStorage, (origin) =>
+  ipcRenderer.sendSync(EMBEDDED_SESSION_STORAGE_SEED_CHANNEL, { origin })
+);
 
 function diagnosticPageState() {
   return {

@@ -17,7 +17,7 @@ const ROLE_STORAGE_DATA_TYPES: NonNullable<Parameters<Session["clearData"]>[0]>[
 type RoleDataSession = Pick<Session, "clearData" | "clearStorageData" | "closeAllConnections">;
 
 interface RoleBrowserDataManagerOptions {
-  browserManager: Pick<BrowserManager, "stopRoleAndRunRecoverableMutation">;
+  browserManager: Pick<BrowserManager, "clearEmbeddedSessionStorageSeed" | "stopRoleAndRunRecoverableMutation">;
   getSession: (partition: string) => RoleDataSession;
   roleStore: Pick<
     RoleStore,
@@ -41,6 +41,7 @@ export class RoleBrowserDataManager {
     await this.options.roleStore.getRole(roleId);
 
     return this.options.browserManager.stopRoleAndRunRecoverableMutation(roleId, async () => {
+      this.options.browserManager.clearEmbeddedSessionStorageSeed(roleId);
       const [authResult, ...storageResults] = await Promise.allSettled([
         this.options.roleStore.updateAuthState(roleId, "login_required"),
         this.clearEmbeddedData(roleId),

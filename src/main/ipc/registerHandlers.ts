@@ -391,7 +391,7 @@ export function registerIpcHandlers(
     return options.chromeProfileImportManager.closeChrome();
   });
 
-  ipcMain.handle(IPC_CHANNELS.chromeProfileImportApply, (_event, input: ChromeProfileImportInput) => {
+  ipcMain.handle(IPC_CHANNELS.chromeProfileImportApply, (event, input: ChromeProfileImportInput) => {
     if (
       !options.chromeProfileImportManager ||
       !input ||
@@ -406,7 +406,12 @@ export function registerIpcHandlers(
     }
 
     return runDataMutation(options, async () => {
-      const result = await options.chromeProfileImportManager!.applyImport(input);
+      const result = await options.chromeProfileImportManager!.applyImport(input, (progress) => {
+        const sender = event?.sender;
+        if (sender && !sender.isDestroyed()) {
+          sender.send(IPC_CHANNELS.chromeProfileImportProgress, progress);
+        }
+      });
       options.onRolesChanged?.();
       return result;
     });

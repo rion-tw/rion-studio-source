@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, copyFile, lstat, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { access, copyFile, lstat, mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { Session } from "electron";
@@ -8,6 +8,7 @@ import type { Session } from "electron";
 import type {
   ChromeProfileEntry,
   ChromeProfileImportInput,
+  ChromeProfileImportProgress,
   ChromeProfileImportPreview,
   ChromeProfileImportResult,
   ChromeProfileImportRoleVerification,
@@ -95,6 +96,7 @@ interface ChromeLoginDataSnapshot {
 export interface ChromeProfileImportLoginDataTransferSummary {
   failedItemCount: number;
   failedStorageOriginCount: number;
+  flushFailed: boolean;
   readbackFailed: boolean;
   readFailed: boolean;
   resetFailed: boolean;
@@ -126,7 +128,7 @@ interface ChromeImportJournal {
 interface ChromeProfileImportManagerOptions {
   closeChrome?: () => Promise<void>;
   createImportId?: () => string;
-  getSession?: (partition: string) => Pick<Session, "cookies">;
+  getSession?: (partition: string) => Pick<Session, "cookies" | "flushStorageData">;
   homeDirectory?: string;
   injectEmbeddedStorage?: (
     partition: string,
@@ -249,7 +251,10 @@ export class ChromeProfileImportManager {
     };
   }
 
-  async applyImport(input: ChromeProfileImportInput): Promise<ChromeProfileImportResult> {
+  async applyImport(
+    input: ChromeProfileImportInput,
+    onProgress?: (progress: ChromeProfileImportProgress) => void
+  ): Promise<ChromeProfileImportResult> {
     if (!input || !isSafeImportId(input.importId) || !input.consentAccepted) {
       throw new ChromeProfileImportError(
         "CONSENT_REQUIRED",
@@ -274,6 +279,25 @@ export class ChromeProfileImportManager {
         "Select at least one Chrome profile to import."
       );
     }
+
+    let completedProfileCount = 0;
+    const reportProgress = (
+      phase: ChromeProfileImportProgress["phase"],
+      profile?: ChromeProfileEntry
+    ): void => {
+      try {
+        onProgress?.({
+          completedProfileCount,
+          ...(profile ? { currentProfileId: profile.id, currentProfileName: profile.name } : {}),
+          importId: input.importId,
+          phase,
+          totalProfileCount: selectedProfiles.length
+        });
+      } catch {
+        // Renderer progress reporting must never affect the import transaction.
+      }
+    };
+    reportProgress("preparing");
 
     const game = await this.options.gameStore.getGame(input.gameId);
     const existingRoles = await this.options.roleStore.listRoles();
@@ -339,6 +363,7 @@ export class ChromeProfileImportManager {
       await writeJsonFileAtomically(journalPath, journal);
 
       for (const assignment of assignments) {
+        reportProgress("importing", assignment.profile);
         const role = assignment.existing
           ? await this.options.roleStore.updateRole(assignment.existing.id, {
               gameId: game.id,
@@ -390,6 +415,8 @@ export class ChromeProfileImportManager {
           role.id,
           combineRuntimeAuthStates(runtimeVerification.external, runtimeVerification.embedded)
         );
+        completedProfileCount += 1;
+        reportProgress("importing", assignment.profile);
       }
 
       await writeJsonFileAtomically(journalPath, { ...journal, phase: "committed" });
@@ -398,6 +425,7 @@ export class ChromeProfileImportManager {
       this.pending.delete(input.importId);
       await removeStagingDirectory(this.options.userDataDir, input.importId);
       await rm(journalPath, { force: true });
+      reportProgress("completed");
       const affectedRoleIds = new Set([...overwrittenRoleIds, ...createdRoleIds]);
       return {
         roles: roles.filter((role) => affectedRoleIds.has(role.id)),
@@ -447,6 +475,7 @@ export class ChromeProfileImportManager {
     const summary: ChromeProfileImportLoginDataTransferSummary = {
       failedItemCount: 0,
       failedStorageOriginCount: 0,
+      flushFailed: false,
       readbackFailed: false,
       readFailed: false,
       resetFailed: false,
@@ -500,7 +529,7 @@ export class ChromeProfileImportManager {
       }
     }
 
-    let session: Pick<Session, "cookies"> | undefined;
+    let session: Pick<Session, "cookies" | "flushStorageData"> | undefined;
     try {
       session = this.options.getSession(partition);
     } catch {
@@ -544,9 +573,23 @@ export class ChromeProfileImportManager {
       }
     }
 
+    if (session) {
+      try {
+        session.flushStorageData();
+      } catch {
+        summary.flushFailed = true;
+      }
+    }
+
     reportSummary();
     let embedded: ChromeProfileImportRuntimeVerification;
-    if (!this.options.verifyEmbeddedSession) {
+    if (summary.flushFailed) {
+      embedded = createRuntimeVerification(
+        "embedded",
+        "auth_failed",
+        "Unable to flush the embedded login session to disk."
+      );
+    } else if (!this.options.verifyEmbeddedSession) {
       embedded = createRuntimeVerification("embedded", "authenticated");
     } else {
       try {
@@ -969,16 +1012,44 @@ export async function readChromeLoginDataWithCdp(
   userDataDir: string,
   role: Pick<Role, "launchUrl">,
   loginDataUrls: readonly string[] = [role.launchUrl],
-  options: {
-    findExecutable?: () => string;
-    spawnChrome?: (executable: string, args: string[]) => ChildProcess;
-    timeoutMs?: number;
-  } = {}
+  options: ReadChromeLoginDataOptions = {}
+): Promise<ChromeLoginDataSnapshot> {
+  const readOnce = options.readOnce ?? ((nextUserDataDir, nextRole, nextUrls) =>
+    readChromeLoginDataOnceWithCdp(nextUserDataDir, nextRole, nextUrls, options));
+  const initial = await readOnce(userDataDir, role, loginDataUrls);
+  if (initial.externalVerification?.state !== "authenticated") {
+    return initial;
+  }
+
+  // Reopen the profile after Browser.close so success proves that the renewed
+  // session was persisted to disk, not only held by the first Chrome process.
+  return readOnce(userDataDir, role, loginDataUrls);
+}
+
+interface ReadChromeLoginDataOptions {
+  findExecutable?: () => string;
+  readOnce?: (
+    userDataDir: string,
+    role: Pick<Role, "launchUrl">,
+    loginDataUrls: readonly string[]
+  ) => Promise<ChromeLoginDataSnapshot>;
+  spawnChrome?: (executable: string, args: string[]) => ChildProcess;
+  timeoutMs?: number;
+}
+
+async function readChromeLoginDataOnceWithCdp(
+  userDataDir: string,
+  role: Pick<Role, "launchUrl">,
+  loginDataUrls: readonly string[],
+  options: ReadChromeLoginDataOptions
 ): Promise<ChromeLoginDataSnapshot> {
   const urls = normalizeLoginDataUrls(role, loginDataUrls);
   const requestedOrigins = new Set(urls.map((url) => getUrlOrigin(url)).filter((origin): origin is string => Boolean(origin)));
   const initialUrl = urls[0] ?? role.launchUrl;
   const executable = (options.findExecutable ?? findSystemChromeExecutable)();
+  await unlink(join(userDataDir, "DevToolsActivePort")).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  });
   const child = (options.spawnChrome ?? ((path, args) => spawn(path, args, { stdio: "ignore" })))(
     executable,
     buildChromeProfileImportChromeArgs(userDataDir, initialUrl)

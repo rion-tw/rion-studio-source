@@ -59,7 +59,7 @@ describe("Chrome profile import flow", () => {
       sourceLabel: "Chrome",
       warnings: [{ code: "passwords_excluded" as const }]
     }));
-    const onApplyChromeProfileImport = vi.fn(async () => ({
+    const importResult = {
       roles: [{
         authState: "authenticated" as const,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -78,7 +78,21 @@ describe("Chrome profile import flow", () => {
         roleId: "role-1"
       }],
       warnings: []
+    };
+    let resolveImport: ((result: typeof importResult) => void) | undefined;
+    const onApplyChromeProfileImport = vi.fn(() => new Promise<typeof importResult>((resolve) => {
+      resolveImport = resolve;
     }));
+    let emitProgress: ((progress: {
+      completedProfileCount: number;
+      importId: string;
+      phase: "preparing" | "importing" | "completed";
+      totalProfileCount: number;
+    }) => void) | undefined;
+    const onProgress = vi.fn((callback: NonNullable<typeof emitProgress>) => {
+      emitProgress = callback;
+      return vi.fn();
+    });
 
     render(
       <ChromeProfileImportFlow
@@ -91,6 +105,7 @@ describe("Chrome profile import flow", () => {
         onError={vi.fn()}
         onOpenChange={vi.fn()}
         onPreview={onPreviewChromeProfileImport}
+        onProgress={onProgress}
       />
     );
 
@@ -154,7 +169,19 @@ describe("Chrome profile import flow", () => {
       importId: "import-1",
       profileIds: ["profile-11"]
     }));
-    expect(screen.getByText("Chrome profile import complete")).toBeTruthy();
+    const loadingButton = screen.getByRole("button", { name: "Imported 0/1" });
+    expect(loadingButton).toHaveProperty("disabled", true);
+    expect(loadingButton.getAttribute("aria-busy")).toBe("true");
+    expect(loadingButton.querySelector("svg")?.classList.contains("animate-spin")).toBe(true);
+    emitProgress?.({
+      completedProfileCount: 1,
+      importId: "import-1",
+      phase: "importing",
+      totalProfileCount: 1
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Imported 1/1" })).toBeTruthy());
+    resolveImport?.(importResult);
+    await waitFor(() => expect(screen.getByText("Chrome profile import complete")).toBeTruthy());
     expect(screen.getByText("小胖")).toBeTruthy();
     expect(screen.getByText("Embedded browser")).toBeTruthy();
     expect(screen.getByText("External Chrome")).toBeTruthy();

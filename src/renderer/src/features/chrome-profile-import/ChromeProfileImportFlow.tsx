@@ -1,4 +1,4 @@
-import { Power, ShieldAlert, Upload } from "lucide-react";
+import { LoaderCircle, Power, ShieldAlert, Upload } from "lucide-react";
 import { useEffect, useState, type JSX } from "react";
 
 import { Button } from "../../components/ui/button";
@@ -11,6 +11,7 @@ import type {
   BrowserRuntimeMode,
   ChromeProfileEntry,
   ChromeProfileImportInput,
+  ChromeProfileImportProgress,
   ChromeProfileImportPreview,
   ChromeProfileImportResult,
   Game
@@ -26,6 +27,7 @@ export interface ChromeProfileImportFlowProps {
   onError: (error: unknown) => void;
   onOpenChange: (open: boolean) => void;
   onPreview: () => Promise<ChromeProfileImportPreview | null>;
+  onProgress?: (callback: (progress: ChromeProfileImportProgress) => void) => () => void;
 }
 
 export function ChromeProfileImportFlow({
@@ -37,7 +39,8 @@ export function ChromeProfileImportFlow({
   onDiscard,
   onError,
   onOpenChange,
-  onPreview
+  onPreview,
+  onProgress
 }: ChromeProfileImportFlowProps): JSX.Element | null {
   const [isBusy, setIsBusy] = useState(false);
   const [noticeConsent, setNoticeConsent] = useState(false);
@@ -48,6 +51,7 @@ export function ChromeProfileImportFlow({
   const [chromeRunning, setChromeRunning] = useState(false);
   const [closeChromeState, setCloseChromeState] = useState<"idle" | "success" | "error">("idle");
   const [result, setResult] = useState<ChromeProfileImportResult | null>(null);
+  const [progress, setProgress] = useState<ChromeProfileImportProgress | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -63,7 +67,17 @@ export function ChromeProfileImportFlow({
     setChromeRunning(false);
     setCloseChromeState("idle");
     setResult(null);
+    setProgress(null);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !preview || !onProgress) return;
+    return onProgress((nextProgress) => {
+      if (nextProgress.importId === preview.importId) {
+        setProgress(nextProgress);
+      }
+    });
+  }, [isOpen, onProgress, preview]);
 
   async function handleCloseChrome(): Promise<void> {
     setIsBusy(true);
@@ -116,6 +130,12 @@ export function ChromeProfileImportFlow({
     }
 
     setIsBusy(true);
+    setProgress({
+      completedProfileCount: 0,
+      importId: preview.importId,
+      phase: "preparing",
+      totalProfileCount: selectedProfileIds.length
+    });
     try {
       const nextResult = await onApply({
         consentAccepted: true,
@@ -126,6 +146,7 @@ export function ChromeProfileImportFlow({
       setResult(nextResult);
       setPreview(null);
     } catch (error) {
+      setProgress(null);
       onError(error);
     } finally {
       setIsBusy(false);
@@ -181,6 +202,7 @@ export function ChromeProfileImportFlow({
           games={games}
           isBusy={isBusy}
           preview={preview}
+          progress={progress}
           selectedGameId={selectedGameId}
           selectedProfileIds={selectedProfileIds}
           t={t}
@@ -311,6 +333,7 @@ interface ChromeProfileImportDialogProps {
   games: Game[];
   isBusy: boolean;
   preview: ChromeProfileImportPreview;
+  progress: ChromeProfileImportProgress | null;
   selectedGameId: string;
   selectedProfileIds: string[];
   t: Translator;
@@ -326,6 +349,7 @@ function ChromeProfileImportDialog({
   games,
   isBusy,
   preview,
+  progress,
   selectedGameId,
   selectedProfileIds,
   t,
@@ -425,9 +449,20 @@ function ChromeProfileImportDialog({
           <Button type="button" variant="outline" disabled={isBusy} onClick={onCancel}>
             {t("settings.importCancel")}
           </Button>
-          <Button type="button" disabled={isBusy || !canConfirm} onClick={onConfirm}>
-            <Upload size={14} />
-            {t("settings.chromeProfileImportConfirm")}
+          <Button
+            type="button"
+            aria-busy={isBusy}
+            disabled={isBusy || !canConfirm}
+            onClick={onConfirm}
+          >
+            {isBusy ? <LoaderCircle className="animate-spin" size={14} /> : <Upload size={14} />}
+            <span aria-live="polite">
+              {isBusy && progress
+                ? t("settings.chromeProfileImportProgress")
+                    .replace("{completed}", String(progress.completedProfileCount))
+                    .replace("{total}", String(progress.totalProfileCount))
+                : t("settings.chromeProfileImportConfirm")}
+            </span>
           </Button>
         </div>
       </Surface>

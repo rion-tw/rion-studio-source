@@ -853,6 +853,7 @@
   "settings.chromeProfileImportLoginDataNotice": "インポートした Cookie とウェブサイトストレージをロールで使用できるよう準備します。セッションが失効した場合は、既存の再ログイン機能を使用してください。",
   "settings.chromeProfileImportConsent": "選択したローカル Chrome セッションデータのコピーを理解し、承認します。",
   "settings.chromeProfileImportConfirm": "選択したプロファイルをインポート",
+  "settings.chromeProfileImportProgress": "インポート済み {completed}/{total}",
   "settings.chromeProfileImportComplete": "Chrome プロファイルのインポート完了",
   "settings.chromeProfileImportWarnings": "{count} 件の注意事項があります。",
   "settings.chromeProfileImportEmbeddedMode": "内蔵ブラウザー",

@@ -29,6 +29,7 @@ import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type {
   GameBrowserSettings,
   ChromeProfileImportInput,
+  ChromeProfileImportProgress,
   ChromeProfileImportPreview,
   ChromeProfileImportResult,
   GraphicsDiagnostics,
@@ -221,6 +222,13 @@ export function App(): JSX.Element {
     }
     await window.rionStudio.discardChromeProfileImport(importId);
   }, []);
+  const subscribeChromeProfileImportProgress = useCallback(
+    (callback: (progress: ChromeProfileImportProgress) => void): (() => void) => {
+      if (!window.rionStudio) return () => undefined;
+      return window.rionStudio.onChromeProfileImportProgress(callback);
+    },
+    []
+  );
   const openChromeProfileImport = useCallback(() => {
     if (data.games.length > 0) {
       setIsChromeProfileImportOpen(true);
@@ -780,6 +788,7 @@ export function App(): JSX.Element {
           onError={data.setError}
           onOpenChange={setIsChromeProfileImportOpen}
           onPreview={previewChromeProfileImport}
+          onProgress={subscribeChromeProfileImportProgress}
         />
       </main>
       <WorkspaceDisplayPickerDialog

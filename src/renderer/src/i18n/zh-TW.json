@@ -933,6 +933,7 @@
   "settings.chromeProfileImportLoginDataNotice": "匯入的 Cookie 與網站儲存資料會準備給角色使用；若工作階段失效，請使用既有的重新登入功能。",
   "settings.chromeProfileImportConsent": "我了解並授權 Rion Studio 複製選取的本機 Chrome 工作階段資料。",
   "settings.chromeProfileImportConfirm": "匯入選取的個人資料",
+  "settings.chromeProfileImportProgress": "已匯入 {completed}/{total}",
   "settings.chromeProfileImportComplete": "Chrome 個人資料匯入完成",
   "settings.chromeProfileImportWarnings": "有 {count} 項注意事項。",
   "settings.chromeProfileImportEmbeddedMode": "內嵌瀏覽器",

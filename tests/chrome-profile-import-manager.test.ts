@@ -9,6 +9,7 @@ import {
   buildChromeProfileImportChromeArgs,
   type ChromeProfileImportLoginDataTransferSummary,
   getDefaultChromeUserDataDirectory,
+  readChromeLoginDataWithCdp,
   recoverChromeProfileImport
 } from "../src/main/browser/ChromeProfileImportManager";
 import { RoleStore } from "../src/main/roles/RoleStore";
@@ -97,7 +98,8 @@ describe("ChromeProfileImportManager", () => {
     const cookieGet = vi.fn().mockResolvedValue([
       { domain: ".example.test", name: "session", path: "/" }
     ]);
-    const session = { cookies: { get: cookieGet, set: cookieSet } };
+    const flushStorageData = vi.fn();
+    const session = { cookies: { get: cookieGet, set: cookieSet }, flushStorageData };
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [source] }));
     const injectEmbeddedStorage = vi.fn(async () => undefined);
     const resetEmbeddedSession = vi.fn(async () => undefined);
@@ -172,12 +174,17 @@ describe("ChromeProfileImportManager", () => {
       title: "Choose Chrome User Data folder"
     });
 
+    const progressEvents: Array<{
+      completedProfileCount: number;
+      phase: string;
+      totalProfileCount: number;
+    }> = [];
     const result = await manager.applyImport({
       consentAccepted: true,
       gameId: game.id,
       importId: "import-1",
       profileIds: ["Default", "Profile 1"]
-    });
+    }, (progress) => progressEvents.push(progress));
     const roles = await roleStore.listRoles();
     const importedRoles = roles.filter((role) => role.notes.includes("local Chrome"));
 
@@ -212,7 +219,16 @@ describe("ChromeProfileImportManager", () => {
       url: "https://accounts.example.test/"
     }));
     expect(resetEmbeddedSession).toHaveBeenCalledOnce();
+    expect(flushStorageData).toHaveBeenCalledTimes(2);
     expect(verifyEmbeddedSession).toHaveBeenCalledTimes(2);
+    expect(progressEvents).toEqual([
+      expect.objectContaining({ completedProfileCount: 0, phase: "preparing", totalProfileCount: 2 }),
+      expect.objectContaining({ completedProfileCount: 0, phase: "importing", totalProfileCount: 2 }),
+      expect.objectContaining({ completedProfileCount: 1, phase: "importing", totalProfileCount: 2 }),
+      expect.objectContaining({ completedProfileCount: 1, phase: "importing", totalProfileCount: 2 }),
+      expect.objectContaining({ completedProfileCount: 2, phase: "importing", totalProfileCount: 2 }),
+      expect.objectContaining({ completedProfileCount: 2, phase: "completed", totalProfileCount: 2 })
+    ]);
     expect(injectEmbeddedStorage).toHaveBeenCalledTimes(4);
     expect(injectEmbeddedStorage).toHaveBeenCalledWith(
       expect.any(String),
@@ -268,6 +284,50 @@ describe("ChromeProfileImportManager", () => {
     ]);
   });
 
+  it("reopens an authenticated Chrome profile before accepting persisted login data", async () => {
+    const readOnce = vi.fn()
+      .mockResolvedValueOnce({
+        cookies: [{ name: "session", value: "initial" }],
+        externalVerification: { mode: "external", state: "authenticated" },
+        localStorageByOrigin: {}
+      })
+      .mockResolvedValueOnce({
+        cookies: [{ name: "session", value: "persisted" }],
+        externalVerification: { mode: "external", state: "authenticated" },
+        localStorageByOrigin: { "https://example.test": { session: "persisted" } }
+      });
+
+    const result = await readChromeLoginDataWithCdp(
+      "/profiles/role-1/browser",
+      { launchUrl: game.defaultLaunchUrl },
+      [game.defaultLaunchUrl],
+      { readOnce }
+    );
+
+    expect(readOnce).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      cookies: [{ value: "persisted" }],
+      externalVerification: { state: "authenticated" }
+    });
+  });
+
+  it("does not reopen Chrome when the first verification already requires login", async () => {
+    const readOnce = vi.fn().mockResolvedValue({
+      cookies: [],
+      externalVerification: { mode: "external", state: "login_required" },
+      localStorageByOrigin: {}
+    });
+
+    await readChromeLoginDataWithCdp(
+      "/profiles/role-1/browser",
+      { launchUrl: game.defaultLaunchUrl },
+      [game.defaultLaunchUrl],
+      { readOnce }
+    );
+
+    expect(readOnce).toHaveBeenCalledOnce();
+  });
+
   it("keeps a role but reports each runtime that did not preserve login", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const source = join(root, "Chrome User Data");
@@ -286,7 +346,8 @@ describe("ChromeProfileImportManager", () => {
         cookies: {
           get: vi.fn().mockResolvedValue([]),
           set: vi.fn().mockResolvedValue(undefined)
-        }
+        },
+        flushStorageData: vi.fn()
       }) as never,
       injectEmbeddedStorage: vi.fn().mockResolvedValue(undefined),
       platform: "darwin",
@@ -314,6 +375,8 @@ describe("ChromeProfileImportManager", () => {
       gameId: game.id,
       importId: "import-login-warning",
       profileIds: ["Default"]
+    }, () => {
+      throw new Error("renderer closed");
     });
 
     expect(result.roles).toHaveLength(1);

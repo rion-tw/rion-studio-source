@@ -6,6 +6,7 @@ import type {
   AppUpdateStatus,
   AppWindowState,
   AuthFlowStatus,
+  ChromeProfileImportProgress,
   Game,
   GameCompatibilityReport,
   GameCompatibilityRunStatus,
@@ -105,6 +106,13 @@ const api: RionStudioApi = {
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.updatesCheck),
   openUpdateDownload: () => ipcRenderer.invoke(IPC_CHANNELS.updatesOpenDownload),
   installDownloadedUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.updatesInstall),
+  onChromeProfileImportProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: ChromeProfileImportProgress) => {
+      callback(progress);
+    };
+    ipcRenderer.on(IPC_CHANNELS.chromeProfileImportProgress, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.chromeProfileImportProgress, listener);
+  },
   onRoleStatusChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, statuses: RoleStatus[]) => {
       callback(statuses);

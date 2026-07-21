@@ -313,6 +313,46 @@ describe("macro editor controls", () => {
     })));
   });
 
+  it("keeps runtime tab switching shortcuts out of macro shortcut controls", () => {
+    document.documentElement.dataset.platform = "windows";
+    const selectedMacro = macro({
+      trigger: { code: "Tab", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={vi.fn()}
+        />
+      }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+    const [modifierSelector, keySelector] = screen.getAllByRole("combobox", {
+      name: /^(Modifiers|Key)$/
+    });
+    expect(keySelector.textContent).toContain("Tab");
+    fireEvent.click(modifierSelector);
+    expect(screen.queryByRole("option", { name: "Ctrl" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Ctrl + Shift" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Alt" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: "No modifiers" }));
+
+    const recordButton = screen.getAllByRole("button", { name: "Record" })[0];
+    fireEvent.click(recordButton);
+    fireEvent.keyDown(window, { code: "Tab", ctrlKey: true, key: "Tab" });
+
+    expect(keySelector.textContent).toContain("Tab");
+    expect(modifierSelector.textContent).toContain("No modifiers");
+    expect(screen.getAllByRole("button", { name: "Record" })[0].getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("uses the same icon-only record control and switches its active state", () => {
     const selectedMacro = macro({
       trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }

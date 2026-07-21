@@ -28,6 +28,7 @@ import { MACRO_DELAY_MAX_MS } from "../../shared/macroSettings";
 import {
   areMacroTriggersEqual,
   isReservedBrowserZoomMacroTrigger,
+  isReservedRuntimeTabSwitchMacroTrigger,
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../shared/macroShortcuts";
@@ -292,6 +293,7 @@ export class MacroStore {
           storedMacro.enabled === undefined ||
           storedMacro.activationMode === undefined ||
           isReservedBrowserZoomMacroTrigger(storedMacro.trigger) ||
+          isReservedRuntimeTabSwitchMacroTrigger(storedMacro.trigger) ||
           (Array.isArray(storedMacro.steps) &&
             storedMacro.steps.some((step) => step.type === "key" && step.action === undefined))
         );
@@ -329,17 +331,19 @@ export class MacroStore {
     const now = new Date().toISOString();
     const trigger = this.normalizeTrigger(macro.trigger);
     const hasReservedBrowserZoomTrigger = isReservedBrowserZoomMacroTrigger(trigger);
+    const hasReservedRuntimeTabSwitchTrigger = isReservedRuntimeTabSwitchMacroTrigger(trigger);
+    const hasReservedTrigger = hasReservedBrowserZoomTrigger || hasReservedRuntimeTabSwitchTrigger;
     const activationMode = this.normalizeActivationMode(macro.activationMode);
 
     return {
       id: typeof macro.id === "string" && macro.id.trim() ? macro.id : randomUUID(),
       enabled: macro.enabled === undefined ? true : this.normalizeEnabled(macro.enabled),
-      activationMode: hasReservedBrowserZoomTrigger && activationMode === "while_held"
+      activationMode: hasReservedTrigger && activationMode === "while_held"
         ? "toggle"
         : activationMode,
       name: this.normalizeName(macro.name),
       roleIds: this.normalizeRoleIds(this.readMacroRoleIds(macro)),
-      trigger: hasReservedBrowserZoomTrigger ? undefined : trigger,
+      trigger: hasReservedTrigger ? undefined : trigger,
       repeat: this.normalizeStoredRepeat(macro.repeat),
       steps: this.normalizeSteps(macro.steps),
       createdAt: typeof macro.createdAt === "string" ? macro.createdAt : now,
@@ -447,6 +451,13 @@ export class MacroStore {
       throw new MacroStoreError(
         "MACRO_TRIGGER_RESERVED",
         "Browser zoom shortcuts are reserved for the active game role."
+      );
+    }
+
+    if (isReservedRuntimeTabSwitchMacroTrigger(trigger)) {
+      throw new MacroStoreError(
+        "MACRO_TRIGGER_RESERVED",
+        "Ctrl+Tab and Ctrl+Shift+Tab are reserved for switching Rion Studio tabs."
       );
     }
 

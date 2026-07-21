@@ -815,6 +815,31 @@ describe("macro overlay interactions", () => {
     expect(binding).not.toHaveBeenCalledWith({ type: "start", macroId: legacyZoomMacro.id });
   });
 
+  it("leaves reserved runtime tab switching shortcuts to the browser", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    const legacyTabMacro: Macro = {
+      ...assignedMacro,
+      trigger: { code: "Tab", ctrl: true, alt: false, shift: true, meta: false }
+    };
+    const binding = vi.fn(async () => ({ macros: [legacyTabMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const event = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Tab",
+      ctrlKey: true,
+      key: "Tab",
+      shiftKey: true
+    });
+
+    expect(canvas.dispatchEvent(event)).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(binding).not.toHaveBeenCalledWith({ type: "start", macroId: legacyTabMacro.id });
+  });
+
   it("preserves Flyff text input focus and ignores keyboard events forwarded to the canvas", async () => {
     const { canvas } = createGameSurface(document);
     const input = document.createElement("input");

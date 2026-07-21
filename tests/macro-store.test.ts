@@ -573,7 +573,9 @@ describe("MacroStore", () => {
       { code: "Equal", ctrl: true, alt: false, shift: false, meta: false },
       { code: "NumpadAdd", ctrl: false, alt: false, shift: false, meta: true },
       { code: "Minus", ctrl: true, alt: false, shift: false, meta: false },
-      { code: "Digit0", ctrl: false, alt: false, shift: false, meta: true }
+      { code: "Digit0", ctrl: false, alt: false, shift: false, meta: true },
+      { code: "Tab", ctrl: true, alt: false, shift: false, meta: false },
+      { code: "Tab", ctrl: true, alt: false, shift: true, meta: false }
     ]) {
       await expect(store.createMacro({
         name: `Browser zoom ${trigger.code}`,
@@ -597,14 +599,17 @@ describe("MacroStore", () => {
         steps: [{ id: "step-2", type: "key", code: "F1" }]
       })
     ).rejects.toMatchObject({ code: "MACRO_TRIGGER_CONFLICT" });
-    await expect(
-      store.createMacro({
-        name: "Separate role",
-        roleIds: ["role-2"],
-        trigger,
-        steps: [{ id: "step-3", type: "key", code: "F1" }]
-      })
-    ).resolves.toMatchObject({ trigger });
+    const separateRole = await store.createMacro({
+      name: "Separate role",
+      roleIds: ["role-2"],
+      trigger,
+      steps: [{ id: "step-3", type: "key", code: "F1" }]
+    });
+    expect(separateRole).toMatchObject({ trigger });
+
+    await expect(store.updateMacro(separateRole.id, {
+      trigger: { code: "Tab", ctrl: true, alt: false, shift: false, meta: false }
+    })).rejects.toMatchObject({ code: "MACRO_TRIGGER_RESERVED" });
   });
 
   it("migrates legacy browser zoom shortcuts without deleting macro content", async () => {
@@ -632,6 +637,41 @@ describe("MacroStore", () => {
     });
     expect(migrated.trigger).toBeUndefined();
     expect(JSON.parse(await readFile(path, "utf8")).macros[0]).not.toHaveProperty("trigger");
+  });
+
+  it("migrates and sanitizes reserved runtime tab shortcuts without deleting macro content", async () => {
+    const path = join(baseDir, "macros.json");
+    await writeFile(path, JSON.stringify({
+      macros: [{
+        id: "legacy-tab-trigger",
+        enabled: true,
+        activationMode: "while_held",
+        name: "Legacy tab trigger",
+        roleIds: ["role-1"],
+        trigger: { code: "Tab", ctrl: true, alt: false, shift: true, meta: false },
+        repeat: { type: "loop", intervalMs: 100 },
+        steps: [{ id: "step-1", type: "key", code: "F2", action: "hold_until_stop" }],
+        createdAt: "2026-07-10T00:00:00.000Z",
+        updatedAt: "2026-07-10T00:00:00.000Z"
+      }]
+    }), "utf8");
+
+    const migrated = await new MacroStore(baseDir).getMacro("legacy-tab-trigger");
+    expect(migrated).toMatchObject({
+      activationMode: "toggle",
+      name: "Legacy tab trigger",
+      steps: [{ id: "step-1", type: "key", code: "F2", action: "hold_until_stop" }]
+    });
+    expect(migrated.trigger).toBeUndefined();
+    expect(JSON.parse(await readFile(path, "utf8")).macros[0]).not.toHaveProperty("trigger");
+
+    const imported = await store.replaceMacrosForImport([{
+      ...migrated,
+      activationMode: "while_held",
+      trigger: { code: "Tab", ctrl: true, alt: false, shift: false, meta: false }
+    }]);
+    expect(imported).toMatchObject([{ activationMode: "toggle", id: migrated.id }]);
+    expect(imported[0].trigger).toBeUndefined();
   });
 
   it("stores macro steps by id and preserves references when the target is renamed", async () => {

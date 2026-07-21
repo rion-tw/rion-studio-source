@@ -9,6 +9,7 @@ import {
   type BrowserManagerOptions,
   BrowserWorkspaceDisplayOccupiedError,
   classifyNativeZoomShortcut,
+  classifyRuntimeTabSwitchShortcut,
   createRoleSessionPartition,
   isExpectedNativeZoomResult,
   normalizedRectToPixelBounds
@@ -1239,6 +1240,83 @@ describe("BrowserManager game host windows", () => {
     ]);
   });
 
+  it.each(["darwin", "win32"] as const)(
+    "cycles visible runtime tabs with Ctrl+Tab and Ctrl+Shift+Tab on %s",
+    async (platform) => {
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        platform,
+        useTabbedHostWindow: true,
+        workspaceDisplays: runtimeDisplays
+      });
+      const secondRole = createRole("role-2", "Alt");
+
+      await harness.manager.launch(role);
+      await harness.manager.launch(secondRole);
+      const [firstTab, secondTab] = harness.manager.listEmbeddedRuntimeState().tabs;
+      const nextEvent = { preventDefault: vi.fn() };
+
+      harness.manager.setGameInputContext(harness.views[1].webContents.id, true);
+      harness.views[1].webContents.emit("before-input-event", nextEvent, {
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        key: "Tab",
+        meta: false,
+        shift: false,
+        type: "keyDown"
+      });
+
+      await vi.waitFor(() => expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ active: true, id: firstTab.id }),
+          expect.objectContaining({ active: false, id: secondTab.id })
+        ])
+      ));
+      expect(nextEvent.preventDefault).toHaveBeenCalledOnce();
+
+      const previousEvent = { preventDefault: vi.fn() };
+      harness.views[0].webContents.emit("before-input-event", previousEvent, {
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        key: "Tab",
+        meta: false,
+        shift: true,
+        type: "keyDown"
+      });
+
+      await vi.waitFor(() => expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ active: false, id: firstTab.id }),
+          expect.objectContaining({ active: true, id: secondTab.id })
+        ])
+      ));
+      expect(previousEvent.preventDefault).toHaveBeenCalledOnce();
+
+      await harness.manager.hideRuntimeTab(firstTab.id);
+      const oneVisibleTabEvent = { preventDefault: vi.fn() };
+      harness.views[1].webContents.emit("before-input-event", oneVisibleTabEvent, {
+        alt: false,
+        code: "Tab",
+        control: true,
+        isComposing: false,
+        key: "Tab",
+        meta: false,
+        shift: false,
+        type: "keyDown"
+      });
+
+      await vi.waitFor(() => expect(oneVisibleTabEvent.preventDefault).toHaveBeenCalledOnce());
+      expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ active: true, id: secondTab.id }),
+        expect.objectContaining({ hidden: true, id: firstTab.id })
+      ]));
+    }
+  );
+
   it("overlays macOS fullscreen chrome without relaying out or reloading the game", async () => {
     vi.useFakeTimers();
     let cursor = { x: 100, y: 120 };
@@ -2387,6 +2465,28 @@ describe("BrowserManager game host windows", () => {
         shift: true
       }, platform)).toBeUndefined();
     }
+  });
+
+  it.each([
+    [false, "next"],
+    [true, "previous"]
+  ] as const)("classifies Ctrl+Tab runtime tab switching", (shift, expected) => {
+    const input = {
+      alt: false,
+      code: "Tab",
+      control: true,
+      isComposing: false,
+      key: "Tab",
+      meta: false,
+      shift,
+      type: "keyDown"
+    };
+
+    expect(classifyRuntimeTabSwitchShortcut(input)).toBe(expected);
+    expect(classifyRuntimeTabSwitchShortcut({ ...input, alt: true })).toBeUndefined();
+    expect(classifyRuntimeTabSwitchShortcut({ ...input, control: false })).toBeUndefined();
+    expect(classifyRuntimeTabSwitchShortcut({ ...input, meta: true })).toBeUndefined();
+    expect(classifyRuntimeTabSwitchShortcut({ ...input, type: "keyUp" })).toBeUndefined();
   });
 
   it.each([

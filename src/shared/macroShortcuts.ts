@@ -56,6 +56,18 @@ export function isReservedBrowserZoomMacroTrigger(
   );
 }
 
+export function isReservedRuntimeTabSwitchMacroTrigger(
+  trigger: MacroTrigger | null | undefined
+): boolean {
+  return Boolean(
+    trigger &&
+      trigger.code === "Tab" &&
+      trigger.ctrl &&
+      !trigger.alt &&
+      !trigger.meta
+  );
+}
+
 export function createMacroShortcutSuppressionSource(code: string): string {
   return createMacroShortcutPhaseSuppressionSource(code, "keydown");
 }

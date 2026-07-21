@@ -671,6 +671,7 @@ async function initializeApplication(): Promise<void> {
         cacheEntryCount: summary.cacheEntryCount,
         failedOriginCount: summary.failedOriginCount,
         indexedDbRecordCount: summary.indexedDbRecordCount,
+        localStorageKeyCount: summary.localStorageKeyCount,
         persistenceFailed: summary.persistenceFailed,
         roleId: role.id,
         succeededOriginCount: summary.succeededOriginCount
@@ -752,31 +753,12 @@ async function initializeApplication(): Promise<void> {
     closeChrome: () => requestGracefulChromeQuit({ platform: process.platform }),
     gameStore,
     getSession: (partition) => electronSession.fromPartition(partition),
-    injectEmbeddedStorage: async (partition, url, values) => {
-      const probe = new BrowserWindow({
-        show: false,
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-          partition,
-          sandbox: true
-        }
-      });
-      try {
-        await probe.loadURL(url);
-        await probe.webContents.executeJavaScript(
-          `Object.entries(${JSON.stringify(values)}).forEach(([key, value]) => localStorage.setItem(key, value));`,
-          true
-        );
-      } finally {
-        if (!probe.isDestroyed()) probe.destroy();
-      }
-    },
     onLoginDataTransfer: (summary) => {
       logService.info("browser", "chrome_profile_import_data_transfer", "Chrome profile login data transfer completed.", {
         bootstrapCacheEntryCount: summary.bootstrapCacheEntryCount,
         bootstrapFailedOriginCount: summary.bootstrapFailedOriginCount,
         bootstrapIndexedDbRecordCount: summary.bootstrapIndexedDbRecordCount,
+        bootstrapStorageKeyCount: summary.bootstrapStorageKeyCount,
         bootstrapPersistenceFailed: summary.bootstrapPersistenceFailed,
         bootstrapSucceededOriginCount: summary.bootstrapSucceededOriginCount,
         failedItemCount: summary.failedItemCount,
@@ -801,6 +783,13 @@ async function initializeApplication(): Promise<void> {
         sourceItemCount: summary.sourceItemCount,
         sourceStorageKeyCount: summary.sourceStorageKeyCount,
         sourceStorageOriginCount: summary.sourceStorageOriginCount,
+        storageCaptureContextCount: summary.storageCaptureContextCount,
+        storageCaptureDurableFailureCount: summary.storageCaptureDurableFailureCount,
+        storageCaptureDurableSuccessCount: summary.storageCaptureDurableSuccessCount,
+        storageCaptureFailureCount: summary.storageCaptureFailureCount,
+        storageCaptureSkippedDocumentStateContextCount: summary.storageCaptureSkippedDocumentStateContextCount,
+        storageCaptureSuccessCount: summary.storageCaptureSuccessCount,
+        storageCaptureUsableContextCount: summary.storageCaptureUsableContextCount,
         visibleItemCount: summary.visibleItemCount,
         writtenItemCount: summary.writtenItemCount,
         writtenStorageKeyCount: summary.writtenStorageKeyCount,
@@ -831,6 +820,7 @@ async function initializeApplication(): Promise<void> {
         cacheEntryCount: 0,
         failedOriginCount: 0,
         indexedDbRecordCount: 0,
+        localStorageKeyCount: 0,
         persistenceFailed: false,
         succeededOriginCount: 0
       }),

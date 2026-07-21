@@ -10,6 +10,7 @@ import {
 export interface EmbeddedStorageBootstrapCompleted {
   cacheEntryCount: number;
   indexedDbRecordCount: number;
+  localStorageKeyCount: number;
   origin: string;
   success: boolean;
 }
@@ -19,6 +20,7 @@ export interface EmbeddedStorageBootstrapSummary {
   cacheEntryCount: number;
   failedOriginCount: number;
   indexedDbRecordCount: number;
+  localStorageKeyCount: number;
   persistenceFailed: boolean;
   succeededOriginCount: number;
 }
@@ -57,6 +59,7 @@ export class EmbeddedStorageBootstrapper {
     const pending = this.pendingByWebContentsId.get(webContentsId);
     if (!pending || pending.origin !== origin) return undefined;
     return {
+      ...(pending.seed.localStorage ? { localStorage: { ...pending.seed.localStorage } } : {}),
       ...(pending.seed.indexedDb ? { indexedDb: structuredClone(pending.seed.indexedDb) } : {}),
       ...(pending.seed.cacheStorage ? { cacheStorage: structuredClone(pending.seed.cacheStorage) } : {})
     };
@@ -75,6 +78,7 @@ export class EmbeddedStorageBootstrapper {
       cacheEntryCount: 0,
       failedOriginCount: 0,
       indexedDbRecordCount: 0,
+      localStorageKeyCount: 0,
       persistenceFailed: false,
       succeededOriginCount: 0
     };
@@ -93,6 +97,7 @@ export class EmbeddedStorageBootstrapper {
       summary.succeededOriginCount += 1;
       summary.cacheEntryCount += result.cacheEntryCount;
       summary.indexedDbRecordCount += result.indexedDbRecordCount;
+      summary.localStorageKeyCount += result.localStorageKeyCount;
       seed = removeDurableStorageForOrigin(seed, origin);
       if (!await this.options.saveSeed(roleId, seed)) {
         summary.persistenceFailed = true;
@@ -128,16 +133,17 @@ export class EmbeddedStorageBootstrapper {
       timeout = setTimeout(() => resolve({
         cacheEntryCount: 0,
         indexedDbRecordCount: 0,
+        localStorageKeyCount: 0,
         origin,
         success: false
       }), this.timeoutMs);
     });
 
     try {
-      await webContents.loadURL(origin);
+      await webContents.loadURL(`${origin}/`);
       return await completed;
     } catch {
-      return { cacheEntryCount: 0, indexedDbRecordCount: 0, origin, success: false };
+      return { cacheEntryCount: 0, indexedDbRecordCount: 0, localStorageKeyCount: 0, origin, success: false };
     } finally {
       if (timeout) clearTimeout(timeout);
       this.pendingByWebContentsId.delete(webContentsId);

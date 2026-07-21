@@ -30,6 +30,7 @@ export interface EmbeddedStorageBootstrapSeedRequest {
 export interface EmbeddedStorageBootstrapCompleted {
   cacheEntryCount: number;
   indexedDbRecordCount: number;
+  localStorageKeyCount: number;
   origin: string;
   success: boolean;
 }
@@ -43,7 +44,8 @@ export function isEmbeddedStorageBootstrapCompleted(value: unknown): value is Em
     "origin" in value && typeof (value as { origin?: unknown }).origin === "string" &&
     "success" in value && typeof (value as { success?: unknown }).success === "boolean" &&
     "indexedDbRecordCount" in value && isNonNegativeInteger((value as { indexedDbRecordCount?: unknown }).indexedDbRecordCount) &&
-    "cacheEntryCount" in value && isNonNegativeInteger((value as { cacheEntryCount?: unknown }).cacheEntryCount);
+    "cacheEntryCount" in value && isNonNegativeInteger((value as { cacheEntryCount?: unknown }).cacheEntryCount) &&
+    "localStorageKeyCount" in value && isNonNegativeInteger((value as { localStorageKeyCount?: unknown }).localStorageKeyCount);
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

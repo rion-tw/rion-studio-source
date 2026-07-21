@@ -82,6 +82,32 @@ describe("EncryptedSessionStorageSeedStore", () => {
     });
   });
 
+  it("persists localStorage alongside document state without plaintext values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion-session-seed-"));
+    const safeStorage = createSafeStorage();
+    const store = new EncryptedSessionStorageSeedStore({
+      getBrowserUserDataDir: (roleId) => join(root, roleId, "browser"),
+      safeStorage
+    });
+    const seed = {
+      origins: {
+        "https://frame.example.test": {
+          localStorage: { language: "zh-TW" },
+          sessionStorage: { transient: "value" }
+        }
+      },
+      version: 2 as const
+    };
+
+    await expect(store.save("role-1", seed)).resolves.toBe(true);
+    await expect(new EncryptedSessionStorageSeedStore({
+      getBrowserUserDataDir: (roleId) => join(root, roleId, "browser"),
+      safeStorage
+    }).load("role-1")).resolves.toEqual(seed);
+    await expect(readFile(join(root, "role-1", "browser", seedFileName), "utf8"))
+      .resolves.not.toContain("zh-TW");
+  });
+
   it("keeps no persistent seed when system encryption is unavailable or writing fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-session-seed-"));
     const getBrowserUserDataDir = (roleId: string) => join(root, roleId, "browser");

@@ -46,6 +46,7 @@ interface CacheStorageEntrySeed {
 interface BootstrapSeed {
   cacheStorage?: CacheStorageEntrySeed[];
   indexedDb?: IndexedDbDatabaseSeed[];
+  localStorage?: Record<string, string>;
 }
 
 void bootstrapAtDocumentStart();
@@ -64,8 +65,10 @@ async function bootstrapAtDocumentStart(): Promise<void> {
 
   let indexedDbRecordCount = 0;
   let cacheEntryCount = 0;
+  let localStorageKeyCount = 0;
   let success = true;
   try {
+    localStorageKeyCount = restoreLocalStorage(seed.localStorage ?? {});
     indexedDbRecordCount = await restoreIndexedDb(seed.indexedDb ?? []);
     cacheEntryCount = await restoreCacheStorage(seed.cacheStorage ?? []);
   } catch {
@@ -75,9 +78,17 @@ async function bootstrapAtDocumentStart(): Promise<void> {
   ipcRenderer.send(EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL, {
     cacheEntryCount,
     indexedDbRecordCount,
+    localStorageKeyCount,
     origin,
     success
   });
+}
+
+function restoreLocalStorage(values: Record<string, string>): number {
+  for (const [key, value] of Object.entries(values)) {
+    localStorage.setItem(key, value);
+  }
+  return Object.keys(values).length;
 }
 
 async function restoreIndexedDb(databases: IndexedDbDatabaseSeed[]): Promise<number> {

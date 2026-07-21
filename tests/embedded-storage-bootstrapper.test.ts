@@ -6,20 +6,23 @@ import {
 import type { EmbeddedStorageSeed } from "../src/main/browser/EncryptedSessionStorageSeedStore";
 
 describe("EmbeddedStorageBootstrapper", () => {
-  it("injects pending durable data in a hidden partition and retains only document state after success", async () => {
+  it("injects pending Web Storage and durable data in a hidden partition and retains only document state after success", async () => {
     let seed: EmbeddedStorageSeed = createSeed();
     const bootstrapperRef: { current?: EmbeddedStorageBootstrapper } = {};
     const destroy = vi.fn();
     const webContents = {
       id: 81,
-      loadURL: vi.fn(async (origin: string) => {
+      loadURL: vi.fn(async (url: string) => {
+        const origin = new URL(url).origin;
         expect(bootstrapperRef.current?.consumeSeed(81, origin)).toEqual({
           cacheStorage: seed.origins[origin].cacheStorage,
-          indexedDb: seed.origins[origin].indexedDb
+          indexedDb: seed.origins[origin].indexedDb,
+          localStorage: seed.origins[origin].localStorage
         });
         bootstrapperRef.current?.complete(81, {
           cacheEntryCount: 1,
           indexedDbRecordCount: 1,
+          localStorageKeyCount: 1,
           origin,
           success: true
         });
@@ -49,6 +52,7 @@ describe("EmbeddedStorageBootstrapper", () => {
       cacheEntryCount: 1,
       failedOriginCount: 0,
       indexedDbRecordCount: 1,
+      localStorageKeyCount: 1,
       persistenceFailed: false,
       succeededOriginCount: 1
     });
@@ -114,6 +118,7 @@ function createSeed(): EmbeddedStorageSeed {
           }],
           version: 1
         }],
+        localStorage: { language: "zh-TW" },
         sessionStorage: { gameSession: "opaque-token" }
       }
     },

@@ -81,7 +81,7 @@ describe("ChromeProfileImportManager", () => {
     });
   });
 
-  it("previews profiles without exposing the source path and imports only the allowlisted session data", async () => {
+  it("previews profiles without exposing the source path and restores imported browser storage", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const source = join(root, "Chrome User Data");
     const userDataDir = join(root, "rion-data");
@@ -117,16 +117,16 @@ describe("ChromeProfileImportManager", () => {
     const flushStorageData = vi.fn();
     const session = { cookies: { get: cookieGet, set: cookieSet }, flushStorageData };
     const showOpenDialog = vi.fn(async () => ({ canceled: false, filePaths: [source] }));
-    const injectEmbeddedStorage = vi.fn(async () => undefined);
     const resetEmbeddedSession = vi.fn(async () => undefined);
     const storeEmbeddedStorageSeed = vi.fn(async () => undefined);
     const bootstrapEmbeddedStorage = vi.fn(async () => ({
-      attemptedOriginCount: 1,
+      attemptedOriginCount: 2,
       cacheEntryCount: 0,
       failedOriginCount: 0,
       indexedDbRecordCount: 1,
+      localStorageKeyCount: 2,
       persistenceFailed: false,
-      succeededOriginCount: 1
+      succeededOriginCount: 2
     }));
     const transferSummaries: ChromeProfileImportLoginDataTransferSummary[] = [];
     const readChromeLoginData = vi.fn()
@@ -166,7 +166,6 @@ describe("ChromeProfileImportManager", () => {
       gameStore: { getGame: async () => game },
       getSession: () => session as never,
       homeDirectory: "/Users/test",
-      injectEmbeddedStorage,
       onLoginDataTransfer: (summary) => transferSummaries.push(summary),
       platform: "darwin",
       readChromeLoginData,
@@ -239,9 +238,13 @@ describe("ChromeProfileImportManager", () => {
       existingRole.id,
       {
         origins: {
-          "https://accounts.example.test": { sessionStorage: { loginStep: "complete" } },
+          "https://accounts.example.test": {
+            localStorage: { sso: "present" },
+            sessionStorage: { loginStep: "complete" }
+          },
           "https://example.test": {
             indexedDb: createDurableStorageSeed().indexedDb,
+            localStorage: { session: "present" },
             sessionStorage: { gameSession: "active" }
           }
         },
@@ -258,17 +261,6 @@ describe("ChromeProfileImportManager", () => {
       expect.objectContaining({ completedProfileCount: 2, phase: "importing", totalProfileCount: 2 }),
       expect.objectContaining({ completedProfileCount: 2, phase: "completed", totalProfileCount: 2 })
     ]);
-    expect(injectEmbeddedStorage).toHaveBeenCalledTimes(4);
-    expect(injectEmbeddedStorage).toHaveBeenCalledWith(
-      expect.any(String),
-      game.defaultLaunchUrl,
-      { session: "present" }
-    );
-    expect(injectEmbeddedStorage).toHaveBeenCalledWith(
-      expect.any(String),
-      game.loginUrl,
-      { sso: "present" }
-    );
     expect(transferSummaries).toEqual([
       expect.objectContaining({
         failedItemCount: 1,
@@ -360,7 +352,6 @@ describe("ChromeProfileImportManager", () => {
         },
         flushStorageData: vi.fn()
       }) as never,
-      injectEmbeddedStorage: vi.fn().mockResolvedValue(undefined),
       onLoginDataTransfer: (summary) => transferSummaries.push(summary),
       platform: "darwin",
       readChromeLoginData: vi.fn().mockRejectedValue(new Error("Chrome data unavailable")),
@@ -388,7 +379,7 @@ describe("ChromeProfileImportManager", () => {
     ]);
   });
 
-  it("marks imported roles authenticated when storage injection or flushing fails", async () => {
+  it("marks imported roles authenticated when storage bootstrap or flushing fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
     const source = join(root, "Chrome User Data");
     const userDataDir = join(root, "rion-data");
@@ -411,7 +402,15 @@ describe("ChromeProfileImportManager", () => {
         },
         flushStorageData: vi.fn().mockRejectedValue(new Error("flush failed"))
       }) as never,
-      injectEmbeddedStorage: vi.fn().mockRejectedValue(new Error("storage injection failed")),
+      bootstrapEmbeddedStorage: vi.fn().mockResolvedValue({
+        attemptedOriginCount: 1,
+        cacheEntryCount: 0,
+        failedOriginCount: 1,
+        indexedDbRecordCount: 0,
+        localStorageKeyCount: 0,
+        persistenceFailed: false,
+        succeededOriginCount: 0
+      }),
       onLoginDataTransfer: (summary) => transferSummaries.push(summary),
       platform: "darwin",
       readChromeLoginData: vi.fn().mockResolvedValue({

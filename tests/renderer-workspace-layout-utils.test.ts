@@ -90,6 +90,31 @@ describe("renderer workspace layout helpers", () => {
     });
   });
 
+  it("preserves a saved single layout and its assigned role in the workspace form", () => {
+    const slots: LaunchWorkspaceSlot[] = [{
+      id: "slot-1",
+      roleId: "role-1",
+      browserZoomPercent: 110,
+      rect: { x: 0, y: 0, width: 1, height: 1 }
+    }];
+
+    expect(createWorkspaceFormState({
+      id: "workspace-1",
+      browserLaunchMode: "inherit",
+      browserZoomMode: "adaptive",
+      name: "Solo",
+      template: "single",
+      browserZoomPercent: 100,
+      resourcePolicy: { mode: "adaptive" },
+      slots,
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z"
+    })).toMatchObject({
+      template: "single",
+      slots
+    });
+  });
+
   it("applies a template while preserving slot ids and assigned roles by index", () => {
     expect(
       applyWorkspaceTemplate(
@@ -112,6 +137,18 @@ describe("renderer workspace layout helpers", () => {
 
     expect(applyWorkspaceTemplate(eightSlots, "nine_grid").map((item) => item.roleId)).toEqual([
       "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", undefined
+    ]);
+
+    expect(applyWorkspaceTemplate([
+      { ...slot("custom-1", "p1"), browserZoomPercent: 110 },
+      { ...slot("custom-2", "p2"), browserZoomPercent: 90 }
+    ], "single")).toEqual([
+      {
+        id: "custom-1",
+        roleId: "p1",
+        browserZoomPercent: 110,
+        rect: getDefaultWorkspaceRects("single")[0]
+      }
     ]);
   });
 

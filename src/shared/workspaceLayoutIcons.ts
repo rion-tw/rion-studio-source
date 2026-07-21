@@ -10,6 +10,10 @@ const columns2: WorkspaceLayoutIconNode[] = [
   ["path", { d: "M12 3v18", key: "column" }]
 ];
 
+const single: WorkspaceLayoutIconNode[] = [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "outer" }]
+];
+
 const columns3: WorkspaceLayoutIconNode[] = [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "outer" }],
   ["path", { d: "M9 3v18", key: "left-column" }],
@@ -27,7 +31,7 @@ export const workspaceLayoutIconNodes: Record<
   WorkspaceLayoutTemplate,
   WorkspaceLayoutIconNode[]
 > = {
-  single: columns2,
+  single,
   two_columns: columns2,
   three_columns: columns3,
   main_left_stack_right: [

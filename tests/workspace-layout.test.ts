@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeWorkspaceRectEdges } from "../src/shared/workspaceLayout";
+import {
+  DEFAULT_WORKSPACE_TEMPLATE,
+  isWorkspaceLayoutTemplate,
+  normalizeWorkspaceRectEdges,
+  workspaceLayoutTemplates
+} from "../src/shared/workspaceLayout";
+
+describe("workspace layout templates", () => {
+  it("offers single before multi-slot templates without changing the default", () => {
+    expect(workspaceLayoutTemplates[0]).toBe("single");
+    expect(workspaceLayoutTemplates).toContain("two_columns");
+    expect(isWorkspaceLayoutTemplate("single")).toBe(true);
+    expect(DEFAULT_WORKSPACE_TEMPLATE).toBe("two_columns");
+  });
+});
 
 describe("workspace rectangle edge normalization", () => {
   it("repairs legacy four-decimal shared edges without mutating the input", () => {

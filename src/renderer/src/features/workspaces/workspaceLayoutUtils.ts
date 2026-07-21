@@ -128,7 +128,6 @@ export function createWorkspaceFormState(
   workspace: LaunchWorkspace,
   displays: WorkspaceDisplayInfo[] = []
 ): WorkspaceFormState {
-  const template = workspace.template === "single" ? DEFAULT_WORKSPACE_TEMPLATE : workspace.template;
   const resolvedTargetDisplay = resolveWorkspaceDisplayTarget(workspace.targetDisplay, displays);
   const targetDisplay = resolvedTargetDisplay
     ? createWorkspaceDisplayTarget(resolvedTargetDisplay)
@@ -139,13 +138,13 @@ export function createWorkspaceFormState(
   return {
     id: workspace.id,
     name: workspace.name,
-    template,
+    template: workspace.template,
     browserLaunchMode: workspace.browserLaunchMode,
     browserZoomMode: workspace.browserZoomMode,
     browserZoomPercent: workspace.browserZoomPercent,
     resourcePolicy: { ...workspace.resourcePolicy },
     ...(targetDisplay === undefined ? {} : { targetDisplay }),
-    slots: template === workspace.template ? workspace.slots : applyWorkspaceTemplate(workspace.slots, template)
+    slots: workspace.slots
   };
 }
 

@@ -611,7 +611,11 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     invocation.remainingRunKeys.delete(runKey);
     if (invocation.remainingRunKeys.size === 0) {
       this.clearHeldTriggerLeases((lease) => lease.invocationId === invocation.id);
+      const completedNaturally = invocation.outcome === undefined;
       this.settleInvocation(invocation, { state: "completed" });
+      if (completedNaturally) {
+        invocation.childInvocationIds.clear();
+      }
       this.invocations.delete(invocation.id);
     }
   }
@@ -875,23 +879,42 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   }
 
   private triggerCalledMacro(parent: MacroInvocation, macroId: string): void {
+    let resolveChildStart: () => void = () => undefined;
+    const childStartCompletion = new Promise<void>((resolve) => {
+      resolveChildStart = resolve;
+    });
+    parent.childStartCompletions.add(childStartCompletion);
+
     const start = this.withMacroMutationLock(macroId, async () => {
       if (this.hasActiveMacroRun(macroId)) {
         return;
       }
 
-      await this.startInvocationUnlocked(
+      const started = await this.startInvocationUnlocked(
         macroId,
         undefined,
         parent.ancestry,
         undefined,
         "configured"
       );
+      if (parent.outcome?.state === "completed") {
+        return;
+      }
+
+      parent.childInvocationIds.add(started.invocation.id);
+      void started.invocation.completion.then(() => {
+        parent.childInvocationIds.delete(started.invocation.id);
+      });
     });
 
-    void start.catch((error) => {
-      console.warn("Asynchronous macro trigger failed.", error);
-    });
+    void start
+      .catch((error) => {
+        console.warn("Asynchronous macro trigger failed.", error);
+      })
+      .finally(() => {
+        resolveChildStart();
+        parent.childStartCompletions.delete(childStartCompletion);
+      });
   }
 
   private async executeTargetOperation(run: MacroRun, operation: () => Promise<void>): Promise<void> {

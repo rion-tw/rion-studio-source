@@ -333,7 +333,7 @@
   "macroForm.macroTarget": "要执行的宏",
   "macroForm.macroCallMode": "宏调用方式",
   "macroForm.macroCallMode.wait": "等待完成",
-  "macroForm.macroCallMode.trigger": "触发后继续",
+  "macroForm.macroCallMode.trigger": "触发后继续（父宏中止时一并停止）",
   "macroForm.macroTargetPlaceholder": "选择宏",
   "macroForm.macroTargetDisabled": "已停用",
   "macroForm.macroTargetRunsOnce": "被调用时执行一轮",

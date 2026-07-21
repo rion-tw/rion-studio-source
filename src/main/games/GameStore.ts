@@ -11,7 +11,6 @@ import type {
   CreateGameInput,
   Game,
   InheritableBrowserLaunchMode,
-  Role,
   UpdateGameInput
 } from "../../shared/types";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
@@ -142,7 +141,6 @@ export class GameStore {
         source: "custom",
         name,
         defaultLaunchUrl: normalizeHttpUrl(input.defaultLaunchUrl),
-        loginUrl: normalizeOptionalHttpUrl(input.loginUrl),
         iconImageDataUrl: normalizeImageDataUrl(input.iconImageDataUrl),
         coverImageDataUrl: normalizeCoverImageDataUrl(input.coverImageDataUrl),
         browserLaunchMode: normalizeBrowserLaunchMode(input.browserLaunchMode),
@@ -185,7 +183,6 @@ export class GameStore {
         defaultLaunchUrl: input.defaultLaunchUrl === undefined
           ? current.defaultLaunchUrl
           : normalizeHttpUrl(input.defaultLaunchUrl),
-        loginUrl: input.loginUrl === undefined ? current.loginUrl : normalizeOptionalHttpUrl(input.loginUrl),
         iconImageDataUrl: input.iconImageDataUrl === undefined
           ? current.iconImageDataUrl
           : normalizeImageDataUrl(input.iconImageDataUrl),
@@ -265,13 +262,16 @@ export class GameStore {
     }
 
     let storedGames: Game[] = [];
-    let shouldWrite = false;
+    let shouldWrite: boolean;
     try {
       const parsed = JSON.parse(await readFile(this.gamesPath, "utf8")) as { games?: unknown };
       if (!Array.isArray(parsed.games)) {
         throw new GameStoreError("GAME_FILE_INVALID", "Game data file is invalid.");
       }
       storedGames = parsed.games.map((value) => normalizeStoredGame(value));
+      // Re-write legacy files so fields such as loginUrl are removed from
+      // disk, while preserving the existing atomic write path below.
+      shouldWrite = JSON.stringify(parsed.games) !== JSON.stringify(storedGames);
     } catch (error) {
       if (!isNodeError(error) || error.code !== "ENOENT") {
         throw error;
@@ -362,7 +362,6 @@ function normalizeStoredGame(value: unknown): Game {
     ...(definition ? { builtinKey: definition.builtinKey } : {}),
     name: definition?.name ?? normalizeName(value.name),
     defaultLaunchUrl: normalizeHttpUrl(value.defaultLaunchUrl),
-    loginUrl: normalizeOptionalHttpUrl(value.loginUrl),
     iconImageDataUrl: definition ? undefined : normalizeImageDataUrl(value.iconImageDataUrl),
     coverImageDataUrl: definition ? undefined : normalizeCoverImageDataUrl(value.coverImageDataUrl),
     browserLaunchMode: normalizeBrowserLaunchMode(value.browserLaunchMode),
@@ -434,13 +433,6 @@ function normalizeHttpUrl(value: unknown): string {
   }
 }
 
-function normalizeOptionalHttpUrl(value: unknown): string | undefined {
-  if (value === undefined || value === null || value === "") {
-    return undefined;
-  }
-  return normalizeHttpUrl(value);
-}
-
 function normalizeImageDataUrl(value: unknown): string | undefined {
   return normalizeGameImageDataUrl(
     value,
@@ -499,8 +491,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
-}
-
-export function getGameLoginUrl(game: Game, role: Role): string {
-  return game.loginUrl ?? role.launchUrl;
 }

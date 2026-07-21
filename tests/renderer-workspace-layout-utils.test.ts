@@ -635,7 +635,6 @@ function role(overrides: Partial<Role> = {}): Role {
     name: "Knight",
     launchUrl: "https://universe.flyff.com/play",
     notes: "",
-    authState: "unknown",
     createdAt: "2026-07-14T00:00:00.000Z",
     updatedAt: "2026-07-14T00:00:00.000Z",
     ...overrides

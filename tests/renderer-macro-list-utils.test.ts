@@ -151,7 +151,6 @@ function role(overrides: Partial<Role>): Role {
     name: "Role",
     launchUrl: "https://example.test/play",
     notes: "",
-    authState: "unknown",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides

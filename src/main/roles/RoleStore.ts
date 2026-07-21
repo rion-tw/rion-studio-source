@@ -4,11 +4,11 @@ import { join } from "node:path";
 
 import {
   DEFAULT_LAUNCH_URL,
-  type AuthState,
   type CreateRoleInput,
   type ReorderItemsInput,
   type Role,
   type RolePaths,
+  type RoleBrowserSessionSource,
   type UpdateRoleInput
 } from "../../shared/types";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
@@ -71,22 +71,11 @@ export class RoleStore {
 
   async replaceRolesForImport(
     roles: Role[],
-    publishCache = true,
-    preserveSessionState = true
+    publishCache = true
   ): Promise<Role[]> {
     return this.taskQueue.run(async () => {
-      const currentById = new Map((await this.readRolesFile()).roles.map((role) => [role.id, role]));
       const normalized = roles.map((role) => {
-        const next = this.normalizeStoredRole(role);
-        const current = currentById.get(next.id);
-        return current && preserveSessionState
-          ? {
-              ...next,
-              authState: current.authState,
-              lastAuthCheckAt: current.lastAuthCheckAt,
-              lastSuccessfulLoginAt: current.lastSuccessfulLoginAt
-            }
-          : next;
+        return this.normalizeStoredRole(role);
       });
 
       normalized.forEach((role) => this.ensureUniqueName(normalized, role.gameId, role.name, role.id));
@@ -130,7 +119,7 @@ export class RoleStore {
         name,
         launchUrl,
         notes: input.notes?.trim() ?? "",
-        authState: "login_required",
+        browserSessionSource: "embedded",
         coverImageDataUrl,
         coverImageDominantColor: coverImageDataUrl ? coverImageDominantColor : undefined,
         createdAt: now,
@@ -160,7 +149,6 @@ export class RoleStore {
       const nextLaunchUrl = input.launchUrl === undefined
         ? current.launchUrl
         : this.normalizeLaunchUrl(input.launchUrl, current.launchUrl);
-      const isSessionIdentityChanged = nextLaunchUrl !== current.launchUrl || nextGameId !== current.gameId;
       this.ensureUniqueName(file.roles, nextGameId, nextName, id);
       const isCoverImageUpdated = input.coverImageDataUrl !== undefined;
       const coverImageDataUrl = isCoverImageUpdated
@@ -179,9 +167,6 @@ export class RoleStore {
         name: nextName,
         launchUrl: nextLaunchUrl,
         notes: input.notes === undefined ? current.notes : input.notes.trim(),
-        authState: isSessionIdentityChanged ? "login_required" : current.authState,
-        lastAuthCheckAt: isSessionIdentityChanged ? undefined : current.lastAuthCheckAt,
-        lastSuccessfulLoginAt: isSessionIdentityChanged ? undefined : current.lastSuccessfulLoginAt,
         coverImageDataUrl,
         coverImageDominantColor,
         updatedAt: new Date().toISOString()
@@ -218,36 +203,7 @@ export class RoleStore {
     });
   }
 
-  async updateAuthState(
-    id: string,
-    authState: AuthState,
-    messageTimestamp = new Date().toISOString()
-  ): Promise<Role> {
-    return this.taskQueue.run(async () => {
-      const file = await this.readRolesFile();
-      const index = file.roles.findIndex((role) => role.id === id);
-
-      if (index === -1) {
-        throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
-      }
-
-      const current = file.roles[index];
-      const updated: Role = {
-        ...current,
-        authState,
-        lastAuthCheckAt: messageTimestamp,
-        lastSuccessfulLoginAt: authState === "authenticated" ? messageTimestamp : current.lastSuccessfulLoginAt,
-        updatedAt: messageTimestamp
-      };
-
-      file.roles[index] = updated;
-      await this.writeRolesFile(file);
-
-      return updated;
-    });
-  }
-
-  async resetAuthentication(id: string, timestamp = new Date().toISOString()): Promise<Role> {
+  async updateBrowserSessionSource(id: string, source: RoleBrowserSessionSource): Promise<Role> {
     return this.taskQueue.run(async () => {
       const file = await this.readRolesFile();
       const index = file.roles.findIndex((role) => role.id === id);
@@ -256,10 +212,8 @@ export class RoleStore {
       const current = file.roles[index];
       const updated: Role = {
         ...current,
-        authState: "login_required",
-        lastAuthCheckAt: undefined,
-        lastSuccessfulLoginAt: undefined,
-        updatedAt: timestamp
+        browserSessionSource: source,
+        updatedAt: new Date().toISOString()
       };
       file.roles[index] = updated;
       await this.writeRolesFile(file);
@@ -351,6 +305,9 @@ export class RoleStore {
       };
 
       await this.migrateLegacyRoleDirectories(file.roles.map((role) => role.id));
+      if (JSON.stringify(parsed.roles) !== JSON.stringify(file.roles)) {
+        await this.writeRolesFile(file, false);
+      }
       this.cachedFile = cloneRolesFile(file);
       return cloneRolesFile(file);
     } catch (error) {
@@ -418,6 +375,9 @@ export class RoleStore {
       windowWidth: _windowWidth,
       windowHeight: _windowHeight,
       preferredBrowserLaunchMode: _preferredBrowserLaunchMode,
+      authState: _authState,
+      lastAuthCheckAt: _lastAuthCheckAt,
+      lastSuccessfulLoginAt: _lastSuccessfulLoginAt,
       ...storedRole
     } = role as Role & {
       gameUrl?: unknown;
@@ -426,6 +386,9 @@ export class RoleStore {
       windowWidth?: unknown;
       windowHeight?: unknown;
       preferredBrowserLaunchMode?: unknown;
+      authState?: unknown;
+      lastAuthCheckAt?: unknown;
+      lastSuccessfulLoginAt?: unknown;
     };
     const launchUrl = this.normalizeLaunchUrl(
       typeof storedRole.launchUrl === "string"
@@ -440,14 +403,12 @@ export class RoleStore {
       ...storedRole,
       gameId: typeof storedRole.gameId === "string" ? storedRole.gameId.trim() : "",
       launchUrl,
-      authState: this.normalizeAuthState(storedRole.authState),
+      browserSessionSource: storedRole.browserSessionSource === "chrome-profile" ? "chrome-profile" : "embedded",
       notes: storedRole.notes ?? "",
       coverImageDataUrl,
       coverImageDominantColor: coverImageDataUrl
         ? this.normalizeCoverImageDominantColor(storedRole.coverImageDominantColor)
         : undefined,
-      lastAuthCheckAt: storedRole.lastAuthCheckAt,
-      lastSuccessfulLoginAt: storedRole.lastSuccessfulLoginAt
     };
   }
 
@@ -484,13 +445,6 @@ export class RoleStore {
     return normalized;
   }
 
-  private normalizeAuthState(value: AuthState | undefined): AuthState {
-    if (value === "unknown" || value === "login_required" || value === "authenticated" || value === "auth_failed") {
-      return value;
-    }
-
-    return "unknown";
-  }
 
   private normalizeCoverImageDataUrl(value: string | null | undefined): string | undefined {
     if (value === undefined || value === null) {

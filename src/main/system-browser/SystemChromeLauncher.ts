@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -7,14 +6,6 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import WebSocket from "ws";
 
-import {
-  isLoginStorageReady,
-  readLoginStorageSnapshot,
-  type LoginStorageSnapshot
-} from "../auth/loginEvidence";
-import { isKnownLoginUrl } from "../auth/loginDetection";
-import type { RoleStore } from "../roles/RoleStore";
-import type { Role } from "../../shared/types";
 
 export class SystemChromeLauncherError extends Error {
   constructor(
@@ -26,49 +17,7 @@ export class SystemChromeLauncherError extends Error {
   }
 }
 
-export type LoginWindowMonitorResult =
-  | {
-      state: "login_completed";
-      port: number;
-      targetId: string;
-      url: string;
-    }
-  | {
-      state: "closed";
-    }
-  | {
-      state: "manual";
-      message: string;
-    }
-  | {
-      state: "unavailable" | "timed_out";
-      message: string;
-    };
-
-export interface SystemChromeLoginSession {
-  userDataDir: string;
-  closed: Promise<void>;
-  monitor: Promise<LoginWindowMonitorResult>;
-  close: () => Promise<void>;
-}
-
-export interface LoginWindowMonitorOptions {
-  activePortTimeoutMs?: number;
-  monitorTimeoutMs?: number;
-  storageReadyTimeoutMs?: number;
-  pollIntervalMs?: number;
-  fetch?: DevToolsFetch;
-  createCdpClient?: CdpClientFactory;
-  now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-  onPort?: (port: number) => void;
-  onSuccessfulTarget?: (target: DevToolsTarget, port: number) => void;
-  isClosed?: () => boolean;
-}
-
 export type DevToolsFetch = (url: string) => Promise<DevToolsResponse>;
-export type CdpClientFactory = (target: DevToolsTarget) => CdpClientLike | Promise<CdpClientLike>;
-
 export interface DevToolsResponse {
   ok: boolean;
   json: () => Promise<unknown>;
@@ -124,11 +73,8 @@ export interface CdpWebSocketLike {
 const DEFAULT_WEB_SOCKET_CONSTRUCTOR = WebSocket as unknown as CdpWebSocketConstructor;
 
 const DEFAULT_ACTIVE_PORT_TIMEOUT_MS = 10_000;
-const DEFAULT_MONITOR_TIMEOUT_MS = 15 * 60_000;
-const DEFAULT_STORAGE_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const CDP_REQUEST_TIMEOUT_MS = 5_000;
-const CLOSE_TIMEOUT_MS = 5_000;
 const WEB_SOCKET_OPEN_STATE = 1;
 
 export class CdpClient implements CdpEventClientLike {
@@ -302,179 +248,6 @@ function createCdpDisconnectedError(): SystemChromeLauncherError {
   );
 }
 
-export interface SystemChromeLauncherOptions {
-  applyBrowserFonts?: (userDataDir: string) => Promise<void>;
-}
-
-export class SystemChromeLauncher {
-  constructor(
-    private readonly roleStore: Pick<RoleStore, "ensureBrowserUserDataDir">,
-    private readonly options: SystemChromeLauncherOptions = {}
-  ) {}
-
-  async openLoginWindow(role: Role): Promise<SystemChromeLoginSession> {
-    const executablePath = findSystemChromeExecutable();
-    const browserUserDataDir = await this.roleStore.ensureBrowserUserDataDir(role.id);
-    await this.options.applyBrowserFonts?.(browserUserDataDir).catch((error) => {
-      console.warn("Failed to apply browser font settings before opening Chrome.", error);
-    });
-    const child = spawn(executablePath, buildSystemChromeArgs(role, browserUserDataDir), { stdio: "ignore" });
-    let isClosed = false;
-
-    const closed = new Promise<void>((resolve) => {
-      child.once("close", () => {
-        isClosed = true;
-        resolve();
-      });
-      child.once("error", () => {
-        isClosed = true;
-        resolve();
-      });
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      child.once("spawn", () => {
-        resolve();
-      });
-      child.once("error", (error) => {
-        reject(error);
-      });
-    });
-
-    return {
-      userDataDir: browserUserDataDir,
-      closed,
-      monitor: Promise.resolve({
-        state: "manual",
-        message: "Complete account login, select the target character, enter its game screen, then close Chrome."
-      }),
-      close: async () => {
-        if (isClosed) {
-          return;
-        }
-
-        const closeDeadline = waitForClosed(closed, CLOSE_TIMEOUT_MS);
-        await closeDeadline;
-
-        if (!isClosed) {
-          child.kill();
-          await waitForClosed(closed, 2_000);
-        }
-      }
-    };
-  }
-}
-
-export async function monitorLoginWindow(
-  role: Role,
-  userDataDir: string,
-  options: LoginWindowMonitorOptions = {}
-): Promise<LoginWindowMonitorResult> {
-  const fetchDevTools = options.fetch ?? fetchJson;
-  const createCdpClient = options.createCdpClient ?? createCdpClientForTarget;
-  const now = options.now ?? Date.now;
-  const sleep = options.sleep ?? ((ms: number) => delay(ms));
-  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const activePortTimeoutMs = options.activePortTimeoutMs ?? DEFAULT_ACTIVE_PORT_TIMEOUT_MS;
-  const monitorTimeoutMs = options.monitorTimeoutMs ?? DEFAULT_MONITOR_TIMEOUT_MS;
-  const storageReadyTimeoutMs = options.storageReadyTimeoutMs ?? DEFAULT_STORAGE_READY_TIMEOUT_MS;
-  const isClosed = options.isClosed ?? (() => false);
-  const activePortResult = await waitForDevToolsPort(userDataDir, {
-    timeoutMs: activePortTimeoutMs,
-    pollIntervalMs,
-    now,
-    sleep,
-    isClosed
-  });
-
-  if (activePortResult.state !== "available") {
-    return activePortResult;
-  }
-
-  const port = activePortResult.port;
-  options.onPort?.(port);
-
-  const startedAt = now();
-  let sawLoginUrl = false;
-  let lastError: string | undefined;
-  const baselineSnapshots = new Map<string, LoginStorageSnapshot>();
-  const storageWaitStartedAt = new Map<string, number>();
-  const cdpClients = new Map<string, CdpClientLike>();
-
-  try {
-    while (!isClosed() && now() - startedAt <= monitorTimeoutMs) {
-      try {
-        const targets = await listDevToolsTargets(port, fetchDevTools);
-        const pageTargets = targets.filter((target) => target.type === undefined || target.type === "page");
-
-        for (const target of pageTargets) {
-          const url = target.url ?? "";
-
-          if (isLoginWindowLoginUrl(url)) {
-            sawLoginUrl = true;
-            storageWaitStartedAt.delete(target.id);
-            continue;
-          }
-
-          if (!isExpectedPostLoginUrl(url, role.launchUrl)) {
-            continue;
-          }
-
-          const client = await getOrCreateCdpClient(target, cdpClients, createCdpClient);
-          const snapshot = await readLoginStorageSnapshot(client, role.launchUrl);
-
-          if (!sawLoginUrl) {
-            baselineSnapshots.set(target.id, snapshot);
-            continue;
-          }
-
-          const baseline = baselineSnapshots.get(target.id);
-          const readiness = isLoginStorageReady(baseline, snapshot);
-
-          if (readiness.ready) {
-            options.onSuccessfulTarget?.(target, port);
-            return {
-              state: "login_completed",
-              port,
-              targetId: target.id,
-              url
-            };
-          }
-
-          const storageStartedAt = storageWaitStartedAt.get(target.id) ?? now();
-          storageWaitStartedAt.set(target.id, storageStartedAt);
-
-          if (now() - storageStartedAt >= storageReadyTimeoutMs) {
-            return {
-              state: "timed_out",
-              message: `Timed out while waiting for login storage to be ready: ${readiness.reason}`
-            };
-          }
-        }
-      } catch (error) {
-        lastError = toMessage(error);
-      }
-
-      await sleep(pollIntervalMs);
-    }
-
-    if (isClosed()) {
-      return {
-        state: "closed"
-      };
-    }
-
-    return {
-      state: "timed_out",
-      message: lastError ?? "Timed out while waiting for login to complete."
-    };
-  } finally {
-    for (const client of cdpClients.values()) {
-      client.close();
-    }
-  }
-}
-
 export async function waitForDevToolsPort(
   userDataDir: string,
   options: {
@@ -484,7 +257,7 @@ export async function waitForDevToolsPort(
     sleep?: (ms: number) => Promise<void>;
     isClosed?: () => boolean;
   } = {}
-): Promise<LoginWindowMonitorResult | { state: "available"; port: number }> {
+): Promise<{ state: "available"; port: number } | { state: "closed" | "unavailable"; message: string }> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_ACTIVE_PORT_TIMEOUT_MS;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const now = options.now ?? Date.now;
@@ -509,7 +282,8 @@ export async function waitForDevToolsPort(
 
   if (isClosed()) {
     return {
-      state: "closed"
+      state: "closed",
+      message: "Chrome DevTools became unavailable."
     };
   }
 
@@ -538,62 +312,15 @@ export async function closeDevToolsTarget(
   const response = await fetchDevTools(`http://127.0.0.1:${port}/json/close/${encodeURIComponent(targetId)}`);
 
   if (!response.ok) {
-    throw new SystemChromeLauncherError("DEVTOOLS_CLOSE_FAILED", "Chrome login window could not be closed.");
+    throw new SystemChromeLauncherError("DEVTOOLS_CLOSE_FAILED", "Chrome DevTools target could not be closed.");
   }
-}
-
-export function isLoginWindowLoginUrl(value: string): boolean {
-  return isKnownLoginUrl(value);
-}
-
-export function isExpectedPostLoginUrl(value: string, launchUrl: string): boolean {
-  if (!value || isLoginWindowLoginUrl(value)) {
-    return false;
-  }
-
-  return isSameOriginUrl(value, launchUrl);
-}
-
-function isSameOriginUrl(value: string, expectedUrl: string): boolean {
-  try {
-    return new URL(value).origin === new URL(expectedUrl).origin;
-  } catch {
-    return false;
-  }
-}
-
-async function getOrCreateCdpClient(
-  target: DevToolsTarget,
-  clients: Map<string, CdpClientLike>,
-  createCdpClient: CdpClientFactory
-): Promise<CdpClientLike> {
-  const existing = clients.get(target.id);
-
-  if (existing) {
-    return existing;
-  }
-
-  const client = await createCdpClient(target);
-  clients.set(target.id, client);
-  return client;
-}
-
-function createCdpClientForTarget(target: DevToolsTarget): CdpClient {
-  if (!target.webSocketDebuggerUrl) {
-    throw new SystemChromeLauncherError(
-      "DEVTOOLS_WEBSOCKET_URL_MISSING",
-      "Chrome DevTools page target does not expose a WebSocket URL."
-    );
-  }
-
-  return new CdpClient(target.webSocketDebuggerUrl);
 }
 
 export async function listDevToolsTargets(port: number, fetchDevTools: DevToolsFetch = fetchJson): Promise<DevToolsTarget[]> {
   const response = await fetchDevTools(`http://127.0.0.1:${port}/json/list`);
 
   if (!response.ok) {
-    throw new SystemChromeLauncherError("DEVTOOLS_LIST_FAILED", "Unable to inspect Chrome login window.");
+    throw new SystemChromeLauncherError("DEVTOOLS_LIST_FAILED", "Unable to inspect Chrome DevTools targets.");
   }
 
   const payload = await response.json();
@@ -656,25 +383,12 @@ async function fetchJson(url: string): Promise<DevToolsResponse> {
   return fetch(url);
 }
 
-async function waitForClosed(closed: Promise<void>, timeoutMs: number): Promise<void> {
-  await Promise.race([closed, delay(timeoutMs)]);
-}
-
 function toMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
 
-  return "Unexpected Chrome login monitor error.";
-}
-
-export function buildSystemChromeArgs(role: Role, browserUserDataDir: string): string[] {
-  return [
-    `--user-data-dir=${browserUserDataDir}`,
-    "--profile-directory=Default",
-    "--new-window",
-    role.launchUrl
-  ];
+  return "Unexpected Chrome DevTools error.";
 }
 
 export function findSystemChromeExecutable(): string {

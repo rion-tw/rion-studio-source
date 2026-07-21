@@ -14,7 +14,6 @@ import type {
 import type { GameStore } from "../games/GameStore";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
 import type { RoleStore } from "../roles/RoleStore";
-import { markImportedChromeProfilePending } from "./ImportedChromeProfileMarker";
 
 const PROFILE_DIRECTORY_PATTERN = /^(Default|Profile \d+)$/;
 const IMPORT_DIRECTORY = ".chrome-profile-import";
@@ -68,12 +67,14 @@ interface ChromeProfileImportManagerOptions {
     | "getRolePaths"
     | "listRoles"
     | "replaceRolesForImport"
-    | "resetAuthentication"
+    | "updateBrowserSessionSource"
     | "updateRole"
   >;
   showOpenDialog: (options: OpenDirectoryDialogOptions) => Promise<OpenDirectoryDialogResult>;
   userDataDir: string;
   gameStore: Pick<GameStore, "getGame">;
+  stopRoles?: (roleIds: string[]) => Promise<void>;
+  prepareImportedSession?: (role: Role, browserUserDataDir: string) => Promise<void>;
 }
 
 export class ChromeProfileImportError extends Error {
@@ -249,6 +250,8 @@ export class ChromeProfileImportManager {
       phase: "prepared"
     };
 
+    await this.options.stopRoles?.(overwrittenRoleIds);
+
     await rm(stageRoot, { force: true, recursive: true });
     await mkdir(stageRoot, { recursive: true });
 
@@ -297,8 +300,11 @@ export class ChromeProfileImportManager {
         const targetBrowserDir = this.options.roleStore.getRolePaths(savedRole.id).browserUserDataDir;
         await rm(targetBrowserDir, { force: true, recursive: true });
         await copyDirectory(stageBrowserDir, targetBrowserDir);
-        await markImportedChromeProfilePending(targetBrowserDir);
-        await this.options.roleStore.resetAuthentication(savedRole.id);
+        const importedRole = await this.options.roleStore.updateBrowserSessionSource(
+          savedRole.id,
+          "chrome-profile"
+        );
+        await this.options.prepareImportedSession?.(importedRole, targetBrowserDir);
         affectedRoleIds.add(savedRole.id);
         completedProfileCount += 1;
         reportProgress("importing", assignment.profile);
@@ -397,7 +403,7 @@ async function restoreChromeImportTransaction(
   }
 
   if (Array.isArray(journal.originalRoles)) {
-    await roleStore.replaceRolesForImport(journal.originalRoles, true, false);
+    await roleStore.replaceRolesForImport(journal.originalRoles, true);
   }
 
   const overwrittenRoleIds = Array.isArray(journal.overwrittenRoleIds)

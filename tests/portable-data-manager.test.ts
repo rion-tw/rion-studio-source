@@ -63,7 +63,6 @@ describe("PortableDataManager", () => {
       launchUrl: "https://example.com/play",
       notes: "Carry me"
     });
-    await roleStore.updateAuthState(role.id, "authenticated", "2026-07-10T01:00:00.000Z");
     await workspaceStore.createWorkspace({
       name: "Party",
       browserZoomPercent: 75,
@@ -650,7 +649,6 @@ describe("PortableDataManager", () => {
   it("previews and applies an import with remapped role references", async () => {
     const importPath = join(baseDir, "incoming.json");
     const existingRole = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
-    await roleStore.updateAuthState(existingRole.id, "authenticated", "2026-07-13T08:00:00.000Z");
     await writeFile(
       join(baseDir, "roles", existingRole.id, "browser", "session-marker"),
       "keep-login",
@@ -743,8 +741,7 @@ describe("PortableDataManager", () => {
     const importedRole = (await roleStore.listRoles()).find((role) => role.name === "Main");
     expect(importedRole).toMatchObject({
       id: existingRole.id,
-      authState: "authenticated",
-      lastSuccessfulLoginAt: "2026-07-13T08:00:00.000Z",
+      browserSessionSource: "embedded",
       launchUrl: "https://example.org/play"
     });
     expect(importedRole).not.toHaveProperty("windowWidth");
@@ -886,9 +883,9 @@ describe("PortableDataManager", () => {
     expect(games.find((game) => game.builtinKey === "flyff-universe")).toMatchObject({
       id: "builtin-flyff-universe",
       defaultLaunchUrl: "https://override.test/play",
-      loginUrl: "https://override.test/login",
       browserLaunchMode: "external"
     });
+    expect(games.find((game) => game.builtinKey === "flyff-universe")).not.toHaveProperty("loginUrl");
     expect(games.find((game) => game.builtinKey === "flyff-universe")?.coverImageDataUrl)
       .toBeUndefined();
     expect(games).toEqual(expect.arrayContaining([
@@ -1625,9 +1622,6 @@ describe("PortableDataManager", () => {
         ...role,
         id: createdRoleId,
         name: "Imported",
-        authState: "login_required" as const,
-        lastAuthCheckAt: undefined,
-        lastSuccessfulLoginAt: undefined
       }
     ];
     const games = await gameStore.listGames();

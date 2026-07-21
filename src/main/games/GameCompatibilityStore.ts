@@ -37,6 +37,7 @@ export class GameCompatibilityStore {
           ...report.observations
         }
       };
+      next.observations = sanitizeObservations(next.observations);
       if (index === -1) {
         file.reports.push(next);
       } else {
@@ -59,7 +60,7 @@ export class GameCompatibilityStore {
         : file.reports[index];
       const next: GameCompatibilityReport = {
         ...current,
-        observations: { ...current.observations, ...observation }
+        observations: sanitizeObservations({ ...current.observations, ...observation })
       };
       if (index === -1) {
         file.reports.push(next);
@@ -91,10 +92,13 @@ export class GameCompatibilityStore {
         ? parsed.reports.filter(isCompatibilityReport).map((report) => ({
             ...report,
             isStale: false,
-            observations: { ...report.observations }
+            observations: sanitizeObservations(report.observations)
           }))
         : [];
       this.cachedFile = { reports };
+      if (JSON.stringify(parsed.reports) !== JSON.stringify(reports)) {
+        await this.writeFile(this.cachedFile);
+      }
     } catch (error) {
       if (!isNodeError(error) || error.code !== "ENOENT") {
         this.cachedFile = { reports: [] };
@@ -109,6 +113,18 @@ export class GameCompatibilityStore {
     await writeJsonFileAtomically(this.filePath, file);
     this.cachedFile = structuredClone(file);
   }
+}
+
+function sanitizeObservations(observations: GameCompatibilityObservations): GameCompatibilityObservations {
+  const {
+    lastAuthSuccessAt: _lastAuthSuccessAt,
+    lastAuthFailureAt: _lastAuthFailureAt,
+    ...clean
+  } = observations as GameCompatibilityObservations & {
+    lastAuthSuccessAt?: unknown;
+    lastAuthFailureAt?: unknown;
+  };
+  return clean;
 }
 
 function isCompatibilityReport(value: unknown): value is GameCompatibilityReport {

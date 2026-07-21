@@ -154,11 +154,9 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Workspace zoom could not be applied in external Chrome. Restart this role to try again.":
     "notice.externalZoomUnavailable",
   "Launch workspace has no roles.": "error.workspaceEmpty",
-  "Login required. Use Login before launching every role in this workspace.": "error.workspaceLoginRequired",
-  "Login required. Use Login before launching this role.": "error.loginRequired",
   "Google Chrome was not found. Install Chrome or set RION_STUDIO_CHROME_PATH to the Chrome executable.":
     "error.chromeNotFound",
-  "Chrome is still using this role's browser data. Quit the Chrome login window and try again.":
+  "Chrome is still using this role's browser data. Quit Chrome and try again.":
     "error.browserUserDataLockTimeout",
   "Unable to start the hidden Rion Studio browser helper.": "error.hiddenBrowserHelperUnavailable",
   "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings.":
@@ -169,11 +167,6 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
     "notice.cdnCompatibilityExternalActive",
   "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.":
     "notice.cdnCompatibilityUnavailable",
-  "Unable to check login session.": "error.unableCheckSession",
-  "Google rejected this browser during session check.": "error.googleRejected",
-  "Login is still required.": "error.loginStillRequired",
-  "Login is still required. No persisted login session was found.": "error.noPersistedLoginSession",
-  "Login failed.": "error.loginFailedSentence"
 };
 
 export function createTranslator(

@@ -111,7 +111,6 @@ function GamesRoute({
             const gameRoles = roles.filter((role) => role.gameId === game.id);
             const report = reports.find((item) => item.gameId === game.id);
             const running = gameRoles.filter((role) => statusByRole.has(role.id)).length;
-            const needsLogin = gameRoles.filter((role) => role.authState !== "authenticated").length;
             const checking = runStatuses.some((item) => item.gameId === game.id);
             const iconUrl = getGameIconUrl(game);
             const coverUrl = getGameCoverUrl(game);
@@ -225,7 +224,6 @@ function GamesRoute({
                   <div className="grid grid-cols-3 gap-2 text-center text-xs">
                     <Metric label={t("games.roles")} value={gameRoles.length} />
                     <Metric label={t("games.running")} value={running} />
-                    <Metric label={t("games.needsLogin")} value={needsLogin} />
                   </div>
                 </div>
               </Card>

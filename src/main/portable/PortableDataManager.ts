@@ -1068,7 +1068,6 @@ function createMergedGame(existing: Game, source: PortableGame, timestamp: strin
     ...existing,
     name: existing.source === "builtin" ? existing.name : source.name,
     defaultLaunchUrl: source.defaultLaunchUrl,
-    loginUrl: source.loginUrl,
     iconImageDataUrl: existing.source === "builtin" ? existing.iconImageDataUrl : source.iconImageDataUrl,
     coverImageDataUrl: existing.source === "builtin" ? existing.coverImageDataUrl : source.coverImageDataUrl,
     browserLaunchMode: source.browserLaunchMode,
@@ -1088,7 +1087,6 @@ function createImportedGame(source: PortableGame, name: string, timestamp: strin
     ...(source.iconImageDataUrl && !definition ? { iconImageDataUrl: source.iconImageDataUrl } : {}),
     ...(source.coverImageDataUrl && !definition ? { coverImageDataUrl: source.coverImageDataUrl } : {}),
     defaultLaunchUrl: source.defaultLaunchUrl,
-    ...(source.loginUrl ? { loginUrl: source.loginUrl } : {}),
     browserLaunchMode: source.browserLaunchMode,
     createdAt: timestamp,
     updatedAt: timestamp
@@ -1148,7 +1146,7 @@ function createImportedRole(
     name,
     launchUrl: source.launchUrl,
     notes: source.notes,
-    authState: "login_required",
+    browserSessionSource: "embedded",
     ...(source.coverImageDataUrl ? { coverImageDataUrl: source.coverImageDataUrl } : {}),
     ...(source.coverImageDataUrl && source.coverImageDominantColor
       ? { coverImageDominantColor: source.coverImageDominantColor }
@@ -1442,7 +1440,6 @@ function toPortableGame(game: Game): PortableGame {
     ...(game.iconImageDataUrl ? { iconImageDataUrl: game.iconImageDataUrl } : {}),
     ...(game.coverImageDataUrl ? { coverImageDataUrl: game.coverImageDataUrl } : {}),
     defaultLaunchUrl: game.defaultLaunchUrl,
-    ...(game.loginUrl ? { loginUrl: game.loginUrl } : {}),
     browserLaunchMode: game.browserLaunchMode
   };
 }
@@ -1544,7 +1541,6 @@ function normalizePortableGame(value: unknown): PortableGame {
   const coverImageDataUrl = source === "custom"
     ? normalizeOptionalGameCoverDataUrl(game.coverImageDataUrl)
     : undefined;
-  const loginUrl = normalizeOptionalPortableUrl(game.loginUrl);
   return {
     id: normalizeRequiredString(game.id),
     source,
@@ -1553,7 +1549,6 @@ function normalizePortableGame(value: unknown): PortableGame {
     ...(iconImageDataUrl ? { iconImageDataUrl } : {}),
     ...(coverImageDataUrl ? { coverImageDataUrl } : {}),
     defaultLaunchUrl: normalizeLaunchUrl(game.defaultLaunchUrl),
-    ...(loginUrl ? { loginUrl } : {}),
     browserLaunchMode: normalizeInheritableBrowserLaunchMode(game.browserLaunchMode)
   };
 }
@@ -1977,14 +1972,6 @@ function normalizeLaunchUrl(value: unknown): string {
   } catch {
     throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
   }
-}
-
-function normalizeOptionalPortableUrl(value: unknown): string | undefined {
-  if (value === undefined || value === null || value === "") {
-    return undefined;
-  }
-
-  return normalizeLaunchUrl(value);
 }
 
 function normalizeInheritableBrowserLaunchMode(value: unknown): InheritableBrowserLaunchMode {

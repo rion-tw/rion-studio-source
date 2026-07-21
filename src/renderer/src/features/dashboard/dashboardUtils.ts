@@ -1,5 +1,4 @@
 import type {
-  AuthFlowStatus,
   LaunchWorkspace,
   Macro,
   MacroRunStatus,
@@ -9,7 +8,6 @@ import type {
 import { findUnassignedMacroDependency } from "../../../../shared/macroDependencies";
 
 export interface DashboardSummary {
-  rolesNeedingLogin: number;
   runningMacros: number;
   runningRoles: number;
   totalMacros: number;
@@ -27,23 +25,16 @@ export interface DashboardSummaryInput {
 
 export interface DashboardRoleItem {
   action: DashboardRoleActionState;
-  authStatus?: AuthFlowStatus;
   role: Role;
   status?: RoleStatus;
 }
 
-export type DashboardRoleActionKind = "launch" | "login" | "stop";
+export type DashboardRoleActionKind = "launch" | "stop";
 
 export interface DashboardRoleActionState {
   disabled: boolean;
   isBusy: boolean;
   kind: DashboardRoleActionKind;
-}
-
-export type DashboardPendingAuthKind = "authFailed" | "authFlow" | "loginRequired";
-
-export interface DashboardPendingAuthItem extends DashboardRoleItem {
-  pendingKind: DashboardPendingAuthKind;
 }
 
 export interface DashboardWorkspaceItem {
@@ -104,7 +95,6 @@ export function createDashboardSummary({
   );
 
   return {
-    rolesNeedingLogin: roles.filter((role) => role.authState !== "authenticated").length,
     runningMacros: runningMacroIds.size,
     runningRoles: runningRoleIds.size,
     totalMacros: macros.length,
@@ -114,12 +104,10 @@ export function createDashboardSummary({
 }
 
 export function getDashboardRoleItems({
-  authStatusByRole,
   busyRoleIds,
   roles,
   statusByRole
 }: {
-  authStatusByRole: Map<string, AuthFlowStatus>;
   busyRoleIds: ReadonlySet<string>;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
@@ -127,35 +115,13 @@ export function getDashboardRoleItems({
   return roles
     .map((role) => {
       const status = statusByRole.get(role.id);
-      const authStatus = authStatusByRole.get(role.id);
-
       return {
-        action: createRoleActionState({ authStatus, busyRoleIds, role, status }),
-        authStatus,
+        action: createRoleActionState({ busyRoleIds, role, status }),
         role,
         status
       };
     })
     .sort(compareRoleItems);
-}
-
-export function getPendingAuthItems({
-  authStatusByRole,
-  busyRoleIds,
-  roles,
-  statusByRole
-}: {
-  authStatusByRole: Map<string, AuthFlowStatus>;
-  busyRoleIds: ReadonlySet<string>;
-  roles: Role[];
-  statusByRole: Map<string, RoleStatus>;
-}): DashboardPendingAuthItem[] {
-  return getDashboardRoleItems({ authStatusByRole, busyRoleIds, roles, statusByRole })
-    .flatMap((item): DashboardPendingAuthItem[] => {
-      const pendingKind = getPendingAuthKind(item.role, item.authStatus);
-      return pendingKind ? [{ ...item, pendingKind }] : [];
-    })
-    .sort(comparePendingAuthItems);
 }
 
 export function createWorkspaceActionState({
@@ -305,20 +271,17 @@ export function getDashboardMacroItems({
 }
 
 function createRoleActionState({
-  authStatus,
   busyRoleIds,
   role,
   status
 }: {
-  authStatus?: AuthFlowStatus;
   busyRoleIds: ReadonlySet<string>;
   role: Role;
   status?: RoleStatus;
 }): DashboardRoleActionState {
-  const isAuthFlowRunning = Boolean(authStatus && authStatus.state !== "failed");
   const isStatusBusy = status?.state === "launching" || status?.state === "stopping";
-  const isBusy = busyRoleIds.has(role.id) || isAuthFlowRunning || isStatusBusy;
-  const kind: DashboardRoleActionKind = status ? "stop" : role.authState === "authenticated" ? "launch" : "login";
+  const isBusy = busyRoleIds.has(role.id) || isStatusBusy;
+  const kind: DashboardRoleActionKind = status ? "stop" : "launch";
 
   return {
     disabled: isBusy,
@@ -327,29 +290,8 @@ function createRoleActionState({
   };
 }
 
-function getPendingAuthKind(role: Role, authStatus: AuthFlowStatus | undefined): DashboardPendingAuthKind | null {
-  if (authStatus && authStatus.state !== "failed") {
-    return "authFlow";
-  }
-
-  if (authStatus?.state === "failed" || role.authState === "auth_failed") {
-    return "authFailed";
-  }
-
-  if (role.authState !== "authenticated") {
-    return "loginRequired";
-  }
-
-  return null;
-}
-
 function compareRoleItems(left: DashboardRoleItem, right: DashboardRoleItem): number {
   const rankDelta = getRoleSortRank(left) - getRoleSortRank(right);
-  return rankDelta || compareIsoDesc(left.role.updatedAt, right.role.updatedAt);
-}
-
-function comparePendingAuthItems(left: DashboardPendingAuthItem, right: DashboardPendingAuthItem): number {
-  const rankDelta = getPendingSortRank(left.pendingKind) - getPendingSortRank(right.pendingKind);
   return rankDelta || compareIsoDesc(left.role.updatedAt, right.role.updatedAt);
 }
 
@@ -378,22 +320,7 @@ function getRoleSortRank(item: DashboardRoleItem): number {
     return 2;
   }
 
-  if (item.role.authState === "authenticated") {
-    return 3;
-  }
-
-  return 4;
-}
-
-function getPendingSortRank(kind: DashboardPendingAuthKind): number {
-  switch (kind) {
-    case "authFlow":
-      return 0;
-    case "authFailed":
-      return 1;
-    case "loginRequired":
-      return 2;
-  }
+  return 3;
 }
 
 function createMacroRunKey(roleId: string, macroId: string): string {

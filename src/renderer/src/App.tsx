@@ -263,7 +263,6 @@ export function App(): JSX.Element {
     beginErrorOperation: data.beginErrorOperation,
     gameNamesById: new Map(data.games.map((game) => [game.id, game.name])),
     roles: data.roles,
-    setAuthStatuses: data.setAuthStatuses,
     setMacros: data.setMacros,
     setNotice,
     setRoles: data.setRoles,
@@ -490,15 +489,12 @@ export function App(): JSX.Element {
 
   const roleEditorElement = hasBridge ? (
     <RoleEditorRoute
-      authStatusByRole={data.authStatusByRole}
-      busyRoleIds={roleWorkflow.busyRoleIds}
       games={data.games}
       isSaving={roleWorkflow.isSaving}
       roles={data.roles}
       t={preferences.t}
       onClearBrowserData={roleWorkflow.handleClearBrowserData}
       onError={data.setError}
-      onRelogin={roleWorkflow.requestSystemLogin}
       onSave={roleWorkflow.saveRole}
     />
   ) : (
@@ -614,7 +610,6 @@ export function App(): JSX.Element {
               element={
                 hasBridge ? (
                   <DashboardRoute
-                    authStatusByRole={data.authStatusByRole}
                     embeddedRuntime={data.embeddedRuntime}
                     gameCount={data.games.length}
                     busyMacroIds={macroWorkflow.busyMacroIds}
@@ -635,7 +630,6 @@ export function App(): JSX.Element {
                     onShowGameWindows={(displayId) => void window.rionStudio.showEmbeddedRuntimeWindows(displayId)}
                     onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
-                    onLoginRole={roleWorkflow.requestSystemLogin}
                     onNavigateMacros={navigateToMacros}
                     onNavigateGames={() => navigate("/games")}
                     onNavigateRoles={(filter) => {
@@ -663,12 +657,10 @@ export function App(): JSX.Element {
                 hasBridge ? (
                   <RolesRoute
                     activeFilter={roleWorkflow.activeFilter}
-                    authStatusByRole={data.authStatusByRole}
                     busyRoleIds={busyRoleIds}
                     filteredRoles={roleWorkflow.filteredRoles}
                     games={data.games}
                     isChromeProfileImportOpen={isChromeProfileImportOpen}
-                    language={preferences.language}
                     roleStats={data.roleStats}
                     roles={data.roles}
                     scrollPositionRef={roleWorkflow.listScrollTopRef}
@@ -684,7 +676,6 @@ export function App(): JSX.Element {
                     onEdit={(role) => navigateToEditRole(role.id)}
                     onFilterChange={roleWorkflow.setActiveFilter}
                     onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
-                    onLogin={roleWorkflow.requestSystemLogin}
                     onOpenChromeProfileImport={openChromeProfileImport}
                     onRecoverExternalRole={handleRecoverExternalRole}
                     onNewRole={navigateToNewRole}

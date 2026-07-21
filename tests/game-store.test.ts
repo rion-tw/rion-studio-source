@@ -67,6 +67,23 @@ describe("GameStore", () => {
     await expect(readFile(gamesPath, "utf8")).resolves.not.toContain("launchPreset");
   });
 
+  it("reads legacy loginUrl but atomically removes it from the stored game", async () => {
+    await store.initialize();
+    const game = await store.createGame({
+      name: "Legacy login URL",
+      defaultLaunchUrl: "https://example.test/game"
+    });
+    const gamesPath = join(baseDir, "games.json");
+    const file = JSON.parse(await readFile(gamesPath, "utf8")) as { games: Array<Record<string, unknown>> };
+    const storedGame = file.games.find((item) => item.id === game.id)!;
+    storedGame.loginUrl = "https://example.test/login";
+    await writeFile(gamesPath, JSON.stringify(file), "utf8");
+
+    await expect(new GameStore(baseDir, roleStore).getGame(game.id)).resolves.toEqual(game);
+    const migratedFile = JSON.parse(await readFile(gamesPath, "utf8")) as { games: Array<Record<string, unknown>> };
+    expect(migratedFile.games.find((item) => item.id === game.id)).not.toHaveProperty("loginUrl");
+  });
+
   it("ignores and removes invalid legacy stored game defaults", async () => {
     await store.initialize();
     const game = await store.createGame({
@@ -97,7 +114,6 @@ describe("GameStore", () => {
       name: "Unknown",
       launchUrl: "https://example.test/game"
     });
-    await roleStore.updateAuthState(known.id, "authenticated", "2026-07-10T01:00:00.000Z");
     const before = await roleStore.getRole(known.id);
 
     await store.initialize();
@@ -112,10 +128,9 @@ describe("GameStore", () => {
     expect(secondGames).toEqual(firstGames);
     expect(migratedKnown).toMatchObject({
       id: before.id,
-      authState: before.authState,
+      browserSessionSource: before.browserSessionSource,
       createdAt: before.createdAt,
       updatedAt: before.updatedAt,
-      lastSuccessfulLoginAt: before.lastSuccessfulLoginAt
     });
   });
 

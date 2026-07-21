@@ -13,15 +13,6 @@ import type {
   WebContentsViewConstructorOptions
 } from "electron";
 
-import type { AuthSessionCheckResult } from "../auth/authSessionClassification";
-import {
-  createLoginStorageSnapshot,
-  LOGIN_STORAGE_EXPRESSION
-} from "../auth/loginEvidence";
-import {
-  waitForSettledAuthSession,
-  type WaitForSettledAuthSessionOptions
-} from "../auth/settledAuthSession";
 import { DEFAULT_WORKSPACE_APPEARANCE_SETTINGS } from "../../shared/browserFonts";
 import type {
   AppLanguage,
@@ -76,7 +67,6 @@ export interface BrowserManagerEvents {
 }
 
 export interface BrowserLaunchOptions {
-  forceLaunchUrl?: boolean;
   zoomFactor?: number;
   target?: BrowserWorkspaceLaunchTarget;
 }
@@ -135,7 +125,7 @@ export interface BrowserManagerOptions {
   externalChromeManager?: ExternalChromeManager;
   getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
-  getLoginUrl?: (role: Role) => string | Promise<string>;
+  getRoleSession?: (role: Role) => Session | undefined;
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getLaunchWorkArea: () => PixelBounds;
   getDefaultLaunchTarget?: () => BrowserWorkspaceLaunchTarget;
@@ -151,8 +141,6 @@ export interface BrowserManagerOptions {
     | Promise<WorkspaceAppearanceSettings>;
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
-  loginPollIntervalMs?: number;
-  authSessionSettleOptions?: WaitForSettledAuthSessionOptions;
   onEmbeddedWebContentsCreated?: (
     context: EmbeddedRuntimeDiagnosticContext,
     webContents: WebContents
@@ -170,13 +158,6 @@ export class BrowserGameLoadError extends Error {
       "Unable to load the game page. If you use a game accelerator, enable global, TUN, or system proxy mode, or set a local proxy in Game settings."
     );
     this.name = "BrowserGameLoadError";
-  }
-}
-
-export class BrowserLoginCancelledError extends Error {
-  constructor() {
-    super("Login flow was cancelled.");
-    this.name = "BrowserLoginCancelledError";
   }
 }
 
@@ -1065,82 +1046,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       this.pendingWorkspaceLaunchIds.delete(workspace.id);
       this.cleanupWorkspaceDisplayReservation(workspace.id);
       this.emitChange();
-    }
-  }
-
-  startLogin(role: Role, options: BrowserLaunchOptions = {}): Promise<void> {
-    return this.runRoleOperation([role.id], () => this.startLoginUnlocked(role, options));
-  }
-
-  private async startLoginUnlocked(role: Role, options: BrowserLaunchOptions): Promise<void> {
-    let session = this.sessions.get(role.id);
-
-    if (!session) {
-      const target = options.target ?? this.getDefaultLaunchTarget();
-      const gameIconDataUrl = await this.resolveRuntimeTabGameIcon(role);
-      const host = this.createHost(
-        role.name,
-        undefined,
-        target.workArea,
-        undefined,
-        target.displayId,
-        role.id,
-        gameIconDataUrl
-      );
-      await this.applyBrowserFonts(role);
-      session = this.createSession(role, host, FULL_WINDOW_RECT, DEFAULT_BROWSER_ZOOM_FACTOR);
-    } else {
-      session.role = role;
-      session.state = "launching";
-      session.launchedAt = undefined;
-      this.emitChange();
-    }
-
-    await this.applyZoom(session, DEFAULT_BROWSER_ZOOM_FACTOR);
-    this.assertSessionActive(session);
-    const currentUrl = session.webContents.getURL();
-    if (!currentUrl || currentUrl === "about:blank" || options.forceLaunchUrl) {
-      await this.applyBrowserProxy(session);
-      this.assertSessionActive(session);
-      await this.applyCdnCompatibility(session);
-      this.assertSessionActive(session);
-      const loginUrl = options.forceLaunchUrl ? role.launchUrl : await this.getLoginUrl(role);
-      this.assertSessionActive(session);
-      await session.webContents.loadURL(loginUrl);
-      this.assertSessionActive(session);
-    }
-    await this.focusSession(session);
-  }
-
-  async waitForAuthentication(roleId: string): Promise<AuthSessionCheckResult> {
-    while (true) {
-      const session = this.sessions.get(roleId);
-      if (!session || session.webContents.isDestroyed()) {
-        throw new BrowserLoginCancelledError();
-      }
-
-      const result = await this.checkSessionAuthentication(session.role, session);
-      if (result.authState === "authenticated") {
-        session.state = "running";
-        session.launchedAt = new Date().toISOString();
-        await this.installMacroOverlay(session.role, session.webContents);
-        const host = this.hosts.get(session.hostId);
-        if (host && host.type === "role") {
-          await this.resourceCoordinator.activateWorkspace(
-            host.id,
-            { mode: "unrestricted" },
-            [new ElectronWorkspaceResourceTarget(session.role.id, session.webContents)]
-          );
-        }
-        this.emitChange();
-        return result;
-      }
-
-      if (result.authState === "auth_failed") {
-        return result;
-      }
-
-      await delay(this.options.loginPollIntervalMs ?? 1_500);
     }
   }
 
@@ -2183,12 +2088,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         ) / 100
       : zoomFactor;
     const partition = createRoleSessionPartition(role.id);
+    const roleSession = this.options.getRoleSession?.(role);
     const view = this.options.createView({
       webPreferences: {
         backgroundThrottling: true,
         contextIsolation: true,
         nodeIntegration: false,
-        partition,
+        ...(roleSession ? { session: roleSession } : { partition }),
         preload: this.options.embeddedPreloadPath,
         sandbox: true,
         spellcheck: false,
@@ -2342,9 +2248,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return this.options.getBrowserLaunchMode?.(role) ?? "embedded";
   }
 
-  private getLoginUrl(role: Role): string | Promise<string> {
-    return this.options.getLoginUrl?.(role) ?? role.launchUrl;
-  }
 
   private getWorkspaceAppearanceSettings():
     | WorkspaceAppearanceSettings
@@ -2423,28 +2326,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
   }
 
-  private async checkSessionAuthentication(role: Role, session: BrowserSession): Promise<AuthSessionCheckResult> {
-    const webContents = session.webContents;
-
-    try {
-      return await waitForSettledAuthSession(async () => {
-        const [cookies, runtimeValue] = await Promise.all([
-          webContents.session.cookies.get({ url: role.launchUrl }),
-          webContents.executeJavaScript(LOGIN_STORAGE_EXPRESSION)
-        ]);
-        return {
-          finalUrl: webContents.getURL(),
-          snapshot: createLoginStorageSnapshot(cookies, runtimeValue)
-        };
-      }, this.options.authSessionSettleOptions);
-    } catch (error) {
-      return {
-        authState: "auth_failed",
-        finalUrl: webContents.getURL(),
-        message: error instanceof Error ? error.message : "Unable to check embedded login session."
-      };
-    }
-  }
 
   private configureWindowOpenHandler(session: BrowserSession, webContents: WebContents): void {
     webContents.setWindowOpenHandler(() => ({
@@ -3441,8 +3322,4 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
     typeof payload.screenPosition === "number" &&
     Number.isFinite(payload.screenPosition)
   );
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -14,7 +14,7 @@ Rion Studio does not intentionally ask for or maintain a separate password datab
 
 ## 3. Why the app handles this data
 
-Local data is used to restore roles, sessions, browser windows, workspaces, settings, and macros that you request. Login evidence is inspected locally to determine whether a role appears authenticated. The Rion Studio project does not receive this local data merely because you use the app.
+Local data is used to restore roles, browser sessions, browser windows, workspaces, settings, and macros that you request. Rion Studio does not inspect or record whether a role is authenticated, and the project does not receive this local data merely because you use the app.
 
 ## 4. Network communications and third parties
 

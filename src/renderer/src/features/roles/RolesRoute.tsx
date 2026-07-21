@@ -5,7 +5,6 @@ import {
   FileWarning,
   Globe2,
   Loader2,
-  LogIn,
   MoreHorizontal,
   Pencil,
   Play,
@@ -41,34 +40,30 @@ import { SearchField } from "../../components/SearchField";
 import { getGameIconUrl } from "../../app/gamePresentation";
 import { moveItemById } from "../../app/reorderItems";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
-import { localizeErrorMessage, type Language, type TranslationKey, type Translator } from "../../i18n";
+import { type Language, type TranslationKey, type Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
-import type { AuthFlowStatus, Game, Role, RoleStatus } from "../../../../shared/types";
+import type { Game, Role, RoleStatus } from "../../../../shared/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import type { AppStats, SidebarFilter } from "../../app/types";
-import { formatAuthFlowState, shouldShowLoginGuidance } from "../../app/statusUtils";
 import { createRoleCardStyle } from "./roleCardStyle";
-import { LoginSessionGuide } from "./LoginSessionGuide";
 import { useListSelection } from "../../hooks/useListSelection";
 
 const filterLabelKeys: Record<SidebarFilter, TranslationKey> = {
   all: "roles.filter.all",
   running: "roles.filter.running",
   stopped: "roles.filter.stopped",
-  needsLogin: "roles.filter.needsLogin"
 };
 
-const filterOrder: SidebarFilter[] = ["all", "running", "stopped", "needsLogin"];
+const filterOrder: SidebarFilter[] = ["all", "running", "stopped"];
 
 interface RolesViewProps {
   activeFilter: SidebarFilter;
-  authStatusByRole: Map<string, AuthFlowStatus>;
   busyRoleIds: ReadonlySet<string>;
   filteredRoles: Role[];
   games: Game[];
   isChromeProfileImportOpen?: boolean;
   isReordering: boolean;
-  language: Language;
+  language?: Language;
   roleStats: AppStats;
   roles: Role[];
   scrollPositionRef: MutableRefObject<number>;
@@ -84,7 +79,6 @@ interface RolesViewProps {
   onEdit: (role: Role) => void;
   onFilterChange: (filter: SidebarFilter) => void;
   onLaunch: (roleId: string) => void;
-  onLogin: (roleId: string) => void;
   onOpenChromeProfileImport?: () => void;
   onRecoverExternalRole?: (roleId: string) => void;
   onNewRole: () => void;
@@ -95,13 +89,11 @@ interface RolesViewProps {
 
 function RolesView({
   activeFilter,
-  authStatusByRole,
   busyRoleIds,
   filteredRoles,
   games,
   isChromeProfileImportOpen = false,
   isReordering,
-  language,
   roleStats,
   roles,
   scrollPositionRef,
@@ -117,7 +109,6 @@ function RolesView({
   onEdit,
   onFilterChange,
   onLaunch,
-  onLogin,
   onOpenChromeProfileImport = () => undefined,
   onRecoverExternalRole = () => undefined,
   onNewRole,
@@ -140,12 +131,7 @@ function RolesView({
     all: roleStats.total,
     running: roleStats.running,
     stopped: roleStats.stopped,
-    needsLogin: roleStats.needsLogin
   };
-  const activeLoginGuides = roles.flatMap((role) => {
-    const authStatus = authStatusByRole.get(role.id);
-    return shouldShowLoginGuidance(authStatus) ? [{ role, authStatus }] : [];
-  });
 
   function clearDragState(): void {
     setDraggedRoleId(null);
@@ -260,10 +246,6 @@ function RolesView({
         />
       ) : null}
 
-      {activeLoginGuides.map(({ role, authStatus }) => (
-        <LoginSessionGuide key={role.id} authStatus={authStatus} roleName={role.name} t={t} />
-      ))}
-
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <RoleFilterTabs
           activeFilter={activeFilter}
@@ -290,12 +272,10 @@ function RolesView({
         <div className="grid auto-rows-fr grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
           {visibleRoles.map((role) => {
             const status = statusByRole.get(role.id);
-            const authStatus = authStatusByRole.get(role.id);
             const isBusy =
               busyRoleIds.has(role.id) ||
               status?.state === "launching" ||
-              status?.state === "stopping" ||
-              Boolean(authStatus && authStatus.state !== "failed");
+              status?.state === "stopping";
 
             return (
               <RoleCard
@@ -303,13 +283,11 @@ function RolesView({
                 game={gameById.get(role.gameId)}
                 role={role}
                 status={status}
-                authStatus={authStatus}
                 canReorder={canReorder}
                 isDragging={draggedRoleId === role.id}
                 isDropTarget={dropTargetRoleId === role.id}
                 isBusy={isBusy}
                 isSelected={selection.isSelected(role.id)}
-                language={language}
                 selectionRef={selection.registerItem(role.id)}
                 t={t}
                 onCopy={() => onCopy(role)}
@@ -318,7 +296,6 @@ function RolesView({
                 onDelete={() => onDelete(role)}
                 onEdit={() => onEdit(role)}
                 onLaunch={() => onLaunch(role.id)}
-                onLogin={() => onLogin(role.id)}
                 onRecoverExternalRole={() => onRecoverExternalRole(role.id)}
                 onDragEnd={clearDragState}
                 onDragOver={(event) => handleDragOver(event, role.id)}
@@ -360,14 +337,12 @@ function RoleFilterTabs({ activeFilter, counts, t, onFilterChange }: RoleFilterT
 }
 
 interface RoleCardProps {
-  authStatus?: AuthFlowStatus;
   game?: Game;
   canReorder: boolean;
   isBusy: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
   isSelected: boolean;
-  language: Language;
   onCopy: () => void;
   onClearBrowserData: () => void;
   onCaptureExternalDiagnostics: () => void;
@@ -378,7 +353,6 @@ interface RoleCardProps {
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
   onLaunch: () => void;
-  onLogin: () => void;
   onRecoverExternalRole: () => void;
   onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
@@ -389,14 +363,12 @@ interface RoleCardProps {
 }
 
 function RoleCard({
-  authStatus,
   game,
   canReorder,
   isBusy,
   isDragging,
   isDropTarget,
   isSelected,
-  language,
   onCopy,
   onClearBrowserData,
   onCaptureExternalDiagnostics,
@@ -407,7 +379,6 @@ function RoleCard({
   onDragStart,
   onDrop,
   onLaunch,
-  onLogin,
   onRecoverExternalRole,
   onStop,
   onSelectionClick,
@@ -417,13 +388,11 @@ function RoleCard({
   t
 }: RoleCardProps): JSX.Element {
   const isActive = Boolean(status);
-  const isAuthFlowRunning = Boolean(authStatus && authStatus.state !== "failed");
-  const isAuthenticated = role.authState === "authenticated";
   const isExternalCompatibilitySession = status?.runtimeMode === "external" && status.state === "running";
   const isPageUnresponsive = isExternalCompatibilitySession && status.pageHealth === "unresponsive";
   const coverImageUrl = role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
-  const canUsePrimaryOverlayAction = isAuthenticated && !isAuthFlowRunning;
-  const hasBottomAction = isAuthFlowRunning || !isAuthenticated;
+  const canUsePrimaryOverlayAction = true;
+  const hasBottomAction = false;
   const primaryActionLabel = isActive ? t("role.stop") : t("role.launch");
   const cardStyle = createRoleCardStyle({
     color: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
@@ -455,7 +424,6 @@ function RoleCard({
 
       <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <RoleActionMenu
-          canRelogin={isAuthenticated}
           canReorder={canReorder}
           isDragging={isDragging}
           isBusy={isBusy}
@@ -467,7 +435,6 @@ function RoleCard({
           onEdit={onEdit}
           onDragEnd={onDragEnd}
           onDragStart={onDragStart}
-          onRelogin={onLogin}
         />
       </div>
 
@@ -501,18 +468,6 @@ function RoleCard({
 
       <div className="relative z-10 flex h-full flex-col justify-end p-3">
         <div className="relative isolate grid gap-2">
-          {authStatus?.state === "failed" ? (
-            <p
-              className={cn(
-                "line-clamp-2 flex min-h-5 items-start gap-1.5 text-sm leading-5",
-                "text-destructive"
-              )}
-            >
-              <AlertCircle className="mt-0.5 shrink-0" size={14} />
-              {authStatus.message ? localizeErrorMessage(authStatus.message, language) : t("error.loginFailedSentence")}
-            </p>
-          ) : null}
-
           {isExternalCompatibilitySession ? (
             <div className={cn(
               "flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-1.5 text-[10px] font-medium backdrop-blur-md",
@@ -573,25 +528,7 @@ function RoleCard({
                 </p>
               </div>
             </div>
-            {isAuthFlowRunning && authStatus ? (
-              <Button
-                className="role-cover-control h-7 min-w-[88px] shrink-0 gap-1.5 rounded-full px-2 text-[11px] text-white shadow-none hover:text-white"
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled
-              >
-                <Loader2 className="spin" size={14} />
-                {formatAuthFlowState(authStatus, t)}
-              </Button>
-            ) : isAuthenticated ? null : (
-              <LoginButton
-                className="role-cover-control h-7 min-w-[88px] shrink-0 gap-1.5 rounded-full px-2 text-[11px] text-white shadow-none hover:text-white"
-                isBusy={isBusy}
-                t={t}
-                onLogin={onLogin}
-              />
-            )}
+            {null}
           </div>
         </div>
       </div>
@@ -599,32 +536,7 @@ function RoleCard({
   );
 }
 
-interface LoginButtonProps {
-  className?: string;
-  isBusy: boolean;
-  onLogin: () => void;
-  t: Translator;
-}
-
-function LoginButton({ className, isBusy, onLogin, t }: LoginButtonProps): JSX.Element {
-  return (
-    <Button
-      className={className}
-      type="button"
-      variant="secondary"
-      size="sm"
-      onClick={onLogin}
-      disabled={isBusy}
-      title={t("role.login")}
-    >
-      {isBusy ? <Loader2 className="spin" size={14} /> : <LogIn size={14} />}
-      {t("role.login")}
-    </Button>
-  );
-}
-
 interface RoleActionMenuProps {
-  canRelogin: boolean;
   canReorder: boolean;
   isBusy: boolean;
   isDragging: boolean;
@@ -635,12 +547,10 @@ interface RoleActionMenuProps {
   onEdit: () => void;
   onDragEnd: () => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
-  onRelogin: () => void;
   t: Translator;
 }
 
 function RoleActionMenu({
-  canRelogin,
   canReorder,
   isBusy,
   isDragging,
@@ -651,7 +561,6 @@ function RoleActionMenu({
   onEdit,
   onDragEnd,
   onDragStart,
-  onRelogin,
   t
 }: RoleActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
@@ -704,11 +613,6 @@ function RoleActionMenu({
   function handleClearBrowserData(): void {
     setIsOpen(false);
     onClearBrowserData();
-  }
-
-  function handleRelogin(): void {
-    setIsOpen(false);
-    onRelogin();
   }
 
   function handleButtonDragStart(event: DragEvent<HTMLButtonElement>): void {
@@ -778,18 +682,6 @@ function RoleActionMenu({
             <Copy size={14} />
             <span>{t("role.copy")}</span>
           </button>
-          {canRelogin ? (
-            <button
-              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              type="button"
-              role="menuitem"
-              onClick={handleRelogin}
-              disabled={isBusy}
-            >
-              <LogIn size={14} />
-              <span>{t("role.relogin")}</span>
-            </button>
-          ) : null}
           <div className="my-1 border-t border-border/60" role="separator" />
           <button
             className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"

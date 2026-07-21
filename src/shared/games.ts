@@ -13,7 +13,6 @@ export interface BuiltinGameDefinition {
   builtinKey: BuiltinGameKey;
   name: string;
   defaultLaunchUrl: string;
-  loginUrl?: string;
   browserLaunchMode: InheritableBrowserLaunchMode;
 }
 

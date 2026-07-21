@@ -2,7 +2,7 @@ import type { Session } from "electron";
 
 import type { Role } from "../../shared/types";
 import type { RoleStore } from "../roles/RoleStore";
-import { createRoleSessionPartition, type BrowserManager } from "./BrowserManager";
+import type { BrowserManager } from "./BrowserManager";
 
 const ROLE_STORAGE_DATA_TYPES: NonNullable<Parameters<Session["clearData"]>[0]>["dataTypes"] = [
   "cache",
@@ -18,10 +18,10 @@ type RoleDataSession = Pick<Session, "clearData" | "clearStorageData" | "closeAl
 
 interface RoleBrowserDataManagerOptions {
   browserManager: Pick<BrowserManager, "stopRoleAndRunRecoverableMutation">;
-  getSession: (partition: string) => RoleDataSession;
+  getSession: (role: Role) => RoleDataSession;
   roleStore: Pick<
     RoleStore,
-    "getRole" | "resetBrowserUserDataDir" | "updateAuthState"
+    "getRole" | "resetBrowserUserDataDir" | "updateBrowserSessionSource"
   >;
 }
 
@@ -38,36 +38,28 @@ export class RoleBrowserDataManager {
   constructor(private readonly options: RoleBrowserDataManagerOptions) {}
 
   async clear(roleId: string): Promise<Role> {
-    await this.options.roleStore.getRole(roleId);
+    const role = await this.options.roleStore.getRole(roleId);
 
     return this.options.browserManager.stopRoleAndRunRecoverableMutation(roleId, async () => {
-      const storageOperations: Array<Promise<unknown>> = [
-        this.clearEmbeddedData(roleId),
-        this.options.roleStore.resetBrowserUserDataDir(roleId)
-      ];
-      const [authResult, ...storageResults] = await Promise.allSettled([
-        this.options.roleStore.updateAuthState(roleId, "login_required"),
-        ...storageOperations
+      const storageResults = await Promise.allSettled([
+        this.clearBrowserData(role),
+        this.options.roleStore.resetBrowserUserDataDir(roleId),
+        this.options.roleStore.updateBrowserSessionSource(roleId, "embedded")
       ]);
       const storageFailures = storageResults.flatMap(
         (result) => result.status === "rejected" ? [result.reason] : []
       );
 
-      if (authResult.status === "rejected" || storageFailures.length > 0) {
-        throw new RoleBrowserDataClearError([
-          ...(authResult.status === "rejected" ? [authResult.reason] : []),
-          ...storageFailures
-        ]);
+      if (storageFailures.length > 0) {
+        throw new RoleBrowserDataClearError(storageFailures);
       }
 
-      return authResult.status === "fulfilled"
-        ? authResult.value
-        : this.options.roleStore.getRole(roleId);
+      return this.options.roleStore.getRole(roleId);
     });
   }
 
-  private async clearEmbeddedData(roleId: string): Promise<void> {
-    const session = this.options.getSession(createRoleSessionPartition(roleId));
+  private async clearBrowserData(role: Role): Promise<void> {
+    const session = this.options.getSession(role);
     const failures: unknown[] = [];
 
     await session.closeAllConnections().catch((error) => failures.push(error));

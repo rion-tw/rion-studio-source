@@ -4,12 +4,12 @@ English | [繁體中文](docs/README.zh-TW.md) | [简体中文](docs/README.zh-C
 
 ![Rion Studio banner showing isolated roles, browser workspaces, and assistive controls](.github/assets/rion-studio-github-preview-1280x640.jpg)
 
-**A cross-platform login launcher and assistive workspace for web games.**
+**A cross-platform game launcher and assistive workspace for web games.**
 
-Rion Studio helps web game players keep every role, login session, and browser
-layout organized in one desktop app. Create dedicated browser roles, sign in with
-less friction, launch familiar window arrangements, and reduce repetitive manual
-actions while you stay actively in control of play.
+Rion Studio helps web game players keep every role, browser session, and window
+layout organized in one desktop app. Create dedicated browser roles, launch the
+game screen directly, reuse imported Chrome sessions, and reduce repetitive
+manual actions while you stay actively in control of play.
 
 ## Download
 
@@ -39,13 +39,13 @@ app or disable Gatekeeper system-wide.
 
 ## Why Rion Studio
 
-Web games often make players juggle multiple accounts, browser windows, login
-states, and repeated routine actions. Rion Studio turns that scattered workflow
+Web games often make players juggle multiple accounts, browser windows, saved
+browser sessions, and repeated routine actions. Rion Studio turns that scattered workflow
 into a focused control desk:
 
 - Keep each game role in its own isolated browser session.
 - Return to saved window layouts instead of rebuilding your setup every time.
-- Complete sensitive sign-in flows in system Chrome when needed.
+- Import an existing Chrome profile session into an isolated role when needed.
 - Run small assistive macros for keys, clicks, delays, and loops under your
   supervision.
 - Keep passwords out of the app. Rion Studio stores browser session data only.
@@ -57,11 +57,19 @@ into a focused control desk:
 Create a role for each game account, character, or task. Every role owns its own
 browser directory, so sessions stay separate and can be launched independently.
 
-### Smoother Login Flow
+### Direct Game Launch
 
-Some services block sign-in inside automation-controlled browsers. Rion Studio
-can open the same role directory in system Chrome for login, then verify the
-saved session before launching the normal bundled browser.
+Roles and launch workspaces always open their configured game URL directly.
+Rion Studio does not track whether a role is signed in, require a re-login, or
+hold an authentication status.
+
+### Chrome Profile Sessions
+
+After Chrome is closed and the user approves the import, Rion Studio copies the
+selected profile's supported browser storage into the role and injects its
+cookies into the embedded session. Passwords, Autofill, history, bookmarks, and
+extensions remain excluded. External Chrome is retained only as a game
+compatibility mode.
 
 ### Launch Workspaces
 

@@ -1,7 +1,6 @@
 import { Menu } from "electron";
 
 import type { PendingWorkspaceLaunchRequest } from "../../shared/types";
-import type { AuthManager } from "../auth/AuthManager";
 import type { BrowserManager } from "../browser/BrowserManager";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
@@ -9,7 +8,6 @@ import type { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCo
 import { buildAppQuickMenuTemplate } from "./AppQuickMenuTemplate";
 
 interface AppQuickMenuOptions {
-  authManager: Pick<AuthManager, "listStatuses" | "startLogin">;
   browserManager: Pick<
     BrowserManager,
     "launch" | "listEmbeddedRuntimeState" | "listStatuses" | "listWorkspaceRuntimeStatuses" |
@@ -50,13 +48,12 @@ export class AppQuickMenu {
     const version = ++this.refreshVersion;
 
     try {
-      const [roles, workspaces, statuses, workspaceStatuses, authStatuses, legalAccepted] =
+      const [roles, workspaces, statuses, workspaceStatuses, legalAccepted] =
         await Promise.all([
           this.options.roleStore.listRoles(),
           this.options.workspaceStore.listWorkspaces(),
           Promise.resolve(this.options.browserManager.listStatuses()),
           Promise.resolve(this.options.browserManager.listWorkspaceRuntimeStatuses()),
-          Promise.resolve(this.options.authManager.listStatuses()),
           this.options.canUseApp()
         ]);
 
@@ -64,7 +61,6 @@ export class AppQuickMenu {
 
       const template = buildAppQuickMenuTemplate(
         {
-          authStatuses,
           includeQuit: this.options.includeQuit,
           legalAccepted,
           roles,
@@ -78,7 +74,6 @@ export class AppQuickMenu {
           showAllGameWindows: () => this.options.browserManager.showEmbeddedRuntimeWindows(),
           showGameWindow: (displayId) => this.options.browserManager.showEmbeddedRuntimeWindows(displayId),
           launchRole: (roleId) => void this.launchRole(roleId),
-          startLogin: (roleId) => void this.startLogin(roleId),
           launchWorkspace: (workspaceId) => void this.launchWorkspace(workspaceId),
           stopWorkspace: (workspaceId) => void this.stopWorkspace(workspaceId),
           stopAll: () => void this.stopAll(),
@@ -100,30 +95,10 @@ export class AppQuickMenu {
       }
 
       const role = await this.options.roleStore.getRole(roleId);
-      if (role.authState !== "authenticated") {
-        this.options.authManager.startLogin(role);
-        this.scheduleRefresh();
-        return;
-      }
-
       await this.options.browserManager.launch(role);
       this.scheduleRefresh();
     } catch (error) {
       this.logger.error(`Failed to launch role from app menu: ${roleId}`, error);
-    }
-  }
-
-  private async startLogin(roleId: string): Promise<void> {
-    try {
-      if (!(await this.options.canUseApp())) {
-        this.options.openApp();
-        return;
-      }
-      const role = await this.options.roleStore.getRole(roleId);
-      this.options.authManager.startLogin(role);
-      this.scheduleRefresh();
-    } catch (error) {
-      this.logger.error(`Failed to start login from app menu: ${roleId}`, error);
     }
   }
 

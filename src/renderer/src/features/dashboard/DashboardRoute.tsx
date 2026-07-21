@@ -1,13 +1,10 @@
 import {
-  AlertCircle,
   ArrowRight,
-  CheckCircle2,
   Gamepad2,
   FileWarning,
   Keyboard,
   LayoutDashboard,
   Loader2,
-  LogIn,
   MonitorUp,
   Play,
   Square,
@@ -21,12 +18,10 @@ import { Button } from "../../components/ui/button";
 import { IconTile, PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import { CreateItemRow } from "../../components/CreateListItem";
 import { roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
-import { formatAuthFlowState } from "../../app/statusUtils";
 import type { SidebarFilter } from "../../app/types";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
-  AuthFlowStatus,
   EmbeddedRuntimeState,
   LaunchWorkspace,
   Macro,
@@ -40,15 +35,12 @@ import {
   getDashboardMacroItems,
   getDashboardRoleItems,
   getDashboardWorkspaceItems,
-  getPendingAuthItems,
   type DashboardMacroItem,
-  type DashboardPendingAuthItem,
   type DashboardRoleItem,
   type DashboardWorkspaceItem
 } from "./dashboardUtils";
 
 interface DashboardRouteProps {
-  authStatusByRole: Map<string, AuthFlowStatus>;
   embeddedRuntime: EmbeddedRuntimeState;
   gameCount: number;
   busyMacroIds: ReadonlySet<string>;
@@ -69,7 +61,6 @@ interface DashboardRouteProps {
   onShowGameWindows: (displayId?: number) => void;
   onLaunchRole: (roleId: string) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
-  onLoginRole: (roleId: string) => void;
   onNavigateMacros: () => void;
   onNavigateGames: () => void;
   onNavigateRoles: (filter: SidebarFilter) => void;
@@ -84,7 +75,6 @@ interface DashboardRouteProps {
 }
 
 function DashboardRoute({
-  authStatusByRole,
   embeddedRuntime,
   busyMacroIds,
   busyRoleIds,
@@ -105,7 +95,6 @@ function DashboardRoute({
   onShowGameWindows,
   onLaunchRole,
   onLaunchWorkspace,
-  onLoginRole,
   onNavigateMacros,
   onNavigateGames,
   onNavigateRoles,
@@ -123,12 +112,8 @@ function DashboardRoute({
     [macroStatuses, macros, roleStatuses, roles, workspaces]
   );
   const roleItems = useMemo(
-    () => getDashboardRoleItems({ authStatusByRole, busyRoleIds, roles, statusByRole }).slice(0, 6),
-    [authStatusByRole, busyRoleIds, roles, statusByRole]
-  );
-  const pendingItems = useMemo(
-    () => getPendingAuthItems({ authStatusByRole, busyRoleIds, roles, statusByRole }),
-    [authStatusByRole, busyRoleIds, roles, statusByRole]
+    () => getDashboardRoleItems({ busyRoleIds, roles, statusByRole }).slice(0, 6),
+    [busyRoleIds, roles, statusByRole]
   );
   const workspaceItems = useMemo(
     () => getDashboardWorkspaceItems({ busyWorkspaceIds, statusByRole, workspaces }).slice(0, 4),
@@ -146,7 +131,6 @@ function DashboardRoute({
       }).slice(0, 5),
     [busyMacroIds, busyRunKeys, macroStatusByRun, macros, roles, statusByRole]
   );
-  const visiblePendingItems = pendingItems.slice(0, 3);
 
   return (
     <PageFrame>
@@ -192,13 +176,6 @@ function DashboardRoute({
           onClick={() => onNavigateRoles("running")}
         />
         <StatCard
-          icon={LogIn}
-          label={t("dashboard.stat.needsLogin")}
-          value={summary.rolesNeedingLogin}
-          tone={summary.rolesNeedingLogin > 0 ? "warning" : "success"}
-          onClick={() => onNavigateRoles("needsLogin")}
-        />
-        <StatCard
           icon={LayoutDashboard}
           label={t("dashboard.stat.workspaces")}
           value={summary.workspaceCount}
@@ -214,15 +191,6 @@ function DashboardRoute({
         />
       </div>
 
-      {pendingItems.length > 0 ? (
-        <AttentionPanel
-          items={visiblePendingItems}
-          totalCount={pendingItems.length}
-          t={t}
-          onLoginRole={onLoginRole}
-          onViewAll={() => onNavigateRoles("needsLogin")}
-        />
-      ) : null}
 
       <div className="grid min-w-0 items-start gap-4 md:grid-cols-3">
         <div className="grid min-w-0 gap-4">
@@ -248,7 +216,6 @@ function DashboardRoute({
                     item={item}
                     t={t}
                     onLaunch={() => onLaunchRole(item.role.id)}
-                    onLogin={() => onLoginRole(item.role.id)}
                     onCaptureDiagnostics={() => onCaptureExternalDiagnostics(item.role.id)}
                     onRecover={() => onRecoverExternalRole(item.role.id)}
                     onStop={() => onStopRole(item.role.id)}
@@ -424,66 +391,6 @@ function StatCard({ icon: Icon, label, onClick, tone = "muted", value }: StatCar
   );
 }
 
-interface AttentionPanelProps {
-  items: DashboardPendingAuthItem[];
-  onLoginRole: (roleId: string) => void;
-  onViewAll: () => void;
-  t: Translator;
-  totalCount: number;
-}
-
-function AttentionPanel({ items, onLoginRole, onViewAll, t, totalCount }: AttentionPanelProps): JSX.Element {
-  if (totalCount === 0) {
-    return (
-      <Surface
-        className="flex min-w-0 items-center gap-3 border-success-foreground/10 px-3.5 py-3"
-        role="status"
-        variant="panel"
-      >
-        <IconTile className="border-success-foreground/15 bg-success/75 text-success-foreground" size="md">
-          <CheckCircle2 aria-hidden="true" size={16} />
-        </IconTile>
-        <div className="min-w-0 sm:flex sm:items-baseline sm:gap-2">
-          <p className="shrink-0 text-[13px] font-semibold leading-5">{t("dashboard.pending.emptyTitle")}</p>
-          <p className="truncate text-xs font-medium leading-5 text-muted-foreground">
-            {t("dashboard.pending.emptyDescription")}
-          </p>
-        </div>
-      </Surface>
-    );
-  }
-
-  return (
-    <Surface className="min-w-0 border-warning-foreground/15 p-3.5" variant="strong">
-      <div className="mb-3 flex min-w-0 items-center gap-2.5">
-        <IconTile className="border-warning-foreground/15 bg-warning/75 text-warning-foreground" size="md">
-          <AlertCircle aria-hidden="true" size={16} />
-        </IconTile>
-        <h2 className="min-w-0 truncate text-sm font-semibold leading-5">{t("dashboard.pending.title")}</h2>
-        <Badge className="shrink-0" variant="warning">
-          {totalCount}
-        </Badge>
-        <Button
-          aria-label={`${t("dashboard.viewRoles")}: ${t("dashboard.pending.title")}`}
-          className="ml-auto shrink-0 gap-1 px-2 text-[11px]"
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onViewAll}
-        >
-          {t("dashboard.viewRoles")}
-          <ArrowRight aria-hidden="true" size={13} />
-        </Button>
-      </div>
-      <div className="grid min-w-0 gap-2 sm:grid-cols-3">
-        {items.map((item) => (
-          <PendingAuthRow key={item.role.id} item={item} t={t} onLogin={() => onLoginRole(item.role.id)} />
-        ))}
-      </div>
-    </Surface>
-  );
-}
-
 interface PanelProps {
   actionLabel: string;
   children: JSX.Element;
@@ -544,46 +451,9 @@ function PanelEmpty({ actionLabel, description, icon: Icon, onAction, title }: P
   );
 }
 
-function PendingAuthRow({ item, onLogin, t }: { item: DashboardPendingAuthItem; onLogin: () => void; t: Translator }): JSX.Element {
-  const isFlowActive = item.pendingKind === "authFlow";
-  const isFailed = item.pendingKind === "authFailed";
-
-  return (
-    <div className="flex min-w-0 flex-col gap-2 rounded-md border border-border/35 bg-background/18 px-3 py-2.5">
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <AlertCircle
-            aria-hidden="true"
-            className={cn("shrink-0", isFailed ? "text-destructive" : "text-warning-foreground")}
-            size={15}
-          />
-          <p className="min-w-0 truncate text-[13px] font-semibold leading-5" title={item.role.name}>
-            {item.role.name}
-          </p>
-        </div>
-        <p className="mt-0.5 truncate text-xs font-medium leading-5 text-muted-foreground">
-          {getPendingDescription(item, t)}
-        </p>
-      </div>
-      <Button
-        className="mt-auto w-full gap-1.5"
-        type="button"
-        variant={isFailed ? "outline" : "secondary"}
-        size="sm"
-        onClick={onLogin}
-        disabled={item.action.disabled || isFlowActive}
-      >
-        {isFlowActive ? <Loader2 aria-hidden="true" className="spin" size={14} /> : <LogIn aria-hidden="true" size={14} />}
-        {isFlowActive ? t("dashboard.status.authInProgress") : t("dashboard.action.login")}
-      </Button>
-    </div>
-  );
-}
-
 function RoleLaunchRow({
   item,
   onLaunch,
-  onLogin,
   onCaptureDiagnostics,
   onRecover,
   onStop,
@@ -591,7 +461,6 @@ function RoleLaunchRow({
 }: {
   item: DashboardRoleItem;
   onLaunch: () => void;
-  onLogin: () => void;
   onCaptureDiagnostics: () => void;
   onRecover: () => void;
   onStop: () => void;
@@ -611,11 +480,6 @@ function RoleLaunchRow({
 
     if (item.action.kind === "stop") {
       onStop();
-      return;
-    }
-
-    if (item.action.kind === "login") {
-      onLogin();
       return;
     }
 
@@ -783,18 +647,6 @@ function MacroRunRow({
   );
 }
 
-function getPendingDescription(item: DashboardPendingAuthItem, t: Translator): string {
-  if (item.pendingKind === "authFlow" && item.authStatus) {
-    return formatAuthFlowState(item.authStatus, t);
-  }
-
-  if (item.pendingKind === "authFailed") {
-    return t("dashboard.status.authFailed");
-  }
-
-  return t("dashboard.status.needsLogin");
-}
-
 function getWorkspaceStatusLabel(item: DashboardWorkspaceItem, t: Translator): string {
   if (item.runningCount > 0) {
     return t("dashboard.workspace.runningRoles").replace("{count}", String(item.runningCount));
@@ -840,10 +692,6 @@ function formatLaunchUrl(launchUrl: string): string {
 }
 
 function getRoleStatusLabel(item: DashboardRoleItem, t: Translator): string {
-  if (item.authStatus && item.authStatus.state !== "failed") {
-    return formatAuthFlowState(item.authStatus, t);
-  }
-
   if (item.status?.state === "launching") {
     return t("dashboard.status.launching");
   }
@@ -859,22 +707,10 @@ function getRoleStatusLabel(item: DashboardRoleItem, t: Translator): string {
     return t("dashboard.status.stopping");
   }
 
-  if (item.authStatus?.state === "failed" || item.role.authState === "auth_failed") {
-    return t("dashboard.status.authFailed");
-  }
-
-  if (item.role.authState !== "authenticated") {
-    return t("dashboard.status.needsLogin");
-  }
-
   return t("dashboard.status.ready");
 }
 
 function getRoleBadgeVariant(item: DashboardRoleItem): "destructive" | "muted" | "success" | "warning" {
-  if (item.authStatus && item.authStatus.state !== "failed") {
-    return "warning";
-  }
-
   if (item.status?.state === "running") {
     if (item.status.pageHealth === "unresponsive") {
       return "warning";
@@ -886,19 +722,13 @@ function getRoleBadgeVariant(item: DashboardRoleItem): "destructive" | "muted" |
     return "warning";
   }
 
-  if (item.authStatus?.state === "failed" || item.role.authState === "auth_failed") {
-    return "destructive";
-  }
-
-  return item.role.authState === "authenticated" ? "muted" : "warning";
+  return "muted";
 }
 
 function getRoleActionLabel(kind: DashboardRoleItem["action"]["kind"], t: Translator): string {
   switch (kind) {
     case "launch":
       return t("role.launch");
-    case "login":
-      return t("dashboard.action.login");
     case "stop":
       return t("role.stop");
   }
@@ -908,8 +738,6 @@ function getRoleActionIcon(kind: DashboardRoleItem["action"]["kind"]): JSX.Eleme
   switch (kind) {
     case "launch":
       return <Play aria-hidden="true" size={14} />;
-    case "login":
-      return <LogIn aria-hidden="true" size={14} />;
     case "stop":
       return <Square aria-hidden="true" size={14} />;
   }

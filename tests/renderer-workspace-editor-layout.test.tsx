@@ -94,7 +94,7 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[0].textContent).toContain("A role can appear only once");
     expect(workspaceHelps[0].textContent).toContain("roles outside the new layout are not kept");
     expect(workspaceHelps[1].textContent).toContain("Launching the workspace");
-    expect(workspaceHelps[1].textContent).toContain("finish login for every assigned role");
+    expect(workspaceHelps[1].textContent).toContain("Assign at least one role before launching");
     expect(workspaceHelps[1].textContent).toContain("switches to external Chrome");
     expect(workspaceHelps[2].textContent).toContain("While running");
     expect(workspaceHelps[2].textContent).toContain("Command +/−/0 on macOS");
@@ -199,7 +199,6 @@ function role(index: number): Role {
     name: `Role ${index}`,
     launchUrl: "https://example.test/play",
     notes: "",
-    authState: "authenticated",
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   };

@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,7 +16,6 @@ const game: Game = {
   source: "custom",
   name: "Example",
   defaultLaunchUrl: "https://example.test/play",
-  loginUrl: "https://accounts.example.test/login",
   browserLaunchMode: "inherit",
   createdAt: "2026-07-15T00:00:00.000Z",
   updatedAt: "2026-07-15T00:00:00.000Z"
@@ -164,6 +163,27 @@ describe("GameCompatibilityManager", () => {
       graphics: { mode: "high_performance" }
     };
     expect((await manager.listReports())[0].isStale).toBe(true);
+  });
+
+  it("removes legacy login observations when compatibility data is read", async () => {
+    const reportPath = join(baseDir, "game-compatibility.json");
+    await writeFile(reportPath, JSON.stringify({ reports: [{
+      gameId: game.id,
+      isStale: false,
+      observations: {
+        lastAuthFailureAt: "2026-07-15T00:00:00.000Z",
+        lastAuthSuccessAt: "2026-07-15T00:01:00.000Z",
+        lastEmbeddedLaunchAt: "2026-07-15T00:02:00.000Z"
+      }
+    }] }), "utf8");
+
+    const compatibilityStore = new GameCompatibilityStore(baseDir);
+    await expect(compatibilityStore.listReports()).resolves.toMatchObject([{
+      observations: { lastEmbeddedLaunchAt: "2026-07-15T00:02:00.000Z" }
+    }]);
+    const migrated = JSON.parse(await readFile(reportPath, "utf8")) as { reports: Array<{ observations: Record<string, unknown> }> };
+    expect(migrated.reports[0].observations).not.toHaveProperty("lastAuthSuccessAt");
+    expect(migrated.reports[0].observations).not.toHaveProperty("lastAuthFailureAt");
   });
 });
 

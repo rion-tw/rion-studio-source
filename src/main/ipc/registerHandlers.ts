@@ -90,7 +90,6 @@ interface RegisterIpcHandlersOptions {
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
   onLegalAccepted?: () => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
-  clearRoleEmbeddedStorageSeed?: (roleId: string) => Promise<void>;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
   roleBrowserDataManager?: Pick<RoleBrowserDataManager, "clear">;
@@ -595,7 +594,6 @@ export function registerIpcHandlers(
         workspaceStore,
         browserManager,
         options.macroStore,
-        options.clearRoleEmbeddedStorageSeed,
         id
       );
       options.onRolesChanged?.();
@@ -611,7 +609,6 @@ export function registerIpcHandlers(
           workspaceStore,
           browserManager,
           options.macroStore,
-          options.clearRoleEmbeddedStorageSeed,
           id
         )
       );
@@ -856,12 +853,9 @@ async function deleteRoleRecord(
   workspaceStore: LaunchWorkspaceStore,
   browserManager: BrowserManager,
   macroStore: MacroStore | undefined,
-  clearRoleEmbeddedStorageSeed: ((roleId: string) => Promise<void>) | undefined,
   id: string
 ): Promise<void> {
   await browserManager.stopRoleAndRunMutation(id, async () => {
-    browserManager.clearEmbeddedDocumentStorageSeed(id);
-    await clearRoleEmbeddedStorageSeed?.(id);
     await roleStore.deleteRole(id);
     await workspaceStore.clearRole(id);
     await macroStore?.clearRoleAssignment(id);

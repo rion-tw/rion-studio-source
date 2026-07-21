@@ -14,7 +14,6 @@ import {
   nativeImage,
   nativeTheme,
   powerMonitor,
-  safeStorage,
   screen,
   session as electronSession,
   shell,
@@ -30,11 +29,6 @@ import {
   recoverChromeProfileImport
 } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
-import { EmbeddedStorageBootstrapper } from "./browser/EmbeddedStorageBootstrapper";
-import {
-  EncryptedSessionStorageSeedStore,
-  getDocumentStorageByOrigin
-} from "./browser/EncryptedSessionStorageSeedStore";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
@@ -106,16 +100,6 @@ import { RuntimeWindowPreferencesStore } from "./window/RuntimeWindowPreferences
 import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecycle";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL } from "../shared/embeddedRuntimeDiagnostics";
-import {
-  EMBEDDED_DOCUMENT_STORAGE_ACK_CHANNEL,
-  EMBEDDED_DOCUMENT_STORAGE_SEED_CHANNEL,
-  EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL,
-  EMBEDDED_STORAGE_BOOTSTRAP_SEED_CHANNEL,
-  isEmbeddedDocumentStorageAcknowledgement,
-  isEmbeddedStorageBootstrapCompleted,
-  isEmbeddedStorageBootstrapSeedRequest,
-  isEmbeddedSessionStorageSeedRequest
-} from "../shared/internalIpc";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import { formatMacroCoordinateClipboard } from "../shared/macroCoordinates";
 import {
@@ -137,7 +121,6 @@ app.on("gpu-info-update", () => {
 let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
-let embeddedStorageBootstrapper: EmbeddedStorageBootstrapper | null = null;
 let embeddedRuntimeDiagnostics: EmbeddedRuntimeDiagnostics | null = null;
 let appQuickMenu: AppQuickMenu | null = null;
 let applicationMenu: ApplicationMenuController | null = null;
@@ -162,68 +145,6 @@ const logService = new LogService({
 
 ipcMain.on(EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL, (event, payload: unknown) => {
   embeddedRuntimeDiagnostics?.handlePageEvent(event.sender, payload);
-});
-ipcMain.on(EMBEDDED_DOCUMENT_STORAGE_SEED_CHANNEL, (event, payload: unknown) => {
-  const senderFrame = event.senderFrame;
-  if (!browserManager || !senderFrame || senderFrame.parent !== null ||
-    !isEmbeddedSessionStorageSeedRequest(payload)) {
-    logService.warn("preload", "embedded_document_storage_failed", "Rejected an invalid document storage seed request.", {
-      failureReason: "seed_request_rejected",
-      webContentsId: event.sender.id
-    });
-    event.returnValue = undefined;
-    return;
-  }
-  event.returnValue = browserManager.consumeEmbeddedDocumentStorageSeed(event.sender.id, payload.origin);
-});
-ipcMain.on(EMBEDDED_DOCUMENT_STORAGE_ACK_CHANNEL, (event, payload: unknown) => {
-  const senderFrame = event.senderFrame;
-  if (!browserManager || !senderFrame || senderFrame.parent !== null ||
-    !isEmbeddedDocumentStorageAcknowledgement(payload)) {
-    logService.warn("preload", "embedded_document_storage_failed", "Rejected an invalid document storage acknowledgement.", {
-      failureReason: "acknowledgement_rejected",
-      webContentsId: event.sender.id
-    });
-    return;
-  }
-  void browserManager.acknowledgeEmbeddedDocumentStorage(event.sender.id, payload).then((accepted) => {
-    if (!accepted) {
-      logService.warn("preload", "embedded_document_storage_failed", "Rejected an unmatched document storage acknowledgement.", {
-        failureReason: "acknowledgement_unmatched",
-        origin: payload.origin,
-        webContentsId: event.sender.id
-      });
-    }
-  }).catch((error) => {
-    logService.error(
-      "browser",
-      "embedded_document_storage_failed",
-      "Failed to persist an embedded document storage acknowledgement.",
-      error,
-      { origin: payload.origin, webContentsId: event.sender.id }
-    );
-  });
-});
-ipcMain.on(EMBEDDED_STORAGE_BOOTSTRAP_SEED_CHANNEL, (event, payload: unknown) => {
-  const senderFrame = event.senderFrame;
-  if (!embeddedStorageBootstrapper || !senderFrame || senderFrame.parent !== null ||
-    !isEmbeddedStorageBootstrapSeedRequest(payload)) {
-    embeddedStorageBootstrapper?.reject(event.sender.id, "seed_request_rejected");
-    event.returnValue = undefined;
-    return;
-  }
-  const seed = embeddedStorageBootstrapper.consumeSeed(event.sender.id, payload.origin);
-  if (!seed) embeddedStorageBootstrapper.reject(event.sender.id, "seed_unavailable");
-  event.returnValue = seed;
-});
-ipcMain.on(EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL, (event, payload: unknown) => {
-  const senderFrame = event.senderFrame;
-  if (!embeddedStorageBootstrapper || !senderFrame || senderFrame.parent !== null ||
-    !isEmbeddedStorageBootstrapCompleted(payload)) {
-    embeddedStorageBootstrapper?.reject(event.sender.id, "completion_payload_rejected");
-    return;
-  }
-  embeddedStorageBootstrapper.complete(event.sender.id, payload);
 });
 const loggingReady = logService.initialize();
 logService.on("entry", (entry) => {
@@ -547,35 +468,6 @@ async function initializeApplication(): Promise<void> {
   const withDataMutation = <T>(operation: () => Promise<T>): Promise<T> =>
     dataMutationQueue.run(operation);
   const roleStore = new RoleStore(userDataDir);
-  const embeddedSessionStorageSeedStore = new EncryptedSessionStorageSeedStore({
-    getBrowserUserDataDir: (roleId) => roleStore.getRolePaths(roleId).browserUserDataDir,
-    safeStorage
-  });
-  embeddedStorageBootstrapper = new EmbeddedStorageBootstrapper({
-    bootstrapPreloadPath: join(__dirname, "../preload/embedded-storage-bootstrap.cjs"),
-    createWindow: (options) => new BrowserWindow(options),
-    flushStorageData: async (partition) => electronSession.fromPartition(partition).flushStorageData(),
-    loadSeed: (roleId) => embeddedSessionStorageSeedStore.load(roleId),
-    onDiagnostic: (diagnostic) => {
-      const context = {
-        cacheEntryCount: diagnostic.cacheEntryCount,
-        elapsedMs: diagnostic.elapsedMs,
-        ...(diagnostic.failureReason ? { failureReason: diagnostic.failureReason } : {}),
-        ...(diagnostic.failureStage ? { failureStage: diagnostic.failureStage } : {}),
-        indexedDbRecordCount: diagnostic.indexedDbRecordCount,
-        origin: diagnostic.origin,
-        roleId: diagnostic.roleId,
-        webContentsId: diagnostic.webContentsId
-      };
-      const event = `embedded_storage_bootstrap_${diagnostic.event}`;
-      if (diagnostic.event === "failed") {
-        logService.warn("browser", event, "Embedded persistent storage bootstrap failed.", context);
-      } else {
-        logService.info("browser", event, `Embedded persistent storage bootstrap ${diagnostic.event}.`, context);
-      }
-    },
-    saveSeed: (roleId, seed) => embeddedSessionStorageSeedStore.save(roleId, seed)
-  });
   await recoverChromeProfileImport(userDataDir, roleStore);
   const transactionalRoleAuthStore: Pick<RoleStore, "updateAuthState"> & Pick<RoleStore, "updateRole"> = {
     updateAuthState: (id, authState, messageTimestamp) =>
@@ -685,28 +577,6 @@ async function initializeApplication(): Promise<void> {
   powerMonitor.on("suspend", () => embeddedRuntimeDiagnostics?.handleSuspend());
   powerMonitor.on("resume", () => embeddedRuntimeDiagnostics?.handleResume());
   browserManager = new BrowserManager(transactionalRoleAuthStore, {
-    acknowledgeEmbeddedDocumentStorage: async (roleId, acknowledgement, webContentsId) => {
-      const persistenceSucceeded = !acknowledgement.localStorageApplied ||
-        await embeddedSessionStorageSeedStore.acknowledgeLocalStorage(roleId, acknowledgement.origin);
-      const succeeded = acknowledgement.localStorageApplied &&
-        acknowledgement.sessionStorageApplied && persistenceSucceeded;
-      const context = {
-        localStorageApplied: acknowledgement.localStorageApplied,
-        localStorageKeyCount: acknowledgement.localStorageKeyCount,
-        origin: acknowledgement.origin,
-        persistenceSucceeded,
-        roleId,
-        transientStorageApplied: acknowledgement.sessionStorageApplied,
-        transientStorageKeyCount: acknowledgement.sessionStorageKeyCount,
-        webContentsId
-      };
-      if (succeeded) {
-        logService.info("browser", "embedded_document_storage_applied", "Embedded document storage seed was applied.", context);
-      } else {
-        logService.warn("browser", "embedded_document_storage_failed", "Embedded document storage seed was not fully applied.", context);
-      }
-      return persistenceSucceeded;
-    },
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
       await browserFontApplier.applyToRoleLaunch(browserUserDataDir, partition);
@@ -740,23 +610,6 @@ async function initializeApplication(): Promise<void> {
       return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
     },
     getLoginUrl: async (role) => (await gameStore.getGame(role.gameId)).loginUrl ?? role.launchUrl,
-    loadEmbeddedStorageSeed: (roleId) => embeddedSessionStorageSeedStore.load(roleId),
-    prepareEmbeddedPersistentStorage: async (role, partition, signal) => {
-      const summary = await embeddedStorageBootstrapper?.prepareRole(role.id, partition, signal);
-      if (!summary || summary.attemptedOriginCount === 0) return;
-      logService.info("browser", "embedded_storage_bootstrap", "Embedded persistent storage bootstrap completed.", {
-        attemptedOriginCount: summary.attemptedOriginCount,
-        cacheEntryCount: summary.cacheEntryCount,
-        cancelledOriginCount: summary.cancelledOriginCount,
-        failedOriginCount: summary.failedOriginCount,
-        failureReasons: summary.failureReasons,
-        indexedDbRecordCount: summary.indexedDbRecordCount,
-        localStorageKeyCount: summary.localStorageKeyCount,
-        persistenceFailed: summary.persistenceFailed,
-        roleId: role.id,
-        succeededOriginCount: summary.succeededOriginCount
-      });
-    },
     getRuntimeTabGameIcon: async (role) => {
       const game = await gameStore.getGame(role.gameId);
       return createRuntimeGameIconDataUrl(
@@ -823,9 +676,6 @@ async function initializeApplication(): Promise<void> {
   });
   const roleBrowserDataManager = new RoleBrowserDataManager({
     browserManager,
-    clearEmbeddedStorageSeed: async (roleId) => {
-      await embeddedSessionStorageSeedStore.clear(roleId);
-    },
     getSession: (partition) => electronSession.fromPartition(partition),
     roleStore
   });
@@ -835,45 +685,14 @@ async function initializeApplication(): Promise<void> {
     getSession: (partition) => electronSession.fromPartition(partition),
     onLoginDataTransfer: (summary) => {
       logService.info("browser", "chrome_profile_import_data_transfer", "Chrome profile login data transfer completed.", {
-        bootstrapCacheEntryCount: summary.bootstrapCacheEntryCount,
-        bootstrapFailedOriginCount: summary.bootstrapFailedOriginCount,
-        bootstrapIndexedDbRecordCount: summary.bootstrapIndexedDbRecordCount,
-        bootstrapStorageKeyCount: summary.bootstrapStorageKeyCount,
-        bootstrapPersistenceFailed: summary.bootstrapPersistenceFailed,
-        bootstrapSucceededOriginCount: summary.bootstrapSucceededOriginCount,
         failedItemCount: summary.failedItemCount,
-        failedStorageOriginCount: summary.failedStorageOriginCount,
         flushFailed: summary.flushFailed,
-        queuedCacheEntryCount: summary.queuedCacheEntryCount,
-        queuedDocumentStateKeyCount: summary.queuedDocumentStateKeyCount,
-        queuedDocumentStateOriginCount: summary.queuedDocumentStateOriginCount,
-        queuedDurableOriginCount: summary.queuedDurableOriginCount,
-        queuedIndexedDbDatabaseCount: summary.queuedIndexedDbDatabaseCount,
-        queuedIndexedDbRecordCount: summary.queuedIndexedDbRecordCount,
         readbackFailed: summary.readbackFailed,
         readFailed: summary.readFailed,
         resetFailed: summary.resetFailed,
-        seedPersistFailed: summary.seedPersistFailed,
-        sourceCacheEntryCount: summary.sourceCacheEntryCount,
-        sourceDocumentStateKeyCount: summary.sourceDocumentStateKeyCount,
-        sourceDocumentStateOriginCount: summary.sourceDocumentStateOriginCount,
-        sourceDurableOriginCount: summary.sourceDurableOriginCount,
-        sourceIndexedDbDatabaseCount: summary.sourceIndexedDbDatabaseCount,
-        sourceIndexedDbRecordCount: summary.sourceIndexedDbRecordCount,
         sourceItemCount: summary.sourceItemCount,
-        sourceStorageKeyCount: summary.sourceStorageKeyCount,
-        sourceStorageOriginCount: summary.sourceStorageOriginCount,
-        storageCaptureContextCount: summary.storageCaptureContextCount,
-        storageCaptureDurableFailureCount: summary.storageCaptureDurableFailureCount,
-        storageCaptureDurableSuccessCount: summary.storageCaptureDurableSuccessCount,
-        storageCaptureFailureCount: summary.storageCaptureFailureCount,
-        storageCaptureSkippedDocumentStateContextCount: summary.storageCaptureSkippedDocumentStateContextCount,
-        storageCaptureSuccessCount: summary.storageCaptureSuccessCount,
-        storageCaptureUsableContextCount: summary.storageCaptureUsableContextCount,
         visibleItemCount: summary.visibleItemCount,
         writtenItemCount: summary.writtenItemCount,
-        writtenStorageKeyCount: summary.writtenStorageKeyCount,
-        writtenStorageOriginCount: summary.writtenStorageOriginCount,
         roleId: summary.roleId
       });
     },
@@ -894,24 +713,6 @@ async function initializeApplication(): Promise<void> {
       await session.clearStorageData({ storages: ["cachestorage"] });
     },
     readChromeLoginData: readChromeLoginDataWithCdp,
-    bootstrapEmbeddedStorage: (roleId, partition) =>
-      embeddedStorageBootstrapper?.prepareRole(roleId, partition) ?? Promise.resolve({
-        attemptedOriginCount: 0,
-        cacheEntryCount: 0,
-        cancelledOriginCount: 0,
-        failedOriginCount: 0,
-        failureReasons: {},
-        indexedDbRecordCount: 0,
-        localStorageKeyCount: 0,
-        persistenceFailed: false,
-        succeededOriginCount: 0
-      }),
-    storeEmbeddedStorageSeed: async (roleId, seed) => {
-      browserManager?.setEmbeddedDocumentStorageSeed(roleId, getDocumentStorageByOrigin(seed));
-      if (!await embeddedSessionStorageSeedStore.save(roleId, seed)) {
-        throw new Error("Unable to persist the embedded session storage seed.");
-      }
-    },
     roleStore,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
@@ -1042,9 +843,6 @@ async function initializeApplication(): Promise<void> {
   });
 
   registerIpcHandlers(roleStore, workspaceStore, browserManager, authManager, {
-    clearRoleEmbeddedStorageSeed: async (roleId) => {
-      await embeddedSessionStorageSeedStore.clear(roleId);
-    },
     consumePendingMacroPageRequest,
     consumePendingWorkspaceLaunchRequest,
     gameCompatibilityManager,

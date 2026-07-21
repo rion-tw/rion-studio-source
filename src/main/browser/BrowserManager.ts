@@ -50,10 +50,7 @@ import {
   type RuntimeTabAction,
   type RuntimeTabChromeState
 } from "../../shared/runtimeTabs";
-import {
-  WORKSPACE_RESIZE_INDICATOR_CHANNEL,
-  type EmbeddedDocumentStorageAcknowledgement
-} from "../../shared/internalIpc";
+import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../../shared/internalIpc";
 import {
   getAdaptiveWorkspaceBrowserZoomPercent,
   isWorkspaceSlotBrowserZoomPercent,
@@ -76,13 +73,6 @@ import type {
 } from "./MacRuntimeTabsController";
 import type { SystemPressureSource } from "./SystemPressureMonitor";
 import { WorkspaceResourceCoordinator } from "./WorkspaceResourceCoordinator";
-import {
-  cloneDocumentStorageByOrigin,
-  getDocumentStorageByOrigin,
-  normalizeDocumentStorageByOrigin,
-  type DocumentStorageByOrigin,
-  type EmbeddedStorageSeed,
-} from "./EncryptedSessionStorageSeedStore";
 
 export interface BrowserManagerEvents {
   change: [RoleStatus[]];
@@ -120,11 +110,6 @@ export interface BrowserAutomationSession {
 export type BrowserMacroOverlayInstaller = (role: Role, webContents: WebContents) => Promise<void>;
 export type BrowserProxyApplier = (role: Role, partition: string, session: Session) => Promise<void>;
 export type BrowserCdnCompatibilityApplier = (role: Role, partition: string, session: Session) => Promise<void>;
-export type BrowserDocumentStorageAcknowledger = (
-  roleId: string,
-  acknowledgement: EmbeddedDocumentStorageAcknowledgement,
-  webContentsId: number
-) => boolean | Promise<boolean>;
 export type BeforeRolesStop = (roleIds: string[]) => Promise<void>;
 export type WorkspaceRoleZoomPersister = (
   workspaceId: string,
@@ -170,11 +155,6 @@ export interface BrowserManagerOptions {
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   loginPollIntervalMs?: number;
-  loadEmbeddedStorageSeed?: (roleId: string) => Promise<EmbeddedStorageSeed | undefined>;
-  /** @deprecated kept for in-process callers while encrypted seed v1 is migrated. */
-  loadEmbeddedSessionStorageSeed?: (roleId: string) => Promise<Record<string, Record<string, string>> | undefined>;
-  acknowledgeEmbeddedDocumentStorage?: BrowserDocumentStorageAcknowledger;
-  prepareEmbeddedPersistentStorage?: (role: Role, partition: string, signal?: AbortSignal) => Promise<void>;
   authSessionSettleOptions?: WaitForSettledAuthSessionOptions;
   onEmbeddedWebContentsCreated?: (
     context: EmbeddedRuntimeDiagnosticContext,
@@ -455,9 +435,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
   private readonly displayHosts = new Map<number, EmbeddedDisplayHost>();
   private readonly displayHostByChromeWebContentsId = new Map<number, EmbeddedDisplayHost>();
-  private readonly embeddedDocumentStorageSeedsByRoleId = new Map<string, DocumentStorageByOrigin>();
-  private readonly embeddedDocumentStorageSeedsByWebContentsId = new Map<number, DocumentStorageByOrigin>();
-  private readonly pendingDocumentStorageAcknowledgementsByWebContentsId = new Map<number, Set<string>>();
   private readonly hosts = new Map<string, GameHostWindow>();
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly pendingWorkspaceLaunchIds = new Set<string>();
@@ -890,97 +867,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     )?.[0];
   }
 
-  setEmbeddedDocumentStorageSeed(roleId: string, values: DocumentStorageByOrigin): void {
-    const normalized = normalizeDocumentStorageByOrigin(values);
-    this.clearEmbeddedDocumentStorageSeed(roleId);
-    if (Object.keys(normalized).length === 0) {
-      return;
-    }
-    this.embeddedDocumentStorageSeedsByRoleId.set(roleId, normalized);
-  }
-
-  clearEmbeddedDocumentStorageSeed(roleId: string): void {
-    this.embeddedDocumentStorageSeedsByRoleId.delete(roleId);
-    const session = this.sessions.get(roleId);
-    if (session) {
-      this.clearEmbeddedDocumentStorageForWebContents(session.webContents.id);
-      session.popupViews.forEach((popupView) => {
-        const popupWebContents = popupView.webContents;
-        if (popupWebContents) this.clearEmbeddedDocumentStorageForWebContents(popupWebContents.id);
-      });
-    }
-  }
-
-  /** @deprecated use clearEmbeddedDocumentStorageSeed. */
-  clearEmbeddedSessionStorageSeed(roleId: string): void {
-    this.clearEmbeddedDocumentStorageSeed(roleId);
-  }
-
-  consumeEmbeddedDocumentStorageSeed(
-    webContentsId: number,
-    origin: string
-  ): DocumentStorageByOrigin[string] | undefined {
-    const normalizedOrigin = normalizeHttpOrigin(origin);
-    if (!normalizedOrigin) return undefined;
-
-    const byOrigin = this.embeddedDocumentStorageSeedsByWebContentsId.get(webContentsId);
-    const values = byOrigin?.[normalizedOrigin];
-    if (!values) return undefined;
-
-    delete byOrigin[normalizedOrigin];
-    if (Object.keys(byOrigin).length === 0) {
-      this.embeddedDocumentStorageSeedsByWebContentsId.delete(webContentsId);
-    }
-    const pendingOrigins = this.pendingDocumentStorageAcknowledgementsByWebContentsId.get(webContentsId) ?? new Set();
-    pendingOrigins.add(normalizedOrigin);
-    this.pendingDocumentStorageAcknowledgementsByWebContentsId.set(webContentsId, pendingOrigins);
-    return structuredClone(values);
-  }
-
-  /** @deprecated use consumeEmbeddedDocumentStorageSeed. */
-  consumeEmbeddedSessionStorageSeed(webContentsId: number, origin: string): Record<string, string> | undefined {
-    return this.consumeEmbeddedDocumentStorageSeed(webContentsId, origin)?.sessionStorage;
-  }
-
-  async acknowledgeEmbeddedDocumentStorage(
-    webContentsId: number,
-    acknowledgement: EmbeddedDocumentStorageAcknowledgement
-  ): Promise<boolean> {
-    const origin = normalizeHttpOrigin(acknowledgement.origin);
-    const pendingOrigins = this.pendingDocumentStorageAcknowledgementsByWebContentsId.get(webContentsId);
-    const roleId = this.getRoleIdForWebContents(webContentsId);
-    if (!origin || origin !== acknowledgement.origin || !pendingOrigins?.delete(origin) || !roleId) {
-      return false;
-    }
-    if (pendingOrigins.size === 0) {
-      this.pendingDocumentStorageAcknowledgementsByWebContentsId.delete(webContentsId);
-    }
-    const persisted = await this.options.acknowledgeEmbeddedDocumentStorage?.(
-      roleId,
-      acknowledgement,
-      webContentsId
-    );
-    if (acknowledgement.localStorageApplied && persisted !== false) {
-      const roleSeed = this.embeddedDocumentStorageSeedsByRoleId.get(roleId);
-      const originSeed = roleSeed?.[origin];
-      if (originSeed) {
-        delete originSeed.localStorage;
-        if (!originSeed.sessionStorage || Object.keys(originSeed.sessionStorage).length === 0) {
-          delete roleSeed![origin];
-        }
-        if (Object.keys(roleSeed!).length === 0) {
-          this.embeddedDocumentStorageSeedsByRoleId.delete(roleId);
-        }
-      }
-    }
-    return true;
-  }
-
-  private clearEmbeddedDocumentStorageForWebContents(webContentsId: number): void {
-    this.embeddedDocumentStorageSeedsByWebContentsId.delete(webContentsId);
-    this.pendingDocumentStorageAcknowledgementsByWebContentsId.delete(webContentsId);
-  }
-
   setGameInputContext(webContentsId: number, active: boolean): void {
     const session = [...this.sessions.values()].find(
       (candidate) => candidate.webContents.id === webContentsId
@@ -1201,8 +1087,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       await this.applyBrowserProxy(session);
       this.assertSessionActive(session);
       await this.applyCdnCompatibility(session);
-      this.assertSessionActive(session);
-      await this.prepareEmbeddedDocumentStorageSeed(session);
       this.assertSessionActive(session);
       const loginUrl = await this.getLoginUrl(role);
       this.assertSessionActive(session);
@@ -2337,9 +2221,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
       if (isMainFrame) this.setGameInputContext(webContents.id, false);
     });
-    const webContentsId = webContents.id;
     webContents.once("destroyed", () => {
-      this.clearEmbeddedDocumentStorageForWebContents(webContentsId);
       if (session.zoomPersistenceTimer) {
         clearTimeout(session.zoomPersistenceTimer);
         session.zoomPersistenceTimer = undefined;
@@ -2415,20 +2297,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.assertSessionActive(session);
     await this.applyCdnCompatibility(session);
     this.assertSessionActive(session);
-    if (this.options.prepareEmbeddedPersistentStorage) {
-      try {
-        await this.options.prepareEmbeddedPersistentStorage(
-          session.role,
-          createRoleSessionPartition(session.role.id),
-          session.abortController.signal
-        );
-      } catch {
-        console.warn("Unable to prepare embedded persistent storage.");
-      }
-    }
-    this.assertSessionActive(session);
-    await this.prepareEmbeddedDocumentStorageSeed(session);
-    this.assertSessionActive(session);
     try {
       await session.webContents.loadURL(session.role.launchUrl);
     } catch {
@@ -2445,37 +2313,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await this.installMacroOverlay(session.role, session.webContents);
     this.assertSessionActive(session);
     this.emitChange();
-  }
-
-  private async prepareEmbeddedDocumentStorageSeed(session: BrowserSession): Promise<void> {
-    this.clearEmbeddedDocumentStorageForWebContents(session.webContents.id);
-    if (!this.embeddedDocumentStorageSeedsByRoleId.has(session.role.id) &&
-      (this.options.loadEmbeddedStorageSeed || this.options.loadEmbeddedSessionStorageSeed)) {
-      try {
-        const persisted = this.options.loadEmbeddedStorageSeed
-          ? await this.options.loadEmbeddedStorageSeed(session.role.id)
-          : undefined;
-        const documentStorage = persisted
-          ? getDocumentStorageByOrigin(persisted)
-          : await this.options.loadEmbeddedSessionStorageSeed?.(session.role.id) ?? {};
-        if (Object.keys(documentStorage).length > 0) {
-          this.setEmbeddedDocumentStorageSeed(session.role.id, documentStorage);
-        }
-      } catch {
-        console.warn("Unable to load the embedded document storage seed.");
-      }
-    }
-    this.queueEmbeddedDocumentStorageSeed(session.role.id, session.webContents.id);
-  }
-
-  private queueEmbeddedDocumentStorageSeed(roleId: string, webContentsId: number): void {
-    const seed = this.embeddedDocumentStorageSeedsByRoleId.get(roleId);
-    if (seed && Object.keys(seed).length > 0) {
-      this.embeddedDocumentStorageSeedsByWebContentsId.set(
-        webContentsId,
-        cloneDocumentStorageByOrigin(seed)
-      );
-    }
   }
 
   private assertSessionActive(session: BrowserSession): void {
@@ -2714,7 +2551,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     host.window.contentView.addChildView(popupView);
     this.bringRuntimeChromeToFront(this.getDisplayHost(host));
     session.popupViews.add(popupView);
-    this.queueEmbeddedDocumentStorageSeed(session.role.id, popupView.webContents.id);
     this.options.onEmbeddedWebContentsCreated?.({
       hostId: host.id,
       kind: "popup",
@@ -2728,9 +2564,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.configureCloseShortcut(host, session, popupView.webContents);
     this.configureHtmlFullscreen(host, popupView.webContents);
     this.trackGameViewFocus(host, popupView);
-    const popupWebContentsId = popupView.webContents.id;
     popupView.webContents.once("destroyed", () => {
-      this.clearEmbeddedDocumentStorageForWebContents(popupWebContentsId);
       session.popupViews.delete(popupView);
       if (!host.window.isDestroyed()) {
         host.window.contentView.removeChildView(popupView);
@@ -3603,17 +3437,6 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
     typeof payload.screenPosition === "number" &&
     Number.isFinite(payload.screenPosition)
   );
-}
-
-function normalizeHttpOrigin(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    return (url.protocol === "http:" || url.protocol === "https:") && url.origin === value
-      ? url.origin
-      : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function delay(ms: number): Promise<void> {

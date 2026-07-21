@@ -13,4 +13,16 @@ describe("electron-vite configuration", () => {
     expect(config.preload?.build?.sourcemap).toBe(false);
     expect(config.renderer?.build?.sourcemap).toBe(false);
   });
+
+  it("builds only active preload entry points", () => {
+    const input = config.preload?.build?.rollupOptions?.input;
+
+    expect(input).toBeTypeOf("object");
+    expect(Object.keys(input as Record<string, string>).sort()).toEqual([
+      "divider",
+      "embedded",
+      "index",
+      "runtime-tabs"
+    ]);
+  });
 });

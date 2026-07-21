@@ -326,6 +326,7 @@ interface NativeZoomShortcutInput {
 }
 
 export type NativeZoomShortcutAction = "in" | "out" | "reset";
+export type RuntimeTabSwitchDirection = "next" | "previous";
 
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
 const WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS = 200;
@@ -365,6 +366,23 @@ export function classifyNativeZoomShortcut(
     return "reset";
   }
   return undefined;
+}
+
+export function classifyRuntimeTabSwitchShortcut(
+  input: NativeZoomShortcutInput
+): RuntimeTabSwitchDirection | undefined {
+  if (
+    input.type !== "keyDown" ||
+    input.isComposing ||
+    input.code !== "Tab" ||
+    !input.control ||
+    input.alt ||
+    input.meta
+  ) {
+    return undefined;
+  }
+
+  return input.shift ? "previous" : "next";
 }
 
 export function isExpectedNativeZoomResult(
@@ -421,6 +439,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly roleOperationTails = new Map<string, Promise<void>>();
   private readonly workspaceDisplayReservations = new Map<string, { displayId: number; name: string }>();
   private readonly workspaceHostIds = new Map<string, string>();
+  private runtimeTabSwitchTail: Promise<void> = Promise.resolve();
   private runtimeTabsLanguage: AppLanguage = "en";
   private alwaysShowToolbarInFullScreen = false;
   private readonly resourceCoordinator: WorkspaceResourceCoordinator;
@@ -2476,8 +2495,15 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     webContents: WebContents,
     session?: BrowserSession
   ): void {
-    if ((this.options.platform ?? process.platform) !== "darwin") return;
     webContents.on("before-input-event", (event, input) => {
+      const tabSwitchDirection = classifyRuntimeTabSwitchShortcut(input);
+      if (tabSwitchDirection) {
+        event.preventDefault();
+        this.queueRuntimeTabSwitch(displayHost, tabSwitchDirection);
+        return;
+      }
+
+      if ((this.options.platform ?? process.platform) !== "darwin") return;
       if (session && this.isProtectedGameInputActive(session, webContents)) return;
       if (
         input.type !== "keyDown" ||
@@ -2489,6 +2515,34 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       event.preventDefault();
       this.toggleRuntimeWindowFullscreen(displayHost);
     });
+  }
+
+  private queueRuntimeTabSwitch(
+    displayHost: EmbeddedDisplayHost,
+    direction: RuntimeTabSwitchDirection
+  ): void {
+    this.runtimeTabSwitchTail = this.runtimeTabSwitchTail
+      .catch(() => undefined)
+      .then(async () => {
+        const visibleTabIds = displayHost.tabIds.filter((tabId) => {
+          const tab = this.hosts.get(tabId);
+          return Boolean(tab && !tab.hidden && !tab.closing);
+        });
+        if (visibleTabIds.length < 2) {
+          return;
+        }
+
+        const currentIndex = visibleTabIds.indexOf(displayHost.activeTabId ?? "");
+        const nextIndex = currentIndex < 0
+          ? 0
+          : direction === "next"
+            ? (currentIndex + 1) % visibleTabIds.length
+            : (currentIndex - 1 + visibleTabIds.length) % visibleTabIds.length;
+        await this.showRuntimeTab(visibleTabIds[nextIndex]);
+      })
+      .catch((error) => {
+        console.warn("Failed to switch runtime tabs with a keyboard shortcut.", error);
+      });
   }
 
   private isProtectedGameInputActive(session: BrowserSession, webContents: WebContents): boolean {

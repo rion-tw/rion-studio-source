@@ -138,6 +138,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Stop the macro before editing it.": "error.macroStopBeforeEditing",
   "Ctrl+Shift+M is reserved for the macro overlay.": "error.macroShortcutReserved",
   "Browser zoom shortcuts are reserved for the active game role.": "error.macroBrowserZoomShortcutReserved",
+  "Ctrl+Tab and Ctrl+Shift+Tab are reserved for switching Rion Studio tabs.":
+    "error.macroRuntimeTabShortcutReserved",
   "Macro shortcut conflicts with another macro assigned to the same role.": "error.macroShortcutConflict",
   "This macro is not assigned to the current role.": "error.macroNotAssigned",
   "Macro is not assigned to this role.": "error.macroNotAssigned",

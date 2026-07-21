@@ -279,7 +279,7 @@
   }
 
   function isSystemOwnedShortcut(event) {
-    if (event.code === "Tab" && (event.metaKey || event.altKey)) return true;
+    if (event.code === "Tab" && (event.ctrlKey || event.metaKey || event.altKey)) return true;
     if (event.metaKey && event.code === "Space") return true;
     if (!isMacPlatform() && event.metaKey) return true;
     return isMacPlatform() && event.ctrlKey && event.code.startsWith("Arrow");
@@ -303,6 +303,10 @@
     if (event.shiftKey) return false;
     return event.code === "Minus" || event.code === "NumpadSubtract" ||
       event.code === "Digit0" || event.code === "Numpad0";
+  }
+
+  function isReservedRuntimeTabSwitchShortcutEvent(event) {
+    return event.code === "Tab" && event.ctrlKey && !event.altKey && !event.metaKey;
   }
 
   function preventGameBrowserDefault(event) {
@@ -1245,7 +1249,7 @@
     if (ignoresShortcut) {
       return;
     }
-    if (isReservedBrowserZoomShortcutEvent(event)) {
+    if (isReservedBrowserZoomShortcutEvent(event) || isReservedRuntimeTabSwitchShortcutEvent(event)) {
       return;
     }
 

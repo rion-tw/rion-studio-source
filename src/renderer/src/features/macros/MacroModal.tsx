@@ -46,6 +46,7 @@ import { cn } from "../../lib/utils";
 import {
   areMacroTriggersEqual,
   isReservedBrowserZoomMacroTrigger,
+  isReservedRuntimeTabSwitchMacroTrigger,
   macroRoleAssignmentsOverlap,
   MACRO_OVERLAY_TRIGGER
 } from "../../../../shared/macroShortcuts";
@@ -141,6 +142,9 @@ function MacroEditor({
     }
     if (isReservedBrowserZoomMacroTrigger(form.trigger)) {
       return t("macroForm.shortcutBrowserZoomReserved");
+    }
+    if (isReservedRuntimeTabSwitchMacroTrigger(form.trigger)) {
+      return t("macroForm.shortcutRuntimeTabReserved");
     }
 
     const conflictingMacro = macros.find(
@@ -1033,6 +1037,14 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
   const [isRecording, setIsRecording] = useState(false);
   const selectedCode = trigger?.code ?? "";
   const selectedModifiers = getMacroTriggerModifiers(trigger);
+  const modifierOptions = getModifierComboOptions(t).filter((option) => !isReservedRuntimeTabSwitchMacroTrigger({
+    code: selectedCode,
+    ...getMacroTriggerModifierFlags(parseModifierComboValue(option.value))
+  }));
+  const keyCodes = commonMacroKeyCodes.filter((code) => !isReservedRuntimeTabSwitchMacroTrigger({
+    code,
+    ...getMacroTriggerModifierFlags(selectedModifiers)
+  }));
   const selectedModifierValue = selectedModifiers.length > 0
     ? selectedModifiers.join(",")
     : MODIFIERS_NONE_VALUE;
@@ -1043,10 +1055,14 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
       return;
     }
 
-    onChange({
+    const nextTrigger = {
       code,
       ...getMacroTriggerModifierFlags(modifiers)
-    });
+    };
+    if (isReservedRuntimeTabSwitchMacroTrigger(nextTrigger)) {
+      return;
+    }
+    onChange(nextTrigger);
   }
 
   useEffect(() => {
@@ -1062,7 +1078,7 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
         return;
       }
 
-      onChange({
+      const nextTrigger = {
         code: event.code,
         ...getMacroTriggerModifierFlags([
           ...(event.ctrlKey ? ["ctrl" as const] : []),
@@ -1070,7 +1086,10 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
           ...(event.shiftKey ? ["shift" as const] : []),
           ...(event.metaKey ? ["meta" as const] : [])
         ])
-      });
+      };
+      if (!isReservedRuntimeTabSwitchMacroTrigger(nextTrigger)) {
+        onChange(nextTrigger);
+      }
       setIsRecording(false);
     }
 
@@ -1092,7 +1111,7 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {getModifierComboOptions(t).map((option) => (
+          {modifierOptions.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>
@@ -1112,7 +1131,7 @@ function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {commonMacroKeyCodes.map((code) => (
+          {keyCodes.map((code) => (
             <SelectItem key={code} value={code}>
               {formatMacroCode(code)}
             </SelectItem>

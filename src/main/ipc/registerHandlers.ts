@@ -44,6 +44,7 @@ import {
 } from "../../shared/workspaceDisplays";
 import type { AuthManager } from "../auth/AuthManager";
 import {
+  BrowserLaunchCancelledError,
   EXTERNAL_COMPAT_NOTICE,
   type BrowserManager
 } from "../browser/BrowserManager";
@@ -652,9 +653,10 @@ export function registerIpcHandlers(
 
     try {
       const status = await browserManager.launch(role);
-      await recordLaunchSuccess(options, role.gameId, status);
+      if (status) await recordLaunchSuccess(options, role.gameId, status);
       return status;
     } catch (error) {
+      if (error instanceof BrowserLaunchCancelledError) return null;
       await recordLaunchFailure(options, role.gameId, error);
       throw error;
     }
@@ -858,7 +860,7 @@ async function deleteRoleRecord(
   id: string
 ): Promise<void> {
   await browserManager.stopRoleAndRunMutation(id, async () => {
-    browserManager.clearEmbeddedSessionStorageSeed(id);
+    browserManager.clearEmbeddedDocumentStorageSeed(id);
     await clearRoleEmbeddedStorageSeed?.(id);
     await roleStore.deleteRole(id);
     await workspaceStore.clearRole(id);

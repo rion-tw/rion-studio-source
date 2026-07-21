@@ -117,7 +117,7 @@ describe("registerIpcHandlers workspace handlers", () => {
     BrowserManager,
     | "launch"
     | "launchWorkspace"
-    | "clearEmbeddedSessionStorageSeed"
+    | "clearEmbeddedDocumentStorageSeed"
     | "listEmbeddedRuntimeState"
     | "listStatuses"
     | "listWorkspaceDisplayReservations"
@@ -187,7 +187,7 @@ describe("registerIpcHandlers workspace handlers", () => {
       updateWorkspace: vi.fn().mockResolvedValue(workspace)
     };
     browserManager = {
-      clearEmbeddedSessionStorageSeed: vi.fn(),
+      clearEmbeddedDocumentStorageSeed: vi.fn(),
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
       launchWorkspace: vi.fn(async (_workspace: LaunchWorkspace, items: Array<{ role: Role }>) =>
         items.map(({ role }) => ({ roleId: role.id, state: "running" as const }))
@@ -505,6 +505,10 @@ describe("registerIpcHandlers workspace handlers", () => {
       lastExternalSuccessAt: expect.any(String),
       lastFallbackAt: expect.any(String)
     }));
+
+    vi.mocked(browserManager.launch).mockResolvedValueOnce(null);
+    await expect(handlers.get(IPC_CHANNELS.rolesLaunch)?.({}, authenticatedRole.id)).resolves.toBeNull();
+    expect(gameCompatibilityManager.recordObservation).toHaveBeenCalledTimes(1);
 
     vi.mocked(browserManager.launch).mockRejectedValueOnce(Object.assign(new Error("failed"), { code: "GAME_PAGE_LOAD_FAILED" }));
     await expect(handlers.get(IPC_CHANNELS.rolesLaunch)?.({}, authenticatedRole.id)).rejects.toThrow("failed");
@@ -947,7 +951,7 @@ describe("registerIpcHandlers macro handlers", () => {
   let workspaceStore: Pick<LaunchWorkspaceStore, "clearRole" | "getWorkspace">;
   let browserManager: Pick<
     BrowserManager,
-    "clearEmbeddedSessionStorageSeed" | "launch" | "listStatuses" | "on" | "runRoleOperation" | "stop" | "stopRoleAndRunMutation"
+    "clearEmbeddedDocumentStorageSeed" | "launch" | "listStatuses" | "on" | "runRoleOperation" | "stop" | "stopRoleAndRunMutation"
   >;
   let authManager: Pick<AuthManager, "listStatuses" | "on">;
   let macroStore: Pick<
@@ -972,7 +976,7 @@ describe("registerIpcHandlers macro handlers", () => {
       getWorkspace: vi.fn().mockResolvedValue(workspace)
     };
     browserManager = {
-      clearEmbeddedSessionStorageSeed: vi.fn(),
+      clearEmbeddedDocumentStorageSeed: vi.fn(),
       launch: vi.fn(async (role: Role) => ({ roleId: role.id, state: "running" as const })),
       listStatuses: vi.fn(() => []),
       on: vi.fn(),

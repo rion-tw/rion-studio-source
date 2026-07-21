@@ -1,9 +1,13 @@
 import { ipcRenderer } from "electron";
 
-import {
-  EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL,
-  EMBEDDED_STORAGE_BOOTSTRAP_SEED_CHANNEL
-} from "../shared/internalIpc";
+// Keep these literals aligned with src/shared/internalIpc.ts. Sandboxed Electron
+// preloads cannot require Rollup's shared relative chunks at runtime.
+const EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL:
+  typeof import("../shared/internalIpc").EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL =
+    "embedded:storage-bootstrap-complete";
+const EMBEDDED_STORAGE_BOOTSTRAP_SEED_CHANNEL:
+  typeof import("../shared/internalIpc").EMBEDDED_STORAGE_BOOTSTRAP_SEED_CHANNEL =
+    "embedded:storage-bootstrap-seed";
 
 interface EncodedStorageValue {
   type?: string;
@@ -46,14 +50,11 @@ interface CacheStorageEntrySeed {
 interface BootstrapSeed {
   cacheStorage?: CacheStorageEntrySeed[];
   indexedDb?: IndexedDbDatabaseSeed[];
-  localStorage?: Record<string, string>;
 }
 
 void bootstrapAtDocumentStart();
 
 async function bootstrapAtDocumentStart(): Promise<void> {
-  if (window.top !== window) return;
-
   const origin = window.location.origin;
   let seed: BootstrapSeed | undefined;
   try {
@@ -65,30 +66,27 @@ async function bootstrapAtDocumentStart(): Promise<void> {
 
   let indexedDbRecordCount = 0;
   let cacheEntryCount = 0;
-  let localStorageKeyCount = 0;
-  let success = true;
+  let failureStage: "cache_storage" | "indexed_db" | undefined;
   try {
-    localStorageKeyCount = restoreLocalStorage(seed.localStorage ?? {});
     indexedDbRecordCount = await restoreIndexedDb(seed.indexedDb ?? []);
-    cacheEntryCount = await restoreCacheStorage(seed.cacheStorage ?? []);
   } catch {
-    success = false;
+    failureStage = "indexed_db";
+  }
+  if (!failureStage) {
+    try {
+      cacheEntryCount = await restoreCacheStorage(seed.cacheStorage ?? []);
+    } catch {
+      failureStage = "cache_storage";
+    }
   }
 
   ipcRenderer.send(EMBEDDED_STORAGE_BOOTSTRAP_COMPLETE_CHANNEL, {
     cacheEntryCount,
+    ...(failureStage ? { failureStage } : {}),
     indexedDbRecordCount,
-    localStorageKeyCount,
     origin,
-    success
+    success: failureStage === undefined
   });
-}
-
-function restoreLocalStorage(values: Record<string, string>): number {
-  for (const [key, value] of Object.entries(values)) {
-    localStorage.setItem(key, value);
-  }
-  return Object.keys(values).length;
 }
 
 async function restoreIndexedDb(databases: IndexedDbDatabaseSeed[]): Promise<number> {

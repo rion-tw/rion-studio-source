@@ -74,6 +74,15 @@ export class EmbeddedRuntimeDiagnostics {
     contents.on("did-finish-load", () => {
       record.lastOsProcessId = this.readProcessId(contents) ?? record.lastOsProcessId;
     });
+    contents.on("preload-error", (_event, preloadPath, error) => {
+      this.logService.error(
+        "preload",
+        "embedded_preload_error",
+        "Failed to load an embedded browser preload script.",
+        error,
+        { ...this.createLogContext(record), preloadPath }
+      );
+    });
     contents.on("unresponsive", () => {
       this.logService.warn(
         "browser",

@@ -138,6 +138,11 @@ export function useRoleWorkflow({
 
     try {
       const status = await window.rionStudio.launchRole(roleId);
+      if (!status) {
+        const nextStatuses = await window.rionStudio.listRoleStatuses();
+        setStatuses(nextStatuses);
+        return;
+      }
       setStatuses((current) => mergeStatus(current, status));
       if (status.notice) {
         setNotice?.(status.notice);

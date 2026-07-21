@@ -52,6 +52,8 @@ describe("EmbeddedRuntimeDiagnostics", () => {
     diagnostics.handlePageEvent(contents as never, { type: "heartbeat" });
     contents.emit("unresponsive");
     contents.emit("responsive");
+    const preloadError = new Error("sandbox preload failed");
+    contents.emit("preload-error", {}, "/app/embedded.cjs", preloadError);
 
     expect(log.info).toHaveBeenCalledWith(
       "browser",
@@ -83,6 +85,13 @@ describe("EmbeddedRuntimeDiagnostics", () => {
       "embedded_renderer_responsive",
       expect.any(String),
       expect.objectContaining({ roleId: "role-1" })
+    );
+    expect(log.error).toHaveBeenCalledWith(
+      "preload",
+      "embedded_preload_error",
+      expect.any(String),
+      preloadError,
+      expect.objectContaining({ roleId: "role-1", preloadPath: "/app/embedded.cjs" })
     );
     diagnostics.stop();
   });

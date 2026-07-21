@@ -14,6 +14,40 @@ afterEach(() => {
 });
 
 describe("useRoleWorkflow", () => {
+  it("treats an intentionally cancelled launch as a quiet status refresh", async () => {
+    const selectedRole = role();
+    const reportError = vi.fn();
+    const setStatuses = vi.fn();
+    const listRoleStatuses = vi.fn().mockResolvedValue([]);
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        launchRole: vi.fn().mockResolvedValue(null),
+        listRoleStatuses
+      }
+    });
+    const { result } = renderHook(() => useRoleWorkflow({
+      beginErrorOperation: () => reportError,
+      gameNamesById: new Map(),
+      roles: [selectedRole],
+      setAuthStatuses: vi.fn(),
+      setMacros: vi.fn(),
+      setRoles: vi.fn(),
+      setStatuses,
+      setWorkspaces: vi.fn(),
+      statusByRole: new Map(),
+      t: ((key: string) => key) as Translator
+    }), { wrapper: ConfirmationWrapper });
+
+    await act(async () => {
+      await result.current.handleLaunch(selectedRole.id);
+    });
+
+    expect(listRoleStatuses).toHaveBeenCalledOnce();
+    expect(setStatuses).toHaveBeenCalledWith([]);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
   it("preserves a macro while optimistically clearing a deleted role assignment", async () => {
     const selectedRole: Role = {
       id: "role-1",

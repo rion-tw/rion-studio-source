@@ -3,6 +3,11 @@ import { join } from "node:path";
 
 export type SessionStorageByOrigin = Record<string, Record<string, string>>;
 
+export type DocumentStorageByOrigin = Record<string, {
+  localStorage?: Record<string, string>;
+  sessionStorage?: Record<string, string>;
+}>;
+
 export type EncodedStorageValue =
   | null
   | boolean
@@ -148,6 +153,12 @@ export class EncryptedSessionStorageSeedStore {
     return this.removePersistedSeed(this.getPath(roleId));
   }
 
+  async acknowledgeLocalStorage(roleId: string, origin: string): Promise<boolean> {
+    const seed = await this.load(roleId);
+    if (!seed?.origins[origin]?.localStorage) return true;
+    return this.save(roleId, removeLocalStorageForOrigin(seed, origin));
+  }
+
   private getPath(roleId: string): string {
     return join(this.options.getBrowserUserDataDir(roleId), SEED_FILE_NAME);
   }
@@ -208,9 +219,23 @@ export function getSessionStorageByOrigin(seed: EmbeddedStorageSeed | undefined)
   );
 }
 
+export function getDocumentStorageByOrigin(seed: EmbeddedStorageSeed | undefined): DocumentStorageByOrigin {
+  if (!seed) return {};
+  return Object.fromEntries(
+    Object.entries(seed.origins)
+      .filter(([, originSeed]) =>
+        Object.keys(originSeed.localStorage ?? {}).length > 0 ||
+        Object.keys(originSeed.sessionStorage ?? {}).length > 0
+      )
+      .map(([origin, originSeed]) => [origin, {
+        ...(originSeed.localStorage ? { localStorage: { ...originSeed.localStorage } } : {}),
+        ...(originSeed.sessionStorage ? { sessionStorage: { ...originSeed.sessionStorage } } : {})
+      }])
+  );
+}
+
 export function hasPendingDurableStorage(seed: EmbeddedStorageSeed | undefined): boolean {
   return Boolean(seed && Object.values(seed.origins).some((origin) =>
-    Object.keys(origin.localStorage ?? {}).length > 0 ||
     (origin.indexedDb?.length ?? 0) > 0 || (origin.cacheStorage?.length ?? 0) > 0
   ));
 }
@@ -219,10 +244,23 @@ export function removeDurableStorageForOrigin(seed: EmbeddedStorageSeed, origin:
   const next = cloneEmbeddedStorageSeed(seed);
   const originSeed = next.origins[origin];
   if (!originSeed) return next;
-  delete originSeed.localStorage;
   delete originSeed.indexedDb;
   delete originSeed.cacheStorage;
-  if (!originSeed.sessionStorage || Object.keys(originSeed.sessionStorage).length === 0) {
+  if (Object.keys(originSeed.localStorage ?? {}).length === 0 &&
+    Object.keys(originSeed.sessionStorage ?? {}).length === 0) {
+    delete next.origins[origin];
+  }
+  return next;
+}
+
+export function removeLocalStorageForOrigin(seed: EmbeddedStorageSeed, origin: string): EmbeddedStorageSeed {
+  const next = cloneEmbeddedStorageSeed(seed);
+  const originSeed = next.origins[origin];
+  if (!originSeed) return next;
+  delete originSeed.localStorage;
+  if (Object.keys(originSeed.sessionStorage ?? {}).length === 0 &&
+    (originSeed.indexedDb?.length ?? 0) === 0 &&
+    (originSeed.cacheStorage?.length ?? 0) === 0) {
     delete next.origins[origin];
   }
   return next;
@@ -231,7 +269,7 @@ export function removeDurableStorageForOrigin(seed: EmbeddedStorageSeed, origin:
 export function getPendingDurableOrigins(seed: EmbeddedStorageSeed | undefined): string[] {
   if (!seed) return [];
   return Object.entries(seed.origins)
-    .filter(([, origin]) => Object.keys(origin.localStorage ?? {}).length > 0 ||
+    .filter(([, origin]) =>
       (origin.indexedDb?.length ?? 0) > 0 || (origin.cacheStorage?.length ?? 0) > 0)
     .map(([origin]) => origin);
 }
@@ -242,9 +280,18 @@ export function cloneSessionStorageByOrigin(values: SessionStorageByOrigin): Ses
   );
 }
 
+export function cloneDocumentStorageByOrigin(values: DocumentStorageByOrigin): DocumentStorageByOrigin {
+  return structuredClone(values);
+}
+
 export function normalizeSessionStorageByOrigin(value: unknown): SessionStorageByOrigin {
   const seed = normalizeEmbeddedStorageSeed(value);
   return getSessionStorageByOrigin(seed);
+}
+
+export function normalizeDocumentStorageByOrigin(value: unknown): DocumentStorageByOrigin {
+  const seed = normalizeEmbeddedStorageSeed(value);
+  return getDocumentStorageByOrigin(seed);
 }
 
 export function normalizeEmbeddedStorageSeed(value: unknown): EmbeddedStorageSeed {

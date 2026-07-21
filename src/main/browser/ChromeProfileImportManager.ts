@@ -789,9 +789,6 @@ export class ChromeProfileImportManager {
         summary.bootstrapStorageKeyCount = bootstrap.localStorageKeyCount;
         summary.bootstrapPersistenceFailed = bootstrap.persistenceFailed;
         summary.bootstrapSucceededOriginCount = bootstrap.succeededOriginCount;
-        summary.writtenStorageOriginCount = bootstrap.succeededOriginCount;
-        summary.writtenStorageKeyCount = bootstrap.localStorageKeyCount;
-        summary.failedStorageOriginCount = bootstrap.failedOriginCount;
       } catch {
         summary.bootstrapFailedOriginCount = Math.max(summary.bootstrapFailedOriginCount, 1);
       }
@@ -818,9 +815,12 @@ export class ChromeProfileImportManager {
     try {
       await this.options.storeEmbeddedStorageSeed(roleId, seed);
       summary.queuedDocumentStateOriginCount = Object.values(seed.origins)
-        .filter((origin) => Object.keys(origin.sessionStorage ?? {}).length > 0).length;
+        .filter((origin) => Object.keys(origin.localStorage ?? {}).length > 0 ||
+          Object.keys(origin.sessionStorage ?? {}).length > 0).length;
       summary.queuedDocumentStateKeyCount = Object.values(seed.origins)
-        .reduce((count, origin) => count + Object.keys(origin.sessionStorage ?? {}).length, 0);
+        .reduce((count, origin) => count +
+          Object.keys(origin.localStorage ?? {}).length +
+          Object.keys(origin.sessionStorage ?? {}).length, 0);
       const durableCounts = countDurableStorage(seed.origins);
       summary.queuedDurableOriginCount = durableCounts.originCount;
       summary.queuedIndexedDbDatabaseCount = durableCounts.indexedDbDatabaseCount;

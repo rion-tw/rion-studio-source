@@ -87,7 +87,7 @@ export interface RionStudioApi {
   getRolePaths: (id: string) => Promise<RolePaths>;
   startLogin: (id: string) => Promise<AuthFlowStatus>;
   listAuthStatuses: () => Promise<AuthFlowStatus[]>;
-  launchRole: (id: string) => Promise<RoleStatus>;
+  launchRole: (id: string) => Promise<RoleStatus | null>;
   openSystemLoginWindow: (id: string) => Promise<void>;
   stopRole: (id: string) => Promise<void>;
   listRoleStatuses: () => Promise<RoleStatus[]>;

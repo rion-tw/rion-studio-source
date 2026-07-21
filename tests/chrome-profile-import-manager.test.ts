@@ -347,9 +347,7 @@ describe("ChromeProfileImportManager", () => {
           get: vi.fn().mockResolvedValue([]),
           set: vi.fn().mockResolvedValue(undefined)
         },
-        flushStorageData: vi.fn(() => {
-          throw new Error("flush failed");
-        })
+        flushStorageData: vi.fn().mockRejectedValue(new Error("flush failed"))
       }) as never,
       injectEmbeddedStorage: vi.fn().mockRejectedValue(new Error("storage injection failed")),
       onLoginDataTransfer: (summary) => transferSummaries.push(summary),

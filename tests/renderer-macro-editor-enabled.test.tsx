@@ -111,6 +111,71 @@ describe("macro editor controls", () => {
     });
   });
 
+  it.each([
+    {
+      entry: "/macros/macro-1/edit",
+      macros: [macro()],
+      routePath: "/macros/:id/edit",
+      state: "editing"
+    },
+    {
+      entry: "/macros/new",
+      macros: [],
+      routePath: "/macros/new",
+      state: "creating"
+    }
+  ])("shows complete macro help when $state", ({ entry, macros, routePath }) => {
+    const router = createMemoryRouter([
+      {
+        path: routePath,
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={macros}
+          roles={[role()]}
+          t={t}
+          onSave={vi.fn(async () => undefined)}
+        />
+      }
+    ], { initialEntries: [entry] });
+
+    const { container } = render(
+      <ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>
+    );
+    const helpList = container.querySelector<HTMLElement>("[data-macro-help-list]");
+    const macroHelps = container.querySelectorAll<HTMLElement>("[data-macro-help]");
+
+    expect(helpList?.className).toContain("min-[1180px]:col-span-2");
+    expect(macroHelps).toHaveLength(3);
+    expect(macroHelps[0].getAttribute("data-macro-help")).toBe("activation");
+    expect(macroHelps[1].getAttribute("data-macro-help")).toBe("calls");
+    expect(macroHelps[2].getAttribute("data-macro-help")).toBe("stop");
+    expect(macroHelps[0].textContent).toContain("Starting and repeating");
+    expect(macroHelps[0].textContent).toContain("every assigned role that is launched and controllable");
+    expect(macroHelps[0].textContent).toContain("Tap to toggle switches between starting and stopping");
+    expect(macroHelps[0].textContent).toContain("0 ms interval removes only the extra wait");
+    expect(macroHelps[1].textContent).toContain("Running other macros");
+    expect(macroHelps[1].textContent).toContain("uses its own assigned roles");
+    expect(macroHelps[1].textContent).toContain("Wait for completion runs the child macro once");
+    expect(macroHelps[1].textContent).toContain("Interrupting the parent stops its triggered descendants");
+    expect(macroHelps[1].textContent).toContain("when the parent completes normally");
+    expect(macroHelps[1].textContent).toContain("already running does not start or create another run");
+    expect(macroHelps[2].textContent).toContain("Stopping and held keys");
+    expect(macroHelps[2].textContent).toContain("releases keys held by that macro");
+    expect(macroHelps[2].textContent).toContain("cancels the parent");
+    expect(macroHelps[2].textContent).toContain("does not stop the parent");
+    expect(macroHelps[2].textContent).toContain("Closing any participating role stops the entire multi-role macro run");
+    expect([...macroHelps].map((help) => help.querySelectorAll("li").length)).toEqual([3, 4, 3]);
+    macroHelps.forEach((macroHelp) => {
+      expect(macroHelp.querySelector("svg")).toBeNull();
+      expect(macroHelp.querySelectorAll("section")).toHaveLength(1);
+      expect(macroHelp.querySelector("section")?.className).toContain("max-w-[72ch]");
+      expect(macroHelp.className).toContain("rounded-lg");
+      expect(macroHelp.className).toContain("p-4");
+    });
+    expect(macroHelps[2].parentElement?.lastElementChild).toBe(macroHelps[2]);
+  });
+
   it("shows held macro targets as available while preserving dependency reasons", () => {
     const loopingTarget = macro({
       id: "macro-loop",
@@ -156,10 +221,8 @@ describe("macro editor controls", () => {
     const callMode = screen.getByRole("combobox", { name: "Macro call mode" });
     expect(callMode.textContent).toContain("Wait for completion");
     fireEvent.click(callMode);
-    fireEvent.click(screen.getByRole("option", {
-      name: "Trigger and continue (stops if parent is interrupted)"
-    }));
-    expect(callMode.textContent).toContain("Trigger and continue (stops if parent is interrupted)");
+    fireEvent.click(screen.getByRole("option", { name: "Trigger and continue" }));
+    expect(callMode.textContent).toContain("Trigger and continue");
     fireEvent.click(trigger);
 
     const loopOption = screen.getByRole("option", {

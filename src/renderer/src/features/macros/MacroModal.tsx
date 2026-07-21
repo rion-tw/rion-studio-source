@@ -18,6 +18,7 @@ import {
   type DragEvent,
   type FormEvent,
   type JSX,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -34,6 +35,7 @@ import { Switch } from "../../components/ui/switch";
 import { Textarea } from "../../components/ui/textarea";
 import {
   FormField,
+  HelpPanel,
   SegmentedControl,
   Surface
 } from "../../components/ui/patterns";
@@ -627,6 +629,34 @@ function MacroForm({
               </FormField>
             </Surface>
           </div>
+
+          <div className="grid gap-4 min-[1180px]:col-span-2" data-macro-help-list>
+            <HelpPanel data-macro-help="activation">
+              <MacroHelpSection title={t("macroForm.help.activationTitle")}>
+                <li>{t("macroForm.help.activationRoles")}</li>
+                <li>{t("macroForm.help.activationModes")}</li>
+                <li>{t("macroForm.help.activationRepeat")}</li>
+              </MacroHelpSection>
+            </HelpPanel>
+
+            <HelpPanel data-macro-help="calls">
+              <MacroHelpSection title={t("macroForm.help.callsTitle")}>
+                <li>{t("macroForm.help.callsRequirements")}</li>
+                <li>{t("macroForm.help.callsWait")}</li>
+                <li>{t("macroForm.help.callsTrigger")}</li>
+                <li>{t("macroForm.help.callsDuplicate")}</li>
+              </MacroHelpSection>
+            </HelpPanel>
+
+            <HelpPanel data-macro-help="stop">
+              <MacroHelpSection title={t("macroForm.help.stopTitle")}>
+                <li>{t("macroForm.help.stopRun")}</li>
+                <li>{t("macroForm.help.stopChild")}</li>
+                <li>{t("macroForm.help.stopRole")}</li>
+              </MacroHelpSection>
+            </HelpPanel>
+          </div>
+
           <MacroCommandImportDialog
             currentMacroId={form.id}
             existingStepCount={form.steps.length}
@@ -646,6 +676,15 @@ function MacroForm({
             }}
           />
     </>
+  );
+}
+
+function MacroHelpSection({ children, title }: { children: ReactNode; title: string }): JSX.Element {
+  return (
+    <section className="grid max-w-[72ch] gap-1 text-xs leading-5 text-muted-foreground">
+      <h2 className="text-[11px] font-semibold leading-5 text-foreground">{title}</h2>
+      <ul className="grid list-disc gap-1 pl-4">{children}</ul>
+    </section>
   );
 }
 

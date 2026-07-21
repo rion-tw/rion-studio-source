@@ -7,6 +7,7 @@ import type {
 } from "../../shared/types";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
+import type { StateRepository } from "../core/RustStateRepository";
 
 interface CompatibilityFile {
   reports: GameCompatibilityReport[];
@@ -17,7 +18,7 @@ export class GameCompatibilityStore {
   private readonly filePath: string;
   private readonly taskQueue = new SerialTaskQueue();
 
-  constructor(userDataDir: string) {
+  constructor(userDataDir: string, private readonly stateRepository?: StateRepository) {
     this.filePath = join(userDataDir, "game-compatibility.json");
   }
 
@@ -87,7 +88,9 @@ export class GameCompatibilityStore {
       return structuredClone(this.cachedFile);
     }
     try {
-      const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as { reports?: unknown };
+      const parsed = this.stateRepository
+        ? { reports: await this.stateRepository.read("compatibilityReports", []) }
+        : JSON.parse(await readFile(this.filePath, "utf8")) as { reports?: unknown };
       const reports = Array.isArray(parsed.reports)
         ? parsed.reports.filter(isCompatibilityReport).map((report) => ({
             ...report,
@@ -110,7 +113,11 @@ export class GameCompatibilityStore {
   }
 
   private async writeFile(file: CompatibilityFile): Promise<void> {
-    await writeJsonFileAtomically(this.filePath, file);
+    if (this.stateRepository) {
+      await this.stateRepository.replace("compatibilityReports", file.reports);
+    } else {
+      await writeJsonFileAtomically(this.filePath, file);
+    }
     this.cachedFile = structuredClone(file);
   }
 }

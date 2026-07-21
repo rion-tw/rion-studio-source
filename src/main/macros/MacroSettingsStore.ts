@@ -7,12 +7,13 @@ import {
 } from "../../shared/macroSettings";
 import type { MacroSettings } from "../../shared/types";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
+import type { StateRepository } from "../core/RustStateRepository";
 
 export class MacroSettingsStore {
   private cachedSettings: MacroSettings | undefined;
   private readonly settingsPath: string;
 
-  constructor(userDataDir: string) {
+  constructor(userDataDir: string, private readonly stateRepository?: StateRepository) {
     this.settingsPath = join(userDataDir, "macro-settings.json");
   }
 
@@ -22,8 +23,10 @@ export class MacroSettingsStore {
     }
 
     try {
-      const raw = await readFile(this.settingsPath, "utf8");
-      this.cachedSettings = normalizeMacroSettings(JSON.parse(raw));
+      const value = this.stateRepository
+        ? await this.stateRepository.read("macroSettings", DEFAULT_MACRO_SETTINGS)
+        : JSON.parse(await readFile(this.settingsPath, "utf8"));
+      this.cachedSettings = normalizeMacroSettings(value);
     } catch {
       this.cachedSettings = cloneSettings(DEFAULT_MACRO_SETTINGS);
     }
@@ -33,7 +36,11 @@ export class MacroSettingsStore {
 
   async updateSettings(settings: MacroSettings, publishCache = true): Promise<MacroSettings> {
     const normalized = normalizeMacroSettings(settings);
-    await writeJsonFileAtomically(this.settingsPath, normalized);
+    if (this.stateRepository) {
+      await this.stateRepository.replace("macroSettings", normalized);
+    } else {
+      await writeJsonFileAtomically(this.settingsPath, normalized);
+    }
     if (publishCache) {
       this.cachedSettings = cloneSettings(normalized);
     }

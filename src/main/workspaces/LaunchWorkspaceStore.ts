@@ -42,6 +42,7 @@ import {
 } from "../../shared/workspaceLayout";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
+import type { StateRepository } from "../core/RustStateRepository";
 
 interface LaunchWorkspacesFile {
   schemaVersion: number;
@@ -89,7 +90,10 @@ export class LaunchWorkspaceStore {
   private readonly taskQueue = new SerialTaskQueue();
   private readonly workspacesPath: string;
 
-  constructor(private readonly userDataDir: string) {
+  constructor(
+    private readonly userDataDir: string,
+    private readonly stateRepository?: StateRepository
+  ) {
     this.workspacesPath = join(userDataDir, "launch-workspaces.json");
   }
 
@@ -387,8 +391,12 @@ export class LaunchWorkspaceStore {
     }
 
     try {
-      const raw = await readFile(this.workspacesPath, "utf8");
-      const parsed = JSON.parse(raw) as Partial<LaunchWorkspacesFile>;
+      const parsed = this.stateRepository
+        ? {
+            schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,
+            workspaces: await this.stateRepository.read("launchWorkspaces", [])
+          }
+        : JSON.parse(await readFile(this.workspacesPath, "utf8")) as Partial<LaunchWorkspacesFile>;
 
       if (!Array.isArray(parsed.workspaces)) {
         throw new LaunchWorkspaceStoreError("WORKSPACE_FILE_INVALID", "Launch workspace data file is invalid.");
@@ -440,7 +448,11 @@ export class LaunchWorkspaceStore {
   }
 
   private async writeWorkspacesFile(file: LaunchWorkspacesFile, publishCache = true): Promise<void> {
-    await writeJsonFileAtomically(this.workspacesPath, file);
+    if (this.stateRepository) {
+      await this.stateRepository.replace("launchWorkspaces", file.workspaces);
+    } else {
+      await writeJsonFileAtomically(this.workspacesPath, file);
+    }
     if (publishCache) {
       this.cachedFile = cloneWorkspacesFile({
         schemaVersion: LAUNCH_WORKSPACES_FILE_SCHEMA_VERSION,

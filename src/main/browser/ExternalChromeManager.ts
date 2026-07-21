@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -40,6 +40,7 @@ import type {
   BrowserWorkspaceRuntimeState,
   BrowserWorkspaceRuntimeStatus
 } from "./BrowserManager";
+import type { ExternalChromeProcessLike } from "../core/nativeCore";
 
 export interface ExternalChromeManagerEvents {
   change: [RoleStatus[]];
@@ -85,6 +86,7 @@ export interface ExternalChromeManagerOptions {
     role: Role,
     browserUserDataDir: string
   ) => Promise<{ enabled: boolean; proxyServer?: string }>;
+  prepareBrowserUserDataDir?: (browserUserDataDir: string) => Promise<void>;
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
   graphicsMode?: BrowserGraphicsMode;
@@ -93,7 +95,7 @@ export interface ExternalChromeManagerOptions {
   platform?: NodeJS.Platform;
   setInterval?: (callback: () => void, intervalMs: number) => ReturnType<typeof setInterval>;
   windowBoundsAdapter?: ExternalChromeWindowBoundsAdapter;
-  spawnChrome?: (executablePath: string, args: string[]) => ChildProcess;
+  spawnChrome?: (executablePath: string, args: string[]) => ExternalChromeProcessLike;
   connectAutomation?: (
     browserUserDataDir: string,
     launchUrl: string,
@@ -114,7 +116,7 @@ interface ExternalChromeSession {
   bounds: PixelBounds;
   cdpProbeInFlight?: boolean;
   cdnCompatibilityActive: boolean;
-  child: ChildProcess;
+  child: ExternalChromeProcessLike;
   launchedAt?: string;
   lastHeartbeatAt?: number;
   lastCdpRoundTripAt?: number;
@@ -455,7 +457,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   ): Promise<ExternalChromeSession> {
     const executablePath = (this.options.findExecutable ?? findSystemChromeExecutable)();
     const browserUserDataDir = await this.roleStore.ensureBrowserUserDataDir(role.id);
-    await removeStaleDevToolsPort(browserUserDataDir);
+    await (this.options.prepareBrowserUserDataDir ?? removeStaleDevToolsPort)(browserUserDataDir);
     await this.options.applyBrowserFonts?.(role, browserUserDataDir).catch((error) => {
       console.warn("Failed to apply browser font settings before opening external Chrome.", error);
     });
@@ -581,7 +583,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   }
 
   private async alignVisibleWindow(
-    child: ChildProcess,
+    child: ExternalChromeProcessLike,
     physicalBounds: PixelBounds | undefined
   ): Promise<void> {
     const adapter = this.options.windowBoundsAdapter;
@@ -878,18 +880,18 @@ function withCdpRoundTripTimeout<T>(operation: Promise<T>, timeoutMs: number): P
   });
 }
 
-function spawnChrome(executablePath: string, args: string[]): ChildProcess {
+function spawnChrome(executablePath: string, args: string[]): ExternalChromeProcessLike {
   return spawn(executablePath, args, { stdio: "ignore" });
 }
 
-function waitForSpawn(child: ChildProcess): Promise<void> {
+function waitForSpawn(child: ExternalChromeProcessLike): Promise<void> {
   return new Promise((resolve, reject) => {
     child.once("spawn", resolve);
     child.once("error", reject);
   });
 }
 
-function terminateChild(child: ChildProcess): void {
+function terminateChild(child: ExternalChromeProcessLike): void {
   if (child.killed || child.exitCode !== null) {
     return;
   }

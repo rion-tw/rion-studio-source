@@ -4,6 +4,7 @@ export type StartupPageState = "failed" | "loading";
 export type StartupTheme = "dark" | "light";
 
 export interface StartupPageOptions {
+  errorDetail?: string;
   iconDataUrl?: string;
   state?: StartupPageState;
   theme: StartupTheme;
@@ -121,7 +122,9 @@ export function buildStartupPage(options: StartupPageOptions): string {
         <div class="startup-error-mark" aria-hidden="true">!</div>
         <div class="startup-status">
           <p class="startup-status-title">Unable to start Rion Studio</p>
-          <p class="startup-status-description">The application could not finish starting. Please quit and try again.</p>
+          <p class="startup-status-description">${escapeHtml(
+            options.errorDetail ?? "The application could not finish starting. Please quit and try again."
+          )}</p>
         </div>
       </section>`
     : `${icon}

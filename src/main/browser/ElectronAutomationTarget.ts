@@ -52,6 +52,7 @@ export interface BrowserInputDispatchOptions {
   onClick?: () => void;
   postDelayMs?: number;
   signal?: AbortSignal;
+  waitForDelay?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
@@ -135,7 +136,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   private async dispatchKeyUnlocked(input: MacroKeyInput, options: BrowserInputDispatchOptions): Promise<void> {
-    const { holdMs = 0, postDelayMs = 0, signal } = options;
+    const { holdMs = 0, postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
@@ -166,7 +167,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           pressedCodes.push(code);
         }
         await this.clearShortcutPhase(code, "keydown");
-        await waitForInputDelay(holdMs, signal);
+        await waitForDelay(holdMs, signal);
 
         if (pressedCodes.at(-1) === code) {
           signal?.throwIfAborted();
@@ -199,7 +200,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           this.clearShortcutPhase(code, "keyup")
         ]);
       }
-      await waitForInputDelay(postDelayMs, signal);
+      await waitForDelay(postDelayMs, signal);
     } finally {
       if (!hadInputLease && this.heldKeyOwners.size === 0) {
         this.releaseInputLeaseIfIdle();
@@ -212,7 +213,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     ownerId: string,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
-    const { postDelayMs = 0, signal } = options;
+    const { postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) return;
     const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
@@ -243,7 +244,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           await this.clearShortcutPhase(code, "keydown");
         }
       }
-      await waitForInputDelay(postDelayMs, signal);
+      await waitForDelay(postDelayMs, signal);
     } catch (error) {
       for (const acquiredCode of [...acquiredCodes].reverse()) {
         await this.releaseOwnedKey(
@@ -366,7 +367,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     yPercent: number,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
-    const { postDelayMs = 0, signal } = options;
+    const { postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) {
       return;
@@ -399,7 +400,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
         }
       }
       if (didRelease) options.onClick?.();
-      await waitForInputDelay(postDelayMs, signal);
+      await waitForDelay(postDelayMs, signal);
     } finally {
       this.releaseInputLeaseIfIdle();
     }
@@ -410,7 +411,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     yPx: number,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
-    const { postDelayMs = 0, signal } = options;
+    const { postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) return;
     await this.ensureInputLease();
@@ -435,7 +436,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
         }
       }
       if (didRelease) options.onClick?.();
-      await waitForInputDelay(postDelayMs, signal);
+      await waitForDelay(postDelayMs, signal);
     } finally {
       this.releaseInputLeaseIfIdle();
     }
@@ -448,7 +449,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     yOffset: number,
     options: BrowserInputDispatchOptions
   ): Promise<void> {
-    const { postDelayMs = 0, signal } = options;
+    const { postDelayMs = 0, signal, waitForDelay = waitForInputDelay } = options;
     signal?.throwIfAborted();
     if (this.webContents.isDestroyed()) return;
     await this.ensureInputLease();
@@ -483,7 +484,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
         }
       }
       if (didRelease) options.onClick?.();
-      await waitForInputDelay(postDelayMs, signal);
+      await waitForDelay(postDelayMs, signal);
     } finally {
       this.releaseInputLeaseIfIdle();
     }

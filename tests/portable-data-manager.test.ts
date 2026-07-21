@@ -1608,6 +1608,39 @@ describe("PortableDataManager", () => {
     await expect(access(join(baseDir, "portable-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("defers SQLite journal recovery until the Rust repository is available", async () => {
+    const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Before" });
+    const createdRoleId = "12345678-1234-4123-8123-abcdefabcdef";
+    const journal = {
+      createdRoleIds: [createdRoleId],
+      games: await gameStore.listGames(),
+      roles: [role],
+      workspaces: await workspaceStore.listWorkspaces(),
+      macros: await macroStore.listMacros(),
+      phase: "prepared",
+      storageKind: "sqlite"
+    };
+    const journalPath = join(baseDir, "portable-import-transaction.json");
+    await writeFile(journalPath, JSON.stringify(journal), "utf8");
+    await mkdir(join(baseDir, "roles", createdRoleId, "browser"), { recursive: true });
+    await mkdir(join(baseDir, "portable-import-transaction.stage"), { recursive: true });
+
+    await recoverPortableImportTransaction(baseDir);
+    await expect(access(journalPath)).resolves.toBeUndefined();
+
+    const replaceMany = vi.fn(async () => undefined);
+    await recoverPortableImportTransaction(baseDir, { replaceMany });
+
+    expect(replaceMany).toHaveBeenCalledWith(expect.objectContaining({
+      games: journal.games,
+      roles: journal.roles,
+      launchWorkspaces: journal.workspaces,
+      macros: journal.macros
+    }));
+    await expect(access(join(baseDir, "roles", createdRoleId))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(journalPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("finishes a committed import journal during startup recovery", async () => {
     const role = await roleStore.createRole({ gameId: "builtin-flyff-universe", name: "Before" });
     const workspace = await workspaceStore.createWorkspace({

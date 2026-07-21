@@ -13,6 +13,7 @@ import {
 } from "../../shared/types";
 import { SerialTaskQueue } from "../persistence/SerialTaskQueue";
 import { writeJsonFileAtomically } from "../persistence/atomicJsonFile";
+import type { StateRepository } from "../core/RustStateRepository";
 
 interface RolesFile {
   roles: Role[];
@@ -43,7 +44,10 @@ export class RoleStore {
   private readonly legacyRolesRoot: string;
   private readonly taskQueue = new SerialTaskQueue();
 
-  constructor(private readonly userDataDir: string) {
+  constructor(
+    private readonly userDataDir: string,
+    private readonly stateRepository?: StateRepository
+  ) {
     this.rolesPath = join(userDataDir, "roles.json");
     this.rolesRoot = join(userDataDir, "roles");
     this.legacyRolesPath = join(userDataDir, "profiles.json");
@@ -293,8 +297,9 @@ export class RoleStore {
     }
 
     try {
-      const raw = await readFile(this.rolesPath, "utf8");
-      const parsed = JSON.parse(raw) as RolesFile;
+      const parsed = this.stateRepository
+        ? { roles: await this.stateRepository.read("roles", []) }
+        : JSON.parse(await readFile(this.rolesPath, "utf8")) as RolesFile;
 
       if (!Array.isArray(parsed.roles)) {
         throw new RoleStoreError("ROLE_FILE_INVALID", "Role data file is invalid.");
@@ -311,7 +316,7 @@ export class RoleStore {
       this.cachedFile = cloneRolesFile(file);
       return cloneRolesFile(file);
     } catch (error) {
-      if (isNodeError(error) && error.code === "ENOENT") {
+      if (!this.stateRepository && isNodeError(error) && error.code === "ENOENT") {
         return this.readLegacyRolesFile();
       }
 
@@ -347,7 +352,11 @@ export class RoleStore {
 
   private async writeRolesFile(file: RolesFile, publishCache = true): Promise<void> {
     await mkdir(this.rolesRoot, { recursive: true });
-    await writeJsonFileAtomically(this.rolesPath, file);
+    if (this.stateRepository) {
+      await this.stateRepository.replace("roles", file.roles);
+    } else {
+      await writeJsonFileAtomically(this.rolesPath, file);
+    }
     if (publishCache) {
       this.cachedFile = cloneRolesFile(file);
     }

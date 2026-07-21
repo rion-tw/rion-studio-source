@@ -5,9 +5,12 @@ import { EventEmitter } from "node:events";
 
 import { LOG_LEVELS, LOG_SOURCES, type LogEntry, type LogLevel, type LogPage, type LogQuery, type LogSource, type LogStorageStatus } from "../../shared/types";
 import { sanitizeError, sanitizeText, sanitizeValue } from "./logSanitizer";
+import type { ZipFile } from "./zipWriter";
 
 const LEVEL_VALUE: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 const FILE_LIMIT = 10 * 1024 * 1024;
+const DATABASE_BATCH_INTERVAL_MS = 250;
+const DATABASE_BATCH_MAX_ENTRIES = 50;
 export const LOG_RETENTION_DAYS = 14;
 export const LOG_MAX_BYTES = 100 * 1024 * 1024;
 
@@ -16,6 +19,16 @@ export interface LogServiceOptions {
   now?: () => Date;
   platform?: NodeJS.Platform;
   appVersion?: string;
+  deferFileWrites?: boolean;
+}
+
+export interface LogPersistence {
+  append: (entries: LogEntry[]) => Promise<void>;
+  clear: () => Promise<void>;
+  exportJsonl: () => Promise<string>;
+  exportJsonlTo: (path: string) => Promise<void>;
+  getStatus: (currentLevel: LogLevel) => Promise<LogStorageStatus>;
+  query: (query: LogQuery) => Promise<LogPage>;
 }
 
 export class LogService extends EventEmitter {
@@ -25,6 +38,10 @@ export class LogService extends EventEmitter {
   private currentFile: string;
   private sequence = 0;
   private queue = Promise.resolve();
+  private databaseBatchTimer?: ReturnType<typeof setTimeout>;
+  private deferFileWrites: boolean;
+  private pendingDatabaseEntries: LogEntry[] = [];
+  private persistence?: LogPersistence;
   private readonly now: () => Date;
   private readonly userDataPath: string;
 
@@ -33,17 +50,42 @@ export class LogService extends EventEmitter {
     this.userDataPath = options.userDataPath;
     this.directory = join(options.userDataPath, "logs");
     this.now = options.now ?? (() => new Date());
+    this.deferFileWrites = options.deferFileWrites ?? false;
     this.currentFile = join(this.directory, `${this.filePrefix()}-01.jsonl`);
   }
 
   async initialize(): Promise<void> {
-    await mkdir(this.directory, { recursive: true });
-    await this.enforceRetention();
+    if (!this.deferFileWrites) {
+      await mkdir(this.directory, { recursive: true });
+      await this.enforceRetention();
+    }
     this.info("main", "app_session_started", "Application logging started.", {
       appVersion: this.options.appVersion,
       platform: this.options.platform ?? process.platform,
       arch: process.arch
     });
+  }
+
+  async usePersistence(persistence: LogPersistence): Promise<void> {
+    if (this.deferFileWrites) {
+      await this.queue;
+    } else {
+      await this.flush();
+    }
+    this.persistence = persistence;
+    this.deferFileWrites = false;
+    await this.flushDatabaseBatch();
+  }
+
+  async useFileFallback(): Promise<void> {
+    await this.queue;
+    this.deferFileWrites = false;
+    await mkdir(this.directory, { recursive: true });
+    await this.enforceRetention();
+    const entries = this.pendingDatabaseEntries.splice(0);
+    for (const entry of entries) {
+      await this.writeFileEntry(entry);
+    }
   }
 
   debug(source: LogSource, event: string, message: string, context?: Record<string, unknown>): void { this.log("debug", source, event, message, context); }
@@ -79,10 +121,21 @@ export class LogService extends EventEmitter {
     this.info("main", "log_level_changed", `Log level changed to ${level}.`);
   }
 
-  async flush(): Promise<void> { await this.queue; }
+  async flush(): Promise<void> {
+    if (this.databaseBatchTimer) {
+      clearTimeout(this.databaseBatchTimer);
+      this.databaseBatchTimer = undefined;
+    }
+    await this.queue;
+    if (this.deferFileWrites && !this.persistence) return;
+    await this.flushDatabaseBatch();
+  }
 
   async getStatus(): Promise<LogStorageStatus> {
     await this.flush();
+    if (this.persistence) {
+      return this.persistence.getStatus(this.currentLevel);
+    }
     const files = await this.listFiles();
     let totalBytes = 0;
     let oldest: string | undefined;
@@ -100,6 +153,9 @@ export class LogService extends EventEmitter {
   async query(query: LogQuery = {}): Promise<LogPage> {
     validateQuery(query);
     await this.flush();
+    if (this.persistence) {
+      return this.persistence.query(query);
+    }
     const entries = await this.readEntries();
     const search = query.search?.trim().toLocaleLowerCase();
     const filtered = entries.filter((entry) =>
@@ -116,6 +172,11 @@ export class LogService extends EventEmitter {
 
   async clear(): Promise<void> {
     await this.flush();
+    if (this.persistence) {
+      await this.persistence.clear();
+      this.info("main", "logs_cleared", "Application logs were cleared by the user.");
+      return;
+    }
     for (const file of await this.listFiles()) {
       const path = join(this.directory, file);
       if (path === this.currentFile) await truncate(path, 0).catch(() => undefined);
@@ -124,13 +185,38 @@ export class LogService extends EventEmitter {
     this.info("main", "logs_cleared", "Application logs were cleared by the user.");
   }
 
-  async getFiles(): Promise<Array<{ name: string; data: Buffer }>> {
+  async getFiles(exportPath?: string): Promise<ZipFile[]> {
     await this.flush();
+    if (this.persistence) {
+      if (exportPath) {
+        await this.persistence.exportJsonlTo(exportPath);
+        return [{ name: "rion-studio-logs.jsonl", path: exportPath }];
+      }
+      return [{ name: "rion-studio-logs.jsonl", data: Buffer.from(await this.persistence.exportJsonl()) }];
+    }
     return Promise.all((await this.listFiles()).map(async (name) => ({ name, data: await readFile(join(this.directory, name)) })));
   }
 
   private filePrefix(): string { return `${this.now().toISOString().slice(0, 10)}-${this.sessionId}`; }
   private async writeEntry(entry: LogEntry): Promise<void> {
+    if (this.persistence || this.deferFileWrites) {
+      this.pendingDatabaseEntries.push(entry);
+      if (!this.persistence) return;
+      if (
+        entry.level === "warn" ||
+        entry.level === "error" ||
+        this.pendingDatabaseEntries.length >= DATABASE_BATCH_MAX_ENTRIES
+      ) {
+        await this.flushDatabaseBatch();
+      } else {
+        this.scheduleDatabaseBatch();
+      }
+      return;
+    }
+    await this.writeFileEntry(entry);
+  }
+
+  private async writeFileEntry(entry: LogEntry): Promise<void> {
     await mkdir(this.directory, { recursive: true });
     const line = `${JSON.stringify(entry)}\n`;
     const size = await stat(this.currentFile).then((value) => value.size).catch(() => 0);
@@ -140,6 +226,27 @@ export class LogService extends EventEmitter {
       await this.enforceRetention();
     }
     await appendFile(this.currentFile, line, "utf8");
+  }
+
+  private scheduleDatabaseBatch(): void {
+    if (this.databaseBatchTimer) return;
+    this.databaseBatchTimer = setTimeout(() => {
+      this.databaseBatchTimer = undefined;
+      this.queue = this.queue.then(() => this.flushDatabaseBatch()).catch((writeError) => {
+        process.stderr.write(`Rion Studio log database write failed: ${String(writeError)}\n`);
+      });
+    }, DATABASE_BATCH_INTERVAL_MS);
+  }
+
+  private async flushDatabaseBatch(): Promise<void> {
+    if (!this.persistence || this.pendingDatabaseEntries.length === 0) return;
+    const entries = this.pendingDatabaseEntries.splice(0);
+    try {
+      await this.persistence.append(entries);
+    } catch (error) {
+      this.pendingDatabaseEntries.unshift(...entries);
+      throw error;
+    }
   }
 
   private async listFiles(): Promise<string[]> {

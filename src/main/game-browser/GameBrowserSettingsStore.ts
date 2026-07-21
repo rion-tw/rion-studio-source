@@ -6,12 +6,13 @@ import {
   normalizeGameBrowserSettings
 } from "../../shared/browserFonts";
 import type { GameBrowserSettings } from "../../shared/types";
+import type { StateRepository } from "../core/RustStateRepository";
 
 export class GameBrowserSettingsStore {
   private cachedSettings: GameBrowserSettings | undefined;
   private readonly settingsPath: string;
 
-  constructor(userDataDir: string) {
+  constructor(userDataDir: string, private readonly stateRepository?: StateRepository) {
     this.settingsPath = join(userDataDir, "game-browser-settings.json");
   }
 
@@ -21,8 +22,10 @@ export class GameBrowserSettingsStore {
     }
 
     try {
-      const raw = await readFile(this.settingsPath, "utf8");
-      this.cachedSettings = normalizeGameBrowserSettings(JSON.parse(raw));
+      const value = this.stateRepository
+        ? await this.stateRepository.read("gameBrowserSettings", DEFAULT_GAME_BROWSER_SETTINGS)
+        : JSON.parse(await readFile(this.settingsPath, "utf8"));
+      this.cachedSettings = normalizeGameBrowserSettings(value);
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
         this.cachedSettings = cloneSettings(DEFAULT_GAME_BROWSER_SETTINGS);
@@ -48,6 +51,10 @@ export class GameBrowserSettingsStore {
   }
 
   private async writeSettings(settings: GameBrowserSettings): Promise<void> {
+    if (this.stateRepository) {
+      await this.stateRepository.replace("gameBrowserSettings", settings);
+      return;
+    }
     await mkdir(dirname(this.settingsPath), { recursive: true });
     const tmpPath = `${this.settingsPath}.tmp`;
     await writeFile(tmpPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");

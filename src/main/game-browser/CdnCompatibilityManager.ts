@@ -8,7 +8,7 @@ const AUTO_DETECTION_TIMEOUT_MS = 1_500;
 const AUTO_DETECTION_CACHE_MS = 10 * 60 * 1_000;
 const GOOGLE_CANARY_URL = "https://www.google.com/recaptcha/api.js?render=explicit";
 
-interface CdnCompatibilityRule {
+export interface CdnCompatibilityRule {
   id: string;
   regexFilter: string;
   regexSubstitution: string;
@@ -24,6 +24,7 @@ export interface CdnCompatibilityManagerOptions {
   detectionTimeoutMs?: number;
   getSettings: () => Promise<GameBrowserSettings>;
   now?: () => number;
+  rewriteUrl?: (url: string) => string | undefined;
 }
 
 export const CDN_COMPATIBILITY_EXTERNAL_NOTICE =
@@ -32,6 +33,11 @@ export const CDN_COMPATIBILITY_UNAVAILABLE_NOTICE =
   "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.";
 
 const rules = rulesDocument.rules as CdnCompatibilityRule[];
+const compiledRules = rules.map((rule) => ({
+  ...rule,
+  matcher: new RegExp(rule.regexFilter),
+  substitution: convertRegexSubstitution(rule.regexSubstitution)
+}));
 const requestFilter = {
   urls: [...new Set(rules.map((rule) => `https://${rule.sourceHost}/*`))]
 };
@@ -41,10 +47,12 @@ export class CdnCompatibilityManager {
   private readonly inFlightDetections = new Map<string, Promise<boolean>>();
   private readonly detectionTimeoutMs: number;
   private readonly now: () => number;
+  private readonly rewriteUrl: (url: string) => string | undefined;
 
   constructor(private readonly options: CdnCompatibilityManagerOptions) {
     this.detectionTimeoutMs = options.detectionTimeoutMs ?? AUTO_DETECTION_TIMEOUT_MS;
     this.now = options.now ?? Date.now;
+    this.rewriteUrl = options.rewriteUrl ?? rewriteCdnCompatibilityUrl;
   }
 
   async applyToSession(session: Session): Promise<boolean> {
@@ -57,7 +65,7 @@ export class CdnCompatibilityManager {
 
     session.webRequest.onBeforeRequest(requestFilter, (details, callback) => {
       const redirectURL =
-        details.resourceType === "mainFrame" ? undefined : rewriteCdnCompatibilityUrl(details.url);
+        details.resourceType === "mainFrame" ? undefined : this.rewriteUrl(details.url);
       callback(redirectURL ? { redirectURL } : {});
     });
     return true;
@@ -108,13 +116,16 @@ export class CdnCompatibilityManager {
 }
 
 export function rewriteCdnCompatibilityUrl(url: string): string | undefined {
-  for (const rule of rules) {
-    const matcher = new RegExp(rule.regexFilter);
-    if (matcher.test(url)) {
-      return url.replace(matcher, convertRegexSubstitution(rule.regexSubstitution));
+  for (const rule of compiledRules) {
+    if (rule.matcher.test(url)) {
+      return url.replace(rule.matcher, rule.substitution);
     }
   }
   return undefined;
+}
+
+export function getCdnCompatibilityRules(): CdnCompatibilityRule[] {
+  return rules.map((rule) => ({ ...rule }));
 }
 
 export function createCdnCompatibilityRequestPatterns(): Array<{

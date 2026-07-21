@@ -78,6 +78,11 @@ interface HeldTriggerLease {
 
 export type HeldTriggerReleaseMode = "complete_first_iteration" | "immediate";
 
+export interface MacroTimingScheduler {
+  cancel(id: string): void;
+  wait(id: string, durationMs: number): Promise<void>;
+}
+
 const MACRO_TARGET_OPERATION_TIMEOUT_MS = 10_000;
 const SIBLING_FAILURE_MESSAGE = "Cancelled because another assigned role failed.";
 const CHILD_CANCELLED_MESSAGE = "Cancelled because a called macro was stopped.";
@@ -114,6 +119,7 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
   private readonly terminalStatuses = new Map<string, MacroRunStatus>();
   private readonly releasedPressIds = new Map<string, HeldTriggerReleaseMode>();
   private nextInvocationId = 1;
+  private nextWaitId = 1;
 
   constructor(
     private readonly browserManager: Pick<BrowserManager, "getAutomationSession"> &
@@ -121,7 +127,8 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     private readonly macroStore: Pick<MacroStore, "getMacro" | "listMacros">,
     private readonly macroSettingsStore: Pick<MacroSettingsStore, "getSettings"> = {
       getSettings: async () => ({ ...DEFAULT_MACRO_SETTINGS })
-    }
+    },
+    private readonly timingScheduler: MacroTimingScheduler = new NodeMacroTimingScheduler()
   ) {
     super();
   }
@@ -726,7 +733,11 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
             await this.executeTargetOperation(run, () =>
               target.holdKey(input, ownerId, {
                 ...(invocation.appliesConfiguredTiming
-                  ? { postDelayMs: invocation.settings.postInputDelayMs }
+                  ? {
+                      postDelayMs: invocation.settings.postInputDelayMs,
+                      waitForDelay: (ms: number, signal?: AbortSignal) =>
+                        this.waitForInputDelay(run, ms, signal)
+                    }
                   : {}),
                 signal: run.abortController.signal
               })
@@ -743,7 +754,9 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
             ...(invocation.appliesConfiguredTiming
               ? {
                   holdMs: invocation.settings.keyHoldMs,
-                  postDelayMs: invocation.settings.postInputDelayMs
+                  postDelayMs: invocation.settings.postInputDelayMs,
+                  waitForDelay: (ms: number, signal?: AbortSignal) =>
+                    this.waitForInputDelay(run, ms, signal)
                 }
               : {}),
             signal: run.abortController.signal
@@ -755,7 +768,11 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
         await this.executeTargetOperation(run, () => {
           const options = {
             ...(invocation.appliesConfiguredTiming
-              ? { postDelayMs: invocation.settings.postInputDelayMs }
+              ? {
+                  postDelayMs: invocation.settings.postInputDelayMs,
+                  waitForDelay: (ms: number, signal?: AbortSignal) =>
+                    this.waitForInputDelay(run, ms, signal)
+                }
               : {}),
             onClick: () => this.markClickStep(run, step.id),
             signal: run.abortController.signal
@@ -923,17 +940,22 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
     const interruption = new Promise<never>((_resolve, reject) => {
       rejectInterruption = reject;
     });
-    const timeout = setTimeout(() => {
-      run.abortController.abort();
-      rejectInterruption(new Error(`Macro input timed out after ${MACRO_TARGET_OPERATION_TIMEOUT_MS} ms.`));
-    }, MACRO_TARGET_OPERATION_TIMEOUT_MS);
-    const cancelActiveOperation = () => rejectInterruption(new MacroRunCancelledError());
+    const timeoutId = this.createWaitId(run, "operation-timeout");
+    const timeout = this.timingScheduler.wait(timeoutId, MACRO_TARGET_OPERATION_TIMEOUT_MS)
+      .then(() => {
+        run.abortController.abort();
+        throw new Error(`Macro input timed out after ${MACRO_TARGET_OPERATION_TIMEOUT_MS} ms.`);
+      });
+    const cancelActiveOperation = () => {
+      this.timingScheduler.cancel(timeoutId);
+      rejectInterruption(new MacroRunCancelledError());
+    };
     run.cancelActiveOperation = cancelActiveOperation;
 
     try {
-      await Promise.race([Promise.resolve().then(operation), interruption]);
+      await Promise.race([Promise.resolve().then(operation), interruption, timeout]);
     } finally {
-      clearTimeout(timeout);
+      this.timingScheduler.cancel(timeoutId);
       if (run.cancelActiveOperation === cancelActiveOperation) {
         run.cancelActiveOperation = undefined;
       }
@@ -943,19 +965,45 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
   private async delay(run: MacroRun, ms: number): Promise<void> {
     this.throwIfCancelled(run);
-
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        run.cancelDelay = undefined;
-        resolve();
-      }, ms);
-      run.cancelDelay = () => {
-        clearTimeout(timer);
-        run.cancelDelay = undefined;
-        reject(new MacroRunCancelledError());
-      };
-    });
+    const waitId = this.createWaitId(run, "delay");
+    run.cancelDelay = () => this.timingScheduler.cancel(waitId);
+    try {
+      await this.timingScheduler.wait(waitId, ms);
+    } catch (error) {
+      if (run.isCancelled) throw new MacroRunCancelledError();
+      throw error;
+    } finally {
+      if (run.cancelDelay) run.cancelDelay = undefined;
+      this.timingScheduler.cancel(waitId);
+    }
     this.throwIfCancelled(run);
+  }
+
+  private async waitForInputDelay(
+    run: MacroRun,
+    ms: number,
+    signal?: AbortSignal
+  ): Promise<void> {
+    signal?.throwIfAborted();
+    if (ms <= 0) return;
+    const waitId = this.createWaitId(run, "input-delay");
+    const handleAbort = () => this.timingScheduler.cancel(waitId);
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    try {
+      await this.timingScheduler.wait(waitId, ms);
+    } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new MacroRunCancelledError();
+      }
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", handleAbort);
+      this.timingScheduler.cancel(waitId);
+    }
+  }
+
+  private createWaitId(run: MacroRun, purpose: string): string {
+    return `${run.invocationId}:${run.status.roleId}:${purpose}:${this.nextWaitId++}`;
   }
 
   private async waitForStop(run: MacroRun): Promise<void> {
@@ -1036,6 +1084,32 @@ export class MacroManager extends EventEmitter<MacroManagerEvents> {
 
   private emitChange(): void {
     this.emit("change", this.listStatuses());
+  }
+}
+
+class NodeMacroTimingScheduler implements MacroTimingScheduler {
+  private readonly waits = new Map<string, {
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
+  wait(id: string, durationMs: number): Promise<void> {
+    this.cancel(id);
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waits.delete(id);
+        resolve();
+      }, durationMs);
+      this.waits.set(id, { reject, timer });
+    });
+  }
+
+  cancel(id: string): void {
+    const wait = this.waits.get(id);
+    if (!wait) return;
+    this.waits.delete(id);
+    clearTimeout(wait.timer);
+    wait.reject(new MacroRunCancelledError());
   }
 }
 

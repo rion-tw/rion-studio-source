@@ -7,6 +7,7 @@ import type {
   LegalAcceptanceStatus,
   LegalDocumentVersions
 } from "../../shared/types";
+import type { StateRepository } from "../core/RustStateRepository";
 
 interface LegalAcceptanceFile {
   acceptedAt: string;
@@ -18,6 +19,7 @@ interface LegalAcceptanceFile {
 
 interface LegalAcceptanceStoreOptions {
   now?: () => Date;
+  stateRepository?: StateRepository;
   versions?: LegalDocumentVersions;
 }
 
@@ -31,11 +33,13 @@ export class LegalAcceptanceError extends Error {
 export class LegalAcceptanceStore {
   private readonly acceptancePath: string;
   private readonly now: () => Date;
+  private readonly stateRepository?: StateRepository;
   private readonly versions: LegalDocumentVersions;
 
   constructor(userDataDir: string, options: LegalAcceptanceStoreOptions = {}) {
     this.acceptancePath = join(userDataDir, "legal-acceptance.json");
     this.now = options.now ?? (() => new Date());
+    this.stateRepository = options.stateRepository;
     this.versions = options.versions ?? CURRENT_LEGAL_DOCUMENT_VERSIONS;
   }
 
@@ -88,16 +92,22 @@ export class LegalAcceptanceStore {
       schemaVersion: 1
     };
 
-    await mkdir(dirname(this.acceptancePath), { recursive: true });
-    const tmpPath = `${this.acceptancePath}.tmp`;
-    await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-    await rename(tmpPath, this.acceptancePath);
+    if (this.stateRepository) {
+      await this.stateRepository.replace("legalAcceptance", file);
+    } else {
+      await mkdir(dirname(this.acceptancePath), { recursive: true });
+      const tmpPath = `${this.acceptancePath}.tmp`;
+      await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
+      await rename(tmpPath, this.acceptancePath);
+    }
     return this.getStatus();
   }
 
   private async readAcceptanceFile(): Promise<LegalAcceptanceFile | null> {
     try {
-      const parsed = JSON.parse(await readFile(this.acceptancePath, "utf8")) as unknown;
+      const parsed = this.stateRepository
+        ? await this.stateRepository.read("legalAcceptance", undefined)
+        : JSON.parse(await readFile(this.acceptancePath, "utf8")) as unknown;
       return normalizeAcceptanceFile(parsed);
     } catch {
       return null;

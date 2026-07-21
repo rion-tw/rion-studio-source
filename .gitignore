@@ -9,6 +9,8 @@ coverage/
 *.log
 pnpm-debug.log*
 *.tsbuildinfo
+/target/
+/performance-results/
 
 # Generated native helper artifacts
 /build/native/

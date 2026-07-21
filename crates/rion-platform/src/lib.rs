@@ -1,0 +1,66 @@
+//! Operating-system adapters used by the Rust application core.
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+mod pressure;
+pub use pressure::{SystemPressureSample, SystemPressureSampler};
+mod process;
+pub use process::{ExternalProcessExit, ExternalProcessSupervisor};
+
+mod chrome;
+pub use chrome::find_chrome_executable;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod window_frame;
+#[cfg(windows)]
+pub(crate) use window_frame::{
+    WindowCandidateMetadata, compute_adjusted_outer, select_best_candidate,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Platform {
+    Macos,
+    Windows,
+}
+
+impl Platform {
+    pub fn parse(value: &str) -> Result<Self, PlatformError> {
+        match value {
+            "darwin" | "macos" => Ok(Self::Macos),
+            "win32" | "windows" => Ok(Self::Windows),
+            other => Err(PlatformError::Unsupported(other.to_owned())),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum PlatformError {
+    #[error("unsupported platform: {0}")]
+    Unsupported(String),
+    #[error("platform operation failed: {0}")]
+    Operation(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PixelBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl PixelBounds {
+    pub fn validate(self) -> Result<Self, PlatformError> {
+        if self.width <= 0 || self.height <= 0 {
+            return Err(PlatformError::Operation(
+                "window bounds must have a positive size".to_owned(),
+            ));
+        }
+        Ok(self)
+    }
+}
+
+#[cfg(windows)]
+pub mod windows;

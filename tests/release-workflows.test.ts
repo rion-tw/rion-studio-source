@@ -34,7 +34,7 @@ describe("private and public release workflows", () => {
     );
   });
 
-  it("runs common checks on Ubuntu and accepts a release ref", async () => {
+  it("runs common checks on Ubuntu plus macOS and Windows package smoke jobs", async () => {
     const workflow = await readWorkflow(".github/workflows/ci.yml");
 
     expect(workflow).toContain("pull_request:");
@@ -45,8 +45,14 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain("pnpm run test");
     expect(workflow).toContain("pnpm run lint");
     expect(workflow).toContain("pnpm exec electron-vite build");
-    expect(workflow).not.toContain("macos-latest");
-    expect(workflow).not.toContain("windows-latest");
+    expect(workflow).toContain("os: macos-latest");
+    expect(workflow).toContain("os: windows-latest");
+    expect(workflow).toContain("pnpm run test:rust");
+    expect(workflow).toContain("pnpm run build:rust && pnpm run verify:rust");
+    expect(workflow).toContain("pnpm run build:native:macos && pnpm run test:native:macos");
+    expect(workflow).toContain("Build unpacked application");
+    expect(workflow).toContain("Verify packaged Rust Node-API core");
+    expect(workflow).toContain("verifyPackagedRustCore.mjs");
   });
 
   it("keeps platform packaging behind the Ubuntu gate and enables macOS compiler caching", async () => {

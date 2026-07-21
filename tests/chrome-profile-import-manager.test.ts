@@ -42,6 +42,29 @@ function createDurableStorageSeed() {
   };
 }
 
+async function createChromeProfileSource(
+  root: string,
+  profileNames: readonly string[]
+): Promise<{ profileIds: string[]; source: string }> {
+  const source = join(root, "Chrome User Data");
+  const profileIds: string[] = [];
+  const infoCache: Record<string, { name: string }> = {};
+
+  for (const [index, name] of profileNames.entries()) {
+    const profileId = index === 0 ? "Default" : `Profile ${index}`;
+    profileIds.push(profileId);
+    infoCache[profileId] = { name };
+    await mkdir(join(source, profileId), { recursive: true });
+  }
+  await writeFile(
+    join(source, "Local State"),
+    JSON.stringify({ profile: { info_cache: infoCache } }),
+    "utf8"
+  );
+
+  return { profileIds, source };
+}
+
 describe("ChromeProfileImportManager", () => {
   it.each([
     ["darwin", "/Users/test", undefined, "/Users/test/Library/Application Support/Google/Chrome"],
@@ -256,7 +279,7 @@ describe("ChromeProfileImportManager", () => {
     expect(progressEvents).toEqual([
       expect.objectContaining({ completedProfileCount: 0, phase: "preparing", totalProfileCount: 2 }),
       expect.objectContaining({ completedProfileCount: 0, phase: "importing", totalProfileCount: 2 }),
-      expect.objectContaining({ completedProfileCount: 1, phase: "importing", totalProfileCount: 2 }),
+      expect.objectContaining({ completedProfileCount: 0, phase: "importing", totalProfileCount: 2 }),
       expect.objectContaining({ completedProfileCount: 1, phase: "importing", totalProfileCount: 2 }),
       expect.objectContaining({ completedProfileCount: 2, phase: "importing", totalProfileCount: 2 }),
       expect.objectContaining({ completedProfileCount: 2, phase: "completed", totalProfileCount: 2 })
@@ -298,16 +321,143 @@ describe("ChromeProfileImportManager", () => {
     await expect(access(join(userDataDir, "chrome-profile-import-transaction.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("forces the copied snapshot to open as the Default Chrome profile", () => {
+  it("opens the copied Default Chrome profile in unified headless mode", () => {
     expect(buildChromeProfileImportChromeArgs("/tmp/rion-role/browser", "https://example.test/play")).toEqual([
       "--user-data-dir=/tmp/rion-role/browser",
       "--profile-directory=Default",
+      "--headless",
       "--app=https://example.test/play",
       "--no-first-run",
       "--no-default-browser-check",
       "--remote-debugging-address=127.0.0.1",
       "--remote-debugging-port=0"
     ]);
+  });
+
+  it("captures at most three imported Chrome profiles concurrently", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
+    const userDataDir = join(root, "rion-data");
+    const { profileIds, source } = await createChromeProfileSource(
+      root,
+      ["Role 1", "Role 2", "Role 3", "Role 4", "Role 5"]
+    );
+    const roleStore = new RoleStore(userDataDir);
+    const releases: Array<() => void> = [];
+    let activeCaptureCount = 0;
+    let maxActiveCaptureCount = 0;
+    const readChromeLoginData = vi.fn(async () => {
+      activeCaptureCount += 1;
+      maxActiveCaptureCount = Math.max(maxActiveCaptureCount, activeCaptureCount);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      activeCaptureCount -= 1;
+      return {
+        cookies: [],
+        localStorageByOrigin: {},
+        sessionStorageByOrigin: {}
+      };
+    });
+    const progressCounts: number[] = [];
+    const manager = new ChromeProfileImportManager({
+      createImportId: () => "import-concurrent",
+      gameStore: { getGame: async () => game },
+      platform: "darwin",
+      readChromeLoginData,
+      roleStore,
+      showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
+      userDataDir
+    });
+
+    await manager.previewImport();
+    const importPromise = manager.applyImport({
+      consentAccepted: true,
+      gameId: game.id,
+      importId: "import-concurrent",
+      profileIds
+    }, (progress) => progressCounts.push(progress.completedProfileCount));
+
+    await vi.waitFor(() => expect(readChromeLoginData).toHaveBeenCalledTimes(3));
+    expect(maxActiveCaptureCount).toBe(3);
+
+    releases.shift()?.();
+    await vi.waitFor(() => expect(readChromeLoginData).toHaveBeenCalledTimes(4));
+    releases.shift()?.();
+    await vi.waitFor(() => expect(readChromeLoginData).toHaveBeenCalledTimes(5));
+    releases.splice(0).forEach((release) => release());
+
+    await expect(importPromise).resolves.toMatchObject({ roles: expect.any(Array) });
+    expect(maxActiveCaptureCount).toBe(3);
+    expect(readChromeLoginData).toHaveBeenCalledTimes(5);
+    expect(await roleStore.listRoles()).toHaveLength(5);
+    expect(progressCounts.at(-1)).toBe(5);
+    expect(progressCounts.every((count, index) => index === 0 || count >= progressCounts[index - 1])).toBe(true);
+  });
+
+  it("waits for active capture workers before rolling back and stops dispatching queued profiles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion-chrome-import-"));
+    const userDataDir = join(root, "rion-data");
+    const { profileIds, source } = await createChromeProfileSource(
+      root,
+      ["Role 1", "Role 2", "Role 3", "Role 4", "Role 5"]
+    );
+    const roleStore = new RoleStore(userDataDir);
+    const releases: Array<() => void> = [];
+    let captureCallCount = 0;
+    const readChromeLoginData = vi.fn(async () => {
+      const callIndex = captureCallCount;
+      captureCallCount += 1;
+      if (callIndex > 0) {
+        await new Promise<void>((resolve) => releases.push(resolve));
+      }
+      return {
+        cookies: [],
+        localStorageByOrigin: {},
+        sessionStorageByOrigin: {}
+      };
+    });
+    let authUpdateCount = 0;
+    const failingRoleStore = {
+      createRole: roleStore.createRole.bind(roleStore),
+      deleteRole: roleStore.deleteRole.bind(roleStore),
+      getRolePaths: roleStore.getRolePaths.bind(roleStore),
+      listRoles: roleStore.listRoles.bind(roleStore),
+      replaceRolesForImport: roleStore.replaceRolesForImport.bind(roleStore),
+      updateAuthState: async (...args: Parameters<RoleStore["updateAuthState"]>) => {
+        authUpdateCount += 1;
+        if (authUpdateCount === 1) throw new Error("simulated concurrent auth failure");
+        return roleStore.updateAuthState(...args);
+      },
+      updateRole: roleStore.updateRole.bind(roleStore)
+    };
+    const manager = new ChromeProfileImportManager({
+      createImportId: () => "import-concurrent-failure",
+      gameStore: { getGame: async () => game },
+      platform: "win32",
+      readChromeLoginData,
+      roleStore: failingRoleStore,
+      showOpenDialog: async () => ({ canceled: false, filePaths: [source] }),
+      userDataDir
+    });
+
+    await manager.previewImport();
+    const importPromise = manager.applyImport({
+      consentAccepted: true,
+      gameId: game.id,
+      importId: "import-concurrent-failure",
+      profileIds
+    });
+    const rejection = expect(importPromise).rejects.toThrow("simulated concurrent auth failure");
+
+    await vi.waitFor(() => expect(readChromeLoginData).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(authUpdateCount).toBe(1));
+    await expect(roleStore.listRoles()).resolves.toHaveLength(5);
+    expect(releases).toHaveLength(2);
+
+    releases.splice(0).forEach((release) => release());
+    await rejection;
+
+    expect(readChromeLoginData).toHaveBeenCalledTimes(3);
+    await expect(roleStore.listRoles()).resolves.toEqual([]);
+    await expect(access(join(userDataDir, ".chrome-profile-import"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("reads each imported Chrome profile once", async () => {

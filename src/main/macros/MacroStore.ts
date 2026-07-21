@@ -661,12 +661,6 @@ export class MacroStore {
     if (issue.type === "missing") {
       throw new MacroStoreError("MACRO_STEP_TARGET_NOT_FOUND", "Macro step target was not found.");
     }
-    if (issue.type === "hold") {
-      throw new MacroStoreError(
-        "MACRO_STEP_TARGET_HOLDS_KEY",
-        "Macro step target cannot hold a key until stopped."
-      );
-    }
     throw new MacroStoreError(
       "MACRO_DEPENDENCY_CYCLE",
       `Macro dependency cycle: ${issue.macroIds.map((id) => macroById.get(id)?.name ?? id).join(" → ")}.`

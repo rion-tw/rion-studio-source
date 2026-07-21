@@ -74,11 +74,11 @@ describe("parseMacroCommand", () => {
     ]);
   });
 
-  it("maps call and start to existing macro steps", () => {
-    const macros = [createMacro("once", "Once", { type: "once" }), createMacro("loop", "Loop", {
+  it("maps call and start for held targets to existing macro steps", () => {
+    const macros = [createMacro("once", "Once", { type: "once" }, true), createMacro("loop", "Loop", {
       type: "loop",
       intervalMs: 500
-    })];
+    }, true)];
     const result = parseMacroCommand("call:Once>call:Loop>start:Loop", {
       idFactory: createIdFactory(),
       macros
@@ -132,8 +132,8 @@ describe("parseMacroCommand", () => {
   });
 
   it("reports missing and unavailable macro targets", () => {
-    const macros = [createMacro("held", "Held", { type: "once" }, true)];
-    const result = parseMacroCommand("call:Missing>start:Held", {
+    const macros = [createMacro("current", "Current", { type: "once" })];
+    const result = parseMacroCommand("call:Missing>start:Current", {
       currentMacroId: "current",
       idFactory: createIdFactory(),
       macros

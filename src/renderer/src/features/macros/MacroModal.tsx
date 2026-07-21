@@ -158,17 +158,6 @@ function MacroEditor({
       : undefined;
   }, [form.id, form.roleIds, form.trigger, macros, t]);
   const macroStepError = useMemo(() => {
-    const isReferenced = form.id && macros.some((macro) =>
-      macro.id !== form.id &&
-      macro.steps.some((step) => step.type === "macro" && step.macroId === form.id)
-    );
-    if (
-      isReferenced &&
-      form.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")
-    ) {
-      return t("macroForm.saveHint.referencedHold");
-    }
-
     const invalidStep = form.steps.find((step) => {
       if (step.type !== "macro") return false;
       return !isCallableMacroTarget(macros, form.id, step.macroId);
@@ -1463,9 +1452,6 @@ function getMacroTargetOptionLabel(
   switch (option.unavailableReason) {
     case "self":
       details.push(t("macroForm.macroTargetSelf"));
-      break;
-    case "hold":
-      details.push(t("macroForm.macroTargetHoldsKey"));
       break;
     case "cycle":
       details.push(t("macroForm.macroTargetCreatesCycle"));

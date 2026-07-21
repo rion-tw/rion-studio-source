@@ -514,7 +514,7 @@ describe("PortableDataManager", () => {
     await expect(manager.previewImport()).rejects.toMatchObject({ code: "PORTABLE_DATA_INVALID" });
   });
 
-  it("imports portable v3 macro calls with a two-pass id remap", async () => {
+  it("imports portable v3 macro calls to held targets with a two-pass id remap", async () => {
     const importPath = join(baseDir, "macro-dependencies-v3.json");
     const base = createPortableV2Fixture();
     const fixture: RionPortableDataV3 = {
@@ -535,7 +535,7 @@ describe("PortableDataManager", () => {
           name: "Child flow",
           roleIds: ["old-role"],
           repeat: { type: "once" },
-          steps: [{ id: "key", type: "key", code: "F2" }]
+          steps: [{ id: "key", type: "key", code: "F2", action: "hold_until_stop" }]
         }
       ]
     };
@@ -551,7 +551,7 @@ describe("PortableDataManager", () => {
     const imported = await macroStore.listMacros();
     const parent = imported.find((item) => item.name === "Parent flow")!;
     const child = imported.find((item) => item.name === "Child flow")!;
-    expect(child).toMatchObject({ activationMode: "toggle", steps: [{ action: "tap" }] });
+    expect(child).toMatchObject({ activationMode: "toggle", steps: [{ action: "hold_until_stop" }] });
     expect(parent.id).not.toBe("source-parent");
     expect(child.id).not.toBe("source-child");
     expect(parent.steps).toEqual([{ id: "call", type: "macro", macroId: child.id, callMode: "wait" }]);

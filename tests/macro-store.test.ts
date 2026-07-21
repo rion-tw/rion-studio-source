@@ -211,18 +211,26 @@ describe("MacroStore", () => {
     })).rejects.toMatchObject({ code: "MACRO_KEY_MODIFIERS_INVALID" });
   });
 
-  it("does not allow a called macro to hold a key until stopped", async () => {
+  it("allows direct and nested called macros to hold a key until stopped", async () => {
     const child = await store.createMacro({
       name: "Held child",
       roleIds: ["role-1"],
       steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
     });
 
+    const middle = await store.createMacro({
+      name: "Middle",
+      roleIds: ["role-1"],
+      steps: [{ id: "call-child", type: "macro", macroId: child.id }]
+    });
+
     await expect(store.createMacro({
       name: "Parent",
       roleIds: ["role-1"],
-      steps: [{ id: "call", type: "macro", macroId: child.id }]
-    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_HOLDS_KEY" });
+      steps: [{ id: "call-middle", type: "macro", macroId: middle.id }]
+    })).resolves.toMatchObject({
+      steps: [{ id: "call-middle", type: "macro", macroId: middle.id, callMode: "wait" }]
+    });
   });
 
   it("allows duplicate names and validates the 24-hour timing boundary", async () => {
@@ -753,7 +761,7 @@ describe("MacroStore", () => {
     })).resolves.toMatchObject({ repeat: { type: "loop", intervalMs: 100 } });
   });
 
-  it("prevents a referenced target from adding a held key", async () => {
+  it("allows a referenced target to add a held key", async () => {
     const target = await store.createMacro({
       name: "Target",
       roleIds: ["role-2"],
@@ -767,7 +775,9 @@ describe("MacroStore", () => {
 
     await expect(store.updateMacro(target.id, {
       steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
-    })).rejects.toMatchObject({ code: "MACRO_STEP_TARGET_HOLDS_KEY" });
+    })).resolves.toMatchObject({
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    });
   });
 
   it("blocks deleting a referenced macro and reports every direct referrer", async () => {

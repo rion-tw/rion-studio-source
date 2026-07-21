@@ -11,11 +11,6 @@ export type MacroDependencyIssue =
       targetMacroId: string;
     }
   | {
-      type: "hold";
-      macroId: string;
-      targetMacroId: string;
-    }
-  | {
       type: "cycle";
       macroIds: string[];
     };
@@ -34,9 +29,6 @@ export function findMacroDependencyIssue(
       const target = macroById.get(targetMacroId);
       if (!target) {
         return { type: "missing", macroId: macro.id, targetMacroId };
-      }
-      if (target.steps.some((step) => step.type === "key" && step.action === "hold_until_stop")) {
-        return { type: "hold", macroId: macro.id, targetMacroId };
       }
     }
   }

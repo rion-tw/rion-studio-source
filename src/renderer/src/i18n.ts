@@ -100,7 +100,6 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro step is invalid.": "error.macroStepInvalid",
   "Macro step target is invalid.": "error.macroStepTargetInvalid",
   "Macro step target was not found.": "error.macroStepTargetNotFound",
-  "Macro step target cannot hold a key until stopped.": "error.macroStepTargetHoldsKey",
   "Macro dependency cycle detected while running a called macro.": "error.macroDependencyCycle",
   "Cancelled because a called macro was stopped.": "error.macroChildStopped",
   "Imported macro dependencies are invalid.": "error.portableMacroDependencyInvalid",

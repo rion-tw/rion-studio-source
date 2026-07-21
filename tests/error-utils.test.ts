@@ -103,9 +103,6 @@ describe("renderer error localization", () => {
     expect(localizeErrorMessage('Called macro "Child" is already running.', "zh-CN")).toBe(
       "被调用的宏“Child”已在运行。"
     );
-    expect(localizeErrorMessage("Macro step target cannot hold a key until stopped.", "ja")).toBe(
-      "呼び出されるマクロは停止までキーを保持できません。"
-    );
   });
 
   it("localizes the unassigned macro workflow error", async () => {

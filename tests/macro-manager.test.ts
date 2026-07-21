@@ -1163,6 +1163,53 @@ describe("MacroManager", () => {
     );
   });
 
+  it("releases a synchronously called held key before continuing the parent", async () => {
+    const parentTarget = createTarget();
+    const childTarget = createTarget();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["role-parent"],
+      steps: [
+        { id: "call", type: "macro", macroId: "child" },
+        { id: "after", type: "key", code: "KeyC" }
+      ]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Held child",
+      roleIds: ["role-child"],
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "role-parent": parentTarget, "role-child": childTarget }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(parentTarget.dispatchKey).toHaveBeenCalledWith(
+      "KeyC",
+      expectInputOptions()
+    ));
+
+    expect(childTarget.holdKey).toHaveBeenCalledWith(
+      "KeyW",
+      expect.stringContaining("macro-invocation-"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(childTarget.releaseKey).toHaveBeenCalledWith(
+      "KeyW",
+      expect.stringContaining("macro-invocation-")
+    );
+    expect(childTarget.holdKey.mock.invocationCallOrder[0]).toBeLessThan(
+      childTarget.releaseKey.mock.invocationCallOrder[0]
+    );
+    expect(childTarget.releaseKey.mock.invocationCallOrder[0]).toBeLessThan(
+      parentTarget.dispatchKey.mock.invocationCallOrder[0]
+    );
+  });
+
   it("triggers a called macro without waiting for it before continuing the parent", async () => {
     const parentTarget = createTarget();
     const childTarget = createTarget();
@@ -1204,6 +1251,60 @@ describe("MacroManager", () => {
     expect(parentTarget.dispatchKey.mock.invocationCallOrder[0]).toBeLessThan(
       childTarget.dispatchKey.mock.invocationCallOrder[0]
     );
+  });
+
+  it("keeps a triggered held child active until the child is explicitly stopped", async () => {
+    const parentTarget = createTarget();
+    const childTarget = createTarget();
+    const parent: Macro = {
+      ...macro,
+      id: "parent",
+      roleIds: ["role-parent"],
+      steps: [
+        { id: "trigger", type: "macro", macroId: "child", callMode: "trigger" },
+        { id: "after", type: "key", code: "KeyC" }
+      ]
+    };
+    const child: Macro = {
+      ...macro,
+      id: "child",
+      name: "Held child",
+      roleIds: ["role-child"],
+      steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
+    };
+    const manager = createManager({
+      macroById: { parent, child },
+      targets: { "role-parent": parentTarget, "role-child": childTarget }
+    });
+
+    await manager.start("parent");
+    await vi.waitFor(() => expect(parentTarget.dispatchKey).toHaveBeenCalledWith(
+      "KeyC",
+      expectInputOptions()
+    ));
+    await vi.waitFor(() => expect(childTarget.holdKey).toHaveBeenCalledWith(
+      "KeyW",
+      expect.stringContaining("macro-invocation-"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    ));
+
+    expect(childTarget.releaseKey).not.toHaveBeenCalled();
+    expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({ macroId: "child", state: "running" })
+    );
+
+    await manager.stop("parent");
+    expect(childTarget.releaseKey).not.toHaveBeenCalled();
+    expect(manager.listStatuses()).toContainEqual(
+      expect.objectContaining({ macroId: "child", state: "running" })
+    );
+
+    await manager.stop("child");
+    expect(childTarget.releaseKey).toHaveBeenCalledWith(
+      "KeyW",
+      expect.stringContaining("macro-invocation-")
+    );
+    await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
   });
 
   it("runs a triggered child with its full repeat and ignores duplicate triggers while active", async () => {

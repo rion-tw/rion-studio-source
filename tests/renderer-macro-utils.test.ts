@@ -218,7 +218,7 @@ describe("macroUtils", () => {
     expect(isValidMacroInterval(1.5)).toBe(false);
   });
 
-  it("offers looping macro targets while classifying unsafe targets", () => {
+  it("offers looping and held macro targets while classifying dependency conflicts", () => {
     const base = {
       enabled: true,
       roleIds: ["role-1"],
@@ -256,9 +256,9 @@ describe("macroUtils", () => {
       { ...base, id: "c", name: "C", steps: [{ id: "key-c", type: "key" as const, code: "F3" }] }
     ];
 
-    expect(getCallableMacroTargets(macros, "a").map((macro) => macro.id)).toEqual(["loop", "c"]);
-    expect(getCallableMacroTargets(macros, "c").map((macro) => macro.id)).toEqual(["a", "b", "loop"]);
-    expect(getCallableMacroTargets(macros).map((macro) => macro.id)).toEqual(["a", "b", "loop", "c"]);
+    expect(getCallableMacroTargets(macros, "a").map((macro) => macro.id)).toEqual(["loop", "held", "c"]);
+    expect(getCallableMacroTargets(macros, "c").map((macro) => macro.id)).toEqual(["a", "b", "loop", "held"]);
+    expect(getCallableMacroTargets(macros).map((macro) => macro.id)).toEqual(["a", "b", "loop", "held", "c"]);
     expect(getMacroTargetOptions(macros, "a").map(({ macro, unavailableReason }) => ({
       id: macro.id,
       unavailableReason
@@ -266,7 +266,7 @@ describe("macroUtils", () => {
       { id: "a", unavailableReason: "self" },
       { id: "b", unavailableReason: "cycle" },
       { id: "loop", unavailableReason: undefined },
-      { id: "held", unavailableReason: "hold" },
+      { id: "held", unavailableReason: undefined },
       { id: "c", unavailableReason: undefined }
     ]);
   });

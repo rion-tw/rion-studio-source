@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AuthManager } from "../src/main/auth/AuthManager";
 import { BrowserLoginCancelledError } from "../src/main/browser/BrowserManager";
+import { ImportedChromeProfileLoginRetryableError } from "../src/main/browser/ImportedChromeProfileLoginVerifier";
 import type { Role } from "../src/shared/types";
 
 const role: Role = {
@@ -97,6 +98,80 @@ describe("AuthManager embedded login", () => {
     expect(second).toEqual(first);
     expect(browserManager.startLogin).toHaveBeenCalledTimes(1);
     authentication.resolve({ authState: "authenticated" });
+  });
+
+  it("verifies a pending imported Chrome profile before the embedded final check", async () => {
+    const roleStore = createRoleStore();
+    const embeddedAuthentication = deferred<{ authState: "authenticated" }>();
+    const browserManager = {
+      startLogin: vi.fn().mockResolvedValue(undefined),
+      waitForAuthentication: vi.fn(() => embeddedAuthentication.promise)
+    };
+    const importedChromeProfileLoginVerifier = {
+      complete: vi.fn().mockResolvedValue(undefined),
+      hasPendingVerification: vi.fn().mockResolvedValue(true),
+      verify: vi.fn().mockResolvedValue(undefined)
+    };
+    const manager = new AuthManager(roleStore, browserManager, { importedChromeProfileLoginVerifier });
+
+    manager.startLogin(role);
+
+    await vi.waitFor(() => expect(browserManager.waitForAuthentication).toHaveBeenCalledOnce());
+    expect(importedChromeProfileLoginVerifier.verify).toHaveBeenCalledWith(role);
+    expect(browserManager.startLogin).toHaveBeenCalledWith(role, { forceLaunchUrl: true });
+    expect(importedChromeProfileLoginVerifier.complete).not.toHaveBeenCalled();
+
+    embeddedAuthentication.resolve({ authState: "authenticated" });
+    await vi.waitFor(() => expect(manager.listStatuses()).toEqual([]));
+    expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "authenticated");
+    expect(importedChromeProfileLoginVerifier.complete).toHaveBeenCalledWith(role.id);
+  });
+
+  it("keeps a failed imported profile pending instead of marking it auth_failed", async () => {
+    const roleStore = createRoleStore();
+    const browserManager = {
+      startLogin: vi.fn(),
+      waitForAuthentication: vi.fn()
+    };
+    const importedChromeProfileLoginVerifier = {
+      complete: vi.fn(),
+      hasPendingVerification: vi.fn().mockResolvedValue(true),
+      verify: vi.fn().mockRejectedValue(new ImportedChromeProfileLoginRetryableError("CDP unavailable"))
+    };
+    const manager = new AuthManager(roleStore, browserManager, { importedChromeProfileLoginVerifier });
+
+    manager.startLogin(role);
+
+    await vi.waitFor(() => expect(manager.listStatuses()[0]).toMatchObject({
+      state: "failed",
+      message: "CDP unavailable"
+    }));
+    expect(browserManager.startLogin).not.toHaveBeenCalled();
+    expect(roleStore.updateAuthState).not.toHaveBeenCalled();
+    expect(importedChromeProfileLoginVerifier.complete).not.toHaveBeenCalled();
+  });
+
+  it("does not complete a pending profile when the embedded game still requires login", async () => {
+    const roleStore = createRoleStore();
+    const browserManager = {
+      startLogin: vi.fn().mockResolvedValue(undefined),
+      waitForAuthentication: vi.fn().mockResolvedValue({
+        authState: "login_required" as const,
+        message: "Login is still required."
+      })
+    };
+    const importedChromeProfileLoginVerifier = {
+      complete: vi.fn(),
+      hasPendingVerification: vi.fn().mockResolvedValue(true),
+      verify: vi.fn().mockResolvedValue(undefined)
+    };
+    const manager = new AuthManager(roleStore, browserManager, { importedChromeProfileLoginVerifier });
+
+    manager.startLogin(role);
+
+    await vi.waitFor(() => expect(manager.listStatuses()[0]).toMatchObject({ state: "failed" }));
+    expect(roleStore.updateAuthState).toHaveBeenCalledWith(role.id, "login_required");
+    expect(importedChromeProfileLoginVerifier.complete).not.toHaveBeenCalled();
   });
 });
 

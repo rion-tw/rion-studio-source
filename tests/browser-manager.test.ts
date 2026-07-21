@@ -4331,6 +4331,17 @@ describe("BrowserManager game host windows", () => {
       url: role.launchUrl
     });
   });
+
+  it("opens the launch URL after an imported Chrome profile has synchronized its cookies", async () => {
+    const loginUrl = "https://accounts.example.com/login";
+    const getLoginUrl = vi.fn().mockResolvedValue(loginUrl);
+    const harness = createHarness({ getLoginUrl });
+
+    await harness.manager.startLogin({ ...role, authState: "login_required" }, { forceLaunchUrl: true });
+
+    expect(getLoginUrl).not.toHaveBeenCalled();
+    expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+  });
 });
 
 describe("normalizedRectToPixelBounds", () => {

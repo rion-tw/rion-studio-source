@@ -61,7 +61,7 @@ describe("Chrome profile import flow", () => {
     }));
     const importResult = {
       roles: [{
-        authState: "authenticated" as const,
+        authState: "login_required" as const,
         createdAt: "2026-07-10T00:00:00.000Z",
         gameId: game.id,
         id: "role-1",
@@ -161,7 +161,7 @@ describe("Chrome profile import flow", () => {
       importId: "import-1",
       profileIds: ["profile-11"]
     }));
-    const loadingButton = screen.getByRole("button", { name: "Imported 0/1" });
+    const loadingButton = screen.getByRole("button", { name: "Copied 0/1" });
     expect(loadingButton).toHaveProperty("disabled", true);
     expect(loadingButton.getAttribute("aria-busy")).toBe("true");
     expect(loadingButton.querySelector("svg")?.classList.contains("animate-spin")).toBe(true);
@@ -171,11 +171,11 @@ describe("Chrome profile import flow", () => {
       phase: "importing",
       totalProfileCount: 1
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Imported 1/1" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copied 1/1" })).toBeTruthy());
     resolveImport?.(importResult);
     await waitFor(() => expect(screen.getByText("Chrome profile import complete")).toBeTruthy());
     expect(screen.getByText("小胖")).toBeTruthy();
-    expect(screen.getByText(/Only Cookie-based sign-in data was imported/)).toBeTruthy();
+    expect(screen.getByText(/Imported roles are intentionally marked as needing login/)).toBeTruthy();
     expect(screen.queryByText("Embedded browser")).toBeNull();
     expect(screen.queryByText("External Chrome")).toBeNull();
   });

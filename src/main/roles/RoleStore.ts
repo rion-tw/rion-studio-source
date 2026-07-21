@@ -247,6 +247,26 @@ export class RoleStore {
     });
   }
 
+  async resetAuthentication(id: string, timestamp = new Date().toISOString()): Promise<Role> {
+    return this.taskQueue.run(async () => {
+      const file = await this.readRolesFile();
+      const index = file.roles.findIndex((role) => role.id === id);
+      if (index < 0) throw new RoleStoreError("ROLE_NOT_FOUND", "Role not found.");
+
+      const current = file.roles[index];
+      const updated: Role = {
+        ...current,
+        authState: "login_required",
+        lastAuthCheckAt: undefined,
+        lastSuccessfulLoginAt: undefined,
+        updatedAt: timestamp
+      };
+      file.roles[index] = updated;
+      await this.writeRolesFile(file);
+      return updated;
+    });
+  }
+
   async assignGameIds(assignments: ReadonlyMap<string, string>): Promise<Role[]> {
     return this.taskQueue.run(async () => {
       const file = await this.readRolesFile();

@@ -3797,8 +3797,12 @@ describe("BrowserManager game host windows", () => {
     expect(harness.manager.listStatuses()).toEqual([]);
   });
 
-  it("hides a display host on system close without stopping its roles", async () => {
-    const harness = createHarness();
+  it.each([
+    ["macOS native chrome", { platform: "darwin", useMacNativeChrome: true }],
+    ["macOS HTML fallback", { platform: "darwin", useTabbedHostWindow: true }],
+    ["Windows HTML chrome", { platform: "win32", useTabbedHostWindow: true }]
+  ] as const)("hides a display host on system close without stopping its roles on %s", async (_name, options) => {
+    const harness = createHarness(options);
     await harness.manager.launch(role);
     const event = { preventDefault: vi.fn() };
 
@@ -3811,6 +3815,30 @@ describe("BrowserManager game host windows", () => {
     expect(harness.hosts[0].hide).toHaveBeenCalledTimes(1);
     expect(harness.beforeRolesStop).not.toHaveBeenCalled();
   });
+
+  it.each(["darwin", "win32"] as const)(
+    "stops and destroys the active runtime tab on %s",
+    async (platform) => {
+      const harness = createHarness(
+        platform === "darwin"
+          ? { platform, useMacNativeChrome: true }
+          : { platform, useTabbedHostWindow: true }
+      );
+      await harness.manager.launch(role);
+      const [tab] = harness.manager.listEmbeddedRuntimeState().tabs;
+
+      await harness.manager.stopRuntimeTab(tab.id);
+
+      expect(harness.beforeRolesStop).toHaveBeenCalledWith([role.id]);
+      expect(harness.views[0].webContents.close).toHaveBeenCalledOnce();
+      expect(harness.hosts[0].close).toHaveBeenCalledOnce();
+      expect(harness.manager.listStatuses()).toEqual([]);
+      expect(harness.manager.listEmbeddedRuntimeState()).toMatchObject({
+        tabs: [],
+        windows: []
+      });
+    }
+  );
 
   it("hides the current runtime tab for Cmd/Ctrl+W from a game view", async () => {
     const harness = createHarness();

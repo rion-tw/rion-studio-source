@@ -15,6 +15,14 @@ import {
 } from "../src/main/browser/BrowserManager";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
 import type {
+  LayoutRoleInput,
+  WorkspaceDividerDescriptor,
+  WorkspaceDividerResizeInput,
+  WorkspaceDividerResizeOutput,
+  WorkspaceLayoutInput,
+  WorkspaceLayoutOutput
+} from "../src/shared/generated";
+import type {
   BrowserLaunchMode,
   LaunchWorkspace,
   PixelBounds,
@@ -23,7 +31,17 @@ import type {
   WorkspaceDisplayInfo,
   WorkspaceLayoutTemplate
 } from "../src/shared/types";
-import { getDefaultWorkspaceRects } from "../src/shared/workspaceLayout";
+import {
+  getDefaultWorkspaceRects,
+  MIN_WORKSPACE_SLOT_SIZE
+} from "../src/shared/workspaceLayout";
+import { snapWorkspaceResizePosition } from "../src/shared/workspaceResize";
+import { createBrowserRuntimeState } from "./helpers/browserRuntimeState";
+import { createEmbeddedKeyRuntimeState } from "./helpers/embeddedKeyRuntimeState";
+import {
+  normalizeTestWorkspaceRects,
+  resolveTestAdaptiveZoom
+} from "./helpers/workspaceLayoutState";
 
 type AnyMock = Mock;
 
@@ -4436,6 +4454,178 @@ function equalPixelBounds(left: PixelBounds, right: PixelBounds): boolean {
   return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
 }
 
+function resolveTestWorkspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayoutOutput {
+  const roleRects = new Map(input.roles.map(({ rect, roleId }) => [roleId, rect]));
+  const beforeInset = Math.floor(input.gap / 2);
+  const afterInset = input.gap - beforeInset;
+  return {
+    visible: input.active && !input.hidden && input.windowVisible,
+    roles: input.roles.map(({ rect, roleId }) => {
+      const bounds = normalizedRectToPixelBounds(rect, input.contentBounds);
+      input.dividers.forEach((divider) => {
+        if (divider.axis === "vertical") {
+          if (divider.beforeRoleIds.includes(roleId)) bounds.width -= beforeInset;
+          if (divider.afterRoleIds.includes(roleId)) {
+            bounds.x += afterInset;
+            bounds.width -= afterInset;
+          }
+        } else {
+          if (divider.beforeRoleIds.includes(roleId)) bounds.height -= beforeInset;
+          if (divider.afterRoleIds.includes(roleId)) {
+            bounds.y += afterInset;
+            bounds.height -= afterInset;
+          }
+        }
+      });
+      return {
+        bounds: { ...bounds, height: Math.max(1, bounds.height), width: Math.max(1, bounds.width) },
+        roleId
+      };
+    }),
+    dividers: input.dividers.flatMap((divider, index) => {
+      const before = divider.beforeRoleIds.flatMap((roleId) => {
+        const rect = roleRects.get(roleId);
+        return rect ? [rect] : [];
+      });
+      const after = divider.afterRoleIds.flatMap((roleId) => {
+        const rect = roleRects.get(roleId);
+        return rect ? [rect] : [];
+      });
+      if (before.length === 0 || after.length === 0) return [];
+      const vertical = divider.axis === "vertical";
+      const all = [...before, ...after];
+      const position = vertical ? after[0].x : after[0].y;
+      const start = Math.min(...all.map((rect) => vertical ? rect.y : rect.x));
+      const end = Math.max(
+        ...all.map((rect) => vertical ? rect.y + rect.height : rect.x + rect.width)
+      );
+      const bounds = vertical
+        ? {
+            x: input.contentBounds.x + Math.round(position * input.contentBounds.width) - beforeInset,
+            y: input.contentBounds.y + Math.round(start * input.contentBounds.height),
+            width: input.gap,
+            height: Math.max(1, Math.round(end * input.contentBounds.height) - Math.round(start * input.contentBounds.height))
+          }
+        : {
+            x: input.contentBounds.x + Math.round(start * input.contentBounds.width),
+            y: input.contentBounds.y + Math.round(position * input.contentBounds.height) - beforeInset,
+            width: Math.max(1, Math.round(end * input.contentBounds.width) - Math.round(start * input.contentBounds.width)),
+            height: input.gap
+          };
+      return [{ bounds, index }];
+    })
+  };
+}
+
+function resolveTestWorkspaceDividers(roles: LayoutRoleInput[]): WorkspaceDividerDescriptor[] {
+  const epsilon = 0.000_001;
+  const segments: Array<WorkspaceDividerDescriptor & { end: number; start: number }> = [];
+  const add = (before: LayoutRoleInput, after: LayoutRoleInput, axis: "horizontal" | "vertical") => {
+    const vertical = axis === "vertical";
+    const position = vertical
+      ? before.rect.x + before.rect.width
+      : before.rect.y + before.rect.height;
+    const afterPosition = vertical ? after.rect.x : after.rect.y;
+    if (Math.abs(position - afterPosition) >= epsilon) return;
+    const start = Math.max(
+      vertical ? before.rect.y : before.rect.x,
+      vertical ? after.rect.y : after.rect.x
+    );
+    const end = Math.min(
+      vertical ? before.rect.y + before.rect.height : before.rect.x + before.rect.width,
+      vertical ? after.rect.y + after.rect.height : after.rect.x + after.rect.width
+    );
+    if (end - start <= epsilon) return;
+    segments.push({
+      afterRoleIds: [after.roleId],
+      axis,
+      beforeRoleIds: [before.roleId],
+      defaultPosition: position,
+      end,
+      start
+    });
+  };
+  roles.forEach((left, leftIndex) => {
+    roles.slice(leftIndex + 1).forEach((right) => {
+      add(left, right, "vertical");
+      add(right, left, "vertical");
+      add(left, right, "horizontal");
+      add(right, left, "horizontal");
+    });
+  });
+  segments.sort((left, right) =>
+    (left.axis === right.axis ? 0 : left.axis === "vertical" ? -1 : 1) ||
+    left.defaultPosition - right.defaultPosition || left.start - right.start
+  );
+  const groups: typeof segments = [];
+  segments.forEach((segment) => {
+    const group = groups.find((candidate) =>
+      candidate.axis === segment.axis &&
+      Math.abs(candidate.defaultPosition - segment.defaultPosition) < epsilon &&
+      segment.start <= candidate.end + epsilon && candidate.start <= segment.end + epsilon
+    );
+    if (!group) {
+      groups.push({ ...segment });
+      return;
+    }
+    group.start = Math.min(group.start, segment.start);
+    group.end = Math.max(group.end, segment.end);
+    group.beforeRoleIds = [...new Set([...group.beforeRoleIds, ...segment.beforeRoleIds])];
+    group.afterRoleIds = [...new Set([...group.afterRoleIds, ...segment.afterRoleIds])];
+  });
+  return groups.map(({ afterRoleIds, axis, beforeRoleIds, defaultPosition }) => ({
+    afterRoleIds,
+    axis,
+    beforeRoleIds,
+    defaultPosition
+  }));
+}
+
+function resizeTestWorkspaceDivider(
+  input: WorkspaceDividerResizeInput
+): WorkspaceDividerResizeOutput {
+  const divider = input.dividers[input.dividerIndex];
+  const linked = input.dividers.filter((candidate) =>
+    candidate.axis === divider.axis &&
+    Math.abs(candidate.defaultPosition - divider.defaultPosition) < 0.000_001
+  );
+  const beforeRoleIds = [...new Set(linked.flatMap(({ beforeRoleIds }) => beforeRoleIds))];
+  const afterRoleIds = [...new Set(linked.flatMap(({ afterRoleIds }) => afterRoleIds))];
+  const before = input.roles.filter(({ roleId }) => beforeRoleIds.includes(roleId));
+  const after = input.roles.filter(({ roleId }) => afterRoleIds.includes(roleId));
+  const vertical = divider.axis === "vertical";
+  const start = (role: LayoutRoleInput) => vertical ? role.rect.x : role.rect.y;
+  const size = (role: LayoutRoleInput) => vertical ? role.rect.width : role.rect.height;
+  const position = snapWorkspaceResizePosition(input.requestedPosition, {
+    initialPosition: divider.defaultPosition,
+    min: Math.max(...before.map((role) => start(role) + MIN_WORKSPACE_SLOT_SIZE)),
+    max: Math.min(...after.map((role) => start(role) + size(role) - MIN_WORKSPACE_SLOT_SIZE)),
+    ...(input.previousPosition === undefined ? {} : { previousPosition: input.previousPosition })
+  });
+  const changed = Math.abs(position - start(after[0])) >= 0.000_001;
+  const roles = input.roles.map((role) => {
+    if (!changed) return role;
+    if (beforeRoleIds.includes(role.roleId)) {
+      return {
+        ...role,
+        rect: vertical
+          ? { ...role.rect, width: position - role.rect.x }
+          : { ...role.rect, height: position - role.rect.y }
+      };
+    }
+    if (afterRoleIds.includes(role.roleId)) {
+      return {
+        ...role,
+        rect: vertical
+          ? { ...role.rect, x: position, width: role.rect.x + role.rect.width - position }
+          : { ...role.rect, y: position, height: role.rect.y + role.rect.height - position }
+      };
+    }
+    return role;
+  });
+  return { changed, position, roleIds: [...beforeRoleIds, ...afterRoleIds], roles };
+}
+
 function createHarness(options: {
   applyCdnCompatibility?: AnyMock;
   applyBrowserFonts?: AnyMock;
@@ -4547,6 +4737,8 @@ function createHarness(options: {
   });
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
   const manager = new BrowserManager({
+    browserRuntimeState: createBrowserRuntimeState(),
+    adaptiveZoomResolver: resolveTestAdaptiveZoom,
     ...(options.applyCdnCompatibility ? { applyCdnCompatibility: options.applyCdnCompatibility } : {}),
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
     ...(options.applyBrowserProxy ? { applyBrowserProxy: options.applyBrowserProxy } : {}),
@@ -4556,7 +4748,9 @@ function createHarness(options: {
     ...(options.useTabbedHostWindow ? { createTabbedHostWindow } : {}),
     createView,
     dividerPreloadPath: "/app/out/preload/divider.cjs",
+    embeddedKeyRuntime: createEmbeddedKeyRuntimeState(),
     embeddedPreloadPath: "/app/out/preload/embedded.cjs",
+    normalizeWorkspaceRects: normalizeTestWorkspaceRects,
     runtimeTabsPageUrl: "data:text/html,runtime-tabs",
     runtimeTabsPreloadPath: "/app/out/preload/runtime-tabs.cjs",
     ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
@@ -4590,9 +4784,9 @@ function createHarness(options: {
     ...(options.resourcePressureMonitor
       ? { resourcePressureMonitor: options.resourcePressureMonitor }
       : {}),
-    ...(options.workspaceLayoutResolver
-      ? { workspaceLayoutResolver: options.workspaceLayoutResolver }
-      : {})
+    workspaceDividerResolver: resolveTestWorkspaceDividers,
+    workspaceDividerResizeResolver: resizeTestWorkspaceDivider,
+    workspaceLayoutResolver: options.workspaceLayoutResolver ?? resolveTestWorkspaceLayout
   });
   manager.setBeforeRolesStop(beforeRolesStop);
 

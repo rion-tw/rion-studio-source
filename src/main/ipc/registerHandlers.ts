@@ -49,11 +49,11 @@ import {
 import type { RoleBrowserDataManager } from "../browser/RoleBrowserDataManager";
 import type { ChromeProfileImportManager } from "../browser/ChromeProfileImportManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
-import type { SystemFontService } from "../game-browser/SystemFontService";
+import type { RustSystemFontService } from "../game-browser/RustSystemFontService";
 import type { GameCompatibilityManager } from "../games/GameCompatibilityManager";
 import type { GameStore } from "../games/GameStore";
 import type { LegalAcceptanceStore } from "../legal/LegalAcceptanceStore";
-import type { MacroRuntimeManager } from "../macros/MacroManager";
+import type { MacroRuntimeManager } from "../macros/MacroRuntimeManager";
 import {
   isMacroOverlayRequest,
   type MacroOverlayRequest
@@ -78,7 +78,7 @@ interface RegisterIpcHandlersOptions {
     GameCompatibilityManager,
     "cancelCheck" | "deleteGame" | "listReports" | "listStatuses" | "on" | "recordObservation" | "runCheck"
   >;
-  systemFontService?: Pick<SystemFontService, "listFonts">;
+  systemFontService?: Pick<RustSystemFontService, "listFonts">;
   updateManager?: AppUpdateManager;
   consumePendingMacroPageRequest?: () => MacroPageRequest | null;
   consumePendingWorkspaceLaunchRequest?: () => PendingWorkspaceLaunchRequest | null;
@@ -377,11 +377,11 @@ export function registerIpcHandlers(
     return result;
   });
 
-  handle(IPC_CHANNELS.portableImportDiscard, (_event, importId: string) => {
+  handle(IPC_CHANNELS.portableImportDiscard, async (_event, importId: string) => {
     if (!options.portableDataManager || typeof importId !== "string" || !importId.trim()) {
       throw new Error("Portable data import is not available.");
     }
-    options.portableDataManager.discardImport(importId);
+    await options.portableDataManager.discardImport(importId);
   });
 
   handle(IPC_CHANNELS.chromeProfileImportPreview, () => {

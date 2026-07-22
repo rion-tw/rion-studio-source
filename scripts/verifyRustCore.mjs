@@ -81,8 +81,11 @@ try {
     health.coreVersion !== version ||
     typeof core.subscribeCoreEvents !== "function" ||
     typeof core.connectExternalChromeCdp !== "function" ||
-    typeof core.launchExternalChrome !== "function" ||
-    typeof core.prepareExternalChromeProfile !== "function"
+    typeof core.prepareExternalChromeProfile !== "function" ||
+    typeof core.prepareEmbeddedKeyTransition !== "function" ||
+    typeof core.completeEmbeddedKeyTransition !== "function" ||
+    typeof core.reassertEmbeddedKeys !== "function" ||
+    typeof core.resolveRolePaths !== "function"
   ) {
     throw new Error("Rust core addon failed its create/invoke integration check.");
   }
@@ -106,22 +109,86 @@ try {
   ) {
     throw new Error("Rust core failed the packaged legacy migration snapshot check.");
   }
-  const child = core.launchExternalChrome(process.execPath, ["-e", "process.exit(7)"]);
-  if (!Number.isSafeInteger(child.pid()) || child.pid() <= 0) {
-    throw new Error("Rust process supervisor returned an invalid process id.");
+  const firstHold = JSON.parse(core.prepareEmbeddedKeyTransition(
+    "fixture-role",
+    "hold",
+    "KeyW",
+    JSON.stringify(["ControlLeft"]),
+    "owner-1"
+  ));
+  if (
+    firstHold.effects.map((effect) => `${effect.phase}:${effect.code}`).join(",") !==
+    "rawKeyDown:ControlLeft,rawKeyDown:KeyW"
+  ) {
+    throw new Error(`Rust embedded key ownership returned invalid effects: ${JSON.stringify(firstHold)}.`);
   }
-  const exit = await new Promise((resolveExit, rejectExit) => {
+  core.completeEmbeddedKeyTransition(firstHold.transitionId, true);
+  const secondHold = JSON.parse(core.prepareEmbeddedKeyTransition(
+    "fixture-role",
+    "hold",
+    "KeyW",
+    JSON.stringify(["ControlLeft"]),
+    "owner-2"
+  ));
+  if (secondHold.effects.length !== 0 || !core.hasEmbeddedHeldKeys("fixture-role")) {
+    throw new Error("Rust embedded key ownership did not reference-count duplicate holds.");
+  }
+  core.completeEmbeddedKeyTransition(secondHold.transitionId, true);
+  for (const ownerId of ["owner-1", "owner-2"]) {
+    const release = JSON.parse(core.prepareEmbeddedKeyTransition(
+      "fixture-role",
+      "release",
+      "KeyW",
+      JSON.stringify(["ControlLeft"]),
+      ownerId
+    ));
+    if (ownerId === "owner-1" && release.effects.length !== 0) {
+      throw new Error("Rust embedded key ownership released a shared key too early.");
+    }
+    if (
+      ownerId === "owner-2" &&
+      release.effects.map((effect) => `${effect.phase}:${effect.code}`).join(",") !==
+        "keyUp:KeyW,keyUp:ControlLeft"
+    ) {
+      throw new Error("Rust embedded key ownership did not release the final owner.");
+    }
+    core.completeEmbeddedKeyTransition(release.transitionId, true);
+  }
+  if (core.hasEmbeddedHeldKeys("fixture-role")) {
+    throw new Error("Rust embedded key ownership leaked held keys.");
+  }
+  const rolePaths = JSON.parse(core.resolveRolePaths("fixture-role"));
+  if (rolePaths.browserUserDataDir !== join(userDataDir, "roles", "fixture-role", "browser")) {
+    throw new Error(`Rust role path resolver returned an invalid path: ${JSON.stringify(rolePaths)}.`);
+  }
+  const processRoleId = "fixture-process";
+  const exit = new Promise((resolveExit, rejectExit) => {
     const timeout = setTimeout(
       () => rejectExit(new Error("Rust process supervisor did not report exit.")),
       5_000
     );
-    child.subscribeExit((eventJson) => {
-      clearTimeout(timeout);
-      resolveExit(JSON.parse(eventJson));
+    core.subscribeCoreEvents((eventsJson) => {
+      const event = JSON.parse(eventsJson).find(
+        (candidate) => candidate.type === "externalProcessExited" && candidate.roleId === processRoleId
+      );
+      if (event) {
+        clearTimeout(timeout);
+        resolveExit(event);
+      }
     });
   });
-  if (exit.exitCode !== 7 || exit.terminated !== false) {
-    throw new Error(`Rust process supervisor returned an invalid exit: ${JSON.stringify(exit)}.`);
+  const launched = JSON.parse(await core.invoke(JSON.stringify({
+    type: "externalProcessLaunch",
+    roleId: processRoleId,
+    executablePath: process.execPath,
+    arguments: ["-e", "process.exit(7)"]
+  })));
+  if (!Number.isSafeInteger(launched.pid) || launched.pid <= 0) {
+    throw new Error("Rust process supervisor returned an invalid process id.");
+  }
+  const processExit = await exit;
+  if (processExit.exitCode !== 7 || processExit.terminated !== false) {
+    throw new Error(`Rust process supervisor returned an invalid exit: ${JSON.stringify(processExit)}.`);
   }
   const launchUrl = "https://fixture.rion.test/play";
   await core.prepareExternalChromeProfile(userDataDir);
@@ -160,7 +227,13 @@ try {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Fixture server has no TCP port.");
     await writeFile(join(userDataDir, "DevToolsActivePort"), `${address.port}\n`, "utf8");
-    const cdp = await core.connectExternalChromeCdp(userDataDir, launchUrl, 2_000);
+    const cdp = await core.connectExternalChromeCdp(
+      "fixture-role",
+      userDataDir,
+      launchUrl,
+      2_000,
+      false
+    );
     const notification = new Promise((resolveNotification, rejectNotification) => {
       const timeout = setTimeout(
         () => rejectNotification(new Error("Rust CDP client did not forward a notification.")),

@@ -1,18 +1,34 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    time::{Duration, Instant},
+};
 
 use serde_json::{Map, Value, json};
 use url::Url;
 use uuid::Uuid;
 
 use crate::{
+    domain::{validate_game_browser_settings, validate_macro_settings},
     error::{CoreError, CoreResult},
     macro_graph::validate_macro_graph,
+    model::{
+        CoreStateSnapshotRecord, MacroStepDefinition, MacroTrigger, PortableDataRecord,
+        PortableDataSelectionRecord, PortableGameRecord, PortableImportOperationsRecord,
+        PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
+        PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
+        PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
+        PortablePreferencesRecord, PortableRoleRecord, StateGameRecord, StateLaunchWorkspaceRecord,
+        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
+        StateWorkspaceResourcePolicyRecord, StateWorkspaceSlotRecord,
+    },
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
 const CURRENT_SCHEMA: u64 = 6;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
+const MAX_PENDING_IMPORTS: usize = 8;
+const PENDING_IMPORT_TTL: Duration = Duration::from_secs(15 * 60);
 
 struct BuiltinGame {
     id: &'static str,
@@ -511,60 +527,130 @@ fn normalize_step(
             let code = required_string(source, "code", "macro key step")?;
             let action = source
                 .get("action")
-                .and_then(Value::as_str)
-                .unwrap_or("tap");
-            if !matches!(action, "tap" | "hold_until_stop") {
-                return Err(invalid("portable macro key action is invalid"));
-            }
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|action| matches!(*action, "tap" | "hold_until_stop"))
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("portable macro key action is invalid"))
+                })
+                .transpose()?;
             let modifiers = if supports_modifiers {
                 source
                     .get("modifiers")
-                    .and_then(Value::as_array)
-                    .map(|values| {
-                        values
-                            .iter()
-                            .map(|value| {
-                                value
-                                    .as_str()
-                                    .filter(|value| {
-                                        matches!(
-                                            *value,
-                                            "primary" | "ctrl" | "alt" | "shift" | "meta"
-                                        )
+                    .map(|value| {
+                        value
+                            .as_array()
+                            .ok_or_else(|| invalid("portable macro key modifiers are invalid"))
+                            .and_then(|values| {
+                                values
+                                    .iter()
+                                    .map(|value| {
+                                        value
+                                            .as_str()
+                                            .filter(|value| {
+                                                matches!(
+                                                    *value,
+                                                    "primary" | "ctrl" | "alt" | "shift" | "meta"
+                                                )
+                                            })
+                                            .map(str::to_owned)
+                                            .ok_or_else(|| {
+                                                invalid("portable macro key modifier is invalid")
+                                            })
                                     })
-                                    .map(str::to_owned)
-                                    .ok_or_else(|| {
-                                        invalid("portable macro key modifier is invalid")
-                                    })
+                                    .collect::<CoreResult<Vec<_>>>()
                             })
-                            .collect::<CoreResult<Vec<_>>>()
                     })
                     .transpose()?
-                    .unwrap_or_default()
             } else {
-                Vec::new()
+                None
             };
-            Ok(
-                json!({ "id": id, "type": "key", "code": code, "modifiers": modifiers, "action": action }),
-            )
+            let label = source
+                .get("label")
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|label| !label.trim().is_empty() && label.chars().count() <= 48)
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("portable macro key label is invalid"))
+                })
+                .transpose()?;
+            let mut step = Map::from_iter([
+                ("id".to_owned(), json!(id)),
+                ("type".to_owned(), json!("key")),
+                ("code".to_owned(), json!(code)),
+            ]);
+            if let Some(modifiers) = modifiers {
+                step.insert("modifiers".to_owned(), json!(modifiers));
+            }
+            if let Some(action) = action {
+                step.insert("action".to_owned(), json!(action));
+            }
+            if let Some(label) = label {
+                step.insert("label".to_owned(), json!(label));
+            }
+            Ok(Value::Object(step))
         }
         Some("click") => {
-            let unit = source
+            let explicit_unit = source
                 .get("unit")
-                .and_then(Value::as_str)
-                .unwrap_or("percent");
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|unit| matches!(*unit, "percent" | "px"))
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("portable macro click unit is invalid"))
+                })
+                .transpose()?;
+            let unit = explicit_unit.as_deref().unwrap_or("percent");
+            let anchor = source
+                .get("anchor")
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|anchor| {
+                            matches!(
+                                *anchor,
+                                "top-left"
+                                    | "top-center"
+                                    | "top-right"
+                                    | "center-left"
+                                    | "center"
+                                    | "center-right"
+                                    | "bottom-left"
+                                    | "bottom-center"
+                                    | "bottom-right"
+                            )
+                        })
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("portable macro click anchor is invalid"))
+                })
+                .transpose()?;
+            let mut step = Map::from_iter([
+                ("id".to_owned(), json!(id)),
+                ("type".to_owned(), json!("click")),
+            ]);
+            if let Some(unit) = explicit_unit.as_ref() {
+                step.insert("unit".to_owned(), json!(unit));
+            }
+            if let Some(anchor) = anchor {
+                step.insert("anchor".to_owned(), json!(anchor));
+            }
             if unit == "px" {
-                Ok(json!({
-                    "id": id, "type": "click", "unit": "px",
-                    "anchor": source.get("anchor").and_then(Value::as_str).unwrap_or("top-left"),
-                    "xPx": finite_number(source, "xPx")?, "yPx": finite_number(source, "yPx")?
-                }))
+                step.insert("xPx".to_owned(), json!(finite_number(source, "xPx")?));
+                step.insert("yPx".to_owned(), json!(finite_number(source, "yPx")?));
+                Ok(Value::Object(step))
             } else if unit == "percent" {
-                Ok(json!({
-                    "id": id, "type": "click", "unit": "percent",
-                    "anchor": source.get("anchor").and_then(Value::as_str).unwrap_or("top-left"),
-                    "xPercent": finite_number(source, "xPercent")?, "yPercent": finite_number(source, "yPercent")?
-                }))
+                step.insert(
+                    "xPercent".to_owned(),
+                    json!(finite_number(source, "xPercent")?),
+                );
+                step.insert(
+                    "yPercent".to_owned(),
+                    json!(finite_number(source, "yPercent")?),
+                );
+                Ok(Value::Object(step))
             } else {
                 Err(invalid("portable macro click unit is invalid"))
             }
@@ -576,14 +662,26 @@ fn normalize_step(
         Some("macro") => {
             let mode = source
                 .get("callMode")
-                .and_then(Value::as_str)
-                .unwrap_or("wait");
-            if !matches!(mode, "wait" | "trigger") {
-                return Err(invalid("portable macro call mode is invalid"));
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|mode| matches!(*mode, "wait" | "trigger"))
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("portable macro call mode is invalid"))
+                })
+                .transpose()?;
+            let mut step = Map::from_iter([
+                ("id".to_owned(), json!(id)),
+                ("type".to_owned(), json!("macro")),
+                (
+                    "macroId".to_owned(),
+                    json!(required_string(source, "macroId", "macro call step")?),
+                ),
+            ]);
+            if let Some(mode) = mode {
+                step.insert("callMode".to_owned(), json!(mode));
             }
-            Ok(
-                json!({ "id": id, "type": "macro", "macroId": required_string(source, "macroId", "macro call step")?, "callMode": mode }),
-            )
+            Ok(Value::Object(step))
         }
         _ => Err(invalid("portable macro step type is invalid")),
     }
@@ -724,6 +822,1270 @@ fn unique_name(base: &str, used: &mut HashSet<String>) -> String {
     format!("Imported Game {}", Uuid::new_v4())
 }
 
+#[derive(Debug, Clone)]
+struct PendingImport {
+    created_at: Instant,
+    data: PortableDataRecord,
+    import_id: String,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct PortableRuntime {
+    pending: VecDeque<PendingImport>,
+}
+
+#[derive(Debug)]
+pub(crate) struct PreparedPortableApply {
+    pub affected_macro_ids: Vec<String>,
+    pub result: PortableImportResultRecord,
+    pub snapshot: CoreStateSnapshotRecord,
+}
+
+#[derive(Debug)]
+struct ImportPlan {
+    affected_macro_ids: Vec<String>,
+    conflicts: Vec<PortableMacroConflictRecord>,
+    operations: PortableImportOperationsRecord,
+    snapshot: CoreStateSnapshotRecord,
+    warnings: Vec<PortableImportWarningRecord>,
+}
+
+#[derive(Debug)]
+struct PlannedMacro {
+    destination_id: String,
+    existing: Option<StateMacroRecord>,
+    macro_record: PortableMacroRecord,
+    name: String,
+    role_ids: Vec<String>,
+}
+
+impl PortableRuntime {
+    pub fn preview(
+        &mut self,
+        raw_json: &str,
+        file_path: String,
+        snapshot: CoreStateSnapshotRecord,
+    ) -> CoreResult<PortableImportPreviewRecord> {
+        self.prune_expired();
+        let normalized = normalize(raw_json)?;
+        let data = serde_json::from_value::<PortableDataRecord>(normalized)
+            .map_err(|error| invalid(format!("portable data model is invalid: {error}")))?;
+        validate_preferences(data.preferences.as_ref())?;
+        let plan = build_import_plan(&data, &all_selection(), &[], snapshot)?;
+        let import_id = Uuid::new_v4().to_string();
+        while self.pending.len() >= MAX_PENDING_IMPORTS {
+            self.pending.pop_front();
+        }
+        self.pending.push_back(PendingImport {
+            created_at: Instant::now(),
+            data: data.clone(),
+            import_id: import_id.clone(),
+        });
+        Ok(PortableImportPreviewRecord {
+            import_id,
+            file_path,
+            exported_at: data.exported_at,
+            app_version: data.app_version,
+            game_count: processed_count(&plan.operations.games),
+            role_count: processed_count(&plan.operations.roles),
+            workspace_count: processed_count(&plan.operations.launch_workspaces),
+            macro_count: processed_count(&plan.operations.macros),
+            preferences: data.preferences,
+            operations: plan.operations,
+            conflicts: plan.conflicts,
+            warnings: plan.warnings,
+        })
+    }
+
+    pub fn prepare_apply(
+        &mut self,
+        import_id: &str,
+        selection: PortableDataSelectionRecord,
+        resolutions: Vec<PortableMacroConflictResolutionRecord>,
+        snapshot: CoreStateSnapshotRecord,
+    ) -> CoreResult<PreparedPortableApply> {
+        self.prune_expired();
+        let pending = self
+            .pending
+            .iter()
+            .find(|pending| pending.import_id == import_id)
+            .ok_or_else(import_expired)?;
+        let selection = normalize_selection(selection);
+        ensure_selected_content(&pending.data, &selection)?;
+        let plan = build_import_plan(&pending.data, &selection, &resolutions, snapshot)?;
+        if !plan.conflicts.is_empty() {
+            return Err(CoreError::Domain {
+                code: "PORTABLE_IMPORT_CONFLICT_UNRESOLVED",
+                message: "Resolve every ambiguous macro before importing.".to_owned(),
+            });
+        }
+        let preferences = selection
+            .preferences
+            .then(|| pending.data.preferences.clone())
+            .flatten();
+        Ok(PreparedPortableApply {
+            affected_macro_ids: plan.affected_macro_ids,
+            result: PortableImportResultRecord {
+                game_count: processed_count(&plan.operations.games),
+                role_count: processed_count(&plan.operations.roles),
+                workspace_count: processed_count(&plan.operations.launch_workspaces),
+                macro_count: processed_count(&plan.operations.macros),
+                preferences_included: preferences.is_some(),
+                preferences,
+                selection: effective_selection(&pending.data, &selection),
+                operations: plan.operations,
+                warnings: plan.warnings,
+            },
+            snapshot: plan.snapshot,
+        })
+    }
+
+    pub fn discard(&mut self, import_id: &str) -> bool {
+        self.prune_expired();
+        let original_len = self.pending.len();
+        self.pending
+            .retain(|pending| pending.import_id != import_id);
+        original_len != self.pending.len()
+    }
+
+    fn prune_expired(&mut self) {
+        let now = Instant::now();
+        self.pending.retain(|pending| {
+            now.saturating_duration_since(pending.created_at) <= PENDING_IMPORT_TTL
+        });
+    }
+}
+
+pub(crate) fn export(
+    snapshot: CoreStateSnapshotRecord,
+    preferences: Option<PortablePreferencesRecord>,
+    selection: PortableDataSelectionRecord,
+    app_version: &str,
+) -> CoreResult<PortableDataRecord> {
+    let selection = normalize_selection(selection);
+    let preferences = selection.preferences.then_some(preferences).flatten();
+    validate_preferences(preferences.as_ref())?;
+    let data = PortableDataRecord {
+        app: PORTABLE_APP.to_owned(),
+        schema_version: CURRENT_SCHEMA as u32,
+        exported_at: chrono::Utc::now().to_rfc3339(),
+        app_version: app_version.to_owned(),
+        games: if selection.games {
+            snapshot.games.iter().map(portable_game).collect()
+        } else {
+            Vec::new()
+        },
+        roles: if selection.roles {
+            snapshot.roles.iter().map(portable_role).collect()
+        } else {
+            Vec::new()
+        },
+        launch_workspaces: if selection.launch_workspaces {
+            snapshot
+                .launch_workspaces
+                .iter()
+                .map(portable_workspace)
+                .collect()
+        } else {
+            Vec::new()
+        },
+        macros: if selection.macros {
+            snapshot.macros.iter().map(portable_macro).collect()
+        } else {
+            Vec::new()
+        },
+        preferences,
+    };
+    ensure_selected_content(&data, &selection)?;
+    Ok(data)
+}
+
+fn build_import_plan(
+    data: &PortableDataRecord,
+    selection: &PortableDataSelectionRecord,
+    resolutions: &[PortableMacroConflictResolutionRecord],
+    mut snapshot: CoreStateSnapshotRecord,
+) -> CoreResult<ImportPlan> {
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let mut warnings = Vec::new();
+    let mut operations = PortableImportOperationsRecord::default();
+    let mut game_id_map = HashMap::new();
+    let mut role_id_map = HashMap::new();
+
+    if selection.games {
+        let mut used_names = snapshot
+            .games
+            .iter()
+            .map(|game| normalize_name_key(&game.name))
+            .collect::<HashSet<_>>();
+        let mut seen_keys = HashSet::new();
+        for game in &data.games {
+            let identity_key = if game.source == "builtin" {
+                game.builtin_key
+                    .as_ref()
+                    .map(|key| format!("builtin:{key}"))
+                    .unwrap_or_else(|| format!("custom:{}", normalize_name_key(&game.name)))
+            } else {
+                format!("custom:{}", normalize_name_key(&game.name))
+            };
+            let duplicate = !seen_keys.insert(identity_key);
+            let existing_index = if duplicate {
+                None
+            } else if game.source == "builtin" {
+                game.builtin_key.as_ref().and_then(|key| {
+                    snapshot
+                        .games
+                        .iter()
+                        .position(|candidate| candidate.builtin_key.as_ref() == Some(key))
+                })
+            } else if game.inferred == Some(true) {
+                snapshot.games.iter().position(|candidate| {
+                    candidate.source == "custom"
+                        && candidate.default_launch_url == game.default_launch_url
+                })
+            } else {
+                snapshot.games.iter().position(|candidate| {
+                    candidate.source == "custom"
+                        && normalize_name_key(&candidate.name) == normalize_name_key(&game.name)
+                })
+            };
+            if let Some(index) = existing_index {
+                let existing = snapshot.games[index].clone();
+                game_id_map.insert(game.id.clone(), existing.id.clone());
+                if game.inferred == Some(true) {
+                    operations.games.unchanged += 1;
+                    continue;
+                }
+                let mut updated = existing.clone();
+                if existing.source != "builtin" {
+                    updated.name = game.name.clone();
+                    updated.icon_image_data_url = game.icon_image_data_url.clone();
+                    updated.cover_image_data_url = game.cover_image_data_url.clone();
+                }
+                updated.default_launch_url = game.default_launch_url.clone();
+                updated.browser_launch_mode = game.browser_launch_mode.clone();
+                updated.updated_at = timestamp.clone();
+                if game_equivalent(&existing, &updated)? {
+                    operations.games.unchanged += 1;
+                } else {
+                    if existing.source == "builtin" {
+                        warnings.push(warning(
+                            "BUILTIN_GAME_DEFAULTS_REPLACED",
+                            Some(existing.name.clone()),
+                            None,
+                            None,
+                        ));
+                    }
+                    snapshot.games[index] = updated;
+                    operations.games.update += 1;
+                }
+                continue;
+            }
+
+            let mut source = game.clone();
+            if duplicate && source.source == "builtin" {
+                source.source = "custom".to_owned();
+                source.builtin_key = None;
+            }
+            let name = reserve_import_name(&source.name, &mut used_names)?;
+            if name != game.name {
+                warnings.push(warning(
+                    "GAME_NAME_RENAMED",
+                    Some(game.name.clone()),
+                    Some(name.clone()),
+                    None,
+                ));
+            }
+            let builtin = source.builtin_key.as_deref().and_then(builtin_by_key);
+            let created = StateGameRecord {
+                id: builtin
+                    .map(|definition| definition.id.to_owned())
+                    .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                source: if builtin.is_some() {
+                    "builtin"
+                } else {
+                    "custom"
+                }
+                .to_owned(),
+                builtin_key: builtin.map(|definition| definition.key.to_owned()),
+                name: builtin
+                    .map(|definition| definition.name.to_owned())
+                    .unwrap_or(name),
+                icon_image_data_url: builtin
+                    .is_none()
+                    .then_some(source.icon_image_data_url)
+                    .flatten(),
+                cover_image_data_url: builtin
+                    .is_none()
+                    .then_some(source.cover_image_data_url)
+                    .flatten(),
+                default_launch_url: source.default_launch_url,
+                browser_launch_mode: source.browser_launch_mode,
+                created_at: timestamp.clone(),
+                updated_at: timestamp.clone(),
+            };
+            game_id_map.insert(game.id.clone(), created.id.clone());
+            snapshot.games.push(created);
+            operations.games.create += 1;
+        }
+    }
+
+    if selection.roles {
+        assert_unique_role_names(&snapshot.roles)?;
+        let mut seen_keys = HashSet::new();
+        for role in &data.roles {
+            let source_game_id = role.game_id.as_deref().ok_or_else(role_game_missing)?;
+            let game_id = game_id_map
+                .get(source_game_id)
+                .cloned()
+                .ok_or_else(role_game_missing)?;
+            if role.game_recovered == Some(true) {
+                warnings.push(warning(
+                    "ROLE_GAME_RECOVERED",
+                    Some(role.name.clone()),
+                    None,
+                    None,
+                ));
+            }
+            let identity = role_identity(&game_id, &role.name);
+            if !seen_keys.insert(identity.clone()) {
+                return Err(role_name_conflict());
+            }
+            if let Some(index) = snapshot.roles.iter().position(|candidate| {
+                role_identity(&candidate.game_id, &candidate.name) == identity
+            }) {
+                let existing = snapshot.roles[index].clone();
+                role_id_map.insert(role.id.clone(), existing.id.clone());
+                let mut updated = existing.clone();
+                updated.game_id = game_id;
+                updated.name = role.name.clone();
+                updated.launch_url = role.launch_url.clone();
+                updated.notes = role.notes.clone();
+                updated.cover_image_data_url = role.cover_image_data_url.clone();
+                updated.cover_image_dominant_color = role
+                    .cover_image_data_url
+                    .as_ref()
+                    .and(role.cover_image_dominant_color.clone());
+                updated.updated_at = timestamp.clone();
+                if role_equivalent(&existing, &updated)? {
+                    operations.roles.unchanged += 1;
+                } else {
+                    snapshot.roles[index] = updated;
+                    operations.roles.update += 1;
+                }
+            } else {
+                let created = StateRoleRecord {
+                    id: Uuid::new_v4().to_string(),
+                    game_id,
+                    name: role.name.clone(),
+                    launch_url: role.launch_url.clone(),
+                    notes: role.notes.clone(),
+                    browser_session_source: Some("embedded".to_owned()),
+                    cover_image_data_url: role.cover_image_data_url.clone(),
+                    cover_image_dominant_color: role
+                        .cover_image_data_url
+                        .as_ref()
+                        .and(role.cover_image_dominant_color.clone()),
+                    created_at: timestamp.clone(),
+                    updated_at: timestamp.clone(),
+                };
+                role_id_map.insert(role.id.clone(), created.id.clone());
+                snapshot.roles.push(created);
+                operations.roles.create += 1;
+            }
+        }
+    }
+
+    if selection.launch_workspaces {
+        let mut used_names = snapshot
+            .launch_workspaces
+            .iter()
+            .map(|workspace| normalize_name_key(&workspace.name))
+            .collect::<HashSet<_>>();
+        let mut seen_keys = HashSet::new();
+        for workspace in &data.launch_workspaces {
+            let missing = workspace
+                .slots
+                .iter()
+                .filter_map(|slot| slot.role_id.as_ref())
+                .filter(|role_id| !role_id_map.contains_key(*role_id))
+                .count() as u32;
+            if missing > 0 {
+                warnings.push(warning(
+                    "WORKSPACE_ROLE_MISSING",
+                    Some(workspace.name.clone()),
+                    None,
+                    Some(missing),
+                ));
+            }
+            let slot_count = template_slot_count(&workspace.template)?;
+            if workspace
+                .slots
+                .iter()
+                .skip(slot_count)
+                .any(|slot| slot.role_id.is_some())
+            {
+                return Err(invalid(
+                    "portable workspace assigns a role outside its template",
+                ));
+            }
+            let identity = normalize_name_key(&workspace.name);
+            let duplicate = !seen_keys.insert(identity.clone());
+            let existing_index = (!duplicate)
+                .then(|| {
+                    snapshot
+                        .launch_workspaces
+                        .iter()
+                        .position(|candidate| normalize_name_key(&candidate.name) == identity)
+                })
+                .flatten();
+            let name = if existing_index.is_some() {
+                workspace.name.clone()
+            } else {
+                reserve_import_name(&workspace.name, &mut used_names)?
+            };
+            if name != workspace.name {
+                warnings.push(warning(
+                    "WORKSPACE_NAME_RENAMED",
+                    Some(workspace.name.clone()),
+                    Some(name.clone()),
+                    None,
+                ));
+            }
+            let existing = existing_index.map(|index| snapshot.launch_workspaces[index].clone());
+            let defaults = default_rects(&workspace.template)?;
+            let slots = defaults
+                .into_iter()
+                .enumerate()
+                .map(|(index, default_rect)| {
+                    let source = workspace.slots.get(index);
+                    let role_id = source
+                        .and_then(|slot| slot.role_id.as_ref())
+                        .and_then(|role_id| role_id_map.get(role_id))
+                        .cloned();
+                    StateWorkspaceSlotRecord {
+                        id: source
+                            .map(|slot| slot.id.clone())
+                            .filter(|id| !id.is_empty())
+                            .unwrap_or_else(|| format!("slot-{}", index + 1)),
+                        browser_zoom_percent: role_id
+                            .as_ref()
+                            .and_then(|_| source.and_then(|slot| slot.browser_zoom_percent)),
+                        role_id,
+                        rect: source.map(|slot| slot.rect.clone()).unwrap_or(default_rect),
+                    }
+                })
+                .collect();
+            let merged = StateLaunchWorkspaceRecord {
+                id: existing
+                    .as_ref()
+                    .map(|workspace| workspace.id.clone())
+                    .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                name,
+                template: workspace.template.clone(),
+                browser_launch_mode: workspace.browser_launch_mode.clone(),
+                browser_zoom_mode: workspace.browser_zoom_mode.clone(),
+                browser_zoom_percent: workspace.browser_zoom_percent,
+                resource_policy: StateWorkspaceResourcePolicyRecord {
+                    mode: if workspace.resource_policy.mode == "unrestricted" {
+                        "unrestricted"
+                    } else {
+                        "adaptive"
+                    }
+                    .to_owned(),
+                },
+                target_display: existing
+                    .as_ref()
+                    .and_then(|workspace| workspace.target_display.clone()),
+                slots,
+                created_at: existing
+                    .as_ref()
+                    .map(|workspace| workspace.created_at.clone())
+                    .unwrap_or_else(|| timestamp.clone()),
+                updated_at: timestamp.clone(),
+            };
+            if let Some(index) = existing_index {
+                if workspace_equivalent(&snapshot.launch_workspaces[index], &merged)? {
+                    operations.launch_workspaces.unchanged += 1;
+                } else {
+                    snapshot.launch_workspaces[index] = merged;
+                    operations.launch_workspaces.update += 1;
+                }
+            } else {
+                snapshot.launch_workspaces.push(merged);
+                operations.launch_workspaces.create += 1;
+            }
+        }
+    }
+
+    let mut conflicts = Vec::new();
+    let mut affected_macro_ids = Vec::new();
+    if selection.macros {
+        let resolution_by_id = resolutions
+            .iter()
+            .map(|resolution| (resolution_conflict_id(resolution), resolution))
+            .collect::<HashMap<_, _>>();
+        if resolution_by_id.len() != resolutions.len() {
+            return Err(CoreError::Domain {
+                code: "PORTABLE_IMPORT_RESOLUTION_INVALID",
+                message: "Portable import conflict resolution is invalid.".to_owned(),
+            });
+        }
+        let existing_macros = snapshot.macros.clone();
+        let mut seen_keys = HashSet::new();
+        let mut used_copy_names = existing_macros
+            .iter()
+            .map(|macro_record| normalize_name_key(&macro_record.name))
+            .collect::<HashSet<_>>();
+        let mut planned = Vec::new();
+        for macro_record in &data.macros {
+            let mut seen_role_ids = HashSet::new();
+            let role_ids = macro_record
+                .role_ids
+                .iter()
+                .filter_map(|role_id| role_id_map.get(role_id).cloned())
+                .filter(|role_id| seen_role_ids.insert(role_id.clone()))
+                .collect::<Vec<_>>();
+            let missing = macro_record
+                .role_ids
+                .iter()
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .filter(|role_id| !role_id_map.contains_key(*role_id))
+                .count() as u32;
+            if missing > 0 {
+                warnings.push(warning(
+                    "MACRO_ROLE_MISSING",
+                    Some(macro_record.name.clone()),
+                    None,
+                    Some(missing),
+                ));
+            }
+            if !macro_record.role_ids.is_empty() && role_ids.is_empty() {
+                warnings.push(warning(
+                    "MACRO_SKIPPED_NO_ROLES",
+                    Some(macro_record.name.clone()),
+                    None,
+                    None,
+                ));
+                operations.macros.skip += 1;
+                continue;
+            }
+            let identity = macro_identity(&macro_record.name, &role_ids);
+            if !seen_keys.insert(identity.clone()) {
+                let name = reserve_import_name(&macro_record.name, &mut used_copy_names)?;
+                warnings.push(warning(
+                    "MACRO_NAME_RENAMED",
+                    Some(macro_record.name.clone()),
+                    Some(name.clone()),
+                    None,
+                ));
+                planned.push(PlannedMacro {
+                    destination_id: Uuid::new_v4().to_string(),
+                    existing: None,
+                    macro_record: macro_record.clone(),
+                    name,
+                    role_ids,
+                });
+                continue;
+            }
+            let candidates = existing_macros
+                .iter()
+                .filter(|candidate| {
+                    macro_identity(&candidate.name, &candidate.role_ids) == identity
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if candidates.len() <= 1 {
+                planned.push(PlannedMacro {
+                    destination_id: candidates
+                        .first()
+                        .map(|candidate| candidate.id.clone())
+                        .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                    existing: candidates.first().cloned(),
+                    macro_record: macro_record.clone(),
+                    name: macro_record.name.clone(),
+                    role_ids,
+                });
+                continue;
+            }
+            let conflict_id = format!("macro:{}", macro_record.id);
+            match resolution_by_id.get(conflict_id.as_str()).copied() {
+                Some(PortableMacroConflictResolutionRecord::Skip { .. }) => {
+                    operations.macros.skip += 1;
+                }
+                Some(PortableMacroConflictResolutionRecord::Copy { .. }) => {
+                    let name = reserve_import_name(&macro_record.name, &mut used_copy_names)?;
+                    warnings.push(warning(
+                        "MACRO_NAME_RENAMED",
+                        Some(macro_record.name.clone()),
+                        Some(name.clone()),
+                        None,
+                    ));
+                    planned.push(PlannedMacro {
+                        destination_id: Uuid::new_v4().to_string(),
+                        existing: None,
+                        macro_record: macro_record.clone(),
+                        name,
+                        role_ids,
+                    });
+                }
+                Some(PortableMacroConflictResolutionRecord::Update {
+                    target_macro_id, ..
+                }) => {
+                    let selected = candidates
+                        .iter()
+                        .find(|candidate| &candidate.id == target_macro_id)
+                        .cloned()
+                        .ok_or_else(|| CoreError::Domain {
+                            code: "PORTABLE_IMPORT_RESOLUTION_INVALID",
+                            message: "Portable import conflict resolution is invalid.".to_owned(),
+                        })?;
+                    planned.push(PlannedMacro {
+                        destination_id: selected.id.clone(),
+                        existing: Some(selected),
+                        macro_record: macro_record.clone(),
+                        name: macro_record.name.clone(),
+                        role_ids,
+                    });
+                }
+                None => conflicts.push(portable_conflict(
+                    &conflict_id,
+                    macro_record,
+                    &role_ids,
+                    &candidates,
+                    &snapshot.roles,
+                )),
+            }
+        }
+
+        let mut macro_id_map = planned
+            .iter()
+            .map(|item| (item.macro_record.id.clone(), item.destination_id.clone()))
+            .collect::<HashMap<_, _>>();
+        loop {
+            let missing_index = planned.iter().position(|item| {
+                item.macro_record.steps.iter().any(|step| match step {
+                    MacroStepDefinition::Macro { macro_id, .. } => {
+                        !macro_id_map.contains_key(macro_id)
+                    }
+                    _ => false,
+                })
+            });
+            let Some(index) = missing_index else { break };
+            let removed = planned.remove(index);
+            macro_id_map.remove(&removed.macro_record.id);
+            warnings.push(warning(
+                "MACRO_SKIPPED_MISSING_DEPENDENCY",
+                Some(removed.name),
+                None,
+                None,
+            ));
+            operations.macros.skip += 1;
+        }
+
+        let replaced_ids = planned
+            .iter()
+            .filter_map(|item| item.existing.as_ref().map(|existing| existing.id.clone()))
+            .collect::<HashSet<_>>();
+        let mut accepted = existing_macros
+            .iter()
+            .filter(|macro_record| !replaced_ids.contains(&macro_record.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut replacements = HashMap::new();
+        let mut created = Vec::new();
+        let mut directly_affected = Vec::new();
+        for item in planned {
+            let mut trigger = item.macro_record.trigger.clone();
+            if trigger.as_ref().is_some_and(is_overlay_trigger) {
+                warnings.push(warning(
+                    "MACRO_SHORTCUT_CLEARED_RESERVED",
+                    Some(item.name.clone()),
+                    None,
+                    None,
+                ));
+                trigger = None;
+            } else if trigger.as_ref().is_some_and(|trigger| {
+                accepted.iter().any(|candidate| {
+                    candidate
+                        .trigger
+                        .as_ref()
+                        .is_some_and(|candidate_trigger| triggers_equal(candidate_trigger, trigger))
+                        && roles_overlap(&candidate.role_ids, &item.role_ids)
+                })
+            }) {
+                warnings.push(warning(
+                    "MACRO_SHORTCUT_CLEARED_CONFLICT",
+                    Some(item.name.clone()),
+                    None,
+                    None,
+                ));
+                trigger = None;
+            }
+            let steps = item
+                .macro_record
+                .steps
+                .iter()
+                .cloned()
+                .map(|step| remap_macro_step(step, &macro_id_map))
+                .collect::<CoreResult<Vec<_>>>()?;
+            let merged = StateMacroRecord {
+                id: item.destination_id,
+                enabled: item.macro_record.enabled,
+                activation_mode: Some(if trigger.is_some() {
+                    item.macro_record.activation_mode.clone()
+                } else {
+                    "toggle".to_owned()
+                }),
+                name: item.name,
+                role_ids: item.role_ids,
+                trigger,
+                repeat: item.macro_record.repeat,
+                steps,
+                created_at: item
+                    .existing
+                    .as_ref()
+                    .map(|existing| existing.created_at.clone())
+                    .unwrap_or_else(|| timestamp.clone()),
+                updated_at: timestamp.clone(),
+            };
+            if let Some(existing) = item.existing {
+                if macro_equivalent(&existing, &merged)? {
+                    replacements.insert(existing.id.clone(), existing.clone());
+                    accepted.push(existing);
+                    operations.macros.unchanged += 1;
+                } else {
+                    directly_affected.push(existing.id.clone());
+                    replacements.insert(existing.id, merged.clone());
+                    accepted.push(merged);
+                    operations.macros.update += 1;
+                }
+            } else {
+                accepted.push(merged.clone());
+                created.push(merged);
+                operations.macros.create += 1;
+            }
+        }
+        snapshot.macros = existing_macros
+            .iter()
+            .map(|macro_record| {
+                replacements
+                    .get(&macro_record.id)
+                    .cloned()
+                    .unwrap_or_else(|| macro_record.clone())
+            })
+            .chain(created)
+            .collect();
+        validate_macro_records(&snapshot.macros)?;
+        affected_macro_ids = existing_macros
+            .iter()
+            .filter(|macro_record| {
+                directly_affected.contains(&macro_record.id)
+                    || directly_affected
+                        .iter()
+                        .any(|target| macro_depends_on(&existing_macros, &macro_record.id, target))
+            })
+            .map(|macro_record| macro_record.id.clone())
+            .collect();
+    }
+
+    if selection.preferences
+        && let Some(preferences) = &data.preferences
+    {
+        if let Some(settings) = &preferences.game_browser_settings {
+            validate_game_browser_settings(settings)?;
+            snapshot.game_browser_settings = Some(settings.clone());
+        }
+        if let Some(settings) = &preferences.macro_settings {
+            validate_macro_settings(settings)?;
+            snapshot.macro_settings = Some(settings.clone());
+        }
+    }
+
+    Ok(ImportPlan {
+        affected_macro_ids,
+        conflicts,
+        operations,
+        snapshot,
+        warnings,
+    })
+}
+
+fn all_selection() -> PortableDataSelectionRecord {
+    PortableDataSelectionRecord {
+        games: true,
+        roles: true,
+        launch_workspaces: true,
+        macros: true,
+        preferences: true,
+    }
+}
+
+fn normalize_selection(mut selection: PortableDataSelectionRecord) -> PortableDataSelectionRecord {
+    if selection.launch_workspaces || selection.macros {
+        selection.roles = true;
+    }
+    if selection.roles {
+        selection.games = true;
+    }
+    selection
+}
+
+fn effective_selection(
+    data: &PortableDataRecord,
+    selection: &PortableDataSelectionRecord,
+) -> PortableDataSelectionRecord {
+    PortableDataSelectionRecord {
+        games: selection.games && !data.games.is_empty(),
+        roles: selection.roles && !data.roles.is_empty(),
+        launch_workspaces: selection.launch_workspaces && !data.launch_workspaces.is_empty(),
+        macros: selection.macros && !data.macros.is_empty(),
+        preferences: selection.preferences && data.preferences.is_some(),
+    }
+}
+
+fn ensure_selected_content(
+    data: &PortableDataRecord,
+    selection: &PortableDataSelectionRecord,
+) -> CoreResult<()> {
+    let effective = effective_selection(data, selection);
+    if effective.games
+        || effective.roles
+        || effective.launch_workspaces
+        || effective.macros
+        || effective.preferences
+    {
+        Ok(())
+    } else {
+        Err(CoreError::Domain {
+            code: "PORTABLE_SELECTION_EMPTY",
+            message: "Select at least one available data category.".to_owned(),
+        })
+    }
+}
+
+fn validate_preferences(preferences: Option<&PortablePreferencesRecord>) -> CoreResult<()> {
+    let Some(preferences) = preferences else {
+        return Ok(());
+    };
+    if preferences
+        .language
+        .as_deref()
+        .is_some_and(|language| !matches!(language, "en" | "zh-TW" | "zh-CN" | "ja"))
+        || preferences
+            .theme_mode
+            .as_deref()
+            .is_some_and(|theme| !matches!(theme, "system" | "light" | "dark"))
+    {
+        return Err(invalid("portable preferences are invalid"));
+    }
+    if let Some(settings) = &preferences.game_browser_settings {
+        validate_game_browser_settings(settings)?;
+    }
+    if let Some(settings) = &preferences.macro_settings {
+        validate_macro_settings(settings)?;
+    }
+    Ok(())
+}
+
+fn processed_count(summary: &crate::model::PortableImportOperationSummaryRecord) -> u32 {
+    summary.create + summary.update + summary.unchanged
+}
+
+fn warning(
+    code: &str,
+    item_name: Option<String>,
+    replacement_name: Option<String>,
+    count: Option<u32>,
+) -> PortableImportWarningRecord {
+    PortableImportWarningRecord {
+        code: code.to_owned(),
+        item_name,
+        replacement_name,
+        count,
+    }
+}
+
+fn reserve_import_name(name: &str, used: &mut HashSet<String>) -> CoreResult<String> {
+    let normalized = name.trim();
+    if used.insert(normalize_name_key(normalized)) {
+        return Ok(normalized.to_owned());
+    }
+    for index in 1..10_000 {
+        let suffix = if index == 1 {
+            " (Imported)".to_owned()
+        } else {
+            format!(" (Imported {index})")
+        };
+        let max_base = 80_usize.saturating_sub(suffix.chars().count()).max(1);
+        let base = normalized.chars().take(max_base).collect::<String>();
+        let candidate = format!("{}{suffix}", base.trim());
+        if used.insert(normalize_name_key(&candidate)) {
+            return Ok(candidate);
+        }
+    }
+    Err(CoreError::Domain {
+        code: "PORTABLE_NAME_CONFLICT",
+        message: "Unable to create a unique imported name.".to_owned(),
+    })
+}
+
+fn builtin_by_key(key: &str) -> Option<&'static BuiltinGame> {
+    BUILTIN_GAMES.iter().find(|game| game.key == key)
+}
+
+fn portable_game(game: &StateGameRecord) -> PortableGameRecord {
+    PortableGameRecord {
+        id: game.id.clone(),
+        inferred: None,
+        source: game.source.clone(),
+        builtin_key: game.builtin_key.clone(),
+        name: game.name.clone(),
+        icon_image_data_url: game.icon_image_data_url.clone(),
+        cover_image_data_url: game.cover_image_data_url.clone(),
+        default_launch_url: game.default_launch_url.clone(),
+        browser_launch_mode: game.browser_launch_mode.clone(),
+    }
+}
+
+fn portable_role(role: &StateRoleRecord) -> PortableRoleRecord {
+    PortableRoleRecord {
+        id: role.id.clone(),
+        game_id: Some(role.game_id.clone()),
+        game_recovered: None,
+        name: role.name.clone(),
+        launch_url: role.launch_url.clone(),
+        notes: role.notes.clone(),
+        cover_image_data_url: role.cover_image_data_url.clone(),
+        cover_image_dominant_color: role.cover_image_dominant_color.clone(),
+    }
+}
+
+fn portable_workspace(workspace: &StateLaunchWorkspaceRecord) -> PortableLaunchWorkspaceRecord {
+    PortableLaunchWorkspaceRecord {
+        id: workspace.id.clone(),
+        name: workspace.name.clone(),
+        template: workspace.template.clone(),
+        browser_launch_mode: workspace.browser_launch_mode.clone(),
+        browser_zoom_mode: workspace.browser_zoom_mode.clone(),
+        browser_zoom_percent: workspace.browser_zoom_percent,
+        resource_policy: workspace.resource_policy.clone(),
+        slots: workspace.slots.clone(),
+    }
+}
+
+fn portable_macro(macro_record: &StateMacroRecord) -> PortableMacroRecord {
+    let mut role_ids = macro_record.role_ids.clone();
+    role_ids.sort();
+    PortableMacroRecord {
+        id: macro_record.id.clone(),
+        enabled: macro_record.enabled,
+        activation_mode: macro_record
+            .activation_mode
+            .clone()
+            .unwrap_or_else(|| "toggle".to_owned()),
+        name: macro_record.name.clone(),
+        role_ids,
+        trigger: macro_record.trigger.clone(),
+        repeat: macro_record.repeat.clone(),
+        steps: macro_record.steps.clone(),
+    }
+}
+
+fn game_equivalent(left: &StateGameRecord, right: &StateGameRecord) -> CoreResult<bool> {
+    json_equal(&portable_game(left), &portable_game(right))
+}
+
+fn role_equivalent(left: &StateRoleRecord, right: &StateRoleRecord) -> CoreResult<bool> {
+    json_equal(&portable_role(left), &portable_role(right))
+}
+
+fn workspace_equivalent(
+    left: &StateLaunchWorkspaceRecord,
+    right: &StateLaunchWorkspaceRecord,
+) -> CoreResult<bool> {
+    json_equal(&portable_workspace(left), &portable_workspace(right))
+}
+
+fn macro_equivalent(left: &StateMacroRecord, right: &StateMacroRecord) -> CoreResult<bool> {
+    json_equal(&portable_macro(left), &portable_macro(right))
+}
+
+fn json_equal<T: serde::Serialize>(left: &T, right: &T) -> CoreResult<bool> {
+    let left =
+        serde_json::to_value(left).map_err(|error| CoreError::Internal(error.to_string()))?;
+    let right =
+        serde_json::to_value(right).map_err(|error| CoreError::Internal(error.to_string()))?;
+    Ok(left == right)
+}
+
+fn role_identity(game_id: &str, name: &str) -> String {
+    format!("{game_id}\0{}", normalize_name_key(name))
+}
+
+fn assert_unique_role_names(roles: &[StateRoleRecord]) -> CoreResult<()> {
+    let mut seen = HashSet::new();
+    if roles
+        .iter()
+        .any(|role| !seen.insert(role_identity(&role.game_id, &role.name)))
+    {
+        Err(role_name_conflict())
+    } else {
+        Ok(())
+    }
+}
+
+fn role_name_conflict() -> CoreError {
+    CoreError::Domain {
+        code: "PORTABLE_ROLE_NAME_CONFLICT",
+        message: "Multiple roles share a name in the same game. Rename or remove duplicates before importing."
+            .to_owned(),
+    }
+}
+
+fn role_game_missing() -> CoreError {
+    CoreError::Domain {
+        code: "PORTABLE_ROLE_GAME_MISSING",
+        message: "Imported role game is unavailable.".to_owned(),
+    }
+}
+
+fn import_expired() -> CoreError {
+    CoreError::Domain {
+        code: "PORTABLE_IMPORT_EXPIRED",
+        message: "Portable import session expired. Choose the JSON file again.".to_owned(),
+    }
+}
+
+fn template_slot_count(template: &str) -> CoreResult<usize> {
+    match template {
+        "single" => Ok(1),
+        "two_columns" => Ok(2),
+        "three_columns" | "main_left_stack_right" | "main_right_stack_left" => Ok(3),
+        "quad" | "four_columns" => Ok(4),
+        "main_center_side_stacks" | "three_top_two_bottom" | "two_top_three_bottom" => Ok(5),
+        "six_grid" => Ok(6),
+        "eight_grid" => Ok(8),
+        "nine_grid" => Ok(9),
+        _ => Err(invalid("portable workspace template is invalid")),
+    }
+}
+
+fn default_rects(template: &str) -> CoreResult<Vec<StateNormalizedRectRecord>> {
+    let rect = |x, y, width, height| StateNormalizedRectRecord {
+        x,
+        y,
+        width,
+        height,
+    };
+    Ok(match template {
+        "single" => vec![rect(0.0, 0.0, 1.0, 1.0)],
+        "two_columns" => equal_columns(2),
+        "three_columns" => equal_columns(3),
+        "main_left_stack_right" => vec![
+            rect(0.0, 0.0, 0.5, 1.0),
+            rect(0.5, 0.0, 0.5, 0.5),
+            rect(0.5, 0.5, 0.5, 0.5),
+        ],
+        "main_right_stack_left" => vec![
+            rect(0.5, 0.0, 0.5, 1.0),
+            rect(0.0, 0.0, 0.5, 0.5),
+            rect(0.0, 0.5, 0.5, 0.5),
+        ],
+        "main_center_side_stacks" => vec![
+            rect(0.3, 0.0, 0.4, 1.0),
+            rect(0.0, 0.0, 0.3, 0.5),
+            rect(0.0, 0.5, 0.3, 0.5),
+            rect(0.7, 0.0, 0.3, 0.5),
+            rect(0.7, 0.5, 0.3, 0.5),
+        ],
+        "three_top_two_bottom" => split_rows(3, 2),
+        "two_top_three_bottom" => split_rows(2, 3),
+        "quad" => grid_rects(2, 2),
+        "four_columns" => equal_columns(4),
+        "six_grid" => grid_rects(3, 2),
+        "eight_grid" => grid_rects(4, 2),
+        "nine_grid" => grid_rects(3, 3),
+        _ => return Err(invalid("portable workspace template is invalid")),
+    })
+}
+
+fn equal_columns(columns: usize) -> Vec<StateNormalizedRectRecord> {
+    let width = 1.0 / columns as f64;
+    (0..columns)
+        .map(|index| StateNormalizedRectRecord {
+            x: index as f64 * width,
+            y: 0.0,
+            width,
+            height: 1.0,
+        })
+        .collect()
+}
+
+fn grid_rects(columns: usize, rows: usize) -> Vec<StateNormalizedRectRecord> {
+    let width = 1.0 / columns as f64;
+    let height = 1.0 / rows as f64;
+    (0..rows)
+        .flat_map(|row| {
+            (0..columns).map(move |column| StateNormalizedRectRecord {
+                x: column as f64 * width,
+                y: row as f64 * height,
+                width,
+                height,
+            })
+        })
+        .collect()
+}
+
+fn split_rows(top: usize, bottom: usize) -> Vec<StateNormalizedRectRecord> {
+    let row = |count: usize, y: f64| {
+        let width = 1.0 / count as f64;
+        (0..count)
+            .map(|index| StateNormalizedRectRecord {
+                x: index as f64 * width,
+                y,
+                width,
+                height: 0.5,
+            })
+            .collect::<Vec<_>>()
+    };
+    row(top, 0.0).into_iter().chain(row(bottom, 0.5)).collect()
+}
+
+fn macro_identity(name: &str, role_ids: &[String]) -> String {
+    let mut role_ids = role_ids.to_vec();
+    role_ids.sort();
+    format!("{}\0{}", normalize_name_key(name), role_ids.join("\0"))
+}
+
+fn resolution_conflict_id(resolution: &PortableMacroConflictResolutionRecord) -> &str {
+    match resolution {
+        PortableMacroConflictResolutionRecord::Update { conflict_id, .. }
+        | PortableMacroConflictResolutionRecord::Copy { conflict_id }
+        | PortableMacroConflictResolutionRecord::Skip { conflict_id } => conflict_id,
+    }
+}
+
+fn portable_conflict(
+    conflict_id: &str,
+    source: &PortableMacroRecord,
+    role_ids: &[String],
+    candidates: &[StateMacroRecord],
+    roles: &[StateRoleRecord],
+) -> PortableMacroConflictRecord {
+    let role_names = roles
+        .iter()
+        .map(|role| (role.id.as_str(), role.name.as_str()))
+        .collect::<HashMap<_, _>>();
+    let names = |ids: &[String]| {
+        ids.iter()
+            .map(|id| {
+                role_names
+                    .get(id.as_str())
+                    .copied()
+                    .unwrap_or(id)
+                    .to_owned()
+            })
+            .collect()
+    };
+    PortableMacroConflictRecord {
+        id: conflict_id.to_owned(),
+        macro_id: source.id.clone(),
+        name: source.name.clone(),
+        role_names: names(role_ids),
+        candidates: candidates
+            .iter()
+            .map(|candidate| PortableMacroConflictCandidateRecord {
+                id: candidate.id.clone(),
+                name: candidate.name.clone(),
+                role_names: names(&candidate.role_ids),
+                step_count: candidate.steps.len() as u32,
+                trigger: candidate.trigger.clone(),
+                updated_at: candidate.updated_at.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn remap_macro_step(
+    step: MacroStepDefinition,
+    id_map: &HashMap<String, String>,
+) -> CoreResult<MacroStepDefinition> {
+    match step {
+        MacroStepDefinition::Macro {
+            id,
+            macro_id,
+            call_mode,
+        } => Ok(MacroStepDefinition::Macro {
+            id,
+            macro_id: id_map
+                .get(&macro_id)
+                .cloned()
+                .ok_or_else(|| CoreError::Domain {
+                    code: "PORTABLE_MACRO_DEPENDENCY_INVALID",
+                    message: "Imported macro dependencies are invalid.".to_owned(),
+                })?,
+            call_mode,
+        }),
+        other => Ok(other),
+    }
+}
+
+fn validate_macro_records(macros: &[StateMacroRecord]) -> CoreResult<()> {
+    let values = macros
+        .iter()
+        .map(|macro_record| {
+            serde_json::to_value(macro_record)
+                .map_err(|error| CoreError::Internal(error.to_string()))
+        })
+        .collect::<CoreResult<Vec<_>>>()?;
+    validate_macro_graph(&values)
+}
+
+fn macro_depends_on(macros: &[StateMacroRecord], source_id: &str, target_id: &str) -> bool {
+    fn visit(
+        by_id: &HashMap<&str, &StateMacroRecord>,
+        current: &str,
+        target: &str,
+        visited: &mut HashSet<String>,
+    ) -> bool {
+        if !visited.insert(current.to_owned()) {
+            return false;
+        }
+        by_id.get(current).is_some_and(|macro_record| {
+            macro_record.steps.iter().any(|step| match step {
+                MacroStepDefinition::Macro { macro_id, .. } => {
+                    macro_id == target || visit(by_id, macro_id, target, visited)
+                }
+                _ => false,
+            })
+        })
+    }
+    let by_id = macros
+        .iter()
+        .map(|macro_record| (macro_record.id.as_str(), macro_record))
+        .collect::<HashMap<_, _>>();
+    visit(&by_id, source_id, target_id, &mut HashSet::new())
+}
+
+fn triggers_equal(left: &MacroTrigger, right: &MacroTrigger) -> bool {
+    left.code == right.code
+        && left.ctrl == right.ctrl
+        && left.alt == right.alt
+        && left.shift == right.shift
+        && left.meta == right.meta
+}
+
+fn is_overlay_trigger(trigger: &MacroTrigger) -> bool {
+    trigger.code == "KeyM" && trigger.ctrl && !trigger.alt && trigger.shift && !trigger.meta
+}
+
+fn roles_overlap(left: &[String], right: &[String]) -> bool {
+    let right = right.iter().collect::<HashSet<_>>();
+    left.iter().any(|role_id| right.contains(role_id))
+}
+
 fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::InvalidInput(message.into())
 }
@@ -759,5 +2121,205 @@ mod tests {
         assert!(normalize(&cycle.to_string()).is_err());
         let future = fixture(6).replace("\"schemaVersion\":6", "\"schemaVersion\":7");
         assert!(normalize(&future).is_err());
+    }
+
+    fn empty_snapshot() -> CoreStateSnapshotRecord {
+        CoreStateSnapshotRecord::default()
+    }
+
+    #[test]
+    fn rust_runtime_owns_preview_selection_and_single_apply_snapshot() {
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(&fixture(6), "/tmp/import.json".to_owned(), empty_snapshot())
+            .unwrap();
+        assert_eq!(preview.operations.games.create, 1);
+        assert_eq!(preview.operations.roles.create, 1);
+        assert_eq!(preview.operations.launch_workspaces.create, 1);
+        assert_eq!(preview.operations.macros.create, 1);
+
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                PortableDataSelectionRecord {
+                    games: false,
+                    roles: false,
+                    launch_workspaces: false,
+                    macros: true,
+                    preferences: false,
+                },
+                Vec::new(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        assert_eq!(prepared.snapshot.games.len(), 1);
+        assert_eq!(prepared.snapshot.roles.len(), 1);
+        assert_eq!(prepared.snapshot.macros.len(), 1);
+        assert!(prepared.snapshot.launch_workspaces.is_empty());
+        assert!(prepared.result.selection.games);
+        assert!(prepared.result.selection.roles);
+        assert!(prepared.result.selection.macros);
+        assert!(!prepared.result.selection.launch_workspaces);
+    }
+
+    #[test]
+    fn pending_imports_are_bounded_and_discarded_by_id() {
+        let mut runtime = PortableRuntime::default();
+        let mut ids = Vec::new();
+        for index in 0..=MAX_PENDING_IMPORTS {
+            let preview = runtime
+                .preview(
+                    &fixture(6),
+                    format!("/tmp/import-{index}.json"),
+                    empty_snapshot(),
+                )
+                .unwrap();
+            ids.push(preview.import_id);
+        }
+        let first = runtime.prepare_apply(&ids[0], all_selection(), Vec::new(), empty_snapshot());
+        assert!(matches!(
+            first,
+            Err(CoreError::Domain {
+                code: "PORTABLE_IMPORT_EXPIRED",
+                ..
+            })
+        ));
+        assert!(runtime.discard(ids.last().unwrap()));
+        assert!(!runtime.discard(ids.last().unwrap()));
+    }
+
+    #[test]
+    fn unresolved_macro_ambiguity_requires_a_typed_resolution() {
+        let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
+            "games": [{
+                "id":"existing-game","source":"custom","name":"Game",
+                "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }],
+            "roles": [{
+                "id":"existing-role","gameId":"existing-game","name":"Role",
+                "launchUrl":"https://example.test/play","notes":"",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }],
+            "launchWorkspaces": [],
+            "macros": [
+                {"id":"existing-1","enabled":true,"activationMode":"toggle","name":"Macro","roleIds":["existing-role"],"repeat":{"type":"once"},"steps":[{"id":"a","type":"delay","ms":1}],"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"},
+                {"id":"existing-2","enabled":true,"activationMode":"toggle","name":"Macro","roleIds":["existing-role"],"repeat":{"type":"once"},"steps":[{"id":"b","type":"delay","ms":2}],"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}
+            ],
+            "compatibilityReports": []
+        }))
+        .unwrap();
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(&fixture(6), "/tmp/import.json".to_owned(), snapshot.clone())
+            .unwrap();
+        assert_eq!(preview.conflicts.len(), 1);
+        let unresolved = runtime.prepare_apply(
+            &preview.import_id,
+            all_selection(),
+            Vec::new(),
+            snapshot.clone(),
+        );
+        assert!(matches!(
+            unresolved,
+            Err(CoreError::Domain {
+                code: "PORTABLE_IMPORT_CONFLICT_UNRESOLVED",
+                ..
+            })
+        ));
+
+        let resolved = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                vec![PortableMacroConflictResolutionRecord::Update {
+                    conflict_id: "macro:m1".to_owned(),
+                    target_macro_id: "existing-2".to_owned(),
+                }],
+                snapshot,
+            )
+            .unwrap();
+        assert_eq!(resolved.snapshot.macros.len(), 2);
+        assert!(
+            resolved
+                .affected_macro_ids
+                .contains(&"existing-2".to_owned())
+        );
+    }
+
+    #[test]
+    fn exported_macro_round_trip_is_semantically_idempotent() {
+        let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
+            "games": [{
+                "id":"g","source":"custom","name":"Game",
+                "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }],
+            "roles": [{
+                "id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }],
+            "launchWorkspaces": [],
+            "macros": [{
+                "id":"target","enabled":true,"activationMode":"toggle","name":"Target","roleIds":["r"],
+                "repeat":{"type":"once"},
+                "steps":[{"id":"target-delay","type":"delay","ms":1}],
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }, {
+                "id":"source","enabled":true,"activationMode":"toggle","name":"Source","roleIds":["r"],
+                "repeat":{"type":"once"},
+                "steps":[
+                    {"id":"key-label","type":"key","code":"Digit1","action":"tap","label":"1"},
+                    {"id":"key-empty","type":"key","code":"Digit2","modifiers":[]},
+                    {"id":"percent-default","type":"click","xPercent":12.5,"yPercent":-4.0},
+                    {"id":"percent-explicit","type":"click","unit":"percent","anchor":"top-left","xPercent":1.0,"yPercent":2.0},
+                    {"id":"pixels","type":"click","unit":"px","anchor":"center","xPx":3.0,"yPx":4.0},
+                    {"id":"call-default","type":"macro","macroId":"target"},
+                    {"id":"call-explicit","type":"macro","macroId":"target","callMode":"wait"}
+                ],
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }],
+            "compatibilityReports": []
+        }))
+        .unwrap();
+        let exported = export(snapshot.clone(), None, all_selection(), "2.0.0").unwrap();
+        let raw = serde_json::to_string(&exported).unwrap();
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(&raw, "/tmp/round-trip.json".to_owned(), snapshot.clone())
+            .unwrap();
+
+        assert_eq!(preview.operations.macros.unchanged, 2);
+        assert_eq!(preview.operations.macros.update, 0);
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                snapshot.clone(),
+            )
+            .unwrap();
+        assert!(prepared.affected_macro_ids.is_empty());
+        assert_eq!(prepared.result.operations.macros.unchanged, 2);
+        assert_eq!(
+            serde_json::to_value(prepared.snapshot).unwrap(),
+            serde_json::to_value(snapshot).unwrap()
+        );
+    }
+
+    #[test]
+    fn export_is_v6_and_never_emits_internal_timestamps_or_browser_session_source() {
+        let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
+            "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
+            "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","browserSessionSource":"chrome-profile","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
+            "launchWorkspaces": [], "macros": [], "compatibilityReports": []
+        }))
+        .unwrap();
+        let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
+        let value = serde_json::to_value(exported).unwrap();
+        assert_eq!(value["schemaVersion"], 6);
+        assert_eq!(value["appVersion"], "2.0.0");
+        assert!(value["roles"][0].get("createdAt").is_none());
+        assert!(value["roles"][0].get("browserSessionSource").is_none());
     }
 }

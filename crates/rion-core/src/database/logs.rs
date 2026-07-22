@@ -1,24 +1,27 @@
 use std::{
+    collections::BTreeMap,
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use chrono::{Duration as ChronoDuration, Utc};
-use crossbeam_channel::{Receiver, Sender, bounded};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use rusqlite::{Connection, params, params_from_iter, types::Value as SqlValue};
 use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::{
     error::{CoreError, CoreResult},
-    model::{LogEntry, LogQuery},
+    model::{LogEntry, LogErrorDetails, LogLevel, LogQuery},
 };
 
 const RETENTION_DAYS: i64 = 14;
 const MAX_BYTES: i64 = 100 * 1024 * 1024;
+const BATCH_INTERVAL: Duration = Duration::from_millis(250);
+const BATCH_MAX_ENTRIES: usize = 50;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,7 +40,6 @@ enum Request {
     Query(LogQuery, Sender<CoreResult<Value>>),
     Clear(Sender<CoreResult<()>>),
     Status(Sender<CoreResult<LogStatus>>),
-    Export(Sender<CoreResult<String>>),
     ExportTo(PathBuf, Sender<CoreResult<()>>),
     Shutdown(Sender<()>),
 }
@@ -96,14 +98,6 @@ impl LogDatabaseWorker {
         receiver.recv().map_err(|_| CoreError::ShuttingDown)?
     }
 
-    pub fn export_jsonl(&self) -> CoreResult<String> {
-        let (sender, receiver) = bounded(1);
-        self.sender
-            .send(Request::Export(sender))
-            .map_err(|_| CoreError::ShuttingDown)?;
-        receiver.recv().map_err(|_| CoreError::ShuttingDown)?
-    }
-
     pub fn export_jsonl_to(&self, path: PathBuf) -> CoreResult<()> {
         let (sender, receiver) = bounded(1);
         self.sender
@@ -145,31 +139,91 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             return;
         }
     };
-    while let Ok(message) = receiver.recv() {
+    let mut pending = Vec::<LogEntry>::with_capacity(BATCH_MAX_ENTRIES);
+    let mut last_flush = Instant::now();
+    let mut sticky_error: Option<String> = None;
+    loop {
+        let timeout = BATCH_INTERVAL.saturating_sub(last_flush.elapsed());
+        let message = match receiver.recv_timeout(timeout) {
+            Ok(message) => message,
+            Err(RecvTimeoutError::Timeout) => {
+                if let Err(error) = flush_pending(&mut connection, &mut pending) {
+                    sticky_error = Some(error.to_string());
+                }
+                last_flush = Instant::now();
+                continue;
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                let _ = flush_pending(&mut connection, &mut pending);
+                break;
+            }
+        };
         match message {
             Request::Append(entries, response) => {
-                let _ = response.send(append_entries(&mut connection, &entries));
+                let accepted = entries.len();
+                let result = if let Some(error) = sticky_error.take() {
+                    Err(CoreError::LogDatabase(error))
+                } else if let Err(error) = entries.iter().try_for_each(validate_entry) {
+                    Err(error)
+                } else {
+                    let urgent = entries
+                        .iter()
+                        .any(|entry| matches!(entry.level, LogLevel::Warn | LogLevel::Error));
+                    pending.extend(entries);
+                    if urgent || pending.len() >= BATCH_MAX_ENTRIES {
+                        let result = flush_pending(&mut connection, &mut pending).map(|_| accepted);
+                        last_flush = Instant::now();
+                        result
+                    } else {
+                        Ok(accepted)
+                    }
+                };
+                let _ = response.send(result);
             }
             Request::Query(query, response) => {
-                let _ = response.send(query_entries(&connection, &query));
+                let result = flush_pending(&mut connection, &mut pending)
+                    .and_then(|_| query_entries(&connection, &query));
+                last_flush = Instant::now();
+                let _ = response.send(result);
             }
             Request::Clear(response) => {
-                let _ = response.send(clear_entries(&connection));
+                let result = flush_pending(&mut connection, &mut pending)
+                    .and_then(|_| clear_entries(&connection));
+                last_flush = Instant::now();
+                let _ = response.send(result);
             }
             Request::Status(response) => {
-                let _ = response.send(read_status(&connection, &path));
-            }
-            Request::Export(response) => {
-                let _ = response.send(export_jsonl(&connection));
+                let result = flush_pending(&mut connection, &mut pending)
+                    .and_then(|_| read_status(&connection, &path));
+                last_flush = Instant::now();
+                let _ = response.send(result);
             }
             Request::ExportTo(path, response) => {
-                let _ = response.send(export_jsonl_to(&connection, &path));
+                let result = flush_pending(&mut connection, &mut pending)
+                    .and_then(|_| export_jsonl_to(&connection, &path));
+                last_flush = Instant::now();
+                let _ = response.send(result);
             }
             Request::Shutdown(response) => {
+                let _ = flush_pending(&mut connection, &mut pending);
                 let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
                 let _ = response.send(());
                 break;
             }
+        }
+    }
+}
+
+fn flush_pending(connection: &mut Connection, pending: &mut Vec<LogEntry>) -> CoreResult<usize> {
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    let entries = std::mem::take(pending);
+    match append_entries(connection, &entries) {
+        Ok(inserted) => Ok(inserted),
+        Err(error) => {
+            *pending = entries;
+            Err(error)
         }
     }
 }
@@ -298,8 +352,8 @@ fn insert_entry(connection: &Connection, entry: &LogEntry) -> CoreResult<usize> 
             params![
                 entry.id,
                 entry.timestamp,
-                entry.level,
-                entry.source,
+                entry.level.as_str(),
+                entry.source.as_str(),
                 entry.event,
                 entry.message,
                 entry.session_id,
@@ -328,7 +382,11 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<Value>
             "level IN ({})",
             placeholders(values.len(), levels.len())
         ));
-        values.extend(levels.iter().cloned().map(SqlValue::Text));
+        values.extend(
+            levels
+                .iter()
+                .map(|level| SqlValue::Text(level.as_str().to_owned())),
+        );
     }
     let sources = query.sources.as_deref().unwrap_or_default();
     if !sources.is_empty() {
@@ -336,7 +394,11 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<Value>
             "source IN ({})",
             placeholders(values.len(), sources.len())
         ));
-        values.extend(sources.iter().cloned().map(SqlValue::Text));
+        values.extend(
+            sources
+                .iter()
+                .map(|source| SqlValue::Text(source.as_str().to_owned())),
+        );
     }
     if let Some(from) = &query.from {
         values.push(SqlValue::Text(from.clone()));
@@ -399,21 +461,26 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<Value>
     for row in rows {
         let (id, timestamp, level, source, event, message, session_id, context, error) =
             row.map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-        let mut entry = Map::new();
-        entry.insert("id".to_owned(), Value::String(id));
-        entry.insert("timestamp".to_owned(), Value::String(timestamp));
-        entry.insert("level".to_owned(), Value::String(level));
-        entry.insert("source".to_owned(), Value::String(source));
-        entry.insert("event".to_owned(), Value::String(event));
-        entry.insert("message".to_owned(), Value::String(message));
-        entry.insert("sessionId".to_owned(), Value::String(session_id));
-        if let Some(context) = context {
-            entry.insert("context".to_owned(), parse_optional_json(&context)?);
-        }
-        if let Some(error) = error {
-            entry.insert("error".to_owned(), parse_optional_json(&error)?);
-        }
-        entries.push(Value::Object(entry));
+        entries.push(
+            serde_json::to_value(LogEntry {
+                id,
+                timestamp,
+                level: serde_json::from_value(Value::String(level))
+                    .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+                source: serde_json::from_value(Value::String(source))
+                    .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+                event,
+                message,
+                session_id,
+                context: context.as_deref().map(parse_context_json).transpose()?,
+                error: error
+                    .as_deref()
+                    .map(serde_json::from_str::<LogErrorDetails>)
+                    .transpose()
+                    .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+            })
+            .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+        );
     }
     let has_more = entries.len() > limit as usize;
     entries.truncate(limit as usize);
@@ -458,12 +525,6 @@ fn read_status(connection: &Connection, path: &Path) -> CoreResult<LogStatus> {
     })
 }
 
-fn export_jsonl(connection: &Connection) -> CoreResult<String> {
-    let mut output = Vec::new();
-    write_jsonl(connection, &mut output)?;
-    String::from_utf8(output).map_err(|error| CoreError::LogDatabase(error.to_string()))
-}
-
 fn export_jsonl_to(connection: &Connection, path: &Path) -> CoreResult<()> {
     if !path.is_absolute() {
         return Err(CoreError::InvalidInput(
@@ -506,13 +567,19 @@ fn write_jsonl(connection: &Connection, output: &mut impl Write) -> CoreResult<(
         let entry = LogEntry {
             id,
             timestamp,
-            level,
-            source,
+            level: serde_json::from_value(Value::String(level))
+                .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+            source: serde_json::from_value(Value::String(source))
+                .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
             event,
             message,
             session_id,
-            context: context.as_deref().map(parse_optional_json).transpose()?,
-            error: error.as_deref().map(parse_optional_json).transpose()?,
+            context: context.as_deref().map(parse_context_json).transpose()?,
+            error: error
+                .as_deref()
+                .map(serde_json::from_str::<LogErrorDetails>)
+                .transpose()
+                .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
         };
         serde_json::to_writer(&mut *output, &entry)
             .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
@@ -572,23 +639,10 @@ fn validate_entry(entry: &LogEntry) -> CoreResult<()> {
             "log entry is missing a required field".to_owned(),
         ));
     }
-    if !matches!(entry.level.as_str(), "debug" | "info" | "warn" | "error") {
-        return Err(CoreError::InvalidInput("invalid log level".to_owned()));
-    }
     Ok(())
 }
 
 fn validate_query(query: &LogQuery) -> CoreResult<()> {
-    if query
-        .levels
-        .iter()
-        .flatten()
-        .any(|level| !matches!(level.as_str(), "debug" | "info" | "warn" | "error"))
-    {
-        return Err(CoreError::InvalidInput(
-            "invalid log level filter".to_owned(),
-        ));
-    }
     if query.search.as_ref().is_some_and(|value| value.len() > 200) {
         return Err(CoreError::InvalidInput("invalid log search".to_owned()));
     }
@@ -605,7 +659,7 @@ fn placeholders(existing: usize, count: usize) -> String {
         .join(",")
 }
 
-fn parse_optional_json(value: &str) -> CoreResult<Value> {
+fn parse_context_json(value: &str) -> CoreResult<BTreeMap<String, Value>> {
     serde_json::from_str(value).map_err(|error| CoreError::LogDatabase(error.to_string()))
 }
 
@@ -614,13 +668,14 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::model::LogSource;
 
     fn entry(id: &str, message: &str) -> LogEntry {
         LogEntry {
             id: id.to_owned(),
             timestamp: Utc::now().to_rfc3339(),
-            level: "info".to_owned(),
-            source: "main".to_owned(),
+            level: LogLevel::Info,
+            source: LogSource::Main,
             event: "test".to_owned(),
             message: message.to_owned(),
             session_id: "session".to_owned(),
@@ -645,5 +700,49 @@ mod tests {
         .unwrap();
         assert_eq!(page["entries"].as_array().unwrap().len(), 1);
         assert_eq!(page["entries"][0]["id"], "2");
+    }
+
+    #[test]
+    fn worker_flushes_warn_immediately_and_pending_info_before_reads() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("logs.sqlite3");
+        let mut worker = LogDatabaseWorker::start(path.clone()).unwrap();
+        worker.append(vec![entry("info", "queued")]).unwrap();
+        let mut warning = entry("warn", "urgent");
+        warning.level = LogLevel::Warn;
+        worker.append(vec![warning]).unwrap();
+
+        let reader = Connection::open(&path).unwrap();
+        assert_eq!(
+            reader
+                .query_row("SELECT COUNT(*) FROM log_entries", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            2
+        );
+
+        worker.append(vec![entry("later", "pending")]).unwrap();
+        assert_eq!(worker.status().unwrap().entry_count, 3);
+        worker.shutdown();
+    }
+
+    #[test]
+    fn worker_flushes_the_bounded_queue_during_shutdown() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("logs.sqlite3");
+        let mut worker = LogDatabaseWorker::start(path.clone()).unwrap();
+        worker.append(vec![entry("shutdown", "pending")]).unwrap();
+        worker.shutdown();
+
+        let connection = Connection::open(path).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM log_entries", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            1
+        );
     }
 }

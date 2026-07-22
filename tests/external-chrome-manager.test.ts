@@ -9,6 +9,11 @@ import {
   ExternalChromeManager
 } from "../src/main/browser/ExternalChromeManager";
 import type { Role } from "../src/shared/types";
+import { createExternalSessionState } from "./helpers/externalSessionState";
+import {
+  normalizeTestWorkspaceRects,
+  resolveTestAdaptiveZoom
+} from "./helpers/workspaceLayoutState";
 
 type AnyMock = Mock;
 
@@ -91,6 +96,7 @@ describe("ExternalChromeManager", () => {
 
     expect(harness.roleStore.ensureBrowserUserDataDir).toHaveBeenCalledWith(role.id);
     expect(harness.spawnChrome).toHaveBeenCalledWith(
+      role.id,
       expect.any(String),
       expect.arrayContaining([
         "--user-data-dir=/profiles/role-1/browser",
@@ -110,135 +116,8 @@ describe("ExternalChromeManager", () => {
     }
   );
 
-  it("marks a visible page with a missing heartbeat as unresponsive without stopping its Chrome session", async () => {
-    let now = 0;
-    let runHealthCheck: (() => void) | undefined;
-    const harness = createHarness({
-      now: () => now,
-      setInterval: (callback) => {
-        runHealthCheck = callback;
-        return -1 as never;
-      }
-    });
-    const healthEvents = vi.fn();
-    harness.manager.on("health", healthEvents);
-
-    const launch = harness.manager.launch(role);
-    await waitForChild(harness.children, 0);
-    harness.children[0].emit("spawn");
-    await launch;
-
-    now = 15_001;
-    runHealthCheck?.();
-
-    await vi.waitFor(() => expect(harness.automationTargets[0].collectDiagnostics).toHaveBeenCalledOnce());
-    expect(harness.manager.listStatuses()).toEqual([
-      expect.objectContaining({ pageHealth: "unresponsive", roleId: role.id, state: "running" })
-    ]);
-    expect(harness.manager.getAutomationSession(role.id)).toBeUndefined();
-    expect(harness.children[0].kill).not.toHaveBeenCalled();
-    expect(healthEvents).toHaveBeenCalledWith(role.id, "unresponsive");
-
-    harness.automationTargets[0].emitDiagnostic({
-      details: { hidden: false },
-      type: "page_heartbeat"
-    });
-
-    expect(harness.manager.listStatuses()).toEqual([
-      expect.objectContaining({ pageHealth: "healthy", roleId: role.id, state: "running" })
-    ]);
-    expect(harness.manager.getAutomationSession(role.id)).toEqual(expect.objectContaining({ role }));
-    expect(healthEvents).toHaveBeenLastCalledWith(role.id, "healthy");
-  });
-
-  it("does not mark hidden pages or a just-resumed system as unresponsive", async () => {
-    let now = 0;
-    let runHealthCheck: (() => void) | undefined;
-    const harness = createHarness({
-      now: () => now,
-      setInterval: (callback) => {
-        runHealthCheck = callback;
-        return -1 as never;
-      }
-    });
-    const healthEvents = vi.fn();
-    harness.manager.on("health", healthEvents);
-
-    const launch = harness.manager.launch(role);
-    await waitForChild(harness.children, 0);
-    harness.children[0].emit("spawn");
-    await launch;
-
-    harness.automationTargets[0].emitDiagnostic({
-      details: { hidden: true },
-      type: "page_lifecycle"
-    });
-    now = 30_000;
-    runHealthCheck?.();
-    expect(healthEvents).not.toHaveBeenCalled();
-
-    harness.automationTargets[0].emitDiagnostic({
-      details: { hidden: false },
-      type: "page_lifecycle"
-    });
-    harness.manager.handleSuspend();
-    now = 60_000;
-    runHealthCheck?.();
-    expect(healthEvents).not.toHaveBeenCalled();
-
-    harness.manager.handleResume();
-    runHealthCheck?.();
-    expect(healthEvents).not.toHaveBeenCalled();
-  });
-
-  it("records a timed-out low-frequency CDP round trip without treating it as proof of a page freeze", async () => {
-    let now = 0;
-    let runHealthCheck: (() => void) | undefined;
-    const onDiagnostic = vi.fn();
-    const harness = createHarness({
-      now: () => now,
-      onDiagnostic,
-      setInterval: (callback) => {
-        runHealthCheck = callback;
-        return -1 as never;
-      }
-    });
-    const launch = harness.manager.launch(role);
-    await waitForChild(harness.children, 0);
-    harness.children[0].emit("spawn");
-    await launch;
-
-    now = 10_000;
-    harness.automationTargets[0].emitDiagnostic({ details: { hidden: false }, type: "page_heartbeat" });
-    harness.automationTargets[0].evaluate.mockImplementation(() => new Promise(() => undefined));
-    vi.useFakeTimers();
-    try {
-      now = 15_000;
-      runHealthCheck?.();
-      await vi.advanceTimersByTimeAsync(4_000);
-      await vi.runAllTicks();
-
-      expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
-        roleId: role.id,
-        type: "cdp_round_trip_timeout"
-      }));
-      expect(harness.manager.listStatuses()).toEqual([
-        expect.objectContaining({ pageHealth: "healthy", roleId: role.id })
-      ]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("captures only safe external-session diagnostics and restores bounds and zoom during recovery", async () => {
-    let now = 0;
-    let runHealthCheck: (() => void) | undefined;
     const harness = createHarness({
-      now: () => now,
-      setInterval: (callback) => {
-        runHealthCheck = callback;
-        return -1 as never;
-      },
       windowBoundsAdapter: createWindowBoundsAdapter((bounds) => ({ ...bounds, width: bounds.width * 2, height: bounds.height * 2 }))
     });
     const firstLaunch = harness.manager.launch(role, { zoomFactor: 1.25 });
@@ -260,8 +139,7 @@ describe("ExternalChromeManager", () => {
       zoomFactor: 1.25
     });
 
-    now = 15_001;
-    runHealthCheck?.();
+    harness.healthMonitor.emitHealth(role.id, "unresponsive");
     await vi.waitFor(() => expect(harness.manager.listStatuses()[0]?.pageHealth).toBe("unresponsive"));
 
     const recovery = harness.manager.recover(role.id);
@@ -270,10 +148,15 @@ describe("ExternalChromeManager", () => {
     await expect(recovery).resolves.toMatchObject({ pageHealth: "healthy", roleId: role.id, state: "running" });
     expect(harness.children[0].kill).toHaveBeenCalledOnce();
     expect(harness.spawnChrome).toHaveBeenLastCalledWith(
+      role.id,
       expect.any(String),
       expect.arrayContaining(["--window-position=100,50", "--window-size=1200,800"])
     );
-    expect(harness.applyBrowserZoom).toHaveBeenLastCalledWith("/profiles/role-1/browser", 1.25);
+    expect(harness.applyBrowserPreferences).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "role-1" }),
+      "/profiles/role-1/browser",
+      1.25
+    );
   });
 
   it.each(["darwin", "win32"] as const)(
@@ -387,14 +270,15 @@ describe("ExternalChromeManager", () => {
       expect.objectContaining({
         cdnCompatibilityEnabled: true,
         onDiagnostic: expect.any(Function),
-        platform: "linux"
+        roleId: role.id
       })
     );
     expect(harness.spawnChrome).toHaveBeenCalledWith(
+      role.id,
       expect.any(String),
       expect.arrayContaining(["--proxy-server=socks5://127.0.0.1:7890"])
     );
-    const args = (harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>)[0][1];
+    const args = (harness.spawnChrome.mock.calls as unknown as Array<[string, string, string[]]>)[0][2];
     expect(args.some((argument: string) => argument.startsWith("--load-extension="))).toBe(false);
     expect(status.notice).toBe("China CDN compatibility mode is active in external Chrome.");
   });
@@ -409,7 +293,7 @@ describe("ExternalChromeManager", () => {
     harness.children[0].emit("spawn");
     const status = await launchPromise;
 
-    const args = (harness.spawnChrome.mock.calls as unknown as Array<[string, string[]]>)[0][1];
+    const args = (harness.spawnChrome.mock.calls as unknown as Array<[string, string, string[]]>)[0][2];
     expect(args.some((argument: string) => argument.startsWith("--load-extension="))).toBe(false);
     expect(status.notice).toContain("original resource URLs");
   });
@@ -481,14 +365,18 @@ describe("ExternalChromeManager", () => {
 
     expect(status).toMatchObject({ state: "running", automationState: "unavailable" });
     expect(status.notice).not.toContain(EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
-    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.75);
+    expect(harness.applyBrowserPreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "role-1" }),
+      "/profiles/role-1/browser",
+      0.75
+    );
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
 
   it("keeps automation ready when only native zoom preference writing fails", async () => {
-    const applyBrowserZoom = vi.fn().mockRejectedValue(new Error("zoom rejected"));
+    const applyBrowserPreferences = vi.fn().mockRejectedValue(new Error("preferences rejected"));
     const harness = createHarness({
-      applyBrowserZoom
+      applyBrowserPreferences
     });
 
     const launchPromise = harness.manager.launch(role, { zoomFactor: 0.75 });
@@ -512,7 +400,7 @@ describe("ExternalChromeManager", () => {
     const status = await harness.manager.launch(role, { zoomFactor: 0.9 });
 
     expect(status.notice).toBe(EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
-    expect(harness.applyBrowserZoom).toHaveBeenCalledTimes(1);
+    expect(harness.applyBrowserPreferences).toHaveBeenCalledTimes(1);
     expect(harness.spawnChrome).toHaveBeenCalledTimes(1);
     expect(harness.children[0].kill).not.toHaveBeenCalled();
   });
@@ -529,8 +417,12 @@ describe("ExternalChromeManager", () => {
     harness.children[0].emit("spawn");
     await launchPromise;
 
-    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.9);
-    expect(harness.applyBrowserZoom.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(harness.applyBrowserPreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "role-1" }),
+      "/profiles/role-1/browser",
+      0.9
+    );
+    expect(harness.applyBrowserPreferences.mock.invocationCallOrder[0]).toBeLessThan(
       harness.spawnChrome.mock.invocationCallOrder[0]
     );
   });
@@ -551,7 +443,11 @@ describe("ExternalChromeManager", () => {
     harness.children[0].emit("spawn");
     await launchPromise;
 
-    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 1.2);
+    expect(harness.applyBrowserPreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "role-1" }),
+      "/profiles/role-1/browser",
+      1.2
+    );
   });
 
   it("calculates adaptive native zoom independently for every eight-grid role", async () => {
@@ -585,9 +481,10 @@ describe("ExternalChromeManager", () => {
     }
     await launchPromise;
 
-    expect(harness.applyBrowserZoom).toHaveBeenCalledTimes(8);
+    expect(harness.applyBrowserPreferences).toHaveBeenCalledTimes(8);
     for (const gridRole of roles) {
-      expect(harness.applyBrowserZoom).toHaveBeenCalledWith(
+      expect(harness.applyBrowserPreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ id: gridRole.id }),
         `/profiles/${gridRole.id}/browser`,
         0.5
       );
@@ -644,8 +541,16 @@ describe("ExternalChromeManager", () => {
     expect(firstTarget.focus.mock.invocationCallOrder[0]).toBeGreaterThan(
       secondTarget.setWindowBounds.mock.invocationCallOrder[0]
     );
-    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-1/browser", 0.75);
-    expect(harness.applyBrowserZoom).toHaveBeenCalledWith("/profiles/role-2/browser", 0.75);
+    expect(harness.applyBrowserPreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "role-1" }),
+      "/profiles/role-1/browser",
+      0.75
+    );
+    expect(harness.applyBrowserPreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "role-2" }),
+      "/profiles/role-2/browser",
+      0.75
+    );
     expect(statuses).toEqual([
       expect.objectContaining({ roleId: "role-1", notice: "fallback", runtimeMode: "external" }),
       expect.objectContaining({ roleId: "role-2", notice: "fallback", runtimeMode: "external" })
@@ -821,8 +726,8 @@ describe("ExternalChromeManager", () => {
       name: `Physical Role ${index + 1}`
     }));
     const zoomResolversByRoleId = new Map<string, () => void>();
-    const applyBrowserZoom = vi.fn((browserUserDataDir: string) => new Promise<void>((resolve) => {
-      const roleId = /^\/profiles\/(.+)\/browser$/.exec(browserUserDataDir)![1];
+    const applyBrowserPreferences = vi.fn((workspaceRole: Role) => new Promise<void>((resolve) => {
+      const roleId = workspaceRole.id;
       zoomResolversByRoleId.set(roleId, resolve);
       if (zoomResolversByRoleId.size === roles.length) {
         queueMicrotask(() => {
@@ -834,7 +739,7 @@ describe("ExternalChromeManager", () => {
       }
     }));
     const harness = createHarness({
-      applyBrowserZoom,
+      applyBrowserPreferences,
       childPid: 5000,
       platform: "win32",
       windowBoundsAdapter
@@ -1008,14 +913,13 @@ describe("ExternalChromeManager", () => {
 });
 
 function createHarness(options: {
-  applyBrowserZoom?: AnyMock;
+  applyBrowserPreferences?: AnyMock;
   childPid?: number;
   connectAutomation?: AnyMock;
   platform?: NodeJS.Platform;
   onDiagnostic?: AnyMock;
   prepareCdnCompatibility?: AnyMock;
   now?: () => number;
-  setInterval?: (callback: () => void, intervalMs: number) => ReturnType<typeof setInterval>;
   windowBoundsAdapter?: ReturnType<typeof createWindowBoundsAdapter>;
 } = {}) {
   const children: Array<ReturnType<typeof createChild>> = [];
@@ -1031,7 +935,7 @@ function createHarness(options: {
     children.push(child);
     return child as never;
   });
-  const connectAutomation = options.connectAutomation ?? vi.fn(async (
+  const connectTarget = options.connectAutomation ?? vi.fn(async (
     browserUserDataDir: string,
     _launchUrl: string,
     automationOptions?: { onDiagnostic?: (event: { details: Record<string, unknown>; type: string }) => void }
@@ -1041,36 +945,87 @@ function createHarness(options: {
       automationOptions?.onDiagnostic?.(event);
     };
     automationTargets.push(target);
-    const roleId = /^\/profiles\/(.+)\/browser$/.exec(browserUserDataDir)?.[1];
+    return target;
+  });
+  const connectAutomation = vi.fn(async (...args: Parameters<typeof connectTarget>) => {
+    const target = await connectTarget(...args);
+    const roleId = args[2]?.roleId ?? /^\/profiles\/(.+)\/browser$/.exec(args[0])?.[1];
     if (roleId) automationTargetsByRoleId.set(roleId, target);
     return target;
   });
-  const applyBrowserZoom = options.applyBrowserZoom ?? vi.fn().mockResolvedValue(undefined);
+  const applyBrowserPreferences = options.applyBrowserPreferences ?? vi.fn().mockResolvedValue(undefined);
+  const healthMonitor = createHealthMonitor();
   const manager = new ExternalChromeManager(roleStore, {
-    applyBrowserZoom,
+    adaptiveZoomResolver: resolveTestAdaptiveZoom,
+    externalSessionState: createExternalSessionState(),
+    captureAutomationDiagnostics: (roleId) =>
+      automationTargetsByRoleId.get(roleId)!.collectDiagnostics(),
+    evaluateAutomation: (roleId, source) =>
+      automationTargetsByRoleId.get(roleId)!.evaluate(source),
+    focusAutomation: (roleId) => automationTargetsByRoleId.get(roleId)!.focus(),
+    applyBrowserPreferences,
     connectAutomation,
     findExecutable: () => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     getLaunchWorkArea: () => ({ x: 100, y: 50, width: 1200, height: 800 }),
+    healthMonitor,
+    normalizeWorkspaceRects: normalizeTestWorkspaceRects,
+    prepareBrowserUserDataDir: vi.fn().mockResolvedValue(undefined),
     ...(options.onDiagnostic ? { onDiagnostic: options.onDiagnostic } : {}),
     platform: options.platform ?? "linux",
     ...(options.now ? { now: options.now } : {}),
-    ...(options.setInterval ? { setInterval: options.setInterval } : {}),
     ...(options.prepareCdnCompatibility
       ? { prepareCdnCompatibility: options.prepareCdnCompatibility }
       : {}),
     spawnChrome,
+    setAutomationWindowBounds: (roleId, bounds) =>
+      automationTargetsByRoleId.get(roleId)!.setWindowBounds(bounds),
+    unregisterAutomation: vi.fn(),
     ...(options.windowBoundsAdapter ? { windowBoundsAdapter: options.windowBoundsAdapter } : {})
   });
 
   return {
-    applyBrowserZoom,
+    applyBrowserPreferences,
     automationTargets,
     automationTargetsByRoleId,
     children,
     connectAutomation,
+    healthMonitor,
     manager,
     roleStore,
     spawnChrome
+  };
+}
+
+function createHealthMonitor() {
+  const healthListeners = new Set<(roleId: string, health: "healthy" | "unresponsive") => void>();
+  const probeFailureListeners = new Set<(failure: {
+    errorCode: string;
+    errorMessage: string;
+    roleId: string;
+  }) => void>();
+  return {
+    emitHealth: (roleId: string, health: "healthy" | "unresponsive") => {
+      healthListeners.forEach((listener) => listener(roleId, health));
+    },
+    emitProbeFailure: (failure: { errorCode: string; errorMessage: string; roleId: string }) => {
+      probeFailureListeners.forEach((listener) => listener(failure));
+    },
+    heartbeat: vi.fn(),
+    onHealth: vi.fn((listener: (roleId: string, health: "healthy" | "unresponsive") => void) => {
+      healthListeners.add(listener);
+      return () => healthListeners.delete(listener);
+    }),
+    onProbeFailure: vi.fn((listener: (failure: {
+      errorCode: string;
+      errorMessage: string;
+      roleId: string;
+    }) => void) => {
+      probeFailureListeners.add(listener);
+      return () => probeFailureListeners.delete(listener);
+    }),
+    register: vi.fn().mockResolvedValue(undefined),
+    remove: vi.fn().mockResolvedValue(undefined),
+    setSuspended: vi.fn()
   };
 }
 
@@ -1134,15 +1089,13 @@ async function waitForChild(children: Array<ReturnType<typeof createChild>>, ind
 }
 
 function getSpawnArgsForRole(spawnChrome: AnyMock, roleId: string): string[] {
-  const calls = spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
-  return calls[getSpawnCallIndexForRole(spawnChrome, roleId)][1];
+  const calls = spawnChrome.mock.calls as unknown as Array<[string, string, string[]]>;
+  return calls[getSpawnCallIndexForRole(spawnChrome, roleId)][2];
 }
 
 function getSpawnCallIndexForRole(spawnChrome: AnyMock, roleId: string): number {
-  const calls = spawnChrome.mock.calls as unknown as Array<[string, string[]]>;
-  const callIndex = calls.findIndex(([, args]) =>
-    args.includes(`--user-data-dir=/profiles/${roleId}/browser`)
-  );
+  const calls = spawnChrome.mock.calls as unknown as Array<[string, string, string[]]>;
+  const callIndex = calls.findIndex(([candidateRoleId]) => candidateRoleId === roleId);
   if (callIndex < 0) throw new Error(`Chrome spawn arguments not found for role ${roleId}.`);
   return callIndex;
 }

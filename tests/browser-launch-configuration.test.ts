@@ -1,32 +1,15 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { describe, expect, it, vi } from "vitest";
 
 import {
   configureChromiumCommandLine,
-  readAppliedBrowserGraphicsMode
+  normalizeAppliedBrowserGraphicsMode
 } from "../src/main/game-browser/BrowserLaunchConfiguration";
 
 describe("browser launch configuration", () => {
-  it("uses automatic mode for missing or invalid startup settings", async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), "rion-graphics-launch-"));
-    expect(readAppliedBrowserGraphicsMode(userDataDir)).toBe("automatic");
-
-    await writeFile(join(userDataDir, "game-browser-settings.json"), "{invalid", "utf8");
-    expect(readAppliedBrowserGraphicsMode(userDataDir)).toBe("automatic");
-  });
-
-  it("reads the persisted mode synchronously before Electron becomes ready", async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), "rion-graphics-launch-"));
-    await writeFile(
-      join(userDataDir, "game-browser-settings.json"),
-      JSON.stringify({ graphics: { mode: "experimental" } }),
-      "utf8"
-    );
-
-    expect(readAppliedBrowserGraphicsMode(userDataDir)).toBe("experimental");
+  it("accepts only Rust-validated graphics modes at the Electron command-line boundary", () => {
+    expect(normalizeAppliedBrowserGraphicsMode(undefined)).toBe("automatic");
+    expect(normalizeAppliedBrowserGraphicsMode("unsafe")).toBe("automatic");
+    expect(normalizeAppliedBrowserGraphicsMode("experimental")).toBe("experimental");
   });
 
   it("preserves existing disabled features and applies the safe high-performance switches", () => {

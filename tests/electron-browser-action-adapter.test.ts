@@ -3,6 +3,40 @@ import { describe, expect, it, vi } from "vitest";
 import { ElectronBrowserActionAdapter } from "../src/main/core/ElectronBrowserActionAdapter";
 
 describe("ElectronBrowserActionAdapter", () => {
+  it("lets Rust execute external actions before the Electron effect adapter", async () => {
+    let listener: ((events: never[]) => void) | undefined;
+    const dispatchBrowserResults = vi.fn(async (_results: unknown) => undefined);
+    const getTarget = vi.fn(() => undefined);
+    new ElectronBrowserActionAdapter({
+      dispatchBrowserResults,
+      dispatchExternalBrowserActions: vi.fn(async (actions: Array<{ requestId: string }>) => ({
+        results: [{
+          requestId: actions[0].requestId,
+          ok: true,
+          valueJson: null,
+          errorCode: null,
+          errorMessage: null
+        }],
+        unhandled: []
+      })),
+      subscribe: (callback: (events: never[]) => void) => {
+        listener = callback;
+        return () => undefined;
+      }
+    } as never, { getTarget });
+
+    listener?.([{
+      type: "browserActions",
+      actions: [{ requestId: "external", roleId: "r1", deadlineMs: Date.now() + 1_000, action: { type: "focus" } }]
+    }] as never);
+
+    await vi.waitFor(() => expect(dispatchBrowserResults).toHaveBeenCalledOnce());
+    expect(getTarget).not.toHaveBeenCalled();
+    expect(dispatchBrowserResults).toHaveBeenCalledWith([
+      expect.objectContaining({ requestId: "external", ok: true })
+    ]);
+  });
+
   it("keeps same-role actions ordered and batches typed results", async () => {
     let listener: ((events: never[]) => void) | undefined;
     const dispatchBrowserResults = vi.fn(async (_results: unknown) => undefined);
@@ -15,6 +49,7 @@ describe("ElectronBrowserActionAdapter", () => {
     };
     const core = {
       dispatchBrowserResults,
+      dispatchExternalBrowserActions: vi.fn(async (actions) => ({ results: [], unhandled: actions })),
       subscribe: vi.fn((callback) => {
         listener = callback;
         return () => undefined;
@@ -63,6 +98,7 @@ describe("ElectronBrowserActionAdapter", () => {
     const dispatchBrowserResults = vi.fn(async (_results: unknown) => undefined);
     new ElectronBrowserActionAdapter({
       dispatchBrowserResults,
+      dispatchExternalBrowserActions: async (actions: never[]) => ({ results: [], unhandled: actions }),
       subscribe: (callback: (events: never[]) => void) => {
         listener = callback;
         return () => undefined;
@@ -94,6 +130,7 @@ describe("ElectronBrowserActionAdapter", () => {
     const started: string[] = [];
     const adapter = new ElectronBrowserActionAdapter({
       dispatchBrowserResults,
+      dispatchExternalBrowserActions: async (actions: never[]) => ({ results: [], unhandled: actions }),
       subscribe: (callback: (events: never[]) => void) => {
         listener = callback;
         return () => undefined;
@@ -136,6 +173,7 @@ describe("ElectronBrowserActionAdapter", () => {
     const dispatchBrowserResults = vi.fn(async (_results: unknown) => undefined);
     const adapter = new ElectronBrowserActionAdapter({
       dispatchBrowserResults,
+      dispatchExternalBrowserActions: async (actions: never[]) => ({ results: [], unhandled: actions }),
       subscribe: (callback: (events: never[]) => void) => {
         listener = callback;
         return () => undefined;

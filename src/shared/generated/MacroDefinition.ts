@@ -3,4 +3,4 @@ import type { MacroRepeat } from "./MacroRepeat";
 import type { MacroStepDefinition } from "./MacroStepDefinition";
 import type { MacroTrigger } from "./MacroTrigger";
 
-export type MacroDefinition = { id: string, enabled: boolean, activationMode?: string, name: string, roleIds: Array<string>, trigger?: MacroTrigger, repeat: MacroRepeat, steps: Array<MacroStepDefinition>, };
+export type MacroDefinition = { id: string, enabled: boolean, activationMode?: "toggle" | "while_held", name: string, roleIds: Array<string>, trigger?: MacroTrigger, repeat: MacroRepeat, steps: Array<MacroStepDefinition>, };

@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::PlatformError;
+use crate::{Platform, PlatformError};
 
 const COPY_PATHS: &[&str] = &[
     "Cookies",
@@ -13,6 +13,24 @@ const COPY_PATHS: &[&str] = &[
     "IndexedDB",
     "Service Worker",
 ];
+
+pub fn default_chrome_user_data_directory(platform: Platform) -> Option<std::path::PathBuf> {
+    match platform {
+        Platform::Macos => std::env::var_os("HOME").map(|home| {
+            std::path::PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join("Google")
+                .join("Chrome")
+        }),
+        Platform::Windows => std::env::var_os("LOCALAPPDATA").map(|local_app_data| {
+            std::path::PathBuf::from(local_app_data)
+                .join("Google")
+                .join("Chrome")
+                .join("User Data")
+        }),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

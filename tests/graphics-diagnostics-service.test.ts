@@ -30,14 +30,16 @@ describe("GraphicsDiagnosticsService", () => {
       app: app as never,
       appliedMode: "high_performance",
       browserManager: {
-        getAutomationSession: vi.fn((roleId: string) =>
-          roleId === "external-1"
-            ? { role: { id: roleId, name: "Alt" }, target: { evaluate: externalEvaluate } }
-            : undefined
-        ) as never,
+        evaluateExternalRole: externalEvaluate,
+        getExternalRoleName: vi.fn(() => "Alt"),
         listStatuses: vi.fn(() => [
           { roleId: "embedded-1", runtimeMode: "embedded", state: "running" },
-          { roleId: "external-1", runtimeMode: "external", state: "running" }
+          {
+            roleId: "external-1",
+            runtimeMode: "external",
+            state: "running",
+            automationState: "ready"
+          }
         ])
       } as never,
       gameBrowserSettingsStore: {

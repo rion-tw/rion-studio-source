@@ -1,19 +1,11 @@
 import { EventEmitter } from "node:events";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import {
-  EMBEDDED_HEARTBEAT_INTERVAL_MS,
-  EMBEDDED_HEARTBEAT_STALL_MS,
-  EmbeddedRuntimeDiagnostics
-} from "../src/main/browser/EmbeddedRuntimeDiagnostics";
+import { EmbeddedRuntimeDiagnostics } from "../src/main/browser/EmbeddedRuntimeDiagnostics";
 import { isEmbeddedRuntimeDiagnosticPayload } from "../src/shared/embeddedRuntimeDiagnostics";
 
 describe("EmbeddedRuntimeDiagnostics", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("validates bounded lifecycle, heartbeat, and WebGL payloads", () => {
     expect(isEmbeddedRuntimeDiagnosticPayload(payload("heartbeat"))).toBe(true);
     expect(isEmbeddedRuntimeDiagnosticPayload({
@@ -93,32 +85,6 @@ describe("EmbeddedRuntimeDiagnostics", () => {
       preloadError,
       expect.objectContaining({ roleId: "role-1", preloadPath: "/app/embedded.cjs" })
     );
-    diagnostics.stop();
-  });
-
-  it("reports one heartbeat stall, reports recovery, and ignores system sleep", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-19T00:00:00.000Z"));
-    const log = createLogger();
-    const diagnostics = new EmbeddedRuntimeDiagnostics(log);
-    const contents = createContents(102, 4002);
-    diagnostics.attach({ hostId: "host-2", kind: "game", roleId: "role-2" }, contents as never);
-
-    await vi.advanceTimersByTimeAsync(EMBEDDED_HEARTBEAT_STALL_MS + EMBEDDED_HEARTBEAT_INTERVAL_MS);
-    expect(log.warn.mock.calls.filter((call) => call[1] === "embedded_renderer_heartbeat_stalled")).toHaveLength(1);
-
-    diagnostics.handlePageEvent(contents as never, payload("heartbeat"));
-    expect(log.info).toHaveBeenCalledWith(
-      "browser",
-      "embedded_renderer_heartbeat_recovered",
-      expect.any(String),
-      expect.objectContaining({ roleId: "role-2" })
-    );
-
-    diagnostics.handleSuspend();
-    await vi.advanceTimersByTimeAsync(EMBEDDED_HEARTBEAT_STALL_MS * 2);
-    diagnostics.handleResume();
-    expect(log.warn.mock.calls.filter((call) => call[1] === "embedded_renderer_heartbeat_stalled")).toHaveLength(1);
     diagnostics.stop();
   });
 

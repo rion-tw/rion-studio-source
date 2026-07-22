@@ -41,9 +41,12 @@ struct Shared {
 
 #[derive(Default)]
 struct Inner {
+    held_keys: HashMap<String, HeldKey>,
     invocations: HashMap<String, Arc<InvocationControl>>,
     leases: HashMap<String, HeldLease>,
     early_releases: HashMap<String, String>,
+    mutation_leases: HashMap<String, HashSet<String>>,
+    mutating_macro_ids: HashSet<String>,
     statuses: HashMap<String, MacroRunStatus>,
 }
 
@@ -54,6 +57,7 @@ struct HeldLease {
 
 struct InvocationControl {
     cancelled: AtomicBool,
+    cancelled_role_ids: Mutex<HashSet<String>>,
     first_iteration_completed: AtomicBool,
     finished: (Mutex<bool>, Condvar),
     id: String,
@@ -70,6 +74,7 @@ struct ExecutionContext {
     settings: MacroRuntimeSettings,
 }
 
+#[derive(Clone)]
 struct HeldKey {
     code: String,
     modifiers: Vec<String>,
@@ -238,21 +243,12 @@ impl MacroRuntime {
         Ok(())
     }
 
+    pub fn stop_macro_role(&self, macro_id: &str, role_id: &str) -> CoreResult<()> {
+        self.stop_role_matching(role_id, Some(macro_id))
+    }
+
     pub fn stop_role(&self, role_id: &str) -> CoreResult<()> {
-        let invocation_ids = self
-            .shared
-            .inner
-            .lock()
-            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
-            .statuses
-            .iter()
-            .filter(|(_, status)| status.role_id == role_id)
-            .filter_map(|(key, _)| key.split('|').next().map(str::to_owned))
-            .collect::<HashSet<_>>();
-        let controls = self.controls_matching(|control| invocation_ids.contains(&control.id))?;
-        cancel_and_wait_all(&controls);
-        self.remove_statuses(|status| status.role_id == role_id)?;
-        Ok(())
+        self.stop_role_matching(role_id, None)
     }
 
     pub fn release_role(&self, role_id: &str) -> CoreResult<()> {
@@ -306,6 +302,86 @@ impl MacroRuntime {
         Ok(statuses)
     }
 
+    pub fn acquire_mutation(
+        &self,
+        macro_ids: Vec<String>,
+        stop_active: bool,
+    ) -> CoreResult<String> {
+        let macro_ids = macro_ids
+            .into_iter()
+            .map(|id| id.trim().to_owned())
+            .filter(|id| !id.is_empty())
+            .collect::<HashSet<_>>();
+        if macro_ids.is_empty() {
+            return Err(CoreError::InvalidInput(
+                "macro mutation requires at least one macro id".to_owned(),
+            ));
+        }
+        let lease_id = format!(
+            "macro-mutation-{}",
+            self.shared.next_id.fetch_add(1, Ordering::Relaxed)
+        );
+        let controls = {
+            let mut inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            if !inner.mutating_macro_ids.is_disjoint(&macro_ids) {
+                return Err(CoreError::Domain {
+                    code: "MACRO_MUTATION_BUSY",
+                    message: "Another macro mutation is already in progress.".to_owned(),
+                });
+            }
+            let active = inner.statuses.values().any(|status| {
+                macro_ids.contains(&status.macro_id)
+                    && matches!(status.state.as_str(), "running" | "stopping")
+            });
+            if active && !stop_active {
+                return Err(CoreError::Domain {
+                    code: "MACRO_MUTATION_BUSY",
+                    message: "Stop affected macros before importing.".to_owned(),
+                });
+            }
+            let controls = inner
+                .invocations
+                .values()
+                .filter(|control| {
+                    control
+                        .macro_ids
+                        .lock()
+                        .is_ok_and(|ids| !ids.is_disjoint(&macro_ids))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            inner.mutating_macro_ids.extend(macro_ids.iter().cloned());
+            inner
+                .mutation_leases
+                .insert(lease_id.clone(), macro_ids.clone());
+            controls
+        };
+        if stop_active {
+            cancel_and_wait_all(&controls);
+            self.remove_statuses(|status| macro_ids.contains(&status.macro_id))?;
+        }
+        Ok(lease_id)
+    }
+
+    pub fn release_mutation(&self, lease_id: &str) -> CoreResult<()> {
+        let mut inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        let ids = inner.mutation_leases.remove(lease_id).ok_or_else(|| {
+            CoreError::InvalidInput("macro mutation lease was not found".to_owned())
+        })?;
+        for id in ids {
+            inner.mutating_macro_ids.remove(&id);
+        }
+        Ok(())
+    }
+
     pub fn dispatch_results(&self, results: Vec<BrowserActionResult>) -> CoreResult<()> {
         for result in results {
             validate_result(&result)?;
@@ -334,8 +410,11 @@ impl MacroRuntime {
             .unwrap_or_default();
         cancel_and_wait_all(&controls);
         if let Ok(mut inner) = self.shared.inner.lock() {
+            inner.held_keys.clear();
             inner.invocations.clear();
             inner.leases.clear();
+            inner.mutation_leases.clear();
+            inner.mutating_macro_ids.clear();
             inner.statuses.clear();
         }
         if let Ok(mut pending) = self.shared.pending.lock() {
@@ -359,6 +438,7 @@ impl MacroRuntime {
         let root = macros
             .get(&request.macro_id)
             .ok_or_else(|| CoreError::InvalidInput("macro was not found".to_owned()))?;
+        let invocation_macro_ids = collect_invocation_macro_ids(&request.macro_id, &macros);
         if !root.enabled {
             return Err(CoreError::InvalidInput(
                 "enable the macro before running it".to_owned(),
@@ -373,6 +453,14 @@ impl MacroRuntime {
         }
         let active_role_ids = request.active_role_ids.into_iter().collect::<HashSet<_>>();
         let roles = assigned_active_roles(root, &active_role_ids);
+        let roles = if let Some(role_id) = request.role_id.as_ref() {
+            roles
+                .into_iter()
+                .filter(|candidate| candidate == role_id)
+                .collect::<Vec<_>>()
+        } else {
+            roles
+        };
         if roles.is_empty() {
             return Err(CoreError::InvalidInput(
                 "launch at least one assigned role before running a macro".to_owned(),
@@ -382,6 +470,7 @@ impl MacroRuntime {
         let invocation_id = format!("macro-invocation-{invocation_number}");
         let control = Arc::new(InvocationControl {
             cancelled: AtomicBool::new(false),
+            cancelled_role_ids: Mutex::new(HashSet::new()),
             first_iteration_completed: AtomicBool::new(false),
             finished: (Mutex::new(false), Condvar::new()),
             id: invocation_id.clone(),
@@ -409,6 +498,12 @@ impl MacroRuntime {
                 .inner
                 .lock()
                 .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            if !inner.mutating_macro_ids.is_disjoint(&invocation_macro_ids) {
+                return Err(CoreError::Domain {
+                    code: "MACRO_MUTATION_BUSY",
+                    message: "The macro is being changed and cannot be started.".to_owned(),
+                });
+            }
             if inner.invocations.len() >= MAX_ACTIVE_INVOCATIONS {
                 return Err(CoreError::InvalidInput(
                     "too many macro invocations are active".to_owned(),
@@ -423,9 +518,9 @@ impl MacroRuntime {
                     "macro is already running for this role".to_owned(),
                 ));
             }
-            inner
-                .statuses
-                .retain(|_, status| status.macro_id != request.macro_id);
+            inner.statuses.retain(|_, status| {
+                status.macro_id != request.macro_id || !roles.contains(&status.role_id)
+            });
             for status in &statuses {
                 inner.statuses.insert(
                     status_key(&invocation_id, &status.role_id, &status.macro_id),
@@ -483,6 +578,100 @@ impl MacroRuntime {
         Ok(())
     }
 
+    fn stop_role_matching(&self, role_id: &str, macro_id: Option<&str>) -> CoreResult<()> {
+        let (controls, held_keys, cancel_controls) = {
+            let mut inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            let invocation_ids = inner
+                .statuses
+                .iter()
+                .filter(|(_, status)| {
+                    status.role_id == role_id
+                        && macro_id.is_none_or(|macro_id| status.macro_id == macro_id)
+                })
+                .filter_map(|(key, _)| key.split('|').next().map(str::to_owned))
+                .collect::<HashSet<_>>();
+            let controls = invocation_ids
+                .iter()
+                .filter_map(|id| inner.invocations.get(id).cloned())
+                .collect::<Vec<_>>();
+            for control in &controls {
+                control
+                    .cancelled_role_ids
+                    .lock()
+                    .map_err(|_| {
+                        CoreError::Internal("macro role cancellation lock poisoned".to_owned())
+                    })?
+                    .insert(role_id.to_owned());
+                control.wake.1.notify_all();
+            }
+            let held_owner_ids = inner
+                .held_keys
+                .iter()
+                .filter(|(_, held)| {
+                    held.role_id == role_id
+                        && controls
+                            .iter()
+                            .any(|control| held.owner_id.starts_with(&format!("{}:", control.id)))
+                })
+                .map(|(owner_id, _)| owner_id.clone())
+                .collect::<Vec<_>>();
+            let held_keys = held_owner_ids
+                .into_iter()
+                .filter_map(|owner_id| inner.held_keys.remove(&owner_id))
+                .collect::<Vec<_>>();
+            inner.statuses.retain(|key, status| {
+                !(invocation_ids
+                    .iter()
+                    .any(|invocation_id| key.starts_with(&format!("{invocation_id}|")))
+                    && status.role_id == role_id)
+            });
+            let cancel_controls = controls
+                .iter()
+                .filter(|control| {
+                    !inner
+                        .statuses
+                        .keys()
+                        .any(|key| key.starts_with(&format!("{}|", control.id)))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            (controls, held_keys, cancel_controls)
+        };
+        for control in &cancel_controls {
+            cancel_control(control);
+        }
+        for held in held_keys {
+            let Some(control) = controls
+                .iter()
+                .find(|control| held.owner_id.starts_with(&format!("{}:", control.id)))
+            else {
+                continue;
+            };
+            let _ = perform_actions_with_control(
+                &self.shared,
+                control,
+                vec![(
+                    held.role_id.as_str(),
+                    BrowserAction::Key {
+                        phase: "release".to_owned(),
+                        key: held.code.clone(),
+                        code: Some(held.code),
+                        modifiers: held.modifiers,
+                        owner_id: held.owner_id,
+                    },
+                )],
+                true,
+            );
+        }
+        cancel_and_wait_all(&cancel_controls);
+        self.emit_statuses();
+        Ok(())
+    }
+
     fn emit_statuses(&self) {
         emit_statuses(&self.shared);
     }
@@ -507,16 +696,20 @@ fn execute_macro(
     if !definition.enabled {
         return Err(format!("called macro is disabled: {}", definition.name));
     }
-    let roles = if root {
+    let assigned_roles = if root {
         roles.to_vec()
     } else {
         assigned_active_roles(definition, &context.active_role_ids)
     };
-    if roles.is_empty() {
+    if assigned_roles.is_empty() {
         return Err(format!(
             "called macro has no running assigned role: {}",
             definition.name
         ));
+    }
+    let roles = active_execution_roles(context, &assigned_roles);
+    if roles.is_empty() {
+        return Ok(());
     }
     ancestry.push(macro_id.to_owned());
     if let Ok(mut ids) = context.control.macro_ids.lock() {
@@ -541,21 +734,35 @@ fn execute_macro(
             wait_cancelable(context, context.settings.startup_delay_ms)?;
         }
         let mut iteration = 0_u32;
-        loop {
+        'iterations: loop {
             check_cancelled(context)?;
+            let iteration_roles = active_execution_roles(context, &roles);
+            if iteration_roles.is_empty() {
+                break;
+            }
             for step in &definition.steps {
+                let step_roles = active_execution_roles(context, &iteration_roles);
+                if step_roles.is_empty() {
+                    break 'iterations;
+                }
                 execute_step(
                     shared,
                     context,
                     definition,
-                    &roles,
+                    &step_roles,
                     step,
                     ancestry,
                     &mut held_keys,
                 )?;
             }
             iteration = iteration.saturating_add(1);
-            update_iteration(shared, context, macro_id, &roles, iteration);
+            update_iteration(
+                shared,
+                context,
+                macro_id,
+                &active_execution_roles(context, &iteration_roles),
+                iteration,
+            );
             if root && iteration == 1 {
                 context
                     .control
@@ -610,7 +817,9 @@ fn execute_step(
             code,
             modifiers,
             action,
+            ..
         } => {
+            let modifiers = modifiers.as_deref().unwrap_or_default();
             let holds = roles
                 .iter()
                 .map(|role_id| {
@@ -624,7 +833,7 @@ fn execute_step(
                             phase: "hold".to_owned(),
                             key: code.clone(),
                             code: Some(code.clone()),
-                            modifiers: modifiers.clone(),
+                            modifiers: modifiers.to_vec(),
                             owner_id,
                         },
                     )
@@ -637,12 +846,31 @@ fn execute_step(
                     context.control.id, role_id, definition.id, id
                 );
                 if action.as_deref() == Some("hold_until_stop") {
-                    held_keys.push(HeldKey {
+                    let held = HeldKey {
                         code: code.clone(),
-                        modifiers: modifiers.clone(),
-                        owner_id,
+                        modifiers: modifiers.to_vec(),
+                        owner_id: owner_id.clone(),
                         role_id: role_id.clone(),
-                    });
+                    };
+                    if register_held_key(shared, context, held.clone())? {
+                        held_keys.push(held);
+                    } else {
+                        perform_actions(
+                            shared,
+                            context,
+                            vec![(
+                                role_id,
+                                BrowserAction::Key {
+                                    phase: "release".to_owned(),
+                                    key: code.clone(),
+                                    code: Some(code.clone()),
+                                    modifiers: modifiers.to_vec(),
+                                    owner_id,
+                                },
+                            )],
+                            true,
+                        )?;
+                    }
                 } else {
                     let _ = owner_id;
                 }
@@ -661,7 +889,7 @@ fn execute_step(
                                     phase: "release".to_owned(),
                                     key: code.clone(),
                                     code: Some(code.clone()),
-                                    modifiers: modifiers.clone(),
+                                    modifiers: modifiers.to_vec(),
                                     owner_id: format!(
                                         "{}:{}:{}:{}",
                                         context.control.id, role_id, definition.id, id
@@ -677,24 +905,18 @@ fn execute_step(
         }
         MacroStepDefinition::Click {
             id,
-            unit,
             anchor,
-            x_percent,
-            y_percent,
-            x_px,
-            y_px,
+            position,
         } => {
-            let uses_pixels = unit.as_deref() == Some("px");
-            let (x, y) = if uses_pixels {
-                (
-                    x_px.ok_or_else(|| "pixel click requires xPx".to_owned())?,
-                    y_px.ok_or_else(|| "pixel click requires yPx".to_owned())?,
-                )
-            } else {
-                (
-                    x_percent.ok_or_else(|| "percent click requires xPercent".to_owned())?,
-                    y_percent.ok_or_else(|| "percent click requires yPercent".to_owned())?,
-                )
+            let (unit, x, y) = match position {
+                crate::model::MacroClickDefinition::Percent {
+                    x_percent,
+                    y_percent,
+                    ..
+                } => ("percent", *x_percent, *y_percent),
+                crate::model::MacroClickDefinition::Pixels { x_px, y_px, .. } => {
+                    ("px", *x_px, *y_px)
+                }
             };
             perform_actions(
                 shared,
@@ -706,7 +928,7 @@ fn execute_step(
                             role_id.as_str(),
                             BrowserAction::Click {
                                 anchor: anchor.clone(),
-                                unit: if uses_pixels { "px" } else { "percent" }.to_owned(),
+                                unit: unit.to_owned(),
                                 x,
                                 y,
                                 button: "left".to_owned(),
@@ -764,11 +986,23 @@ fn perform_action(
 fn perform_actions(
     shared: &Arc<Shared>,
     context: &ExecutionContext,
-    actions: Vec<(&str, BrowserAction)>,
+    mut actions: Vec<(&str, BrowserAction)>,
     allow_cancelled: bool,
 ) -> Result<(), String> {
     if !allow_cancelled {
-        check_cancelled(context)?;
+        actions.retain(|(role_id, _)| !is_role_cancelled(&context.control, role_id));
+    }
+    perform_actions_with_control(shared, &context.control, actions, allow_cancelled)
+}
+
+fn perform_actions_with_control(
+    shared: &Arc<Shared>,
+    control: &Arc<InvocationControl>,
+    actions: Vec<(&str, BrowserAction)>,
+    allow_cancelled: bool,
+) -> Result<(), String> {
+    if !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
+        return Err("macro run cancelled".to_owned());
     }
     if actions.is_empty() {
         return Ok(());
@@ -806,7 +1040,7 @@ fn perform_actions(
     let mut outcome = Ok(());
     for (_, receiver) in &pending_actions {
         loop {
-            if !allow_cancelled && context.control.cancelled.load(Ordering::Acquire) {
+            if !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
                 outcome = Err("macro run cancelled".to_owned());
                 break;
             }
@@ -847,6 +1081,15 @@ fn release_held_keys(
     held_keys: &mut Vec<HeldKey>,
 ) {
     while let Some(held) = held_keys.pop() {
+        let registered = shared
+            .inner
+            .lock()
+            .ok()
+            .and_then(|mut inner| inner.held_keys.remove(&held.owner_id))
+            .is_some();
+        if !registered {
+            continue;
+        }
         let _ = perform_action(
             shared,
             context,
@@ -861,6 +1104,37 @@ fn release_held_keys(
             true,
         );
     }
+}
+
+fn register_held_key(
+    shared: &Arc<Shared>,
+    context: &ExecutionContext,
+    held: HeldKey,
+) -> Result<bool, String> {
+    let mut inner = shared
+        .inner
+        .lock()
+        .map_err(|_| "macro runtime lock poisoned".to_owned())?;
+    if is_role_cancelled(&context.control, &held.role_id) {
+        return Ok(false);
+    }
+    inner.held_keys.insert(held.owner_id.clone(), held);
+    Ok(true)
+}
+
+fn active_execution_roles(context: &ExecutionContext, roles: &[String]) -> Vec<String> {
+    roles
+        .iter()
+        .filter(|role_id| !is_role_cancelled(&context.control, role_id))
+        .cloned()
+        .collect()
+}
+
+fn is_role_cancelled(control: &InvocationControl, role_id: &str) -> bool {
+    control
+        .cancelled_role_ids
+        .lock()
+        .is_ok_and(|role_ids| role_ids.contains(role_id))
 }
 
 fn wait_cancelable(context: &ExecutionContext, duration_ms: u32) -> Result<(), String> {
@@ -935,6 +1209,9 @@ fn finish_invocation(
             inner.statuses.retain(|key, _| !key.starts_with(&prefix));
         }
         inner.invocations.remove(&control.id);
+        inner
+            .held_keys
+            .retain(|owner_id, _| !owner_id.starts_with(&format!("{}:", control.id)));
         inner
             .leases
             .retain(|_, lease| lease.invocation_id != control.id);
@@ -1079,6 +1356,27 @@ fn assigned_active_roles(
         .filter(|role_id| active_role_ids.contains(*role_id))
         .cloned()
         .collect()
+}
+
+fn collect_invocation_macro_ids(
+    root_id: &str,
+    macros: &HashMap<String, MacroDefinition>,
+) -> HashSet<String> {
+    let mut collected = HashSet::new();
+    let mut pending = vec![root_id.to_owned()];
+    while let Some(macro_id) = pending.pop() {
+        if !collected.insert(macro_id.clone()) {
+            continue;
+        }
+        let Some(definition) = macros.get(&macro_id) else {
+            continue;
+        };
+        pending.extend(definition.steps.iter().filter_map(|step| match step {
+            MacroStepDefinition::Macro { macro_id, .. } => Some(macro_id.clone()),
+            _ => None,
+        }));
+    }
+    collected
 }
 
 fn validate_start_request(request: &MacroStartRequest) -> CoreResult<()> {
@@ -1256,8 +1554,9 @@ mod tests {
             .start(request(vec![MacroStepDefinition::Key {
                 id: "s1".to_owned(),
                 code: "KeyA".to_owned(),
-                modifiers: vec![],
+                modifiers: None,
                 action: Some("tap".to_owned()),
+                label: None,
             }]))
             .unwrap();
         let mut phases = Vec::new();
@@ -1299,6 +1598,22 @@ mod tests {
     }
 
     #[test]
+    fn rust_mutation_leases_block_starts_until_the_transaction_finishes() {
+        let runtime = MacroRuntime::new(Arc::new(|_| {}));
+        let lease = runtime
+            .acquire_mutation(vec!["m1".to_owned()], false)
+            .unwrap();
+
+        let error = runtime.start(request(Vec::new())).unwrap_err();
+        assert_eq!(error.code(), "MACRO_MUTATION_BUSY");
+
+        runtime.release_mutation(&lease).unwrap();
+        let statuses = runtime.start(request(Vec::new())).unwrap();
+        assert_eq!(statuses.len(), 1);
+        runtime.stop_macro("m1").unwrap();
+    }
+
+    #[test]
     fn batches_cross_role_actions_and_preserves_each_role_order() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
@@ -1307,8 +1622,9 @@ mod tests {
         let mut request = request(vec![MacroStepDefinition::Key {
             id: "s1".to_owned(),
             code: "KeyA".to_owned(),
-            modifiers: vec![],
+            modifiers: None,
             action: Some("tap".to_owned()),
+            label: None,
         }]);
         request.macros[0].role_ids.push("r2".to_owned());
         request.active_role_ids.push("r2".to_owned());
@@ -1368,6 +1684,86 @@ mod tests {
     }
 
     #[test]
+    fn role_scoped_start_and_stop_do_not_cancel_other_roles() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut request = request(vec![MacroStepDefinition::Key {
+            id: "held".to_owned(),
+            code: "KeyW".to_owned(),
+            modifiers: None,
+            action: Some("hold_until_stop".to_owned()),
+            label: None,
+        }]);
+        request.macros[0].role_ids.push("r2".to_owned());
+        request.active_role_ids.push("r2".to_owned());
+        runtime.start(request).unwrap();
+
+        let mut action_batches = Vec::new();
+        while action_batches.len() < 2 {
+            for event in receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
+                if let CoreEvent::BrowserActions { actions } = event {
+                    action_batches.push(actions.clone());
+                    runtime.dispatch_results(success_results(actions)).unwrap();
+                }
+            }
+        }
+        assert_eq!(action_batches[1].len(), 2);
+
+        let stopping_runtime = runtime.clone();
+        let stop = thread::spawn(move || {
+            stopping_runtime.stop_macro_role("m1", "r1").unwrap();
+        });
+        let release = next_browser_actions(&receiver);
+        assert_eq!(release.len(), 1);
+        assert_eq!(release[0].role_id, "r1");
+        runtime.dispatch_results(success_results(release)).unwrap();
+        stop.join().unwrap();
+        assert_eq!(
+            runtime
+                .statuses()
+                .unwrap()
+                .iter()
+                .map(|status| status.role_id.as_str())
+                .collect::<Vec<_>>(),
+            ["r2"]
+        );
+
+        let stopping_runtime = runtime.clone();
+        let stop = thread::spawn(move || {
+            stopping_runtime.stop_macro_role("m1", "r2").unwrap();
+        });
+        let release = next_browser_actions(&receiver);
+        assert_eq!(release[0].role_id, "r2");
+        runtime.dispatch_results(success_results(release)).unwrap();
+        stop.join().unwrap();
+        assert!(runtime.statuses().unwrap().is_empty());
+    }
+
+    #[test]
+    fn requested_role_limits_the_invocation_to_that_role() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut request = request(vec![MacroStepDefinition::Delay {
+            id: "wait".to_owned(),
+            ms: 0,
+        }]);
+        request.macros[0].role_ids.push("r2".to_owned());
+        request.active_role_ids.push("r2".to_owned());
+        request.role_id = Some("r2".to_owned());
+        let statuses = runtime.start(request).unwrap();
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].role_id, "r2");
+        let focus = next_browser_actions(&receiver);
+        assert_eq!(focus.len(), 1);
+        assert_eq!(focus[0].role_id, "r2");
+        runtime.dispatch_results(success_results(focus)).unwrap();
+    }
+
+    #[test]
     fn cancellation_releases_owned_held_keys_before_finishing() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
@@ -1377,8 +1773,9 @@ mod tests {
             .start(request(vec![MacroStepDefinition::Key {
                 id: "held".to_owned(),
                 code: "KeyW".to_owned(),
-                modifiers: vec![],
+                modifiers: None,
                 action: Some("hold_until_stop".to_owned()),
+                label: None,
             }]))
             .unwrap();
 
@@ -1427,5 +1824,17 @@ mod tests {
                 error_message: None,
             })
             .collect()
+    }
+
+    fn next_browser_actions(
+        receiver: &mpsc::Receiver<Vec<CoreEvent>>,
+    ) -> Vec<BrowserActionRequest> {
+        loop {
+            for event in receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
+                if let CoreEvent::BrowserActions { actions } = event {
+                    return actions;
+                }
+            }
+        }
     }
 }

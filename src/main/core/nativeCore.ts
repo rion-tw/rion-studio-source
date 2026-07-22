@@ -5,26 +5,37 @@ import { EventEmitter } from "node:events";
 import { app } from "electron";
 
 import type {
+  BrowserActionRequest,
   BrowserActionResult,
+  BrowserOperationLease,
+  BrowserOperationRequest,
+  BrowserRuntimeCommand,
+  BrowserRuntimeResult,
   CdnRule,
   CoreCommand,
   CoreEvent,
+  EmbeddedKeyTransitionRecord,
+  ExternalBrowserActionDispatch,
+  ExternalSessionCommand,
+  ExternalSessionResult,
   ResourcePolicyDecision,
   ResourcePolicyInput,
+  ResourceRuntimeCommand,
+  ResourceRuntimeResult,
+  RolePathsRecord,
+  LayoutRect,
+  LayoutRoleInput,
+  WorkspaceDividerDescriptor,
+  WorkspaceDividerResizeInput,
+  WorkspaceDividerResizeOutput,
   WorkspaceLayoutInput,
   WorkspaceLayoutOutput
 } from "../../shared/generated";
-import type { PixelBounds } from "../../shared/types";
+import type { PixelBounds, WorkspaceBrowserZoomPercent } from "../../shared/types";
 import type {
   CdpEventClientLike,
   CdpNotification
-} from "../system-browser/SystemChromeLauncher";
-
-interface NativeExternalChromeProcess {
-  pid: () => number;
-  subscribeExit: (callback: (eventJson: string) => void) => void;
-  terminate: () => void;
-}
+} from "../browser/ExternalChromeCdpBridge";
 
 interface NativeExternalChromeCdpClient {
   close: () => void;
@@ -48,23 +59,47 @@ export interface ExternalChromeProcessLike {
 }
 
 export interface NativeAppCore {
+  acquireBrowserOperation: (requestJson: string) => Promise<string>;
   alignExternalChromeWindow: (processId: number, target: PixelBounds) => Promise<PixelBounds>;
   cancelWait: (id: string) => void;
   dispatchBrowserResults: (resultsJson: string) => Promise<void>;
+  dispatchExternalBrowserActions: (actionsJson: string) => Promise<string>;
+  focusExternalChrome: (roleId: string) => Promise<void>;
+  setExternalChromeWindowBounds: (roleId: string, boundsJson: string) => Promise<void>;
+  captureExternalChromeDiagnostics: (roleId: string) => Promise<string>;
+  evaluateExternalChrome: (roleId: string, source: string) => Promise<string>;
   connectExternalChromeCdp: (
+    roleId: string,
     browserUserDataDir: string,
     launchUrl: string,
-    timeoutMs?: number
+    timeoutMs?: number,
+    cdnEnabled?: boolean
   ) => Promise<NativeExternalChromeCdpClient>;
+  completeBrowserOperation: (id: string) => void;
+  completeEmbeddedKeyTransition: (transitionId: string, succeeded: boolean) => void;
+  clearEmbeddedKeys: (roleId: string) => void;
   findSystemChromeExecutable: () => string;
   invoke: (commandJson: string) => Promise<string>;
-  launchExternalChrome: (
-    executablePath: string,
-    arguments_: string[]
-  ) => NativeExternalChromeProcess;
+  invokeBrowserRuntime: (commandJson: string) => string;
+  invokeResourceRuntime: (commandJson: string) => string;
+  invokeExternalSession: (commandJson: string) => string;
+  hasEmbeddedHeldKeys: (roleId: string) => boolean;
+  prepareEmbeddedKeyTransition: (
+    roleId: string,
+    phase: string,
+    code: string,
+    modifierCodesJson: string,
+    ownerId: string
+  ) => string;
   prepareExternalChromeProfile: (path: string) => Promise<void>;
+  reassertEmbeddedKeys: (roleId: string) => string;
   replaceCdnRules: (rulesJson: string) => string[];
+  createWorkspaceDividers: (inputJson: string) => string;
+  normalizeWorkspaceRects: (inputJson: string) => string;
+  resolveAdaptiveWorkspaceZoom: (viewportWidth: number, currentPercent?: number) => number;
   resolveResourcePolicy: (inputJson: string) => string;
+  resolveRolePaths: (roleId: string) => string;
+  resizeWorkspaceDivider: (inputJson: string) => string;
   resolveWorkspaceLayout: (inputJson: string) => string;
   rewriteCdnUrl: (url: string) => string | null;
   shutdown: () => Promise<void>;
@@ -74,15 +109,22 @@ export interface NativeAppCore {
     speedLimit: number | undefined,
     thermalState: string | undefined
   ) => void;
+  unregisterExternalChromeAutomation: (roleId: string) => void;
 }
 
 interface NativeCoreAddon {
   coreVersion: () => string;
+  readBootstrapGraphicsMode: (userDataDir: string) => string;
   createAppCore: (options: {
     appVersion: string;
     platform: string;
     userDataDir: string;
   }) => Promise<NativeAppCore>;
+}
+
+export function readBootstrapGraphicsMode(options: AppCoreClientOptions): string {
+  const addon = loadNativeCoreAddon(options);
+  return addon.readBootstrapGraphicsMode(options.userDataDir);
 }
 
 export interface AppCoreClientOptions {
@@ -105,6 +147,20 @@ export interface RuntimePerformanceMetrics {
   scheduledWaitCount: number;
   startedAt: string;
   tabActivation: LatencySummary;
+}
+
+export interface EmbeddedKeyRuntimeClient {
+  clearEmbeddedKeys(roleId: string): void;
+  completeEmbeddedKeyTransition(transitionId: string, succeeded: boolean): void;
+  hasEmbeddedHeldKeys(roleId: string): boolean;
+  prepareEmbeddedKeyTransition(
+    roleId: string,
+    phase: "hold" | "release" | "tap",
+    code: string,
+    modifierCodes: string[],
+    ownerId: string
+  ): EmbeddedKeyTransitionRecord;
+  reassertEmbeddedKeys(roleId: string): EmbeddedKeyTransitionRecord;
 }
 
 interface LatencySummary {
@@ -162,6 +218,115 @@ export class AppCoreClient {
     }
   }
 
+  invokeBrowserRuntime(command: BrowserRuntimeCommand): BrowserRuntimeResult {
+    try {
+      return this.measureSync(() =>
+        JSON.parse(this.native.invokeBrowserRuntime(JSON.stringify(command))) as BrowserRuntimeResult
+      );
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  invokeResourceRuntime(command: ResourceRuntimeCommand): ResourceRuntimeResult {
+    try {
+      return this.measureSync(() =>
+        JSON.parse(this.native.invokeResourceRuntime(JSON.stringify(command))) as ResourceRuntimeResult
+      );
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  invokeExternalSession(command: ExternalSessionCommand): ExternalSessionResult {
+    try {
+      return this.measureSync(() =>
+        JSON.parse(this.native.invokeExternalSession(JSON.stringify(command))) as ExternalSessionResult
+      );
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  async acquireBrowserOperation(
+    request: BrowserOperationRequest
+  ): Promise<BrowserOperationLease> {
+    const startedAt = performance.now();
+    try {
+      return JSON.parse(
+        await this.native.acquireBrowserOperation(JSON.stringify(request))
+      ) as BrowserOperationLease;
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    } finally {
+      this.metrics.recordNapi(performance.now() - startedAt);
+    }
+  }
+
+  completeBrowserOperation(id: string): void {
+    try {
+      this.measureSync(() => this.native.completeBrowserOperation(id));
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  prepareEmbeddedKeyTransition(
+    roleId: string,
+    phase: "hold" | "release" | "tap",
+    code: string,
+    modifierCodes: string[],
+    ownerId: string
+  ): EmbeddedKeyTransitionRecord {
+    try {
+      return this.measureSync(() => JSON.parse(
+        this.native.prepareEmbeddedKeyTransition(
+          roleId,
+          phase,
+          code,
+          JSON.stringify(modifierCodes),
+          ownerId
+        )
+      ) as EmbeddedKeyTransitionRecord);
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  completeEmbeddedKeyTransition(transitionId: string, succeeded: boolean): void {
+    try {
+      this.measureSync(() => this.native.completeEmbeddedKeyTransition(transitionId, succeeded));
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  reassertEmbeddedKeys(roleId: string): EmbeddedKeyTransitionRecord {
+    try {
+      return this.measureSync(() =>
+        JSON.parse(this.native.reassertEmbeddedKeys(roleId)) as EmbeddedKeyTransitionRecord
+      );
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  hasEmbeddedHeldKeys(roleId: string): boolean {
+    try {
+      return this.measureSync(() => this.native.hasEmbeddedHeldKeys(roleId));
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  clearEmbeddedKeys(roleId: string): void {
+    try {
+      this.measureSync(() => this.native.clearEmbeddedKeys(roleId));
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
   subscribe(listener: (events: CoreEvent[]) => void): () => void {
     this.eventListeners.add(listener);
     if (this.lastEvents.length > 0) listener(this.lastEvents);
@@ -184,14 +349,34 @@ export class AppCoreClient {
     return this.measureSync(() => this.native.findSystemChromeExecutable());
   }
 
-  launchExternalChrome(executablePath: string, arguments_: string[]): ExternalChromeProcessLike {
-    return this.measureSync(() => {
-      const process = new RustExternalChromeProcess(
-        this.native.launchExternalChrome(executablePath, arguments_)
-      );
-      this.metrics.processLaunchCount += 1;
-      return process;
-    });
+  launchExternalChrome(
+    roleId: string,
+    executablePath: string,
+    arguments_: string[]
+  ): ExternalChromeProcessLike {
+    return new RustExternalChromeProcess(
+      roleId,
+      async () => {
+        const result = await this.invoke<{ pid: number }>({
+          type: "externalProcessLaunch",
+          roleId,
+          executablePath,
+          arguments: arguments_
+        });
+        this.metrics.processLaunchCount += 1;
+        return result.pid;
+      },
+      async () => {
+        await this.invoke({ type: "externalProcessTerminate", roleId });
+      },
+      (listener) => this.subscribe((events) => {
+        events.forEach((event) => {
+          if (event.type === "externalProcessExited" && event.roleId === roleId) {
+            listener(event.exitCode ?? null);
+          }
+        });
+      })
+    );
   }
 
   async prepareExternalChromeProfile(path: string): Promise<void> {
@@ -206,16 +391,20 @@ export class AppCoreClient {
   }
 
   async connectExternalChromeCdp(
+    roleId: string,
     browserUserDataDir: string,
     launchUrl: string,
-    timeoutMs?: number
+    timeoutMs?: number,
+    cdnEnabled?: boolean
   ): Promise<CdpEventClientLike> {
     const startedAt = performance.now();
     try {
       const native = await this.native.connectExternalChromeCdp(
+        roleId,
         browserUserDataDir,
         launchUrl,
-        timeoutMs
+        timeoutMs,
+        cdnEnabled
       );
       return new RustExternalChromeCdpClient(native, (durationMs) => {
         this.metrics.recordCdp(durationMs);
@@ -224,6 +413,73 @@ export class AppCoreClient {
       throw normalizeNativeCoreError(error);
     } finally {
       this.metrics.recordNapi(performance.now() - startedAt);
+    }
+  }
+
+  async dispatchExternalBrowserActions(
+    actions: BrowserActionRequest[]
+  ): Promise<ExternalBrowserActionDispatch> {
+    const startedAt = performance.now();
+    try {
+      return JSON.parse(
+        await this.native.dispatchExternalBrowserActions(JSON.stringify(actions))
+      ) as ExternalBrowserActionDispatch;
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    } finally {
+      this.metrics.recordNapi(performance.now() - startedAt);
+    }
+  }
+
+  async focusExternalChrome(roleId: string): Promise<void> {
+    const startedAt = performance.now();
+    try {
+      await this.native.focusExternalChrome(roleId);
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    } finally {
+      this.metrics.recordNapi(performance.now() - startedAt);
+    }
+  }
+
+  async setExternalChromeWindowBounds(roleId: string, bounds: PixelBounds): Promise<void> {
+    const startedAt = performance.now();
+    try {
+      await this.native.setExternalChromeWindowBounds(roleId, JSON.stringify(bounds));
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    } finally {
+      this.metrics.recordNapi(performance.now() - startedAt);
+    }
+  }
+
+  async captureExternalChromeDiagnostics<T>(roleId: string): Promise<T> {
+    const startedAt = performance.now();
+    try {
+      return JSON.parse(await this.native.captureExternalChromeDiagnostics(roleId)) as T;
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    } finally {
+      this.metrics.recordNapi(performance.now() - startedAt);
+    }
+  }
+
+  async evaluateExternalChrome<T>(roleId: string, source: string): Promise<T> {
+    const startedAt = performance.now();
+    try {
+      return JSON.parse(await this.native.evaluateExternalChrome(roleId, source)) as T;
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    } finally {
+      this.metrics.recordNapi(performance.now() - startedAt);
+    }
+  }
+
+  unregisterExternalChromeAutomation(roleId: string): void {
+    try {
+      this.measureSync(() => this.native.unregisterExternalChromeAutomation(roleId));
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
     }
   }
 
@@ -252,9 +508,50 @@ export class AppCoreClient {
     );
   }
 
+  resolveRolePaths(roleId: string): RolePathsRecord {
+    try {
+      return this.measureSync(() =>
+        JSON.parse(this.native.resolveRolePaths(roleId)) as RolePathsRecord
+      );
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
   resolveWorkspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayoutOutput {
     return this.measureSync(() =>
       JSON.parse(this.native.resolveWorkspaceLayout(JSON.stringify(input))) as WorkspaceLayoutOutput
+    );
+  }
+
+  resolveAdaptiveWorkspaceZoom(
+    viewportWidth: number,
+    currentPercent?: WorkspaceBrowserZoomPercent
+  ): WorkspaceBrowserZoomPercent {
+    return this.measureSync(() =>
+      this.native.resolveAdaptiveWorkspaceZoom(viewportWidth, currentPercent)
+    ) as WorkspaceBrowserZoomPercent;
+  }
+
+  normalizeWorkspaceRects(rects: LayoutRect[]): LayoutRect[] {
+    return this.measureSync(() =>
+      JSON.parse(this.native.normalizeWorkspaceRects(JSON.stringify(rects))) as LayoutRect[]
+    );
+  }
+
+  createWorkspaceDividers(roles: LayoutRoleInput[]): WorkspaceDividerDescriptor[] {
+    return this.measureSync(() =>
+      JSON.parse(
+        this.native.createWorkspaceDividers(JSON.stringify(roles))
+      ) as WorkspaceDividerDescriptor[]
+    );
+  }
+
+  resizeWorkspaceDivider(input: WorkspaceDividerResizeInput): WorkspaceDividerResizeOutput {
+    return this.measureSync(() =>
+      JSON.parse(
+        this.native.resizeWorkspaceDivider(JSON.stringify(input))
+      ) as WorkspaceDividerResizeOutput
     );
   }
 
@@ -321,30 +618,44 @@ export class AppCoreClient {
 }
 
 class RustExternalChromeProcess extends EventEmitter implements ExternalChromeProcessLike {
-  readonly pid: number;
+  pid?: number;
   killed = false;
   exitCode: number | null = null;
+  private unsubscribe?: () => void;
 
-  constructor(private readonly native: NativeExternalChromeProcess) {
+  constructor(
+    roleId: string,
+    launch: () => Promise<number>,
+    private readonly terminate: () => Promise<void>,
+    subscribeExit: (listener: (exitCode: number | null) => void) => () => void
+  ) {
     super();
-    this.pid = native.pid();
-    native.subscribeExit((eventJson) => {
-      try {
-        const event = JSON.parse(eventJson) as { exitCode?: unknown; terminated?: unknown };
-        this.killed = this.killed || event.terminated === true;
-        this.exitCode = typeof event.exitCode === "number" ? event.exitCode : null;
-        this.emit("close", this.exitCode);
-      } catch (error) {
-        this.emit("error", error instanceof Error ? error : new Error(String(error)));
-      }
+    this.unsubscribe = subscribeExit((exitCode) => {
+      this.exitCode = exitCode;
+      this.unsubscribe?.();
+      this.unsubscribe = undefined;
+      this.emit("close", exitCode);
     });
-    queueMicrotask(() => this.emit("spawn"));
+    queueMicrotask(() => {
+      void launch()
+        .then((pid) => {
+          this.pid = pid;
+          this.emit("spawn");
+          if (this.killed) void this.terminate();
+        })
+        .catch((error) => {
+          this.unsubscribe?.();
+          this.unsubscribe = undefined;
+          this.emit("error", error instanceof Error ? error : new Error(String(error)));
+        });
+    });
+    void roleId;
   }
 
   kill(): boolean {
     if (this.killed || this.exitCode !== null) return false;
     this.killed = true;
-    this.native.terminate();
+    if (this.pid !== undefined) void this.terminate();
     return true;
   }
 }
@@ -529,7 +840,11 @@ function loadNativeCoreAddon(options: AppCoreClientOptions): NativeCoreAddon {
   try {
     const require = createRequire(import.meta.url);
     const addon = require(addonPath) as Partial<NativeCoreAddon>;
-    if (typeof addon.coreVersion !== "function" || typeof addon.createAppCore !== "function") {
+    if (
+      typeof addon.coreVersion !== "function" ||
+      typeof addon.createAppCore !== "function" ||
+      typeof addon.readBootstrapGraphicsMode !== "function"
+    ) {
       throw new Error("The addon does not expose the required Node-API surface.");
     }
     return addon as NativeCoreAddon;

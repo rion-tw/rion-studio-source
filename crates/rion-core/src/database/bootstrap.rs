@@ -28,6 +28,7 @@ const LEGACY_STATE_FILES: &[&str] = &[
     "background-activity-migration.json",
     "portable-import-transaction.json",
     "chrome-profile-import-transaction.json",
+    "chrome-profile-import-transaction.committed",
     "chrome-profile-import-previews.json",
 ];
 

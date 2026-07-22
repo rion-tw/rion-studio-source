@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -22,11 +22,20 @@ use crate::error::{CoreError, CoreResult};
 const ATTACH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DEFAULT_ATTACH_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const RECONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_DEVTOOLS_HTTP_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_EVENT_QUEUE: usize = 256;
 const MAX_COMMAND_QUEUE: usize = 256;
 
 type CdpResponse = oneshot::Sender<CoreResult<Value>>;
+type UrlRewriter = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+type CdpSocket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>;
+
+#[derive(Clone)]
+pub(crate) struct CdnRequestRewriter {
+    pub patterns: Vec<String>,
+    pub rewrite: UrlRewriter,
+}
 
 enum CdpCommand {
     Send {
@@ -77,10 +86,11 @@ pub struct ExternalChromeCdpSession {
 }
 
 impl ExternalChromeCdpSession {
-    pub async fn connect(
+    pub(crate) async fn connect(
         browser_user_data_dir: PathBuf,
         launch_url: String,
         timeout: Option<Duration>,
+        cdn: Option<CdnRequestRewriter>,
     ) -> CoreResult<Self> {
         if !browser_user_data_dir.is_absolute() {
             return Err(CoreError::InvalidInput(
@@ -89,46 +99,17 @@ impl ExternalChromeCdpSession {
         }
         let timeout = timeout.unwrap_or(DEFAULT_ATTACH_TIMEOUT);
         let deadline = Instant::now() + timeout;
-        let port = wait_for_devtools_port(&browser_user_data_dir, deadline).await?;
-        let websocket_url = loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(CoreError::ExternalChrome(
-                    "unable to find the external Chrome game page".to_owned(),
-                ));
-            }
-            match tokio::time::timeout(remaining, list_devtools_targets(port)).await {
-                Ok(Ok(targets)) => {
-                    if let Some(target) = select_page_target(&targets, &launch_url)
-                        && let Some(url) = target.web_socket_debugger_url.clone()
-                    {
-                        break url;
-                    }
-                }
-                Ok(Err(error)) if Instant::now() >= deadline => return Err(error),
-                Ok(Err(_)) => {}
-                Err(_) => {
-                    return Err(CoreError::ExternalChrome(
-                        "DevTools target discovery timed out".to_owned(),
-                    ));
-                }
-            }
-            if Instant::now() >= deadline {
-                return Err(CoreError::ExternalChrome(
-                    "unable to find the external Chrome game page".to_owned(),
-                ));
-            }
-            tokio::time::sleep(ATTACH_POLL_INTERVAL).await;
-        };
-
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let (socket, _) = tokio::time::timeout(remaining, connect_async(&websocket_url))
-            .await
-            .map_err(|_| CoreError::ExternalChrome("DevTools WebSocket timed out".to_owned()))?
-            .map_err(|error| CoreError::ExternalChrome(error.to_string()))?;
+        let socket = connect_devtools_socket(&browser_user_data_dir, &launch_url, deadline).await?;
         let (commands, command_receiver) = mpsc::channel(MAX_COMMAND_QUEUE);
         let (event_sender, events) = bounded(MAX_EVENT_QUEUE);
-        tokio::spawn(run_cdp_session(socket, command_receiver, event_sender));
+        tokio::spawn(run_cdp_session(
+            socket,
+            command_receiver,
+            event_sender,
+            cdn,
+            browser_user_data_dir,
+            launch_url,
+        ));
         Ok(Self {
             commands,
             events: Mutex::new(Some(events)),
@@ -183,14 +164,69 @@ impl Drop for ExternalChromeCdpSession {
 }
 
 async fn run_cdp_session(
-    socket: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
+    mut socket: CdpSocket,
     mut commands: mpsc::Receiver<CdpCommand>,
     events: Sender<CdpEvent>,
+    cdn: Option<CdnRequestRewriter>,
+    browser_user_data_dir: PathBuf,
+    launch_url: String,
 ) {
+    loop {
+        let disconnected = run_cdp_connection(socket, &mut commands, &events, cdn.as_ref()).await;
+        let Some(message) = disconnected else {
+            return;
+        };
+        let deadline = Instant::now() + RECONNECT_TIMEOUT;
+        match connect_devtools_socket(&browser_user_data_dir, &launch_url, deadline).await {
+            Ok(reconnected) => socket = reconnected,
+            Err(error) => {
+                let _ = events.send_timeout(
+                    CdpEvent::Disconnected {
+                        message: format!("{message}; reconnect failed: {error}"),
+                    },
+                    Duration::from_millis(250),
+                );
+                return;
+            }
+        }
+    }
+}
+
+async fn run_cdp_connection(
+    socket: CdpSocket,
+    commands: &mut mpsc::Receiver<CdpCommand>,
+    events: &Sender<CdpEvent>,
+    cdn: Option<&CdnRequestRewriter>,
+) -> Option<String> {
     let (mut writer, mut reader) = socket.split();
     let mut next_id = 1_u64;
     let mut pending = HashMap::<u64, PendingRequest>::new();
     let mut expiry = tokio::time::interval(Duration::from_millis(100));
+    if let Some(cdn) = cdn {
+        let enable = json!({
+            "id":next_id,
+            "method":"Fetch.enable",
+            "params":{
+                "patterns":cdn.patterns.iter().map(|url_pattern| json!({
+                    "requestStage":"Request",
+                    "urlPattern":url_pattern
+                })).collect::<Vec<_>>()
+            }
+        });
+        next_id += 1;
+        if let Err(error) = writer.send(Message::Text(enable.to_string().into())).await {
+            return Some(error.to_string());
+        }
+        let reload = json!({
+            "id":next_id,
+            "method":"Page.reload",
+            "params":{"ignoreCache":true}
+        });
+        next_id += 1;
+        if let Err(error) = writer.send(Message::Text(reload.to_string().into())).await {
+            return Some(error.to_string());
+        }
+    }
     let disconnect_message = loop {
         tokio::select! {
             command = commands.recv() => match command {
@@ -217,14 +253,31 @@ async fn run_cdp_session(
                 }
                 Some(CdpCommand::Close) | None => {
                     let _ = writer.send(Message::Close(None)).await;
-                    break "DevTools WebSocket closed".to_owned();
+                    for (_, request) in pending.drain() {
+                        let _ = request.response.send(Err(CoreError::ShuttingDown));
+                    }
+                    return None;
                 }
             },
             message = reader.next() => match message {
-                Some(Ok(Message::Text(text))) => handle_cdp_message(&text, &mut pending, &events),
+                Some(Ok(Message::Text(text))) => {
+                    if let Some(payload) = create_cdn_continue_request(&text, cdn, next_id) {
+                        next_id = next_id.wrapping_add(1).max(1);
+                        if let Err(error) = writer.send(Message::Text(payload.to_string().into())).await {
+                            break error.to_string();
+                        }
+                    }
+                    handle_cdp_message(&text, &mut pending, events)
+                },
                 Some(Ok(Message::Binary(bytes))) => {
                     if let Ok(text) = std::str::from_utf8(&bytes) {
-                        handle_cdp_message(text, &mut pending, &events);
+                        if let Some(payload) = create_cdn_continue_request(text, cdn, next_id) {
+                            next_id = next_id.wrapping_add(1).max(1);
+                            if let Err(error) = writer.send(Message::Text(payload.to_string().into())).await {
+                                break error.to_string();
+                            }
+                        }
+                        handle_cdp_message(text, &mut pending, events);
                     }
                 }
                 Some(Ok(Message::Ping(payload))) => {
@@ -245,12 +298,72 @@ async fn run_cdp_session(
             .response
             .send(Err(CoreError::ExternalChrome(disconnect_message.clone())));
     }
-    let _ = events.send_timeout(
-        CdpEvent::Disconnected {
-            message: disconnect_message,
-        },
-        Duration::from_millis(250),
-    );
+    Some(disconnect_message)
+}
+
+async fn connect_devtools_socket(
+    browser_user_data_dir: &Path,
+    launch_url: &str,
+    deadline: Instant,
+) -> CoreResult<CdpSocket> {
+    let port = wait_for_devtools_port(browser_user_data_dir, deadline).await?;
+    let websocket_url = loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(CoreError::ExternalChrome(
+                "unable to find the external Chrome game page".to_owned(),
+            ));
+        }
+        match tokio::time::timeout(remaining, list_devtools_targets(port)).await {
+            Ok(Ok(targets)) => {
+                if let Some(target) = select_page_target(&targets, launch_url)
+                    && let Some(url) = target.web_socket_debugger_url.clone()
+                {
+                    break url;
+                }
+            }
+            Ok(Err(error)) if Instant::now() >= deadline => return Err(error),
+            Ok(Err(_)) => {}
+            Err(_) => {
+                return Err(CoreError::ExternalChrome(
+                    "DevTools target discovery timed out".to_owned(),
+                ));
+            }
+        }
+        tokio::time::sleep(ATTACH_POLL_INTERVAL).await;
+    };
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    let (socket, _) = tokio::time::timeout(remaining, connect_async(&websocket_url))
+        .await
+        .map_err(|_| CoreError::ExternalChrome("DevTools WebSocket timed out".to_owned()))?
+        .map_err(|error| CoreError::ExternalChrome(error.to_string()))?;
+    Ok(socket)
+}
+
+fn create_cdn_continue_request(
+    text: &str,
+    cdn: Option<&CdnRequestRewriter>,
+    id: u64,
+) -> Option<Value> {
+    let cdn = cdn?;
+    let payload = serde_json::from_str::<Value>(text).ok()?;
+    if payload.get("method").and_then(Value::as_str) != Some("Fetch.requestPaused") {
+        return None;
+    }
+    let params = payload.get("params")?;
+    let request_id = params.get("requestId")?.as_str()?;
+    let url = params.get("request")?.get("url")?.as_str()?;
+    let is_document = params.get("resourceType").and_then(Value::as_str) == Some("Document");
+    let rewritten = (!is_document).then(|| (cdn.rewrite)(url)).flatten();
+    let mut request = json!({"requestId":request_id});
+    if let Some(rewritten) = rewritten {
+        request["url"] = Value::String(rewritten);
+    }
+    Some(json!({
+        "id":id,
+        "method":"Fetch.continueRequest",
+        "params":request
+    }))
 }
 
 fn handle_cdp_message(
@@ -509,6 +622,15 @@ fn same_origin(value: Option<&str>, expected: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use tempfile::tempdir;
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::{accept_async, tungstenite::Message};
+
     use super::*;
 
     #[test]
@@ -543,6 +665,34 @@ mod tests {
     }
 
     #[test]
+    fn continues_every_paused_request_and_rewrites_only_subresources() {
+        let cdn = CdnRequestRewriter {
+            patterns: vec!["https://source.test/*".to_owned()],
+            rewrite: Arc::new(|url| Some(url.replace("source.test", "mirror.test"))),
+        };
+        let script = json!({
+            "method":"Fetch.requestPaused",
+            "params":{
+                "requestId":"request-1","resourceType":"Script",
+                "request":{"url":"https://source.test/app.js"}
+            }
+        });
+        let rewritten = create_cdn_continue_request(&script.to_string(), Some(&cdn), 7).unwrap();
+        assert_eq!(rewritten["method"], "Fetch.continueRequest");
+        assert_eq!(rewritten["params"]["url"], "https://mirror.test/app.js");
+
+        let document = json!({
+            "method":"Fetch.requestPaused",
+            "params":{
+                "requestId":"request-2","resourceType":"Document",
+                "request":{"url":"https://source.test/play"}
+            }
+        });
+        let continued = create_cdn_continue_request(&document.to_string(), Some(&cdn), 8).unwrap();
+        assert!(continued["params"].get("url").is_none());
+    }
+
+    #[test]
     fn decodes_chunked_devtools_responses() {
         assert_eq!(
             decode_http_body(
@@ -570,5 +720,126 @@ mod tests {
         );
         assert_eq!(chunked_body_length(b"4\r\ntest\r\n0\r\n\r\n"), Some(14));
         assert_eq!(chunked_body_length(b"4\r\ntes"), None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reconnects_and_keeps_the_bounded_command_session_usable() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let server_connections = Arc::clone(&connections);
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut prefix = [0_u8; 512];
+                let read = loop {
+                    let read = stream.peek(&mut prefix).await.unwrap();
+                    if prefix[..read].windows(2).any(|window| window == b"\r\n") {
+                        break read;
+                    }
+                    tokio::task::yield_now().await;
+                };
+                let request = String::from_utf8_lossy(&prefix[..read]);
+                if request.starts_with("GET /json/list ") {
+                    let mut headers = Vec::new();
+                    let mut buffer = [0_u8; 512];
+                    while !headers.windows(4).any(|window| window == b"\r\n\r\n") {
+                        let read = stream.read(&mut buffer).await.unwrap();
+                        if read == 0 {
+                            break;
+                        }
+                        headers.extend_from_slice(&buffer[..read]);
+                    }
+                    let body = json!([{
+                        "id":"page-1",
+                        "type":"page",
+                        "url":"https://game.test/play",
+                        "webSocketDebuggerUrl":format!("ws://127.0.0.1:{port}/devtools/page/1")
+                    }])
+                    .to_string();
+                    stream
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                body.len(),
+                                body
+                            )
+                            .as_bytes(),
+                        )
+                        .await
+                        .unwrap();
+                    continue;
+                }
+
+                let index = server_connections.fetch_add(1, Ordering::SeqCst) + 1;
+                tokio::spawn(async move {
+                    let mut websocket = accept_async(stream).await.unwrap();
+                    if let Some(Ok(Message::Text(text))) = websocket.next().await {
+                        let payload = serde_json::from_str::<Value>(&text).unwrap();
+                        websocket
+                            .send(Message::Text(
+                                json!({"id":payload["id"],"result":{"connection":index}})
+                                    .to_string()
+                                    .into(),
+                            ))
+                            .await
+                            .unwrap();
+                    }
+                    if index == 1 {
+                        let _ = websocket.close(None).await;
+                        return;
+                    }
+                    while let Some(Ok(Message::Text(text))) = websocket.next().await {
+                        let payload = serde_json::from_str::<Value>(&text).unwrap();
+                        websocket
+                            .send(Message::Text(
+                                json!({"id":payload["id"],"result":{"connection":index}})
+                                    .to_string()
+                                    .into(),
+                            ))
+                            .await
+                            .unwrap();
+                    }
+                });
+            }
+        });
+
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("DevToolsActivePort"),
+            format!("{port}\n/devtools/browser/test"),
+        )
+        .unwrap();
+        let session = ExternalChromeCdpSession::connect(
+            directory.path().to_path_buf(),
+            "https://game.test/play".to_owned(),
+            Some(Duration::from_secs(2)),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            session
+                .send("Runtime.enable".to_owned(), None, None, None)
+                .await
+                .unwrap()["connection"],
+            1
+        );
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while connections.load(Ordering::SeqCst) < 2 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            session
+                .send("Runtime.evaluate".to_owned(), None, None, None)
+                .await
+                .unwrap()["connection"],
+            2
+        );
+        session.close();
+        server.abort();
     }
 }

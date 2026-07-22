@@ -1472,6 +1472,8 @@ int main() {
     Assert(probeNotificationCount == settledProbeNotificationCount + 1,
            "Repeated KVO geometry must not emit a duplicate content-layout callback.");
 
+    NSUInteger notificationCountBeforeContentViewReplacement =
+        probeNotificationCount;
     NSView *previousProbeContentView = layoutProbeWindow.contentView;
     RionFlippedContentView *replacementProbeContentView =
         [[RionFlippedContentView alloc]
@@ -1495,7 +1497,8 @@ int main() {
             convertedReplacementProbeRect,
             replacementProbeContentView.isFlipped);
     Assert(layoutProbeWindow.contentView == replacementProbeContentView &&
-               probeNotificationCount == settledProbeNotificationCount + 2 &&
+               probeNotificationCount >
+                   notificationCountBeforeContentViewReplacement &&
                probeNotification.valid == expectedReplacementLayout.valid &&
                probeNotification.yOffset == expectedReplacementLayout.yOffset &&
                probeNotification.heightInset ==

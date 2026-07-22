@@ -15,7 +15,7 @@ import type {
   Role,
   RoleStatus
 } from "../../shared/types";
-import type { HeldTriggerReleaseMode, MacroRuntimeManager } from "./MacroManager";
+import type { HeldTriggerReleaseMode, MacroRuntimeManager } from "./MacroRuntimeManager";
 import type { MacroStore } from "./MacroStore";
 
 interface MacroOverlayState {

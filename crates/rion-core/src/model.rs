@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -20,61 +22,203 @@ pub struct AppCoreOptions {
 pub enum CoreCommand {
     Health,
     StateSnapshot,
+    GamesList,
+    GameGet {
+        id: String,
+    },
+    GameCreate {
+        input: GameCreateInputRecord,
+    },
+    GameUpdate {
+        id: String,
+        input: GameUpdateInputRecord,
+    },
+    GameResetBuiltin {
+        id: String,
+    },
+    GameDelete {
+        id: String,
+    },
+    RolesList,
+    RoleGet {
+        id: String,
+    },
+    RoleCreate {
+        input: RoleCreateInputRecord,
+    },
+    RoleUpdate {
+        id: String,
+        input: RoleUpdateInputRecord,
+    },
+    RoleReorder {
+        #[ts(rename = "orderedIds")]
+        ordered_ids: Vec<String>,
+    },
+    RoleDelete {
+        id: String,
+    },
+    RoleBrowserDirectoryEnsure {
+        id: String,
+    },
+    RoleBrowserDirectoryReset {
+        id: String,
+    },
+    RoleSetBrowserSessionSource {
+        id: String,
+        #[ts(type = "\"embedded\" | \"chrome-profile\"")]
+        source: String,
+    },
+    RoleAssignGameIds {
+        assignments: Vec<RoleGameAssignmentRecord>,
+    },
+    WorkspacesList,
+    WorkspaceGet {
+        id: String,
+    },
+    WorkspaceCreate {
+        input: WorkspaceCreateInputRecord,
+    },
+    WorkspaceUpdate {
+        id: String,
+        input: WorkspaceUpdateInputRecord,
+    },
+    WorkspaceReorder {
+        #[ts(rename = "orderedIds")]
+        ordered_ids: Vec<String>,
+    },
+    WorkspaceDelete {
+        id: String,
+    },
+    WorkspaceClearRole {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    WorkspaceSetRoleBrowserZoom {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "browserZoomPercent")]
+        browser_zoom_percent: f64,
+    },
+    WorkspaceReconcileDisplays {
+        displays: Vec<WorkspaceDisplayInfoRecord>,
+    },
+    MacrosList,
+    MacroGet {
+        id: String,
+    },
+    MacroCreate {
+        input: MacroCreateInputRecord,
+    },
+    MacroUpdate {
+        id: String,
+        input: MacroUpdateInputRecord,
+    },
+    MacroDelete {
+        id: String,
+    },
+    MacrosDelete {
+        ids: Vec<String>,
+    },
+    MacrosClearRole {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    CompatibilityReportRecordObservation {
+        #[ts(rename = "gameId")]
+        game_id: String,
+        observation: StateCompatibilityObservationsRecord,
+    },
+    CompatibilityReportDelete {
+        #[ts(rename = "gameId")]
+        game_id: String,
+    },
+    CompatibilityStatuses,
+    CompatibilityPrepare {
+        #[ts(rename = "gameId")]
+        game_id: String,
+        #[ts(rename = "systemChromeAvailable")]
+        system_chrome_available: bool,
+        versions: CompatibilityVersionRecord,
+    },
+    CompatibilityTransition {
+        #[ts(rename = "gameId")]
+        game_id: String,
+        phase: CompatibilityRunPhase,
+    },
+    CompatibilityComplete {
+        #[ts(rename = "gameId")]
+        game_id: String,
+        outcome: CompatibilityCheckOutcome,
+    },
+    CompatibilityCancel {
+        #[ts(rename = "gameId")]
+        game_id: String,
+    },
+    CompatibilityReportsCurrent {
+        versions: CompatibilityVersionRecord,
+    },
+    GameBrowserSettingsGet,
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,
     },
+    MacroSettingsGet,
     MacroSettingsReplace {
         settings: MacroSettingsRecord,
     },
+    RuntimeWindowPreferencesGet,
     RuntimeWindowPreferencesReplace {
         preferences: RuntimeWindowPreferencesRecord,
     },
-    LegalAcceptanceReplace {
-        acceptance: LegalAcceptanceRecord,
+    LegalAcceptanceStatus {
+        versions: LegalDocumentVersionsRecord,
     },
-    PortableCommit {
-        #[ts(type = "unknown")]
-        snapshot: Value,
+    LegalAcceptanceAccept {
+        versions: LegalDocumentVersionsRecord,
+        input: LegalAcceptDocumentsInputRecord,
     },
-    GamesApplyDelta {
-        #[ts(type = "Array<import(\"../types\").Game>")]
-        upserts: Vec<StateGameRecord>,
-        #[ts(rename = "deleteIds")]
-        delete_ids: Vec<String>,
-        #[ts(rename = "orderedIds")]
-        ordered_ids: Vec<String>,
+    BrowserPreferencesApply {
+        #[ts(rename = "browserUserDataDir")]
+        browser_user_data_dir: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "roleSessionPartition")]
+        role_session_partition: Option<String>,
+        fonts: BrowserFontSettingsRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "zoomFactor")]
+        zoom_factor: Option<f64>,
     },
-    RolesApplyDelta {
-        #[ts(type = "Array<import(\"../types\").Role>")]
-        upserts: Vec<StateRoleRecord>,
-        #[ts(rename = "deleteIds")]
-        delete_ids: Vec<String>,
-        #[ts(rename = "orderedIds")]
-        ordered_ids: Vec<String>,
+    SystemFontsList,
+    WindowsGraphicsEventsCollect {
+        since: String,
     },
-    LaunchWorkspacesApplyDelta {
-        #[ts(type = "Array<import(\"../types\").LaunchWorkspace>")]
-        upserts: Vec<StateLaunchWorkspaceRecord>,
-        #[ts(rename = "deleteIds")]
-        delete_ids: Vec<String>,
-        #[ts(rename = "orderedIds")]
-        ordered_ids: Vec<String>,
+    PortableExport {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        preferences: Option<PortablePreferencesRecord>,
+        selection: PortableDataSelectionRecord,
     },
-    MacrosApplyDelta {
-        #[ts(type = "Array<import(\"../types\").Macro>")]
-        upserts: Vec<StateMacroRecord>,
-        #[ts(rename = "deleteIds")]
-        delete_ids: Vec<String>,
-        #[ts(rename = "orderedIds")]
-        ordered_ids: Vec<String>,
+    PortablePreview {
+        #[serde(rename = "rawJson")]
+        #[ts(rename = "rawJson")]
+        raw_json: String,
+        #[serde(rename = "filePath")]
+        #[ts(rename = "filePath")]
+        file_path: String,
     },
-    CompatibilityReportsApplyDelta {
-        #[ts(type = "Array<import(\"../types\").GameCompatibilityReport>")]
-        upserts: Vec<StateCompatibilityReportRecord>,
-        #[ts(rename = "deleteIds")]
-        delete_ids: Vec<String>,
-        #[ts(rename = "orderedIds")]
-        ordered_ids: Vec<String>,
+    PortableApply {
+        #[serde(rename = "importId")]
+        #[ts(rename = "importId")]
+        import_id: String,
+        selection: PortableDataSelectionRecord,
+        #[serde(default)]
+        resolutions: Vec<PortableMacroConflictResolutionRecord>,
+    },
+    PortableDiscard {
+        #[serde(rename = "importId")]
+        #[ts(rename = "importId")]
+        import_id: String,
     },
     CdnReplaceRules {
         rules: Vec<CdnRule>,
@@ -96,15 +240,14 @@ pub enum CoreCommand {
     },
     LogsClear,
     LogsStatus,
-    LogsExport,
     LogsExportTo {
         path: String,
     },
     MacroStart {
-        request: MacroStartRequest,
+        request: MacroInvocationRequest,
     },
     MacroPress {
-        request: MacroPressRequest,
+        request: MacroPressInvocationRequest,
     },
     MacroRelease {
         request: MacroReleaseRequest,
@@ -112,6 +255,12 @@ pub enum CoreCommand {
     MacroStop {
         #[ts(rename = "macroId")]
         macro_id: String,
+    },
+    MacroStopForRole {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
     },
     MacroStopRole {
         #[ts(rename = "roleId")]
@@ -122,6 +271,16 @@ pub enum CoreCommand {
         role_id: String,
     },
     MacroStatuses,
+    MacroMutationAcquire {
+        #[ts(rename = "macroIds")]
+        macro_ids: Vec<String>,
+        #[ts(rename = "stopActive")]
+        stop_active: bool,
+    },
+    MacroMutationRelease {
+        #[ts(rename = "leaseId")]
+        lease_id: String,
+    },
     ExternalHealthRegister {
         #[ts(rename = "roleId")]
         role_id: String,
@@ -139,26 +298,938 @@ pub enum CoreCommand {
     ExternalHealthSuspend {
         suspended: bool,
     },
-    ChromeProfileDiscover {
+    ExternalProcessLaunch {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "executablePath")]
+        executable_path: String,
+        arguments: Vec<String>,
+    },
+    ExternalProcessTerminate {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    ChromeProfileDefaultPath,
+    ChromeProfilePreview {
         #[ts(rename = "sourceUserDataDir")]
         source_user_data_dir: String,
     },
-    ChromeProfileCopy {
-        #[ts(rename = "sourceUserDataDir")]
-        source_user_data_dir: String,
-        #[ts(rename = "directoryName")]
-        directory_name: String,
-        destination: String,
+    ChromeProfilePrepare {
+        #[ts(rename = "importId")]
+        import_id: String,
+        #[ts(rename = "profileIds")]
+        profile_ids: Vec<String>,
+        #[ts(rename = "gameId")]
+        game_id: String,
+        #[ts(rename = "consentAccepted")]
+        consent_accepted: bool,
+    },
+    ChromeProfileCommit {
+        #[ts(rename = "importId")]
+        import_id: String,
+    },
+    ChromeProfileFinalize {
+        #[ts(rename = "importId")]
+        import_id: String,
+    },
+    ChromeProfileRollback {
+        #[ts(rename = "importId")]
+        import_id: String,
+    },
+    ChromeProfileDiscard {
+        #[ts(rename = "importId")]
+        import_id: String,
     },
     ChromeProfileReadCookies {
         #[ts(rename = "browserUserDataDir")]
         browser_user_data_dir: String,
     },
-    PortableNormalize {
-        #[serde(rename = "rawJson")]
-        #[ts(rename = "rawJson")]
-        raw_json: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableDataSelectionRecord {
+    pub games: bool,
+    pub roles: bool,
+    pub launch_workspaces: bool,
+    pub macros: bool,
+    pub preferences: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum PortableMacroConflictResolutionRecord {
+    Update {
+        #[serde(rename = "conflictId")]
+        #[ts(rename = "conflictId")]
+        conflict_id: String,
+        #[serde(rename = "targetMacroId")]
+        #[ts(rename = "targetMacroId")]
+        target_macro_id: String,
     },
+    Copy {
+        #[serde(rename = "conflictId")]
+        #[ts(rename = "conflictId")]
+        conflict_id: String,
+    },
+    Skip {
+        #[serde(rename = "conflictId")]
+        #[ts(rename = "conflictId")]
+        conflict_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortablePreferencesRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub game_browser_settings: Option<GameBrowserSettingsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"en\" | \"zh-TW\" | \"zh-CN\" | \"ja\"")]
+    pub language: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub macro_settings: Option<MacroSettingsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"system\" | \"light\" | \"dark\"")]
+    pub theme_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableGameRecord {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub inferred: Option<bool>,
+    #[ts(type = "\"builtin\" | \"custom\"")]
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"flyff-universe\" | \"feifei-infinite-universe\"")]
+    pub builtin_key: Option<String>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub icon_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_data_url: Option<String>,
+    pub default_launch_url: String,
+    #[ts(type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\"")]
+    pub browser_launch_mode: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableRoleRecord {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub game_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub game_recovered: Option<bool>,
+    pub name: String,
+    pub launch_url: String,
+    pub notes: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_dominant_color: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableLaunchWorkspaceRecord {
+    pub id: String,
+    pub name: String,
+    #[ts(
+        type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
+    )]
+    pub template: String,
+    #[ts(type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\"")]
+    pub browser_launch_mode: String,
+    #[ts(type = "\"adaptive\" | \"fixed\"")]
+    pub browser_zoom_mode: String,
+    #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
+    pub browser_zoom_percent: f64,
+    pub resource_policy: StateWorkspaceResourcePolicyRecord,
+    pub slots: Vec<StateWorkspaceSlotRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableMacroRecord {
+    pub id: String,
+    pub enabled: bool,
+    #[ts(type = "\"toggle\" | \"while_held\"")]
+    pub activation_mode: String,
+    pub name: String,
+    pub role_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trigger: Option<MacroTrigger>,
+    pub repeat: MacroRepeat,
+    pub steps: Vec<MacroStepDefinition>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableDataRecord {
+    #[ts(type = "\"Rion Studio\"")]
+    pub app: String,
+    #[ts(type = "6")]
+    pub schema_version: u32,
+    pub exported_at: String,
+    pub app_version: String,
+    pub games: Vec<PortableGameRecord>,
+    pub roles: Vec<PortableRoleRecord>,
+    pub launch_workspaces: Vec<PortableLaunchWorkspaceRecord>,
+    pub macros: Vec<PortableMacroRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub preferences: Option<PortablePreferencesRecord>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableImportOperationSummaryRecord {
+    pub create: u32,
+    pub update: u32,
+    pub unchanged: u32,
+    pub skip: u32,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableImportOperationsRecord {
+    pub games: PortableImportOperationSummaryRecord,
+    pub roles: PortableImportOperationSummaryRecord,
+    pub launch_workspaces: PortableImportOperationSummaryRecord,
+    pub macros: PortableImportOperationSummaryRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableImportWarningRecord {
+    #[ts(
+        type = "\"GAME_NAME_RENAMED\" | \"BUILTIN_GAME_DEFAULTS_REPLACED\" | \"ROLE_GAME_RECOVERED\" | \"ROLE_NAME_RENAMED\" | \"WORKSPACE_NAME_RENAMED\" | \"WORKSPACE_ROLE_MISSING\" | \"MACRO_NAME_RENAMED\" | \"MACRO_ROLE_MISSING\" | \"MACRO_SHORTCUT_CLEARED_CONFLICT\" | \"MACRO_SHORTCUT_CLEARED_RESERVED\" | \"MACRO_SKIPPED_NO_ROLES\" | \"MACRO_SKIPPED_MISSING_DEPENDENCY\""
+    )]
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub item_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub replacement_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableMacroConflictCandidateRecord {
+    pub id: String,
+    pub name: String,
+    pub role_names: Vec<String>,
+    pub step_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trigger: Option<MacroTrigger>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableMacroConflictRecord {
+    pub id: String,
+    pub macro_id: String,
+    pub name: String,
+    pub role_names: Vec<String>,
+    pub candidates: Vec<PortableMacroConflictCandidateRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableImportPreviewRecord {
+    pub import_id: String,
+    pub file_path: String,
+    pub exported_at: String,
+    pub app_version: String,
+    pub game_count: u32,
+    pub role_count: u32,
+    pub workspace_count: u32,
+    pub macro_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub preferences: Option<PortablePreferencesRecord>,
+    pub operations: PortableImportOperationsRecord,
+    pub conflicts: Vec<PortableMacroConflictRecord>,
+    pub warnings: Vec<PortableImportWarningRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableImportResultRecord {
+    pub game_count: u32,
+    pub role_count: u32,
+    pub workspace_count: u32,
+    pub macro_count: u32,
+    pub preferences_included: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub preferences: Option<PortablePreferencesRecord>,
+    pub selection: PortableDataSelectionRecord,
+    pub operations: PortableImportOperationsRecord,
+    pub warnings: Vec<PortableImportWarningRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileEntryRecord {
+    pub id: String,
+    pub directory_name: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportWarningRecord {
+    #[ts(
+        type = "\"unsupported_platform\" | \"source_invalid\" | \"chrome_running\" | \"profile_invalid\" | \"profile_selection_empty\" | \"passwords_excluded\" | \"name_renamed\""
+    )]
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub profile_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub replacement_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportPreviewRecord {
+    pub import_id: String,
+    pub source_label: String,
+    pub profiles: Vec<ChromeProfileEntryRecord>,
+    pub warnings: Vec<ChromeProfileImportWarningRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportRequest {
+    pub import_id: String,
+    pub profile_ids: Vec<String>,
+    pub game_id: String,
+    pub consent_accepted: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportResultRecord {
+    pub roles: Vec<StateRoleRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportPrepareRecord {
+    pub overwritten_role_ids: Vec<String>,
+    pub profiles: Vec<ChromeProfileEntryRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportedSessionRecord {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub browser_user_data_dir: String,
+    pub role: StateRoleRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportCommitRecord {
+    pub roles: Vec<StateRoleRecord>,
+    pub sessions: Vec<ChromeProfileImportedSessionRecord>,
+}
+
+/// Renderer-facing game creation contract. The similarly named `*InputRecord`
+/// types below are private command payloads and may contain presence flags used
+/// to preserve `undefined` versus `null` across Node-API.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameCreateRequest {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub icon_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub cover_image_data_url: Option<String>,
+    pub default_launch_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\""
+    )]
+    pub browser_launch_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameUpdateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub icon_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub cover_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub default_launch_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\""
+    )]
+    pub browser_launch_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleCreateRequest {
+    pub game_id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launch_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub cover_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub cover_image_dominant_color: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleUpdateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub game_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launch_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub cover_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub cover_image_dominant_color: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RolePathsRecord {
+    pub browser_user_data_dir: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceSlotRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rect: Option<StateNormalizedRectRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceCreateRequest {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
+    )]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\""
+    )]
+    pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"adaptive\" | \"fixed\"")]
+    pub browser_zoom_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
+    pub browser_zoom_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub slots: Option<Vec<WorkspaceSlotRequest>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceUpdateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
+    )]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\""
+    )]
+    pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"adaptive\" | \"fixed\"")]
+    pub browser_zoom_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
+    pub browser_zoom_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub slots: Option<Vec<WorkspaceSlotRequest>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroCreateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"toggle\" | \"while_held\"")]
+    pub activation_mode: Option<String>,
+    pub name: String,
+    pub role_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub trigger: Option<MacroTrigger>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repeat: Option<MacroRepeat>,
+    pub steps: Vec<MacroStepDefinition>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroUpdateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"toggle\" | \"while_held\"")]
+    pub activation_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub trigger: Option<MacroTrigger>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repeat: Option<MacroRepeat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub steps: Option<Vec<MacroStepDefinition>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameCreateInputRecord {
+    pub name: String,
+    pub default_launch_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub icon_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_launch_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameUpdateInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub default_launch_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub icon_image_data_url: Option<String>,
+    #[serde(default)]
+    pub set_icon_image_data_url: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_data_url: Option<String>,
+    #[serde(default)]
+    pub set_cover_image_data_url: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_launch_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleCreateInputRecord {
+    pub game_id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launch_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_dominant_color: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleUpdateInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub game_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launch_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_data_url: Option<String>,
+    #[serde(default)]
+    pub set_cover_image_data_url: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cover_image_dominant_color: Option<String>,
+    #[serde(default)]
+    pub set_cover_image_dominant_color: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RoleGameAssignmentRecord {
+    pub role_id: String,
+    pub game_id: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceSlotInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rect: Option<StateNormalizedRectRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceCreateInputRecord {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub slots: Option<Vec<WorkspaceSlotInputRecord>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceUpdateInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
+    #[serde(default)]
+    pub set_target_display: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub slots: Option<Vec<WorkspaceSlotInputRecord>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceDisplayInfoRecord {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub label: String,
+    pub bounds: StatePixelBoundsRecord,
+    pub resolution: StateResolutionRecord,
+    pub scale_factor: f64,
+    pub is_primary: bool,
+    pub is_internal: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum MacroStepInputRecord {
+    Key {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<String>,
+        code: String,
+        #[serde(default)]
+        modifiers: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        action: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        label: Option<String>,
+    },
+    Click {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        unit: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        anchor: Option<String>,
+        #[serde(rename = "xPercent")]
+        #[ts(rename = "xPercent")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        x_percent: Option<f64>,
+        #[serde(rename = "yPercent")]
+        #[ts(rename = "yPercent")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        y_percent: Option<f64>,
+        #[serde(rename = "xPx")]
+        #[ts(rename = "xPx")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        x_px: Option<f64>,
+        #[serde(rename = "yPx")]
+        #[ts(rename = "yPx")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        y_px: Option<f64>,
+    },
+    Delay {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<String>,
+        ms: u32,
+    },
+    Macro {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<String>,
+        #[serde(rename = "macroId")]
+        #[ts(rename = "macroId")]
+        macro_id: String,
+        #[serde(rename = "callMode")]
+        #[ts(rename = "callMode")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        call_mode: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroCreateInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub activation_mode: Option<String>,
+    pub name: String,
+    pub role_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trigger: Option<MacroTrigger>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repeat: Option<MacroRepeat>,
+    pub steps: Vec<MacroStepInputRecord>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroUpdateInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub activation_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trigger: Option<MacroTrigger>,
+    #[serde(default)]
+    pub set_trigger: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub repeat: Option<MacroRepeat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub steps: Option<Vec<MacroStepInputRecord>>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, TS)]
@@ -172,26 +1243,33 @@ pub enum StateCollection {
     CompatibilityReports,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateGameRecord {
     pub id: String,
+    #[ts(type = "\"builtin\" | \"custom\"")]
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"flyff-universe\" | \"feifei-infinite-universe\"")]
     pub builtin_key: Option<String>,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub icon_image_data_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub cover_image_data_url: Option<String>,
     pub default_launch_url: String,
+    #[ts(type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\"")]
     pub browser_launch_mode: String,
     pub created_at: String,
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateRoleRecord {
     pub id: String,
     pub game_id: String,
@@ -199,47 +1277,64 @@ pub struct StateRoleRecord {
     pub launch_url: String,
     pub notes: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"embedded\" | \"chrome-profile\"")]
     pub browser_session_source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub cover_image_data_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub cover_image_dominant_color: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateLaunchWorkspaceRecord {
     pub id: String,
     pub name: String,
+    #[ts(
+        type = "\"single\" | \"two_columns\" | \"three_columns\" | \"main_left_stack_right\" | \"main_right_stack_left\" | \"main_center_side_stacks\" | \"three_top_two_bottom\" | \"two_top_three_bottom\" | \"quad\" | \"four_columns\" | \"six_grid\" | \"eight_grid\" | \"nine_grid\""
+    )]
     pub template: String,
+    #[ts(type = "\"auto\" | \"embedded\" | \"external\" | \"inherit\"")]
     pub browser_launch_mode: String,
+    #[ts(type = "\"adaptive\" | \"fixed\"")]
     pub browser_zoom_mode: String,
+    #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: f64,
     pub resource_policy: StateWorkspaceResourcePolicyRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     pub slots: Vec<StateWorkspaceSlotRecord>,
     pub created_at: String,
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateWorkspaceResourcePolicyRecord {
+    #[ts(type = "\"unrestricted\" | \"adaptive\"")]
     pub mode: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateWorkspaceDisplayTargetRecord {
+    #[ts(type = "number")]
     pub id: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub fingerprint: Option<StateWorkspaceDisplayFingerprintRecord>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateWorkspaceDisplayFingerprintRecord {
     pub label: String,
     pub bounds: StatePixelBoundsRecord,
@@ -249,7 +1344,8 @@ pub struct StateWorkspaceDisplayFingerprintRecord {
     pub is_internal: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StatePixelBoundsRecord {
     pub x: i32,
     pub y: i32,
@@ -257,24 +1353,29 @@ pub struct StatePixelBoundsRecord {
     pub height: i32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateResolutionRecord {
     pub width: u32,
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateWorkspaceSlotRecord {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub role_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
     pub browser_zoom_percent: Option<f64>,
     pub rect: StateNormalizedRectRecord,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateNormalizedRectRecord {
     pub x: f64,
     pub y: f64,
@@ -282,16 +1383,19 @@ pub struct StateNormalizedRectRecord {
     pub height: f64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateMacroRecord {
     pub id: String,
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"toggle\" | \"while_held\"")]
     pub activation_mode: Option<String>,
     pub name: String,
     pub role_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub trigger: Option<MacroTrigger>,
     pub repeat: MacroRepeat,
     pub steps: Vec<MacroStepDefinition>,
@@ -299,75 +1403,200 @@ pub struct StateMacroRecord {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateCompatibilityReportRecord {
     pub game_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub checked_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub configuration_fingerprint: Option<String>,
     pub is_stale: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub load: Option<StateCompatibilityLoadRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub graphics: Option<StateWebGraphicsRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub system_chrome: Option<StateCompatibilityChromeRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub recommendation: Option<StateCompatibilityRecommendationRecord>,
     pub observations: StateCompatibilityObservationsRecord,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateCompatibilityLoadRecord {
+    #[ts(type = "\"available\" | \"failed\" | \"cancelled\"")]
     pub state: String,
+    #[ts(type = "number")]
     pub duration_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub final_origin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub error_code: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateWebGraphicsRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub renderer: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub vendor: Option<String>,
+    #[ts(type = "\"available\" | \"unavailable\" | \"unknown\"")]
     pub webgl: String,
+    #[ts(type = "\"available\" | \"unavailable\" | \"unknown\"")]
     pub webgl2: String,
+    #[ts(type = "\"available\" | \"unavailable\" | \"unknown\"")]
     pub webgpu: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateCompatibilityChromeRecord {
+    #[ts(type = "\"available\" | \"unavailable\"")]
     pub state: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateCompatibilityRecommendationRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"auto\" | \"embedded\" | \"external\"")]
     pub mode: Option<String>,
+    #[ts(
+        type = "\"embedded_available\" | \"external_recommended\" | \"chrome_required\" | \"graphics_unavailable\""
+    )]
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateCompatibilityObservationsRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub last_embedded_success_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub last_external_success_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub last_fallback_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub last_launch_failure_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
     pub last_launch_failure_code: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum CompatibilityRunPhase {
+    Preparing,
+    Loading,
+    Probing,
+    CleaningUp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CompatibilityRunStatusRecord {
+    pub game_id: String,
+    pub phase: CompatibilityRunPhase,
+    pub started_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CompatibilityVersionRecord {
+    pub chrome: String,
+    pub electron: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CompatibilityCheckPlanRecord {
+    pub game_id: String,
+    pub game_name: String,
+    pub launch_url: String,
+    pub started_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum CompatibilityCheckOutcome {
+    Loaded {
+        #[ts(type = "number")]
+        duration_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        final_origin: Option<String>,
+        graphics: StateWebGraphicsRecord,
+    },
+    Failed {
+        #[ts(type = "number")]
+        duration_ms: u64,
+        error_code: String,
+    },
+    Cancelled {
+        #[ts(type = "number")]
+        duration_ms: u64,
+    },
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreStateSnapshotRecord {
+    #[serde(default)]
+    pub games: Vec<StateGameRecord>,
+    #[serde(default)]
+    pub roles: Vec<StateRoleRecord>,
+    #[serde(default)]
+    pub launch_workspaces: Vec<StateLaunchWorkspaceRecord>,
+    #[serde(default)]
+    pub macros: Vec<StateMacroRecord>,
+    #[serde(default)]
+    pub compatibility_reports: Vec<StateCompatibilityReportRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub game_browser_settings: Option<GameBrowserSettingsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub macro_settings: Option<MacroSettingsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_window_preferences: Option<RuntimeWindowPreferencesRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub legal_acceptance: Option<LegalAcceptanceRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -397,9 +1626,21 @@ pub enum CoreEvent {
     MacroStatuses {
         statuses: Vec<MacroRunStatus>,
     },
+    CompatibilityStatuses {
+        statuses: Vec<CompatibilityRunStatusRecord>,
+    },
+    ExternalProcessExited {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "exitCode")]
+        exit_code: Option<i32>,
+        terminated: bool,
+    },
     ExternalHealthChanged {
         #[ts(rename = "roleId")]
         role_id: String,
+        #[ts(type = "\"healthy\" | \"unresponsive\"")]
         health: String,
     },
     ExternalHealthProbeFailed {
@@ -411,6 +1652,249 @@ pub enum CoreEvent {
         error_message: String,
     },
     Shutdown,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum BrowserRuntimeCommand {
+    Snapshot,
+    BeginWorkspace {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "displayId", type = "number")]
+        display_id: Option<i64>,
+        #[serde(rename = "roleIds")]
+        #[ts(rename = "roleIds")]
+        role_ids: Vec<String>,
+    },
+    RegisterDisplay {
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+    },
+    CreateTab {
+        #[ts(rename = "sourceId")]
+        source_id: String,
+        name: String,
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+        #[serde(rename = "tabType")]
+        #[ts(rename = "tabType", type = "\"role\" | \"workspace\"")]
+        tab_type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "workspaceId")]
+        workspace_id: Option<String>,
+        #[serde(rename = "roleIds")]
+        #[ts(rename = "roleIds")]
+        role_ids: Vec<String>,
+    },
+    CreateExternalWorkspace {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "displayId", type = "number")]
+        display_id: Option<i64>,
+        #[serde(default)]
+        #[ts(rename = "exclusiveDisplay")]
+        exclusive_display: bool,
+        #[serde(rename = "roleIds")]
+        #[ts(rename = "roleIds")]
+        role_ids: Vec<String>,
+    },
+    RemoveTab {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+    },
+    ActivateTab {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+    },
+    ShowDisplay {
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+    },
+    ActivateAdjacentTab {
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+        #[ts(type = "\"next\" | \"previous\"")]
+        direction: String,
+    },
+    HideTab {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+    },
+    ReorderTab {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "beforeTabId")]
+        before_tab_id: Option<String>,
+    },
+    MoveTab {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+    },
+    MoveDisplayTabs {
+        #[ts(rename = "sourceDisplayId")]
+        #[ts(type = "number")]
+        source_display_id: i64,
+        #[ts(rename = "targetDisplayId")]
+        #[ts(type = "number")]
+        target_display_id: i64,
+    },
+    RoleTransition {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "\"embedded\" | \"external\"")]
+        runtime: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "workspaceId")]
+        workspace_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "tabId")]
+        tab_id: Option<String>,
+        #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+        state: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "launchedAt")]
+        launched_at: Option<String>,
+    },
+    RemoveRole {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    SetWorkspaceState {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+        state: String,
+    },
+    RemoveWorkspace {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRuntimeDisplayRecord {
+    #[ts(type = "number")]
+    pub display_id: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_tab_id: Option<String>,
+    pub tab_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRuntimeTabRecord {
+    pub id: String,
+    pub source_id: String,
+    pub name: String,
+    #[ts(type = "number")]
+    pub display_id: i64,
+    #[serde(rename = "tabType")]
+    #[ts(rename = "tabType", type = "\"role\" | \"workspace\"")]
+    pub tab_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_id: Option<String>,
+    pub role_ids: Vec<String>,
+    pub hidden: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRuntimeRoleRecord {
+    pub role_id: String,
+    #[ts(type = "\"embedded\" | \"external\"")]
+    pub runtime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tab_id: Option<String>,
+    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launched_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRuntimeWorkspaceRecord {
+    pub workspace_id: String,
+    pub name: String,
+    #[ts(type = "\"pending\" | \"embedded\" | \"external\"")]
+    pub runtime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub display_id: Option<i64>,
+    pub exclusive_display: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tab_id: Option<String>,
+    pub role_ids: Vec<String>,
+    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRuntimeSnapshot {
+    pub displays: Vec<BrowserRuntimeDisplayRecord>,
+    pub roles: Vec<BrowserRuntimeRoleRecord>,
+    pub tabs: Vec<BrowserRuntimeTabRecord>,
+    pub workspaces: Vec<BrowserRuntimeWorkspaceRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRuntimeResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub created_tab_id: Option<String>,
+    pub snapshot: BrowserRuntimeSnapshot,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserOperationRequest {
+    pub role_ids: Vec<String>,
+    #[ts(type = "\"normal\" | \"recoverableMutation\" | \"destructiveMutation\"")]
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserOperationLease {
+    pub id: String,
+    pub role_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -436,6 +1920,7 @@ pub enum PressureLevel {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct SystemPressureSnapshot {
     pub level: PressureLevel,
+    #[ts(type = "\"baseline\" | \"cpu\" | \"memory\" | \"thermal\"")]
     pub reason: String,
 }
 
@@ -443,6 +1928,7 @@ pub struct SystemPressureSnapshot {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ResourcePolicyInput {
+    #[ts(type = "\"unrestricted\" | \"adaptive\"")]
     pub policy_mode: String,
     pub workspace_hidden: bool,
     pub macro_active: bool,
@@ -454,9 +1940,112 @@ pub struct ResourcePolicyInput {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ResourcePolicyDecision {
+    #[ts(type = "1 | 2 | 4")]
     pub cpu_throttle_rate: u8,
+    #[ts(type = "\"full_speed\" | \"throttled\" | \"macro_override\" | \"shared_process\"")]
     pub resource_state: String,
+    #[ts(
+        type = "\"macro\" | \"shared_process\" | \"system_pressure\" | \"runtime_tab_background\" | null"
+    )]
     pub resource_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum ResourceRuntimeCommand {
+    Snapshot,
+    ActivateWorkspace {
+        workspace_id: String,
+        #[ts(type = "\"unrestricted\" | \"adaptive\"")]
+        policy_mode: String,
+        targets: Vec<ResourceRuntimeTargetRecord>,
+    },
+    DeactivateWorkspace {
+        workspace_id: String,
+    },
+    SetMacroRoleIds {
+        role_ids: Vec<String>,
+    },
+    SetHiddenWorkspaceIds {
+        workspace_ids: Vec<String>,
+    },
+    PrepareWorkspaceForeground {
+        workspace_id: String,
+    },
+    ReconcileRuntimeRoleIds {
+        #[ts(type = "\"embedded\" | \"external\"")]
+        runtime_mode: String,
+        active_role_ids: Vec<String>,
+    },
+    RefreshTarget {
+        workspace_id: String,
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "number")]
+        process_id: Option<u32>,
+    },
+    SetPressure {
+        level: PressureLevel,
+        reason: String,
+    },
+    SetUnavailableRoleIds {
+        role_ids: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ResourceRuntimeTargetRecord {
+    pub role_id: String,
+    #[ts(type = "\"embedded\" | \"external\"")]
+    pub runtime_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub process_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ResourceRuntimeEffectRecord {
+    pub role_ids: Vec<String>,
+    #[ts(type = "1 | 2 | 4")]
+    pub cpu_throttle_rate: u8,
+    pub release: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ResourceRuntimeStatusRecord {
+    pub role_id: String,
+    #[ts(type = "\"throttled\" | \"macro_override\" | \"shared_process\" | \"unavailable\"")]
+    pub resource_state: String,
+    #[ts(type = "1 | 2 | 4")]
+    pub cpu_throttle_rate: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"normal\" | \"constrained\"")]
+    pub resource_pressure_level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"baseline\" | \"cpu\" | \"memory\" | \"thermal\" | \"macro\" | \"shared_process\" | \"runtime_tab_background\" | \"unavailable\""
+    )]
+    pub resource_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ResourceRuntimeResult {
+    pub effects: Vec<ResourceRuntimeEffectRecord>,
+    pub statuses: Vec<ResourceRuntimeStatusRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -537,9 +2126,44 @@ pub struct WorkspaceLayoutOutput {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceDividerDescriptor {
+    #[ts(type = "\"horizontal\" | \"vertical\"")]
+    pub axis: String,
+    pub before_role_ids: Vec<String>,
+    pub after_role_ids: Vec<String>,
+    pub default_position: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceDividerResizeInput {
+    pub roles: Vec<LayoutRoleInput>,
+    pub dividers: Vec<WorkspaceDividerDescriptor>,
+    pub divider_index: u32,
+    pub requested_position: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub previous_position: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceDividerResizeOutput {
+    pub changed: bool,
+    pub position: f64,
+    pub role_ids: Vec<String>,
+    pub roles: Vec<LayoutRoleInput>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct GameBrowserSettingsRecord {
     pub fonts: BrowserFontSettingsRecord,
     pub graphics: BrowserGraphicsSettingsRecord,
+    #[ts(type = "\"auto\" | \"embedded\" | \"external\"")]
     pub launch_mode: String,
     pub macro_badge_position: MacroBadgePositionRecord,
     pub network: BrowserNetworkSettingsRecord,
@@ -550,7 +2174,11 @@ pub struct GameBrowserSettingsRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserFontSettingsRecord {
+    #[ts(type = "\"default\" | \"custom\"")]
     pub mode: String,
+    #[ts(
+        type = "Partial<Record<\"standard\" | \"serif\" | \"sansserif\" | \"fixed\" | \"math\", string>>"
+    )]
     pub families: std::collections::HashMap<String, String>,
 }
 
@@ -558,6 +2186,7 @@ pub struct BrowserFontSettingsRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserGraphicsSettingsRecord {
+    #[ts(type = "\"automatic\" | \"high_performance\" | \"experimental\"")]
     pub mode: String,
 }
 
@@ -565,6 +2194,7 @@ pub struct BrowserGraphicsSettingsRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroBadgePositionRecord {
+    #[ts(type = "\"left\" | \"center\" | \"right\"")]
     pub horizontal_align: String,
     pub horizontal_margin_px: u32,
     pub top_px: u32,
@@ -582,6 +2212,7 @@ pub struct BrowserNetworkSettingsRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserCdnCompatibilityRecord {
+    #[ts(type = "\"off\" | \"auto\" | \"on\"")]
     pub mode: String,
 }
 
@@ -589,6 +2220,7 @@ pub struct BrowserCdnCompatibilityRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserProxySettingsRecord {
+    #[ts(type = "\"system\" | \"custom\"")]
     pub mode: String,
     pub server: String,
 }
@@ -597,7 +2229,9 @@ pub struct BrowserProxySettingsRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct WorkspaceAppearanceSettingsRecord {
+    #[ts(type = "\"material\" | \"black\"")]
     pub background: String,
+    #[ts(type = "1 | 2 | 4 | 6 | 8 | 12 | 16")]
     pub gap: u32,
 }
 
@@ -629,25 +2263,154 @@ pub struct LegalAcceptanceRecord {
     pub schema_version: u8,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LegalDocumentVersionsRecord {
+    pub fair_use: String,
+    pub privacy: String,
+    pub terms: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LegalAcceptDocumentsInputRecord {
+    pub fair_use_version: String,
+    pub privacy_version: String,
+    pub terms_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LegalAcceptanceStatusRecord {
+    pub current_versions: LegalDocumentVersionsRecord,
+    pub is_accepted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub accepted_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub accepted_fair_use_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub accepted_terms_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub acknowledged_privacy_version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct SystemFontFamilyRecord {
+    pub family: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WindowsGraphicsEventRecord {
+    pub event_id: u32,
+    pub provider: String,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WindowsGraphicsEventCollectionRecord {
+    pub available: bool,
+    pub events: Vec<WindowsGraphicsEventRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl LogLevel {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Error => "error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum LogSource {
+    Main,
+    Preload,
+    Renderer,
+    Ipc,
+    Browser,
+    Macro,
+    Persistence,
+    Update,
+}
+
+impl LogSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Main => "main",
+            Self::Preload => "preload",
+            Self::Renderer => "renderer",
+            Self::Ipc => "ipc",
+            Self::Browser => "browser",
+            Self::Macro => "macro",
+            Self::Persistence => "persistence",
+            Self::Update => "update",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LogErrorDetails {
+    pub name: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub stack: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cause: Option<Box<LogErrorDetails>>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct LogEntry {
     pub id: String,
     pub timestamp: String,
-    pub level: String,
-    pub source: String,
+    pub level: LogLevel,
+    pub source: LogSource,
     pub event: String,
     pub message: String,
     pub session_id: String,
     #[serde(default)]
     #[ts(optional)]
-    #[ts(type = "unknown")]
-    pub context: Option<Value>,
+    #[ts(type = "Record<string, unknown>")]
+    pub context: Option<BTreeMap<String, Value>>,
     #[serde(default)]
     #[ts(optional)]
-    #[ts(type = "unknown")]
-    pub error: Option<Value>,
+    pub error: Option<LogErrorDetails>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -656,10 +2419,10 @@ pub struct LogEntry {
 pub struct LogQuery {
     #[serde(default)]
     #[ts(optional)]
-    pub levels: Option<Vec<String>>,
+    pub levels: Option<Vec<LogLevel>>,
     #[serde(default)]
     #[ts(optional)]
-    pub sources: Option<Vec<String>>,
+    pub sources: Option<Vec<LogSource>>,
     #[ts(optional)]
     pub from: Option<String>,
     #[ts(optional)]
@@ -678,12 +2441,37 @@ pub struct LogQuery {
 pub struct BrowserActionRequest {
     pub request_id: String,
     pub role_id: String,
+    #[ts(type = "\"macro\" | \"external_health\"")]
     pub origin: String,
     #[ts(type = "number")]
     pub scheduled_at_ms: u64,
     #[ts(type = "number")]
     pub deadline_ms: u64,
     pub action: BrowserAction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedKeyEffectRecord {
+    #[ts(type = "\"rawKeyDown\" | \"keyUp\"")]
+    pub phase: String,
+    pub code: String,
+    pub active_codes_before: Vec<String>,
+    pub active_codes: Vec<String>,
+    pub auto_repeat: bool,
+    pub suppress_shortcut: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedKeyTransitionRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub transition_id: Option<String>,
+    pub effects: Vec<EmbeddedKeyEffectRecord>,
+    pub has_held_keys: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -696,19 +2484,26 @@ pub struct BrowserActionRequest {
 pub enum BrowserAction {
     Focus,
     Key {
+        #[ts(type = "\"tap\" | \"hold\" | \"release\"")]
         phase: String,
         key: String,
         code: Option<String>,
+        #[ts(type = "Array<\"primary\" | \"ctrl\" | \"alt\" | \"shift\" | \"meta\">")]
         modifiers: Vec<String>,
         #[serde(rename = "ownerId")]
         #[ts(rename = "ownerId")]
         owner_id: String,
     },
     Click {
+        #[ts(
+            type = "\"top-left\" | \"top-center\" | \"top-right\" | \"center-left\" | \"center\" | \"center-right\" | \"bottom-left\" | \"bottom-center\" | \"bottom-right\" | null"
+        )]
         anchor: Option<String>,
+        #[ts(type = "\"percent\" | \"px\"")]
         unit: String,
         x: f64,
         y: f64,
+        #[ts(type = "\"left\" | \"middle\" | \"right\"")]
         button: String,
     },
     Evaluate {
@@ -748,11 +2543,133 @@ pub struct BrowserActionResult {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalBrowserActionDispatch {
+    pub results: Vec<BrowserActionResult>,
+    pub unhandled: Vec<BrowserActionRequest>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum ExternalSessionCommand {
+    Snapshot,
+    Begin {
+        role: StateRoleRecord,
+        bounds: StatePixelBoundsRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "physicalBounds")]
+        physical_bounds: Option<StatePixelBoundsRecord>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "workspaceId")]
+        workspace_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        notice: Option<String>,
+        #[ts(rename = "zoomFactor")]
+        zoom_factor: f64,
+    },
+    UpdateRole {
+        role: StateRoleRecord,
+    },
+    SetNotice {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        notice: Option<String>,
+    },
+    SetAutomation {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        available: bool,
+        #[ts(rename = "cdnActive")]
+        cdn_active: bool,
+    },
+    SetRunning {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "launchedAt")]
+        launched_at: String,
+    },
+    SetStopping {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    SetHealth {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
+        health: Option<String>,
+        #[ts(rename = "pageHidden")]
+        page_hidden: bool,
+    },
+    RecordCdpTimeout {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "atMs", type = "number")]
+        at_ms: u64,
+    },
+    Remove {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[serde(default)]
+        #[ts(rename = "preserveWorkspace")]
+        preserve_workspace: bool,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalSessionRecord {
+    pub role: StateRoleRecord,
+    pub bounds: StatePixelBoundsRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub physical_bounds: Option<StatePixelBoundsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notice: Option<String>,
+    pub zoom_factor: f64,
+    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launched_at: Option<String>,
+    pub automation_available: bool,
+    pub cdn_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
+    pub page_health: Option<String>,
+    pub page_hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub last_cdp_timeout_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalSessionResult {
+    pub sessions: Vec<ExternalSessionRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroDefinition {
     pub id: String,
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
+    #[ts(optional, type = "\"toggle\" | \"while_held\"")]
     pub activation_mode: Option<String>,
     pub name: String,
     pub role_ids: Vec<String>,
@@ -793,40 +2710,30 @@ pub enum MacroStepDefinition {
     Key {
         id: String,
         code: String,
-        #[serde(default)]
-        modifiers: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(
+            optional,
+            type = "Array<\"primary\" | \"ctrl\" | \"alt\" | \"shift\" | \"meta\">"
+        )]
+        modifiers: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "\"tap\" | \"hold_until_stop\"")]
+        action: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
-        action: Option<String>,
+        label: Option<String>,
     },
     Click {
         id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        unit: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[ts(
+            optional,
+            type = "\"top-left\" | \"top-center\" | \"top-right\" | \"center-left\" | \"center\" | \"center-right\" | \"bottom-left\" | \"bottom-center\" | \"bottom-right\""
+        )]
         anchor: Option<String>,
-        #[serde(rename = "xPercent")]
-        #[ts(rename = "xPercent")]
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        x_percent: Option<f64>,
-        #[serde(rename = "yPercent")]
-        #[ts(rename = "yPercent")]
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        y_percent: Option<f64>,
-        #[serde(rename = "xPx")]
-        #[ts(rename = "xPx")]
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        x_px: Option<f64>,
-        #[serde(rename = "yPx")]
-        #[ts(rename = "yPx")]
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        y_px: Option<f64>,
+        #[serde(flatten)]
+        #[ts(flatten)]
+        position: MacroClickDefinition,
     },
     Delay {
         id: String,
@@ -840,8 +2747,35 @@ pub enum MacroStepDefinition {
         #[serde(rename = "callMode")]
         #[ts(rename = "callMode")]
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[ts(optional, type = "\"wait\" | \"trigger\"")]
         call_mode: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(untagged)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum MacroClickDefinition {
+    Percent {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "\"percent\"")]
+        unit: Option<String>,
+        #[serde(rename = "xPercent")]
+        #[ts(rename = "xPercent")]
+        x_percent: f64,
+        #[serde(rename = "yPercent")]
+        #[ts(rename = "yPercent")]
+        y_percent: f64,
+    },
+    Pixels {
+        #[ts(type = "\"px\"")]
+        unit: String,
+        #[serde(rename = "xPx")]
+        #[ts(rename = "xPx")]
+        x_px: f64,
+        #[serde(rename = "yPx")]
+        #[ts(rename = "yPx")]
+        y_px: f64,
     },
 }
 
@@ -864,6 +2798,25 @@ pub struct MacroStartRequest {
     pub macro_id: String,
     pub role_id: Option<String>,
     pub active_role_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroInvocationRequest {
+    pub macro_id: String,
+    pub role_id: Option<String>,
+    pub active_role_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroPressInvocationRequest {
+    pub macro_id: String,
+    pub role_id: String,
+    pub active_role_ids: Vec<String>,
+    pub press_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -911,42 +2864,6 @@ mod command_tests {
     use serde_json::json;
 
     use super::{CoreCommand, CoreEvent};
-
-    #[test]
-    fn collection_delta_commands_decode_typed_records() {
-        let command: CoreCommand = serde_json::from_value(json!({
-            "type": "gamesApplyDelta",
-            "upserts": [{
-                "id": "game-1",
-                "source": "custom",
-                "name": "Game",
-                "defaultLaunchUrl": "https://example.test/play",
-                "browserLaunchMode": "inherit",
-                "createdAt": "2026-01-01T00:00:00Z",
-                "updatedAt": "2026-01-01T00:00:00Z"
-            }],
-            "deleteIds": [],
-            "orderedIds": ["game-1"]
-        }))
-        .unwrap();
-
-        let encoded = serde_json::to_value(command).unwrap();
-        assert_eq!(encoded["upserts"][0]["id"], "game-1");
-        assert!(encoded["upserts"][0].get("builtinKey").is_none());
-    }
-
-    #[test]
-    fn collection_delta_commands_reject_untyped_records() {
-        let error = serde_json::from_value::<CoreCommand>(json!({
-            "type": "gamesApplyDelta",
-            "upserts": [{ "id": "game-1" }],
-            "deleteIds": [],
-            "orderedIds": ["game-1"]
-        }))
-        .unwrap_err();
-
-        assert!(error.to_string().contains("source"));
-    }
 
     #[test]
     fn enum_fields_use_the_generated_camel_case_contract() {

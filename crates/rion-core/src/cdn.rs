@@ -61,6 +61,15 @@ impl CdnMatcher {
     pub fn rule_ids(&self) -> Vec<&str> {
         self.rules.iter().map(|rule| rule.id.as_str()).collect()
     }
+
+    pub fn request_patterns(&self) -> Vec<String> {
+        self.rules
+            .iter()
+            .map(|rule| format!("https://{}/*", rule.source_host))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect()
+    }
 }
 
 fn convert_substitution(value: &str) -> String {

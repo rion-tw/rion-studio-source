@@ -1,13 +1,9 @@
 import { EventEmitter } from "node:events";
 
 import type {
-  MacroDefinition,
-  MacroRunStatus as NativeMacroRunStatus,
-  MacroRuntimeSettings,
-  MacroStartRequest,
-  MacroStepDefinition
+  MacroRunStatus as NativeMacroRunStatus
 } from "../../shared/generated";
-import type { Macro, MacroRunStatus, MacroSettings, MacroStep } from "../../shared/types";
+import type { MacroRunStatus } from "../../shared/types";
 import type { BrowserManager } from "../browser/BrowserManager";
 import type { AppCoreClient } from "../core/nativeCore";
 import {
@@ -15,21 +11,19 @@ import {
   type HeldTriggerReleaseMode,
   type MacroManagerEvents,
   type MacroRuntimeManager
-} from "./MacroManager";
-import type { MacroSettingsStore } from "./MacroSettingsStore";
-import type { MacroStore } from "./MacroStore";
+} from "./MacroRuntimeManager";
 
 export class RustMacroManager
   extends EventEmitter<MacroManagerEvents>
   implements MacroRuntimeManager {
-  private readonly macroMutationTails = new Map<string, Promise<void>>();
   private statuses: MacroRunStatus[] = [];
 
   constructor(
-    private readonly browserManager: Pick<BrowserManager, "getAutomationSession"> &
+    private readonly browserManager: Pick<
+      BrowserManager,
+      "getEmbeddedAutomationSession" | "listStatuses"
+    > &
       Partial<Pick<BrowserManager, "setMacroActiveRoleIds">>,
-    private readonly macroStore: Pick<MacroStore, "getMacro" | "listMacros">,
-    private readonly macroSettingsStore: Pick<MacroSettingsStore, "getSettings">,
     private readonly core: AppCoreClient
   ) {
     super();
@@ -56,21 +50,19 @@ export class RustMacroManager
   }
 
   start(macroId: string): Promise<MacroRunStatus[]> {
-    return this.withMacroMutationLock(macroId, () => this.startUnlocked(macroId));
+    return this.startUnlocked(macroId);
   }
 
   startForRole(macroId: string, roleId: string): Promise<MacroRunStatus[]> {
-    return this.withMacroMutationLock(macroId, () => this.startUnlocked(macroId, roleId));
+    return this.startUnlocked(macroId, roleId);
   }
 
   pressForRole(macroId: string, roleId: string, pressId: string): Promise<MacroRunStatus[]> {
-    return this.withMacroMutationLock(macroId, async () => {
-      const request = await this.createStartRequest(macroId, roleId);
-      return (await this.core.invoke<NativeMacroRunStatus[]>({
-        type: "macroPress",
-        request: { start: request, pressId }
-      })).map(fromNativeStatus);
-    });
+    const activeRoleIds = this.listActiveRoleIds();
+    return this.core.invoke<NativeMacroRunStatus[]>({
+      type: "macroPress",
+      request: { macroId, roleId, activeRoleIds, pressId }
+    }).then((statuses) => statuses.map(fromNativeStatus));
   }
 
   releaseForRole(
@@ -79,11 +71,9 @@ export class RustMacroManager
     pressId: string,
     mode: HeldTriggerReleaseMode = "complete_first_iteration"
   ): Promise<void> {
-    return this.withMacroMutationLock(macroId, async () => {
-      await this.core.invoke({
-        type: "macroRelease",
-        request: { macroId, roleId, pressId, mode }
-      });
+    return this.core.invoke<void>({
+      type: "macroRelease",
+      request: { macroId, roleId, pressId, mode }
     });
   }
 
@@ -92,17 +82,11 @@ export class RustMacroManager
   }
 
   stop(macroId: string): Promise<void> {
-    return this.withMacroMutationLock(macroId, () => this.stopUnlocked(macroId));
+    return this.stopUnlocked(macroId);
   }
 
   stopForRole(macroId: string, roleId: string): Promise<void> {
-    return this.withMacroMutationLock(macroId, async () => {
-      const macro = await this.macroStore.getMacro(macroId);
-      if (!macro.roleIds.includes(roleId)) {
-        throw new Error("This macro is not assigned to the current role.");
-      }
-      await this.stopUnlocked(macroId);
-    });
+    return this.core.invoke<void>({ type: "macroStopForRole", macroId, roleId });
   }
 
   async stopRole(roleId: string): Promise<void> {
@@ -110,42 +94,26 @@ export class RustMacroManager
   }
 
   runStoppedMutation<T>(macroId: string, operation: () => Promise<T>): Promise<T> {
-    return this.withMacroMutationLock(macroId, async () => {
-      if (this.hasActiveMacroRun(macroId)) {
-        throw new Error("Stop the macro before editing it.");
-      }
-      return operation();
-    });
+    return this.withRustMutationLease([macroId], false, operation);
   }
 
   runStoppedMutations<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
-    return this.withMacroMutationLocks(macroIds, async () => {
-      if (macroIds.some((macroId) => this.hasActiveMacroRun(macroId))) {
-        throw new MacroMutationBusyError();
-      }
-      return operation();
-    });
+    return this.withRustMutationLease(macroIds, false, operation);
   }
 
   stopAndRunMutation<T>(macroId: string, operation: () => Promise<T>): Promise<T> {
-    return this.withMacroMutationLock(macroId, async () => {
-      await this.stopUnlocked(macroId);
-      return operation();
-    });
+    return this.withRustMutationLease([macroId], true, operation);
   }
 
   stopAndRunMutations<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
-    return this.withMacroMutationLocks(macroIds, async () => {
-      for (const macroId of macroIds) await this.stopUnlocked(macroId);
-      return operation();
-    });
+    return this.withRustMutationLease(macroIds, true, operation);
   }
 
   private async startUnlocked(macroId: string, roleId?: string): Promise<MacroRunStatus[]> {
-    const request = await this.createStartRequest(macroId, roleId);
+    const activeRoleIds = this.listActiveRoleIds();
     return (await this.core.invoke<NativeMacroRunStatus[]>({
       type: "macroStart",
-      request
+      request: { macroId, roleId: roleId ?? null, activeRoleIds }
     })).map(fromNativeStatus);
   }
 
@@ -153,107 +121,42 @@ export class RustMacroManager
     await this.core.invoke({ type: "macroStop", macroId });
   }
 
-  private async createStartRequest(macroId: string, roleId?: string): Promise<MacroStartRequest> {
-    const [macros, settings] = await Promise.all([
-      this.macroStore.listMacros(),
-      this.macroSettingsStore.getSettings()
-    ]);
-    const activeRoleIds = [...new Set(macros.flatMap((macro) => macro.roleIds))]
-      .filter((candidate) => Boolean(this.browserManager.getAutomationSession(candidate)));
-    return {
-      macros: macros.map(toNativeMacro),
-      settings: toNativeSettings(settings),
-      macroId,
-      roleId: roleId ?? null,
-      activeRoleIds
-    };
+  private listActiveRoleIds(): string[] {
+    return this.browserManager.listStatuses()
+      .filter((status) => status.runtimeMode === "external"
+        ? status.automationState === "ready"
+        : Boolean(this.browserManager.getEmbeddedAutomationSession(status.roleId)))
+      .map((status) => status.roleId);
   }
 
-  private hasActiveMacroRun(macroId: string): boolean {
-    return this.statuses.some(
-      (status) => status.macroId === macroId &&
-        (status.state === "running" || status.state === "stopping")
-    );
-  }
-
-  private withMacroMutationLocks<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
-    const ids = [...new Set(macroIds)].sort();
-    const acquire = (index: number): Promise<T> => {
-      const macroId = ids[index];
-      return macroId
-        ? this.withMacroMutationLock(macroId, () => acquire(index + 1))
-        : operation();
-    };
-    return acquire(0);
-  }
-
-  private withMacroMutationLock<T>(macroId: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.macroMutationTails.get(macroId) ?? Promise.resolve();
-    const result = previous.catch(() => undefined).then(operation);
-    const tail = result.then(() => undefined, () => undefined);
-    this.macroMutationTails.set(macroId, tail);
-    void tail.finally(() => {
-      if (this.macroMutationTails.get(macroId) === tail) {
-        this.macroMutationTails.delete(macroId);
+  private async withRustMutationLease<T>(
+    macroIds: string[],
+    stopActive: boolean,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    let leaseId: string;
+    try {
+      ({ leaseId } = await this.core.invoke<{ leaseId: string }>({
+        type: "macroMutationAcquire",
+        macroIds: [...new Set(macroIds)],
+        stopActive
+      }));
+    } catch (error) {
+      if (isErrorWithCode(error, "MACRO_MUTATION_BUSY")) {
+        throw new MacroMutationBusyError();
       }
-    });
-    return result;
+      throw error;
+    }
+    try {
+      return await operation();
+    } finally {
+      await this.core.invoke({ type: "macroMutationRelease", leaseId });
+    }
   }
 }
 
-function toNativeMacro(macro: Macro): MacroDefinition {
-  return {
-    id: macro.id,
-    enabled: macro.enabled,
-    activationMode: macro.activationMode,
-    name: macro.name,
-    roleIds: [...macro.roleIds],
-    trigger: macro.trigger ? { ...macro.trigger } : undefined,
-    repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
-    steps: macro.steps.map(toNativeStep)
-  };
-}
-
-function toNativeStep(step: MacroStep): MacroStepDefinition {
-  switch (step.type) {
-    case "key":
-      return {
-        type: "key",
-        id: step.id,
-        code: step.code,
-        modifiers: [...(step.modifiers ?? [])],
-        action: step.action
-      };
-    case "click":
-      return {
-        type: "click",
-        id: step.id,
-        unit: step.unit,
-        anchor: step.anchor,
-        xPercent: step.unit === "px" ? undefined : step.xPercent,
-        yPercent: step.unit === "px" ? undefined : step.yPercent,
-        xPx: step.unit === "px" ? step.xPx : undefined,
-        yPx: step.unit === "px" ? step.yPx : undefined
-      };
-    case "delay":
-      return { type: "delay", id: step.id, ms: step.ms };
-    case "macro":
-      return {
-        type: "macro",
-        id: step.id,
-        macroId: step.macroId,
-        callMode: step.callMode
-      };
-  }
-}
-
-function toNativeSettings(settings: MacroSettings): MacroRuntimeSettings {
-  return {
-    startupDelayMs: settings.startupDelayMs,
-    keyHoldMs: settings.keyHoldMs,
-    postInputDelayMs: settings.postInputDelayMs,
-    defaultLoopDelayMs: settings.defaultLoopDelayMs
-  };
+function isErrorWithCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
 }
 
 function fromNativeStatus(status: NativeMacroRunStatus): MacroRunStatus {

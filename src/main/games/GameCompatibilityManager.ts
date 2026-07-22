@@ -1,28 +1,24 @@
-import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
 import type { BrowserWindow, BrowserWindowConstructorOptions, Session } from "electron";
 
-import { probeWebGraphics } from "../game-browser/GraphicsDiagnosticsService";
-import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
-import type { GameStore } from "./GameStore";
-import type { GameCompatibilityStore } from "./GameCompatibilityStore";
 import type {
-  Game,
+  CompatibilityCheckOutcome,
+  CompatibilityCheckPlanRecord,
+  CompatibilityRunStatusRecord,
+  CompatibilityVersionRecord
+} from "../../shared/generated";
+import type {
   GameCompatibilityObservations,
   GameCompatibilityReport,
   GameCompatibilityRunPhase,
   GameCompatibilityRunStatus,
-  GameBrowserSettings,
   PixelBounds
 } from "../../shared/types";
+import type { AppCoreClient } from "../core/nativeCore";
+import { probeWebGraphics } from "../game-browser/GraphicsDiagnosticsService";
 
 const LOAD_TIMEOUT_MS = 20_000;
-
-interface ActiveCheck {
-  cancelled: boolean;
-  window?: BrowserWindow;
-}
 
 export interface GameCompatibilityManagerEvents {
   change: [];
@@ -31,84 +27,65 @@ export interface GameCompatibilityManagerEvents {
 interface GameCompatibilityManagerOptions {
   applyCdnCompatibility: (session: Session) => Promise<void>;
   applyProxy: (session: Session) => Promise<void>;
-  compatibilityStore: Pick<
-    GameCompatibilityStore,
-    "deleteGame" | "listReports" | "recordObservation" | "saveReport"
-  >;
+  core: Pick<AppCoreClient, "invoke" | "subscribe">;
   createWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
-  gameBrowserSettingsStore: Pick<GameBrowserSettingsStore, "getSettings">;
-  gameStore: Pick<GameStore, "getGame" | "listGames">;
   getLaunchWorkArea: () => PixelBounds;
   isSystemChromeAvailable: () => boolean;
   loadTimeoutMs?: number;
   versions?: NodeJS.ProcessVersions;
 }
 
+/** Electron effect executor for the Rust-owned compatibility runtime. */
 export class GameCompatibilityManager extends EventEmitter<GameCompatibilityManagerEvents> {
-  private readonly activeChecks = new Map<string, ActiveCheck>();
-  private readonly statuses = new Map<string, GameCompatibilityRunStatus>();
+  private readonly windows = new Map<string, BrowserWindow>();
+  private statusProjection: GameCompatibilityRunStatus[] = [];
 
   constructor(private readonly options: GameCompatibilityManagerOptions) {
     super();
+    options.core.subscribe((events) => {
+      const event = [...events].reverse().find(
+        (candidate) => candidate.type === "compatibilityStatuses"
+      );
+      if (event?.type !== "compatibilityStatuses") return;
+      this.statusProjection = structuredClone(event.statuses);
+      this.emit("change");
+    });
+    void options.core.invoke<CompatibilityRunStatusRecord[]>({ type: "compatibilityStatuses" })
+      .then((statuses) => {
+        this.statusProjection = structuredClone(statuses);
+      })
+      .catch(() => undefined);
   }
 
   listStatuses(): GameCompatibilityRunStatus[] {
-    return structuredClone([...this.statuses.values()]);
+    return structuredClone(this.statusProjection);
   }
 
-  async listReports(): Promise<GameCompatibilityReport[]> {
-    const [reports, games, settings] = await Promise.all([
-      this.options.compatibilityStore.listReports(),
-      this.options.gameStore.listGames(),
-      this.options.gameBrowserSettingsStore.getSettings()
-    ]);
-    const gameById = new Map(games.map((game) => [game.id, game]));
-    return reports.flatMap((report) => {
-      const game = gameById.get(report.gameId);
-      if (!game) {
-        return [];
-      }
-      return [{
-        ...report,
-        isStale: Boolean(
-          report.configurationFingerprint &&
-          report.configurationFingerprint !== createConfigurationFingerprint(game, settings, this.options.versions)
-        )
-      }];
+  listReports(): Promise<GameCompatibilityReport[]> {
+    return this.options.core.invoke<GameCompatibilityReport[]>({
+      type: "compatibilityReportsCurrent",
+      versions: this.versions()
     });
   }
 
   async runCheck(gameId: string): Promise<GameCompatibilityReport> {
-    if (this.activeChecks.has(gameId)) {
-      throw new Error("A compatibility check is already running for this game.");
-    }
-
-    const active: ActiveCheck = { cancelled: false };
-    this.activeChecks.set(gameId, active);
-    this.setStatus(gameId, "preparing");
-    let game: Game;
-    let settings: GameBrowserSettings;
-    try {
-      [game, settings] = await Promise.all([
-        this.options.gameStore.getGame(gameId),
-        this.options.gameBrowserSettingsStore.getSettings()
-      ]);
-    } catch (error) {
-      this.activeChecks.delete(gameId);
-      this.statuses.delete(gameId);
-      this.emit("change");
-      throw error;
-    }
-    const startedAt = Date.now();
-    const chromeAvailable = this.options.isSystemChromeAvailable();
-    let report: GameCompatibilityReport;
+    const plan = await this.options.core.invoke<CompatibilityCheckPlanRecord>({
+      type: "compatibilityPrepare",
+      gameId,
+      systemChromeAvailable: this.options.isSystemChromeAvailable(),
+      versions: this.versions()
+    });
+    const startedAtMs = Date.now();
+    let window: BrowserWindow | undefined;
+    let closed = false;
+    let outcome: CompatibilityCheckOutcome;
 
     try {
-      const window = this.createTestWindow(game);
-      active.window = window;
+      window = this.createTestWindow(plan);
+      this.windows.set(gameId, window);
       window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-      const closedPromise = new Promise<"closed">((resolve) => window.once("closed", () => {
-        active.cancelled = true;
+      const closedPromise = new Promise<"closed">((resolve) => window!.once("closed", () => {
+        closed = true;
         resolve("closed");
       }));
       await Promise.all([
@@ -116,126 +93,113 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
         this.options.applyCdnCompatibility(window.webContents.session)
       ]);
 
-      if (active.cancelled) {
-        throw new CompatibilityCancelledError();
-      }
+      if (closed) {
+        await this.requestCancel(gameId);
+        outcome = { kind: "cancelled", durationMs: Date.now() - startedAtMs };
+      } else {
+        window.show();
+        await this.transition(gameId, "loading");
+        const timeout = createTimeout(this.options.loadTimeoutMs ?? LOAD_TIMEOUT_MS);
+        let loadResult: "loaded" | "closed" | "timeout";
+        try {
+          loadResult = await Promise.race([
+            window.webContents.loadURL(plan.launchUrl).then(() => "loaded" as const),
+            closedPromise,
+            timeout.promise
+          ]);
+        } finally {
+          timeout.cancel();
+        }
 
-      window.show();
-      this.setStatus(gameId, "loading");
-      const timeout = createTimeout(this.options.loadTimeoutMs ?? LOAD_TIMEOUT_MS);
-      let loadResult: "loaded" | "closed" | "timeout";
-      try {
-        loadResult = await Promise.race([
-          window.webContents.loadURL(game.defaultLaunchUrl).then(() => "loaded" as const),
-          closedPromise,
-          timeout.promise
-        ]);
-      } finally {
-        timeout.cancel();
+        if (loadResult === "closed" || closed) {
+          await this.requestCancel(gameId);
+          outcome = { kind: "cancelled", durationMs: Date.now() - startedAtMs };
+        } else if (loadResult === "timeout") {
+          outcome = {
+            kind: "failed",
+            durationMs: Date.now() - startedAtMs,
+            errorCode: "COMPATIBILITY_LOAD_TIMEOUT"
+          };
+        } else {
+          const finalOrigin = readOrigin(window.webContents.getURL());
+          await this.transition(gameId, "probing");
+          const graphics = await probeWebGraphics(
+            (source) => window!.webContents.executeJavaScript(source)
+          );
+          if (closed) {
+            await this.requestCancel(gameId);
+            outcome = { kind: "cancelled", durationMs: Date.now() - startedAtMs };
+          } else {
+            outcome = {
+              kind: "loaded",
+              durationMs: Date.now() - startedAtMs,
+              ...(finalOrigin ? { finalOrigin } : {}),
+              graphics
+            };
+          }
+        }
       }
-
-      if (loadResult === "closed" || active.cancelled) {
-        throw new CompatibilityCancelledError();
-      }
-      if (loadResult === "timeout") {
-        throw new CompatibilityLoadError("COMPATIBILITY_LOAD_TIMEOUT");
-      }
-
-      const finalOrigin = readOrigin(window.webContents.getURL());
-      this.setStatus(gameId, "probing");
-      const graphics = await probeWebGraphics((source) => window.webContents.executeJavaScript(source));
-      if (active.cancelled) {
-        throw new CompatibilityCancelledError();
-      }
-      report = {
-        gameId,
-        checkedAt: new Date().toISOString(),
-        configurationFingerprint: createConfigurationFingerprint(game, settings, this.options.versions),
-        isStale: false,
-        load: {
-          state: "available",
-          durationMs: Date.now() - startedAt,
-          ...(finalOrigin ? { finalOrigin } : {})
-        },
-        graphics,
-        systemChrome: { state: chromeAvailable ? "available" : "unavailable" },
-        recommendation: graphics.webgl === "available"
-          ? { reason: "embedded_available" }
-          : { reason: "graphics_unavailable" },
-        observations: {}
-      };
     } catch (error) {
-      const cancelled = error instanceof CompatibilityCancelledError || active.cancelled;
-      const errorCode = cancelled ? undefined : toErrorCode(error);
-      report = {
-        gameId,
-        checkedAt: new Date().toISOString(),
-        configurationFingerprint: createConfigurationFingerprint(game, settings, this.options.versions),
-        isStale: false,
-        load: {
-          state: cancelled ? "cancelled" : "failed",
-          durationMs: Date.now() - startedAt,
-          ...(errorCode ? { errorCode } : {})
-        },
-        systemChrome: { state: chromeAvailable ? "available" : "unavailable" },
-        ...(!cancelled
-          ? {
-              recommendation: chromeAvailable
-                ? { mode: "external" as const, reason: "external_recommended" as const }
-                : { reason: "chrome_required" as const }
-            }
-          : {}),
-        observations: {}
-      };
+      if (closed) {
+        await this.requestCancel(gameId);
+        outcome = { kind: "cancelled", durationMs: Date.now() - startedAtMs };
+      } else {
+        outcome = {
+          kind: "failed",
+          durationMs: Date.now() - startedAtMs,
+          errorCode: toErrorCode(error)
+        };
+      }
     } finally {
-      this.setStatus(gameId, "cleaning_up");
-      await cleanupWindow(active.window);
-      this.activeChecks.delete(gameId);
-      this.statuses.delete(gameId);
+      await this.transition(gameId, "cleaning_up").catch(() => undefined);
+      await cleanupWindow(window);
+      this.windows.delete(gameId);
     }
 
-    const saved = await this.options.compatibilityStore.saveReport(report);
-    this.emit("change");
-    return saved;
+    return this.options.core.invoke<GameCompatibilityReport>({
+      type: "compatibilityComplete",
+      gameId,
+      outcome
+    });
   }
 
   async cancelCheck(gameId: string): Promise<void> {
-    const active = this.activeChecks.get(gameId);
-    if (!active) {
-      return;
-    }
-    active.cancelled = true;
-    if (active.window && !active.window.isDestroyed()) {
-      active.window.close();
-    }
+    await this.requestCancel(gameId);
+    const window = this.windows.get(gameId);
+    if (window && !window.isDestroyed()) window.close();
   }
 
   async recordObservation(
     gameId: string,
     observation: Partial<GameCompatibilityObservations>
   ): Promise<void> {
-    await this.options.compatibilityStore.recordObservation(gameId, observation);
+    await this.options.core.invoke({
+      type: "compatibilityReportRecordObservation",
+      gameId,
+      observation
+    });
     this.emit("change");
   }
 
   async deleteGame(gameId: string): Promise<void> {
     await this.cancelCheck(gameId);
-    await this.options.compatibilityStore.deleteGame(gameId);
+    await this.options.core.invoke({ type: "compatibilityReportDelete", gameId });
     this.emit("change");
   }
 
-  private createTestWindow(game: Game): BrowserWindow {
+  private createTestWindow(plan: CompatibilityCheckPlanRecord): BrowserWindow {
     const workArea = this.options.getLaunchWorkArea();
+    const partitionSuffix = plan.startedAt.replace(/[^0-9A-Za-z]/g, "");
     return this.options.createWindow({
       x: workArea.x,
       y: workArea.y,
       width: workArea.width,
       height: workArea.height,
-      title: `Rion Studio - Compatibility Check - ${game.name}`,
+      title: `Rion Studio - Compatibility Check - ${plan.gameName}`,
       show: false,
       backgroundColor: "#000000",
       webPreferences: {
-        partition: `rion-compatibility-${randomUUID()}`,
+        partition: `rion-compatibility-${partitionSuffix}`,
         sandbox: true,
         nodeIntegration: false,
         contextIsolation: true,
@@ -246,50 +210,26 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
     });
   }
 
-  private setStatus(gameId: string, phase: GameCompatibilityRunPhase): void {
-    const current = this.statuses.get(gameId);
-    const now = new Date().toISOString();
-    this.statuses.set(gameId, {
-      gameId,
-      phase,
-      startedAt: current?.startedAt ?? now,
-      updatedAt: now
-    });
-    this.emit("change");
+  private transition(gameId: string, phase: GameCompatibilityRunPhase): Promise<unknown> {
+    return this.options.core.invoke({ type: "compatibilityTransition", gameId, phase });
   }
-}
 
-class CompatibilityCancelledError extends Error {}
-
-class CompatibilityLoadError extends Error {
-  constructor(readonly code: string) {
-    super(code);
+  private requestCancel(gameId: string): Promise<unknown> {
+    return this.options.core.invoke({ type: "compatibilityCancel", gameId });
   }
-}
 
-function createConfigurationFingerprint(
-  game: Game,
-  settings: GameBrowserSettings,
-  versions: NodeJS.ProcessVersions = process.versions
-): string {
-  const input = JSON.stringify({
-    defaultLaunchUrl: game.defaultLaunchUrl,
-    network: settings.network,
-    graphics: settings.graphics,
-    chrome: versions.chrome ?? "unknown",
-    electron: versions.electron ?? "unknown"
-  });
-  return createHash("sha256").update(input).digest("hex");
+  private versions(): CompatibilityVersionRecord {
+    return {
+      chrome: this.options.versions?.chrome ?? process.versions.chrome ?? "unknown",
+      electron: this.options.versions?.electron ?? process.versions.electron ?? "unknown"
+    };
+  }
 }
 
 async function cleanupWindow(window: BrowserWindow | undefined): Promise<void> {
-  if (!window) {
-    return;
-  }
+  if (!window) return;
   const session = window.webContents.session;
-  if (!window.isDestroyed()) {
-    window.destroy();
-  }
+  if (!window.isDestroyed()) window.destroy();
   await Promise.allSettled([
     session.clearStorageData(),
     session.clearCache(),
@@ -304,10 +244,8 @@ function createTimeout(timeoutMs: number): { cancel: () => void; promise: Promis
   });
   return {
     cancel: () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
+      if (timer) clearTimeout(timer);
+      timer = undefined;
     },
     promise
   };
@@ -322,11 +260,6 @@ function readOrigin(value: string): string | undefined {
 }
 
 function toErrorCode(error: unknown): string {
-  if (error instanceof CompatibilityLoadError) {
-    return error.code;
-  }
-  if (error && typeof error === "object" && "code" in error) {
-    return String(error.code);
-  }
+  if (error && typeof error === "object" && "code" in error) return String(error.code);
   return "COMPATIBILITY_LOAD_FAILED";
 }

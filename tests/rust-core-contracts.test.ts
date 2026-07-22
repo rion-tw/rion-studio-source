@@ -42,8 +42,11 @@ describe("Rust addon build verification", () => {
     ]);
 
     expect(packaged).toContain('ELECTRON_RUN_AS_NODE: "1"');
-    expect(core).toContain("launchExternalChrome");
+    expect(core).toContain("externalProcessLaunch");
+    expect(core).toContain("externalProcessExited");
     expect(core).toContain("connectExternalChromeCdp");
     expect(core).toContain("Runtime.executionContextCreated");
+    expect(core).toContain("prepareEmbeddedKeyTransition");
+    expect(core).toContain("hasEmbeddedHeldKeys");
   });
 });

@@ -1,0 +1,460 @@
+import type {
+  CoreStateKey,
+  CoreStateSnapshot,
+  StateRepository
+} from "../../src/main/core/RustStateRepository";
+import type {
+  CreateGameInput,
+  CreateRoleInput,
+  Game,
+  GameBrowserSettings,
+  GameCompatibilityObservations,
+  GameCompatibilityReport,
+  LaunchWorkspace,
+  Macro,
+  MacroSettings,
+  BulkDeleteResult,
+  Role,
+  RoleBrowserSessionSource,
+  UpdateGameInput,
+  UpdateRoleInput,
+  CreateLaunchWorkspaceInput,
+  UpdateLaunchWorkspaceInput,
+  CreateMacroInput,
+  UpdateMacroInput,
+  WorkspaceDisplayInfo,
+  WorkspaceSlotBrowserZoomPercent
+} from "../../src/shared/types";
+import {
+  createDefaultWorkspaceSlots,
+  getDefaultWorkspaceBrowserZoomPercent
+} from "../../src/shared/workspaceLayout";
+import { normalizeGameBrowserSettings } from "../../src/shared/browserFonts";
+import { normalizeMacroSettings } from "../../src/shared/macroSettings";
+import type { RuntimeWindowPreferencesRecord } from "../../src/shared/generated";
+
+export class MemoryStateRepository implements StateRepository {
+  constructor(private state: Partial<CoreStateSnapshot> = {}) {
+    if (state.games === undefined) {
+      const timestamp = "2026-01-01T00:00:00.000Z";
+      state.games = [
+        {
+          id: "builtin-flyff-universe",
+          source: "builtin",
+          builtinKey: "flyff-universe",
+          name: "Flyff Universe",
+          defaultLaunchUrl: "https://universe.flyff.com/play",
+          browserLaunchMode: "inherit",
+          createdAt: timestamp,
+          updatedAt: timestamp
+        },
+        {
+          id: "builtin-feifei-infinite-universe",
+          source: "builtin",
+          builtinKey: "feifei-infinite-universe",
+          name: "飞飞：无限宇宙",
+          defaultLaunchUrl: "https://ffcli.ruiwoo.cn/",
+          browserLaunchMode: "inherit",
+          createdAt: timestamp,
+          updatedAt: timestamp
+        }
+      ];
+    }
+  }
+
+  async read<K extends CoreStateKey>(
+    key: K,
+    fallback: CoreStateSnapshot[K]
+  ): Promise<CoreStateSnapshot[K]> {
+    return structuredClone(this.state[key] ?? fallback) as CoreStateSnapshot[K];
+  }
+
+  async replace<K extends CoreStateKey>(
+    key: K,
+    value: CoreStateSnapshot[K]
+  ): Promise<CoreStateSnapshot[K]> {
+    const normalized = key === "gameBrowserSettings"
+      ? normalizeGameBrowserSettings(value)
+      : key === "macroSettings"
+        ? normalizeMacroSettings(value)
+        : value;
+    this.state[key] = structuredClone(normalized) as never;
+    return structuredClone(normalized) as CoreStateSnapshot[K];
+  }
+
+  async replaceMany(values: Partial<CoreStateSnapshot>): Promise<void> {
+    this.state = { ...this.state, ...structuredClone(values) };
+  }
+
+  async getGameBrowserSettings(): Promise<GameBrowserSettings> {
+    return normalizeGameBrowserSettings(this.state.gameBrowserSettings);
+  }
+
+  replaceGameBrowserSettings(settings: GameBrowserSettings): Promise<GameBrowserSettings> {
+    return this.replace("gameBrowserSettings", settings) as Promise<GameBrowserSettings>;
+  }
+
+  async getMacroSettings(): Promise<MacroSettings> {
+    return normalizeMacroSettings(this.state.macroSettings);
+  }
+
+  replaceMacroSettings(settings: MacroSettings): Promise<MacroSettings> {
+    return this.replace("macroSettings", settings) as Promise<MacroSettings>;
+  }
+
+  async getRuntimeWindowPreferences(): Promise<RuntimeWindowPreferencesRecord> {
+    return structuredClone(this.state.runtimeWindowPreferences ?? {
+      alwaysShowToolbarInFullScreen: false
+    });
+  }
+
+  replaceRuntimeWindowPreferences(
+    preferences: RuntimeWindowPreferencesRecord
+  ): Promise<RuntimeWindowPreferencesRecord> {
+    return this.replace(
+      "runtimeWindowPreferences",
+      preferences
+    ) as Promise<RuntimeWindowPreferencesRecord>;
+  }
+
+  async listGames(): Promise<Game[]> {
+    return this.read("games", []);
+  }
+
+  async getGame(id: string): Promise<Game> {
+    const game = (await this.listGames()).find((item) => item.id === id);
+    if (!game) throw codedError("GAME_NOT_FOUND", "Game not found.");
+    return game;
+  }
+
+  async createGame(input: CreateGameInput): Promise<Game> {
+    const games = await this.listGames();
+    const timestamp = new Date().toISOString();
+    const game: Game = {
+      id: crypto.randomUUID(),
+      source: "custom",
+      name: input.name.trim(),
+      defaultLaunchUrl: new URL(input.defaultLaunchUrl).toString(),
+      browserLaunchMode: input.browserLaunchMode ?? "inherit",
+      ...(typeof input.iconImageDataUrl === "string" && input.iconImageDataUrl
+        ? { iconImageDataUrl: input.iconImageDataUrl }
+        : {}),
+      ...(typeof input.coverImageDataUrl === "string" && input.coverImageDataUrl
+        ? { coverImageDataUrl: input.coverImageDataUrl }
+        : {}),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    games.push(game);
+    await this.replace("games", games);
+    return game;
+  }
+
+  async updateGame(id: string, input: UpdateGameInput): Promise<Game> {
+    const games = await this.listGames();
+    const index = games.findIndex((game) => game.id === id);
+    if (index < 0) throw codedError("GAME_NOT_FOUND", "Game not found.");
+    const current = games[index];
+    const game: Game = {
+      ...current,
+      ...(input.name === undefined ? {} : { name: input.name.trim() }),
+      ...(input.defaultLaunchUrl === undefined ? {} : { defaultLaunchUrl: new URL(input.defaultLaunchUrl).toString() }),
+      ...(input.browserLaunchMode === undefined ? {} : { browserLaunchMode: input.browserLaunchMode }),
+      ...(input.iconImageDataUrl === undefined
+        ? {}
+        : input.iconImageDataUrl
+          ? { iconImageDataUrl: input.iconImageDataUrl }
+          : { iconImageDataUrl: undefined }),
+      ...(input.coverImageDataUrl === undefined
+        ? {}
+        : input.coverImageDataUrl
+          ? { coverImageDataUrl: input.coverImageDataUrl }
+          : { coverImageDataUrl: undefined }),
+      updatedAt: new Date().toISOString()
+    };
+    games[index] = game;
+    await this.replace("games", games);
+    return game;
+  }
+
+  async resetBuiltinGame(id: string): Promise<Game> {
+    return this.getGame(id);
+  }
+
+  async deleteGame(id: string): Promise<void> {
+    const games = await this.listGames();
+    if (!games.some((game) => game.id === id)) throw codedError("GAME_NOT_FOUND", "Game not found.");
+    await this.replace("games", games.filter((game) => game.id !== id));
+  }
+
+  async listRoles(): Promise<Role[]> {
+    return this.read("roles", []);
+  }
+
+  async getRole(id: string): Promise<Role> {
+    const role = (await this.listRoles()).find((item) => item.id === id);
+    if (!role) throw codedError("ROLE_NOT_FOUND", "Role not found.");
+    return role;
+  }
+
+  async createRole(input: CreateRoleInput): Promise<Role> {
+    const roles = await this.listRoles();
+    const timestamp = new Date().toISOString();
+    const role: Role = {
+      id: crypto.randomUUID(),
+      gameId: input.gameId.trim(),
+      name: input.name.trim(),
+      launchUrl: new URL(input.launchUrl ?? "https://universe.flyff.com/play").toString(),
+      notes: input.notes?.trim() ?? "",
+      browserSessionSource: "embedded",
+      ...(typeof input.coverImageDataUrl === "string" && input.coverImageDataUrl
+        ? { coverImageDataUrl: input.coverImageDataUrl }
+        : {}),
+      ...(typeof input.coverImageDominantColor === "string" && input.coverImageDominantColor
+        ? { coverImageDominantColor: input.coverImageDominantColor }
+        : {}),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    roles.push(role);
+    await this.replace("roles", roles);
+    return role;
+  }
+
+  async updateRole(id: string, input: UpdateRoleInput): Promise<Role> {
+    const roles = await this.listRoles();
+    const index = roles.findIndex((role) => role.id === id);
+    if (index < 0) throw codedError("ROLE_NOT_FOUND", "Role not found.");
+    const role: Role = {
+      ...roles[index],
+      ...(input.gameId === undefined ? {} : { gameId: input.gameId.trim() }),
+      ...(input.name === undefined ? {} : { name: input.name.trim() }),
+      ...(input.launchUrl === undefined ? {} : { launchUrl: new URL(input.launchUrl).toString() }),
+      ...(input.notes === undefined ? {} : { notes: input.notes.trim() }),
+      updatedAt: new Date().toISOString()
+    };
+    roles[index] = role;
+    await this.replace("roles", roles);
+    return role;
+  }
+
+  async reorderRoles(orderedIds: string[]): Promise<Role[]> {
+    const roles = await this.listRoles();
+    const byId = new Map(roles.map((role) => [role.id, role]));
+    const ordered = orderedIds.map((id) => byId.get(id)).filter((role): role is Role => Boolean(role));
+    await this.replace("roles", ordered);
+    return ordered;
+  }
+
+  async deleteRole(id: string): Promise<void> {
+    const roles = await this.listRoles();
+    if (!roles.some((role) => role.id === id)) throw codedError("ROLE_NOT_FOUND", "Role not found.");
+    await this.replace("roles", roles.filter((role) => role.id !== id));
+  }
+
+  async setRoleBrowserSessionSource(id: string, source: RoleBrowserSessionSource): Promise<Role> {
+    const role = await this.updateRole(id, {});
+    const roles = await this.listRoles();
+    const updated = { ...role, browserSessionSource: source };
+    await this.replace("roles", roles.map((item) => item.id === id ? updated : item));
+    return updated;
+  }
+
+  async assignRoleGameIds(assignments: ReadonlyMap<string, string>): Promise<Role[]> {
+    const roles = (await this.listRoles()).map((role) => ({
+      ...role,
+      gameId: assignments.get(role.id) ?? role.gameId
+    }));
+    await this.replace("roles", roles);
+    return roles;
+  }
+
+  listWorkspaces(): Promise<LaunchWorkspace[]> {
+    return this.read("launchWorkspaces", []);
+  }
+
+  async getWorkspace(id: string): Promise<LaunchWorkspace> {
+    const workspace = (await this.listWorkspaces()).find((item) => item.id === id);
+    if (!workspace) throw codedError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
+    return workspace;
+  }
+
+  async createWorkspace(input: CreateLaunchWorkspaceInput): Promise<LaunchWorkspace> {
+    const workspaces = await this.listWorkspaces();
+    const template = input.template ?? "two_columns";
+    const timestamp = new Date().toISOString();
+    const defaults = createDefaultWorkspaceSlots(template);
+    const workspace: LaunchWorkspace = {
+      id: crypto.randomUUID(),
+      name: input.name.trim(),
+      template,
+      browserLaunchMode: input.browserLaunchMode ?? "inherit",
+      browserZoomMode: input.browserZoomMode ?? "adaptive",
+      browserZoomPercent: input.browserZoomPercent ?? getDefaultWorkspaceBrowserZoomPercent(template),
+      resourcePolicy: input.resourcePolicy ?? { mode: "adaptive" },
+      ...(input.targetDisplay ? { targetDisplay: structuredClone(input.targetDisplay) } : {}),
+      slots: defaults.map((slot, index) => ({ ...slot, ...structuredClone(input.slots?.[index] ?? {}) })),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    workspaces.push(structuredClone(workspace));
+    await this.replace("launchWorkspaces", workspaces);
+    return workspace;
+  }
+
+  async updateWorkspace(id: string, input: UpdateLaunchWorkspaceInput): Promise<LaunchWorkspace> {
+    const workspaces = await this.listWorkspaces();
+    const index = workspaces.findIndex((item) => item.id === id);
+    if (index < 0) throw codedError("WORKSPACE_NOT_FOUND", "Launch workspace not found.");
+    const current = workspaces[index];
+    const workspace: LaunchWorkspace = {
+      ...current,
+      ...structuredClone(input),
+      ...(input.targetDisplay === null ? { targetDisplay: undefined } : {}),
+      updatedAt: new Date().toISOString()
+    } as LaunchWorkspace;
+    workspaces[index] = structuredClone(workspace);
+    await this.replace("launchWorkspaces", workspaces);
+    return workspace;
+  }
+
+  async reorderWorkspaces(orderedIds: string[]): Promise<LaunchWorkspace[]> {
+    const workspaces = await this.listWorkspaces();
+    const byId = new Map(workspaces.map((item) => [item.id, item]));
+    const ordered = orderedIds.map((id) => byId.get(id)).filter((item): item is LaunchWorkspace => Boolean(item));
+    await this.replace("launchWorkspaces", ordered);
+    return ordered;
+  }
+
+  async deleteWorkspace(id: string): Promise<void> {
+    await this.replace("launchWorkspaces", (await this.listWorkspaces()).filter((item) => item.id !== id));
+  }
+
+  async clearWorkspaceRole(roleId: string): Promise<void> {
+    const workspaces = (await this.listWorkspaces()).map((workspace) => ({
+      ...workspace,
+      slots: workspace.slots.map((slot) => {
+        if (slot.roleId !== roleId) return slot;
+        const { roleId: _roleId, ...remaining } = slot;
+        return remaining;
+      })
+    }));
+    await this.replace("launchWorkspaces", workspaces);
+  }
+
+  async setWorkspaceRoleBrowserZoom(
+    workspaceId: string,
+    roleId: string,
+    browserZoomPercent: WorkspaceSlotBrowserZoomPercent
+  ): Promise<LaunchWorkspace | undefined> {
+    const workspaces = await this.listWorkspaces();
+    const workspace = workspaces.find((item) => item.id === workspaceId);
+    const slot = workspace?.slots.find((item) => item.roleId === roleId);
+    if (!workspace || !slot) return undefined;
+    slot.browserZoomPercent = browserZoomPercent;
+    await this.replace("launchWorkspaces", workspaces);
+    return workspace;
+  }
+
+  async reconcileWorkspaceDisplays(_displays: WorkspaceDisplayInfo[]): Promise<LaunchWorkspace[]> {
+    return this.listWorkspaces();
+  }
+
+  listMacros(): Promise<Macro[]> {
+    return this.read("macros", []);
+  }
+
+  async getMacro(id: string): Promise<Macro> {
+    const macro = (await this.listMacros()).find((item) => item.id === id);
+    if (!macro) throw codedError("MACRO_NOT_FOUND", "Macro not found.");
+    return macro;
+  }
+
+  async createMacro(input: CreateMacroInput): Promise<Macro> {
+    const macros = await this.listMacros();
+    const timestamp = new Date().toISOString();
+    const macro: Macro = {
+      id: crypto.randomUUID(),
+      enabled: input.enabled ?? true,
+      activationMode: input.activationMode ?? "toggle",
+      name: input.name.trim(),
+      roleIds: [...input.roleIds],
+      ...(input.trigger ? { trigger: structuredClone(input.trigger) } : {}),
+      repeat: structuredClone(input.repeat ?? { type: "once" }),
+      steps: structuredClone(input.steps),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    macros.push(structuredClone(macro));
+    await this.replace("macros", macros);
+    return macro;
+  }
+
+  async updateMacro(id: string, input: UpdateMacroInput): Promise<Macro> {
+    const macros = await this.listMacros();
+    const index = macros.findIndex((item) => item.id === id);
+    if (index < 0) throw codedError("MACRO_NOT_FOUND", "Macro not found.");
+    const macro = {
+      ...macros[index],
+      ...structuredClone(input),
+      ...(input.trigger === null ? { trigger: undefined } : {}),
+      updatedAt: new Date().toISOString()
+    } as Macro;
+    macros[index] = structuredClone(macro);
+    await this.replace("macros", macros);
+    return macro;
+  }
+
+  async deleteMacro(id: string): Promise<void> {
+    await this.replace("macros", (await this.listMacros()).filter((item) => item.id !== id));
+  }
+
+  async deleteMacros(ids: string[]): Promise<BulkDeleteResult> {
+    const existing = new Set((await this.listMacros()).map((item) => item.id));
+    const deletedIds = [...new Set(ids)].filter((id) => existing.has(id));
+    await this.replace("macros", (await this.listMacros()).filter((item) => !deletedIds.includes(item.id)));
+    return { deletedIds, skipped: [...new Set(ids)].filter((id) => !existing.has(id)).map((id) => ({ id, reason: "not_found" })) };
+  }
+
+  async clearMacroRole(roleId: string): Promise<void> {
+    await this.replace("macros", (await this.listMacros()).map((macro) => ({
+      ...macro,
+      roleIds: macro.roleIds.filter((id) => id !== roleId)
+    })));
+  }
+
+  listCompatibilityReports(): Promise<GameCompatibilityReport[]> {
+    return this.read("compatibilityReports", []);
+  }
+
+  async saveCompatibilityReport(report: GameCompatibilityReport): Promise<GameCompatibilityReport> {
+    const reports = await this.listCompatibilityReports();
+    const index = reports.findIndex((item) => item.gameId === report.gameId);
+    if (index < 0) reports.push(structuredClone(report));
+    else reports[index] = structuredClone(report);
+    await this.replace("compatibilityReports", reports);
+    return structuredClone(report);
+  }
+
+  async recordCompatibilityObservation(
+    gameId: string,
+    observation: Partial<GameCompatibilityObservations>
+  ): Promise<GameCompatibilityReport> {
+    const current = (await this.listCompatibilityReports()).find((item) => item.gameId === gameId);
+    return this.saveCompatibilityReport({
+      ...(current ?? { gameId, isStale: false }),
+      observations: { ...(current?.observations ?? {}), ...observation }
+    });
+  }
+
+  async deleteCompatibilityReport(gameId: string): Promise<void> {
+    await this.replace(
+      "compatibilityReports",
+      (await this.listCompatibilityReports()).filter((report) => report.gameId !== gameId)
+    );
+  }
+}
+
+function codedError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}

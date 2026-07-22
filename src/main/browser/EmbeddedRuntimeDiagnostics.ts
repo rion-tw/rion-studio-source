@@ -6,9 +6,6 @@ import {
 } from "../../shared/embeddedRuntimeDiagnostics";
 import type { LogService } from "../logging/LogService";
 
-export const EMBEDDED_HEARTBEAT_INTERVAL_MS = 15_000;
-export const EMBEDDED_HEARTBEAT_STALL_MS = 45_000;
-
 export interface EmbeddedRuntimeDiagnosticContext {
   hostId: string;
   kind: "game" | "popup";
@@ -19,43 +16,15 @@ export interface EmbeddedRuntimeDiagnosticContext {
 interface TrackedContents {
   context: EmbeddedRuntimeDiagnosticContext;
   contents: WebContents;
-  lastHeartbeatAt: number;
   lastOsProcessId?: number;
-  stalled: boolean;
-}
-
-interface EmbeddedRuntimeDiagnosticsOptions {
-  clearInterval?: typeof clearInterval;
-  heartbeatIntervalMs?: number;
-  now?: () => number;
-  setInterval?: typeof setInterval;
-  stallThresholdMs?: number;
 }
 
 type DiagnosticLogger = Pick<LogService, "error" | "info" | "warn">;
 
 export class EmbeddedRuntimeDiagnostics {
   private readonly records = new Map<number, TrackedContents>();
-  private readonly clearIntervalFn: typeof clearInterval;
-  private readonly now: () => number;
-  private readonly stallThresholdMs: number;
-  private readonly timer: ReturnType<typeof setInterval>;
-  private suspended = false;
 
-  constructor(
-    private readonly logService: DiagnosticLogger,
-    options: EmbeddedRuntimeDiagnosticsOptions = {}
-  ) {
-    this.clearIntervalFn = options.clearInterval ?? clearInterval;
-    this.now = options.now ?? Date.now;
-    this.stallThresholdMs = options.stallThresholdMs ?? EMBEDDED_HEARTBEAT_STALL_MS;
-    const setIntervalFn = options.setInterval ?? setInterval;
-    this.timer = setIntervalFn(
-      () => this.checkHeartbeats(),
-      options.heartbeatIntervalMs ?? EMBEDDED_HEARTBEAT_INTERVAL_MS
-    );
-    this.timer.unref?.();
-  }
+  constructor(private readonly logService: DiagnosticLogger) {}
 
   attach(context: EmbeddedRuntimeDiagnosticContext, contents: WebContents): void {
     if (contents.isDestroyed() || this.records.has(contents.id)) {
@@ -65,9 +34,7 @@ export class EmbeddedRuntimeDiagnostics {
     const record: TrackedContents = {
       context: { ...context },
       contents,
-      lastHeartbeatAt: this.now(),
-      lastOsProcessId: this.readProcessId(contents),
-      stalled: false
+      lastOsProcessId: this.readProcessId(contents)
     };
     this.records.set(contents.id, record);
 
@@ -119,18 +86,7 @@ export class EmbeddedRuntimeDiagnostics {
       return;
     }
 
-    const recovered = record.stalled;
-    record.lastHeartbeatAt = this.now();
     record.lastOsProcessId = this.readProcessId(contents) ?? record.lastOsProcessId;
-    record.stalled = false;
-    if (recovered) {
-      this.logService.info(
-        "browser",
-        "embedded_renderer_heartbeat_recovered",
-        "Embedded game renderer diagnostics resumed.",
-        this.createLogContext(record, value)
-      );
-    }
 
     if (value.type === "heartbeat") {
       return;
@@ -157,16 +113,11 @@ export class EmbeddedRuntimeDiagnostics {
   }
 
   handleSuspend(): void {
-    this.suspended = true;
+    // Electron owns suspend/resume; no diagnostic polling remains to pause.
   }
 
   handleResume(): void {
-    const resumedAt = this.now();
-    this.suspended = false;
-    this.records.forEach((record) => {
-      record.lastHeartbeatAt = resumedAt;
-      record.stalled = false;
-    });
+    // Lifecycle and WebContents responsive/unresponsive events are event-driven.
   }
 
   getRenderProcessGoneContext(contents: WebContents): Record<string, unknown> | undefined {
@@ -187,31 +138,7 @@ export class EmbeddedRuntimeDiagnostics {
   }
 
   stop(): void {
-    this.clearIntervalFn(this.timer);
     this.records.clear();
-  }
-
-  private checkHeartbeats(): void {
-    if (this.suspended) {
-      return;
-    }
-    const now = this.now();
-    this.records.forEach((record) => {
-      if (record.stalled || now - record.lastHeartbeatAt < this.stallThresholdMs) {
-        return;
-      }
-      record.stalled = true;
-      this.logService.warn(
-        "browser",
-        "embedded_renderer_heartbeat_stalled",
-        "Embedded game renderer diagnostics stopped responding.",
-        {
-          ...this.createLogContext(record),
-          lastHeartbeatAt: new Date(record.lastHeartbeatAt).toISOString(),
-          stalledForMs: now - record.lastHeartbeatAt
-        }
-      );
-    });
   }
 
   private createLogContext(

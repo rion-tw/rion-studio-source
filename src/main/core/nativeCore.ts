@@ -114,7 +114,7 @@ export interface NativeAppCore {
 
 interface NativeCoreAddon {
   coreVersion: () => string;
-  readBootstrapGraphicsMode: (userDataDir: string) => string;
+  readBootstrapGraphicsSettings: (userDataDir: string) => string;
   createAppCore: (options: {
     appVersion: string;
     platform: string;
@@ -122,9 +122,9 @@ interface NativeCoreAddon {
   }) => Promise<NativeAppCore>;
 }
 
-export function readBootstrapGraphicsMode(options: AppCoreClientOptions): string {
+export function readBootstrapGraphicsSettings(options: AppCoreClientOptions): unknown {
   const addon = loadNativeCoreAddon(options);
-  return addon.readBootstrapGraphicsMode(options.userDataDir);
+  return JSON.parse(addon.readBootstrapGraphicsSettings(options.userDataDir));
 }
 
 export interface AppCoreClientOptions {
@@ -843,7 +843,7 @@ function loadNativeCoreAddon(options: AppCoreClientOptions): NativeCoreAddon {
     if (
       typeof addon.coreVersion !== "function" ||
       typeof addon.createAppCore !== "function" ||
-      typeof addon.readBootstrapGraphicsMode !== "function"
+      typeof addon.readBootstrapGraphicsSettings !== "function"
     ) {
       throw new Error("The addon does not expose the required Node-API surface.");
     }

@@ -13,26 +13,19 @@ export function getGraphicsRestartState(
   return hasRunningRoles ? "roles_running" : "ready";
 }
 
-interface ApplyGraphicsModeUpdateOptions {
+interface ApplyGraphicsSettingsUpdateOptions {
   loadDiagnostics: () => Promise<GraphicsDiagnostics>;
   onDiagnostics: (diagnostics: GraphicsDiagnostics) => void;
-  onRestartRequired: (diagnostics: GraphicsDiagnostics) => Promise<void> | void;
   save: () => Promise<void>;
 }
 
-export async function applyGraphicsModeUpdate({
+export async function applyGraphicsSettingsUpdate({
   loadDiagnostics,
   onDiagnostics,
-  onRestartRequired,
   save
-}: ApplyGraphicsModeUpdateOptions): Promise<GraphicsDiagnostics> {
+}: ApplyGraphicsSettingsUpdateOptions): Promise<GraphicsDiagnostics> {
   await save();
   const diagnostics = await loadDiagnostics();
   onDiagnostics(diagnostics);
-
-  if (diagnostics.restartRequired) {
-    await onRestartRequired(diagnostics);
-  }
-
   return diagnostics;
 }

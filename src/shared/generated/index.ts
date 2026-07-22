@@ -6,6 +6,7 @@ export type { BrowserOperationLease } from "./BrowserOperationLease";
 export type { BrowserOperationRequest } from "./BrowserOperationRequest";
 export type { BrowserCdnCompatibilityRecord } from "./BrowserCdnCompatibilityRecord";
 export type { BrowserFontSettingsRecord } from "./BrowserFontSettingsRecord";
+export type { BrowserGraphicsBackendSettingsRecord } from "./BrowserGraphicsBackendSettingsRecord";
 export type { BrowserGraphicsSettingsRecord } from "./BrowserGraphicsSettingsRecord";
 export type { BrowserNetworkSettingsRecord } from "./BrowserNetworkSettingsRecord";
 export type { BrowserProxySettingsRecord } from "./BrowserProxySettingsRecord";

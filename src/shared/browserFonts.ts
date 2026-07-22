@@ -2,7 +2,6 @@ import type {
   BrowserFontFamilyRole,
   BrowserFontSettings,
   BrowserFontSettingsMode,
-  BrowserGraphicsMode,
   BrowserGraphicsSettings,
   BrowserCdnCompatibilityMode,
   BrowserCdnCompatibilitySettings,
@@ -50,7 +49,31 @@ export const DEFAULT_BROWSER_NETWORK_SETTINGS: BrowserNetworkSettings = {
 };
 
 export const DEFAULT_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {
-  mode: "automatic"
+  backend: {
+    macos: "automatic",
+    windows: "automatic"
+  },
+  driverBugWorkaroundsEnabled: true,
+  forceGpuRasterization: true,
+  frameRateLimitEnabled: false,
+  gpuBlocklistEnabled: false,
+  preferHighPerformanceGpu: true,
+  unsafeWebGpuEnabled: true,
+  vsyncEnabled: false
+};
+
+export const LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {
+  backend: {
+    macos: "automatic",
+    windows: "automatic"
+  },
+  driverBugWorkaroundsEnabled: true,
+  forceGpuRasterization: false,
+  frameRateLimitEnabled: true,
+  gpuBlocklistEnabled: true,
+  preferHighPerformanceGpu: false,
+  unsafeWebGpuEnabled: false,
+  vsyncEnabled: true
 };
 
 export const workspaceGapSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceGapSize[];
@@ -104,8 +127,74 @@ export function normalizeBrowserGraphicsSettings(
   fallback: BrowserGraphicsSettings = DEFAULT_BROWSER_GRAPHICS_SETTINGS
 ): BrowserGraphicsSettings {
   const input = isRecord(value) ? value : {};
+  const hasFlattenedSettings = [
+    "backend",
+    "driverBugWorkaroundsEnabled",
+    "forceGpuRasterization",
+    "frameRateLimitEnabled",
+    "gpuBlocklistEnabled",
+    "preferHighPerformanceGpu",
+    "unsafeWebGpuEnabled",
+    "vsyncEnabled"
+  ].some((key) => key in input);
+
+  if (!hasFlattenedSettings && "mode" in input) {
+    return normalizeLegacyBrowserGraphicsMode(input.mode);
+  }
+
+  const frameRateLimitEnabled = normalizeBoolean(
+    input.frameRateLimitEnabled,
+    fallback.frameRateLimitEnabled
+  );
   return {
-    mode: normalizeBrowserGraphicsMode(input.mode, fallback.mode)
+    backend: normalizeBrowserGraphicsBackendSettings(input.backend, fallback.backend),
+    driverBugWorkaroundsEnabled: normalizeBoolean(
+      input.driverBugWorkaroundsEnabled,
+      fallback.driverBugWorkaroundsEnabled
+    ),
+    forceGpuRasterization: normalizeBoolean(
+      input.forceGpuRasterization,
+      fallback.forceGpuRasterization
+    ),
+    frameRateLimitEnabled,
+    gpuBlocklistEnabled: normalizeBoolean(input.gpuBlocklistEnabled, fallback.gpuBlocklistEnabled),
+    preferHighPerformanceGpu: normalizeBoolean(
+      input.preferHighPerformanceGpu,
+      fallback.preferHighPerformanceGpu
+    ),
+    unsafeWebGpuEnabled: normalizeBoolean(input.unsafeWebGpuEnabled, fallback.unsafeWebGpuEnabled),
+    vsyncEnabled: frameRateLimitEnabled
+      ? normalizeBoolean(input.vsyncEnabled, fallback.vsyncEnabled)
+      : false
+  };
+}
+
+function normalizeLegacyBrowserGraphicsMode(value: unknown): BrowserGraphicsSettings {
+  const normalized = structuredClone(LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS);
+  if (value === "high_performance" || value === "experimental") {
+    normalized.preferHighPerformanceGpu = true;
+  }
+  if (value === "experimental") {
+    normalized.gpuBlocklistEnabled = false;
+    normalized.unsafeWebGpuEnabled = true;
+  }
+  return normalized;
+}
+
+function normalizeBrowserGraphicsBackendSettings(
+  value: unknown,
+  fallback: BrowserGraphicsSettings["backend"]
+): BrowserGraphicsSettings["backend"] {
+  const input = isRecord(value) ? value : {};
+  return {
+    macos: input.macos === "automatic" || input.macos === "metal" ? input.macos : fallback.macos,
+    windows:
+      input.windows === "automatic" ||
+      input.windows === "d3d11" ||
+      input.windows === "d3d11on12" ||
+      input.windows === "vulkan"
+        ? input.windows
+        : fallback.windows
   };
 }
 
@@ -238,8 +327,8 @@ function normalizeBrowserFontSettingsMode(
   return value === "default" || value === "custom" ? value : fallback;
 }
 
-function normalizeBrowserGraphicsMode(value: unknown, fallback: BrowserGraphicsMode): BrowserGraphicsMode {
-  return value === "automatic" || value === "high_performance" || value === "experimental" ? value : fallback;
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function normalizeBrowserLaunchMode(value: unknown, fallback: BrowserLaunchMode): BrowserLaunchMode {

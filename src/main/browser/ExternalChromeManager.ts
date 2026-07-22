@@ -9,10 +9,12 @@ import {
   BROWSER_BACKGROUND_FEATURES_TO_DISABLE,
   BROWSER_BASE_SWITCHES,
   EXTERNAL_CHROME_FOREGROUND_PRIORITY_SWITCHES,
-  getGraphicsModeSwitches
+  formatChromiumSwitch,
+  getGraphicsSwitches
 } from "../../shared/browserGraphics";
+import { DEFAULT_BROWSER_GRAPHICS_SETTINGS } from "../../shared/browserFonts";
 import type {
-  BrowserGraphicsMode,
+  BrowserGraphicsSettings,
   NormalizedRect,
   PixelBounds,
   Role,
@@ -100,7 +102,7 @@ export interface ExternalChromeManagerOptions {
   prepareBrowserUserDataDir: (browserUserDataDir: string) => Promise<void>;
   findExecutable: () => string;
   getLaunchWorkArea: () => PixelBounds;
-  graphicsMode?: BrowserGraphicsMode;
+  graphicsSettings?: BrowserGraphicsSettings;
   healthMonitor: ExternalChromeHealthMonitor;
   normalizeWorkspaceRects: (rects: NormalizedRect[]) => NormalizedRect[];
   onDiagnostic?: (event: ExternalChromeDiagnosticEvent & { roleId: string }) => void;
@@ -507,7 +509,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         browserUserDataDir,
         bounds,
         proxyServer,
-        this.options.graphicsMode,
+        this.options.graphicsSettings,
         this.options.platform ?? process.platform
       )
     );
@@ -829,7 +831,7 @@ export function buildExternalChromeArgs(
   browserUserDataDir: string,
   bounds: PixelBounds,
   proxyServer?: string,
-  graphicsMode: BrowserGraphicsMode = "automatic",
+  graphicsSettings: BrowserGraphicsSettings = DEFAULT_BROWSER_GRAPHICS_SETTINGS,
   platform: NodeJS.Platform = process.platform
 ): string[] {
   return [
@@ -841,7 +843,7 @@ export function buildExternalChromeArgs(
     ...BROWSER_BASE_SWITCHES.map((name) => `--${name}`),
     ...getExternalChromeBackgroundSwitches(platform).map((name) => `--${name}`),
     `--disable-features=${BROWSER_BACKGROUND_FEATURES_TO_DISABLE.join(",")}`,
-    ...getGraphicsModeSwitches(graphicsMode).map((name) => `--${name}`),
+    ...getGraphicsSwitches(graphicsSettings, platform).map(formatChromiumSwitch),
     "--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=0",
     ...(proxyServer ? [`--proxy-server=${proxyServer}`] : [])

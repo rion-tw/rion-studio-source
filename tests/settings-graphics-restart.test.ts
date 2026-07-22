@@ -1,14 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  applyGraphicsModeUpdate,
+  applyGraphicsSettingsUpdate,
   getGraphicsRestartState
 } from "../src/renderer/src/features/settings/graphicsRestart";
 import type { GraphicsDiagnostics } from "../src/shared/types";
+import {
+  DEFAULT_BROWSER_GRAPHICS_SETTINGS,
+  LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS
+} from "../src/shared/browserFonts";
 
 function createDiagnostics(restartRequired: boolean): GraphicsDiagnostics {
   return {
-    appliedMode: "automatic",
+    appliedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+    appliedSwitches: [],
     collectedAt: "2026-07-14T00:00:00.000Z",
     embedded: {
       webgl: "available",
@@ -21,7 +26,9 @@ function createDiagnostics(restartRequired: boolean): GraphicsDiagnostics {
     hardwareAccelerationEnabled: true,
     platform: "darwin",
     restartRequired,
-    savedMode: restartRequired ? "high_performance" : "automatic",
+    savedSettings: restartRequired
+      ? DEFAULT_BROWSER_GRAPHICS_SETTINGS
+      : LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
     versions: {
       chromium: "1",
       electron: "1",
@@ -31,7 +38,7 @@ function createDiagnostics(restartRequired: boolean): GraphicsDiagnostics {
 }
 
 describe("graphics restart state", () => {
-  it("does not require a restart when the saved mode is already applied", () => {
+  it("does not require a restart when the saved settings are already applied", () => {
     expect(getGraphicsRestartState(false, false)).toBe("not_required");
   });
 
@@ -44,12 +51,12 @@ describe("graphics restart state", () => {
   });
 });
 
-describe("graphics mode update", () => {
-  it("opens the restart prompt only after saving and refreshing diagnostics", async () => {
+describe("graphics settings update", () => {
+  it("saves and refreshes diagnostics without opening a per-toggle restart prompt", async () => {
     const calls: string[] = [];
     const diagnostics = createDiagnostics(true);
 
-    await applyGraphicsModeUpdate({
+    await applyGraphicsSettingsUpdate({
       save: async () => {
         calls.push("save");
       },
@@ -59,61 +66,41 @@ describe("graphics mode update", () => {
       },
       onDiagnostics: () => {
         calls.push("update");
-      },
-      onRestartRequired: () => {
-        calls.push("restart");
       }
     });
 
-    expect(calls).toEqual(["save", "diagnostics", "update", "restart"]);
+    expect(calls).toEqual(["save", "diagnostics", "update"]);
   });
 
-  it("does not open the restart prompt when saving fails", async () => {
+  it("does not refresh diagnostics when saving fails", async () => {
     const loadDiagnostics = vi.fn();
-    const onRestartRequired = vi.fn();
 
     await expect(
-      applyGraphicsModeUpdate({
+      applyGraphicsSettingsUpdate({
         save: async () => {
           throw new Error("save failed");
         },
         loadDiagnostics,
-        onDiagnostics: vi.fn(),
-        onRestartRequired
+        onDiagnostics: vi.fn()
       })
     ).rejects.toThrow("save failed");
 
     expect(loadDiagnostics).not.toHaveBeenCalled();
-    expect(onRestartRequired).not.toHaveBeenCalled();
   });
 
-  it("does not open the restart prompt when diagnostics fail", async () => {
-    const onRestartRequired = vi.fn();
+  it("does not publish stale diagnostics when refreshing fails", async () => {
+    const onDiagnostics = vi.fn();
 
     await expect(
-      applyGraphicsModeUpdate({
+      applyGraphicsSettingsUpdate({
         save: async () => undefined,
         loadDiagnostics: async () => {
           throw new Error("diagnostics failed");
         },
-        onDiagnostics: vi.fn(),
-        onRestartRequired
+        onDiagnostics
       })
     ).rejects.toThrow("diagnostics failed");
 
-    expect(onRestartRequired).not.toHaveBeenCalled();
-  });
-
-  it("does not open the restart prompt when diagnostics report no pending mode", async () => {
-    const onRestartRequired = vi.fn();
-
-    await applyGraphicsModeUpdate({
-      save: async () => undefined,
-      loadDiagnostics: async () => createDiagnostics(false),
-      onDiagnostics: vi.fn(),
-      onRestartRequired
-    });
-
-    expect(onRestartRequired).not.toHaveBeenCalled();
+    expect(onDiagnostics).not.toHaveBeenCalled();
   });
 });

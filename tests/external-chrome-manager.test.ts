@@ -8,6 +8,9 @@ import {
   EXTERNAL_ZOOM_UNAVAILABLE_NOTICE,
   ExternalChromeManager
 } from "../src/main/browser/ExternalChromeManager";
+import {
+  LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS
+} from "../src/shared/browserFonts";
 import type { Role } from "../src/shared/types";
 import { createExternalSessionState } from "./helpers/externalSessionState";
 import {
@@ -35,7 +38,7 @@ describe("ExternalChromeManager", () => {
         y: -120,
         width: 1280,
         height: 720
-      }, undefined, "automatic", "linux")
+      }, undefined, LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS, "linux")
     ).toEqual([
       "--user-data-dir=/tmp/rion/role-1/browser",
       "--profile-directory=Default",
@@ -61,7 +64,7 @@ describe("ExternalChromeManager", () => {
       "/tmp/profile",
       { x: 0, y: 0, width: 1280, height: 720 },
       undefined,
-      "automatic",
+      LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
       platform
     );
 
@@ -70,18 +73,42 @@ describe("ExternalChromeManager", () => {
     expect(args).not.toContain("--disable-backgrounding-occluded-windows");
   });
 
-  it("adds only the graphics switches selected by the applied startup mode", () => {
+  it("adds only the graphics switches selected by the applied settings", () => {
     const bounds = { x: 0, y: 0, width: 1280, height: 720 };
-    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, "automatic"))
+    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS))
       .not.toContain("--ignore-gpu-blocklist");
-    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, "high_performance"))
+    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, {
+      ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+      preferHighPerformanceGpu: true
+    }))
       .toContain("--force-high-performance-gpu");
-    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, "experimental"))
+    expect(buildExternalChromeArgs(role, "/tmp/profile", bounds, undefined, {
+      ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+      gpuBlocklistEnabled: false,
+      preferHighPerformanceGpu: true,
+      unsafeWebGpuEnabled: true
+    }))
       .toEqual(expect.arrayContaining([
         "--force-high-performance-gpu",
         "--ignore-gpu-blocklist",
         "--enable-unsafe-webgpu"
       ]));
+  });
+
+  it.each([
+    ["darwin", { macos: "metal", windows: "automatic" }, ["--use-angle=metal"]],
+    ["win32", { macos: "automatic", windows: "d3d11on12" }, ["--use-angle=d3d11on12"]],
+    ["win32", { macos: "automatic", windows: "vulkan" }, ["--use-angle=vulkan", "--use-vulkan=native", "--enable-features=Vulkan"]]
+  ] as const)("applies supported %s graphics backends", (platform, backend, expected) => {
+    const args = buildExternalChromeArgs(
+      role,
+      "/tmp/profile",
+      { x: 0, y: 0, width: 1280, height: 720 },
+      undefined,
+      { ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS, backend },
+      platform
+    );
+    expect(args).toEqual(expect.arrayContaining([...expected]));
   });
 
   it.each(["darwin", "win32"] as const)(

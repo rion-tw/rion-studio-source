@@ -3,15 +3,19 @@ use std::{fs, path::Path};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
 
-const DEFAULT_MODE: &str = "automatic";
+use crate::model::BrowserGraphicsSettingsRecord;
 
-pub fn read_graphics_mode(user_data_dir: &Path) -> String {
-    read_sqlite_mode(&user_data_dir.join("rion-studio.sqlite3"))
-        .or_else(|| read_legacy_mode(&user_data_dir.join("game-browser-settings.json")))
-        .unwrap_or_else(|| DEFAULT_MODE.to_owned())
+pub fn read_graphics_settings(user_data_dir: &Path) -> String {
+    let settings = read_sqlite_settings(&user_data_dir.join("rion-studio.sqlite3"))
+        .or_else(|| read_legacy_settings(&user_data_dir.join("game-browser-settings.json")))
+        .unwrap_or_else(BrowserGraphicsSettingsRecord::aggressive_default);
+    serde_json::to_string(&settings).unwrap_or_else(|_| {
+        serde_json::to_string(&BrowserGraphicsSettingsRecord::aggressive_default())
+            .expect("graphics settings must serialize")
+    })
 }
 
-fn read_sqlite_mode(path: &Path) -> Option<String> {
+fn read_sqlite_settings(path: &Path) -> Option<BrowserGraphicsSettingsRecord> {
     if !path.is_file() {
         return None;
     }
@@ -28,21 +32,16 @@ fn read_sqlite_mode(path: &Path) -> Option<String> {
         )
         .optional()
         .ok()??;
-    read_mode(&serde_json::from_str(&payload).ok()?)
+    read_settings(&serde_json::from_str(&payload).ok()?)
 }
 
-fn read_legacy_mode(path: &Path) -> Option<String> {
+fn read_legacy_settings(path: &Path) -> Option<BrowserGraphicsSettingsRecord> {
     let payload = fs::read(path).ok()?;
-    read_mode(&serde_json::from_slice(&payload).ok()?)
+    read_settings(&serde_json::from_slice(&payload).ok()?)
 }
 
-fn read_mode(value: &Value) -> Option<String> {
-    value
-        .get("graphics")?
-        .get("mode")?
-        .as_str()
-        .filter(|mode| matches!(*mode, "automatic" | "high_performance" | "experimental"))
-        .map(str::to_owned)
+fn read_settings(value: &Value) -> Option<BrowserGraphicsSettingsRecord> {
+    serde_json::from_value(value.get("graphics")?.clone()).ok()
 }
 
 #[cfg(test)]
@@ -76,7 +75,12 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(read_graphics_mode(directory.path()), "high_performance");
+        let settings: BrowserGraphicsSettingsRecord =
+            serde_json::from_str(&read_graphics_settings(directory.path())).unwrap();
+        assert_eq!(
+            settings,
+            BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance")
+        );
     }
 
     #[test]
@@ -87,13 +91,34 @@ mod tests {
             r#"{"graphics":{"mode":"experimental"}}"#,
         )
         .unwrap();
-        assert_eq!(read_graphics_mode(directory.path()), "experimental");
+        let settings: BrowserGraphicsSettingsRecord =
+            serde_json::from_str(&read_graphics_settings(directory.path())).unwrap();
+        assert_eq!(
+            settings,
+            BrowserGraphicsSettingsRecord::from_legacy_mode("experimental")
+        );
 
         fs::write(
             directory.path().join("game-browser-settings.json"),
             r#"{"graphics":{"mode":"unsafe"}}"#,
         )
         .unwrap();
-        assert_eq!(read_graphics_mode(directory.path()), DEFAULT_MODE);
+        let settings: BrowserGraphicsSettingsRecord =
+            serde_json::from_str(&read_graphics_settings(directory.path())).unwrap();
+        assert_eq!(
+            settings,
+            BrowserGraphicsSettingsRecord::from_legacy_mode("automatic")
+        );
+    }
+
+    #[test]
+    fn defaults_new_installations_to_aggressive_graphics_settings() {
+        let directory = tempdir().unwrap();
+        let settings: BrowserGraphicsSettingsRecord =
+            serde_json::from_str(&read_graphics_settings(directory.path())).unwrap();
+        assert_eq!(
+            settings,
+            BrowserGraphicsSettingsRecord::aggressive_default()
+        );
     }
 }

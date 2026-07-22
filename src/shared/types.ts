@@ -341,7 +341,8 @@ export interface AppErrorPayload {
 
 export type BrowserFontFamilyRole = "standard" | "serif" | "sansserif" | "fixed" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";
-export type BrowserGraphicsMode = "automatic" | "high_performance" | "experimental";
+export type BrowserMacosGraphicsBackend = BrowserGraphicsSettingsRecord["backend"]["macos"];
+export type BrowserWindowsGraphicsBackend = BrowserGraphicsSettingsRecord["backend"]["windows"];
 export type BrowserLaunchMode = "auto" | "embedded" | "external";
 export type BrowserRuntimeMode = "embedded" | "external";
 export type InheritableBrowserLaunchMode = BrowserLaunchMode | "inherit";
@@ -391,7 +392,8 @@ export interface ExternalGraphicsDiagnostics {
 }
 
 export interface GraphicsDiagnostics {
-  appliedMode: BrowserGraphicsMode;
+  appliedSettings: BrowserGraphicsSettings;
+  appliedSwitches: string[];
   collectedAt: string;
   embedded: WebGraphicsDiagnostics;
   externalRoles: ExternalGraphicsDiagnostics[];
@@ -401,7 +403,7 @@ export interface GraphicsDiagnostics {
   hardwareAccelerationEnabled: boolean | null;
   platform: string;
   restartRequired: boolean;
-  savedMode: BrowserGraphicsMode;
+  savedSettings: BrowserGraphicsSettings;
   versions: {
     chromium: string;
     electron: string;

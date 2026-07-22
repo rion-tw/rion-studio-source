@@ -15,7 +15,10 @@ describe("GameBrowserSettingsStore", () => {
     const store = new GameBrowserSettingsStore("/unused", repository);
     const saved = await store.updateSettings({
       fonts: { families: { fixed: "  Courier   New  ", standard: "Arial" }, mode: "custom" },
-      graphics: { mode: "high_performance" },
+      graphics: {
+        ...DEFAULT_GAME_BROWSER_SETTINGS.graphics,
+        gpuBlocklistEnabled: true
+      },
       launchMode: "external",
       macroBadgePosition: { horizontalAlign: "right", horizontalMarginPx: 80, topPx: 280 },
       network: {

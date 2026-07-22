@@ -64,6 +64,12 @@ interface ChromeImportJournal {
 interface ChromeProfileImportManagerOptions {
   closeChrome?: () => Promise<void>;
   createImportId?: () => string;
+  copyProfile?: (
+    sourceUserDataDir: string,
+    directoryName: string,
+    destination: string
+  ) => Promise<void>;
+  discoverProfiles?: (sourceUserDataDir: string) => Promise<ChromeProfileEntry[]>;
   homeDirectory?: string;
   lstat?: typeof lstat;
   platform?: NodeJS.Platform;
@@ -156,7 +162,17 @@ export class ChromeProfileImportManager {
       );
     }
 
-    const profiles = await readChromeProfiles(sourceUserDataDir);
+    let profiles: ChromeProfileEntry[];
+    try {
+      profiles = await (this.options.discoverProfiles?.(sourceUserDataDir) ??
+        readChromeProfiles(sourceUserDataDir));
+    } catch (error) {
+      if (error instanceof ChromeProfileImportError) throw error;
+      throw new ChromeProfileImportError(
+        "PROFILE_INVALID",
+        "No usable Chrome profiles were found in the selected folder."
+      );
+    }
     const importId = this.createImportId();
     const pendingImport: PendingImport = {
       importId,
@@ -278,12 +294,20 @@ export class ChromeProfileImportManager {
     try {
       for (const assignment of assignments) {
         const stageBrowserDir = join(stageRoot, "profiles", assignment.profile.id);
-        await copyChromeProfile(
-          pending.sourceUserDataDir,
-          assignment.profile.directoryName,
-          stageBrowserDir,
-          this.lstat
-        );
+        if (this.options.copyProfile) {
+          await this.options.copyProfile(
+            pending.sourceUserDataDir,
+            assignment.profile.directoryName,
+            stageBrowserDir
+          );
+        } else {
+          await copyChromeProfile(
+            pending.sourceUserDataDir,
+            assignment.profile.directoryName,
+            stageBrowserDir,
+            this.lstat
+          );
+        }
       }
       for (const roleId of overwrittenRoleIds) {
         const sourceBrowserDir = this.options.roleStore.getRolePaths(roleId).browserUserDataDir;

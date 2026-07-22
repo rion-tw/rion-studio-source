@@ -1,10 +1,16 @@
 mod app;
 mod cdn;
+mod chrome_cookies;
 mod database;
+mod domain;
 mod error;
 mod external_chrome;
+mod external_health;
+mod layout;
 mod macro_graph;
+mod macro_runtime;
 mod model;
+mod portable;
 mod pressure;
 mod resource;
 mod scheduler;
@@ -13,9 +19,16 @@ pub use app::AppCore;
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use external_chrome::{CdpEvent, ExternalChromeCdpSession};
 pub use model::{
-    AppCoreOptions, BrowserAction, BrowserActionRequest, BrowserActionResult, CdnRule, CoreCommand,
-    CoreEvent, LogEntry, LogQuery, PressureLevel, ResourcePolicyDecision, ResourcePolicyInput,
-    SystemPressureSnapshot,
+    AppCoreOptions, BrowserAction, BrowserActionRequest, BrowserActionResult,
+    BrowserCdnCompatibilityRecord, BrowserFontSettingsRecord, BrowserGraphicsSettingsRecord,
+    BrowserNetworkSettingsRecord, BrowserProxySettingsRecord, CdnRule, CoreCommand, CoreEvent,
+    GameBrowserSettingsRecord, LayoutBounds, LayoutDividerBounds, LayoutDividerInput, LayoutRect,
+    LayoutRoleBounds, LayoutRoleInput, LegalAcceptanceRecord, LogEntry, LogQuery,
+    MacroBadgePositionRecord, MacroDefinition, MacroLastClick, MacroPressRequest,
+    MacroReleaseRequest, MacroRepeat, MacroRunStatus, MacroRuntimeSettings, MacroSettingsRecord,
+    MacroStartRequest, MacroStepDefinition, MacroTrigger, PressureLevel, ResourcePolicyDecision,
+    ResourcePolicyInput, RuntimeWindowPreferencesRecord, StateCollection, SystemPressureSnapshot,
+    WorkspaceAppearanceSettingsRecord, WorkspaceLayoutInput, WorkspaceLayoutOutput,
 };
 
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -35,13 +48,46 @@ mod generated_contract_tests {
                 "export type { BrowserActionRequest } from \"./BrowserActionRequest\";\n",
                 "export type { BrowserAction } from \"./BrowserAction\";\n",
                 "export type { BrowserActionResult } from \"./BrowserActionResult\";\n",
+                "export type { BrowserCdnCompatibilityRecord } from \"./BrowserCdnCompatibilityRecord\";\n",
+                "export type { BrowserFontSettingsRecord } from \"./BrowserFontSettingsRecord\";\n",
+                "export type { BrowserGraphicsSettingsRecord } from \"./BrowserGraphicsSettingsRecord\";\n",
+                "export type { BrowserNetworkSettingsRecord } from \"./BrowserNetworkSettingsRecord\";\n",
+                "export type { BrowserProxySettingsRecord } from \"./BrowserProxySettingsRecord\";\n",
                 "export type { CdnRule } from \"./CdnRule\";\n",
                 "export type { CoreErrorPayload } from \"./CoreErrorPayload\";\n",
+                "export type { CoreCommand } from \"./CoreCommand\";\n",
                 "export type { CoreEvent } from \"./CoreEvent\";\n",
+                "export type { GameBrowserSettingsRecord } from \"./GameBrowserSettingsRecord\";\n",
+                "export type { LayoutBounds } from \"./LayoutBounds\";\n",
+                "export type { LayoutDividerBounds } from \"./LayoutDividerBounds\";\n",
+                "export type { LayoutDividerInput } from \"./LayoutDividerInput\";\n",
+                "export type { LayoutRect } from \"./LayoutRect\";\n",
+                "export type { LayoutRoleBounds } from \"./LayoutRoleBounds\";\n",
+                "export type { LayoutRoleInput } from \"./LayoutRoleInput\";\n",
+                "export type { LegalAcceptanceRecord } from \"./LegalAcceptanceRecord\";\n",
+                "export type { LogEntry } from \"./LogEntry\";\n",
+                "export type { LogQuery } from \"./LogQuery\";\n",
+                "export type { MacroBadgePositionRecord } from \"./MacroBadgePositionRecord\";\n",
+                "export type { MacroDefinition } from \"./MacroDefinition\";\n",
+                "export type { MacroLastClick } from \"./MacroLastClick\";\n",
+                "export type { MacroPressRequest } from \"./MacroPressRequest\";\n",
+                "export type { MacroReleaseRequest } from \"./MacroReleaseRequest\";\n",
+                "export type { MacroRepeat } from \"./MacroRepeat\";\n",
+                "export type { MacroRunStatus } from \"./MacroRunStatus\";\n",
+                "export type { MacroRuntimeSettings } from \"./MacroRuntimeSettings\";\n",
+                "export type { MacroSettingsRecord } from \"./MacroSettingsRecord\";\n",
+                "export type { MacroStartRequest } from \"./MacroStartRequest\";\n",
+                "export type { MacroStepDefinition } from \"./MacroStepDefinition\";\n",
+                "export type { MacroTrigger } from \"./MacroTrigger\";\n",
                 "export type { PressureLevel } from \"./PressureLevel\";\n",
                 "export type { ResourcePolicyDecision } from \"./ResourcePolicyDecision\";\n",
                 "export type { ResourcePolicyInput } from \"./ResourcePolicyInput\";\n",
+                "export type { RuntimeWindowPreferencesRecord } from \"./RuntimeWindowPreferencesRecord\";\n",
+                "export type { StateCollection } from \"./StateCollection\";\n",
                 "export type { SystemPressureSnapshot } from \"./SystemPressureSnapshot\";\n",
+                "export type { WorkspaceAppearanceSettingsRecord } from \"./WorkspaceAppearanceSettingsRecord\";\n",
+                "export type { WorkspaceLayoutInput } from \"./WorkspaceLayoutInput\";\n",
+                "export type { WorkspaceLayoutOutput } from \"./WorkspaceLayoutOutput\";\n",
             ),
         )
         .unwrap();

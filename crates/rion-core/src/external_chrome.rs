@@ -22,6 +22,7 @@ use crate::error::{CoreError, CoreResult};
 const ATTACH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DEFAULT_ATTACH_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_DEVTOOLS_HTTP_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_EVENT_QUEUE: usize = 256;
 const MAX_COMMAND_QUEUE: usize = 256;
 
@@ -345,11 +346,7 @@ async fn list_devtools_targets(port: u16) -> CoreResult<Vec<DevToolsTarget>> {
         )
         .await
         .map_err(|error| CoreError::ExternalChrome(error.to_string()))?;
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .await
-        .map_err(|error| CoreError::ExternalChrome(error.to_string()))?;
+    let response = read_devtools_http_response(&mut stream).await?;
     let separator = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
@@ -367,6 +364,82 @@ async fn list_devtools_targets(port: u16) -> CoreResult<Vec<DevToolsTarget>> {
     }
     let body = decode_http_body(headers, &response[separator + 4..])?;
     serde_json::from_slice(&body).map_err(|error| CoreError::ExternalChrome(error.to_string()))
+}
+
+async fn read_devtools_http_response(stream: &mut TcpStream) -> CoreResult<Vec<u8>> {
+    let mut response = Vec::new();
+    let mut expected_length = None;
+    let mut buffer = [0_u8; 8 * 1024];
+    loop {
+        let read = stream
+            .read(&mut buffer)
+            .await
+            .map_err(|error| CoreError::ExternalChrome(error.to_string()))?;
+        if read == 0 {
+            return Ok(response);
+        }
+        response.extend_from_slice(&buffer[..read]);
+        if response.len() > MAX_DEVTOOLS_HTTP_RESPONSE_BYTES {
+            return Err(CoreError::ExternalChrome(
+                "Chrome DevTools HTTP response is too large".to_owned(),
+            ));
+        }
+
+        if expected_length.is_none()
+            && let Some(separator) = response.windows(4).position(|window| window == b"\r\n\r\n")
+        {
+            let headers = std::str::from_utf8(&response[..separator])
+                .map_err(|error| CoreError::ExternalChrome(error.to_string()))?;
+            let body = &response[separator + 4..];
+            expected_length = content_length(headers)
+                .map(|length| separator + 4 + length)
+                .or_else(|| {
+                    headers
+                        .to_ascii_lowercase()
+                        .contains("transfer-encoding: chunked")
+                        .then(|| chunked_body_length(body).map(|length| separator + 4 + length))
+                        .flatten()
+                });
+        }
+
+        if let Some(length) = expected_length
+            && response.len() >= length
+        {
+            response.truncate(length);
+            return Ok(response);
+        }
+    }
+}
+
+fn content_length(headers: &str) -> Option<usize> {
+    headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.trim()
+            .eq_ignore_ascii_case("content-length")
+            .then(|| value.trim().parse().ok())
+            .flatten()
+    })
+}
+
+fn chunked_body_length(body: &[u8]) -> Option<usize> {
+    let mut cursor = 0;
+    loop {
+        let line_end = body[cursor..]
+            .windows(2)
+            .position(|window| window == b"\r\n")?
+            + cursor;
+        let size_text = std::str::from_utf8(&body[cursor..line_end]).ok()?;
+        let size = usize::from_str_radix(size_text.split(';').next()?.trim(), 16).ok()?;
+        cursor = line_end + 2;
+        let chunk_end = cursor.checked_add(size)?;
+        if body.len() < chunk_end + 2 || &body[chunk_end..chunk_end + 2] != b"\r\n" {
+            return None;
+        }
+        cursor = chunk_end + 2;
+        if size == 0 {
+            return Some(cursor);
+        }
+    }
 }
 
 fn decode_http_body(headers: &str, body: &[u8]) -> CoreResult<Vec<u8>> {
@@ -483,5 +556,19 @@ mod tests {
             decode_http_body("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked", b"4\r\nabc",)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn detects_complete_keep_alive_devtools_responses() {
+        assert_eq!(
+            content_length("HTTP/1.1 200 OK\r\nContent-Length: 1534"),
+            Some(1534)
+        );
+        assert_eq!(
+            content_length("HTTP/1.1 200 OK\r\ncontent-length: 2"),
+            Some(2)
+        );
+        assert_eq!(chunked_body_length(b"4\r\ntest\r\n0\r\n\r\n"), Some(14));
+        assert_eq!(chunked_body_length(b"4\r\ntes"), None);
     }
 }

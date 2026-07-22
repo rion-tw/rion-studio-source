@@ -23,19 +23,18 @@ import {
 
 import { ExternalChromeManager } from "./browser/ExternalChromeManager";
 import { connectExternalChromeAutomation } from "./browser/ExternalChromeAutomationTarget";
-import {
-  ChromeProfileImportManager,
-  recoverChromeProfileImport
-} from "./browser/ChromeProfileImportManager";
+import { ChromeProfileImportManager } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { WindowsGraphicsEventCollector } from "./browser/WindowsGraphicsEventCollector";
 import { ChromeProfileSessionImporter } from "./browser/ChromeProfileSessionImporter";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
+import { RustExternalChromeHealthMonitor } from "./browser/RustExternalChromeHealthMonitor";
 import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
 import { AppCoreClient } from "./core/nativeCore";
+import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
 import { isRustSubsystemEnabled } from "./core/subsystemFlags";
 import { RustStateRepository } from "./core/RustStateRepository";
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
@@ -75,19 +74,16 @@ import {
 } from "./ipc/registerHandlers";
 import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
 import { LogService } from "./logging/LogService";
+import { sendToWindowIfAvailable } from "./window/sendToWindow";
 import { RustLogPersistence } from "./logging/RustLogPersistence";
 import { writeZip } from "./logging/zipWriter";
 import { MacroManager } from "./macros/MacroManager";
-import { RustMacroTimingScheduler } from "./macros/RustMacroTimingScheduler";
+import { RustMacroManager } from "./macros/RustMacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
 import { MacroSettingsStore } from "./macros/MacroSettingsStore";
-import {
-  PortableDataManager,
-  recoverPortableImportTransaction
-} from "./portable/PortableDataManager";
+import { PortableDataManager } from "./portable/PortableDataManager";
 import { SerialTaskQueue } from "./persistence/SerialTaskQueue";
-import { runBackgroundActivityMigration } from "./persistence/BackgroundActivityMigration";
 import { RoleStore } from "./roles/RoleStore";
 import { requestGracefulChromeQuit } from "./system-browser/SystemChromeCloser";
 import {
@@ -107,6 +103,7 @@ import { handleMainWindowClose } from "./window/mainWindowLifecycle";
 import { bindAppWindowStateBroadcast } from "./window/appWindowState";
 import { RuntimeWindowPreferencesStore } from "./window/RuntimeWindowPreferencesStore";
 import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecycle";
+import { resolveTestUserDataPath } from "./testing/testUserData";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL } from "../shared/embeddedRuntimeDiagnostics";
 import { normalizeGameBrowserSettings } from "../shared/browserFonts";
@@ -119,6 +116,9 @@ import {
 import type { MacroPageRequest, PendingWorkspaceLaunchRequest } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
+
+const testUserDataPath = resolveTestUserDataPath();
+if (testUserDataPath) app.setPath("userData", testUserDataPath);
 
 const appliedBrowserGraphicsMode = readAppliedBrowserGraphicsMode(app.getPath("userData"));
 configureChromiumCommandLine(app.commandLine, appliedBrowserGraphicsMode);
@@ -147,6 +147,7 @@ let isApplicationQuitting = false;
 let quitCleanupPromise: Promise<void> | null = null;
 let getDiagnosticDataCounts = async () => ({ games: 0, roles: 0, workspaces: 0, macros: 0 });
 let appCoreClient: AppCoreClient | null = null;
+let electronBrowserActionAdapter: ElectronBrowserActionAdapter | null = null;
 let performanceTelemetryTimer: ReturnType<typeof setInterval> | undefined;
 const rendererReadyGate = new RendererReadyGate();
 const RENDERER_READY_TIMEOUT_MS = 15_000;
@@ -199,7 +200,7 @@ ipcMain.on(EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL, (event, payload: unknown) => {
 });
 const loggingReady = logService.initialize();
 logService.on("entry", (entry) => {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_CHANNELS.logsEntryAdded, entry);
+  sendToWindowIfAvailable(mainWindow, IPC_CHANNELS.logsEntryAdded, entry);
 });
 
 process.on("uncaughtExceptionMonitor", (error, origin) => {
@@ -541,32 +542,8 @@ function consumePendingWorkspaceLaunchRequest(): PendingWorkspaceLaunchRequest |
   return request;
 }
 
-async function normalizeLegacyStateBeforeRustMigration(userDataDir: string): Promise<void> {
-  const roleStore = new RoleStore(userDataDir);
-  await recoverChromeProfileImport(userDataDir, roleStore);
-  const gameStore = new GameStore(userDataDir, roleStore);
-  await gameStore.initialize();
-  await runBackgroundActivityMigration(userDataDir, { gameStore, roleStore });
-  const workspaceStore = new LaunchWorkspaceStore(userDataDir);
-  await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
-  const macroStore = new MacroStore(userDataDir);
-  await Promise.all([
-    macroStore.listMacros(),
-    new MacroSettingsStore(userDataDir).getSettings(),
-    new GameBrowserSettingsStore(userDataDir).getSettings(),
-    new RuntimeWindowPreferencesStore(userDataDir).getPreferences(),
-    new LegalAcceptanceStore(userDataDir).getStatus(),
-    new GameCompatibilityStore(userDataDir).listReports()
-  ]);
-}
-
 async function initializeApplication(): Promise<void> {
   const userDataDir = app.getPath("userData");
-  await recoverPortableImportTransaction(userDataDir);
-  const stateDatabaseExists = existsSync(join(userDataDir, "rion-studio.sqlite3"));
-  if (!stateDatabaseExists) {
-    await normalizeLegacyStateBeforeRustMigration(userDataDir);
-  }
   await logService.flush();
   try {
     appCoreClient = await AppCoreClient.create({
@@ -581,7 +558,6 @@ async function initializeApplication(): Promise<void> {
   }
   await logService.usePersistence(new RustLogPersistence(appCoreClient));
   const stateRepository = new RustStateRepository(appCoreClient);
-  await recoverPortableImportTransaction(userDataDir, stateRepository);
   appCoreClient.subscribe((events) => {
     if (events.some((event) => event.type === "ready")) {
       logService.info("main", "rust_core_ready", "Rust application core is ready.", {
@@ -594,12 +570,8 @@ async function initializeApplication(): Promise<void> {
   const withDataMutation = <T>(operation: () => Promise<T>): Promise<T> =>
     dataMutationQueue.run(operation);
   const roleStore = new RoleStore(userDataDir, stateRepository);
-  if (stateDatabaseExists) {
-    await recoverChromeProfileImport(userDataDir, roleStore);
-  }
   const gameStore = new GameStore(userDataDir, roleStore, stateRepository);
   await gameStore.initialize();
-  await runBackgroundActivityMigration(userDataDir, { gameStore, roleStore });
   const workspaceStore = new LaunchWorkspaceStore(userDataDir, stateRepository);
   await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
   const notifyWorkspacesChanged = async (): Promise<void> => {
@@ -628,6 +600,7 @@ async function initializeApplication(): Promise<void> {
   });
   const useRustCdn = isRustSubsystemEnabled("cdn");
   const useRustExternalChrome = isRustSubsystemEnabled("external-chrome");
+  const useRustLayoutLifecycle = isRustSubsystemEnabled("layout-lifecycle");
   const useRustMacroTiming = isRustSubsystemEnabled("macro-timing");
   const useRustPressure = isRustSubsystemEnabled("pressure");
   const useRustResourcePolicy = isRustSubsystemEnabled("resource-policy");
@@ -688,6 +661,9 @@ async function initializeApplication(): Promise<void> {
     powerMonitor.on("thermal-state-change", ({ state }) => resourcePressureMonitor.setThermalState(state));
   }
   resourcePressureMonitor.start();
+  const externalChromeHealthMonitor = useRustExternalChrome
+    ? new RustExternalChromeHealthMonitor(appCoreClient)
+    : undefined;
   const externalChromeManager = new ExternalChromeManager(roleStore, {
     ...(useRustExternalChrome
       ? {
@@ -704,7 +680,8 @@ async function initializeApplication(): Promise<void> {
             ...options,
             connectClient: (userDataDir, url) =>
               appCoreClient!.connectExternalChromeCdp(userDataDir, url, 10_000)
-          })
+          }),
+          healthMonitor: externalChromeHealthMonitor
         }
       : {}),
     applyBrowserFonts: async (_role, browserUserDataDir) => {
@@ -777,6 +754,14 @@ async function initializeApplication(): Promise<void> {
     runtimeTabsPageUrl: createRuntimeTabsPageUrl(),
     runtimeTabsPreloadPath: join(__dirname, "../preload/runtime-tabs.cjs"),
     externalChromeManager,
+    recordTabActivationLatency: (durationMs) =>
+      appCoreClient?.recordTabActivationLatency(durationMs),
+    ...(useRustLayoutLifecycle
+      ? {
+          workspaceLayoutResolver: (input: Parameters<NonNullable<BrowserManagerOptions["workspaceLayoutResolver"]>>[0]) =>
+            appCoreClient!.resolveWorkspaceLayout(input)
+        }
+      : {}),
     resourcePressureMonitor,
     ...(useRustResourcePolicy
       ? {
@@ -837,12 +822,16 @@ async function initializeApplication(): Promise<void> {
   ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {
     browserManager?.handleDividerPointer(event.sender.id, payload);
   });
-  const macroManager = new MacroManager(
-    browserManager,
-    macroStore,
-    macroSettingsStore,
-    useRustMacroTiming ? new RustMacroTimingScheduler(appCoreClient) : undefined
-  );
+  electronBrowserActionAdapter = useRustMacroTiming || useRustExternalChrome
+    ? new ElectronBrowserActionAdapter(appCoreClient, {
+        getTarget: (roleId) => browserManager?.getAutomationSession(roleId)?.target,
+        recordMacroScheduleToDispatchLatency: (durationMs) =>
+          appCoreClient?.recordMacroScheduleToDispatchLatency(durationMs)
+      })
+    : null;
+  const macroManager = useRustMacroTiming
+    ? new RustMacroManager(browserManager, macroStore, macroSettingsStore, appCoreClient)
+    : new MacroManager(browserManager, macroStore, macroSettingsStore);
   externalChromeManager.on("health", (roleId, health, diagnostics) => {
     const context = { roleId, pageHealth: health, ...(diagnostics ? { diagnostics } : {}) };
     if (health === "unresponsive") {
@@ -875,6 +864,7 @@ async function initializeApplication(): Promise<void> {
     gameBrowserSettingsStore,
     gameStore,
     getAppVersion: () => app.getVersion(),
+    normalizePortableData: (raw) => appCoreClient!.invoke({ type: "portableNormalize", rawJson: raw }),
     macroStore,
     macroSettingsStore,
     roleStore,
@@ -902,10 +892,24 @@ async function initializeApplication(): Promise<void> {
       : electronSession.fromPartition(createRoleSessionPartition(role.id)),
     roleStore
   });
-  const chromeProfileSessionImporter = new ChromeProfileSessionImporter({ platform: process.platform });
+  const chromeProfileSessionImporter = new ChromeProfileSessionImporter({
+    platform: process.platform,
+    readCookies: (browserUserDataDir) =>
+      appCoreClient!.invoke({ type: "chromeProfileReadCookies", browserUserDataDir })
+  });
   const chromeProfileImportManager = new ChromeProfileImportManager({
     closeChrome: () => requestGracefulChromeQuit({ platform: process.platform }),
     gameStore,
+    copyProfile: async (sourceUserDataDir, directoryName, destination) => {
+      await appCoreClient!.invoke({
+        type: "chromeProfileCopy",
+        sourceUserDataDir,
+        directoryName,
+        destination
+      });
+    },
+    discoverProfiles: (sourceUserDataDir) =>
+      appCoreClient!.invoke({ type: "chromeProfileDiscover", sourceUserDataDir }),
     roleStore,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
@@ -1107,6 +1111,8 @@ async function initializeApplication(): Promise<void> {
       app.relaunch();
       app.exit(0);
     },
+    recordIpcCommandLatency: (_channel, durationMs) =>
+      appCoreClient?.recordIpcCommandLatency(durationMs),
     workspaceLauncher
   });
   const notifyWorkspaceDisplaysChanged = (): void => {
@@ -1461,6 +1467,8 @@ app.on("before-quit", (event) => {
         appCoreClient?.shutdown() ?? Promise.resolve(),
         new Promise((resolve) => setTimeout(resolve, 3_000))
       ]);
+      await electronBrowserActionAdapter?.shutdown();
+      electronBrowserActionAdapter = null;
       appCoreClient = null;
       isApplicationQuitting = true;
       app.quit();

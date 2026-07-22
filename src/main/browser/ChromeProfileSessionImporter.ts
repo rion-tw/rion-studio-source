@@ -38,6 +38,19 @@ export interface ChromeProfileSessionImporterOptions {
   decryptCookie?: (encryptedValue: Uint8Array) => Promise<DecryptedChromeCookieValue>;
   decryptMacCookie?: (encryptedValue: Uint8Array) => Promise<DecryptedChromeCookieValue>;
   decryptWindowsCookie?: (encryptedValue: Uint8Array) => Promise<DecryptedChromeCookieValue>;
+  readCookies?: (browserUserDataDir: string) => Promise<ImportedChromeCookie[]>;
+}
+
+export interface ImportedChromeCookie {
+  domain?: string;
+  expirationDate?: number;
+  httpOnly: boolean;
+  name: string;
+  path: string;
+  sameSite: "unspecified" | "no_restriction" | "lax" | "strict";
+  secure: boolean;
+  url: string;
+  value: string;
 }
 
 /**
@@ -53,6 +66,15 @@ export class ChromeProfileSessionImporter {
   }
 
   async importSession(role: Role, browserUserDataDir: string, session: Session): Promise<void> {
+    if (this.options.readCookies) {
+      const cookies = await this.options.readCookies(browserUserDataDir);
+      for (const cookie of cookies) {
+        await setCookieUnlessRejected(session, cookie);
+      }
+      session.flushStorageData();
+      void role;
+      return;
+    }
     const cookiesPath = await firstExistingPath([
       join(browserUserDataDir, "Default", "Network", "Cookies"),
       join(browserUserDataDir, "Default", "Cookies")
@@ -78,7 +100,7 @@ export class ChromeProfileSessionImporter {
       const path = cookie.path || "/";
       const secure = Number(cookie.is_secure) === 1;
 
-      await session.cookies.set({
+      await setCookieUnlessRejected(session, {
         url: `${secure ? "https" : "http"}://${host}${path}`,
         name: cookie.name,
         value,
@@ -150,6 +172,20 @@ export class ChromeProfileSessionImporter {
     }
     return value;
   }
+}
+
+async function setCookieUnlessRejected(session: Session, cookie: ImportedChromeCookie): Promise<void> {
+  try {
+    await session.cookies.set(cookie);
+  } catch (error) {
+    if (!isDisallowedCookieCharacterError(error)) throw error;
+  }
+}
+
+function isDisallowedCookieCharacterError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes("EXCLUDE_DISALLOWED_CHARACTER")
+    || error.message.includes("The cookie contains ASCII control characters");
 }
 
 function containsDisallowedCookieCharacter(value: string): boolean {

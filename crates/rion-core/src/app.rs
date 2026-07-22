@@ -11,7 +11,11 @@ use serde_json::{Value, json};
 use crate::{
     cdn::CdnMatcher,
     database::{DatabasePaths, LogDatabaseWorker, StateDatabaseWorker, bootstrap_databases},
+    domain::{validate_game_browser_settings, validate_legal_acceptance, validate_macro_settings},
     error::{CoreError, CoreResult},
+    external_health::ExternalHealthRuntime,
+    layout,
+    macro_runtime::MacroRuntime,
     model::{
         AppCoreOptions, BrowserActionResult, CdnRule, CoreCommand, CoreEvent,
         ResourcePolicyDecision, ResourcePolicyInput,
@@ -34,6 +38,8 @@ pub struct AppCore {
     app_version: String,
     cdn: RwLock<CdnMatcher>,
     database_paths: DatabasePaths,
+    external_health: Mutex<ExternalHealthRuntime>,
+    macro_runtime: MacroRuntime,
     platform: rion_platform::Platform,
     runtime: Mutex<Option<Runtime>>,
     subscribers: Arc<Mutex<Vec<Sender<Vec<CoreEvent>>>>>,
@@ -51,6 +57,7 @@ impl AppCore {
             .map_err(|error| CoreError::Platform(error.to_string()))?;
         let database_paths = bootstrap_databases(&user_data_dir)?;
         let state = StateDatabaseWorker::start(database_paths.state.clone())?;
+        state.recover_portable_import(user_data_dir.clone())?;
         let logs = LogDatabaseWorker::start(database_paths.logs.clone())?;
         let subscribers = Arc::new(Mutex::new(Vec::new()));
         let pressure_subscribers = Arc::clone(&subscribers);
@@ -61,10 +68,20 @@ impl AppCore {
             );
         }))?;
         let scheduler = MonotonicScheduler::start()?;
+        let macro_subscribers = Arc::clone(&subscribers);
+        let macro_runtime = MacroRuntime::new(Arc::new(move |events| {
+            broadcast_events(&macro_subscribers, events);
+        }));
+        let health_subscribers = Arc::clone(&subscribers);
+        let external_health = ExternalHealthRuntime::new(Arc::new(move |events| {
+            broadcast_events(&health_subscribers, events);
+        }))?;
         let core = Self {
             app_version: options.app_version,
             cdn: RwLock::new(CdnMatcher::default()),
             database_paths,
+            external_health: Mutex::new(external_health),
+            macro_runtime,
             platform,
             runtime: Mutex::new(Some(Runtime {
                 state,
@@ -92,16 +109,76 @@ impl AppCore {
                 }))
             }),
             CoreCommand::StateSnapshot => self.with_runtime(|runtime| runtime.state.snapshot()),
-            CoreCommand::StateReplace { key, value } => self.with_runtime(|runtime| {
-                let revision = runtime.state.replace(key, value)?;
-                self.emit(vec![CoreEvent::StateChanged { revision }]);
-                Ok(json!({ "revision": revision }))
-            }),
-            CoreCommand::StateReplaceSnapshot { snapshot } => self.with_runtime(|runtime| {
+            CoreCommand::GameBrowserSettingsReplace { settings } => {
+                validate_game_browser_settings(&settings)?;
+                self.replace_scalar_state("gameBrowserSettings", settings)
+            }
+            CoreCommand::MacroSettingsReplace { settings } => {
+                validate_macro_settings(&settings)?;
+                self.replace_scalar_state("macroSettings", settings)
+            }
+            CoreCommand::RuntimeWindowPreferencesReplace { preferences } => {
+                self.replace_scalar_state("runtimeWindowPreferences", preferences)
+            }
+            CoreCommand::LegalAcceptanceReplace { acceptance } => {
+                validate_legal_acceptance(&acceptance)?;
+                self.replace_scalar_state("legalAcceptance", acceptance)
+            }
+            CoreCommand::PortableCommit { snapshot } => self.with_runtime(|runtime| {
                 let revision = runtime.state.replace_snapshot(snapshot)?;
                 self.emit(vec![CoreEvent::StateChanged { revision }]);
                 Ok(json!({ "revision": revision }))
             }),
+            CoreCommand::GamesApplyDelta {
+                upserts,
+                delete_ids,
+                ordered_ids,
+            } => self.apply_collection_delta(
+                crate::model::StateCollection::Games,
+                upserts,
+                delete_ids,
+                ordered_ids,
+            ),
+            CoreCommand::RolesApplyDelta {
+                upserts,
+                delete_ids,
+                ordered_ids,
+            } => self.apply_collection_delta(
+                crate::model::StateCollection::Roles,
+                upserts,
+                delete_ids,
+                ordered_ids,
+            ),
+            CoreCommand::LaunchWorkspacesApplyDelta {
+                upserts,
+                delete_ids,
+                ordered_ids,
+            } => self.apply_collection_delta(
+                crate::model::StateCollection::LaunchWorkspaces,
+                upserts,
+                delete_ids,
+                ordered_ids,
+            ),
+            CoreCommand::MacrosApplyDelta {
+                upserts,
+                delete_ids,
+                ordered_ids,
+            } => self.apply_collection_delta(
+                crate::model::StateCollection::Macros,
+                upserts,
+                delete_ids,
+                ordered_ids,
+            ),
+            CoreCommand::CompatibilityReportsApplyDelta {
+                upserts,
+                delete_ids,
+                ordered_ids,
+            } => self.apply_collection_delta(
+                crate::model::StateCollection::CompatibilityReports,
+                upserts,
+                delete_ids,
+                ordered_ids,
+            ),
             CoreCommand::CdnReplaceRules { rules } => {
                 let mut matcher = self
                     .cdn
@@ -121,6 +198,8 @@ impl AppCore {
                 serde_json::to_value(resolve_resource_policy(&input))
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::LayoutResolve { input } => serde_json::to_value(layout::resolve(&input))
+                .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::LogsAppend { entries } => self.with_runtime(|runtime| {
                 let inserted = runtime.logs.append(entries)?;
                 if inserted > 0 {
@@ -147,31 +226,85 @@ impl AppCore {
                 runtime.logs.export_jsonl_to(PathBuf::from(&path))?;
                 Ok(json!({ "path": path }))
             }),
+            CoreCommand::MacroStart { request } => {
+                serde_json::to_value(self.macro_runtime.start(request)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::MacroPress { request } => {
+                serde_json::to_value(self.macro_runtime.press(request)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::MacroRelease { request } => {
+                self.macro_runtime.release(request)?;
+                Ok(json!({ "released": true }))
+            }
+            CoreCommand::MacroStop { macro_id } => {
+                self.macro_runtime.stop_macro(&macro_id)?;
+                Ok(json!({ "stopped": true }))
+            }
+            CoreCommand::MacroStopRole { role_id } => {
+                self.macro_runtime.stop_role(&role_id)?;
+                Ok(json!({ "stopped": true }))
+            }
+            CoreCommand::MacroReleaseRole { role_id } => {
+                self.macro_runtime.release_role(&role_id)?;
+                Ok(json!({ "released": true }))
+            }
+            CoreCommand::MacroStatuses => serde_json::to_value(self.macro_runtime.statuses()?)
+                .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::ExternalHealthRegister { role_id } => {
+                self.external_health()?.register(role_id)?;
+                Ok(json!({ "registered": true }))
+            }
+            CoreCommand::ExternalHealthHeartbeat {
+                role_id,
+                page_hidden,
+            } => {
+                self.external_health()?.heartbeat(role_id, page_hidden)?;
+                Ok(json!({ "updated": true }))
+            }
+            CoreCommand::ExternalHealthRemove { role_id } => {
+                self.external_health()?.remove(role_id)?;
+                Ok(json!({ "removed": true }))
+            }
+            CoreCommand::ExternalHealthSuspend { suspended } => {
+                self.external_health()?.suspend(suspended)?;
+                Ok(json!({ "suspended": suspended }))
+            }
+            CoreCommand::ChromeProfileDiscover {
+                source_user_data_dir,
+            } => serde_json::to_value(
+                rion_platform::discover_chrome_profiles(&PathBuf::from(source_user_data_dir))
+                    .map_err(|error| CoreError::Platform(error.to_string()))?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::ChromeProfileCopy {
+                source_user_data_dir,
+                directory_name,
+                destination,
+            } => {
+                rion_platform::copy_chrome_profile(
+                    &PathBuf::from(source_user_data_dir),
+                    &directory_name,
+                    &PathBuf::from(destination),
+                )
+                .map_err(|error| CoreError::Platform(error.to_string()))?;
+                Ok(json!({ "copied": true }))
+            }
+            CoreCommand::ChromeProfileReadCookies {
+                browser_user_data_dir,
+            } => serde_json::to_value(crate::chrome_cookies::read_imported_cookies(
+                &PathBuf::from(browser_user_data_dir),
+                self.platform,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::PortableNormalize { raw_json } => crate::portable::normalize(&raw_json),
         }
     }
 
     pub fn dispatch_browser_results(&self, results: Vec<BrowserActionResult>) -> CoreResult<()> {
-        for result in results {
-            if result.request_id.trim().is_empty() {
-                return Err(CoreError::InvalidInput(
-                    "browser action result requires requestId".to_owned(),
-                ));
-            }
-            if result.ok && (result.error_code.is_some() || result.error_message.is_some()) {
-                return Err(CoreError::InvalidInput(
-                    "successful browser action result cannot contain an error".to_owned(),
-                ));
-            }
-            if !result.ok
-                && (result.error_code.as_deref().is_none_or(str::is_empty)
-                    || result.error_message.as_deref().is_none_or(str::is_empty))
-            {
-                return Err(CoreError::InvalidInput(
-                    "failed browser action result requires an error code and message".to_owned(),
-                ));
-            }
-        }
-        Ok(())
+        self.external_health()?.dispatch_results(results.clone());
+        self.macro_runtime.dispatch_results(results)
     }
 
     pub fn replace_cdn_rules(&self, rules: Vec<CdnRule>) -> CoreResult<Vec<String>> {
@@ -193,6 +326,48 @@ impl AppCore {
 
     pub fn resolve_resource_policy(&self, input: &ResourcePolicyInput) -> ResourcePolicyDecision {
         resolve_resource_policy(input)
+    }
+
+    pub fn resolve_workspace_layout(
+        &self,
+        input: &crate::model::WorkspaceLayoutInput,
+    ) -> crate::model::WorkspaceLayoutOutput {
+        layout::resolve(input)
+    }
+
+    fn replace_scalar_state<T: serde::Serialize>(&self, key: &str, value: T) -> CoreResult<Value> {
+        let value =
+            serde_json::to_value(value).map_err(|error| CoreError::Internal(error.to_string()))?;
+        self.with_runtime(|runtime| {
+            let revision = runtime.state.replace(key.to_owned(), value)?;
+            self.emit(vec![CoreEvent::StateChanged { revision }]);
+            Ok(json!({ "revision": revision }))
+        })
+    }
+
+    fn apply_collection_delta<T: serde::Serialize>(
+        &self,
+        collection: crate::model::StateCollection,
+        upserts: Vec<T>,
+        delete_ids: Vec<String>,
+        ordered_ids: Vec<String>,
+    ) -> CoreResult<Value> {
+        let upserts = upserts
+            .into_iter()
+            .map(|record| {
+                serde_json::to_value(record).map_err(|error| CoreError::Internal(error.to_string()))
+            })
+            .collect::<CoreResult<Vec<_>>>()?;
+        self.with_runtime(|runtime| {
+            let revision = runtime.state.apply_collection_delta(
+                collection,
+                upserts,
+                delete_ids,
+                ordered_ids,
+            )?;
+            self.emit(vec![CoreEvent::StateChanged { revision }]);
+            Ok(json!({ "revision": revision }))
+        })
     }
 
     pub fn update_system_pressure_signals(
@@ -265,6 +440,10 @@ impl AppCore {
     }
 
     pub fn shutdown(&self) {
+        self.macro_runtime.shutdown();
+        if let Ok(mut health) = self.external_health.lock() {
+            health.shutdown();
+        }
         if let Ok(mut runtime) = self.runtime.lock()
             && let Some(mut runtime) = runtime.take()
         {
@@ -285,6 +464,12 @@ impl AppCore {
             .lock()
             .map_err(|_| CoreError::Internal("runtime lock poisoned".to_owned()))?;
         operation(runtime.as_ref().ok_or(CoreError::ShuttingDown)?)
+    }
+
+    fn external_health(&self) -> CoreResult<std::sync::MutexGuard<'_, ExternalHealthRuntime>> {
+        self.external_health
+            .lock()
+            .map_err(|_| CoreError::Internal("external health lock poisoned".to_owned()))
     }
 
     fn emit(&self, events: Vec<CoreEvent>) {

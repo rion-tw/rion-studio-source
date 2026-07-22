@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
@@ -27,8 +27,51 @@ if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/u.test(version)) {
   throw new Error(`Rust core addon returned an invalid version: ${JSON.stringify(version)}.`);
 }
 const userDataDir = await mkdtemp(join(tmpdir(), "rion-core-verify-"));
+let core;
 try {
-  const core = await addon.createAppCore({
+  const legacyGames = {
+    games: [{
+      browserLaunchMode: "inherit",
+      createdAt: "2026-01-01T00:00:00Z",
+      defaultLaunchUrl: "https://fixture.rion.test/play",
+      id: "fixture-game",
+      name: "Fixture Game",
+      source: "custom",
+      updatedAt: "2026-01-01T00:00:00Z"
+    }]
+  };
+  await Promise.all([
+    writeFile(join(userDataDir, "games.json"), JSON.stringify(legacyGames), "utf8"),
+    writeFile(join(userDataDir, "roles.json"), JSON.stringify({
+      roles: [{
+        createdAt: "2026-01-01T00:00:00Z",
+        gameId: "fixture-game",
+        id: "fixture-role",
+        launchUrl: "https://fixture.rion.test/play",
+        name: "Fixture Role",
+        notes: "packaged migration smoke",
+        updatedAt: "2026-01-01T00:00:00Z"
+      }]
+    }), "utf8"),
+    writeFile(join(userDataDir, "launch-workspaces.json"), JSON.stringify({
+      schemaVersion: 7,
+      workspaces: [{
+        id: "fixture-workspace",
+        name: "Fixture Workspace",
+        slots: [{ id: "fixture-slot", roleId: "fixture-role" }]
+      }]
+    }), "utf8"),
+    writeFile(join(userDataDir, "macros.json"), JSON.stringify({
+      macros: [{
+        id: "fixture-macro",
+        name: "Fixture Macro",
+        profileId: "fixture-role",
+        steps: [{ code: "KeyA", id: "fixture-step", type: "key" }]
+      }]
+    }), "utf8")
+  ]);
+
+  core = await addon.createAppCore({
     appVersion: "addon-verification",
     platform: process.platform === "win32" ? "win32" : "darwin",
     userDataDir
@@ -42,6 +85,26 @@ try {
     typeof core.prepareExternalChromeProfile !== "function"
   ) {
     throw new Error("Rust core addon failed its create/invoke integration check.");
+  }
+  if (typeof health.migrationBackup !== "string") {
+    throw new Error("Rust core did not report a legacy migration backup.");
+  }
+  await Promise.all([
+    access(join(health.migrationBackup, "games.json")),
+    access(join(userDataDir, "rion-studio.sqlite3")),
+    access(join(userDataDir, "logs.sqlite3"))
+  ]);
+  if (await readFile(join(userDataDir, "games.json"), "utf8") !== JSON.stringify(legacyGames)) {
+    throw new Error("Rust migration modified the legacy source JSON.");
+  }
+  const migrated = JSON.parse(await core.invoke(JSON.stringify({ type: "stateSnapshot" })));
+  if (
+    !migrated.games.some((game) => game.id === "fixture-game") ||
+    !migrated.roles.some((role) => role.id === "fixture-role") ||
+    !migrated.launchWorkspaces.some((workspace) => workspace.id === "fixture-workspace") ||
+    !migrated.macros.some((macro) => macro.id === "fixture-macro")
+  ) {
+    throw new Error("Rust core failed the packaged legacy migration snapshot check.");
   }
   const child = core.launchExternalChrome(process.execPath, ["-e", "process.exit(7)"]);
   if (!Number.isSafeInteger(child.pid()) || child.pid() <= 0) {
@@ -125,7 +188,35 @@ try {
     await new Promise((resolveClose) => server.close(resolveClose));
   }
   await core.shutdown();
+  core = undefined;
+  const restarted = await addon.createAppCore({
+    appVersion: "addon-verification",
+    platform: process.platform === "win32" ? "win32" : "darwin",
+    userDataDir
+  });
+  try {
+    const persisted = JSON.parse(await restarted.invoke(JSON.stringify({ type: "stateSnapshot" })));
+    if (!persisted.roles.some((role) => role.id === "fixture-role")) {
+      throw new Error("Rust core did not preserve migrated state across restart.");
+    }
+  } finally {
+    await restarted.shutdown();
+  }
 } finally {
+  if (core) await core.shutdown().catch(() => undefined);
+  await makeWritableRecursive(userDataDir);
   await rm(userDataDir, { recursive: true, force: true });
 }
 console.log(`Verified Rust core Node-API ${version}: ${addonPath}`);
+
+async function makeWritableRecursive(path) {
+  const metadata = await lstat(path).catch(() => undefined);
+  if (!metadata) return;
+  if (metadata.isDirectory()) {
+    await chmod(path, 0o700);
+    const children = await readdir(path);
+    await Promise.all(children.map((child) => makeWritableRecursive(join(path, child))));
+    return;
+  }
+  if (metadata.isFile()) await chmod(path, 0o600);
+}

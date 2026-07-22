@@ -13,6 +13,86 @@ import {
 } from "../src/main/browser/ChromeProfileSessionImporter";
 
 describe("ChromeProfileSessionImporter", () => {
+  it("uses Rust-normalized cookies when the production reader is provided", async () => {
+    const readCookies = vi.fn(async () => [{
+      domain: ".example.test",
+      httpOnly: true,
+      name: "session",
+      path: "/",
+      sameSite: "lax" as const,
+      secure: true,
+      url: "https://example.test/",
+      value: "from-rust"
+    }]);
+    const session = {
+      cookies: { set: vi.fn().mockResolvedValue(undefined) },
+      flushStorageData: vi.fn()
+    } as unknown as Session;
+    const importer = new ChromeProfileSessionImporter({ platform: "darwin", readCookies });
+
+    await importer.importSession({ id: "role-1" } as never, "/profile", session);
+
+    expect(readCookies).toHaveBeenCalledWith("/profile");
+    expect(session.cookies.set).toHaveBeenCalledWith(expect.objectContaining({ value: "from-rust" }));
+    expect(session.flushStorageData).toHaveBeenCalledOnce();
+  });
+
+  it("skips only cookies rejected for disallowed characters", async () => {
+    const cookies = ["invalid", "valid"].map((name) => ({
+      httpOnly: true,
+      name,
+      path: "/",
+      sameSite: "lax" as const,
+      secure: true,
+      url: "https://example.test/",
+      value: "value"
+    }));
+    const setCookie = vi.fn(async (cookie: ImportedCookieFixture) => {
+      if (cookie.name === "invalid") {
+        throw new Error(
+          "Failed to set cookie - The cookie contains ASCII control characters" +
+          "EXCLUDE_DISALLOWED_CHARACTER, DO_NOT_WARN, NO_EXEMPTION"
+        );
+      }
+    });
+    const session = {
+      cookies: { set: setCookie },
+      flushStorageData: vi.fn()
+    } as unknown as Session;
+    const importer = new ChromeProfileSessionImporter({
+      platform: "darwin",
+      readCookies: vi.fn(async () => cookies)
+    });
+
+    await importer.importSession({ id: "role-1" } as never, "/profile", session);
+
+    expect(setCookie).toHaveBeenCalledTimes(2);
+    expect(session.flushStorageData).toHaveBeenCalledOnce();
+  });
+
+  it("propagates non-validation cookie storage failures", async () => {
+    const session = {
+      cookies: { set: vi.fn().mockRejectedValue(new Error("disk write failed")) },
+      flushStorageData: vi.fn()
+    } as unknown as Session;
+    const importer = new ChromeProfileSessionImporter({
+      platform: "darwin",
+      readCookies: vi.fn(async () => [{
+        httpOnly: true,
+        name: "session",
+        path: "/",
+        sameSite: "lax" as const,
+        secure: true,
+        url: "https://example.test/",
+        value: "value"
+      }])
+    });
+
+    await expect(importer.importSession({ id: "role-1" } as never, "/profile", session))
+      .rejects.toThrow("disk write failed");
+    expect(session.flushStorageData).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["darwin", "Cookies"],
     ["darwin", join("Network", "Cookies")],
@@ -236,3 +316,5 @@ describe("ChromeProfileSessionImporter", () => {
     expect(session.cookies.set).not.toHaveBeenCalled();
   });
 });
+
+type ImportedCookieFixture = Parameters<Session["cookies"]["set"]>[0];

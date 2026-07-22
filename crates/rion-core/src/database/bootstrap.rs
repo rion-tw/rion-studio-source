@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
 
-use super::{logs, state};
+use super::{legacy, logs, portable_recovery, state};
 
 pub const STATE_DATABASE_FILENAME: &str = "rion-studio.sqlite3";
 pub const LOG_DATABASE_FILENAME: &str = "logs.sqlite3";
@@ -44,6 +44,8 @@ pub fn bootstrap_databases(user_data_dir: &Path) -> CoreResult<DatabasePaths> {
     })?;
     let state_path = user_data_dir.join(STATE_DATABASE_FILENAME);
     let log_path = user_data_dir.join(LOG_DATABASE_FILENAME);
+    portable_recovery::recover_legacy_json(user_data_dir)?;
+    legacy::recover_chrome_profile_import(user_data_dir, &state_path)?;
     let needs_state = !state_path.exists();
     let needs_logs = !log_path.exists();
     if !needs_state && !needs_logs {
@@ -60,6 +62,7 @@ pub fn bootstrap_databases(user_data_dir: &Path) -> CoreResult<DatabasePaths> {
     let logs_temp = user_data_dir.join(format!("{LOG_DATABASE_FILENAME}.{suffix}.migrating"));
 
     let mut installed_state = false;
+    let mut migrated_roles = Vec::new();
     let result: CoreResult<()> = (|| {
         if needs_state {
             let mut connection = Connection::open(&state_temp)
@@ -68,6 +71,19 @@ pub fn bootstrap_databases(user_data_dir: &Path) -> CoreResult<DatabasePaths> {
             state::import_legacy_files(&mut connection, user_data_dir)?;
             validate_database(&connection, "state")?;
             validate_import_metadata(&connection)?;
+            migrated_roles = connection
+                .prepare("SELECT payload_json FROM roles ORDER BY ordinal")
+                .map_err(|error| CoreError::Migration(error.to_string()))?
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|error| CoreError::Migration(error.to_string()))?
+                .map(|row| {
+                    row.map_err(|error| CoreError::Migration(error.to_string()))
+                        .and_then(|raw| {
+                            serde_json::from_str(&raw)
+                                .map_err(|error| CoreError::Migration(error.to_string()))
+                        })
+                })
+                .collect::<CoreResult<Vec<_>>>()?;
             connection
                 .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
                 .map_err(|error| CoreError::Migration(error.to_string()))?;
@@ -94,6 +110,9 @@ pub fn bootstrap_databases(user_data_dir: &Path) -> CoreResult<DatabasePaths> {
             fs::rename(&logs_temp, &log_path).map_err(|error| {
                 CoreError::Migration(format!("unable to install log database: {error}"))
             })?;
+        }
+        if needs_state {
+            legacy::migrate_role_directories(user_data_dir, &migrated_roles)?;
         }
         Ok(())
     })();
@@ -262,7 +281,7 @@ mod tests {
             connection
                 .query_row("SELECT COUNT(*) FROM games", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            1
+            3
         );
         assert!(
             bootstrap_databases(directory.path())

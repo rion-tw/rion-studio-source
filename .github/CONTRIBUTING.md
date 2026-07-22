@@ -6,7 +6,7 @@
 
 - Electron + React + TypeScript
 - Electron Vite for main/preload/renderer builds
-- Playwright Core controlling system Chrome for isolated browser windows
+- Rust Node-API core for SQLite, macros, platform work and external Chrome CDP
 - Vitest for unit tests
 
 ### Commands
@@ -50,24 +50,25 @@ embedded launches do not add remote debugging flags.
 
 ### Packaging Notes
 
-Packaged builds do not include Chromium. Playwright controls the user's installed
-Google Chrome with isolated per-role browser profiles.
+Embedded roles use Electron's packaged Chromium. External compatibility sessions
+control the user's installed Google Chrome with isolated per-role browser profiles.
 
-Windows packages include an x64 native helper that aligns external Chrome's DWM
-visible frame. Building it requires Visual Studio 2022 Build Tools with the
-Desktop development with C++ workload and the v143 toolset. `pnpm run package`
-and `pnpm run dist` build and verify the helper automatically on Windows; the
-native build and verification scripts are no-ops on other platforms. To run the
-native checks directly on Windows:
+Windows external-Chrome process, path and DWM visible-frame operations are part of
+the `rion-platform` Rust crate and the required `rion-core.node` x64 addon. The old
+standalone C++ frame helper is no longer built or packaged. Install the pinned Rust
+toolchain and the Visual Studio 2022 MSVC/Windows SDK components required by the
+`x86_64-pc-windows-msvc` target. To run the Rust checks directly on Windows:
 
 ```bash
-pnpm run build:native:windows
-pnpm run test:native:windows
+pnpm run lint:rust
+pnpm run test:rust
+pnpm run build:rust
+pnpm run verify:rust
 ```
 
-Generated helper binaries live under `build/native/win32-x64` and are packaged
-under `resources/native`. Release CI also verifies the helper from the unpacked
-application before accepting a Windows artifact.
+The generated addon lives under `build/native/win32-x64/rion-core.node` and is
+packaged under `resources/native`. Release CI loads it from the unpacked application
+before accepting a Windows artifact.
 
 macOS runtime game windows use an Objective-C++ Node-API addon to host the tab
 strip in `NSTitlebarAccessoryViewController`. `pnpm run dev`, `package`, and

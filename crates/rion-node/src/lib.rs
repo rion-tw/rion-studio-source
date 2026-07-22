@@ -11,8 +11,8 @@ use rion_core::{
 };
 
 #[napi]
-pub fn read_bootstrap_graphics_mode(user_data_dir: String) -> String {
-    rion_core::read_bootstrap_graphics_mode(PathBuf::from(user_data_dir).as_path())
+pub fn read_bootstrap_graphics_settings(user_data_dir: String) -> String {
+    rion_core::read_bootstrap_graphics_settings(PathBuf::from(user_data_dir).as_path())
 }
 
 #[napi(object)]

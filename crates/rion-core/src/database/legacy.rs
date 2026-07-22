@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::{
     error::{CoreError, CoreResult},
     macro_graph::validate_macro_graph,
+    model::BrowserGraphicsSettingsRecord,
 };
 
 use super::state;
@@ -941,13 +942,14 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
             }
         }
     }
-    let graphics = source
+    let graphics_mode = source
         .get("graphics")
         .and_then(Value::as_object)
         .and_then(|value| value.get("mode"))
         .and_then(Value::as_str)
         .filter(|value| matches!(*value, "automatic" | "high_performance" | "experimental"))
         .unwrap_or("automatic");
+    let graphics = BrowserGraphicsSettingsRecord::from_legacy_mode(graphics_mode);
     let launch = source
         .get("launchMode")
         .and_then(Value::as_str)
@@ -1011,7 +1013,7 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
         .unwrap_or(128);
     json!({
         "fonts": { "families": families, "mode": font_mode },
-        "graphics": { "mode": graphics },
+        "graphics": graphics,
         "launchMode": launch,
         "macroBadgePosition": {
             "horizontalAlign": horizontal_align,

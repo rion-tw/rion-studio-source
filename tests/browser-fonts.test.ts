@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BROWSER_NETWORK_SETTINGS,
   DEFAULT_GAME_BROWSER_SETTINGS,
+  LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
   DEFAULT_WORKSPACE_APPEARANCE_SETTINGS,
   normalizeBrowserFontFamily,
   normalizeBrowserProxyServer,
@@ -51,7 +52,7 @@ describe("browser font settings normalization", () => {
         },
         mode: "custom"
       },
-      graphics: { mode: "automatic" },
+      graphics: DEFAULT_GAME_BROWSER_SETTINGS.graphics,
       launchMode: "auto",
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
       network: DEFAULT_BROWSER_NETWORK_SETTINGS,
@@ -108,12 +109,42 @@ describe("browser font settings normalization", () => {
     });
   });
 
-  it("defaults legacy graphics settings and validates acceleration modes", () => {
-    expect(normalizeGameBrowserSettings({}).graphics).toEqual({ mode: "automatic" });
+  it("uses aggressive defaults for new installs and preserves legacy graphics mode behavior", () => {
+    expect(normalizeGameBrowserSettings({}).graphics).toEqual(DEFAULT_GAME_BROWSER_SETTINGS.graphics);
+    expect(normalizeGameBrowserSettings({ graphics: { mode: "automatic" } }).graphics).toEqual(
+      LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS
+    );
     expect(normalizeGameBrowserSettings({ graphics: { mode: "high_performance" } }).graphics).toEqual({
-      mode: "high_performance"
+      ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+      preferHighPerformanceGpu: true
     });
-    expect(normalizeGameBrowserSettings({ graphics: { mode: "unsafe" } }).graphics).toEqual({ mode: "automatic" });
+    expect(normalizeGameBrowserSettings({ graphics: { mode: "experimental" } }).graphics).toEqual({
+      ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+      gpuBlocklistEnabled: false,
+      preferHighPerformanceGpu: true,
+      unsafeWebGpuEnabled: true
+    });
+    expect(normalizeGameBrowserSettings({ graphics: { mode: "unsafe" } }).graphics).toEqual(
+      LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS
+    );
+  });
+
+  it("normalizes backends and forces VSync off when the frame-rate limiter is disabled", () => {
+    expect(
+      normalizeGameBrowserSettings({
+        graphics: {
+          ...DEFAULT_GAME_BROWSER_SETTINGS.graphics,
+          backend: { macos: "invalid", windows: "vulkan" },
+          frameRateLimitEnabled: false,
+          vsyncEnabled: true
+        }
+      }).graphics
+    ).toEqual({
+      ...DEFAULT_GAME_BROWSER_SETTINGS.graphics,
+      backend: { macos: "automatic", windows: "vulkan" },
+      frameRateLimitEnabled: false,
+      vsyncEnabled: false
+    });
   });
 
   it("normalizes browser proxy settings", () => {

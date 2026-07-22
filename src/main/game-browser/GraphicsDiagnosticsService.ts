@@ -3,11 +3,12 @@ import type { App, WebContents } from "electron";
 import type { BrowserManager } from "../browser/BrowserManager";
 import type { GameBrowserSettingsStore } from "./GameBrowserSettingsStore";
 import type {
-  BrowserGraphicsMode,
+  BrowserGraphicsSettings,
   GraphicsDeviceDiagnostics,
   GraphicsDiagnostics,
   WebGraphicsDiagnostics
 } from "../../shared/types";
+import { formatChromiumSwitch, getGraphicsSwitches } from "../../shared/browserGraphics";
 
 const PROBE_TIMEOUT_MS = 2_000;
 
@@ -41,7 +42,7 @@ interface GraphicsDiagnosticsServiceOptions {
     App,
     "getGPUFeatureStatus" | "getGPUInfo" | "isHardwareAccelerationEnabled"
   >;
-  appliedMode: BrowserGraphicsMode;
+  appliedSettings: BrowserGraphicsSettings;
   browserManager: Pick<
     BrowserManager,
     "evaluateExternalRole" | "getExternalRoleName" | "listStatuses"
@@ -56,7 +57,8 @@ export class GraphicsDiagnosticsService {
   constructor(private readonly options: GraphicsDiagnosticsServiceOptions) {}
 
   async collect(sender: Pick<WebContents, "executeJavaScript">): Promise<GraphicsDiagnostics> {
-    const savedMode = (await this.options.gameBrowserSettingsStore.getSettings()).graphics.mode;
+    const savedSettings = (await this.options.gameBrowserSettingsStore.getSettings()).graphics;
+    const platform = this.options.platform ?? process.platform;
     const gpuInfoReady = this.options.isGpuInfoReady();
     const [embedded, gpuInfo] = await Promise.all([
       probeWebGraphics((source) => sender.executeJavaScript(source)),
@@ -95,7 +97,8 @@ export class GraphicsDiagnosticsService {
     );
 
     return {
-      appliedMode: this.options.appliedMode,
+      appliedSettings: structuredClone(this.options.appliedSettings),
+      appliedSwitches: getGraphicsSwitches(this.options.appliedSettings, platform).map(formatChromiumSwitch),
       collectedAt: new Date().toISOString(),
       embedded,
       externalRoles,
@@ -103,9 +106,9 @@ export class GraphicsDiagnosticsService {
       gpuDevice: readGpuDevice(gpuInfo),
       gpuInfoReady,
       hardwareAccelerationEnabled: gpuInfoReady ? this.options.app.isHardwareAccelerationEnabled() : null,
-      platform: this.options.platform ?? process.platform,
-      restartRequired: savedMode !== this.options.appliedMode,
-      savedMode,
+      platform,
+      restartRequired: !graphicsSettingsEqual(savedSettings, this.options.appliedSettings),
+      savedSettings,
       versions: {
         chromium: this.options.versions?.chrome ?? process.versions.chrome ?? "unknown",
         electron: this.options.versions?.electron ?? process.versions.electron ?? "unknown",
@@ -113,6 +116,10 @@ export class GraphicsDiagnosticsService {
       }
     };
   }
+}
+
+function graphicsSettingsEqual(left: BrowserGraphicsSettings, right: BrowserGraphicsSettings): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export async function probeWebGraphics(

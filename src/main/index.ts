@@ -34,7 +34,7 @@ import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
 import { RustExternalChromeHealthMonitor } from "./browser/RustExternalChromeHealthMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
-import { AppCoreClient, readBootstrapGraphicsMode } from "./core/nativeCore";
+import { AppCoreClient, readBootstrapGraphicsSettings } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
 import { RustStateRepository } from "./core/RustStateRepository";
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
@@ -58,7 +58,7 @@ import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStor
 import { GraphicsDiagnosticsService, readGpuDevice } from "./game-browser/GraphicsDiagnosticsService";
 import {
   configureChromiumCommandLine,
-  normalizeAppliedBrowserGraphicsMode
+  normalizeAppliedBrowserGraphicsSettings
 } from "./game-browser/BrowserLaunchConfiguration";
 import { RustSystemFontService } from "./game-browser/RustSystemFontService";
 import { GameCompatibilityManager } from "./games/GameCompatibilityManager";
@@ -117,13 +117,13 @@ const testUserDataPath = resolveTestUserDataPath();
 if (testUserDataPath) app.setPath("userData", testUserDataPath);
 
 const bootstrapUserDataDir = app.getPath("userData");
-const appliedBrowserGraphicsMode = normalizeAppliedBrowserGraphicsMode(readBootstrapGraphicsMode({
+const appliedBrowserGraphicsSettings = normalizeAppliedBrowserGraphicsSettings(readBootstrapGraphicsSettings({
   appVersion: app.getVersion(),
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
   userDataDir: bootstrapUserDataDir
 }));
-configureChromiumCommandLine(app.commandLine, appliedBrowserGraphicsMode);
+configureChromiumCommandLine(app.commandLine, appliedBrowserGraphicsSettings, process.platform);
 let gpuInfoReady = false;
 app.on("gpu-info-update", () => {
   gpuInfoReady = true;
@@ -686,7 +686,7 @@ async function initializeApplication(): Promise<void> {
       };
     },
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
-    graphicsMode: appliedBrowserGraphicsMode,
+    graphicsSettings: appliedBrowserGraphicsSettings,
     onDiagnostic: ({ details, roleId, type }) => {
       if (type === "page_heartbeat") {
         return;
@@ -943,7 +943,7 @@ async function initializeApplication(): Promise<void> {
   });
   const graphicsDiagnosticsService = new GraphicsDiagnosticsService({
     app,
-    appliedMode: appliedBrowserGraphicsMode,
+    appliedSettings: appliedBrowserGraphicsSettings,
     browserManager,
     gameBrowserSettingsStore,
     isGpuInfoReady: () => gpuInfoReady

@@ -33,9 +33,7 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             mode: "default".to_owned(),
             families: HashMap::new(),
         },
-        graphics: BrowserGraphicsSettingsRecord {
-            mode: "automatic".to_owned(),
-        },
+        graphics: BrowserGraphicsSettingsRecord::aggressive_default(),
         launch_mode: "auto".to_owned(),
         macro_badge_position: MacroBadgePositionRecord {
             horizontal_align: "center".to_owned(),
@@ -1826,10 +1824,20 @@ pub fn validate_game_browser_settings(settings: &GameBrowserSettingsRecord) -> C
         ));
     }
     one_of(
-        &settings.graphics.mode,
-        &["automatic", "high_performance", "experimental"],
-        "browser graphics mode",
+        &settings.graphics.backend.macos,
+        &["automatic", "metal"],
+        "macOS browser graphics backend",
     )?;
+    one_of(
+        &settings.graphics.backend.windows,
+        &["automatic", "d3d11", "d3d11on12", "vulkan"],
+        "Windows browser graphics backend",
+    )?;
+    if !settings.graphics.frame_rate_limit_enabled && settings.graphics.vsync_enabled {
+        return Err(CoreError::InvalidInput(
+            "browser VSync requires the frame-rate limiter".to_owned(),
+        ));
+    }
     one_of(
         &settings.launch_mode,
         &["auto", "embedded", "external"],
@@ -1913,10 +1921,19 @@ pub fn normalize_game_browser_settings(
         settings.fonts.families.clear();
     }
     if !matches!(
-        settings.graphics.mode.as_str(),
-        "automatic" | "high_performance" | "experimental"
+        settings.graphics.backend.macos.as_str(),
+        "automatic" | "metal"
     ) {
-        settings.graphics.mode = "automatic".to_owned();
+        settings.graphics.backend.macos = "automatic".to_owned();
+    }
+    if !matches!(
+        settings.graphics.backend.windows.as_str(),
+        "automatic" | "d3d11" | "d3d11on12" | "vulkan"
+    ) {
+        settings.graphics.backend.windows = "automatic".to_owned();
+    }
+    if !settings.graphics.frame_rate_limit_enabled {
+        settings.graphics.vsync_enabled = false;
     }
     if !matches!(
         settings.launch_mode.as_str(),
@@ -2524,7 +2541,19 @@ mod tests {
         assert_eq!(settings.fonts.families["fixed"], "Courier New");
         assert!(!settings.fonts.families.contains_key("bad"));
         assert_eq!(settings.network.proxy.server, "socks5://127.0.0.1:7890");
+        assert!(settings.graphics.prefer_high_performance_gpu);
+        assert!(settings.graphics.gpu_blocklist_enabled);
+        assert!(!settings.graphics.unsafe_web_gpu_enabled);
         validate_game_browser_settings(&settings).unwrap();
+
+        let mut invalid_graphics = settings.clone();
+        invalid_graphics.graphics.backend.windows = "unsupported".to_owned();
+        invalid_graphics.graphics.frame_rate_limit_enabled = false;
+        invalid_graphics.graphics.vsync_enabled = true;
+        let invalid_graphics = normalize_game_browser_settings(invalid_graphics);
+        assert_eq!(invalid_graphics.graphics.backend.windows, "automatic");
+        assert!(!invalid_graphics.graphics.vsync_enabled);
+        validate_game_browser_settings(&invalid_graphics).unwrap();
 
         let mut invalid_proxy = settings.clone();
         invalid_proxy.network.proxy.mode = "custom".to_owned();

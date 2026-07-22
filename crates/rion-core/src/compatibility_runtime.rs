@@ -386,7 +386,12 @@ mod tests {
             .unwrap()[0]
                 .is_stale
         );
-        state.game_browser_settings.as_mut().unwrap().graphics.mode = "experimental".to_owned();
+        state
+            .game_browser_settings
+            .as_mut()
+            .unwrap()
+            .graphics
+            .unsafe_web_gpu_enabled = true;
         assert!(
             CompatibilityRuntime::current_reports(
                 &state.games,

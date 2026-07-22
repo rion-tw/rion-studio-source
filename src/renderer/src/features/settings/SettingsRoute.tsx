@@ -10,6 +10,7 @@ import type { LegalDocumentKind } from "../legal/legalDocuments";
 import { Input } from "../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Slider } from "../../components/ui/slider";
+import { Switch } from "../../components/ui/switch";
 import { PageFrame, SegmentedControl, Surface } from "../../components/ui/patterns";
 import {
   languageLabelKeys,
@@ -22,6 +23,7 @@ import { languages, type Language, type TranslationKey, type Translator } from "
 import {
   DEFAULT_BROWSER_FONT_SETTINGS,
   browserFontFamilyRoles,
+  normalizeBrowserGraphicsSettings,
   normalizeBrowserProxyServer,
   normalizeGameBrowserSettings,
   workspaceGapSizes
@@ -35,7 +37,9 @@ import type {
   AppUpdateStatus,
   BrowserCdnCompatibilityMode,
   BrowserFontFamilyRole,
-  BrowserGraphicsMode,
+  BrowserGraphicsSettings,
+  BrowserMacosGraphicsBackend,
+  BrowserWindowsGraphicsBackend,
   BrowserLaunchMode,
   GameBrowserSettings,
   Game,
@@ -58,7 +62,7 @@ import type {
   WorkspaceGapSize
 } from "../../../../shared/types";
 import {
-  applyGraphicsModeUpdate,
+  applyGraphicsSettingsUpdate,
   getGraphicsRestartState
 } from "./graphicsRestart";
 import { MacroSettingsSection } from "./MacroSettingsSection";
@@ -145,12 +149,6 @@ const browserFontRoleLabelKeys: Record<BrowserFontFamilyRole, TranslationKey> = 
   sansserif: "settings.browserFonts.sansSerif",
   serif: "settings.browserFonts.serif",
   standard: "settings.browserFonts.standard"
-};
-
-const graphicsModeDescriptionKeys: Record<BrowserGraphicsMode, TranslationKey> = {
-  automatic: "settings.graphicsModeDescription.automatic",
-  experimental: "settings.graphicsModeDescription.experimental",
-  high_performance: "settings.graphicsModeDescription.highPerformance"
 };
 
 function SettingsViewBase({
@@ -254,35 +252,22 @@ function SettingsViewBase({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection]);
 
-  async function handleGraphicsModeChange(mode: BrowserGraphicsMode): Promise<void> {
-    if (mode === "experimental") {
-      const approved = await confirm({
-        cancelLabel: t("confirm.cancel"),
-        confirmLabel: t("settings.graphicsExperimentalConfirm"),
-        description: t("settings.graphicsExperimentalWarning"),
-        title: t("settings.graphicsExperimentalTitle"),
-        tone: "destructive"
-      });
-      if (!approved) {
-        return;
-      }
-    }
-
+  async function handleGraphicsSettingsChange(
+    update: (graphics: BrowserGraphicsSettings) => BrowserGraphicsSettings
+  ): Promise<void> {
     setIsGraphicsBusy(true);
     try {
       const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
-      await applyGraphicsModeUpdate({
+      const graphics = normalizeBrowserGraphicsSettings(update(normalizedSettings.graphics));
+      await applyGraphicsSettingsUpdate({
         save: async () => {
           await onGameBrowserSettingsChange({
             ...normalizedSettings,
-            graphics: { mode }
+            graphics
           });
         },
         loadDiagnostics: onLoadGraphicsDiagnostics,
-        onDiagnostics: setGraphicsDiagnostics,
-        onRestartRequired: async () => {
-          await showGraphicsRestartDialog(true);
-        }
+        onDiagnostics: setGraphicsDiagnostics
       });
     } catch (error) {
       onError(error);
@@ -565,41 +550,157 @@ function SettingsViewBase({
               />
             </SettingsSection>
 
-            <SettingsSection title={t("settings.gameGroupGraphics")}>
-              <SettingsRow
-                title={t("settings.graphicsMode")}
-                description={t(graphicsModeDescriptionKeys[normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode])}
-                control={
-                  <div className="flex max-w-[420px] flex-wrap items-center justify-end gap-2">
-                    <Select
-                      disabled={isGraphicsBusy}
-                      value={normalizeGameBrowserSettings(gameBrowserSettings).graphics.mode}
-                      onValueChange={(value) => void handleGraphicsModeChange(value as BrowserGraphicsMode)}
-                    >
-                      <SelectTrigger className="settings-menu-control" aria-label={t("settings.graphicsMode")}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="automatic">{t("settings.graphicsModeAutomatic")}</SelectItem>
-                        <SelectItem value="high_performance">
-                          {t("settings.graphicsModeHighPerformance")}
-                        </SelectItem>
-                        <SelectItem value="experimental">{t("settings.graphicsModeExperimental")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {graphicsDiagnostics?.restartRequired ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void showGraphicsRestartDialog(true)}
-                      >
-                        <RotateCcw size={14} />
-                        {t("settings.graphicsRestartPending")}
-                      </Button>
-                    ) : null}
-                  </div>
+            <SettingsSection title={t("settings.graphicsPerformanceGroup")}>
+              <div className="glass-divider flex items-start gap-3 border-b px-4 py-3">
+                <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+                  {t("settings.graphicsRiskWarning")}
+                </p>
+                {graphicsDiagnostics?.restartRequired ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void showGraphicsRestartDialog(true)}
+                  >
+                    <RotateCcw size={14} />
+                    {t("settings.graphicsRestartPending")}
+                  </Button>
+                ) : null}
+              </div>
+              <GraphicsCheckboxRow
+                checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.preferHighPerformanceGpu}
+                description={t("settings.graphicsPreferHighPerformanceGpuDescription")}
+                disabled={isGraphicsBusy}
+                title={t("settings.graphicsPreferHighPerformanceGpu")}
+                onCheckedChange={(checked) =>
+                  void handleGraphicsSettingsChange((graphics) => ({
+                    ...graphics,
+                    preferHighPerformanceGpu: checked
+                  }))
                 }
               />
+              <GraphicsCheckboxRow
+                checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.forceGpuRasterization}
+                description={t("settings.graphicsForceGpuRasterizationDescription")}
+                disabled={isGraphicsBusy}
+                riskLabel={t("settings.graphicsRiskBadge")}
+                title={t("settings.graphicsForceGpuRasterization")}
+                onCheckedChange={(checked) =>
+                  void handleGraphicsSettingsChange((graphics) => ({
+                    ...graphics,
+                    forceGpuRasterization: checked
+                  }))
+                }
+              />
+              <GraphicsCheckboxRow
+                checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.frameRateLimitEnabled}
+                description={t("settings.graphicsFrameRateLimitDescription")}
+                disabled={isGraphicsBusy}
+                riskLabel={t("settings.graphicsRiskBadge")}
+                title={t("settings.graphicsFrameRateLimit")}
+                onCheckedChange={(checked) =>
+                  void handleGraphicsSettingsChange((graphics) => ({
+                    ...graphics,
+                    frameRateLimitEnabled: checked,
+                    vsyncEnabled: checked ? graphics.vsyncEnabled : false
+                  }))
+                }
+              />
+              <GraphicsCheckboxRow
+                checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.vsyncEnabled}
+                description={
+                  normalizeGameBrowserSettings(gameBrowserSettings).graphics.frameRateLimitEnabled
+                    ? t("settings.graphicsVsyncDescription")
+                    : t("settings.graphicsVsyncRequiresFrameLimit")
+                }
+                disabled={
+                  isGraphicsBusy ||
+                  !normalizeGameBrowserSettings(gameBrowserSettings).graphics.frameRateLimitEnabled
+                }
+                riskLabel={t("settings.graphicsRiskBadge")}
+                title={t("settings.graphicsVsync")}
+                onCheckedChange={(checked) =>
+                  void handleGraphicsSettingsChange((graphics) => ({ ...graphics, vsyncEnabled: checked }))
+                }
+              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.graphicsSafetyGroup")}>
+              <GraphicsCheckboxRow
+                checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.gpuBlocklistEnabled}
+                description={t("settings.graphicsGpuBlocklistDescription")}
+                disabled={isGraphicsBusy}
+                riskLabel={t("settings.graphicsRiskBadge")}
+                title={t("settings.graphicsGpuBlocklist")}
+                onCheckedChange={(checked) =>
+                  void handleGraphicsSettingsChange((graphics) => ({
+                    ...graphics,
+                    gpuBlocklistEnabled: checked
+                  }))
+                }
+              />
+              <GraphicsCheckboxRow
+                checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.unsafeWebGpuEnabled}
+                description={t("settings.graphicsUnsafeWebGpuDescription")}
+                disabled={isGraphicsBusy}
+                riskLabel={t("settings.graphicsRiskBadge")}
+                title={t("settings.graphicsUnsafeWebGpu")}
+                onCheckedChange={(checked) =>
+                  void handleGraphicsSettingsChange((graphics) => ({
+                    ...graphics,
+                    unsafeWebGpuEnabled: checked
+                  }))
+                }
+              />
+              <GraphicsCheckboxRow
+                checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.driverBugWorkaroundsEnabled}
+                description={t("settings.graphicsDriverWorkaroundsDescription")}
+                disabled={isGraphicsBusy}
+                riskLabel={t("settings.graphicsRiskBadge")}
+                title={t("settings.graphicsDriverWorkarounds")}
+                onCheckedChange={(checked) =>
+                  void handleGraphicsSettingsChange((graphics) => ({
+                    ...graphics,
+                    driverBugWorkaroundsEnabled: checked
+                  }))
+                }
+              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.graphicsBackendGroup")}>
+              <SettingsRow
+                title={t("settings.graphicsBackend")}
+                description={formatGraphicsBackendDescription(graphicsDiagnostics?.platform, t)}
+                control={
+                  <GraphicsBackendSelect
+                    disabled={isGraphicsBusy}
+                    platform={graphicsDiagnostics?.platform}
+                    settings={normalizeGameBrowserSettings(gameBrowserSettings).graphics}
+                    t={t}
+                    onChange={(backend) =>
+                      void handleGraphicsSettingsChange((graphics) => ({
+                        ...graphics,
+                        backend
+                      }))
+                    }
+                  />
+                }
+              />
+              <SettingsRow
+                title={t("settings.graphicsBackgroundThrottling")}
+                description={t("settings.graphicsBackgroundThrottlingDescription")}
+                control={<ReadOnlyValue value={t("settings.graphicsBackgroundThrottlingEnabled")} />}
+              />
+              <SettingsRow
+                title={t("settings.graphicsAppliedSwitches")}
+                description={formatGraphicsSwitches(graphicsDiagnostics, t)}
+                control={
+                  <ReadOnlyValue value={String(graphicsDiagnostics?.appliedSwitches.length ?? 0)} />
+                }
+              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.gameGroupGraphics")}>
               <SettingsRow
                 title={t("settings.graphicsHardwareAcceleration")}
                 description={formatGraphicsRuntimeSummary(graphicsDiagnostics, t)}
@@ -1192,11 +1293,123 @@ function SettingsSection({ children, title }: SettingsSectionProps): JSX.Element
   );
 }
 
+interface GraphicsCheckboxRowProps {
+  checked: boolean;
+  description: string;
+  disabled: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  riskLabel?: string;
+  title: string;
+}
+
+function GraphicsCheckboxRow({
+  checked,
+  description,
+  disabled,
+  onCheckedChange,
+  riskLabel,
+  title
+}: GraphicsCheckboxRowProps): JSX.Element {
+  return (
+    <SettingsRow
+      title={
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <span>{title}</span>
+          {riskLabel ? (
+            <span className="rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-amber-600 dark:text-amber-400">
+              {riskLabel}
+            </span>
+          ) : null}
+        </span>
+      }
+      description={description}
+      control={
+        <Switch
+          aria-label={title}
+          checked={checked}
+          disabled={disabled}
+          onCheckedChange={onCheckedChange}
+        />
+      }
+    />
+  );
+}
+
+interface GraphicsBackendSelectProps {
+  disabled: boolean;
+  onChange: (backend: BrowserGraphicsSettings["backend"]) => void;
+  platform?: string;
+  settings: BrowserGraphicsSettings;
+  t: Translator;
+}
+
+function GraphicsBackendSelect({
+  disabled,
+  onChange,
+  platform,
+  settings,
+  t
+}: GraphicsBackendSelectProps): JSX.Element {
+  const resolvedPlatform = resolveGraphicsPlatform(platform);
+  if (resolvedPlatform === "win32") {
+    return (
+      <Select
+        disabled={disabled}
+        value={settings.backend.windows}
+        onValueChange={(value) =>
+          onChange({ ...settings.backend, windows: value as BrowserWindowsGraphicsBackend })
+        }
+      >
+        <SelectTrigger className="settings-menu-control" aria-label={t("settings.graphicsBackend")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="automatic">{t("settings.graphicsBackendAutomatic")}</SelectItem>
+          <SelectItem value="d3d11">D3D11</SelectItem>
+          <SelectItem value="d3d11on12">D3D11-on-12</SelectItem>
+          <SelectItem value="vulkan">Vulkan</SelectItem>
+        </SelectContent>
+      </Select>
+    );
+  }
+
+  if (resolvedPlatform === "darwin") {
+    return (
+      <Select
+        disabled={disabled}
+        value={settings.backend.macos}
+        onValueChange={(value) =>
+          onChange({ ...settings.backend, macos: value as BrowserMacosGraphicsBackend })
+        }
+      >
+        <SelectTrigger className="settings-menu-control" aria-label={t("settings.graphicsBackend")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="automatic">{t("settings.graphicsBackendAutomatic")}</SelectItem>
+          <SelectItem value="metal">Metal</SelectItem>
+        </SelectContent>
+      </Select>
+    );
+  }
+
+  return (
+    <Select disabled value="automatic">
+      <SelectTrigger className="settings-menu-control" aria-label={t("settings.graphicsBackend")}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="automatic">{t("settings.graphicsBackendAutomatic")}</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 interface SettingsRowProps {
   control: ReactNode;
   description: ReactNode;
   showDivider?: boolean;
-  title: string;
+  title: ReactNode;
 }
 
 interface MacroBadgePositionSettingsRowsProps {
@@ -1422,9 +1635,33 @@ function formatGraphicsRuntimeSummary(diagnostics: GraphicsDiagnostics | null, t
     diagnostics.hardwareAccelerationEnabled === null
       ? t("settings.graphicsUnknown")
       : t(diagnostics.hardwareAccelerationEnabled ? "settings.graphicsEnabled" : "settings.graphicsDisabled"),
-    t(diagnostics.gpuInfoReady ? "settings.graphicsGpuInfoReady" : "settings.graphicsGpuInfoPending"),
-    `${t("settings.graphicsMode")}: ${formatGraphicsMode(diagnostics.appliedMode, t)}`
+    t(diagnostics.gpuInfoReady ? "settings.graphicsGpuInfoReady" : "settings.graphicsGpuInfoPending")
   ].join(" · ");
+}
+
+function resolveGraphicsPlatform(platform?: string): "darwin" | "win32" | "other" {
+  if (platform === "darwin" || platform === "win32") {
+    return platform;
+  }
+  if (typeof navigator !== "undefined") {
+    if (/Windows/i.test(navigator.userAgent)) return "win32";
+    if (/Macintosh|Mac OS/i.test(navigator.userAgent)) return "darwin";
+  }
+  return "other";
+}
+
+function formatGraphicsBackendDescription(platform: string | undefined, t: Translator): string {
+  const resolvedPlatform = resolveGraphicsPlatform(platform);
+  if (resolvedPlatform === "win32") return t("settings.graphicsBackendDescription.windows");
+  if (resolvedPlatform === "darwin") return t("settings.graphicsBackendDescription.macos");
+  return t("settings.graphicsBackendDescription.unavailable");
+}
+
+function formatGraphicsSwitches(diagnostics: GraphicsDiagnostics | null, t: Translator): string {
+  if (!diagnostics) return t("settings.graphicsLoading");
+  return diagnostics.appliedSwitches.length > 0
+    ? diagnostics.appliedSwitches.join(" · ")
+    : t("settings.graphicsNoAppliedSwitches");
 }
 
 function formatGraphicsDeviceSummary(diagnostics: GraphicsDiagnostics | null, t: Translator): string {
@@ -1481,12 +1718,6 @@ function formatExternalGraphicsSummary(diagnostics: GraphicsDiagnostics, t: Tran
       return `${role.roleName}: WebGL2 ${formatAvailability(role.probe.webgl2, t)}, WebGPU ${formatAvailability(role.probe.webgpu, t)}`;
     })
     .join(" · ");
-}
-
-function formatGraphicsMode(mode: BrowserGraphicsMode, t: Translator): string {
-  if (mode === "high_performance") return t("settings.graphicsModeHighPerformance");
-  if (mode === "experimental") return t("settings.graphicsModeExperimental");
-  return t("settings.graphicsModeAutomatic");
 }
 
 function formatAvailability(

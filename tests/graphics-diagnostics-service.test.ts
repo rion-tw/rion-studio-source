@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { GraphicsDiagnosticsService } from "../src/main/game-browser/GraphicsDiagnosticsService";
+import {
+  DEFAULT_BROWSER_GRAPHICS_SETTINGS,
+  LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS
+} from "../src/shared/browserFonts";
 
 const probe = {
   renderer: "ANGLE Metal Renderer",
@@ -28,7 +32,10 @@ describe("GraphicsDiagnosticsService", () => {
     };
     const service = new GraphicsDiagnosticsService({
       app: app as never,
-      appliedMode: "high_performance",
+      appliedSettings: {
+        ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+        preferHighPerformanceGpu: true
+      },
       browserManager: {
         evaluateExternalRole: externalEvaluate,
         getExternalRoleName: vi.fn(() => "Alt"),
@@ -43,7 +50,7 @@ describe("GraphicsDiagnosticsService", () => {
         ])
       } as never,
       gameBrowserSettingsStore: {
-        getSettings: vi.fn().mockResolvedValue({ graphics: { mode: "experimental" } })
+        getSettings: vi.fn().mockResolvedValue({ graphics: DEFAULT_BROWSER_GRAPHICS_SETTINGS })
       } as never,
       isGpuInfoReady: () => true,
       platform: "darwin"
@@ -52,8 +59,12 @@ describe("GraphicsDiagnosticsService", () => {
     const diagnostics = await service.collect({ executeJavaScript: vi.fn().mockResolvedValue(probe) });
 
     expect(diagnostics).toMatchObject({
-      appliedMode: "high_performance",
-      savedMode: "experimental",
+      appliedSettings: {
+        ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+        preferHighPerformanceGpu: true
+      },
+      savedSettings: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
+      appliedSwitches: ["--force-high-performance-gpu"],
       restartRequired: true,
       hardwareAccelerationEnabled: true,
       gpuInfoReady: true,
@@ -73,10 +84,10 @@ describe("GraphicsDiagnosticsService", () => {
     };
     const service = new GraphicsDiagnosticsService({
       app: app as never,
-      appliedMode: "automatic",
+      appliedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
       browserManager: { getAutomationSession: vi.fn(), listStatuses: vi.fn(() => []) } as never,
       gameBrowserSettingsStore: {
-        getSettings: vi.fn().mockResolvedValue({ graphics: { mode: "automatic" } })
+        getSettings: vi.fn().mockResolvedValue({ graphics: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS })
       } as never,
       isGpuInfoReady: () => false
     });

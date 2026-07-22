@@ -31,17 +31,17 @@ mod system_fonts;
 mod windows_graphics_events;
 
 pub use app::AppCore;
-pub use bootstrap_settings::read_graphics_mode as read_bootstrap_graphics_mode;
+pub use bootstrap_settings::read_graphics_settings as read_bootstrap_graphics_settings;
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use external_chrome::{CdpEvent, ExternalChromeCdpSession};
 pub use model::{
     AppCoreOptions, BrowserAction, BrowserActionRequest, BrowserActionResult,
-    BrowserCdnCompatibilityRecord, BrowserFontSettingsRecord, BrowserGraphicsSettingsRecord,
-    BrowserNetworkSettingsRecord, BrowserOperationLease, BrowserOperationRequest,
-    BrowserProxySettingsRecord, BrowserRuntimeCommand, BrowserRuntimeDisplayRecord,
-    BrowserRuntimeResult, BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot,
-    BrowserRuntimeTabRecord, BrowserRuntimeWorkspaceRecord, CdnRule, ChromeProfileEntryRecord,
-    ChromeProfileImportCommitRecord, ChromeProfileImportPrepareRecord,
+    BrowserCdnCompatibilityRecord, BrowserFontSettingsRecord, BrowserGraphicsBackendSettingsRecord,
+    BrowserGraphicsSettingsRecord, BrowserNetworkSettingsRecord, BrowserOperationLease,
+    BrowserOperationRequest, BrowserProxySettingsRecord, BrowserRuntimeCommand,
+    BrowserRuntimeDisplayRecord, BrowserRuntimeResult, BrowserRuntimeRoleRecord,
+    BrowserRuntimeSnapshot, BrowserRuntimeTabRecord, BrowserRuntimeWorkspaceRecord, CdnRule,
+    ChromeProfileEntryRecord, ChromeProfileImportCommitRecord, ChromeProfileImportPrepareRecord,
     ChromeProfileImportPreviewRecord, ChromeProfileImportRequest, ChromeProfileImportResultRecord,
     ChromeProfileImportWarningRecord, ChromeProfileImportedSessionRecord,
     CompatibilityCheckOutcome, CompatibilityCheckPlanRecord, CompatibilityRunPhase,
@@ -103,6 +103,7 @@ mod generated_contract_tests {
                 "export type { BrowserOperationRequest } from \"./BrowserOperationRequest\";\n",
                 "export type { BrowserCdnCompatibilityRecord } from \"./BrowserCdnCompatibilityRecord\";\n",
                 "export type { BrowserFontSettingsRecord } from \"./BrowserFontSettingsRecord\";\n",
+                "export type { BrowserGraphicsBackendSettingsRecord } from \"./BrowserGraphicsBackendSettingsRecord\";\n",
                 "export type { BrowserGraphicsSettingsRecord } from \"./BrowserGraphicsSettingsRecord\";\n",
                 "export type { BrowserNetworkSettingsRecord } from \"./BrowserNetworkSettingsRecord\";\n",
                 "export type { BrowserProxySettingsRecord } from \"./BrowserProxySettingsRecord\";\n",

@@ -9,14 +9,24 @@ their game URL directly; the app does not own or track authentication state.
 External Chrome remains a compatibility fallback for accelerator or network
 environments that reject the embedded view.
 
-The project is an Electron + React + TypeScript app using Electron Vite,
-Tailwind CSS v4, lucide-react, React Router, and Vitest.
+The project is an Electron + React desktop app with a Rust production core. The
+UI and Electron adapters use TypeScript with Electron Vite, Tailwind CSS v4,
+lucide-react, React Router, and Vitest. Rust is embedded in the main process as a
+Node-API addon; it is not a sidecar and the app does not use Tauri.
 
 ## Architecture Map
 
-- `src/main`: Electron main process. Owns app startup, BrowserWindow/BaseWindow
-  creation, IPC handlers, role/workspace stores, embedded and external
-  Chrome launch behavior, dock integration, and browser lifecycle.
+- `crates/rion-core`: Authoritative domain models, SQLite repositories,
+  migrations, portable/profile transactions, macro scheduling, runtime state,
+  resource policy, logging, and external Chrome CDP transport.
+- `crates/rion-platform`: Explicit macOS and Windows process, profile, pressure,
+  path, cookie, and native-window adapters.
+- `crates/rion-node`: The only Node-API surface consumed by the Electron main
+  process.
+- `src/main`: Thin Electron main-process adapters. Owns app startup,
+  BrowserWindow/BaseWindow/WebContentsView and session objects, IPC handlers,
+  dialogs, menus, tray/updater integration, and execution of Electron-only
+  effects requested by the Rust core.
 - `src/preload`: Secure preload bridge. Exposes the typed `window.rionStudio`
   API through Electron `contextBridge`.
 - `src/shared`: Main/preload/renderer contract. Contains IPC channel names,
@@ -36,7 +46,7 @@ renderer action
   -> window.rionStudio preload API
   -> IPC channel
   -> main process handler
-  -> store/browser manager
+  -> typed Rust core client / Electron effect adapter
   -> state broadcast
   -> renderer state refresh
 ```
@@ -47,9 +57,14 @@ extending the shared contract, preload bridge, and main IPC handlers together.
 
 ## Runtime Data
 
-The Electron main process stores app metadata below `app.getPath("userData")`.
-Role metadata is stored in `roles.json`, launch workspace metadata is stored
-in `launch-workspaces.json`, and browser session data is stored per role at:
+The Rust core stores structured app metadata below `app.getPath("userData")` in
+`rion-studio.sqlite3`; high-volume logs use the separate `logs.sqlite3`
+database. SQLite is the only production metadata write source. Legacy JSON is
+read once during migration, copied into a timestamped read-only backup, and is
+not mirrored after migration. Installing an older release cannot retain changes
+made after SQLite migration; portable export is the supported transfer path.
+
+Browser session data remains outside SQLite at:
 
 ```text
 roles/{roleId}/browser
@@ -57,9 +72,9 @@ roles/{roleId}/browser
 
 Rion Studio stores browser session data only. It must not store login passwords.
 
-Role and workspace stores validate and normalize inputs. They write JSON by
-creating a temporary file and renaming it into place. Keep that pattern when
-adding persisted data.
+Rust validates and normalizes domain inputs and completes each mutation in one
+SQLite transaction. TypeScript stores are stateless typed clients and must not
+read or write production metadata files.
 
 ## Browser Sessions And Launch
 
@@ -71,15 +86,21 @@ authentication status to settle.
 
 Important runtime pieces:
 
-- `BrowserManager` owns embedded `BaseWindow`/`WebContentsView` hosts, workspace
-  layout, focus, popups, and lifecycle.
+- Rust owns browser runtime role/workspace/tab state, launch transitions,
+  operation ordering, display reservations, resource decisions, and macro
+  action queues. `BrowserManager` owns only embedded Electron object handles
+  and applies window/view/focus/layout effects selected by Rust.
 - `ChromeProfileSessionImporter` reads Chrome Cookies using macOS Keychain or
   Windows DPAPI and injects them into the imported Electron session. Copied
   Local Storage, IndexedDB, and Service Worker data remain in the role profile.
-- `ChromeProfileImportManager` owns the consent, Chrome-close requirement,
-  transaction journal, safe copy scope, and rollback behavior.
-- `ExternalChromeManager` owns external Chrome compatibility sessions. Chrome
-  discovery can be overridden with `RION_STUDIO_CHROME_PATH` or `CHROME_PATH`.
+- Rust owns Chrome profile discovery, bounded pending imports, the transaction
+  journal, safe-copy scope, SQLite role commit, rollback, and crash recovery.
+  `ChromeProfileImportManager` only coordinates dialogs, Chrome-close consent,
+  and Electron cookie/session injection.
+- Rust owns external Chrome process/CDP transport, macro action execution and
+  health scheduling. The TypeScript adapter applies Electron-only settings and
+  remote-page overlay effects. Chrome discovery can be overridden with
+  `RION_STUDIO_CHROME_PATH` or `CHROME_PATH`.
 - `GraphicsDiagnosticsService` reports Electron GPU state and probes only the
   renderer and external Chrome sessions that are already running.
 
@@ -133,14 +154,16 @@ text fitting within controls and cards at the app minimum window size of 960x640
 
 ## Testing Guidance
 
-Use Vitest for focused unit coverage. Prefer dependency injection and mocks, as
-the existing tests do, instead of launching real Electron or real browsers unless
-the requested change explicitly requires integration coverage.
+Use Rust unit/property/integration tests for core behavior and Vitest for IPC,
+preload, Electron effects, and renderer behavior. Prefer dependency injection
+and deterministic fixtures; release validation additionally uses packaged apps
+and a copy of real userData.
 
 Common test areas:
 
-- Stores: input normalization, validation errors, sorting, deletion, migration of
-  legacy stored data, and atomic write behavior.
+- Rust domain/repository: input normalization, validation, transaction rollback,
+  schema upgrade, legacy migration, portable/profile crash recovery, macro
+  ordering/cancellation/held-key release, and external CDP backpressure.
 - IPC: handler registration, state updates, error behavior, and interactions with
   stores/managers.
 - Browser managers: launch/focus/stop behavior, Chrome profile session injection,
@@ -153,6 +176,9 @@ as needed:
 
 ```bash
 pnpm run typecheck
+pnpm run lint:rust
+pnpm run test:rust
+pnpm run verify:rust
 pnpm run test
 pnpm run lint
 pnpm run build

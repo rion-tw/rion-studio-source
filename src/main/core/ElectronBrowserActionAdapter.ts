@@ -64,12 +64,17 @@ export class ElectronBrowserActionAdapter {
         ));
         continue;
       }
-      const executions = event.actions.map((action) => this.enqueue(action));
-      void Promise.all(executions)
-        .then((results) => this.core.dispatchBrowserResults(results))
-        .catch((error) => {
-          process.stderr.write(`Rion Studio browser action result dispatch failed: ${String(error)}\n`);
-        });
+      void this.handleActionBatch(event.actions);
+    }
+  }
+
+  private async handleActionBatch(actions: BrowserActionRequest[]): Promise<void> {
+    try {
+      const external = await this.core.dispatchExternalBrowserActions(actions);
+      const embedded = await Promise.all(external.unhandled.map((action) => this.enqueue(action)));
+      await this.core.dispatchBrowserResults([...external.results, ...embedded]);
+    } catch (error) {
+      process.stderr.write(`Rion Studio browser action result dispatch failed: ${String(error)}\n`);
     }
   }
 

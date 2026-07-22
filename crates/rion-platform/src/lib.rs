@@ -7,11 +7,18 @@ mod pressure;
 pub use pressure::{SystemPressureSample, SystemPressureSampler};
 mod process;
 pub use process::{ExternalProcessExit, ExternalProcessSupervisor};
+mod system_fonts;
+pub use system_fonts::query_system_font_names;
+mod windows_events;
+pub use windows_events::query_windows_display_driver_events;
 
 mod chrome;
 pub use chrome::find_chrome_executable;
 mod chrome_profile;
-pub use chrome_profile::{ChromeProfileEntry, copy_chrome_profile, discover_chrome_profiles};
+pub use chrome_profile::{
+    ChromeProfileEntry, copy_chrome_profile, default_chrome_user_data_directory,
+    discover_chrome_profiles,
+};
 mod chrome_cookie;
 pub use chrome_cookie::{decrypt_chrome_cookie, decrypt_mac_cookie_payload};
 #[cfg_attr(not(windows), allow(dead_code))]

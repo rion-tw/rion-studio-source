@@ -1,129 +1,32 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { GameBrowserSettingsStore } from "../src/main/game-browser/GameBrowserSettingsStore";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../src/shared/browserFonts";
+import { MemoryStateRepository } from "./helpers/memoryStateRepository";
 
 describe("GameBrowserSettingsStore", () => {
-  let baseDir: string;
-
-  beforeEach(async () => {
-    baseDir = await mkdtemp(join(tmpdir(), "rion-studio-game-browser-settings-"));
-  });
-
-  it("returns browser defaults when the settings file is missing or invalid", async () => {
-    const store = new GameBrowserSettingsStore(baseDir);
-
-    await expect(store.getSettings()).resolves.toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
-
-    await writeFile(join(baseDir, "game-browser-settings.json"), "{not json", "utf8");
-
+  it("reads defaults through the Rust state client when no row exists", async () => {
+    const store = new GameBrowserSettingsStore("/unused", new MemoryStateRepository());
     await expect(store.getSettings()).resolves.toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
   });
 
-  it("adds default workspace appearance settings to persisted settings that omit them", async () => {
-    await writeFile(
-      join(baseDir, "game-browser-settings.json"),
-      JSON.stringify({
-        fonts: { families: {}, mode: "default" },
-        graphics: { mode: "automatic" },
-        launchMode: "auto",
-        network: { cdnCompatibility: { mode: "auto" }, proxy: { mode: "system", server: "" } }
-      }),
-      "utf8"
-    );
-
-    const store = new GameBrowserSettingsStore(baseDir);
-    await expect(store.getSettings()).resolves.toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
-  });
-
-  it("normalizes and atomically writes browser font settings", async () => {
-    const store = new GameBrowserSettingsStore(baseDir);
-
-    await expect(
-      store.updateSettings({
-        fonts: {
-          families: {
-            fixed: "  Courier   New  ",
-            standard: "Arial"
-          },
-          mode: "custom"
-        },
-        graphics: { mode: "high_performance" },
-        launchMode: "external",
-        macroBadgePosition: {
-          horizontalAlign: "right",
-          horizontalMarginPx: 80,
-          topPx: 280
-        },
-        network: {
-          cdnCompatibility: { mode: "on" },
-          proxy: {
-            mode: "custom",
-            server: " socks5://127.0.0.1:7890/ "
-          }
-        },
-        workspace: { background: "black", gap: 12 }
-      })
-    ).resolves.toEqual({
-      fonts: {
-        families: {
-          fixed: "Courier New",
-          standard: "Arial"
-        },
-        mode: "custom"
-      },
+  it("normalizes the public input and delegates the typed write", async () => {
+    const repository = new MemoryStateRepository();
+    const store = new GameBrowserSettingsStore("/unused", repository);
+    const saved = await store.updateSettings({
+      fonts: { families: { fixed: "  Courier   New  ", standard: "Arial" }, mode: "custom" },
       graphics: { mode: "high_performance" },
       launchMode: "external",
-      macroBadgePosition: {
-        horizontalAlign: "right",
-        horizontalMarginPx: 80,
-        topPx: 280
-      },
+      macroBadgePosition: { horizontalAlign: "right", horizontalMarginPx: 80, topPx: 280 },
       network: {
         cdnCompatibility: { mode: "on" },
-        proxy: {
-          mode: "custom",
-          server: "socks5://127.0.0.1:7890"
-        }
+        proxy: { mode: "custom", server: " socks5://127.0.0.1:7890/ " }
       },
       workspace: { background: "black", gap: 12 }
     });
 
-    await expect(readFile(join(baseDir, "game-browser-settings.json.tmp"), "utf8")).rejects.toMatchObject({
-      code: "ENOENT"
-    });
-    const firstRead = await store.getSettings();
-    expect(firstRead).toEqual({
-      fonts: {
-        families: {
-          fixed: "Courier New",
-          standard: "Arial"
-        },
-        mode: "custom"
-      },
-      graphics: { mode: "high_performance" },
-      launchMode: "external",
-      macroBadgePosition: {
-        horizontalAlign: "right",
-        horizontalMarginPx: 80,
-        topPx: 280
-      },
-      network: {
-        cdnCompatibility: { mode: "on" },
-        proxy: {
-          mode: "custom",
-          server: "socks5://127.0.0.1:7890"
-        }
-      },
-      workspace: { background: "black", gap: 12 }
-    });
-    firstRead.fonts.families.standard = "Mutated by caller";
-    await expect(store.getSettings()).resolves.toMatchObject({
-      fonts: { families: { standard: "Arial" } }
-    });
+    expect(saved.fonts.families.fixed).toBe("Courier New");
+    expect(saved.network.proxy.server).toBe("socks5://127.0.0.1:7890");
+    await expect(store.getSettings()).resolves.toEqual(saved);
   });
 });

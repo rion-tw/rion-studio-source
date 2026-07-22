@@ -1,17 +1,19 @@
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
-};
+use std::{path::PathBuf, sync::Arc, thread, time::Duration};
 
 use napi::{Status, bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use rion_core::{
-    AppCore, AppCoreOptions as CoreOptions, BrowserActionResult, CdnRule, CoreCommand, CoreError,
-    CoreEvent, ExternalChromeCdpSession, ResourcePolicyInput, WorkspaceLayoutInput,
+    AppCore, AppCoreOptions as CoreOptions, BrowserActionRequest, BrowserActionResult,
+    BrowserOperationRequest, BrowserRuntimeCommand, CdnRule, CoreCommand, CoreError, CoreEvent,
+    EmbeddedKeyTransitionRecord, ExternalChromeCdpSession, ExternalSessionCommand, LayoutRect,
+    LayoutRoleInput, ResourcePolicyInput, ResourceRuntimeCommand, StatePixelBoundsRecord,
+    WorkspaceDividerResizeInput, WorkspaceLayoutInput,
 };
-use rion_platform::ExternalProcessSupervisor;
+
+#[napi]
+pub fn read_bootstrap_graphics_mode(user_data_dir: String) -> String {
+    rion_core::read_bootstrap_graphics_mode(PathBuf::from(user_data_dir).as_path())
+}
 
 #[napi(object)]
 pub struct AppCoreOptions {
@@ -31,61 +33,6 @@ pub struct NativePixelBounds {
 #[napi]
 pub struct NativeAppCore {
     inner: Arc<AppCore>,
-}
-
-#[napi]
-pub struct NativeExternalChromeProcess {
-    inner: Arc<Mutex<ExternalProcessSupervisor>>,
-}
-
-#[napi]
-impl NativeExternalChromeProcess {
-    #[napi]
-    pub fn pid(&self) -> Result<u32> {
-        self.inner
-            .lock()
-            .map(|supervisor| supervisor.pid())
-            .map_err(|_| Error::new(Status::GenericFailure, "process supervisor lock poisoned"))
-    }
-
-    #[napi]
-    pub fn subscribe_exit(&self, callback: Function<'_, (String,), ()>) -> Result<()> {
-        let receiver = self
-            .inner
-            .lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "process supervisor lock poisoned"))?
-            .take_events()
-            .ok_or_else(|| {
-                Error::new(
-                    Status::InvalidArg,
-                    "process exit may only be subscribed once",
-                )
-            })?;
-        let threadsafe = callback
-            .build_threadsafe_function::<String>()
-            .max_queue_size::<1>()
-            .build_callback(|context| Ok((context.value,)))?;
-        thread::Builder::new()
-            .name("rion-external-process-events".to_owned())
-            .spawn(move || {
-                if let Ok(event) = receiver.recv()
-                    && let Ok(serialized) = serde_json::to_string(&event)
-                {
-                    let _ = threadsafe.call(serialized, ThreadsafeFunctionCallMode::NonBlocking);
-                }
-            })
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-        Ok(())
-    }
-
-    #[napi]
-    pub fn terminate(&self) -> Result<()> {
-        self.inner
-            .lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "process supervisor lock poisoned"))?
-            .terminate();
-        Ok(())
-    }
 }
 
 #[napi]
@@ -161,6 +108,127 @@ impl NativeExternalChromeCdpClient {
 #[napi]
 impl NativeAppCore {
     #[napi]
+    pub fn invoke_external_session(&self, command_json: String) -> Result<String> {
+        let command = serde_json::from_str::<ExternalSessionCommand>(&command_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        let result = self
+            .inner
+            .invoke_external_session(command)
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&result)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub async fn acquire_browser_operation(&self, request_json: String) -> Result<String> {
+        let request = serde_json::from_str::<BrowserOperationRequest>(&request_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        let core = Arc::clone(&self.inner);
+        let lease =
+            napi::tokio::task::spawn_blocking(move || core.acquire_browser_operation(request))
+                .await
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
+                .map_err(to_napi_error)?;
+        serde_json::to_string(&lease)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn complete_browser_operation(&self, id: String) -> Result<()> {
+        self.inner
+            .complete_browser_operation(&id)
+            .map_err(to_napi_error)
+    }
+
+    #[napi]
+    pub fn invoke_browser_runtime(&self, command_json: String) -> Result<String> {
+        let command = serde_json::from_str::<BrowserRuntimeCommand>(&command_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        let result = self
+            .inner
+            .invoke_browser_runtime(command)
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&result)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn resolve_role_paths(&self, role_id: String) -> Result<String> {
+        let paths = self
+            .inner
+            .resolve_role_paths(&role_id)
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&paths)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn prepare_embedded_key_transition(
+        &self,
+        role_id: String,
+        phase: String,
+        code: String,
+        modifier_codes_json: String,
+        owner_id: String,
+    ) -> Result<String> {
+        let modifier_codes = serde_json::from_str::<Vec<String>>(&modifier_codes_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        let transition: EmbeddedKeyTransitionRecord = self
+            .inner
+            .prepare_embedded_key_transition(&role_id, &phase, &code, &modifier_codes, &owner_id)
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&transition)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn complete_embedded_key_transition(
+        &self,
+        transition_id: String,
+        succeeded: bool,
+    ) -> Result<()> {
+        self.inner
+            .complete_embedded_key_transition(&transition_id, succeeded)
+            .map_err(to_napi_error)
+    }
+
+    #[napi]
+    pub fn reassert_embedded_keys(&self, role_id: String) -> Result<String> {
+        let transition = self
+            .inner
+            .reassert_embedded_keys(&role_id)
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&transition)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn has_embedded_held_keys(&self, role_id: String) -> Result<bool> {
+        self.inner
+            .has_embedded_held_keys(&role_id)
+            .map_err(to_napi_error)
+    }
+
+    #[napi]
+    pub fn clear_embedded_keys(&self, role_id: String) -> Result<()> {
+        self.inner
+            .clear_embedded_keys(&role_id)
+            .map_err(to_napi_error)
+    }
+
+    #[napi]
+    pub fn invoke_resource_runtime(&self, command_json: String) -> Result<String> {
+        let command = serde_json::from_str::<ResourceRuntimeCommand>(&command_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        let result = self
+            .inner
+            .invoke_resource_runtime(command)
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&result)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
     pub fn find_system_chrome_executable(&self) -> Result<String> {
         self.inner
             .find_chrome_executable()
@@ -180,36 +248,94 @@ impl NativeAppCore {
     }
 
     #[napi]
-    pub fn launch_external_chrome(
-        &self,
-        executable_path: String,
-        arguments: Vec<String>,
-    ) -> Result<NativeExternalChromeProcess> {
-        let supervisor =
-            ExternalProcessSupervisor::start(PathBuf::from(executable_path).as_path(), &arguments)
-                .map_err(|error| to_napi_error(CoreError::Platform(error.to_string())))?;
-        Ok(NativeExternalChromeProcess {
-            inner: Arc::new(Mutex::new(supervisor)),
-        })
-    }
-
-    #[napi]
     pub async fn connect_external_chrome_cdp(
         &self,
+        role_id: String,
         browser_user_data_dir: String,
         launch_url: String,
         timeout_ms: Option<u32>,
+        cdn_enabled: Option<bool>,
     ) -> Result<NativeExternalChromeCdpClient> {
-        let session = ExternalChromeCdpSession::connect(
-            PathBuf::from(browser_user_data_dir),
-            launch_url,
-            timeout_ms.map(|value| Duration::from_millis(u64::from(value))),
-        )
-        .await
-        .map_err(to_napi_error)?;
-        Ok(NativeExternalChromeCdpClient {
-            inner: Arc::new(session),
-        })
+        let session = self
+            .inner
+            .connect_external_chrome_cdp(
+                role_id,
+                PathBuf::from(browser_user_data_dir),
+                launch_url,
+                timeout_ms.map(|value| Duration::from_millis(u64::from(value))),
+                cdn_enabled.unwrap_or(false),
+            )
+            .await
+            .map_err(to_napi_error)?;
+        Ok(NativeExternalChromeCdpClient { inner: session })
+    }
+
+    #[napi]
+    pub fn unregister_external_chrome_automation(&self, role_id: String) -> Result<()> {
+        self.inner
+            .unregister_external_chrome_automation(&role_id)
+            .map_err(to_napi_error)
+    }
+
+    #[napi]
+    pub async fn dispatch_external_browser_actions(&self, actions_json: String) -> Result<String> {
+        let actions = serde_json::from_str::<Vec<BrowserActionRequest>>(&actions_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        let result = self
+            .inner
+            .dispatch_external_browser_actions(actions)
+            .await
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&result)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub async fn focus_external_chrome(&self, role_id: String) -> Result<()> {
+        self.inner
+            .focus_external_chrome(&role_id)
+            .await
+            .map_err(to_napi_error)
+    }
+
+    #[napi]
+    pub async fn set_external_chrome_window_bounds(
+        &self,
+        role_id: String,
+        bounds_json: String,
+    ) -> Result<()> {
+        let bounds = serde_json::from_str::<StatePixelBoundsRecord>(&bounds_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        self.inner
+            .set_external_chrome_window_bounds(&role_id, bounds)
+            .await
+            .map_err(to_napi_error)
+    }
+
+    #[napi]
+    pub async fn capture_external_chrome_diagnostics(&self, role_id: String) -> Result<String> {
+        let result = self
+            .inner
+            .capture_external_chrome_diagnostics(&role_id)
+            .await
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&result)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub async fn evaluate_external_chrome(
+        &self,
+        role_id: String,
+        source: String,
+    ) -> Result<String> {
+        let result = self
+            .inner
+            .evaluate_external_chrome(&role_id, &source)
+            .await
+            .map_err(to_napi_error)?;
+        serde_json::to_string(&result)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
     }
 
     #[napi]
@@ -291,6 +417,45 @@ impl NativeAppCore {
             .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
         serde_json::to_string(&self.inner.resolve_workspace_layout(&input))
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn resolve_adaptive_workspace_zoom(
+        &self,
+        viewport_width: f64,
+        current_percent: Option<u32>,
+    ) -> u32 {
+        self.inner
+            .resolve_adaptive_workspace_zoom(viewport_width, current_percent)
+    }
+
+    #[napi]
+    pub fn normalize_workspace_rects(&self, input_json: String) -> Result<String> {
+        let input = serde_json::from_str::<Vec<LayoutRect>>(&input_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        serde_json::to_string(&self.inner.normalize_workspace_rects(&input))
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn create_workspace_dividers(&self, input_json: String) -> Result<String> {
+        let input = serde_json::from_str::<Vec<LayoutRoleInput>>(&input_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        serde_json::to_string(&self.inner.create_workspace_dividers(&input))
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn resize_workspace_divider(&self, input_json: String) -> Result<String> {
+        let input = serde_json::from_str::<WorkspaceDividerResizeInput>(&input_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        serde_json::to_string(
+            &self
+                .inner
+                .resize_workspace_divider(&input)
+                .map_err(to_napi_error)?,
+        )
+        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
     }
 
     #[napi]

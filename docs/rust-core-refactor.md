@@ -20,12 +20,8 @@ loads the addon directly.
   migration backup and is not updated after migration.
 
 Missing or incompatible addons are fatal startup errors. Persistence never silently
-falls back to JSON. For the first rollout only, optional runtime subsystems can use the
-old implementation by setting a comma-separated
-`RION_STUDIO_RUST_FALLBACK_SUBSYSTEMS` value. Accepted names are `cdn`,
-`external-chrome`, `layout-lifecycle`, `macro-timing`, `pressure`, and
-`resource-policy`; `all` selects all optional fallbacks. This switch does not change
-SQLite ownership.
+falls back to JSON. Rion Studio 2.0 has no TypeScript runtime-core fallback: runtime
+decisions and side effects must have exactly one production implementation.
 
 ## 2.0 migration and downgrade boundary
 
@@ -121,4 +117,4 @@ CPU throttling, and macro roles always remain unthrottled.
 Required gates are: host CPU -30%, host RSS -20%, nine-role process-tree CPU -10%,
 process-tree RSS -5%, relevant p95 command/tab/macro dispatch regression no worse than
 5%, and steady-state host RSS growth no more than 5%. A subsystem that misses its gate
-stays on the temporary fallback until the bottleneck is resolved.
+must be optimized and revalidated before release.

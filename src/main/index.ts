@@ -21,21 +21,21 @@ import {
   WebContentsView
 } from "electron";
 
-import { ExternalChromeManager } from "./browser/ExternalChromeManager";
+import {
+  ExternalChromeManager,
+  type ExternalChromeManagerOptions
+} from "./browser/ExternalChromeManager";
 import { connectExternalChromeAutomation } from "./browser/ExternalChromeAutomationTarget";
 import { ChromeProfileImportManager } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
-import { WindowsGraphicsEventCollector } from "./browser/WindowsGraphicsEventCollector";
+import { RustWindowsGraphicsEventCollector } from "./browser/RustWindowsGraphicsEventCollector";
 import { ChromeProfileSessionImporter } from "./browser/ChromeProfileSessionImporter";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
-import { ChromeZoomPreferenceApplier } from "./browser/ChromeZoomPreferenceApplier";
 import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
 import { RustExternalChromeHealthMonitor } from "./browser/RustExternalChromeHealthMonitor";
-import { SystemPressureMonitor } from "./browser/SystemPressureMonitor";
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
-import { AppCoreClient } from "./core/nativeCore";
+import { AppCoreClient, readBootstrapGraphicsMode } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
-import { isRustSubsystemEnabled } from "./core/subsystemFlags";
 import { RustStateRepository } from "./core/RustStateRepository";
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
@@ -49,7 +49,6 @@ import { AppQuickMenu } from "./menu/AppQuickMenu";
 import { ApplicationMenuController } from "./menu/ApplicationMenu";
 import { RuntimeTabMenuController } from "./menu/RuntimeTabMenu";
 import { buildWindowsTrayMenuTemplate } from "./tray/WindowsTrayMenu";
-import { BrowserFontApplier } from "./game-browser/BrowserFontApplier";
 import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
 import {
   CdnCompatibilityManager,
@@ -59,11 +58,10 @@ import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStor
 import { GraphicsDiagnosticsService, readGpuDevice } from "./game-browser/GraphicsDiagnosticsService";
 import {
   configureChromiumCommandLine,
-  readAppliedBrowserGraphicsMode
+  normalizeAppliedBrowserGraphicsMode
 } from "./game-browser/BrowserLaunchConfiguration";
-import { SystemFontService } from "./game-browser/SystemFontService";
+import { RustSystemFontService } from "./game-browser/RustSystemFontService";
 import { GameCompatibilityManager } from "./games/GameCompatibilityManager";
-import { GameCompatibilityStore } from "./games/GameCompatibilityStore";
 import { GameStore } from "./games/GameStore";
 import { createRuntimeGameIconDataUrl } from "./games/runtimeGameIcon";
 import {
@@ -77,7 +75,6 @@ import { LogService } from "./logging/LogService";
 import { sendToWindowIfAvailable } from "./window/sendToWindow";
 import { RustLogPersistence } from "./logging/RustLogPersistence";
 import { writeZip } from "./logging/zipWriter";
-import { MacroManager } from "./macros/MacroManager";
 import { RustMacroManager } from "./macros/RustMacroManager";
 import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
@@ -106,7 +103,6 @@ import { configureSingleInstanceLifecycle } from "./window/singleInstanceLifecyc
 import { resolveTestUserDataPath } from "./testing/testUserData";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL } from "../shared/embeddedRuntimeDiagnostics";
-import { normalizeGameBrowserSettings } from "../shared/browserFonts";
 import { formatMacroCoordinateClipboard } from "../shared/macroCoordinates";
 import {
   RUNTIME_TABS_ACTION_CHANNEL,
@@ -120,7 +116,13 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
 const testUserDataPath = resolveTestUserDataPath();
 if (testUserDataPath) app.setPath("userData", testUserDataPath);
 
-const appliedBrowserGraphicsMode = readAppliedBrowserGraphicsMode(app.getPath("userData"));
+const bootstrapUserDataDir = app.getPath("userData");
+const appliedBrowserGraphicsMode = normalizeAppliedBrowserGraphicsMode(readBootstrapGraphicsMode({
+  appVersion: app.getVersion(),
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  userDataDir: bootstrapUserDataDir
+}));
 configureChromiumCommandLine(app.commandLine, appliedBrowserGraphicsMode);
 let gpuInfoReady = false;
 app.on("gpu-info-update", () => {
@@ -153,7 +155,6 @@ const rendererReadyGate = new RendererReadyGate();
 const RENDERER_READY_TIMEOUT_MS = 15_000;
 const logService = new LogService({
   appVersion: app.getVersion(),
-  deferFileWrites: existsSync(join(app.getPath("userData"), "logs.sqlite3")),
   platform: process.platform,
   userDataPath: app.getPath("userData")
 });
@@ -281,7 +282,7 @@ async function exportDiagnostics() {
     : new Date(capturedAt.getTime() - 30 * 60_000);
   const [gpuInfo, windowsGraphicsEvents, externalChrome] = await Promise.all([
     gpuInfoReady ? app.getGPUInfo("basic").catch(() => undefined) : Promise.resolve(undefined),
-    new WindowsGraphicsEventCollector().collect(graphicsEventWindowStart),
+    new RustWindowsGraphicsEventCollector(appCoreClient!).collect(graphicsEventWindowStart),
     browserManager?.captureAllExternalRoleDiagnostics() ?? Promise.resolve([])
   ]);
   const diagnostics = {
@@ -545,17 +546,12 @@ function consumePendingWorkspaceLaunchRequest(): PendingWorkspaceLaunchRequest |
 async function initializeApplication(): Promise<void> {
   const userDataDir = app.getPath("userData");
   await logService.flush();
-  try {
-    appCoreClient = await AppCoreClient.create({
-      appVersion: app.getVersion(),
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      userDataDir
-    });
-  } catch (error) {
-    await logService.useFileFallback();
-    throw error;
-  }
+  appCoreClient = await AppCoreClient.create({
+    appVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    userDataDir
+  });
   await logService.usePersistence(new RustLogPersistence(appCoreClient));
   const stateRepository = new RustStateRepository(appCoreClient);
   appCoreClient.subscribe((events) => {
@@ -569,9 +565,8 @@ async function initializeApplication(): Promise<void> {
   const dataMutationQueue = new SerialTaskQueue();
   const withDataMutation = <T>(operation: () => Promise<T>): Promise<T> =>
     dataMutationQueue.run(operation);
-  const roleStore = new RoleStore(userDataDir, stateRepository);
+  const roleStore = new RoleStore(userDataDir, stateRepository, appCoreClient);
   const gameStore = new GameStore(userDataDir, roleStore, stateRepository);
-  await gameStore.initialize();
   const workspaceStore = new LaunchWorkspaceStore(userDataDir, stateRepository);
   await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
   const notifyWorkspacesChanged = async (): Promise<void> => {
@@ -586,46 +581,19 @@ async function initializeApplication(): Promise<void> {
     return { games: games.length, roles: roles.length, workspaces: workspaces.length, macros: macros.length };
   };
   const macroSettingsStore = new MacroSettingsStore(userDataDir, stateRepository);
-  const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir, { stateRepository });
+  const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir, { core: appCoreClient });
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir, stateRepository);
   const runtimeWindowPreferencesStore = new RuntimeWindowPreferencesStore(userDataDir, stateRepository);
   const runtimeWindowPreferences = await runtimeWindowPreferencesStore.getPreferences();
-  const browserFontApplier = new BrowserFontApplier({
-    appUserDataDir: userDataDir,
-    getSettings: () => gameBrowserSettingsStore.getSettings()
-  });
-  const chromeZoomPreferenceApplier = new ChromeZoomPreferenceApplier();
   const browserProxyApplier = new BrowserProxyApplier({
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
-  const useRustCdn = isRustSubsystemEnabled("cdn");
-  const useRustExternalChrome = isRustSubsystemEnabled("external-chrome");
-  const useRustLayoutLifecycle = isRustSubsystemEnabled("layout-lifecycle");
-  const useRustMacroTiming = isRustSubsystemEnabled("macro-timing");
-  const useRustPressure = isRustSubsystemEnabled("pressure");
-  const useRustResourcePolicy = isRustSubsystemEnabled("resource-policy");
-  const activeFallbacks = ([
-    ["cdn", useRustCdn],
-    ["external-chrome", useRustExternalChrome],
-    ["macro-timing", useRustMacroTiming],
-    ["pressure", useRustPressure],
-    ["resource-policy", useRustResourcePolicy]
-  ] as const).filter(([, enabled]) => !enabled).map(([subsystem]) => subsystem);
-  if (activeFallbacks.length > 0) {
-    logService.warn(
-      "main",
-      "rust_subsystem_fallback_active",
-      "One or more optional Rust subsystems are using the temporary TypeScript fallback.",
-      { subsystems: activeFallbacks }
-    );
-  }
-  if (useRustCdn) appCoreClient.replaceCdnRules(getCdnCompatibilityRules());
+  appCoreClient.replaceCdnRules(getCdnCompatibilityRules());
   const cdnCompatibilityManager = new CdnCompatibilityManager({
     getSettings: () => gameBrowserSettingsStore.getSettings(),
-    ...(useRustCdn ? { rewriteUrl: (url: string) => appCoreClient?.rewriteCdnUrl(url) } : {})
+    rewriteUrl: (url: string) => appCoreClient?.rewriteCdnUrl(url)
   });
-  const systemFontService = new SystemFontService();
-  const gameCompatibilityStore = new GameCompatibilityStore(userDataDir, stateRepository);
+  const systemFontService = new RustSystemFontService(appCoreClient);
   const updateManager = new AppUpdateManager({
     currentVersion: app.getVersion(),
     isPackaged: app.isPackaged,
@@ -653,44 +621,61 @@ async function initializeApplication(): Promise<void> {
     nativeAlignVisibleBounds: async ({ browserProcessId, physicalBounds }) =>
       appCoreClient?.alignExternalChromeWindow(browserProcessId, physicalBounds) ?? physicalBounds
   });
-  const resourcePressureMonitor = useRustPressure
-    ? new RustSystemPressureMonitor(appCoreClient)
-    : new SystemPressureMonitor();
+  const resourcePressureMonitor = new RustSystemPressureMonitor(appCoreClient);
   powerMonitor.on("speed-limit-change", ({ limit }) => resourcePressureMonitor.setSpeedLimit(limit));
   if (process.platform === "darwin") {
     powerMonitor.on("thermal-state-change", ({ state }) => resourcePressureMonitor.setThermalState(state));
   }
   resourcePressureMonitor.start();
-  const externalChromeHealthMonitor = useRustExternalChrome
-    ? new RustExternalChromeHealthMonitor(appCoreClient)
-    : undefined;
+  const externalChromeHealthMonitor = new RustExternalChromeHealthMonitor(appCoreClient);
   const externalChromeManager = new ExternalChromeManager(roleStore, {
-    ...(useRustExternalChrome
-      ? {
-          findExecutable: () => appCoreClient!.findSystemChromeExecutable(),
-          spawnChrome: (executablePath: string, args: string[]) =>
-            appCoreClient!.launchExternalChrome(executablePath, args),
-          prepareBrowserUserDataDir: (browserUserDataDir: string) =>
-            appCoreClient!.prepareExternalChromeProfile(browserUserDataDir),
-          connectAutomation: (
-            browserUserDataDir: string,
-            launchUrl: string,
-            options?: Parameters<typeof connectExternalChromeAutomation>[2]
-          ) => connectExternalChromeAutomation(browserUserDataDir, launchUrl, {
-            ...options,
-            connectClient: (userDataDir, url) =>
-              appCoreClient!.connectExternalChromeCdp(userDataDir, url, 10_000)
-          }),
-          healthMonitor: externalChromeHealthMonitor
-        }
-      : {}),
-    applyBrowserFonts: async (_role, browserUserDataDir) => {
-      await browserFontApplier.applyToChromeUserDataDir(browserUserDataDir);
+    adaptiveZoomResolver: (viewportWidth, currentPercent) =>
+      appCoreClient!.resolveAdaptiveWorkspaceZoom(viewportWidth, currentPercent),
+    externalSessionState: appCoreClient!,
+    captureAutomationDiagnostics: (roleId) =>
+      appCoreClient!.captureExternalChromeDiagnostics(roleId),
+    evaluateAutomation: (roleId, source) =>
+      appCoreClient!.evaluateExternalChrome(roleId, source),
+    focusAutomation: (roleId) => appCoreClient!.focusExternalChrome(roleId),
+    findExecutable: () => appCoreClient!.findSystemChromeExecutable(),
+    spawnChrome: (roleId: string, executablePath: string, args: string[]) =>
+      appCoreClient!.launchExternalChrome(roleId, executablePath, args),
+    prepareBrowserUserDataDir: (browserUserDataDir: string) =>
+      appCoreClient!.prepareExternalChromeProfile(browserUserDataDir),
+    connectAutomation: (
+      browserUserDataDir: string,
+      launchUrl: string,
+      options?: Parameters<ExternalChromeManagerOptions["connectAutomation"]>[2]
+    ) => connectExternalChromeAutomation(browserUserDataDir, launchUrl, {
+      ...options,
+      connectClient: (userDataDir, url, roleId, cdnCompatibilityEnabled) => {
+        if (!roleId) throw new Error("External Chrome role id is required.");
+        return appCoreClient!.connectExternalChromeCdp(
+          roleId,
+          userDataDir,
+          url,
+          10_000,
+          cdnCompatibilityEnabled
+        );
+      }
+    }),
+    setAutomationWindowBounds: (roleId, bounds) =>
+      appCoreClient!.setExternalChromeWindowBounds(roleId, bounds),
+    unregisterAutomation: (roleId) =>
+      appCoreClient!.unregisterExternalChromeAutomation(roleId),
+    healthMonitor: externalChromeHealthMonitor,
+    normalizeWorkspaceRects: (rects) => appCoreClient!.normalizeWorkspaceRects(rects),
+    applyBrowserPreferences: async (_role, browserUserDataDir, zoomFactor) => {
+      const settings = await gameBrowserSettingsStore.getSettings();
+      await appCoreClient!.invoke({
+        type: "browserPreferencesApply",
+        browserUserDataDir,
+        fonts: settings.fonts,
+        zoomFactor
+      });
     },
-    applyBrowserZoom: (browserUserDataDir, zoomFactor) =>
-      chromeZoomPreferenceApplier.applyToChromeUserDataDir(browserUserDataDir, zoomFactor),
     prepareCdnCompatibility: async (role, _browserUserDataDir) => {
-      const settings = normalizeGameBrowserSettings(await gameBrowserSettingsStore.getSettings());
+      const settings = await gameBrowserSettingsStore.getSettings();
       const browserSession = electronSession.fromPartition(createRoleSessionPartition(role.id));
       await browserProxyApplier.applyToSession(browserSession);
       return {
@@ -731,9 +716,16 @@ async function initializeApplication(): Promise<void> {
     externalChromeManager.handleResume();
   });
   browserManager = new BrowserManager({
+    browserRuntimeState: appCoreClient!,
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
-      await browserFontApplier.applyToRoleLaunch(browserUserDataDir, partition);
+      const settings = await gameBrowserSettingsStore.getSettings();
+      await appCoreClient!.invoke({
+        type: "browserPreferencesApply",
+        browserUserDataDir,
+        roleSessionPartition: partition,
+        fonts: settings.fonts
+      });
     },
     applyBrowserProxy: (_role, _partition, session) => browserProxyApplier.applyToSession(session),
     applyCdnCompatibility: async (_role, _partition, session) => {
@@ -750,27 +742,21 @@ async function initializeApplication(): Promise<void> {
     }),
     createView: (options) => new WebContentsView(options),
     dividerPreloadPath: join(__dirname, "../preload/divider.cjs"),
+    embeddedKeyRuntime: appCoreClient!,
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
     runtimeTabsPageUrl: createRuntimeTabsPageUrl(),
     runtimeTabsPreloadPath: join(__dirname, "../preload/runtime-tabs.cjs"),
     externalChromeManager,
     recordTabActivationLatency: (durationMs) =>
       appCoreClient?.recordTabActivationLatency(durationMs),
-    ...(useRustLayoutLifecycle
-      ? {
-          workspaceLayoutResolver: (input: Parameters<NonNullable<BrowserManagerOptions["workspaceLayoutResolver"]>>[0]) =>
-            appCoreClient!.resolveWorkspaceLayout(input)
-        }
-      : {}),
+    adaptiveZoomResolver: (viewportWidth, currentPercent) =>
+      appCoreClient!.resolveAdaptiveWorkspaceZoom(viewportWidth, currentPercent),
+    normalizeWorkspaceRects: (rects) => appCoreClient!.normalizeWorkspaceRects(rects),
+    workspaceDividerResolver: (roles) => appCoreClient!.createWorkspaceDividers(roles),
+    workspaceDividerResizeResolver: (input) => appCoreClient!.resizeWorkspaceDivider(input),
+    workspaceLayoutResolver: (input: Parameters<NonNullable<BrowserManagerOptions["workspaceLayoutResolver"]>>[0]) =>
+      appCoreClient!.resolveWorkspaceLayout(input),
     resourcePressureMonitor,
-    ...(useRustResourcePolicy
-      ? {
-          resourcePolicyResolver: (input: Parameters<NonNullable<BrowserManagerOptions["resourcePolicyResolver"]>>[0]) => {
-            const rate = appCoreClient?.resolveResourcePolicy(input).cpuThrottleRate;
-            return rate === 4 ? 4 as const : rate === 2 ? 2 as const : 1 as const;
-          }
-        }
-      : {}),
     getBrowserLaunchMode: async (role) => {
       const globalMode = (await gameBrowserSettingsStore.getSettings()).launchMode;
       if (!role) {
@@ -822,16 +808,15 @@ async function initializeApplication(): Promise<void> {
   ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {
     browserManager?.handleDividerPointer(event.sender.id, payload);
   });
-  electronBrowserActionAdapter = useRustMacroTiming || useRustExternalChrome
-    ? new ElectronBrowserActionAdapter(appCoreClient, {
-        getTarget: (roleId) => browserManager?.getAutomationSession(roleId)?.target,
-        recordMacroScheduleToDispatchLatency: (durationMs) =>
-          appCoreClient?.recordMacroScheduleToDispatchLatency(durationMs)
-      })
-    : null;
-  const macroManager = useRustMacroTiming
-    ? new RustMacroManager(browserManager, macroStore, macroSettingsStore, appCoreClient)
-    : new MacroManager(browserManager, macroStore, macroSettingsStore);
+  electronBrowserActionAdapter = new ElectronBrowserActionAdapter(appCoreClient, {
+    getTarget: (roleId) => browserManager?.getEmbeddedAutomationSession(roleId)?.target,
+    recordMacroScheduleToDispatchLatency: (durationMs) =>
+      appCoreClient?.recordMacroScheduleToDispatchLatency(durationMs)
+  });
+  const macroManager = new RustMacroManager(
+    browserManager,
+    appCoreClient
+  );
   externalChromeManager.on("health", (roleId, health, diagnostics) => {
     const context = { roleId, pageHealth: health, ...(diagnostics ? { diagnostics } : {}) };
     if (health === "unresponsive") {
@@ -861,13 +846,7 @@ async function initializeApplication(): Promise<void> {
     );
   });
   const portableDataManager = new PortableDataManager({
-    gameBrowserSettingsStore,
-    gameStore,
-    getAppVersion: () => app.getVersion(),
-    normalizePortableData: (raw) => appCoreClient!.invoke({ type: "portableNormalize", rawJson: raw }),
-    macroStore,
-    macroSettingsStore,
-    roleStore,
+    core: appCoreClient,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
         ? dialog.showOpenDialog(mainWindow, options)
@@ -875,12 +854,7 @@ async function initializeApplication(): Promise<void> {
     showSaveDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
         ? dialog.showSaveDialog(mainWindow, options)
-        : dialog.showSaveDialog(options),
-    stateRepository,
-    userDataDir,
-    withDataMutation,
-    withStoppedMacros: (macroIds, operation) => macroManager.runStoppedMutations(macroIds, operation),
-    workspaceStore
+        : dialog.showSaveDialog(options)
   });
   browserManager.setBeforeRolesStop(async (roleIds) => {
     await Promise.all(roleIds.map((roleId) => macroManager.stopRole(roleId)));
@@ -893,29 +867,16 @@ async function initializeApplication(): Promise<void> {
     roleStore
   });
   const chromeProfileSessionImporter = new ChromeProfileSessionImporter({
-    platform: process.platform,
     readCookies: (browserUserDataDir) =>
       appCoreClient!.invoke({ type: "chromeProfileReadCookies", browserUserDataDir })
   });
   const chromeProfileImportManager = new ChromeProfileImportManager({
     closeChrome: () => requestGracefulChromeQuit({ platform: process.platform }),
-    gameStore,
-    copyProfile: async (sourceUserDataDir, directoryName, destination) => {
-      await appCoreClient!.invoke({
-        type: "chromeProfileCopy",
-        sourceUserDataDir,
-        directoryName,
-        destination
-      });
-    },
-    discoverProfiles: (sourceUserDataDir) =>
-      appCoreClient!.invoke({ type: "chromeProfileDiscover", sourceUserDataDir }),
-    roleStore,
+    core: appCoreClient,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
         ? dialog.showOpenDialog(mainWindow, options)
         : dialog.showOpenDialog(options),
-    userDataDir,
     prepareImportedSession: async (role, browserUserDataDir) => {
       const importedSession = electronSession.fromPath(join(browserUserDataDir, "Default"));
       await chromeProfileSessionImporter.importSession(role, browserUserDataDir, importedSession);
@@ -968,10 +929,8 @@ async function initializeApplication(): Promise<void> {
       await cdnCompatibilityManager.applyToSession(session);
     },
     applyProxy: (session) => browserProxyApplier.applyToSession(session),
-    compatibilityStore: gameCompatibilityStore,
+    core: appCoreClient,
     createWindow: (options) => new BrowserWindow(options),
-    gameBrowserSettingsStore,
-    gameStore,
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
     isSystemChromeAvailable: () => {
       try {
@@ -1041,7 +1000,9 @@ async function initializeApplication(): Promise<void> {
       latestExternalFreezeReportedAt = capturedAt;
       const [diagnostics, windowsGraphicsEvents] = await Promise.all([
         externalChromeManager.captureDiagnostics(roleId),
-        new WindowsGraphicsEventCollector().collect(new Date(capturedAt.getTime() - 30 * 60_000))
+        new RustWindowsGraphicsEventCollector(appCoreClient!).collect(
+          new Date(capturedAt.getTime() - 30 * 60_000)
+        )
       ]);
       logService.warn(
         "browser",
@@ -1445,8 +1406,6 @@ app.on("before-quit", (event) => {
     } finally {
       embeddedRuntimeDiagnostics?.stop();
       embeddedRuntimeDiagnostics = null;
-      logService.info("main", "app_quitting", "Application is quitting.");
-      await Promise.race([logService.flush(), new Promise((resolve) => setTimeout(resolve, 2_000))]);
       if (performanceTelemetryTimer) {
         clearInterval(performanceTelemetryTimer);
         performanceTelemetryTimer = undefined;
@@ -1463,12 +1422,14 @@ app.on("before-quit", (event) => {
           );
         }
       }
+      await electronBrowserActionAdapter?.shutdown();
+      electronBrowserActionAdapter = null;
+      logService.info("main", "app_quitting", "Application is quitting.");
+      await logService.shutdown();
       await Promise.race([
         appCoreClient?.shutdown() ?? Promise.resolve(),
         new Promise((resolve) => setTimeout(resolve, 3_000))
       ]);
-      await electronBrowserActionAdapter?.shutdown();
-      electronBrowserActionAdapter = null;
       appCoreClient = null;
       isApplicationQuitting = true;
       app.quit();

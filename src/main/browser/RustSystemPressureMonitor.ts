@@ -1,10 +1,17 @@
 import { EventEmitter } from "node:events";
 
 import type { AppCoreClient } from "../core/nativeCore";
-import type {
-  SystemPressureSnapshot,
-  SystemPressureSource
-} from "./SystemPressureMonitor";
+import type { WorkspacePressureLevel, WorkspaceResourceReason } from "../../shared/types";
+
+export interface SystemPressureSnapshot {
+  level: WorkspacePressureLevel;
+  reason: Extract<WorkspaceResourceReason, "baseline" | "cpu" | "memory" | "thermal">;
+}
+
+export interface SystemPressureSource {
+  getSnapshot: () => SystemPressureSnapshot;
+  on: (event: "change", listener: (snapshot: SystemPressureSnapshot) => void) => unknown;
+}
 
 /**
  * Thin Electron adapter for the Rust sampler. The native core owns the only

@@ -15,7 +15,6 @@ use crate::{
 
 const COMMAND_CAPACITY: usize = 256;
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
-const HEARTBEAT_STALL: Duration = Duration::from_secs(15);
 const PROBE_INTERVAL: Duration = Duration::from_secs(15);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 
@@ -30,9 +29,7 @@ enum Command {
 
 struct Session {
     health: &'static str,
-    last_heartbeat: Instant,
     last_probe: Instant,
-    page_hidden: bool,
 }
 
 pub struct ExternalHealthRuntime {
@@ -120,9 +117,7 @@ fn run(receiver: Receiver<Command>, emit: Arc<dyn Fn(Vec<CoreEvent>) + Send + Sy
                     role_id,
                     Session {
                         health: "healthy",
-                        last_heartbeat: now,
                         last_probe: now.checked_sub(PROBE_INTERVAL).unwrap_or(now),
-                        page_hidden: false,
                     },
                 );
                 let _ = response.send(Ok(()));
@@ -135,8 +130,7 @@ fn run(receiver: Receiver<Command>, emit: Arc<dyn Fn(Vec<CoreEvent>) + Send + Sy
                         ))
                     },
                     |session| {
-                        session.last_heartbeat = Instant::now();
-                        session.page_hidden = page_hidden;
+                        let _ = page_hidden;
                         if session.health != "healthy" {
                             session.health = "healthy";
                             emit(vec![CoreEvent::ExternalHealthChanged {
@@ -159,12 +153,12 @@ fn run(receiver: Receiver<Command>, emit: Arc<dyn Fn(Vec<CoreEvent>) + Send + Sy
                 if !suspended {
                     let now = Instant::now();
                     for session in sessions.values_mut() {
-                        session.last_heartbeat = now;
+                        session.last_probe = now.checked_sub(PROBE_INTERVAL).unwrap_or(now);
                     }
                 }
                 let _ = response.send(Ok(()));
             }
-            Ok(Command::Results(results)) => handle_results(results, &mut pending, &emit),
+            Ok(Command::Results(results)) => handle_results(results, &mut sessions, &mut pending, &emit),
             Ok(Command::Shutdown(response)) => {
                 let _ = response.send(());
                 break;
@@ -189,16 +183,6 @@ fn tick(
     let mut events = Vec::new();
     let mut actions = Vec::new();
     for (role_id, session) in sessions.iter_mut() {
-        if !session.page_hidden
-            && session.health == "healthy"
-            && now.duration_since(session.last_heartbeat) >= HEARTBEAT_STALL
-        {
-            session.health = "unresponsive";
-            events.push(CoreEvent::ExternalHealthChanged {
-                role_id: role_id.clone(),
-                health: "unresponsive".to_owned(),
-            });
-        }
         if now.duration_since(session.last_probe) >= PROBE_INTERVAL {
             session.last_probe = now;
             let request_id = format!("external-health:{}", Uuid::new_v4());
@@ -225,6 +209,7 @@ fn tick(
 
 fn handle_results(
     results: Vec<BrowserActionResult>,
+    sessions: &mut HashMap<String, Session>,
     pending: &mut HashMap<String, String>,
     emit: &Arc<dyn Fn(Vec<CoreEvent>) + Send + Sync>,
 ) {
@@ -233,6 +218,16 @@ fn handle_results(
         let Some(role_id) = pending.remove(&result.request_id) else {
             continue;
         };
+        let next_health = if result.ok { "healthy" } else { "unresponsive" };
+        if let Some(session) = sessions.get_mut(&role_id)
+            && session.health != next_health
+        {
+            session.health = next_health;
+            events.push(CoreEvent::ExternalHealthChanged {
+                role_id: role_id.clone(),
+                health: next_health.to_owned(),
+            });
+        }
         if !result.ok {
             events.push(CoreEvent::ExternalHealthProbeFailed {
                 role_id,
@@ -266,15 +261,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tick_marks_visible_stalled_roles_and_batches_a_probe() {
+    fn tick_batches_a_probe_and_failed_result_marks_role_unresponsive() {
         let now = Instant::now();
         let mut sessions = HashMap::from([(
             "role-1".to_owned(),
             Session {
                 health: "healthy",
-                last_heartbeat: now.checked_sub(HEARTBEAT_STALL).unwrap(),
                 last_probe: now.checked_sub(PROBE_INTERVAL).unwrap(),
-                page_hidden: false,
             },
         )]);
         let captured = Arc::new(Mutex::new(Vec::new()));
@@ -286,28 +279,38 @@ mod tests {
 
         tick(&mut sessions, &mut pending, &emit);
 
-        let events = captured.lock().unwrap();
-        assert!(events.iter().any(|event| matches!(
-            event,
-            CoreEvent::ExternalHealthChanged { health, .. } if health == "unresponsive"
-        )));
-        assert!(events.iter().any(|event| matches!(
+        assert!(captured.lock().unwrap().iter().any(|event| matches!(
             event,
             CoreEvent::BrowserActions { actions } if actions.len() == 1
         )));
         assert_eq!(pending.len(), 1);
+        let request_id = pending.keys().next().unwrap().clone();
+        handle_results(
+            vec![BrowserActionResult {
+                request_id,
+                ok: false,
+                value_json: None,
+                error_code: Some("CDP_DISCONNECTED".to_owned()),
+                error_message: Some("disconnected".to_owned()),
+            }],
+            &mut sessions,
+            &mut pending,
+            &emit,
+        );
+        assert!(captured.lock().unwrap().iter().any(|event| matches!(
+            event,
+            CoreEvent::ExternalHealthChanged { health, .. } if health == "unresponsive"
+        )));
     }
 
     #[test]
-    fn hidden_roles_are_probed_but_never_marked_unresponsive() {
+    fn probes_do_not_depend_on_page_heartbeat_polling() {
         let now = Instant::now();
         let mut sessions = HashMap::from([(
             "role-1".to_owned(),
             Session {
                 health: "healthy",
-                last_heartbeat: now.checked_sub(HEARTBEAT_STALL).unwrap(),
                 last_probe: now.checked_sub(PROBE_INTERVAL).unwrap(),
-                page_hidden: true,
             },
         )]);
         let captured = Arc::new(Mutex::new(Vec::new()));

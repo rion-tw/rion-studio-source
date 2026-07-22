@@ -2,17 +2,18 @@ import { EventEmitter } from "node:events";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { SystemPressureSnapshot } from "../src/main/browser/SystemPressureMonitor";
+import type { SystemPressureSnapshot } from "../src/main/browser/RustSystemPressureMonitor";
 import {
   WorkspaceResourceCoordinator,
   type WorkspaceResourceTarget
 } from "../src/main/browser/WorkspaceResourceCoordinator";
+import { createResourceRuntimeState } from "./helpers/resourceRuntimeState";
 
 describe("WorkspaceResourceCoordinator", () => {
   it("keeps every visible adaptive role at full speed without attaching CDP", async () => {
     let snapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
     const pressure = Object.assign(new EventEmitter(), { getSnapshot: () => snapshot });
-    const coordinator = new WorkspaceResourceCoordinator(pressure);
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState(), pressure);
     const first = createTarget("role-1");
     const second = createTarget("role-2");
 
@@ -36,7 +37,7 @@ describe("WorkspaceResourceCoordinator", () => {
   });
 
   it("focuses the first target when a workspace is activated", async () => {
-    const coordinator = new WorkspaceResourceCoordinator();
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState());
     const first = createTarget("role-1");
     const second = createTarget("role-2");
 
@@ -55,7 +56,7 @@ describe("WorkspaceResourceCoordinator", () => {
   it("adapts hidden tabs from 2x to 4x and reports the actual reason", async () => {
     let snapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
     const pressure = Object.assign(new EventEmitter(), { getSnapshot: () => snapshot });
-    const coordinator = new WorkspaceResourceCoordinator(pressure);
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState(), pressure);
     const target = createTarget("role-1");
     await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [target.target]);
 
@@ -75,7 +76,7 @@ describe("WorkspaceResourceCoordinator", () => {
   });
 
   it("never attaches CDP for unrestricted tabs, including hidden tabs", async () => {
-    const coordinator = new WorkspaceResourceCoordinator();
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState());
     const target = createTarget("role-1");
     await coordinator.activateWorkspace("tab-1", { mode: "unrestricted" }, [target.target]);
 
@@ -87,7 +88,7 @@ describe("WorkspaceResourceCoordinator", () => {
   });
 
   it("temporarily restores macro roles in hidden tabs and reapplies throttling afterwards", async () => {
-    const coordinator = new WorkspaceResourceCoordinator();
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState());
     const first = createTarget("role-1");
     const second = createTarget("role-2");
     await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [first.target, second.target]);
@@ -107,7 +108,7 @@ describe("WorkspaceResourceCoordinator", () => {
   });
 
   it("keeps a renderer process shared with a macro role at full speed", async () => {
-    const coordinator = new WorkspaceResourceCoordinator();
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState());
     const first = createTarget("role-1", { processId: 101 });
     const second = createTarget("role-2", { processId: 101 });
     await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [first.target, second.target]);
@@ -124,7 +125,7 @@ describe("WorkspaceResourceCoordinator", () => {
   });
 
   it("regroups after renderer invalidation and fails open when CDP is unavailable", async () => {
-    const coordinator = new WorkspaceResourceCoordinator();
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState());
     const first = createTarget("role-1", { processId: 101 });
     const second = createTarget("role-2", { processId: 101, rejectRate: 2 });
     await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [first.target, second.target]);
@@ -146,7 +147,7 @@ describe("WorkspaceResourceCoordinator", () => {
 
   it("releases throttling before a hidden workspace returns to the foreground", async () => {
     const operations: string[] = [];
-    const coordinator = new WorkspaceResourceCoordinator();
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState());
     const target = createTarget("role-1", { operations });
     await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [target.target]);
     await coordinator.setHiddenRuntimeTabIds(["tab-1"]);
@@ -159,7 +160,7 @@ describe("WorkspaceResourceCoordinator", () => {
   });
 
   it("releases removed targets and clears their state", async () => {
-    const coordinator = new WorkspaceResourceCoordinator();
+    const coordinator = new WorkspaceResourceCoordinator(createResourceRuntimeState());
     const first = createTarget("role-1");
     const second = createTarget("role-2");
     await coordinator.activateWorkspace("tab-1", { mode: "adaptive" }, [first.target, second.target]);

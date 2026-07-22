@@ -8,7 +8,11 @@ import type {
   WorkspaceResourceReason,
   WorkspaceResourceState
 } from "../../shared/types";
-import type { SystemPressureSnapshot, SystemPressureSource } from "./SystemPressureMonitor";
+import type {
+  ResourceRuntimeCommand,
+  ResourceRuntimeResult
+} from "../../shared/generated";
+import type { SystemPressureSnapshot, SystemPressureSource } from "./RustSystemPressureMonitor";
 
 export interface WorkspaceResourceTarget {
   roleId: string;
@@ -27,56 +31,49 @@ export interface WorkspaceResourceStatus {
   resourceReason?: WorkspaceResourceReason;
 }
 
-export type WorkspaceCpuThrottleResolver = (input: {
-  macroActive: boolean;
-  policyMode: WorkspaceResourcePolicy["mode"];
-  pressureLevel: WorkspacePressureLevel;
-  sharesProcessWithMacro: boolean;
-  workspaceHidden: boolean;
-}) => 1 | WorkspaceCpuThrottleRate;
+export interface ResourceRuntimeState {
+  invokeResourceRuntime: (command: ResourceRuntimeCommand) => ResourceRuntimeResult;
+}
 
 interface ManagedWorkspace {
   id: string;
-  macroRoleIds: Set<string>;
-  policy: WorkspaceResourcePolicy;
   removeListeners: Array<() => void>;
-  tail: Promise<void>;
   targets: Map<string, WorkspaceResourceTarget>;
-  unavailableRoleIds: Set<string>;
 }
 
-interface TargetGroup {
-  key: string;
-  targets: WorkspaceResourceTarget[];
-}
-
+/**
+ * Executes native browser effects selected by the authoritative Rust resource
+ * runtime. This adapter retains only Electron/CDP handles and listener cleanup.
+ */
 export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
-  private readonly roleStatuses = new Map<string, WorkspaceResourceStatus>();
   private readonly workspaces = new Map<string, ManagedWorkspace>();
-  private hiddenRuntimeTabIds = new Set<string>();
-  private macroRoleIds = new Set<string>();
-  private pressureSnapshot: SystemPressureSnapshot = { level: "normal", reason: "baseline" };
+  private tail = Promise.resolve();
 
   constructor(
-    pressureMonitor?: SystemPressureSource,
-    private readonly resolveCpuThrottle: WorkspaceCpuThrottleResolver = defaultCpuThrottleResolver
+    private readonly state: ResourceRuntimeState,
+    pressureMonitor?: SystemPressureSource
   ) {
     super();
     if (pressureMonitor) {
-      this.pressureSnapshot = pressureMonitor.getSnapshot();
-      pressureMonitor.on("change", (snapshot) => {
-        this.pressureSnapshot = snapshot;
-        void Promise.all([...this.workspaces.values()].map((managed) =>
-          managed.policy.mode === "adaptive" && this.hiddenRuntimeTabIds.has(managed.id)
-            ? this.enqueue(managed, () => this.applyWorkspace(managed))
-            : Promise.resolve()
-        )).catch(() => undefined);
-      });
+      this.enqueuePressure(pressureMonitor.getSnapshot());
+      pressureMonitor.on("change", (snapshot) => this.enqueuePressure(snapshot));
     }
   }
 
   getStatus(roleId: string): WorkspaceResourceStatus | undefined {
-    return this.roleStatuses.get(roleId);
+    const status = this.state
+      .invokeResourceRuntime({ type: "snapshot" })
+      .statuses
+      .find((candidate) => candidate.roleId === roleId);
+    if (!status) return undefined;
+    return {
+      resourceState: status.resourceState,
+      cpuThrottleRate: status.cpuThrottleRate,
+      ...(status.resourcePressureLevel
+        ? { resourcePressureLevel: status.resourcePressureLevel }
+        : {}),
+      ...(status.resourceReason ? { resourceReason: status.resourceReason } : {})
+    };
   }
 
   async activateWorkspace(
@@ -85,79 +82,69 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     targets: WorkspaceResourceTarget[]
   ): Promise<void> {
     await this.deactivateWorkspace(workspaceId);
-    if (targets.length === 0) {
-      return;
-    }
-
-    const targetByRoleId = new Map(targets.map((target) => [target.roleId, target]));
-    const initialFocusTarget = targets[0];
+    if (targets.length === 0) return;
 
     const managed: ManagedWorkspace = {
       id: workspaceId,
-      macroRoleIds: new Set([...this.macroRoleIds].filter((roleId) => targetByRoleId.has(roleId))),
-      policy: { ...policy },
       removeListeners: [],
-      tail: Promise.resolve(),
-      targets: targetByRoleId,
-      unavailableRoleIds: new Set()
+      targets: new Map(targets.map((target) => [target.roleId, target]))
     };
     this.workspaces.set(workspaceId, managed);
-    targets.forEach((target) => {
-      if (target.onInvalidated) {
-        managed.removeListeners.push(target.onInvalidated(() => {
-          void this.enqueue(managed, () => this.applyWorkspace(managed));
-        }));
-      }
-    });
+    for (const target of targets) {
+      if (!target.onInvalidated) continue;
+      managed.removeListeners.push(target.onInvalidated(() => {
+        void this.enqueue(async () => {
+          if (this.workspaces.get(workspaceId) !== managed) return;
+          await this.applyCommand({
+            type: "refreshTarget",
+            workspaceId,
+            roleId: target.roleId,
+            ...(target.getProcessId?.() ? { processId: target.getProcessId!() } : {})
+          });
+        });
+      }));
+    }
 
-    await this.enqueue(managed, () => this.applyWorkspace(managed));
-    await initialFocusTarget.focus?.().catch(() => undefined);
+    await this.enqueue(() => this.applyCommand({
+      type: "activateWorkspace",
+      workspaceId,
+      policyMode: policy.mode,
+      targets: targets.map((target) => ({
+        roleId: target.roleId,
+        runtimeMode: target.runtimeMode,
+        ...(target.getProcessId?.() ? { processId: target.getProcessId!() } : {})
+      }))
+    }));
+    await targets[0]?.focus?.().catch(() => undefined);
   }
 
   async deactivateWorkspace(workspaceId: string): Promise<void> {
     const managed = this.workspaces.get(workspaceId);
-    if (!managed) {
-      return;
-    }
-
+    if (!managed) return;
+    await this.enqueue(() => this.applyCommand({ type: "deactivateWorkspace", workspaceId }));
     this.workspaces.delete(workspaceId);
     managed.removeListeners.splice(0).forEach((remove) => remove());
-    await managed.tail.catch(() => undefined);
-    await Promise.all(
-      [...managed.targets.values()].map((target) => target.releaseThrottle().catch(() => undefined))
-    );
-    let changed = false;
-    managed.targets.forEach((target) => {
-      changed = this.roleStatuses.delete(target.roleId) || changed;
-    });
-    if (changed) {
-      this.emit("change");
-    }
   }
 
-  async setMacroActiveRoleIds(roleIds: Iterable<string>): Promise<void> {
-    this.macroRoleIds = new Set(roleIds);
-    await Promise.all([...this.workspaces.values()].map(async (managed) => {
-      managed.macroRoleIds = new Set(
-        [...this.macroRoleIds].filter((roleId) => managed.targets.has(roleId))
-      );
-      await this.enqueue(managed, () => this.applyWorkspace(managed));
+  setMacroActiveRoleIds(roleIds: Iterable<string>): Promise<void> {
+    return this.enqueue(() => this.applyCommand({
+      type: "setMacroRoleIds",
+      roleIds: [...roleIds]
     }));
   }
 
-  async setHiddenRuntimeTabIds(workspaceIds: Iterable<string>): Promise<void> {
-    this.hiddenRuntimeTabIds = new Set(workspaceIds);
-    await Promise.all([...this.workspaces.values()].map((managed) =>
-      this.enqueue(managed, () => this.applyWorkspace(managed))
-    ));
+  setHiddenRuntimeTabIds(workspaceIds: Iterable<string>): Promise<void> {
+    return this.enqueue(() => this.applyCommand({
+      type: "setHiddenWorkspaceIds",
+      workspaceIds: [...workspaceIds]
+    }));
   }
 
-  async prepareWorkspaceForeground(workspaceId: string): Promise<void> {
-    this.hiddenRuntimeTabIds.delete(workspaceId);
-    const managed = this.workspaces.get(workspaceId);
-    if (managed) {
-      await this.enqueue(managed, () => this.applyWorkspace(managed));
-    }
+  prepareWorkspaceForeground(workspaceId: string): Promise<void> {
+    return this.enqueue(() => this.applyCommand({
+      type: "prepareWorkspaceForeground",
+      workspaceId
+    }));
   }
 
   async reconcileRuntimeRoleIds(
@@ -165,162 +152,62 @@ export class WorkspaceResourceCoordinator extends EventEmitter<{ change: [] }> {
     activeRoleIds: Iterable<string>
   ): Promise<void> {
     const active = new Set(activeRoleIds);
-    await Promise.all([...this.workspaces.values()].map(async (managed) => {
-      const missingRoleIds = [...managed.targets.values()]
-        .filter((target) => target.runtimeMode === runtimeMode && !active.has(target.roleId))
-        .map((target) => target.roleId);
-      if (missingRoleIds.length === 0) {
-        return;
-      }
-      await this.enqueue(managed, () => this.removeTargets(managed, missingRoleIds));
+    await this.enqueue(() => this.applyCommand({
+      type: "reconcileRuntimeRoleIds",
+      runtimeMode,
+      activeRoleIds: [...active]
     }));
+    for (const managed of this.workspaces.values()) {
+      for (const [roleId, target] of managed.targets) {
+        if (target.runtimeMode !== runtimeMode || active.has(roleId)) continue;
+        managed.targets.delete(roleId);
+      }
+    }
   }
 
-  private enqueue(managed: ManagedWorkspace, operation: () => Promise<void>): Promise<void> {
-    const result = managed.tail.then(async () => {
-      if (this.workspaces.get(managed.id) !== managed) {
-        return;
-      }
-      await operation();
-    });
-    managed.tail = result.catch(() => undefined);
+  private enqueuePressure(snapshot: SystemPressureSnapshot): void {
+    void this.enqueue(() => this.applyCommand({
+      type: "setPressure",
+      level: snapshot.level,
+      reason: snapshot.reason
+    })).catch(() => undefined);
+  }
+
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    const result = this.tail.then(operation);
+    this.tail = result.catch(() => undefined);
     return result;
   }
 
-  private async applyWorkspace(managed: ManagedWorkspace): Promise<void> {
-    const isHiddenRuntimeTab = this.hiddenRuntimeTabIds.has(managed.id);
-    if (managed.policy.mode === "unrestricted" || !isHiddenRuntimeTab) {
-      await Promise.all(
-        [...managed.targets.values()].map((target) => target.releaseThrottle().catch(() => undefined))
-      );
-      let changed = false;
-      managed.targets.forEach((target) => {
-        changed = this.roleStatuses.delete(target.roleId) || changed;
-      });
-      if (changed) {
-        this.emit("change");
-      }
-      return;
-    }
-
-    const groups = this.createGroups(managed);
-    const fullSpeedRoleIds = new Set(managed.macroRoleIds);
-    const fullSpeedGroups = groups.filter((group) =>
-      group.targets.some((target) => fullSpeedRoleIds.has(target.roleId))
-    );
-    const throttledGroups = groups.filter((group) => !fullSpeedGroups.includes(group));
-
-    await Promise.all(fullSpeedGroups.map((group) => this.applyGroupRate(managed, group, 1)));
-    await Promise.all(
-      throttledGroups.map((group) =>
-        this.applyGroupRate(managed, group, this.getBackgroundRate())
-      )
-    );
-    this.updateStatuses(managed, groups, fullSpeedRoleIds);
-  }
-
-  private getBackgroundRate(): WorkspaceCpuThrottleRate {
-    const rate = this.resolveCpuThrottle({
-      macroActive: false,
-      policyMode: "adaptive",
-      pressureLevel: this.pressureSnapshot.level,
-      sharesProcessWithMacro: false,
-      workspaceHidden: true
-    });
-    return rate === 4 ? 4 : 2;
-  }
-
-  private async removeTargets(managed: ManagedWorkspace, roleIds: string[]): Promise<void> {
-    const removedTargets = roleIds.flatMap((roleId) => {
-      const target = managed.targets.get(roleId);
-      if (!target) {
-        return [];
-      }
-      managed.targets.delete(roleId);
-      managed.macroRoleIds.delete(roleId);
-      managed.unavailableRoleIds.delete(roleId);
-      this.roleStatuses.delete(roleId);
-      return [target];
-    });
-    await Promise.all(removedTargets.map((target) => target.releaseThrottle().catch(() => undefined)));
-    await this.applyWorkspace(managed);
-  }
-
-  private createGroups(managed: ManagedWorkspace): TargetGroup[] {
-    const groups = new Map<string, WorkspaceResourceTarget[]>();
-    managed.targets.forEach((target) => {
-      const processId = target.getProcessId?.();
-      const key = processId && processId > 0
-        ? `${target.runtimeMode}:process:${processId}`
-        : `${target.runtimeMode}:role:${target.roleId}`;
-      const existing = groups.get(key) ?? [];
-      existing.push(target);
-      groups.set(key, existing);
-    });
-    return [...groups].map(([key, targets]) => ({ key, targets }));
-  }
-
-  private async applyGroupRate(
-    managed: ManagedWorkspace,
-    group: TargetGroup,
-    rate: 1 | WorkspaceCpuThrottleRate
-  ): Promise<void> {
-    await Promise.all(group.targets.map(async (target) => {
-      try {
-        await target.setCpuThrottleRate(rate);
-        managed.unavailableRoleIds.delete(target.roleId);
-      } catch (error) {
-        managed.unavailableRoleIds.add(target.roleId);
-        await target.releaseThrottle().catch(() => undefined);
-        console.warn(`Workspace CPU throttling is unavailable for role ${target.roleId}.`, error);
-      }
-    }));
-  }
-
-  private updateStatuses(
-    managed: ManagedWorkspace,
-    groups: TargetGroup[],
-    fullSpeedRoleIds: Set<string>
-  ): void {
-    groups.forEach((group) => {
-      const groupHasFullSpeedRole = group.targets.some((target) => fullSpeedRoleIds.has(target.roleId));
-      group.targets.forEach((target) => {
-        let status: WorkspaceResourceStatus;
-        if (managed.unavailableRoleIds.has(target.roleId)) {
-          status = {
-            resourceState: "unavailable",
-            cpuThrottleRate: 1,
-            resourceReason: "unavailable"
-          };
-        } else if (managed.macroRoleIds.has(target.roleId)) {
-          status = { resourceState: "macro_override", cpuThrottleRate: 1, resourceReason: "macro" };
-        } else if (groupHasFullSpeedRole) {
-          status = {
-            resourceState: "shared_process",
-            cpuThrottleRate: 1,
-            resourceReason: "shared_process"
-          };
-        } else {
-          const cpuThrottleRate = this.getBackgroundRate();
-          status = {
-            resourceState: "throttled",
-            cpuThrottleRate,
-            resourcePressureLevel: this.pressureSnapshot.level,
-            resourceReason: this.pressureSnapshot.level === "normal"
-              ? "runtime_tab_background"
-              : this.pressureSnapshot.reason
-          };
+  private async applyCommand(command: ResourceRuntimeCommand): Promise<void> {
+    const result = this.state.invokeResourceRuntime(command);
+    const unavailableRoleIds = new Set<string>();
+    for (const effect of result.effects) {
+      await Promise.all(effect.roleIds.map(async (roleId) => {
+        const target = this.findTarget(roleId);
+        if (!target) return;
+        try {
+          if (effect.release) await target.releaseThrottle();
+          else await target.setCpuThrottleRate(effect.cpuThrottleRate);
+        } catch (error) {
+          unavailableRoleIds.add(roleId);
+          await target.releaseThrottle().catch(() => undefined);
+          console.warn(`Workspace CPU throttling is unavailable for role ${roleId}.`, error);
         }
-        this.roleStatuses.set(target.roleId, status);
-      });
+      }));
+    }
+    this.state.invokeResourceRuntime({
+      type: "setUnavailableRoleIds",
+      roleIds: [...unavailableRoleIds]
     });
     this.emit("change");
   }
-}
 
-const defaultCpuThrottleResolver: WorkspaceCpuThrottleResolver = (input) =>
-  input.policyMode === "unrestricted" || !input.workspaceHidden || input.macroActive || input.sharesProcessWithMacro
-    ? 1
-    : input.pressureLevel === "constrained"
-      ? 4
-      : 2;
+  private findTarget(roleId: string): WorkspaceResourceTarget | undefined {
+    for (const managed of this.workspaces.values()) {
+      const target = managed.targets.get(roleId);
+      if (target) return target;
+    }
+    return undefined;
+  }
+}

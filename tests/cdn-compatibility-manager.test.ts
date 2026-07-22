@@ -3,58 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CdnCompatibilityManager,
-  createCdnCompatibilityRequestPatterns,
-  rewriteCdnCompatibilityUrl
+  createCdnCompatibilityRequestPatterns
 } from "../src/main/game-browser/CdnCompatibilityManager";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../src/shared/browserFonts";
 import type { BrowserCdnCompatibilityMode, GameBrowserSettings } from "../src/shared/types";
 
 describe("CDN compatibility rules", () => {
-  it.each([
-    [
-      "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js?cache=1",
-      "https://ajax.loli.net/ajax/libs/jquery/3.7.1/jquery.min.js?cache=1"
-    ],
-    [
-      "https://fonts.googleapis.com/css2?family=Roboto:wght@400&display=swap",
-      "https://fonts.googleapis.cn/css2?family=Roboto:wght@400&display=swap"
-    ],
-    [
-      "https://themes.googleusercontent.com/static/fonts/example.woff2",
-      "https://themes.loli.net/static/fonts/example.woff2"
-    ],
-    [
-      "https://fonts.gstatic.com/s/roboto/v1/font.woff2",
-      "https://fonts.gstatic.cn/s/roboto/v1/font.woff2"
-    ],
-    [
-      "https://www.google.com/recaptcha/api.js?render=explicit",
-      "https://www.recaptcha.net/recaptcha/api.js?render=explicit"
-    ],
-    [
-      "https://secure.gravatar.com/avatar/hash?s=64",
-      "https://gravatar.loli.net/avatar/hash?s=64"
-    ],
-    [
-      "https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css",
-      "https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/3.4.1/css/bootstrap.min.css"
-    ],
-    [
-      "https://code.jquery.com/jquery-3.7.1.min.js?cache=1",
-      "https://fastly.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js?cache=1"
-    ]
-  ])("rewrites %s", (source, target) => {
-    expect(rewriteCdnCompatibilityUrl(source)).toBe(target);
-    expect(rewriteCdnCompatibilityUrl(target)).toBeUndefined();
-  });
-
-  it("does not rewrite navigation, analytics, HTTP, or unrelated CDN URLs", () => {
-    expect(rewriteCdnCompatibilityUrl("https://www.google.com/search?q=flyff")).toBeUndefined();
-    expect(rewriteCdnCompatibilityUrl("https://www.googletagmanager.com/gtm.js?id=GTM-1")).toBeUndefined();
-    expect(rewriteCdnCompatibilityUrl("http://fonts.googleapis.com/css2?family=Roboto")).toBeUndefined();
-    expect(rewriteCdnCompatibilityUrl("https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js")).toBeUndefined();
-  });
-
   it("generates eight request-stage CDP patterns", () => {
     const patterns = createCdnCompatibilityRequestPatterns();
 
@@ -70,7 +24,8 @@ describe("CDN compatibility rules", () => {
 describe("CdnCompatibilityManager", () => {
   it("enables auto mode when Google is unavailable", async () => {
     const session = createSession(async () => createResponse(false));
-    const manager = createManager("auto");
+    const rewriteUrl = vi.fn((url: string) => `${url}?mirror=1`);
+    const manager = createManager("auto", { rewriteUrl });
 
     await expect(manager.applyToSession(session.value)).resolves.toBe(true);
     expect(session.fetch).toHaveBeenCalledTimes(1);
@@ -89,6 +44,18 @@ describe("CdnCompatibilityManager", () => {
       callback
     );
     expect(callback).toHaveBeenCalledWith({});
+
+    listener(
+      {
+        resourceType: "script",
+        url: "https://www.google.com/recaptcha/api.js"
+      },
+      callback
+    );
+    expect(rewriteUrl).toHaveBeenCalledWith("https://www.google.com/recaptcha/api.js");
+    expect(callback).toHaveBeenLastCalledWith({
+      redirectURL: "https://www.google.com/recaptcha/api.js?mirror=1"
+    });
   });
 
   it("leaves auto mode disabled when Google succeeds", async () => {
@@ -155,7 +122,11 @@ describe("CdnCompatibilityManager", () => {
 
 function createManager(
   mode: BrowserCdnCompatibilityMode,
-  options: { detectionTimeoutMs?: number; now?: () => number } = {}
+  options: {
+    detectionTimeoutMs?: number;
+    now?: () => number;
+    rewriteUrl?: (url: string) => string | undefined;
+  } = {}
 ): CdnCompatibilityManager {
   const settings: GameBrowserSettings = {
     ...DEFAULT_GAME_BROWSER_SETTINGS,
@@ -166,7 +137,8 @@ function createManager(
   };
   return new CdnCompatibilityManager({
     ...options,
-    getSettings: async () => settings
+    getSettings: async () => settings,
+    rewriteUrl: options.rewriteUrl ?? (() => undefined)
   });
 }
 

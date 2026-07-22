@@ -21,6 +21,7 @@ const DEFAULT_LAUNCH_URL: &str = "https://universe.flyff.com/play";
 const WORKSPACE_SCHEMA_VERSION: u64 = 7;
 const CHROME_IMPORT_DIRECTORY: &str = ".chrome-profile-import";
 const CHROME_IMPORT_JOURNAL: &str = "chrome-profile-import-transaction.json";
+const CHROME_IMPORT_COMMITTED_MARKER: &str = "chrome-profile-import-transaction.committed";
 
 struct BuiltinGame {
     id: &'static str,
@@ -123,6 +124,13 @@ pub(super) fn recover_chrome_profile_import(
     state_database_path: &Path,
 ) -> CoreResult<bool> {
     let journal_path = user_data_dir.join(CHROME_IMPORT_JOURNAL);
+    let committed_marker = user_data_dir.join(CHROME_IMPORT_COMMITTED_MARKER);
+    if committed_marker.is_file() {
+        remove_directory_if_present(&user_data_dir.join(CHROME_IMPORT_DIRECTORY))?;
+        remove_file_if_present(&journal_path)?;
+        remove_file_if_present(&committed_marker)?;
+        return Ok(true);
+    }
     let raw = match fs::read_to_string(&journal_path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -131,14 +139,11 @@ pub(super) fn recover_chrome_profile_import(
         }
         Err(error) => return Err(migration_io(&journal_path, error)),
     };
-    let journal: Value = match serde_json::from_str(&raw) {
-        Ok(value) => value,
-        Err(_) => {
-            remove_directory_if_present(&user_data_dir.join(CHROME_IMPORT_DIRECTORY))?;
-            remove_file_if_present(&journal_path)?;
-            return Ok(true);
-        }
-    };
+    let journal: Value = serde_json::from_str(&raw).map_err(|error| {
+        CoreError::Migration(format!(
+            "Chrome profile import journal is invalid; recovery data was preserved: {error}"
+        ))
+    })?;
     let object = journal.as_object().ok_or_else(|| {
         CoreError::Migration("Chrome profile import journal must be an object".to_owned())
     })?;
@@ -796,11 +801,33 @@ fn normalize_macro_step(value: &Value, ids: &mut HashSet<String>) -> CoreResult<
                 })
                 .transpose()?
                 .unwrap_or_default();
-            Ok(json!({
-                "id": id, "type": "key",
-                "code": required_string(source, "code", "macro key step")?,
-                "modifiers": modifiers, "action": action
-            }))
+            let label = source
+                .get("label")
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|label| !label.is_empty())
+                        .map(|label| label.chars().take(48).collect::<String>())
+                        .ok_or_else(|| invalid("legacy macro key label is invalid"))
+                })
+                .transpose()?;
+            let mut step = Map::from_iter([
+                ("id".to_owned(), json!(id)),
+                ("type".to_owned(), json!("key")),
+                (
+                    "code".to_owned(),
+                    json!(required_string(source, "code", "macro key step")?),
+                ),
+                ("action".to_owned(), json!(action)),
+            ]);
+            if !modifiers.is_empty() {
+                step.insert("modifiers".to_owned(), json!(modifiers));
+            }
+            if let Some(label) = label {
+                step.insert("label".to_owned(), json!(label));
+            }
+            Ok(Value::Object(step))
         }
         Some("click") => {
             let unit = source
@@ -809,16 +836,49 @@ fn normalize_macro_step(value: &Value, ids: &mut HashSet<String>) -> CoreResult<
                 .unwrap_or("percent");
             let anchor = source
                 .get("anchor")
-                .and_then(Value::as_str)
-                .unwrap_or("top-left");
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|anchor| {
+                            matches!(
+                                *anchor,
+                                "top-left"
+                                    | "top-center"
+                                    | "top-right"
+                                    | "center-left"
+                                    | "center"
+                                    | "center-right"
+                                    | "bottom-left"
+                                    | "bottom-center"
+                                    | "bottom-right"
+                            )
+                        })
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("legacy macro click anchor is invalid"))
+                })
+                .transpose()?;
+            let mut step = Map::from_iter([
+                ("id".to_owned(), json!(id)),
+                ("type".to_owned(), json!("click")),
+            ]);
+            if let Some(anchor) = anchor.filter(|anchor| anchor != "top-left") {
+                step.insert("anchor".to_owned(), json!(anchor));
+            }
             if unit == "px" {
-                Ok(
-                    json!({ "id": id, "type": "click", "unit": "px", "anchor": anchor, "xPx": finite_number(source, "xPx")?, "yPx": finite_number(source, "yPx")? }),
-                )
+                step.insert("unit".to_owned(), json!("px"));
+                step.insert("xPx".to_owned(), json!(finite_number(source, "xPx")?));
+                step.insert("yPx".to_owned(), json!(finite_number(source, "yPx")?));
+                Ok(Value::Object(step))
             } else if unit == "percent" {
-                Ok(
-                    json!({ "id": id, "type": "click", "unit": "percent", "anchor": anchor, "xPercent": finite_number(source, "xPercent")?, "yPercent": finite_number(source, "yPercent")? }),
-                )
+                step.insert(
+                    "xPercent".to_owned(),
+                    json!(finite_number(source, "xPercent")?),
+                );
+                step.insert(
+                    "yPercent".to_owned(),
+                    json!(finite_number(source, "yPercent")?),
+                );
+                Ok(Value::Object(step))
             } else {
                 Err(invalid("legacy macro click unit is invalid"))
             }
@@ -933,16 +993,31 @@ fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
         .and_then(Value::as_u64)
         .filter(|value| matches!(*value, 1 | 2 | 4 | 6 | 8 | 12 | 16))
         .unwrap_or(4);
-    let badge = source
-        .get("macroBadgePosition")
-        .cloned()
-        .filter(Value::is_object)
-        .unwrap_or_else(|| json!({ "x": "right", "y": "top" }));
+    let badge = source.get("macroBadgePosition").and_then(Value::as_object);
+    let horizontal_align = badge
+        .and_then(|value| value.get("horizontalAlign").or_else(|| value.get("x")))
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "left" | "center" | "right"))
+        .unwrap_or("center");
+    let horizontal_margin_px = badge
+        .and_then(|value| value.get("horizontalMarginPx"))
+        .and_then(Value::as_u64)
+        .filter(|value| *value <= 128 && value.is_multiple_of(8))
+        .unwrap_or(8);
+    let top_px = badge
+        .and_then(|value| value.get("topPx"))
+        .and_then(Value::as_u64)
+        .filter(|value| *value <= 320 && value.is_multiple_of(8))
+        .unwrap_or(128);
     json!({
         "fonts": { "families": families, "mode": font_mode },
         "graphics": { "mode": graphics },
         "launchMode": launch,
-        "macroBadgePosition": badge,
+        "macroBadgePosition": {
+            "horizontalAlign": horizontal_align,
+            "horizontalMarginPx": horizontal_margin_px,
+            "topPx": top_px
+        },
         "network": { "cdnCompatibility": { "mode": cdn }, "proxy": proxy },
         "workspace": { "background": background, "gap": gap }
     })
@@ -1370,7 +1445,7 @@ mod tests {
             .unwrap();
             fs::write(
                 directory.path().join("macros.json"),
-                r#"{"macros":[{"id":"m1","name":"Macro","profileId":"r1","steps":[{"type":"key","code":"KeyA"}]}]}"#,
+                r#"{"macros":[{"id":"m1","name":"Macro","profileId":"r1","steps":[{"type":"key","code":"KeyA","label":"A"},{"type":"click","xPercent":12.5,"yPercent":-4}]}]}"#,
             )
             .unwrap();
 
@@ -1379,6 +1454,10 @@ mod tests {
             assert_eq!(snapshot["launchWorkspaces"][0]["slots"][0]["roleId"], "r1");
             assert_eq!(snapshot["macros"][0]["enabled"], true);
             assert_eq!(snapshot["macros"][0]["steps"][0]["action"], "tap");
+            assert_eq!(snapshot["macros"][0]["steps"][0]["label"], "A");
+            assert!(snapshot["macros"][0]["steps"][0].get("modifiers").is_none());
+            assert!(snapshot["macros"][0]["steps"][1].get("unit").is_none());
+            assert!(snapshot["macros"][0]["steps"][1].get("anchor").is_none());
             assert!(!snapshot["roles"][0]["gameId"].as_str().unwrap().is_empty());
         }
     }
@@ -1394,6 +1473,14 @@ mod tests {
         .unwrap();
         let snapshot = build_snapshot(directory.path()).unwrap();
         assert_eq!(snapshot["gameBrowserSettings"]["launchMode"], "auto");
+        assert_eq!(
+            snapshot["gameBrowserSettings"]["macroBadgePosition"],
+            json!({
+                "horizontalAlign": "center",
+                "horizontalMarginPx": 8,
+                "topPx": 128
+            })
+        );
         assert_eq!(snapshot["macroSettings"]["keyHoldMs"], 30);
 
         fs::write(
@@ -1434,5 +1521,76 @@ mod tests {
             "old"
         );
         assert!(!directory.path().join(CHROME_IMPORT_JOURNAL).exists());
+    }
+
+    #[test]
+    fn committed_chrome_import_finishes_cleanup_without_rolling_back_browser_data() {
+        let directory = tempdir().unwrap();
+        let imported_browser = directory.path().join("roles/r1/browser");
+        fs::create_dir_all(&imported_browser).unwrap();
+        fs::write(imported_browser.join("Cookies"), "imported").unwrap();
+        fs::create_dir_all(
+            directory
+                .path()
+                .join(CHROME_IMPORT_DIRECTORY)
+                .join("import-1/backups/r1"),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join(CHROME_IMPORT_JOURNAL),
+            r#"{"importId":"import-1","phase":"prepared","createdRoleIds":[],"overwrittenRoleIds":["r1"],"originalRoles":[]}"#,
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join(CHROME_IMPORT_COMMITTED_MARKER),
+            "import-1",
+        )
+        .unwrap();
+
+        assert!(
+            recover_chrome_profile_import(
+                directory.path(),
+                &directory.path().join("rion-studio.sqlite3")
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            fs::read_to_string(imported_browser.join("Cookies")).unwrap(),
+            "imported"
+        );
+        assert!(!directory.path().join(CHROME_IMPORT_DIRECTORY).exists());
+        assert!(!directory.path().join(CHROME_IMPORT_JOURNAL).exists());
+        assert!(
+            !directory
+                .path()
+                .join(CHROME_IMPORT_COMMITTED_MARKER)
+                .exists()
+        );
+    }
+
+    #[test]
+    fn corrupt_chrome_import_journal_preserves_recovery_evidence() {
+        let directory = tempdir().unwrap();
+        let staging = directory
+            .path()
+            .join(CHROME_IMPORT_DIRECTORY)
+            .join("import-1/backups/r1");
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("Cookies"), "backup").unwrap();
+        let journal = directory.path().join(CHROME_IMPORT_JOURNAL);
+        fs::write(&journal, "{").unwrap();
+
+        assert!(
+            recover_chrome_profile_import(
+                directory.path(),
+                &directory.path().join("rion-studio.sqlite3")
+            )
+            .is_err()
+        );
+        assert!(journal.exists());
+        assert_eq!(
+            fs::read_to_string(staging.join("Cookies")).unwrap(),
+            "backup"
+        );
     }
 }

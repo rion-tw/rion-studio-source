@@ -1,3 +1,74 @@
+import type {
+  BrowserCdnCompatibilityRecord,
+  BrowserFontSettingsRecord,
+  BrowserGraphicsSettingsRecord,
+  BrowserNetworkSettingsRecord,
+  BrowserProxySettingsRecord,
+  ChromeProfileEntryRecord,
+  ChromeProfileImportPreviewRecord,
+  ChromeProfileImportRequest,
+  ChromeProfileImportResultRecord,
+  ChromeProfileImportWarningRecord,
+  CompatibilityRunPhase,
+  CompatibilityRunStatusRecord,
+  GameCreateRequest,
+  GameBrowserSettingsRecord,
+  GameUpdateRequest,
+  LegalAcceptDocumentsInputRecord,
+  LegalAcceptanceStatusRecord,
+  LegalDocumentVersionsRecord,
+  LogEntry as RustLogEntry,
+  LogErrorDetails as RustLogErrorDetails,
+  LogLevel as RustLogLevel,
+  LogQuery as RustLogQuery,
+  LogSource as RustLogSource,
+  MacroCreateRequest,
+  MacroBadgePositionRecord,
+  MacroRepeat as RustMacroRepeat,
+  MacroSettingsRecord,
+  MacroStepDefinition,
+  MacroTrigger as RustMacroTrigger,
+  MacroUpdateRequest,
+  PortableDataRecord,
+  PortableDataSelectionRecord,
+  PortableGameRecord,
+  PortableImportOperationsRecord,
+  PortableImportOperationSummaryRecord,
+  PortableImportPreviewRecord,
+  PortableImportResultRecord,
+  PortableImportWarningRecord,
+  PortableLaunchWorkspaceRecord,
+  PortableMacroConflictCandidateRecord,
+  PortableMacroConflictRecord,
+  PortableMacroConflictResolutionRecord,
+  PortableMacroRecord,
+  PortablePreferencesRecord,
+  PortableRoleRecord,
+  StateGameRecord,
+  StateCompatibilityChromeRecord,
+  StateCompatibilityLoadRecord,
+  StateCompatibilityObservationsRecord,
+  StateCompatibilityRecommendationRecord,
+  StateCompatibilityReportRecord,
+  StateLaunchWorkspaceRecord,
+  StateMacroRecord,
+  StateNormalizedRectRecord,
+  StatePixelBoundsRecord,
+  StateRoleRecord,
+  StateWorkspaceDisplayFingerprintRecord,
+  StateWorkspaceDisplayTargetRecord,
+  StateWorkspaceResourcePolicyRecord,
+  StateWorkspaceSlotRecord,
+  StateWebGraphicsRecord,
+  SystemFontFamilyRecord,
+  WorkspaceAppearanceSettingsRecord,
+  RoleCreateRequest,
+  RolePathsRecord,
+  RoleUpdateRequest,
+  WorkspaceCreateRequest,
+  WorkspaceUpdateRequest
+} from "./generated";
+
 export const DEFAULT_LAUNCH_URL = "https://universe.flyff.com/play";
 export type WorkspaceLayoutTemplate =
   | "single"
@@ -27,57 +98,20 @@ export interface AppWindowState {
 export type GameSource = "builtin" | "custom";
 export type BuiltinGameKey = "flyff-universe" | "feifei-infinite-universe";
 
-export interface Game {
-  id: string;
-  source: GameSource;
-  builtinKey?: BuiltinGameKey;
-  name: string;
-  iconImageDataUrl?: string;
-  coverImageDataUrl?: string;
-  defaultLaunchUrl: string;
-  browserLaunchMode: InheritableBrowserLaunchMode;
-  createdAt: string;
-  updatedAt: string;
-}
+export type Game = StateGameRecord;
 
-export interface CreateGameInput {
-  name: string;
-  iconImageDataUrl?: string | null;
-  coverImageDataUrl?: string | null;
-  defaultLaunchUrl: string;
-  browserLaunchMode?: InheritableBrowserLaunchMode;
-}
+export type CreateGameInput = GameCreateRequest;
 
-export type UpdateGameInput = Partial<CreateGameInput>;
+export type UpdateGameInput = GameUpdateRequest;
 
-export interface Role {
-  id: string;
-  gameId: string;
-  name: string;
-  launchUrl: string;
-  notes: string;
-  browserSessionSource?: RoleBrowserSessionSource;
-  coverImageDataUrl?: string;
-  coverImageDominantColor?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+export type Role = StateRoleRecord;
 
 /** Selects the browser storage backend; this is not an authentication state. */
 export type RoleBrowserSessionSource = "embedded" | "chrome-profile";
 
-export interface CreateRoleInput {
-  gameId: string;
-  name: string;
-  launchUrl?: string;
-  notes?: string;
-  coverImageDataUrl?: string | null;
-  coverImageDominantColor?: string | null;
-}
+export type CreateRoleInput = RoleCreateRequest;
 
-export type UpdateRoleInput = Partial<Omit<CreateRoleInput, "name">> & {
-  name?: string;
-};
+export type UpdateRoleInput = RoleUpdateRequest;
 
 export interface ReorderItemsInput {
   orderedIds: string[];
@@ -149,13 +183,7 @@ export interface EmbeddedRuntimeState {
   tabs: EmbeddedRuntimeTabSummary[];
 }
 
-export interface MacroTrigger {
-  code: string;
-  ctrl: boolean;
-  alt: boolean;
-  shift: boolean;
-  meta: boolean;
-}
+export type MacroTrigger = RustMacroTrigger;
 
 export type MacroActivationMode = "toggle" | "while_held";
 
@@ -163,21 +191,9 @@ export type MacroKeyAction = "tap" | "hold_until_stop";
 
 export type MacroKeyModifier = "primary" | "ctrl" | "alt" | "shift" | "meta";
 
-export interface MacroSettings {
-  startupDelayMs: number;
-  keyHoldMs: number;
-  postInputDelayMs: number;
-  defaultLoopDelayMs: number;
-}
+export type MacroSettings = MacroSettingsRecord;
 
-export type MacroRepeat =
-  | {
-      type: "once";
-    }
-  | {
-      type: "loop";
-      intervalMs: number;
-    };
+export type MacroRepeat = RustMacroRepeat;
 
 export type MacroCallMode = "wait" | "trigger";
 export type MacroClickUnit = "percent" | "px";
@@ -192,68 +208,13 @@ export type MacroClickAnchor =
   | "bottom-center"
   | "bottom-right";
 
-export type MacroStep =
-  | {
-      id: string;
-      type: "key";
-      code: string;
-      modifiers?: MacroKeyModifier[];
-      action?: MacroKeyAction;
-      label?: string;
-    }
-  | {
-      id: string;
-      type: "click";
-      unit?: "percent";
-      anchor?: MacroClickAnchor;
-      xPercent: number;
-      yPercent: number;
-    }
-  | {
-      id: string;
-      type: "click";
-      unit: "px";
-      anchor?: MacroClickAnchor;
-      xPx: number;
-      yPx: number;
-    }
-  | {
-      id: string;
-      type: "delay";
-      ms: number;
-    }
-  | {
-      id: string;
-      type: "macro";
-      macroId: string;
-      /** Defaults to wait for legacy macro step data. */
-      callMode?: MacroCallMode;
-    };
+export type MacroStep = MacroStepDefinition;
 
-export interface Macro {
-  id: string;
-  enabled: boolean;
-  activationMode?: MacroActivationMode;
-  name: string;
-  roleIds: string[];
-  trigger?: MacroTrigger;
-  repeat: MacroRepeat;
-  steps: MacroStep[];
-  createdAt: string;
-  updatedAt: string;
-}
+export type Macro = StateMacroRecord;
 
-export interface CreateMacroInput {
-  enabled?: boolean;
-  activationMode?: MacroActivationMode;
-  name: string;
-  roleIds: string[];
-  trigger?: MacroTrigger | null;
-  repeat?: MacroRepeat;
-  steps: MacroStep[];
-}
+export type CreateMacroInput = MacroCreateRequest;
 
-export type UpdateMacroInput = Partial<CreateMacroInput>;
+export type UpdateMacroInput = MacroUpdateRequest;
 
 export interface MacroPageRequest {
   roleId: string;
@@ -276,23 +237,11 @@ export interface MacroRunStatus {
   error?: string;
 }
 
-export interface RolePaths {
-  browserUserDataDir: string;
-}
+export type RolePaths = RolePathsRecord;
 
-export interface NormalizedRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type NormalizedRect = StateNormalizedRectRecord;
 
-export interface LaunchWorkspaceSlot {
-  id: string;
-  roleId?: string;
-  browserZoomPercent?: WorkspaceSlotBrowserZoomPercent;
-  rect: NormalizedRect;
-}
+export type LaunchWorkspaceSlot = StateWorkspaceSlotRecord;
 
 export type WorkspaceResourceMode = "unrestricted" | "adaptive";
 export type WorkspaceCpuThrottleRate = 2 | 4;
@@ -312,62 +261,19 @@ export type WorkspaceResourceState =
   | "shared_process"
   | "unavailable";
 
-export interface WorkspaceResourcePolicy {
-  mode: WorkspaceResourceMode;
-}
+export type WorkspaceResourcePolicy = StateWorkspaceResourcePolicyRecord;
 
-export interface PixelBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type PixelBounds = StatePixelBoundsRecord;
 
-export interface WorkspaceDisplayFingerprint {
-  label: string;
-  bounds: PixelBounds;
-  resolution: {
-    width: number;
-    height: number;
-  };
-  scaleFactor: number;
-  isPrimary: boolean;
-  isInternal: boolean;
-}
+export type WorkspaceDisplayFingerprint = StateWorkspaceDisplayFingerprintRecord;
 
-export interface WorkspaceDisplayTarget {
-  /** Most recently observed runtime display id. */
-  id: number;
-  /** Absent only for launch workspaces migrated from the legacy id-only format. */
-  fingerprint?: WorkspaceDisplayFingerprint;
-}
+export type WorkspaceDisplayTarget = StateWorkspaceDisplayTargetRecord;
 
-export interface LaunchWorkspace {
-  id: string;
-  name: string;
-  template: WorkspaceLayoutTemplate;
-  browserLaunchMode: InheritableBrowserLaunchMode;
-  browserZoomMode: WorkspaceBrowserZoomMode;
-  browserZoomPercent: WorkspaceBrowserZoomPercent;
-  resourcePolicy: WorkspaceResourcePolicy;
-  targetDisplay?: WorkspaceDisplayTarget;
-  slots: LaunchWorkspaceSlot[];
-  createdAt: string;
-  updatedAt: string;
-}
+export type LaunchWorkspace = StateLaunchWorkspaceRecord;
 
-export interface CreateLaunchWorkspaceInput {
-  name: string;
-  template?: WorkspaceLayoutTemplate;
-  browserLaunchMode?: InheritableBrowserLaunchMode;
-  browserZoomMode?: WorkspaceBrowserZoomMode;
-  browserZoomPercent?: WorkspaceBrowserZoomPercent;
-  resourcePolicy?: WorkspaceResourcePolicy;
-  targetDisplay?: WorkspaceDisplayTarget | null;
-  slots?: Array<Partial<Pick<LaunchWorkspaceSlot, "id" | "roleId" | "browserZoomPercent" | "rect">>>;
-}
+export type CreateLaunchWorkspaceInput = WorkspaceCreateRequest;
 
-export type UpdateLaunchWorkspaceInput = Partial<CreateLaunchWorkspaceInput>;
+export type UpdateLaunchWorkspaceInput = WorkspaceUpdateRequest;
 
 export interface WorkspaceDisplayInfo {
   id: number;
@@ -444,61 +350,27 @@ export type BrowserCdnCompatibilityMode = "off" | "auto" | "on";
 export type WorkspaceBackgroundStyle = "material" | "black";
 export type WorkspaceGapSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 
-export interface BrowserFontSettings {
-  mode: BrowserFontSettingsMode;
-  families: Partial<Record<BrowserFontFamilyRole, string>>;
-}
+export type BrowserFontSettings = BrowserFontSettingsRecord;
 
-export interface BrowserProxySettings {
-  mode: BrowserProxySettingsMode;
-  server: string;
-}
+export type BrowserProxySettings = BrowserProxySettingsRecord;
 
-export interface BrowserCdnCompatibilitySettings {
-  mode: BrowserCdnCompatibilityMode;
-}
+export type BrowserCdnCompatibilitySettings = BrowserCdnCompatibilityRecord;
 
-export interface BrowserNetworkSettings {
-  cdnCompatibility: BrowserCdnCompatibilitySettings;
-  proxy: BrowserProxySettings;
-}
+export type BrowserNetworkSettings = BrowserNetworkSettingsRecord;
 
-export interface BrowserGraphicsSettings {
-  mode: BrowserGraphicsMode;
-}
+export type BrowserGraphicsSettings = BrowserGraphicsSettingsRecord;
 
-export interface WorkspaceAppearanceSettings {
-  background: WorkspaceBackgroundStyle;
-  gap: WorkspaceGapSize;
-}
+export type WorkspaceAppearanceSettings = WorkspaceAppearanceSettingsRecord;
 
 export type MacroBadgeHorizontalAlign = "left" | "center" | "right";
 
-export interface MacroBadgePositionSettings {
-  horizontalAlign: MacroBadgeHorizontalAlign;
-  horizontalMarginPx: number;
-  topPx: number;
-}
+export type MacroBadgePositionSettings = MacroBadgePositionRecord;
 
-export interface GameBrowserSettings {
-  fonts: BrowserFontSettings;
-  graphics: BrowserGraphicsSettings;
-  launchMode: BrowserLaunchMode;
-  macroBadgePosition: MacroBadgePositionSettings;
-  network: BrowserNetworkSettings;
-  workspace: WorkspaceAppearanceSettings;
-}
+export type GameBrowserSettings = GameBrowserSettingsRecord;
 
 export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";
 
-export interface WebGraphicsDiagnostics {
-  error?: string;
-  renderer?: string;
-  vendor?: string;
-  webgl: WebGraphicsAvailability;
-  webgl2: WebGraphicsAvailability;
-  webgpu: WebGraphicsAvailability;
-}
+export type WebGraphicsDiagnostics = StateWebGraphicsRecord;
 
 export interface GraphicsDeviceDiagnostics {
   active?: boolean;
@@ -537,95 +409,31 @@ export interface GraphicsDiagnostics {
   };
 }
 
-export type GameCompatibilityRunPhase =
-  | "preparing"
-  | "loading"
-  | "probing"
-  | "cleaning_up";
+export type GameCompatibilityRunPhase = CompatibilityRunPhase;
 
-export interface GameCompatibilityRunStatus {
-  gameId: string;
-  phase: GameCompatibilityRunPhase;
-  startedAt: string;
-  updatedAt: string;
-}
+export type GameCompatibilityRunStatus = CompatibilityRunStatusRecord;
 
-export interface GameCompatibilityLoadResult {
-  state: "available" | "failed" | "cancelled";
-  durationMs: number;
-  finalOrigin?: string;
-  errorCode?: string;
-}
+export type GameCompatibilityLoadResult = StateCompatibilityLoadRecord;
 
-export interface GameCompatibilityChromeResult {
-  state: "available" | "unavailable";
-}
+export type GameCompatibilityChromeResult = StateCompatibilityChromeRecord;
 
-export interface GameCompatibilityRecommendation {
-  mode?: BrowserLaunchMode;
-  reason: "embedded_available" | "external_recommended" | "chrome_required" | "graphics_unavailable";
-}
+export type GameCompatibilityRecommendation = StateCompatibilityRecommendationRecord;
 
-export interface GameCompatibilityObservations {
-  lastEmbeddedSuccessAt?: string;
-  lastExternalSuccessAt?: string;
-  lastFallbackAt?: string;
-  lastLaunchFailureAt?: string;
-  lastLaunchFailureCode?: string;
-}
+export type GameCompatibilityObservations = StateCompatibilityObservationsRecord;
 
-export interface GameCompatibilityReport {
-  gameId: string;
-  checkedAt?: string;
-  configurationFingerprint?: string;
-  isStale: boolean;
-  load?: GameCompatibilityLoadResult;
-  graphics?: WebGraphicsDiagnostics;
-  systemChrome?: GameCompatibilityChromeResult;
-  recommendation?: GameCompatibilityRecommendation;
-  observations: GameCompatibilityObservations;
-}
+export type GameCompatibilityReport = StateCompatibilityReportRecord;
 
-export interface SystemFontFamily {
-  family: string;
-  label: string;
-}
+export type SystemFontFamily = SystemFontFamilyRecord;
 
-export interface LegalDocumentVersions {
-  fairUse: string;
-  privacy: string;
-  terms: string;
-}
+export type LegalDocumentVersions = LegalDocumentVersionsRecord;
 
-export interface LegalAcceptanceStatus {
-  acceptedAt?: string;
-  acceptedFairUseVersion?: string;
-  acceptedTermsVersion?: string;
-  acknowledgedPrivacyVersion?: string;
-  currentVersions: LegalDocumentVersions;
-  isAccepted: boolean;
-}
+export type LegalAcceptanceStatus = LegalAcceptanceStatusRecord;
 
-export interface AcceptLegalDocumentsInput {
-  fairUseVersion: string;
-  privacyVersion: string;
-  termsVersion: string;
-}
+export type AcceptLegalDocumentsInput = LegalAcceptDocumentsInputRecord;
 
-export interface PortablePreferences {
-  gameBrowserSettings?: GameBrowserSettings;
-  language?: AppLanguage;
-  macroSettings?: MacroSettings;
-  themeMode?: AppThemeMode;
-}
+export type PortablePreferences = PortablePreferencesRecord;
 
-export interface PortableDataSelection {
-  games: boolean;
-  roles: boolean;
-  launchWorkspaces: boolean;
-  macros: boolean;
-  preferences: boolean;
-}
+export type PortableDataSelection = PortableDataSelectionRecord;
 
 export interface PortableExportInput {
   preferences?: PortablePreferences;
@@ -638,160 +446,26 @@ export interface PortableImportInput {
   resolutions?: PortableMacroConflictResolution[];
 }
 
-export interface PortableImportOperationSummary {
-  create: number;
-  update: number;
-  unchanged: number;
-  skip: number;
-}
+export type PortableImportOperationSummary = PortableImportOperationSummaryRecord;
 
-export interface PortableImportOperations {
-  games: PortableImportOperationSummary;
-  roles: PortableImportOperationSummary;
-  launchWorkspaces: PortableImportOperationSummary;
-  macros: PortableImportOperationSummary;
-}
+export type PortableImportOperations = PortableImportOperationsRecord;
 
-export interface PortableMacroConflictCandidate {
-  id: string;
-  name: string;
-  roleNames: string[];
-  stepCount: number;
-  trigger?: MacroTrigger;
-  updatedAt: string;
-}
+export type PortableMacroConflictCandidate = PortableMacroConflictCandidateRecord;
 
-export interface PortableMacroConflict {
-  id: string;
-  macroId: string;
-  name: string;
-  roleNames: string[];
-  candidates: PortableMacroConflictCandidate[];
-}
+export type PortableMacroConflict = PortableMacroConflictRecord;
 
-export type PortableMacroConflictResolution =
-  | { conflictId: string; action: "update"; targetMacroId: string }
-  | { conflictId: string; action: "copy" }
-  | { conflictId: string; action: "skip" };
+export type PortableMacroConflictResolution = PortableMacroConflictResolutionRecord;
 
-export interface PortableRole {
-  id: string;
-  gameId?: string;
-  /** Internal import marker; never emitted by exports. */
-  gameRecovered?: boolean;
-  name: string;
-  launchUrl: string;
-  notes: string;
-  coverImageDataUrl?: string;
-  coverImageDominantColor?: string;
-}
+export type PortableRole = PortableRoleRecord;
 
-export interface PortableLaunchWorkspace {
-  id: string;
-  name: string;
-  template: WorkspaceLayoutTemplate;
-  browserLaunchMode?: InheritableBrowserLaunchMode;
-  /** Missing in exports created before adaptive browser zoom was introduced. */
-  browserZoomMode?: WorkspaceBrowserZoomMode;
-  browserZoomPercent: WorkspaceBrowserZoomPercent;
-  resourcePolicy?: WorkspaceResourcePolicy;
-  slots: LaunchWorkspaceSlot[];
-}
+export type PortableLaunchWorkspace = PortableLaunchWorkspaceRecord;
 
-export interface PortableGame {
-  id: string;
-  /** Internal import marker; never emitted by exports. */
-  inferred?: boolean;
-  source: GameSource;
-  builtinKey?: BuiltinGameKey;
-  name: string;
-  iconImageDataUrl?: string;
-  coverImageDataUrl?: string;
-  defaultLaunchUrl: string;
-  browserLaunchMode: InheritableBrowserLaunchMode;
-}
+export type PortableGame = PortableGameRecord;
 
-export interface PortableMacro {
-  id: string;
-  enabled?: boolean;
-  activationMode?: MacroActivationMode;
-  name: string;
-  roleIds: string[];
-  trigger?: MacroTrigger;
-  repeat: MacroRepeat;
-  steps: MacroStep[];
-}
+export type PortableMacro = PortableMacroRecord;
 
-export interface RionPortableDataV1 {
-  app: "Rion Studio";
-  schemaVersion: 1;
-  exportedAt: string;
-  appVersion: string;
-  roles: PortableRole[];
-  launchWorkspaces: PortableLaunchWorkspace[];
-  macros: PortableMacro[];
-  preferences?: PortablePreferences;
-}
-
-export interface RionPortableDataV2 {
-  app: "Rion Studio";
-  schemaVersion: 2;
-  exportedAt: string;
-  appVersion: string;
-  games: PortableGame[];
-  roles: PortableRole[];
-  launchWorkspaces: PortableLaunchWorkspace[];
-  macros: PortableMacro[];
-  preferences?: PortablePreferences;
-}
-
-export interface RionPortableDataV3 {
-  app: "Rion Studio";
-  schemaVersion: 3;
-  exportedAt: string;
-  appVersion: string;
-  games: PortableGame[];
-  roles: PortableRole[];
-  launchWorkspaces: PortableLaunchWorkspace[];
-  macros: PortableMacro[];
-  preferences?: PortablePreferences;
-}
-
-export interface RionPortableDataV4 {
-  app: "Rion Studio";
-  schemaVersion: 4;
-  exportedAt: string;
-  appVersion: string;
-  games: PortableGame[];
-  roles: PortableRole[];
-  launchWorkspaces: PortableLaunchWorkspace[];
-  macros: PortableMacro[];
-  preferences?: PortablePreferences;
-}
-
-export interface RionPortableDataV5 {
-  app: "Rion Studio";
-  schemaVersion: 5;
-  exportedAt: string;
-  appVersion: string;
-  games: PortableGame[];
-  roles: PortableRole[];
-  launchWorkspaces: PortableLaunchWorkspace[];
-  macros: PortableMacro[];
-  preferences?: PortablePreferences;
-}
-
-export interface RionPortableDataV6 extends Omit<RionPortableDataV5, "schemaVersion"> {
-  schemaVersion: 6;
-}
-
-export type RionPortableData =
-  | RionPortableDataV1
-  | RionPortableDataV2
-  | RionPortableDataV3
-  | RionPortableDataV4
-  | RionPortableDataV5
-  | RionPortableDataV6;
+export type RionPortableDataV6 = PortableDataRecord;
+export type RionPortableData = PortableDataRecord;
 
 export interface PortableExportResult {
   filePath: string;
@@ -803,91 +477,23 @@ export interface PortableExportResult {
   selection: PortableDataSelection;
 }
 
-export type PortableImportWarningCode =
-  | "GAME_NAME_RENAMED"
-  | "BUILTIN_GAME_DEFAULTS_REPLACED"
-  | "ROLE_GAME_RECOVERED"
-  | "ROLE_NAME_RENAMED"
-  | "WORKSPACE_NAME_RENAMED"
-  | "WORKSPACE_ROLE_MISSING"
-  | "MACRO_NAME_RENAMED"
-  | "MACRO_ROLE_MISSING"
-  | "MACRO_SHORTCUT_CLEARED_CONFLICT"
-  | "MACRO_SHORTCUT_CLEARED_RESERVED"
-  | "MACRO_SKIPPED_NO_ROLES"
-  | "MACRO_SKIPPED_MISSING_DEPENDENCY";
+export type PortableImportWarningCode = PortableImportWarningRecord["code"];
 
-export interface PortableImportWarning {
-  code: PortableImportWarningCode;
-  itemName?: string;
-  replacementName?: string;
-  count?: number;
-}
+export type PortableImportWarning = PortableImportWarningRecord;
 
-export interface PortableImportPreview {
-  importId: string;
-  filePath: string;
-  exportedAt: string;
-  appVersion: string;
-  gameCount: number;
-  roleCount: number;
-  workspaceCount: number;
-  macroCount: number;
-  preferences?: PortablePreferences;
-  operations: PortableImportOperations;
-  conflicts: PortableMacroConflict[];
-  warnings: PortableImportWarning[];
-}
+export type PortableImportPreview = PortableImportPreviewRecord;
 
-export interface PortableImportResult {
-  gameCount: number;
-  roleCount: number;
-  workspaceCount: number;
-  macroCount: number;
-  preferencesIncluded: boolean;
-  preferences?: PortablePreferences;
-  selection: PortableDataSelection;
-  operations: PortableImportOperations;
-  warnings: PortableImportWarning[];
-}
+export type PortableImportResult = PortableImportResultRecord;
 
-export interface ChromeProfileEntry {
-  id: string;
-  directoryName: string;
-  name: string;
-}
+export type ChromeProfileEntry = ChromeProfileEntryRecord;
 
-export interface ChromeProfileImportWarning {
-  code:
-    | "unsupported_platform"
-    | "source_invalid"
-    | "chrome_running"
-    | "profile_invalid"
-    | "profile_selection_empty"
-    | "passwords_excluded"
-    | "name_renamed";
-  profileId?: string;
-  profileName?: string;
-  replacementName?: string;
-}
+export type ChromeProfileImportWarning = ChromeProfileImportWarningRecord;
 
-export interface ChromeProfileImportPreview {
-  importId: string;
-  sourceLabel: string;
-  profiles: ChromeProfileEntry[];
-  warnings: ChromeProfileImportWarning[];
-}
+export type ChromeProfileImportPreview = ChromeProfileImportPreviewRecord;
 
-export interface ChromeProfileImportInput {
-  importId: string;
-  profileIds: string[];
-  gameId: string;
-  consentAccepted: boolean;
-}
+export type ChromeProfileImportInput = ChromeProfileImportRequest;
 
-export interface ChromeProfileImportResult {
-  roles: Role[];
-}
+export type ChromeProfileImportResult = ChromeProfileImportResultRecord;
 
 export interface ChromeProfileImportProgress {
   completedProfileCount: number;
@@ -925,7 +531,7 @@ export interface AppUpdateStatus {
 }
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
-export type LogLevel = (typeof LOG_LEVELS)[number];
+export type LogLevel = RustLogLevel;
 
 export const LOG_SOURCES = [
   "main",
@@ -937,36 +543,13 @@ export const LOG_SOURCES = [
   "persistence",
   "update"
 ] as const;
-export type LogSource = (typeof LOG_SOURCES)[number];
+export type LogSource = RustLogSource;
 
-export interface LogErrorDetails {
-  name: string;
-  message: string;
-  stack?: string;
-  cause?: LogErrorDetails;
-}
+export type LogErrorDetails = RustLogErrorDetails;
 
-export interface LogEntry {
-  id: string;
-  timestamp: string;
-  level: LogLevel;
-  source: LogSource;
-  event: string;
-  message: string;
-  sessionId: string;
-  context?: Record<string, unknown>;
-  error?: LogErrorDetails;
-}
+export type LogEntry = RustLogEntry;
 
-export interface LogQuery {
-  levels?: LogLevel[];
-  sources?: LogSource[];
-  search?: string;
-  from?: string;
-  to?: string;
-  cursor?: string;
-  limit?: number;
-}
+export type LogQuery = RustLogQuery;
 
 export interface LogPage {
   entries: LogEntry[];

@@ -11,7 +11,6 @@ import {
 } from "../shared/workspaceResize";
 
 const MACRO_OVERLAY_REQUEST_CHANNEL = "macros:overlay-request";
-const DIAGNOSTIC_HEARTBEAT_INTERVAL_MS = 15_000;
 // Keep these literals aligned with src/shared/internalIpc.ts. Sandboxed Electron
 // preloads cannot require Rollup's shared relative chunks at runtime.
 const WORKSPACE_RESIZE_INDICATOR_CHANNEL:
@@ -75,10 +74,6 @@ document.addEventListener("webglcontextlost", () => {
 document.addEventListener("webglcontextrestored", () => {
   sendEmbeddedDiagnostic({ type: "webgl", event: "context_restored", ...diagnosticPageState() });
 }, true);
-
-window.setInterval(() => {
-  sendEmbeddedDiagnostic({ type: "heartbeat", ...diagnosticPageState() });
-}, DIAGNOSTIC_HEARTBEAT_INTERVAL_MS);
 
 const installDiagnostics = (): void => {
   reportLifecycle("install", readWebGlGraphics());

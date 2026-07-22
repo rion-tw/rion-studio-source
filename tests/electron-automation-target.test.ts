@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ElectronAutomationTarget } from "../src/main/browser/ElectronAutomationTarget";
+import { createEmbeddedKeyRuntimeState } from "./helpers/embeddedKeyRuntimeState";
 
 describe("ElectronAutomationTarget", () => {
   afterEach(() => {
@@ -11,7 +12,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("dispatches a key without scanning or focusing the game DOM", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.dispatchKey("F2");
 
@@ -42,11 +43,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("dispatches a key combination atomically with modifier state", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(
-      harness.view as never,
-      harness.webContents as never,
-      "win32"
-    );
+    const target = createTarget(harness, "win32");
 
     await target.dispatchKey({ code: "KeyK", modifiers: ["shift", "ctrl"] });
 
@@ -65,11 +62,7 @@ describe("ElectronAutomationTarget", () => {
     ["win32", "Control"]
   ] as const)("resolves Primary explicitly on %s", async (platform, keyCode) => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(
-      harness.view as never,
-      harness.webContents as never,
-      platform
-    );
+    const target = createTarget(harness, platform);
 
     await target.dispatchKey({ code: "KeyA", modifiers: ["primary"] });
 
@@ -81,11 +74,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("reference-counts modifiers shared by held combinations", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(
-      harness.view as never,
-      harness.webContents as never,
-      "win32"
-    );
+    const target = createTarget(harness, "win32");
     const first = { code: "KeyK", modifiers: ["ctrl" as const] };
     const second = { code: "KeyL", modifiers: ["ctrl" as const] };
 
@@ -107,7 +96,7 @@ describe("ElectronAutomationTarget", () => {
   it("rolls back an entire held combination when its post-input delay is cancelled", async () => {
     vi.useFakeTimers();
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
     const controller = new AbortController();
 
     const hold = target.holdKey(
@@ -129,7 +118,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("converts percentage clicks using the current embedded view bounds", async () => {
     const harness = createHarness({ width: 800, height: 600 });
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.dispatchClick(25, 75);
 
@@ -155,7 +144,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("clamps pixel clicks to the current embedded view bounds", async () => {
     const harness = createHarness({ width: 800, height: 600 });
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.dispatchClickPixels(900, -20);
 
@@ -168,7 +157,7 @@ describe("ElectronAutomationTarget", () => {
   it("holds keys and keeps the post-input delay inside the shared target queue", async () => {
     vi.useFakeTimers();
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     const key = target.dispatchKey("F2", { holdMs: 20, postDelayMs: 10 });
     await vi.advanceTimersByTimeAsync(0);
@@ -197,7 +186,7 @@ describe("ElectronAutomationTarget", () => {
   it("releases a held key when the dispatch is aborted", async () => {
     vi.useFakeTimers();
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
     const controller = new AbortController();
 
     const dispatch = target.dispatchKey("F2", {
@@ -217,7 +206,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("never scans or focuses the page during repeated high-frequency input", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     for (let index = 0; index < 50; index += 1) {
       await target.dispatchKey("Digit1");
@@ -245,7 +234,7 @@ describe("ElectronAutomationTarget", () => {
       }
       return Promise.resolve(source.includes('largest("canvas")') ? "canvas" : undefined);
     });
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     const first = target.dispatchKey("F2");
     await vi.waitFor(() => {
@@ -271,7 +260,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("reference-counts held keys and preserves the hold when the same key is tapped", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.holdKey("KeyW", "owner-1");
     await target.holdKey("KeyW", "owner-2");
@@ -288,7 +277,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("reasserts a held key after the embedded view loses and regains focus", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.holdKey("Digit1", "owner");
     harness.debugger.sendCommand.mockClear();
@@ -327,7 +316,7 @@ describe("ElectronAutomationTarget", () => {
         ? suppression
         : Promise.resolve(source.includes('largest("canvas")') ? "canvas" : undefined)
     );
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     const key = target.dispatchKey("F2");
     await vi.waitFor(() => expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
@@ -358,7 +347,7 @@ describe("ElectronAutomationTarget", () => {
         ? suppression
         : Promise.resolve(undefined)
     );
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.holdKey("KeyW", "owner");
     const key = target.dispatchKey("F2");
@@ -383,7 +372,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("resolves anchored clicks against the current CSS visual viewport", async () => {
     const harness = createHarness({ width: 1024, height: 768 });
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.dispatchClickAnchored("bottom-right", "px", -24, -32);
     await target.dispatchClickAnchored("bottom-right", "percent", -10, -10);
@@ -399,7 +388,7 @@ describe("ElectronAutomationTarget", () => {
   it("calls onClick after a successful mouse release", async () => {
     const harness = createHarness();
     const onClick = vi.fn();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.dispatchClickAnchored("center", "px", 0, 0, { onClick });
 
@@ -417,7 +406,7 @@ describe("ElectronAutomationTarget", () => {
       }
       return {};
     });
-    const keyTarget = new ElectronAutomationTarget(keyHarness.view as never, keyHarness.webContents as never);
+    const keyTarget = createTarget(keyHarness);
 
     await expect(keyTarget.dispatchKey("F2")).rejects.toThrow("key up failed");
     expect(keyUpCalls).toBe(2);
@@ -434,7 +423,7 @@ describe("ElectronAutomationTarget", () => {
         ? { cssVisualViewport: { clientWidth: 1280, clientHeight: 720 } }
         : {};
     });
-    const clickTarget = new ElectronAutomationTarget(clickHarness.view as never, clickHarness.webContents as never);
+    const clickTarget = createTarget(clickHarness);
     const onClick = vi.fn();
 
     await expect(clickTarget.dispatchClick(25, 75, { onClick })).rejects.toThrow("mouse up failed");
@@ -445,7 +434,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("uses native focus only when focus is explicitly requested", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.focus();
 
@@ -455,7 +444,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("ensures the page input target without focusing the native view", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await expect(target.ensureInputFocus()).resolves.toBe(true);
 
@@ -466,7 +455,7 @@ describe("ElectronAutomationTarget", () => {
   it("checks the top-level canvas before scanning embedded frames", async () => {
     const harness = createHarness();
     harness.webContents.executeJavaScript.mockResolvedValue("canvas");
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await expect(target.ensureInputFocus()).resolves.toBe(true);
 
@@ -479,7 +468,7 @@ describe("ElectronAutomationTarget", () => {
 
   it("does not install physical click focus repair or focus during macro clicks", async () => {
     const harness = createHarness();
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     expect(harness.webContents.on).toHaveBeenCalledWith("blur", expect.any(Function));
     expect(harness.webContents.on).toHaveBeenCalledWith("focus", expect.any(Function));
@@ -492,7 +481,7 @@ describe("ElectronAutomationTarget", () => {
   it("does not prepare or dispatch input after the target is destroyed", async () => {
     const harness = createHarness();
     harness.webContents.isDestroyed.mockReturnValue(true);
-    const target = new ElectronAutomationTarget(harness.view as never, harness.webContents as never);
+    const target = createTarget(harness);
 
     await target.dispatchKey("F2");
     await target.dispatchClick(25, 75);
@@ -551,6 +540,19 @@ function createHarness(bounds: { width: number; height: number } = { width: 1280
     view,
     webContents
   };
+}
+
+function createTarget(
+  harness: ReturnType<typeof createHarness>,
+  platform: NodeJS.Platform = "linux"
+): ElectronAutomationTarget {
+  return new ElectronAutomationTarget(
+    harness.view as never,
+    harness.webContents as never,
+    createEmbeddedKeyRuntimeState(),
+    "role-1",
+    platform
+  );
 }
 
 type AutomationHarness = ReturnType<typeof createHarness>;

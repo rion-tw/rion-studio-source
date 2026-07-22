@@ -1,6 +1,5 @@
 import type { Session } from "electron";
 
-import { normalizeGameBrowserSettings } from "../../shared/browserFonts";
 import type { GameBrowserSettings } from "../../shared/types";
 
 export interface BrowserProxyApplierOptions {
@@ -11,7 +10,7 @@ export class BrowserProxyApplier {
   constructor(private readonly options: BrowserProxyApplierOptions) {}
 
   async applyToSession(session: Session): Promise<void> {
-    const settings = normalizeGameBrowserSettings(await this.options.getSettings());
+    const settings = await this.options.getSettings();
     const proxy = settings.network.proxy;
 
     if (proxy.mode === "custom") {

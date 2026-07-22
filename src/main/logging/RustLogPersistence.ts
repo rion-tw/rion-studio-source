@@ -8,11 +8,7 @@ import type {
   LogStorageStatus
 } from "../../shared/types";
 import type { AppCoreClient } from "../core/nativeCore";
-import {
-  LOG_MAX_BYTES,
-  LOG_RETENTION_DAYS,
-  type LogPersistence
-} from "./LogService";
+import type { LogPersistence } from "./LogService";
 
 interface NativeLogStatus {
   databasePath: string;
@@ -35,10 +31,6 @@ export class RustLogPersistence implements LogPersistence {
     await this.core.invoke({ type: "logsClear" });
   }
 
-  async exportJsonl(): Promise<string> {
-    return (await this.core.invoke<{ jsonl: string }>({ type: "logsExport" })).jsonl;
-  }
-
   async exportJsonlTo(path: string): Promise<void> {
     await this.core.invoke({ type: "logsExportTo", path });
   }
@@ -51,8 +43,8 @@ export class RustLogPersistence implements LogPersistence {
       totalBytes: status.totalBytes,
       oldestTimestamp: status.oldestTimestamp,
       newestTimestamp: status.newestTimestamp,
-      retentionDays: status.retentionDays ?? LOG_RETENTION_DAYS,
-      maxBytes: status.maxBytes ?? LOG_MAX_BYTES,
+      retentionDays: status.retentionDays,
+      maxBytes: status.maxBytes,
       directory: dirname(status.databasePath)
     };
   }

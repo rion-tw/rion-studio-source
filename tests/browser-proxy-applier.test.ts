@@ -12,7 +12,7 @@ describe("BrowserProxyApplier", () => {
         network: {
           proxy: {
             mode: "custom",
-            server: " socks5://127.0.0.1:7890/ "
+            server: "socks5://127.0.0.1:7890"
           }
         }
       })
@@ -26,15 +26,15 @@ describe("BrowserProxyApplier", () => {
     });
   });
 
-  it("falls back to system proxy settings when custom proxy is invalid", async () => {
+  it("applies system proxy settings from the Rust-normalized domain model", async () => {
     const session = createSession();
     const applier = new BrowserProxyApplier({
       getSettings: vi.fn().mockResolvedValue({
         fonts: DEFAULT_BROWSER_FONT_SETTINGS,
         network: {
           proxy: {
-            mode: "custom",
-            server: "ftp://127.0.0.1:7890"
+            mode: "system",
+            server: ""
           }
         }
       })

@@ -5,4 +5,4 @@ import type { BrowserNetworkSettingsRecord } from "./BrowserNetworkSettingsRecor
 import type { MacroBadgePositionRecord } from "./MacroBadgePositionRecord";
 import type { WorkspaceAppearanceSettingsRecord } from "./WorkspaceAppearanceSettingsRecord";
 
-export type GameBrowserSettingsRecord = { fonts: BrowserFontSettingsRecord, graphics: BrowserGraphicsSettingsRecord, launchMode: string, macroBadgePosition: MacroBadgePositionRecord, network: BrowserNetworkSettingsRecord, workspace: WorkspaceAppearanceSettingsRecord, };
+export type GameBrowserSettingsRecord = { fonts: BrowserFontSettingsRecord, graphics: BrowserGraphicsSettingsRecord, launchMode: "auto" | "embedded" | "external", macroBadgePosition: MacroBadgePositionRecord, network: BrowserNetworkSettingsRecord, workspace: WorkspaceAppearanceSettingsRecord, };

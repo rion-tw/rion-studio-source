@@ -1,81 +1,63 @@
-import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { LegalAcceptanceStore } from "../src/main/legal/LegalAcceptanceStore";
 import { CURRENT_LEGAL_DOCUMENT_VERSIONS } from "../src/shared/legal";
 
 describe("LegalAcceptanceStore", () => {
-  it("requires acceptance when no record exists", async () => {
-    const store = new LegalAcceptanceStore(await createUserDataDir());
+  it("reads the Rust-owned acceptance status", async () => {
+    const invoke = vi.fn(async () => ({
+      currentVersions: CURRENT_LEGAL_DOCUMENT_VERSIONS,
+      isAccepted: false
+    }));
+    const store = new LegalAcceptanceStore("/unused", { core: { invoke } as never });
 
     await expect(store.getStatus()).resolves.toEqual({
       currentVersions: CURRENT_LEGAL_DOCUMENT_VERSIONS,
       isAccepted: false
     });
+    expect(invoke).toHaveBeenCalledWith({
+      type: "legalAcceptanceStatus",
+      versions: CURRENT_LEGAL_DOCUMENT_VERSIONS
+    });
   });
 
-  it("atomically persists the current accepted versions and timestamp", async () => {
-    const userDataDir = await createUserDataDir();
-    const store = new LegalAcceptanceStore(userDataDir, {
-      now: () => new Date("2026-07-14T09:30:00.000Z")
-    });
-
-    const status = await store.accept({
-      fairUseVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.fairUse,
-      privacyVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.privacy,
-      termsVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.terms
-    });
-
-    expect(status).toMatchObject({
+  it("delegates version validation, timestamping and persistence to Rust", async () => {
+    const accepted = {
       acceptedAt: "2026-07-14T09:30:00.000Z",
       acceptedFairUseVersion: "2026-07-14",
       acceptedTermsVersion: "2026-07-14",
       acknowledgedPrivacyVersion: "2026-07-14",
+      currentVersions: CURRENT_LEGAL_DOCUMENT_VERSIONS,
       isAccepted: true
-    });
-    await expect(access(join(userDataDir, "legal-acceptance.json.tmp"))).rejects.toMatchObject({ code: "ENOENT" });
-    expect(JSON.parse(await readFile(join(userDataDir, "legal-acceptance.json"), "utf8"))).toMatchObject({
-      schemaVersion: 1,
-      acceptedTermsVersion: "2026-07-14"
+    };
+    const invoke = vi.fn(async () => accepted);
+    const store = new LegalAcceptanceStore("/unused", { core: { invoke } as never });
+    const input = {
+      fairUseVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.fairUse,
+      privacyVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.privacy,
+      termsVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.terms
+    };
+
+    await expect(store.accept(input)).resolves.toEqual(accepted);
+    expect(invoke).toHaveBeenCalledWith({
+      type: "legalAcceptanceAccept",
+      versions: CURRENT_LEGAL_DOCUMENT_VERSIONS,
+      input
     });
   });
 
-  it("fails closed for corrupt, incomplete, and superseded records", async () => {
-    const userDataDir = await createUserDataDir();
-    const acceptancePath = join(userDataDir, "legal-acceptance.json");
-    await writeFile(acceptancePath, "not-json", "utf8");
-    await expect(new LegalAcceptanceStore(userDataDir).isAccepted()).resolves.toBe(false);
+  it("preserves stable Rust validation errors", async () => {
+    const error = Object.assign(new Error("Legal document versions are out of date."), {
+      code: "LEGAL_VERSIONS_OUTDATED"
+    });
+    const store = new LegalAcceptanceStore("/unused", {
+      core: { invoke: vi.fn(async () => { throw error; }) } as never
+    });
 
-    await writeFile(
-      acceptancePath,
-      JSON.stringify({
-        schemaVersion: 1,
-        acceptedAt: "2026-07-14T00:00:00.000Z",
-        acceptedTermsVersion: "2026-01-01",
-        acceptedFairUseVersion: "2026-07-14",
-        acknowledgedPrivacyVersion: "2026-07-14"
-      }),
-      "utf8"
-    );
-    await expect(new LegalAcceptanceStore(userDataDir).isAccepted()).resolves.toBe(false);
-  });
-
-  it("rejects acceptance for stale document versions", async () => {
-    const store = new LegalAcceptanceStore(await createUserDataDir());
-
-    await expect(
-      store.accept({
-        fairUseVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.fairUse,
-        privacyVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.privacy,
-        termsVersion: "old"
-      })
-    ).rejects.toThrow("Legal document versions are out of date");
+    await expect(store.accept({
+      fairUseVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.fairUse,
+      privacyVersion: CURRENT_LEGAL_DOCUMENT_VERSIONS.privacy,
+      termsVersion: "old"
+    })).rejects.toMatchObject({ code: "LEGAL_VERSIONS_OUTDATED" });
   });
 });
-
-async function createUserDataDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "rion-legal-test-"));
-}

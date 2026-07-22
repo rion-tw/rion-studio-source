@@ -42,7 +42,10 @@ interface GraphicsDiagnosticsServiceOptions {
     "getGPUFeatureStatus" | "getGPUInfo" | "isHardwareAccelerationEnabled"
   >;
   appliedMode: BrowserGraphicsMode;
-  browserManager: Pick<BrowserManager, "getAutomationSession" | "listStatuses">;
+  browserManager: Pick<
+    BrowserManager,
+    "evaluateExternalRole" | "getExternalRoleName" | "listStatuses"
+  >;
   gameBrowserSettingsStore: Pick<GameBrowserSettingsStore, "getSettings">;
   isGpuInfoReady: () => boolean;
   platform?: string;
@@ -69,8 +72,7 @@ export class GraphicsDiagnosticsService {
       .filter((status) => status.runtimeMode === "external" && status.state === "running");
     const externalRoles = await Promise.all(
       externalStatuses.map(async (status) => {
-        const session = this.options.browserManager.getAutomationSession(status.roleId);
-        if (!session) {
+        if (status.automationState !== "ready") {
           return {
             error: "Chrome DevTools connection is unavailable.",
             roleId: status.roleId,
@@ -79,10 +81,12 @@ export class GraphicsDiagnosticsService {
           };
         }
 
-        const probe = await probeWebGraphics((source) => session.target.evaluate(source));
+        const probe = await probeWebGraphics((source) =>
+          this.options.browserManager.evaluateExternalRole(status.roleId, source)
+        );
         return {
           roleId: status.roleId,
-          roleName: session.role.name,
+          roleName: this.options.browserManager.getExternalRoleName(status.roleId),
           state: probe.error ? "unavailable" as const : "ready" as const,
           probe,
           ...(probe.error ? { error: probe.error } : {})

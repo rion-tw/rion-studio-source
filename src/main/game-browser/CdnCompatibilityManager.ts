@@ -1,6 +1,5 @@
 import type { Session } from "electron";
 
-import { normalizeGameBrowserSettings } from "../../shared/browserFonts";
 import type { BrowserProxySettings, GameBrowserSettings } from "../../shared/types";
 import rulesDocument from "./cdnCompatibilityRules.json";
 
@@ -24,7 +23,7 @@ export interface CdnCompatibilityManagerOptions {
   detectionTimeoutMs?: number;
   getSettings: () => Promise<GameBrowserSettings>;
   now?: () => number;
-  rewriteUrl?: (url: string) => string | undefined;
+  rewriteUrl: (url: string) => string | undefined;
 }
 
 export const CDN_COMPATIBILITY_EXTERNAL_NOTICE =
@@ -33,11 +32,6 @@ export const CDN_COMPATIBILITY_UNAVAILABLE_NOTICE =
   "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.";
 
 const rules = rulesDocument.rules as CdnCompatibilityRule[];
-const compiledRules = rules.map((rule) => ({
-  ...rule,
-  matcher: new RegExp(rule.regexFilter),
-  substitution: convertRegexSubstitution(rule.regexSubstitution)
-}));
 const requestFilter = {
   urls: [...new Set(rules.map((rule) => `https://${rule.sourceHost}/*`))]
 };
@@ -52,7 +46,7 @@ export class CdnCompatibilityManager {
   constructor(private readonly options: CdnCompatibilityManagerOptions) {
     this.detectionTimeoutMs = options.detectionTimeoutMs ?? AUTO_DETECTION_TIMEOUT_MS;
     this.now = options.now ?? Date.now;
-    this.rewriteUrl = options.rewriteUrl ?? rewriteCdnCompatibilityUrl;
+    this.rewriteUrl = options.rewriteUrl;
   }
 
   async applyToSession(session: Session): Promise<boolean> {
@@ -76,7 +70,7 @@ export class CdnCompatibilityManager {
   }
 
   private async resolveEnabled(session: Session): Promise<boolean> {
-    const settings = normalizeGameBrowserSettings(await this.options.getSettings());
+    const settings = await this.options.getSettings();
     const mode = settings.network.cdnCompatibility.mode;
     if (mode === "off") {
       return false;
@@ -113,15 +107,6 @@ export class CdnCompatibilityManager {
     this.inFlightDetections.set(cacheKey, detection);
     return detection;
   }
-}
-
-export function rewriteCdnCompatibilityUrl(url: string): string | undefined {
-  for (const rule of compiledRules) {
-    if (rule.matcher.test(url)) {
-      return url.replace(rule.matcher, rule.substitution);
-    }
-  }
-  return undefined;
 }
 
 export function getCdnCompatibilityRules(): CdnCompatibilityRule[] {
@@ -162,8 +147,4 @@ async function canFetch(session: Session, url: string, signal: AbortSignal): Pro
 
 function createDetectionCacheKey(proxy: BrowserProxySettings): string {
   return `${proxy.mode}:${proxy.server}`;
-}
-
-function convertRegexSubstitution(value: string): string {
-  return value.replace(/\\([0-9])/g, "$$$1");
 }

@@ -6,6 +6,8 @@ use ts_rs::TS;
 pub enum CoreError {
     #[error("invalid core input: {0}")]
     InvalidInput(String),
+    #[error("{message}")]
+    Domain { code: &'static str, message: String },
     #[error("state database failed: {0}")]
     StateDatabase(String),
     #[error("log database failed: {0}")]
@@ -28,6 +30,7 @@ impl CoreError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::InvalidInput(_) => "CORE_INPUT_INVALID",
+            Self::Domain { code, .. } => code,
             Self::StateDatabase(_) => "CORE_STATE_DATABASE_FAILED",
             Self::LogDatabase(_) => "CORE_LOG_DATABASE_FAILED",
             Self::Migration(_) => "CORE_MIGRATION_FAILED",

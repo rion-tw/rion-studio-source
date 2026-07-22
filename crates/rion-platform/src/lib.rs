@@ -10,6 +10,10 @@ pub use process::{ExternalProcessExit, ExternalProcessSupervisor};
 
 mod chrome;
 pub use chrome::find_chrome_executable;
+mod chrome_profile;
+pub use chrome_profile::{ChromeProfileEntry, copy_chrome_profile, discover_chrome_profiles};
+mod chrome_cookie;
+pub use chrome_cookie::{decrypt_chrome_cookie, decrypt_mac_cookie_payload};
 #[cfg_attr(not(windows), allow(dead_code))]
 mod window_frame;
 #[cfg(windows)]

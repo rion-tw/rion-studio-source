@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, type WebContents } from "electron";
+import { BrowserWindow, ipcMain, type IpcMainInvokeEvent, type WebContents } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc";
 import { LOG_LEVELS } from "../../shared/types";
@@ -53,7 +53,7 @@ import type { SystemFontService } from "../game-browser/SystemFontService";
 import type { GameCompatibilityManager } from "../games/GameCompatibilityManager";
 import type { GameStore } from "../games/GameStore";
 import type { LegalAcceptanceStore } from "../legal/LegalAcceptanceStore";
-import type { MacroManager } from "../macros/MacroManager";
+import type { MacroRuntimeManager } from "../macros/MacroManager";
 import {
   isMacroOverlayRequest,
   type MacroOverlayRequest
@@ -69,7 +69,7 @@ import { getAppWindowState } from "../window/appWindowState";
 
 interface RegisterIpcHandlersOptions {
   legalAcceptanceStore?: Pick<LegalAcceptanceStore, "accept" | "getStatus">;
-  macroManager?: MacroManager;
+  macroManager?: MacroRuntimeManager;
   macroStore?: MacroStore;
   macroSettingsStore?: Pick<MacroSettingsStore, "getSettings" | "updateSettings">;
   gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings" | "updateSettings">;
@@ -88,6 +88,7 @@ interface RegisterIpcHandlersOptions {
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
   onLegalAccepted?: () => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
+  recordIpcCommandLatency?: (channel: string, durationMs: number) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
   roleBrowserDataManager?: Pick<RoleBrowserDataManager, "clear">;
@@ -126,6 +127,19 @@ export function registerIpcHandlers(
   browserManager: BrowserManager,
   options: RegisterIpcHandlersOptions = {}
 ): void {
+  const handle = <Arguments extends unknown[], Result>(
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, ...args: Arguments) => Result | Promise<Result>
+  ): void => {
+    ipcMain.handle(channel, async (event, ...args) => {
+      const startedAt = performance.now();
+      try {
+        return await listener(event, ...(args as Arguments));
+      } finally {
+        options.recordIpcCommandLatency?.(channel, performance.now() - startedAt);
+      }
+    });
+  };
   const workspaceLauncher = options.workspaceLauncher ?? new WorkspaceLaunchCoordinator({
     browserManager,
     gameBrowserSettingsStore: options.gameBrowserSettingsStore,
@@ -151,7 +165,7 @@ export function registerIpcHandlers(
     void broadcastGameCompatibilityChange(options);
   });
 
-  ipcMain.handle(IPC_CHANNELS.appRendererReady, (event, state: AppRendererReadyState) => {
+  handle(IPC_CHANNELS.appRendererReady, (event, state: AppRendererReadyState) => {
     if (!isAppRendererReadyState(state)) {
       throw new Error("Renderer readiness state is invalid.");
     }
@@ -159,7 +173,7 @@ export function registerIpcHandlers(
     options.onRendererReady?.(event.sender.id, state);
   });
 
-  ipcMain.handle(IPC_CHANNELS.appSnapshot, async () => {
+  handle(IPC_CHANNELS.appSnapshot, async () => {
     const [games, gameCompatibilityReports, roles, launchWorkspaces, macros] = await Promise.all([
       options.gameStore?.listGames() ?? Promise.resolve([]),
       options.gameCompatibilityManager?.listReports() ?? Promise.resolve([]),
@@ -182,7 +196,7 @@ export function registerIpcHandlers(
     };
   });
 
-  ipcMain.handle(IPC_CHANNELS.appWindowState, (event) => {
+  handle(IPC_CHANNELS.appWindowState, (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) {
       throw new Error("Current window is not available.");
@@ -190,31 +204,31 @@ export function registerIpcHandlers(
     return getAppWindowState(window);
   });
 
-  ipcMain.handle(IPC_CHANNELS.runtimeState, () => browserManager.listEmbeddedRuntimeState());
-  ipcMain.handle(IPC_CHANNELS.runtimeShowWindows, (_event, displayId?: number) => {
+  handle(IPC_CHANNELS.runtimeState, () => browserManager.listEmbeddedRuntimeState());
+  handle(IPC_CHANNELS.runtimeShowWindows, (_event, displayId?: number) => {
     if (displayId !== undefined && !Number.isInteger(displayId)) throw new Error("Display id is invalid.");
     return browserManager.showEmbeddedRuntimeWindows(displayId);
   });
-  ipcMain.handle(IPC_CHANNELS.runtimeShowTab, (_event, tabId: string) => {
+  handle(IPC_CHANNELS.runtimeShowTab, (_event, tabId: string) => {
     if (typeof tabId !== "string" || !tabId) throw new Error("Runtime tab id is invalid.");
     return browserManager.showRuntimeTab(tabId);
   });
-  ipcMain.handle(IPC_CHANNELS.runtimeMoveTab, (_event, tabId: string, displayId: number) => {
+  handle(IPC_CHANNELS.runtimeMoveTab, (_event, tabId: string, displayId: number) => {
     if (typeof tabId !== "string" || !tabId || !Number.isInteger(displayId)) {
       throw new Error("Runtime tab move is invalid.");
     }
     return browserManager.moveRuntimeTab(tabId, displayId);
   });
 
-  ipcMain.handle(IPC_CHANNELS.gamesList, () => requireGameStore(options).listGames());
-  ipcMain.handle(IPC_CHANNELS.gamesCreate, (_event, input: CreateGameInput) =>
+  handle(IPC_CHANNELS.gamesList, () => requireGameStore(options).listGames());
+  handle(IPC_CHANNELS.gamesCreate, (_event, input: CreateGameInput) =>
     runDataMutation(options, async () => {
       const game = await requireGameStore(options).createGame(input);
       await broadcastGamesChange(options);
       return game;
     })
   );
-  ipcMain.handle(IPC_CHANNELS.gamesUpdate, (_event, id: string, input: UpdateGameInput) =>
+  handle(IPC_CHANNELS.gamesUpdate, (_event, id: string, input: UpdateGameInput) =>
     runDataMutation(options, async () => {
       const game = await requireGameStore(options).updateGame(id, input);
       await broadcastGamesChange(options);
@@ -222,7 +236,7 @@ export function registerIpcHandlers(
       return game;
     })
   );
-  ipcMain.handle(IPC_CHANNELS.gamesResetBuiltin, (_event, id: string) =>
+  handle(IPC_CHANNELS.gamesResetBuiltin, (_event, id: string) =>
     runDataMutation(options, async () => {
       const game = await requireGameStore(options).resetBuiltinGame(id);
       await broadcastGamesChange(options);
@@ -230,13 +244,13 @@ export function registerIpcHandlers(
       return game;
     })
   );
-  ipcMain.handle(IPC_CHANNELS.gamesDelete, (_event, id: string) =>
+  handle(IPC_CHANNELS.gamesDelete, (_event, id: string) =>
     runDataMutation(options, async () => {
       await deleteGameRecord(options, id);
       await broadcastGamesChange(options);
     })
   );
-  ipcMain.handle(IPC_CHANNELS.gamesDeleteMany, (_event, input: BulkDeleteInput) =>
+  handle(IPC_CHANNELS.gamesDeleteMany, (_event, input: BulkDeleteInput) =>
     runDataMutation(options, async () => {
       const result = await runBulkDelete(input, (id) => deleteGameRecord(options, id));
       if (result.deletedIds.length > 0) {
@@ -245,20 +259,20 @@ export function registerIpcHandlers(
       return result;
     })
   );
-  ipcMain.handle(IPC_CHANNELS.gamesCompatibilityList, () =>
+  handle(IPC_CHANNELS.gamesCompatibilityList, () =>
     options.gameCompatibilityManager?.listReports() ?? Promise.resolve([])
   );
-  ipcMain.handle(IPC_CHANNELS.gamesCompatibilityRun, async (_event, id: string) => {
+  handle(IPC_CHANNELS.gamesCompatibilityRun, async (_event, id: string) => {
     if (!options.gameCompatibilityManager) {
       throw new Error("Game compatibility checks are not available.");
     }
     return options.gameCompatibilityManager.runCheck(id);
   });
-  ipcMain.handle(IPC_CHANNELS.gamesCompatibilityCancel, (_event, id: string) =>
+  handle(IPC_CHANNELS.gamesCompatibilityCancel, (_event, id: string) =>
     options.gameCompatibilityManager?.cancelCheck(id)
   );
 
-  ipcMain.handle(IPC_CHANNELS.legalStatus, () => {
+  handle(IPC_CHANNELS.legalStatus, () => {
     if (!options.legalAcceptanceStore) {
       throw new Error("Legal acceptance is not available.");
     }
@@ -266,7 +280,7 @@ export function registerIpcHandlers(
     return options.legalAcceptanceStore.getStatus();
   });
 
-  ipcMain.handle(IPC_CHANNELS.legalAccept, async (_event, input: AcceptLegalDocumentsInput) => {
+  handle(IPC_CHANNELS.legalAccept, async (_event, input: AcceptLegalDocumentsInput) => {
     if (!options.legalAcceptanceStore || !isAcceptLegalDocumentsInput(input)) {
       throw new Error("Legal acceptance input is invalid.");
     }
@@ -276,7 +290,7 @@ export function registerIpcHandlers(
     return status;
   });
 
-  ipcMain.handle(IPC_CHANNELS.appQuit, () => {
+  handle(IPC_CHANNELS.appQuit, () => {
     if (!options.quitApplication) {
       throw new Error("Application quit is not available.");
     }
@@ -288,7 +302,7 @@ export function registerIpcHandlers(
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
 
-  ipcMain.handle(IPC_CHANNELS.appRestart, () => {
+  handle(IPC_CHANNELS.appRestart, () => {
     if (!options.restartApplication) {
       throw new Error("Application restart is not available.");
     }
@@ -299,7 +313,7 @@ export function registerIpcHandlers(
     options.restartApplication();
   });
 
-  ipcMain.handle(IPC_CHANNELS.preferencesSetOverlayLanguage, (_event, language: AppLanguage) => {
+  handle(IPC_CHANNELS.preferencesSetOverlayLanguage, (_event, language: AppLanguage) => {
     if (!isAppLanguage(language)) {
       throw new Error("Language setting is invalid.");
     }
@@ -307,9 +321,9 @@ export function registerIpcHandlers(
     options.onOverlayLanguageChanged?.(language);
   });
 
-  ipcMain.handle(IPC_CHANNELS.macrosConsumePageRequest, () => options.consumePendingMacroPageRequest?.() ?? null);
+  handle(IPC_CHANNELS.macrosConsumePageRequest, () => options.consumePendingMacroPageRequest?.() ?? null);
 
-  ipcMain.handle(IPC_CHANNELS.macrosOverlayRequest, (event, request: MacroOverlayRequest) => {
+  handle(IPC_CHANNELS.macrosOverlayRequest, (event, request: MacroOverlayRequest) => {
     if (!options.onMacroOverlayRequest || !isMacroOverlayRequest(request)) {
       throw new Error("Macro overlay request is invalid.");
     }
@@ -317,7 +331,7 @@ export function registerIpcHandlers(
     return options.onMacroOverlayRequest(event.sender, request);
   });
 
-  ipcMain.handle(IPC_CHANNELS.portableExport, (_event, input?: PortableExportInput) => {
+  handle(IPC_CHANNELS.portableExport, (_event, input?: PortableExportInput) => {
     if (!options.portableDataManager) {
       throw new Error("Portable data export is not available.");
     }
@@ -325,7 +339,7 @@ export function registerIpcHandlers(
     return options.portableDataManager.exportData(input);
   });
 
-  ipcMain.handle(IPC_CHANNELS.portableImportPreview, () => {
+  handle(IPC_CHANNELS.portableImportPreview, () => {
     if (!options.portableDataManager) {
       throw new Error("Portable data import is not available.");
     }
@@ -333,7 +347,7 @@ export function registerIpcHandlers(
     return options.portableDataManager.previewImport();
   });
 
-  ipcMain.handle(IPC_CHANNELS.portableImportApply, async (_event, input: PortableImportInput) => {
+  handle(IPC_CHANNELS.portableImportApply, async (_event, input: PortableImportInput) => {
     if (!options.portableDataManager || !input || typeof input.importId !== "string" || !input.importId.trim()) {
       throw new Error("Portable data import is not available.");
     }
@@ -363,14 +377,14 @@ export function registerIpcHandlers(
     return result;
   });
 
-  ipcMain.handle(IPC_CHANNELS.portableImportDiscard, (_event, importId: string) => {
+  handle(IPC_CHANNELS.portableImportDiscard, (_event, importId: string) => {
     if (!options.portableDataManager || typeof importId !== "string" || !importId.trim()) {
       throw new Error("Portable data import is not available.");
     }
     options.portableDataManager.discardImport(importId);
   });
 
-  ipcMain.handle(IPC_CHANNELS.chromeProfileImportPreview, () => {
+  handle(IPC_CHANNELS.chromeProfileImportPreview, () => {
     if (!options.chromeProfileImportManager) {
       throw new Error("Chrome profile import is not available.");
     }
@@ -378,7 +392,7 @@ export function registerIpcHandlers(
     return options.chromeProfileImportManager.previewImport();
   });
 
-  ipcMain.handle(IPC_CHANNELS.chromeProfileImportCloseChrome, () => {
+  handle(IPC_CHANNELS.chromeProfileImportCloseChrome, () => {
     if (!options.chromeProfileImportManager) {
       throw new Error("Chrome profile import is not available.");
     }
@@ -386,7 +400,7 @@ export function registerIpcHandlers(
     return options.chromeProfileImportManager.closeChrome();
   });
 
-  ipcMain.handle(IPC_CHANNELS.chromeProfileImportApply, (event, input: ChromeProfileImportInput) => {
+  handle(IPC_CHANNELS.chromeProfileImportApply, (event, input: ChromeProfileImportInput) => {
     if (
       !options.chromeProfileImportManager ||
       !input ||
@@ -412,14 +426,14 @@ export function registerIpcHandlers(
     });
   });
 
-  ipcMain.handle(IPC_CHANNELS.chromeProfileImportDiscard, (_event, importId: string) => {
+  handle(IPC_CHANNELS.chromeProfileImportDiscard, (_event, importId: string) => {
     if (!options.chromeProfileImportManager || typeof importId !== "string" || !importId.trim()) {
       throw new Error("Chrome profile import is not available.");
     }
     return options.chromeProfileImportManager.discardImport(importId);
   });
 
-  ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsGet, () => {
+  handle(IPC_CHANNELS.gameBrowserSettingsGet, () => {
     if (!options.gameBrowserSettingsStore) {
       throw new Error("Game browser settings are not available.");
     }
@@ -427,7 +441,7 @@ export function registerIpcHandlers(
     return options.gameBrowserSettingsStore.getSettings();
   });
 
-  ipcMain.handle(IPC_CHANNELS.gameBrowserSettingsUpdate, (_event, settings: GameBrowserSettings) =>
+  handle(IPC_CHANNELS.gameBrowserSettingsUpdate, (_event, settings: GameBrowserSettings) =>
     runDataMutation(options, async () => {
       if (!options.gameBrowserSettingsStore) {
         throw new Error("Game browser settings are not available.");
@@ -441,7 +455,7 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.macroSettingsGet, () => {
+  handle(IPC_CHANNELS.macroSettingsGet, () => {
     if (!options.macroSettingsStore) {
       throw new Error("Macro settings are not available.");
     }
@@ -449,7 +463,7 @@ export function registerIpcHandlers(
     return options.macroSettingsStore.getSettings();
   });
 
-  ipcMain.handle(IPC_CHANNELS.macroSettingsUpdate, (_event, settings: MacroSettings) =>
+  handle(IPC_CHANNELS.macroSettingsUpdate, (_event, settings: MacroSettings) =>
     runDataMutation(options, async () => {
       if (!options.macroSettingsStore) {
         throw new Error("Macro settings are not available.");
@@ -459,7 +473,7 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.graphicsDiagnosticsGet, (event) => {
+  handle(IPC_CHANNELS.graphicsDiagnosticsGet, (event) => {
     if (!options.getGraphicsDiagnostics) {
       throw new Error("Graphics diagnostics are not available.");
     }
@@ -467,34 +481,34 @@ export function registerIpcHandlers(
     return options.getGraphicsDiagnostics(event.sender);
   });
 
-  ipcMain.handle(IPC_CHANNELS.logsStatus, () => {
+  handle(IPC_CHANNELS.logsStatus, () => {
     if (!options.logService) throw new Error("Application logs are not available.");
     return options.logService.getStatus();
   });
 
-  ipcMain.handle(IPC_CHANNELS.logsQuery, (_event, query?: LogQuery) => {
+  handle(IPC_CHANNELS.logsQuery, (_event, query?: LogQuery) => {
     if (!options.logService) throw new Error("Application logs are not available.");
     return options.logService.query(query);
   });
 
-  ipcMain.handle(IPC_CHANNELS.logsSetLevel, async (_event, level: LogLevel) => {
+  handle(IPC_CHANNELS.logsSetLevel, async (_event, level: LogLevel) => {
     if (!options.logService || !LOG_LEVELS.includes(level)) throw new Error("Invalid log level.");
     options.logService.setLevel(level);
     return options.logService.getStatus();
   });
 
-  ipcMain.handle(IPC_CHANNELS.logsClear, async () => {
+  handle(IPC_CHANNELS.logsClear, async () => {
     if (!options.logService) throw new Error("Application logs are not available.");
     await options.logService.clear();
     return options.logService.getStatus();
   });
 
-  ipcMain.handle(IPC_CHANNELS.logsReveal, () => {
+  handle(IPC_CHANNELS.logsReveal, () => {
     if (!options.revealLogs) throw new Error("Application logs are not available.");
     return options.revealLogs();
   });
 
-  ipcMain.handle(IPC_CHANNELS.logsExport, () => {
+  handle(IPC_CHANNELS.logsExport, () => {
     if (!options.exportDiagnostics) throw new Error("Diagnostic export is not available.");
     return options.exportDiagnostics();
   });
@@ -506,7 +520,7 @@ export function registerIpcHandlers(
     else options.logService.warn("renderer", value.event, value.message, undefined, error);
   });
 
-  ipcMain.handle(IPC_CHANNELS.systemFontsList, () => {
+  handle(IPC_CHANNELS.systemFontsList, () => {
     if (!options.systemFontService) {
       throw new Error("System font list is not available.");
     }
@@ -514,11 +528,11 @@ export function registerIpcHandlers(
     return options.systemFontService.listFonts();
   });
 
-  ipcMain.handle(IPC_CHANNELS.appVersion, () => options.updateManager?.getStatus().currentVersion ?? "");
+  handle(IPC_CHANNELS.appVersion, () => options.updateManager?.getStatus().currentVersion ?? "");
 
-  ipcMain.handle(IPC_CHANNELS.updatesStatus, () => options.updateManager?.getStatus());
+  handle(IPC_CHANNELS.updatesStatus, () => options.updateManager?.getStatus());
 
-  ipcMain.handle(IPC_CHANNELS.updatesCheck, () => {
+  handle(IPC_CHANNELS.updatesCheck, () => {
     if (!options.updateManager) {
       throw new Error("Update manager is not available.");
     }
@@ -526,7 +540,7 @@ export function registerIpcHandlers(
     return options.updateManager.checkForUpdates();
   });
 
-  ipcMain.handle(IPC_CHANNELS.updatesOpenDownload, () => {
+  handle(IPC_CHANNELS.updatesOpenDownload, () => {
     if (!options.updateManager) {
       throw new Error("Update manager is not available.");
     }
@@ -534,7 +548,7 @@ export function registerIpcHandlers(
     return options.updateManager.openUpdateDownload();
   });
 
-  ipcMain.handle(IPC_CHANNELS.updatesInstall, () => {
+  handle(IPC_CHANNELS.updatesInstall, () => {
     if (!options.updateManager) {
       throw new Error("Update manager is not available.");
     }
@@ -542,9 +556,9 @@ export function registerIpcHandlers(
     options.updateManager.installDownloadedUpdate();
   });
 
-  ipcMain.handle(IPC_CHANNELS.rolesList, () => roleStore.listRoles());
+  handle(IPC_CHANNELS.rolesList, () => roleStore.listRoles());
 
-  ipcMain.handle(IPC_CHANNELS.rolesCreate, (_event, input: CreateRoleInput) =>
+  handle(IPC_CHANNELS.rolesCreate, (_event, input: CreateRoleInput) =>
     runDataMutation(options, async () => {
       const game = options.gameStore ? await options.gameStore.getGame(input.gameId) : undefined;
       const role = await roleStore.createRole(game ? {
@@ -556,7 +570,7 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.rolesUpdate, (_event, id: string, input: UpdateRoleInput) =>
+  handle(IPC_CHANNELS.rolesUpdate, (_event, id: string, input: UpdateRoleInput) =>
     runDataMutation(options, async () => {
       const current = await roleStore.getRole(id);
       if (input.gameId !== undefined && options.gameStore) {
@@ -573,7 +587,7 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.rolesReorder, (_event, input: ReorderItemsInput) =>
+  handle(IPC_CHANNELS.rolesReorder, (_event, input: ReorderItemsInput) =>
     runDataMutation(options, async () => {
       const roles = await roleStore.reorderRoles(input);
       options.onRolesChanged?.();
@@ -581,7 +595,7 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.rolesDelete, (_event, id: string) =>
+  handle(IPC_CHANNELS.rolesDelete, (_event, id: string) =>
     runDataMutation(options, async () => {
       await deleteRoleRecord(
         roleStore,
@@ -595,7 +609,7 @@ export function registerIpcHandlers(
       options.onMacrosChanged?.();
     })
   );
-  ipcMain.handle(IPC_CHANNELS.rolesDeleteMany, (_event, input: BulkDeleteInput) =>
+  handle(IPC_CHANNELS.rolesDeleteMany, (_event, input: BulkDeleteInput) =>
     runDataMutation(options, async () => {
       const result = await runBulkDelete(input, (id) =>
         deleteRoleRecord(
@@ -615,7 +629,7 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.rolesClearBrowserData, (_event, id: string) =>
+  handle(IPC_CHANNELS.rolesClearBrowserData, (_event, id: string) =>
     runDataMutation(options, async () => {
       const role = await requireRoleBrowserDataManager(options).clear(id);
       options.onRolesChanged?.();
@@ -623,12 +637,12 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.rolesPaths, async (_event, id: string) => {
+  handle(IPC_CHANNELS.rolesPaths, async (_event, id: string) => {
     await roleStore.getRole(id);
     return roleStore.getRolePaths(id);
   });
 
-  ipcMain.handle(IPC_CHANNELS.rolesLaunch, async (_event, id: string) => {
+  handle(IPC_CHANNELS.rolesLaunch, async (_event, id: string) => {
     const role = await roleStore.getRole(id);
 
     try {
@@ -642,7 +656,7 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.rolesCaptureExternalDiagnostics, async (_event, id: string) => {
+  handle(IPC_CHANNELS.rolesCaptureExternalDiagnostics, async (_event, id: string) => {
     assertRoleId(id);
     if (options.captureExternalRoleDiagnostics) {
       await options.captureExternalRoleDiagnostics(id);
@@ -651,20 +665,20 @@ export function registerIpcHandlers(
     await browserManager.captureExternalRoleDiagnostics(id);
   });
 
-  ipcMain.handle(IPC_CHANNELS.rolesRecoverExternal, async (_event, id: string) => {
+  handle(IPC_CHANNELS.rolesRecoverExternal, async (_event, id: string) => {
     assertRoleId(id);
     return browserManager.recoverExternalRole(id);
   });
 
-  ipcMain.handle(IPC_CHANNELS.rolesStop, async (_event, id: string) => {
+  handle(IPC_CHANNELS.rolesStop, async (_event, id: string) => {
     await browserManager.stop(id);
   });
 
-  ipcMain.handle(IPC_CHANNELS.rolesStatuses, () => browserManager.listStatuses());
+  handle(IPC_CHANNELS.rolesStatuses, () => browserManager.listStatuses());
 
-  ipcMain.handle(IPC_CHANNELS.workspacesList, () => workspaceStore.listWorkspaces());
+  handle(IPC_CHANNELS.workspacesList, () => workspaceStore.listWorkspaces());
 
-  ipcMain.handle(IPC_CHANNELS.workspacesCreate, (_event, input: CreateLaunchWorkspaceInput) =>
+  handle(IPC_CHANNELS.workspacesCreate, (_event, input: CreateLaunchWorkspaceInput) =>
     runDataMutation(options, async () => {
       const normalizedInput = reconcileWorkspaceInputTargetDisplay(input, getWorkspaceDisplays(options));
       const workspace = await runWithExistingRoles(
@@ -678,7 +692,7 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.workspacesUpdate,
     (_event, id: string, input: UpdateLaunchWorkspaceInput) => runDataMutation(options, async () => {
       const normalizedInput = reconcileWorkspaceInputTargetDisplay(input, getWorkspaceDisplays(options));
@@ -693,7 +707,7 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.workspacesReorder, (_event, input: ReorderItemsInput) =>
+  handle(IPC_CHANNELS.workspacesReorder, (_event, input: ReorderItemsInput) =>
     runDataMutation(options, async () => {
       const workspaces = await workspaceStore.reorderWorkspaces(input);
       options.onWorkspacesChanged?.();
@@ -701,13 +715,13 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.workspacesDelete, (_event, id: string) =>
+  handle(IPC_CHANNELS.workspacesDelete, (_event, id: string) =>
     runDataMutation(options, async () => {
       await deleteWorkspaceRecord(workspaceStore, browserManager, id);
       options.onWorkspacesChanged?.();
     })
   );
-  ipcMain.handle(IPC_CHANNELS.workspacesDeleteMany, (_event, input: BulkDeleteInput) =>
+  handle(IPC_CHANNELS.workspacesDeleteMany, (_event, input: BulkDeleteInput) =>
     runDataMutation(options, async () => {
       const result = await runBulkDelete(input, (id) =>
         deleteWorkspaceRecord(workspaceStore, browserManager, id)
@@ -719,30 +733,30 @@ export function registerIpcHandlers(
     })
   );
 
-  ipcMain.handle(IPC_CHANNELS.workspacesDisplays, () => getWorkspaceDisplays(options));
+  handle(IPC_CHANNELS.workspacesDisplays, () => getWorkspaceDisplays(options));
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.workspacesConsumeLaunchRequest,
     () => options.consumePendingWorkspaceLaunchRequest?.() ?? null
   );
 
-  ipcMain.handle(IPC_CHANNELS.workspacesLaunch, async (_event, id: string, input?: WorkspaceLaunchInput) => {
+  handle(IPC_CHANNELS.workspacesLaunch, async (_event, id: string, input?: WorkspaceLaunchInput) => {
     if (!isWorkspaceLaunchInput(input)) {
       throw new Error("Launch workspace display selection is invalid.");
     }
     return workspaceLauncher.launch(id, input);
   });
 
-  ipcMain.handle(IPC_CHANNELS.workspacesStop, async (_event, id: string) => {
+  handle(IPC_CHANNELS.workspacesStop, async (_event, id: string) => {
     await browserManager.stopWorkspace(id);
   });
 
   if (options.macroStore && options.macroManager) {
     const { macroManager, macroStore } = options;
 
-    ipcMain.handle(IPC_CHANNELS.macrosList, () => macroStore.listMacros());
+    handle(IPC_CHANNELS.macrosList, () => macroStore.listMacros());
 
-    ipcMain.handle(IPC_CHANNELS.macrosCreate, (_event, input: CreateMacroInput) =>
+    handle(IPC_CHANNELS.macrosCreate, (_event, input: CreateMacroInput) =>
       runDataMutation(options, async () => {
         const macro = await runWithExistingRoles(
           getMacroInputRoleIds(input),
@@ -755,7 +769,7 @@ export function registerIpcHandlers(
       })
     );
 
-    ipcMain.handle(IPC_CHANNELS.macrosUpdate, (_event, id: string, input: UpdateMacroInput) =>
+    handle(IPC_CHANNELS.macrosUpdate, (_event, id: string, input: UpdateMacroInput) =>
       runDataMutation(options, async () => {
         const macro = await runWithExistingRoles(
           getMacroInputRoleIds(input),
@@ -770,13 +784,13 @@ export function registerIpcHandlers(
       })
     );
 
-    ipcMain.handle(IPC_CHANNELS.macrosDelete, (_event, id: string) =>
+    handle(IPC_CHANNELS.macrosDelete, (_event, id: string) =>
       runDataMutation(options, async () => {
         await deleteMacroRecord(macroStore, macroManager, id);
         options.onMacrosChanged?.();
       })
     );
-    ipcMain.handle(IPC_CHANNELS.macrosDeleteMany, (_event, input: BulkDeleteInput) =>
+    handle(IPC_CHANNELS.macrosDeleteMany, (_event, input: BulkDeleteInput) =>
       runDataMutation(options, async () => {
         const ids = normalizeBulkDeleteIds(input);
         const result = await macroManager.stopAndRunMutations(ids, () => macroStore.deleteMacros(ids));
@@ -787,15 +801,15 @@ export function registerIpcHandlers(
       })
     );
 
-    ipcMain.handle(IPC_CHANNELS.macrosStart, async (_event, macroId: string) => {
+    handle(IPC_CHANNELS.macrosStart, async (_event, macroId: string) => {
       return macroManager.start(macroId);
     });
 
-    ipcMain.handle(IPC_CHANNELS.macrosStop, async (_event, macroId: string) => {
+    handle(IPC_CHANNELS.macrosStop, async (_event, macroId: string) => {
       await macroManager.stop(macroId);
     });
 
-    ipcMain.handle(IPC_CHANNELS.macrosStatuses, () => macroManager.listStatuses());
+    handle(IPC_CHANNELS.macrosStatuses, () => macroManager.listStatuses());
   }
 }
 
@@ -862,7 +876,11 @@ async function deleteWorkspaceRecord(
   await workspaceStore.deleteWorkspace(id);
 }
 
-async function deleteMacroRecord(macroStore: MacroStore, macroManager: MacroManager, id: string): Promise<void> {
+async function deleteMacroRecord(
+  macroStore: MacroStore,
+  macroManager: MacroRuntimeManager,
+  id: string
+): Promise<void> {
   await macroManager.stopAndRunMutation(id, () => macroStore.deleteMacro(id));
 }
 

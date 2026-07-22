@@ -9,7 +9,7 @@ use napi::{Status, bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCa
 use napi_derive::napi;
 use rion_core::{
     AppCore, AppCoreOptions as CoreOptions, BrowserActionResult, CdnRule, CoreCommand, CoreError,
-    CoreEvent, ExternalChromeCdpSession, ResourcePolicyInput,
+    CoreEvent, ExternalChromeCdpSession, ResourcePolicyInput, WorkspaceLayoutInput,
 };
 use rion_platform::ExternalProcessSupervisor;
 
@@ -282,6 +282,14 @@ impl NativeAppCore {
         let input = serde_json::from_str::<ResourcePolicyInput>(&input_json)
             .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
         serde_json::to_string(&self.inner.resolve_resource_policy(&input))
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn resolve_workspace_layout(&self, input_json: String) -> Result<String> {
+        let input = serde_json::from_str::<WorkspaceLayoutInput>(&input_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        serde_json::to_string(&self.inner.resolve_workspace_layout(&input))
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
     }
 

@@ -15,7 +15,7 @@ import type {
   Role,
   RoleStatus
 } from "../../shared/types";
-import type { HeldTriggerReleaseMode, MacroManager } from "./MacroManager";
+import type { HeldTriggerReleaseMode, MacroRuntimeManager } from "./MacroManager";
 import type { MacroStore } from "./MacroStore";
 
 interface MacroOverlayState {
@@ -117,10 +117,10 @@ export class MacroOverlayInjector {
   constructor(
     private readonly macroStore: Pick<MacroStore, "listMacros">,
     private readonly macroManager: Pick<
-      MacroManager,
+      MacroRuntimeManager,
       "listStatuses" | "startForRole" | "stopForRole"
     > & Partial<Pick<
-      MacroManager,
+      MacroRuntimeManager,
       "pressForRole" | "releaseForRole" | "releaseHeldTriggersForRole"
     >>,
     private readonly onMacroPageRequested?: (request: MacroPageRequest) => void | Promise<void>,

@@ -15,6 +15,10 @@ import type {
 
 import { DEFAULT_WORKSPACE_APPEARANCE_SETTINGS } from "../../shared/browserFonts";
 import type {
+  WorkspaceLayoutInput,
+  WorkspaceLayoutOutput
+} from "../../shared/generated";
+import type {
   AppLanguage,
   BrowserLaunchMode,
   EmbeddedRuntimeState,
@@ -152,6 +156,8 @@ export interface BrowserManagerOptions {
   persistWorkspaceRoleZoom?: WorkspaceRoleZoomPersister;
   resourcePressureMonitor?: SystemPressureSource;
   resourcePolicyResolver?: WorkspaceCpuThrottleResolver;
+  workspaceLayoutResolver?: (input: WorkspaceLayoutInput) => WorkspaceLayoutOutput;
+  recordTabActivationLatency?: (durationMs: number) => void;
 }
 
 export class BrowserGameLoadError extends Error {
@@ -674,12 +680,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (!tab) return;
     const displayHost = this.getDisplayHost(tab);
     if (!displayHost) return;
-    await this.prepareRuntimeTabForeground(tab.id);
-    tab.hidden = false;
-    displayHost.activeTabId = tab.id;
-    this.showDisplayHost(displayHost);
-    this.layoutDisplayHost(displayHost);
-    await this.reconcileRuntimeTabs();
+    const startedAt = performance.now();
+    try {
+      await this.prepareRuntimeTabForeground(tab.id);
+      tab.hidden = false;
+      displayHost.activeTabId = tab.id;
+      this.showDisplayHost(displayHost);
+      this.layoutDisplayHost(displayHost);
+      await this.reconcileRuntimeTabs();
+    } finally {
+      this.options.recordTabActivationLatency?.(performance.now() - startedAt);
+    }
   }
 
   async hideRuntimeTab(tabId: string): Promise<void> {
@@ -2472,9 +2483,28 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return;
     }
 
-    const visible = displayHost.activeTabId === host.id &&
+    const contentBounds = this.getTabContentBounds(host);
+    const resolvedLayout = this.options.workspaceLayoutResolver?.({
+      active: displayHost.activeTabId === host.id,
+      contentBounds,
+      dividers: host.dividers.map((divider) => ({
+        afterRoleIds: divider.afterRoleIds,
+        axis: divider.axis,
+        beforeRoleIds: divider.beforeRoleIds
+      })),
+      gap: host.workspaceAppearance.gap,
+      hidden: host.hidden,
+      roles: [...host.roleIds].flatMap((roleId) => {
+        const session = this.sessions.get(roleId);
+        return session ? [{ rect: session.rect, roleId }] : [];
+      }),
+      windowVisible: isWindowVisible(displayHost.window)
+    });
+    const visible = resolvedLayout?.visible ?? (
+      displayHost.activeTabId === host.id &&
       !host.hidden &&
-      isWindowVisible(displayHost.window);
+      isWindowVisible(displayHost.window)
+    );
     host.roleIds.forEach((roleId) => {
       const session = this.sessions.get(roleId);
       if (!session) return;
@@ -2484,11 +2514,26 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     host.dividers.forEach((divider) => divider.view.setVisible(visible));
     if (!visible) return;
 
+    if (resolvedLayout) {
+      const boundsByRole = new Map(
+        resolvedLayout.roles.map((role) => [role.roleId, role.bounds])
+      );
+      host.roleIds.forEach((roleId) => {
+        const session = this.sessions.get(roleId);
+        const bounds = boundsByRole.get(roleId);
+        if (!session || !bounds) return;
+        session.view.setBounds(bounds);
+        session.popupViews.forEach((popupView) => popupView.setBounds(bounds));
+        this.applyAdaptiveZoom(session, bounds.width);
+      });
+      resolvedLayout.dividers.forEach(({ bounds, index }) => {
+        host.dividers[index]?.view.setBounds(bounds);
+      });
+      return;
+    }
     host.roleIds.forEach((roleId) => {
       const session = this.sessions.get(roleId);
-      if (session) {
-        this.layoutSession(host, session);
-      }
+      if (session) this.layoutSession(host, session);
     });
     this.layoutDividers(host);
   }

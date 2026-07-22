@@ -322,19 +322,21 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<Value>
     let limit = query.limit.unwrap_or(100).clamp(1, 200) as u64;
     let mut conditions = Vec::<String>::new();
     let mut values = Vec::<SqlValue>::new();
-    if !query.levels.is_empty() {
+    let levels = query.levels.as_deref().unwrap_or_default();
+    if !levels.is_empty() {
         conditions.push(format!(
             "level IN ({})",
-            placeholders(values.len(), query.levels.len())
+            placeholders(values.len(), levels.len())
         ));
-        values.extend(query.levels.iter().cloned().map(SqlValue::Text));
+        values.extend(levels.iter().cloned().map(SqlValue::Text));
     }
-    if !query.sources.is_empty() {
+    let sources = query.sources.as_deref().unwrap_or_default();
+    if !sources.is_empty() {
         conditions.push(format!(
             "source IN ({})",
-            placeholders(values.len(), query.sources.len())
+            placeholders(values.len(), sources.len())
         ));
-        values.extend(query.sources.iter().cloned().map(SqlValue::Text));
+        values.extend(sources.iter().cloned().map(SqlValue::Text));
     }
     if let Some(from) = &query.from {
         values.push(SqlValue::Text(from.clone()));
@@ -580,6 +582,7 @@ fn validate_query(query: &LogQuery) -> CoreResult<()> {
     if query
         .levels
         .iter()
+        .flatten()
         .any(|level| !matches!(level.as_str(), "debug" | "info" | "warn" | "error"))
     {
         return Err(CoreError::InvalidInput(

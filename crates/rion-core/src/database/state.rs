@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fs,
     path::{Path, PathBuf},
     thread::{self, JoinHandle},
     time::Duration,
@@ -12,8 +11,14 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::database::{
+    legacy,
+    portable_recovery::{self, StorageKind},
+};
+use crate::domain::validate_collection_record;
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
+use crate::model::StateCollection;
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -21,7 +26,15 @@ enum Request {
     Snapshot(Sender<CoreResult<Value>>),
     Replace(String, Value, Sender<CoreResult<u64>>),
     ReplaceSnapshot(Value, Sender<CoreResult<u64>>),
+    ApplyCollectionDelta {
+        collection: StateCollection,
+        upserts: Vec<Value>,
+        delete_ids: Vec<String>,
+        ordered_ids: Vec<String>,
+        response: Sender<CoreResult<u64>>,
+    },
     Metadata(Sender<CoreResult<Value>>),
+    RecoverPortableImport(PathBuf, Sender<CoreResult<bool>>),
     Shutdown(Sender<()>),
 }
 
@@ -71,8 +84,41 @@ impl StateDatabaseWorker {
             .map_err(|_| CoreError::ShuttingDown)?
     }
 
+    pub fn apply_collection_delta(
+        &self,
+        collection: StateCollection,
+        upserts: Vec<Value>,
+        delete_ids: Vec<String>,
+        ordered_ids: Vec<String>,
+    ) -> CoreResult<u64> {
+        let (response, receiver) = bounded(1);
+        self.sender
+            .send(Request::ApplyCollectionDelta {
+                collection,
+                upserts,
+                delete_ids,
+                ordered_ids,
+                response,
+            })
+            .map_err(|_| CoreError::ShuttingDown)?;
+        receiver.recv().map_err(|_| CoreError::ShuttingDown)?
+    }
+
     pub fn metadata(&self) -> CoreResult<Value> {
         request(&self.sender, Request::Metadata)
+    }
+
+    pub fn recover_portable_import(&self, user_data_dir: PathBuf) -> CoreResult<bool> {
+        let (response_sender, response_receiver) = bounded(1);
+        self.sender
+            .send(Request::RecoverPortableImport(
+                user_data_dir,
+                response_sender,
+            ))
+            .map_err(|_| CoreError::ShuttingDown)?;
+        response_receiver
+            .recv()
+            .map_err(|_| CoreError::ShuttingDown)?
     }
 
     pub fn shutdown(&mut self) {
@@ -133,8 +179,27 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             Request::Replace(key, value, response) => {
                 let _ = response.send(replace_snapshot_field(&mut connection, &key, value));
             }
+            Request::ApplyCollectionDelta {
+                collection,
+                upserts,
+                delete_ids,
+                ordered_ids,
+                response,
+            } => {
+                let _ = response.send(apply_collection_delta(
+                    &mut connection,
+                    collection,
+                    upserts,
+                    delete_ids,
+                    ordered_ids,
+                ));
+            }
             Request::Metadata(response) => {
                 let _ = response.send(read_metadata(&connection));
+            }
+            Request::RecoverPortableImport(user_data_dir, response) => {
+                let result = recover_sqlite_portable_import(&mut connection, &user_data_dir);
+                let _ = response.send(result);
             }
             Request::Shutdown(response) => {
                 let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
@@ -143,6 +208,26 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             }
         }
     }
+}
+
+fn recover_sqlite_portable_import(
+    connection: &mut Connection,
+    user_data_dir: &Path,
+) -> CoreResult<bool> {
+    let Some(plan) = portable_recovery::load(user_data_dir)? else {
+        return Ok(false);
+    };
+    if plan.storage_kind != StorageKind::Sqlite {
+        return Ok(false);
+    }
+    let mut snapshot = read_snapshot(connection)?;
+    let object = snapshot
+        .as_object_mut()
+        .ok_or_else(|| CoreError::StateDatabase("state snapshot must be an object".to_owned()))?;
+    object.extend(plan.snapshot_fields);
+    replace_snapshot(connection, &snapshot)?;
+    portable_recovery::finish(user_data_dir, &plan.remove_created_role_ids)?;
+    Ok(true)
 }
 
 pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResult<()> {
@@ -272,57 +357,18 @@ pub(super) fn import_legacy_files(
     connection: &mut Connection,
     user_data_dir: &Path,
 ) -> CoreResult<()> {
-    let games = read_array_file(user_data_dir.join("games.json"), "games")?;
-    let roles = if user_data_dir.join("roles.json").is_file() {
-        read_array_file(user_data_dir.join("roles.json"), "roles")?
-    } else {
-        read_array_file(user_data_dir.join("profiles.json"), "profiles")?
-    };
-    let workspace_file = read_object_file(user_data_dir.join("launch-workspaces.json"))?;
-    let workspaces = workspace_file
-        .as_ref()
-        .and_then(|value| value.get("workspaces"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let macros = read_array_file(user_data_dir.join("macros.json"), "macros")?;
-    let compatibility =
-        read_array_file_lenient(user_data_dir.join("game-compatibility.json"), "reports");
-    let mut snapshot = Map::new();
-    snapshot.insert("games".to_owned(), Value::Array(games));
-    snapshot.insert("roles".to_owned(), Value::Array(roles));
-    snapshot.insert("launchWorkspaces".to_owned(), Value::Array(workspaces));
-    snapshot.insert("macros".to_owned(), Value::Array(macros));
-    snapshot.insert(
-        "compatibilityReports".to_owned(),
-        Value::Array(compatibility),
-    );
-    for (key, file) in [
-        ("gameBrowserSettings", "game-browser-settings.json"),
-        ("macroSettings", "macro-settings.json"),
-        (
-            "runtimeWindowPreferences",
-            "runtime-window-preferences.json",
-        ),
-    ] {
-        if let Some(value) = read_object_file_lenient(user_data_dir.join(file)) {
-            snapshot.insert(key.to_owned(), value);
-        }
-    }
-    if let Some(value) = read_object_file_lenient(user_data_dir.join("legal-acceptance.json")) {
-        snapshot.insert("legalAcceptance".to_owned(), value);
-    }
+    let snapshot = legacy::build_snapshot(user_data_dir)?;
     let transaction = connection
         .transaction()
         .map_err(|error| CoreError::Migration(error.to_string()))?;
-    replace_snapshot_transaction(&transaction, &Value::Object(snapshot))?;
+    replace_snapshot_transaction(&transaction, &snapshot)?;
     transaction
         .commit()
         .map_err(|error| CoreError::Migration(error.to_string()))?;
     Ok(())
 }
 
-fn read_snapshot(connection: &Connection) -> CoreResult<Value> {
+pub(super) fn read_snapshot(connection: &Connection) -> CoreResult<Value> {
     let mut object = Map::new();
     object.insert("games".to_owned(), read_payloads(connection, "games")?);
     object.insert("roles".to_owned(), read_payloads(connection, "roles")?);
@@ -381,7 +427,7 @@ fn read_payloads(connection: &Connection, table: &str) -> CoreResult<Value> {
     Ok(Value::Array(values))
 }
 
-fn replace_snapshot(connection: &mut Connection, snapshot: &Value) -> CoreResult<u64> {
+pub(super) fn replace_snapshot(connection: &mut Connection, snapshot: &Value) -> CoreResult<u64> {
     let transaction = connection
         .transaction()
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -415,6 +461,111 @@ fn replace_snapshot_field(connection: &mut Connection, key: &str, value: Value) 
         .as_object_mut()
         .ok_or_else(|| CoreError::StateDatabase("state snapshot must be an object".to_owned()))?
         .insert(key.to_owned(), value);
+    replace_snapshot(connection, &snapshot)
+}
+
+fn apply_collection_delta(
+    connection: &mut Connection,
+    collection: StateCollection,
+    upserts: Vec<Value>,
+    delete_ids: Vec<String>,
+    ordered_ids: Vec<String>,
+) -> CoreResult<u64> {
+    let key = match collection {
+        StateCollection::Games => "games",
+        StateCollection::Roles => "roles",
+        StateCollection::LaunchWorkspaces => "launchWorkspaces",
+        StateCollection::Macros => "macros",
+        StateCollection::CompatibilityReports => "compatibilityReports",
+    };
+    let id_key = if matches!(collection, StateCollection::CompatibilityReports) {
+        "gameId"
+    } else {
+        "id"
+    };
+    if delete_ids.iter().any(|id| id.trim().is_empty()) {
+        return Err(CoreError::InvalidInput(
+            "collection delta contains an empty delete id".to_owned(),
+        ));
+    }
+    let mut snapshot = read_snapshot(connection)?;
+    let object = snapshot
+        .as_object_mut()
+        .ok_or_else(|| CoreError::StateDatabase("state snapshot must be an object".to_owned()))?;
+    let current = object
+        .entry(key.to_owned())
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| CoreError::StateDatabase(format!("{key} must be an array")))?;
+    let deleted = delete_ids
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    current.retain(|value| {
+        value
+            .get(id_key)
+            .and_then(Value::as_str)
+            .is_none_or(|id| !deleted.contains(id))
+    });
+    for value in upserts {
+        validate_collection_record(collection, &value)?;
+        let id = value
+            .get(id_key)
+            .and_then(Value::as_str)
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| {
+                CoreError::InvalidInput(format!("{key} delta record requires {id_key}"))
+            })?;
+        if let Some(index) = current
+            .iter()
+            .position(|stored| stored.get(id_key).and_then(Value::as_str) == Some(id))
+        {
+            current[index] = value;
+        } else {
+            current.push(value);
+        }
+    }
+    let current_ids = current
+        .iter()
+        .map(|value| {
+            value
+                .get(id_key)
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or_else(|| CoreError::InvalidInput(format!("{key} requires {id_key}")))
+        })
+        .collect::<CoreResult<Vec<_>>>()?;
+    let expected = current_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let requested = ordered_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    if ordered_ids.len() != requested.len() || requested != expected {
+        return Err(CoreError::InvalidInput(format!(
+            "{key} delta ordering must contain every record exactly once"
+        )));
+    }
+    let mut values = current
+        .drain(..)
+        .map(|value| {
+            let id = value
+                .get(id_key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            (id, value)
+        })
+        .collect::<HashMap<_, _>>();
+    *current = ordered_ids
+        .into_iter()
+        .map(|id| {
+            values.remove(&id).ok_or_else(|| {
+                CoreError::InvalidInput(format!("{key} delta ordering contains an unknown id"))
+            })
+        })
+        .collect::<CoreResult<Vec<_>>>()?;
     replace_snapshot(connection, &snapshot)
 }
 
@@ -832,42 +983,10 @@ fn snapshot_hash(snapshot: &Value) -> CoreResult<String> {
     Ok(format!("{:x}", Sha256::digest(serialized.as_bytes())))
 }
 
-fn read_array_file(path: PathBuf, key: &str) -> CoreResult<Vec<Value>> {
-    let Some(value) = read_object_file(path)? else {
-        return Ok(Vec::new());
-    };
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .cloned()
-        .ok_or_else(|| CoreError::Migration(format!("legacy {key} data is invalid")))
-}
-
-fn read_array_file_lenient(path: PathBuf, key: &str) -> Vec<Value> {
-    read_object_file_lenient(path)
-        .and_then(|value| value.get(key).and_then(Value::as_array).cloned())
-        .unwrap_or_default()
-}
-
-fn read_object_file_lenient(path: PathBuf) -> Option<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-}
-
-fn read_object_file(path: PathBuf) -> CoreResult<Option<Value>> {
-    let raw = match fs::read_to_string(&path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(CoreError::Migration(format!("{}: {error}", path.display()))),
-    };
-    serde_json::from_str(&raw)
-        .map(Some)
-        .map_err(|error| CoreError::Migration(format!("{}: {error}", path.display())))
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use tempfile::tempdir;
 
     use super::*;
@@ -965,6 +1084,48 @@ mod tests {
     }
 
     #[test]
+    fn applies_typed_collection_deltas_and_ordering_in_one_transaction() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let first = json!({
+            "id":"g1","source":"custom","name":"First",
+            "defaultLaunchUrl":"https://example.test/one","browserLaunchMode":"inherit",
+            "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+        });
+        let second = json!({
+            "id":"g2","source":"custom","name":"Second",
+            "defaultLaunchUrl":"https://example.test/two","browserLaunchMode":"inherit",
+            "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+        });
+
+        apply_collection_delta(
+            &mut connection,
+            StateCollection::Games,
+            vec![first.clone(), second.clone()],
+            vec![],
+            vec!["g2".to_owned(), "g1".to_owned()],
+        )
+        .unwrap();
+        let stored = read_snapshot(&connection).unwrap();
+        assert_eq!(stored["games"], json!([second, first]));
+
+        assert!(
+            apply_collection_delta(
+                &mut connection,
+                StateCollection::Games,
+                vec![json!({"id":"bad","name":"Incomplete"})],
+                vec![],
+                vec!["g2".to_owned(), "g1".to_owned(), "bad".to_owned()],
+            )
+            .is_err()
+        );
+        assert_eq!(
+            read_snapshot(&connection).unwrap()["games"],
+            stored["games"]
+        );
+    }
+
+    #[test]
     fn rejects_a_database_created_by_a_newer_application_version() {
         let connection = Connection::open_in_memory().unwrap();
         connection
@@ -999,7 +1160,7 @@ mod tests {
 
         let snapshot = read_snapshot(&connection).unwrap();
         assert_eq!(snapshot["compatibilityReports"], json!([]));
-        assert!(snapshot.get("gameBrowserSettings").is_none());
+        assert_eq!(snapshot["gameBrowserSettings"]["launchMode"], "auto");
     }
 
     #[test]
@@ -1025,5 +1186,45 @@ mod tests {
         let restored = read_snapshot(&connection).unwrap();
         assert_eq!(restored["games"], snapshot["games"]);
         assert_eq!(restored["roles"], snapshot["roles"]);
+    }
+
+    #[test]
+    fn completes_a_committed_sqlite_portable_journal_before_state_is_exposed() {
+        let directory = tempdir().unwrap();
+        let database_path = directory.path().join("state.sqlite3");
+        let connection = Connection::open(&database_path).unwrap();
+        create_schema(&connection, false).unwrap();
+        drop(connection);
+        fs::create_dir_all(directory.path().join("portable-import-transaction.stage")).unwrap();
+        fs::write(
+            directory.path().join("portable-import-transaction.json"),
+            r#"{
+              "storageKind":"sqlite","phase":"committed","createdRoleIds":[],
+              "games":[],"roles":[],"workspaces":[],"macros":[],
+              "targetGames":[{"id":"g2","name":"Imported"}],
+              "targetRoles":[],"targetWorkspaces":[],"targetMacros":[]
+            }"#,
+        )
+        .unwrap();
+        let worker = StateDatabaseWorker::start(database_path).unwrap();
+
+        assert!(
+            worker
+                .recover_portable_import(directory.path().to_path_buf())
+                .unwrap()
+        );
+        assert_eq!(worker.snapshot().unwrap()["games"][0]["id"], "g2");
+        assert!(
+            !directory
+                .path()
+                .join("portable-import-transaction.json")
+                .exists()
+        );
+        assert!(
+            !directory
+                .path()
+                .join("portable-import-transaction.stage")
+                .exists()
+        );
     }
 }

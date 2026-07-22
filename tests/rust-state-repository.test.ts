@@ -12,9 +12,8 @@ describe("RustStateRepository", () => {
 
     expect(invoke).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith({
-      type: "stateReplace",
-      key: "gameBrowserSettings",
-      value: settings
+      type: "gameBrowserSettingsReplace",
+      settings
     });
   });
 
@@ -30,8 +29,35 @@ describe("RustStateRepository", () => {
 
     expect(invoke).toHaveBeenNthCalledWith(1, { type: "stateSnapshot" });
     expect(invoke).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      type: "stateReplaceSnapshot",
+      type: "portableCommit",
       snapshot: expect.objectContaining({ games: [{ id: "g1", name: "Game" }] })
     }));
+  });
+
+  it("sends collection deltas instead of serializing unchanged records", async () => {
+    const initial = {
+      games: [{ id: "g1", name: "First" }],
+      roles: [],
+      launchWorkspaces: [],
+      macros: [],
+      compatibilityReports: []
+    };
+    const invoke = vi.fn(async (command: { type: string }) =>
+      command.type === "stateSnapshot" ? initial : { revision: 2 }
+    );
+    const repository = new RustStateRepository({ invoke } as never);
+    await repository.read("games", []);
+
+    await repository.replace("games", [
+      initial.games[0],
+      { id: "g2", name: "Second" }
+    ] as never);
+
+    expect(invoke).toHaveBeenLastCalledWith({
+      type: "gamesApplyDelta",
+      upserts: [{ id: "g2", name: "Second" }],
+      deleteIds: [],
+      orderedIds: ["g1", "g2"]
+    });
   });
 });

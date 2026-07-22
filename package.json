@@ -13,6 +13,8 @@
     "lint:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings",
     "generate:rust-types": "cargo test -p rion-core export_bindings",
     "performance:measure": "node scripts/benchmarkProcessTree.mjs",
+    "performance:aggregate": "node scripts/aggregatePerformanceRuns.mjs",
+    "performance:fixture": "node scripts/performanceFixtureServer.mjs",
     "typecheck": "tsc --build --force",
     "lint": "eslint .",
     "test": "vitest run",

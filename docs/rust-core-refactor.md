@@ -11,7 +11,8 @@ loads the addon directly.
 - `rion-core` owns domain validation, the state and log database workers, migration,
   monotonic scheduling, bounded event queues, CDN rules, resource decisions and CDP.
 - `rion-platform` owns macOS/Windows discovery, process and system-pressure adapters,
-  plus the `windows-rs` visible-frame implementation.
+  Chrome profile discovery/copy/cookie decryption, plus the `windows-rs` visible-frame
+  implementation.
 - `rion-node` is the only Node-API boundary.
 - Electron objects, windows, sessions, cookies, dialogs, menus and updates remain in
   TypeScript adapters. AppKit runtime tabs remain Objective-C++.
@@ -22,8 +23,29 @@ Missing or incompatible addons are fatal startup errors. Persistence never silen
 falls back to JSON. For the first rollout only, optional runtime subsystems can use the
 old implementation by setting a comma-separated
 `RION_STUDIO_RUST_FALLBACK_SUBSYSTEMS` value. Accepted names are `cdn`,
-`external-chrome`, `macro-timing`, `pressure`, and `resource-policy`; `all` selects all
-optional fallbacks. This switch does not change SQLite ownership.
+`external-chrome`, `layout-lifecycle`, `macro-timing`, `pressure`, and
+`resource-policy`; `all` selects all optional fallbacks. This switch does not change
+SQLite ownership.
+
+## 2.0 migration and downgrade boundary
+
+On first 2.0 startup, Rion Studio recovers any interrupted portable/profile journal,
+normalizes legacy data, imports it into temporary state and log databases, validates
+integrity, foreign keys, row counts and the snapshot hash, and then atomically installs
+the databases. Original JSON/JSONL files are copied to a timestamped read-only folder
+under `migration-backups` in the application user-data directory. These backups are
+never deleted automatically.
+
+SQLite is the only production write source after migration. Installing 1.x again can
+only see the legacy JSON as it existed at migration time; it cannot preserve changes
+made in 2.0. Portable JSON export is the supported path for moving application data
+across versions. Portable files deliberately exclude cookies, browser profiles and
+login sessions.
+
+Role browser directories remain at `roles/{roleId}/browser`, and Electron session
+partitions keep their existing identifiers. Migration does not proactively clear
+cookies, Chromium storage or login data, so existing sign-in state is expected to
+remain available. Third-party sites may still invalidate their own sessions.
 
 ## Verification
 
@@ -32,12 +54,17 @@ Run the complete local checks with:
 ```bash
 pnpm run lint:rust
 pnpm run test:rust
+pnpm run generate:rust-types
+git diff --exit-code -- src/shared/generated
 pnpm run build:rust
 pnpm run verify:rust
 pnpm run typecheck
 pnpm run test
 pnpm run lint
 pnpm run build
+pnpm run build:native:macos
+pnpm run test:native:macos
+pnpm run package
 ```
 
 `verify:rust` loads the release addon, creates and queries both databases, supervises
@@ -46,6 +73,11 @@ the addon and unpacked-package smoke tests on macOS arm64 and Windows x64. macOS
 also runs the AppKit runtime-tabs native tests.
 
 ## Performance protocol
+
+Start the deterministic browser workload with `pnpm run performance:fixture`. Configure role URLs
+as `http://127.0.0.1:47831/play?role=1` through `role=9`, and keep the optional `work` query
+parameter identical between 1.37 and 2.0. The seeded animation and fixed canvas workload avoid
+depending on a changing live game deployment.
 
 Use a release/package build on the same machine, display resolution, fixture and
 settings. Warm each scenario for 10 minutes, measure for 30 minutes, run it three times
@@ -69,8 +101,20 @@ pnpm run performance:measure -- \
 
 The harness samples the complete process tree and the non-renderer host subset, records
 CPU/RSS medians and steady-state RSS growth, and can compare against a prior result via
-`--baseline=...`. A release decision still requires all launcher idle, 1/4/9 visible
-roles, hidden workspace, macro on/off, embedded and external Chrome scenarios. Visible
+`--baseline=...`. After collecting exactly three baseline and three candidate runs for a
+scenario, aggregate the medians and enforce every gate with:
+
+```bash
+pnpm run performance:aggregate -- \
+  --baseline=baseline-1.json,baseline-2.json,baseline-3.json \
+  --candidate=candidate-1.json,candidate-2.json,candidate-3.json \
+  --output=performance-results/9-visible-comparison.json
+```
+
+Aggregation rejects mismatched hardware/fixture/scenario metadata, shortened warmup or
+measurement windows, and missing IPC/tab/macro p95 samples. A release decision still
+requires all launcher idle, 1/4/9 visible roles, hidden workspace, macro on/off,
+embedded and external Chrome scenarios. Visible
 roles must remain at full speed; only a wholly hidden workspace may use adaptive 2x/4x
 CPU throttling, and macro roles always remain unthrottled.
 

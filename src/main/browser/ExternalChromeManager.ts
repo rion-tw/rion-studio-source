@@ -41,6 +41,7 @@ import type {
   BrowserWorkspaceRuntimeStatus
 } from "./BrowserManager";
 import type { ExternalChromeProcessLike } from "../core/nativeCore";
+import type { ExternalChromeHealthMonitor } from "./RustExternalChromeHealthMonitor";
 
 export interface ExternalChromeManagerEvents {
   change: [RoleStatus[]];
@@ -90,6 +91,7 @@ export interface ExternalChromeManagerOptions {
   findExecutable?: () => string;
   getLaunchWorkArea: () => PixelBounds;
   graphicsMode?: BrowserGraphicsMode;
+  healthMonitor?: ExternalChromeHealthMonitor;
   onDiagnostic?: (event: ExternalChromeDiagnosticEvent & { roleId: string }) => void;
   now?: () => number;
   platform?: NodeJS.Platform;
@@ -153,10 +155,24 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
   ) {
     super();
     this.now = options.now ?? Date.now;
-    const setIntervalFn = options.setInterval ?? setInterval;
-    const healthTimer = setIntervalFn(() => this.checkPageHealth(), EXTERNAL_HEARTBEAT_INTERVAL_MS);
-    if (typeof healthTimer !== "number") {
-      healthTimer.unref?.();
+    if (options.healthMonitor) {
+      options.healthMonitor.onHealth((roleId, health) => this.handleHealthChange(roleId, health));
+      options.healthMonitor.onProbeFailure(({ errorMessage, roleId }) => {
+        const session = this.sessions.get(roleId);
+        if (!session) return;
+        session.lastCdpTimeoutAt = this.now();
+        this.options.onDiagnostic?.({
+          roleId,
+          type: "cdp_round_trip_timeout",
+          details: { message: errorMessage.slice(0, 256), timeoutMs: EXTERNAL_CDP_ROUND_TRIP_TIMEOUT_MS }
+        });
+      });
+    } else {
+      const setIntervalFn = options.setInterval ?? setInterval;
+      const healthTimer = setIntervalFn(() => this.checkPageHealth(), EXTERNAL_HEARTBEAT_INTERVAL_MS);
+      if (typeof healthTimer !== "number") {
+        healthTimer.unref?.();
+      }
     }
   }
 
@@ -206,11 +222,13 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
 
   handleSuspend(): void {
     this.suspended = true;
+    this.options.healthMonitor?.setSuspended(true);
   }
 
   handleResume(): void {
     const resumedAt = this.now();
     this.suspended = false;
+    this.options.healthMonitor?.setSuspended(false);
     this.sessions.forEach((session) => {
       session.lastHeartbeatAt = resumedAt;
     });
@@ -417,6 +435,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     this.emitChange();
     await this.beforeRoleStop?.(roleId);
     this.sessions.delete(roleId);
+    await this.options.healthMonitor?.remove(roleId).catch(() => undefined);
     const target = session.automationTarget;
     session.automationTarget = undefined;
     target?.close();
@@ -439,6 +458,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       throw new Error("External Chrome role stopped before recovery could begin.");
     }
     this.sessions.delete(roleId);
+    await this.options.healthMonitor?.remove(roleId).catch(() => undefined);
     const target = session.automationTarget;
     session.automationTarget = undefined;
     target?.close();
@@ -531,6 +551,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       session.lastHeartbeatAt = this.now();
       session.lastCdpRoundTripAt = session.lastHeartbeatAt;
       session.pageHealth = "healthy";
+      await this.options.healthMonitor?.register(role.id);
       session.cdnCompatibilityActive = cdnCompatibilityRequested;
       if (session.cdnCompatibilityActive) {
         session.notice = appendNotice(session.notice, CDN_COMPATIBILITY_EXTERNAL_NOTICE);
@@ -621,7 +642,8 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       if (typeof event.details.hidden === "boolean") {
         session.pageHidden = event.details.hidden;
       }
-      if (session.pageHealth === "unresponsive") {
+      this.options.healthMonitor?.heartbeat(roleId, session.pageHidden);
+      if (!this.options.healthMonitor && session.pageHealth === "unresponsive") {
         session.pageHealth = "healthy";
         session.notice = removeNotice(session.notice, EXTERNAL_PAGE_UNRESPONSIVE_NOTICE);
         this.emit("health", roleId, "healthy");
@@ -635,6 +657,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       if (!event.details.hidden) {
         session.lastHeartbeatAt = this.now();
       }
+      this.options.healthMonitor?.heartbeat(roleId, session.pageHidden);
     }
 
     this.options.onDiagnostic?.({ ...event, roleId });
@@ -666,6 +689,24 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
         .then((diagnostics) => this.emit("diagnostics", roleId, diagnostics))
         .catch(() => undefined);
     });
+  }
+
+  private handleHealthChange(roleId: string, health: "healthy" | "unresponsive"): void {
+    const session = this.sessions.get(roleId);
+    if (!session || session.pageHealth === health) return;
+    session.pageHealth = health;
+    if (health === "healthy") {
+      session.notice = removeNotice(session.notice, EXTERNAL_PAGE_UNRESPONSIVE_NOTICE);
+      this.emit("health", roleId, health);
+      this.emitChange();
+      return;
+    }
+    session.notice = appendNotice(session.notice, EXTERNAL_PAGE_UNRESPONSIVE_NOTICE);
+    this.emitChange();
+    this.emit("health", roleId, health);
+    void this.captureDiagnostics(roleId)
+      .then((diagnostics) => this.emit("diagnostics", roleId, diagnostics))
+      .catch(() => undefined);
   }
 
   private probeCdpRoundTrip(roleId: string, session: ExternalChromeSession, now: number): void {
@@ -746,6 +787,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
       return;
     }
     session.automationTarget = undefined;
+    void this.options.healthMonitor?.remove(roleId).catch(() => undefined);
     if (session.cdnCompatibilityActive) {
       session.cdnCompatibilityActive = false;
       session.notice = replaceNotice(
@@ -765,6 +807,7 @@ export class ExternalChromeManager extends EventEmitter<ExternalChromeManagerEve
     }
 
     this.sessions.delete(roleId);
+    void this.options.healthMonitor?.remove(roleId).catch(() => undefined);
     const target = session.automationTarget;
     session.automationTarget = undefined;
     target?.close();

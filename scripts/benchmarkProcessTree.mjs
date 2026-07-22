@@ -5,6 +5,8 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
+import { comparePerformanceSummaries } from "./performanceGates.mjs";
+
 const execFileAsync = promisify(execFile);
 const options = parseArguments(process.argv.slice(2));
 const rootPid = positiveInteger(options.pid, "--pid");
@@ -90,7 +92,10 @@ const result = {
   samples,
   summary,
   ...(options.baseline
-    ? { comparison: compare(summary, JSON.parse(await readFile(resolve(options.baseline), "utf8")).summary) }
+    ? { comparison: comparePerformanceSummaries(
+        summary,
+        JSON.parse(await readFile(resolve(options.baseline), "utf8")).summary
+      ) }
     : {})
 };
 
@@ -115,44 +120,6 @@ function summarize(samples, telemetry) {
     nonRendererRssGrowthPercent: firstRss === 0 ? 0 : ((lastRss - firstRss) / firstRss) * 100,
     sampleCount: samples.length,
     ...(telemetry ? { runtimeTelemetry: telemetry } : {})
-  };
-}
-
-function compare(current, baseline) {
-  const improvement = (before, after) => before === 0 ? 0 : ((before - after) / before) * 100;
-  const latencyRegression = baseline.runtimeTelemetry?.napi?.p95Ms
-    ? ((current.runtimeTelemetry?.napi?.p95Ms ?? Infinity) - baseline.runtimeTelemetry.napi.p95Ms) /
-      baseline.runtimeTelemetry.napi.p95Ms * 100
-    : undefined;
-  const gates = {
-    nonRendererCpuImprovementPercent: improvement(
-      baseline.medianNonRendererCpuPercent,
-      current.medianNonRendererCpuPercent
-    ),
-    nonRendererRssImprovementPercent: improvement(
-      baseline.medianNonRendererRssBytes,
-      current.medianNonRendererRssBytes
-    ),
-    treeCpuImprovementPercent: improvement(
-      baseline.medianTreeCpuPercent,
-      current.medianTreeCpuPercent
-    ),
-    treeRssImprovementPercent: improvement(
-      baseline.medianTreeRssBytes,
-      current.medianTreeRssBytes
-    ),
-    napiP95RegressionPercent: latencyRegression,
-    rssGrowthPercent: current.nonRendererRssGrowthPercent
-  };
-  return {
-    gates,
-    passed:
-      gates.nonRendererCpuImprovementPercent >= 30 &&
-      gates.nonRendererRssImprovementPercent >= 20 &&
-      gates.treeCpuImprovementPercent >= 10 &&
-      gates.treeRssImprovementPercent >= 5 &&
-      (gates.napiP95RegressionPercent === undefined || gates.napiP95RegressionPercent <= 5) &&
-      gates.rssGrowthPercent <= 5
   };
 }
 

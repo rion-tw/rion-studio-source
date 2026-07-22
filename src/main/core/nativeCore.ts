@@ -7,9 +7,12 @@ import { app } from "electron";
 import type {
   BrowserActionResult,
   CdnRule,
+  CoreCommand,
   CoreEvent,
   ResourcePolicyDecision,
-  ResourcePolicyInput
+  ResourcePolicyInput,
+  WorkspaceLayoutInput,
+  WorkspaceLayoutOutput
 } from "../../shared/generated";
 import type { PixelBounds } from "../../shared/types";
 import type {
@@ -44,11 +47,6 @@ export interface ExternalChromeProcessLike {
   once(event: "close", listener: (code: number | null) => void): this;
 }
 
-export interface NativeCoreCommand {
-  type: string;
-  [key: string]: unknown;
-}
-
 export interface NativeAppCore {
   alignExternalChromeWindow: (processId: number, target: PixelBounds) => Promise<PixelBounds>;
   cancelWait: (id: string) => void;
@@ -67,6 +65,7 @@ export interface NativeAppCore {
   prepareExternalChromeProfile: (path: string) => Promise<void>;
   replaceCdnRules: (rulesJson: string) => string[];
   resolveResourcePolicy: (inputJson: string) => string;
+  resolveWorkspaceLayout: (inputJson: string) => string;
   rewriteCdnUrl: (url: string) => string | null;
   shutdown: () => Promise<void>;
   scheduleWait: (id: string, durationMs: number) => Promise<void>;
@@ -99,10 +98,13 @@ export interface RuntimePerformanceMetrics {
   browserResultCount: number;
   cdp: LatencySummary & { messageCount: number };
   coreEventBatchCount: number;
+  ipcCommand: LatencySummary;
+  macroScheduleToDispatch: LatencySummary;
   napi: LatencySummary & { callCount: number };
   processLaunchCount: number;
   scheduledWaitCount: number;
   startedAt: string;
+  tabActivation: LatencySummary;
 }
 
 interface LatencySummary {
@@ -149,7 +151,7 @@ export class AppCoreClient {
     }
   }
 
-  async invoke<T>(command: NativeCoreCommand): Promise<T> {
+  async invoke<T>(command: CoreCommand): Promise<T> {
     const startedAt = performance.now();
     try {
       return JSON.parse(await this.native.invoke(JSON.stringify(command))) as T;
@@ -250,6 +252,12 @@ export class AppCoreClient {
     );
   }
 
+  resolveWorkspaceLayout(input: WorkspaceLayoutInput): WorkspaceLayoutOutput {
+    return this.measureSync(() =>
+      JSON.parse(this.native.resolveWorkspaceLayout(JSON.stringify(input))) as WorkspaceLayoutOutput
+    );
+  }
+
   scheduleWait(id: string, durationMs: number): Promise<void> {
     const startedAt = performance.now();
     const wait = this.native.scheduleWait(id, durationMs).catch((error) => {
@@ -275,6 +283,18 @@ export class AppCoreClient {
 
   getPerformanceMetrics(): RuntimePerformanceMetrics {
     return this.metrics.snapshot();
+  }
+
+  recordIpcCommandLatency(durationMs: number): void {
+    this.metrics.recordIpcCommand(durationMs);
+  }
+
+  recordMacroScheduleToDispatchLatency(durationMs: number): void {
+    this.metrics.recordMacroScheduleToDispatch(durationMs);
+  }
+
+  recordTabActivationLatency(durationMs: number): void {
+    this.metrics.recordTabActivation(durationMs);
   }
 
   async shutdown(): Promise<void> {
@@ -419,7 +439,10 @@ class PerformanceMetrics {
   processLaunchCount = 0;
   scheduledWaitCount = 0;
   private readonly cdpLatency = new LatencySampler();
+  private readonly ipcCommandLatency = new LatencySampler();
+  private readonly macroScheduleToDispatchLatency = new LatencySampler();
   private readonly napiLatency = new LatencySampler();
+  private readonly tabActivationLatency = new LatencySampler();
   private readonly startedAt = new Date().toISOString();
   private cdpMessageCount = 0;
   private napiCallCount = 0;
@@ -434,15 +457,30 @@ class PerformanceMetrics {
     this.napiLatency.record(durationMs);
   }
 
+  recordIpcCommand(durationMs: number): void {
+    this.ipcCommandLatency.record(durationMs);
+  }
+
+  recordMacroScheduleToDispatch(durationMs: number): void {
+    this.macroScheduleToDispatchLatency.record(durationMs);
+  }
+
+  recordTabActivation(durationMs: number): void {
+    this.tabActivationLatency.record(durationMs);
+  }
+
   snapshot(): RuntimePerformanceMetrics {
     return {
       browserResultCount: this.browserResultCount,
       cdp: { messageCount: this.cdpMessageCount, ...this.cdpLatency.summary() },
       coreEventBatchCount: this.coreEventBatchCount,
+      ipcCommand: this.ipcCommandLatency.summary(),
+      macroScheduleToDispatch: this.macroScheduleToDispatchLatency.summary(),
       napi: { callCount: this.napiCallCount, ...this.napiLatency.summary() },
       processLaunchCount: this.processLaunchCount,
       scheduledWaitCount: this.scheduledWaitCount,
-      startedAt: this.startedAt
+      startedAt: this.startedAt,
+      tabActivation: this.tabActivationLatency.summary()
     };
   }
 }

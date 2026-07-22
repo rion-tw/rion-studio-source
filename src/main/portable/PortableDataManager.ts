@@ -111,6 +111,7 @@ interface PortableDataManagerOptions {
   >;
   gameStore: Pick<GameStore, "listGames" | "publishGamesForImport" | "replaceGamesForImport">;
   now?: () => Date;
+  normalizePortableData?: (raw: string) => Promise<RionPortableDataV6>;
   readTextFile?: (path: string, encoding: BufferEncoding) => Promise<string>;
   roleStore: Pick<
     RoleStore,
@@ -230,7 +231,10 @@ export class PortableDataManager {
 
   async exportData(input: PortableExportInput = {}): Promise<PortableExportResult | null> {
     const selection = normalizePortableDataSelection(input.selection);
-    const data = await this.createPortableData(input.preferences, selection);
+    const createdData = await this.createPortableData(input.preferences, selection);
+    const data = this.options.normalizePortableData
+      ? await this.options.normalizePortableData(JSON.stringify(createdData))
+      : createdData;
     ensurePortableContentSelected(data);
     const dialogResult = await this.options.showSaveDialog({
       defaultPath: `rion-studio-${formatDate(this.now())}.json`,
@@ -269,7 +273,16 @@ export class PortableDataManager {
 
     this.pendingImport = undefined;
     const filePath = dialogResult.filePaths[0];
-    const data = parsePortableData(await this.readTextFile(filePath, "utf8"));
+    const raw = await this.readTextFile(filePath, "utf8");
+    let data: RionPortableDataV6;
+    try {
+      data = this.options.normalizePortableData
+        ? await this.options.normalizePortableData(raw)
+        : parsePortableData(raw);
+    } catch (error) {
+      if (error instanceof PortableDataError) throw error;
+      throw new PortableDataError("PORTABLE_DATA_INVALID", "Portable data file is invalid.");
+    }
     const plan = await this.buildImportPlan(data, []);
     const importId = this.createImportId();
 
@@ -470,6 +483,37 @@ export class PortableDataManager {
       this.options.macroSettingsStore?.publishSettingsForImport(currentMacroSettings);
     }
 
+    // SQLite is the production persistence path. Rust commits this complete
+    // portable snapshot in one database transaction, so no filesystem journal
+    // is needed unless the internal JSON fallback is explicitly active.
+    if (this.options.stateRepository) {
+      const committedGames = shouldWriteGames ? plan.finalGames : games;
+      const committedRoles = shouldWriteRoles ? plan.finalRoles : roles;
+      const committedWorkspaces = shouldWriteWorkspaces ? plan.finalWorkspaces : workspaces;
+      const committedMacros = shouldWriteMacros ? plan.finalMacros : macros;
+      const committedGameSettings = shouldWriteGameSettings ? targetGameSettings : currentGameSettings;
+      const committedMacroSettings = shouldWriteMacroSettings ? targetMacroSettings : currentMacroSettings;
+      await this.options.stateRepository.replaceMany({
+        games: committedGames,
+        roles: committedRoles,
+        launchWorkspaces: committedWorkspaces,
+        macros: committedMacros,
+        ...(committedGameSettings ? { gameBrowserSettings: committedGameSettings } : {}),
+        ...(committedMacroSettings ? { macroSettings: committedMacroSettings } : {})
+      });
+      this.options.gameStore.publishGamesForImport(committedGames);
+      this.options.roleStore.publishRolesForImport(committedRoles);
+      this.options.workspaceStore.publishWorkspacesForImport(committedWorkspaces);
+      this.options.macroStore.publishMacrosForImport(committedMacros);
+      if (committedGameSettings) {
+        this.options.gameBrowserSettingsStore?.publishSettingsForImport(committedGameSettings);
+      }
+      if (committedMacroSettings) {
+        this.options.macroSettingsStore?.publishSettingsForImport(committedMacroSettings);
+      }
+      return;
+    }
+
     const journal: PortableImportJournal = {
       createdRoleIds: plan.createdRoleIds,
       games,
@@ -501,43 +545,28 @@ export class PortableDataManager {
       let committedGameSettings = currentGameSettings;
       let committedMacroSettings = currentMacroSettings;
 
-      if (this.options.stateRepository) {
-        committedGames = shouldWriteGames ? plan.finalGames : games;
-        committedRoles = shouldWriteRoles ? plan.finalRoles : roles;
-        committedWorkspaces = shouldWriteWorkspaces ? plan.finalWorkspaces : workspaces;
-        committedMacros = shouldWriteMacros ? plan.finalMacros : macros;
-        committedGameSettings = shouldWriteGameSettings ? targetGameSettings : currentGameSettings;
-        committedMacroSettings = shouldWriteMacroSettings ? targetMacroSettings : currentMacroSettings;
-        await this.options.stateRepository.replaceMany({
-          games: committedGames,
-          roles: committedRoles,
-          launchWorkspaces: committedWorkspaces,
-          macros: committedMacros,
-          ...(committedGameSettings ? { gameBrowserSettings: committedGameSettings } : {}),
-          ...(committedMacroSettings ? { macroSettings: committedMacroSettings } : {})
-        });
-      } else if (shouldWriteGames) {
+      if (shouldWriteGames) {
         committedGames = await this.options.gameStore.replaceGamesForImport(plan.finalGames, false);
       }
-      if (!this.options.stateRepository && shouldWriteRoles) {
+      if (shouldWriteRoles) {
         committedRoles = await this.options.roleStore.replaceRolesForImport(plan.finalRoles, false);
       }
-      if (!this.options.stateRepository && shouldWriteWorkspaces) {
+      if (shouldWriteWorkspaces) {
         committedWorkspaces = await this.options.workspaceStore.replaceWorkspacesForImport(
           plan.finalWorkspaces,
           false
         );
       }
-      if (!this.options.stateRepository && shouldWriteMacros) {
+      if (shouldWriteMacros) {
         committedMacros = await this.options.macroStore.replaceMacrosForImport(plan.finalMacros, false);
       }
-      if (!this.options.stateRepository && shouldWriteGameSettings && targetGameSettings) {
+      if (shouldWriteGameSettings && targetGameSettings) {
         committedGameSettings = await this.options.gameBrowserSettingsStore?.updateSettings(
           targetGameSettings,
           false
         );
       }
-      if (!this.options.stateRepository && shouldWriteMacroSettings && targetMacroSettings) {
+      if (shouldWriteMacroSettings && targetMacroSettings) {
         committedMacroSettings = await this.options.macroSettingsStore?.updateSettings(
           targetMacroSettings,
           false
@@ -578,31 +607,20 @@ export class PortableDataManager {
         let restoredMacros = journal.macros;
         let restoredGameSettings = journal.gameBrowserSettings;
         let restoredMacroSettings = journal.macroSettings;
-        if (this.options.stateRepository) {
-          await this.options.stateRepository.replaceMany({
-            games: restoredGames,
-            roles: restoredRoles,
-            launchWorkspaces: restoredWorkspaces,
-            macros: restoredMacros,
-            ...(restoredGameSettings ? { gameBrowserSettings: restoredGameSettings } : {}),
-            ...(restoredMacroSettings ? { macroSettings: restoredMacroSettings } : {})
-          });
-        } else {
-          restoredGames = await this.options.gameStore.replaceGamesForImport(journal.games, false);
-          restoredRoles = await this.options.roleStore.replaceRolesForImport(journal.roles, false);
-          restoredWorkspaces = await this.options.workspaceStore.replaceWorkspacesForImport(
-            journal.workspaces,
-            false
-          );
-          restoredMacros = await this.options.macroStore.replaceMacrosForImport(journal.macros, false);
-        }
-        if (!this.options.stateRepository && journal.gameBrowserSettings) {
+        restoredGames = await this.options.gameStore.replaceGamesForImport(journal.games, false);
+        restoredRoles = await this.options.roleStore.replaceRolesForImport(journal.roles, false);
+        restoredWorkspaces = await this.options.workspaceStore.replaceWorkspacesForImport(
+          journal.workspaces,
+          false
+        );
+        restoredMacros = await this.options.macroStore.replaceMacrosForImport(journal.macros, false);
+        if (journal.gameBrowserSettings) {
           restoredGameSettings = await this.options.gameBrowserSettingsStore?.updateSettings(
             journal.gameBrowserSettings,
             false
           );
         }
-        if (!this.options.stateRepository && journal.macroSettings) {
+        if (journal.macroSettings) {
           restoredMacroSettings = await this.options.macroSettingsStore?.updateSettings(
             journal.macroSettings,
             false

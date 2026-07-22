@@ -1,6 +1,7 @@
 export type RustSubsystem =
   | "cdn"
   | "external-chrome"
+  | "layout-lifecycle"
   | "macro-timing"
   | "pressure"
   | "resource-policy";

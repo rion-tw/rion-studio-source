@@ -6,10 +6,18 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+aes.workspace = true
+cbc.workspace = true
 crossbeam-channel.workspace = true
+pbkdf2.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3.24.0"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
@@ -17,7 +25,9 @@ windows = { version = "0.62.2", features = [
   "Win32_Graphics_Dwm",
   "Win32_Graphics_Gdi",
   "Win32_System_ProcessStatus",
+  "Win32_System_Memory",
   "Win32_System_Threading",
+  "Win32_Security_Cryptography",
   "Win32_UI_HiDpi",
   "Win32_UI_WindowsAndMessaging",
 ] }

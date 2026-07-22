@@ -3618,6 +3618,33 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 598, y: 0, width: 4, height: 800 });
   });
 
+  it("uses the Rust workspace layout decision as the Electron object adapter boundary", async () => {
+    const workspaceLayoutResolver = vi.fn(() => ({
+      dividers: [{ bounds: { x: 490, y: 0, width: 20, height: 800 }, index: 0 }],
+      roles: [
+        { bounds: { x: 0, y: 0, width: 490, height: 800 }, roleId: role.id },
+        { bounds: { x: 510, y: 0, width: 690, height: 800 }, roleId: "role-2" }
+      ],
+      visible: true
+    }));
+    const harness = createHarness({ workspaceLayoutResolver });
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+
+    expect(workspaceLayoutResolver).toHaveBeenCalledWith(expect.objectContaining({
+      active: true,
+      contentBounds: { x: 0, y: 0, width: 1200, height: 800 },
+      gap: 4,
+      hidden: false,
+      windowVisible: true
+    }));
+    expect(harness.views[0].setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 490, height: 800 });
+    expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 510, y: 0, width: 690, height: 800 });
+    expect(harness.views[2].setBounds).toHaveBeenLastCalledWith({ x: 490, y: 0, width: 20, height: 800 });
+  });
+
   it("creates crossing resize dividers for a quad workspace", async () => {
     const harness = createHarness();
     const rects = getDefaultWorkspaceRects("quad");
@@ -4432,6 +4459,7 @@ function createHarness(options: {
   resourcePressureMonitor?: BrowserManagerOptions["resourcePressureMonitor"];
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
+  workspaceLayoutResolver?: BrowserManagerOptions["workspaceLayoutResolver"];
   useTabbedHostWindow?: boolean;
   useMacNativeChrome?: boolean;
 } = {}) {
@@ -4561,6 +4589,9 @@ function createHarness(options: {
       : {}),
     ...(options.resourcePressureMonitor
       ? { resourcePressureMonitor: options.resourcePressureMonitor }
+      : {}),
+    ...(options.workspaceLayoutResolver
+      ? { workspaceLayoutResolver: options.workspaceLayoutResolver }
       : {})
   });
   manager.setBeforeRolesStop(beforeRolesStop);

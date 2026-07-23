@@ -79,5 +79,20 @@ impl PixelBounds {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_explicit_macos_and_windows_names_and_rejects_other_platforms() {
+        assert_eq!(Platform::parse("darwin").unwrap(), Platform::Macos);
+        assert_eq!(Platform::parse("windows").unwrap(), Platform::Windows);
+        assert!(matches!(
+            Platform::parse("linux"),
+            Err(PlatformError::Unsupported(platform)) if platform == "linux"
+        ));
+    }
+}
+
 #[cfg(windows)]
 pub mod windows;

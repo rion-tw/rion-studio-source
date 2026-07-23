@@ -177,24 +177,22 @@ impl AppCore {
         let (browser_action_sender, browser_action_receiver) =
             crate::browser_action_effects::action_queue();
         let macro_subscribers = Arc::clone(&subscribers);
-        let macro_resources = Arc::clone(&resource_controller);
         let macro_browser_action_sender = browser_action_sender.clone();
-        let macro_runtime = Arc::new(MacroRuntime::new(Arc::new(move |events| {
-            if let Some(CoreEvent::MacroStatuses { statuses }) = events
-                .iter()
-                .rev()
-                .find(|event| matches!(event, CoreEvent::MacroStatuses { .. }))
-            {
-                let role_ids = statuses
-                    .iter()
-                    .filter(|status| matches!(status.state.as_str(), "running" | "stopping"))
-                    .map(|status| status.role_id.clone())
-                    .collect();
-                let _ =
-                    macro_resources.invoke(ResourceRuntimeCommand::SetMacroRoleIds { role_ids });
-            }
-            route_browser_action_events(events, &macro_browser_action_sender, &macro_subscribers);
-        })));
+        let macro_resources = Arc::clone(&resource_controller);
+        let macro_runtime = Arc::new(MacroRuntime::new_with_role_sync(
+            Arc::new(move |events| {
+                route_browser_action_events(
+                    events,
+                    &macro_browser_action_sender,
+                    &macro_subscribers,
+                );
+            }),
+            Arc::new(move |role_ids| {
+                macro_resources
+                    .invoke(ResourceRuntimeCommand::SetMacroRoleIds { role_ids })
+                    .map(|_| ())
+            }),
+        ));
         let browser_runtime =
             Arc::new(Mutex::new(crate::browser_runtime::BrowserRuntime::default()));
         let external_sessions = Arc::new(Mutex::new(
@@ -314,7 +312,7 @@ impl AppCore {
                 if let Ok(health) = process_external_health.lock() {
                     let _ = health.remove(role_id.clone());
                 }
-                let _ = process_macro_runtime.release_role(&role_id);
+                let _ = process_macro_runtime.stop_role(&role_id);
                 let mut events = vec![CoreEvent::ExternalProcessExited {
                     role_id,
                     exit_code: event.exit_code,
@@ -962,7 +960,7 @@ impl AppCore {
                     macros,
                     settings,
                     macro_id: request.macro_id,
-                    role_id: request.role_id,
+                    source_role_id: request.source_role_id,
                     active_role_ids: self.macro_active_role_ids()?,
                 };
                 serde_json::to_value(self.macro_runtime.start(request)?)
@@ -976,7 +974,7 @@ impl AppCore {
                         macros,
                         settings,
                         macro_id: request.macro_id,
-                        role_id: Some(request.role_id),
+                        source_role_id: Some(request.source_role_id),
                         active_role_ids: self.macro_active_role_ids()?,
                     },
                     press_id: request.press_id,
@@ -992,7 +990,10 @@ impl AppCore {
                 self.macro_runtime.stop_macro(&macro_id)?;
                 Ok(json!({ "stopped": true }))
             }
-            CoreCommand::MacroStopForRole { macro_id, role_id } => {
+            CoreCommand::MacroStopForRole {
+                macro_id,
+                source_role_id,
+            } => {
                 let (macros, _) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
                 let macro_definition = macros
@@ -1003,14 +1004,15 @@ impl AppCore {
                         message: "Macro not found.".to_owned(),
                     })?;
                 if !macro_definition.role_ids.is_empty()
-                    && !macro_definition.role_ids.contains(&role_id)
+                    && !macro_definition.role_ids.contains(&source_role_id)
                 {
                     return Err(CoreError::Domain {
                         code: "MACRO_ROLE_INVALID",
                         message: "This macro is not assigned to the current role.".to_owned(),
                     });
                 }
-                self.macro_runtime.stop_macro_role(&macro_id, &role_id)?;
+                self.macro_runtime
+                    .stop_macro_from_role(&macro_id, &source_role_id)?;
                 Ok(json!({ "stopped": true }))
             }
             CoreCommand::MacroStopRole { role_id } => {
@@ -3386,7 +3388,7 @@ impl AppCore {
                 let _ = self
                     .external_health()
                     .and_then(|health| health.remove(role_id.to_owned()));
-                let _ = self.macro_runtime.release_role(role_id);
+                let _ = self.macro_runtime.stop_role(role_id);
                 self.emit_browser_statuses();
             }
             crate::external_chrome::CdpEvent::Notification { method, params, .. }
@@ -3517,7 +3519,7 @@ impl AppCore {
         self.invoke_external_session(ExternalSessionCommand::SetStopping {
             role_id: role_id.to_owned(),
         })?;
-        let _ = self.macro_runtime.release_role(role_id);
+        let _ = self.macro_runtime.stop_role(role_id);
         let _ = self.external_health()?.remove(role_id.to_owned());
         let _ = self.external_automation.unregister(role_id);
         let _ = self.external_processes.terminate(role_id);
@@ -3688,7 +3690,7 @@ impl AppCore {
                     macros,
                     settings,
                     macro_id,
-                    role_id: Some(role_id.to_owned()),
+                    source_role_id: Some(role_id.to_owned()),
                     active_role_ids: self.macro_active_role_ids()?,
                 })?;
                 start_summary = Some(MacroOverlayStartSummaryRecord {
@@ -3700,7 +3702,8 @@ impl AppCore {
                 let (macros, _) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
                 crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
-                self.macro_runtime.stop_macro_role(&macro_id, role_id)?;
+                self.macro_runtime
+                    .stop_macro_from_role(&macro_id, role_id)?;
             }
             MacroOverlayRequestRecord::Press { macro_id, press_id } => {
                 let (macros, settings) =
@@ -3715,7 +3718,7 @@ impl AppCore {
                         macros,
                         settings,
                         macro_id,
-                        role_id: Some(role_id.to_owned()),
+                        source_role_id: Some(role_id.to_owned()),
                         active_role_ids: self.macro_active_role_ids()?,
                     },
                     press_id,
@@ -3735,7 +3738,7 @@ impl AppCore {
                 crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
                 self.macro_runtime.release(MacroReleaseRequest {
                     macro_id,
-                    role_id: role_id.to_owned(),
+                    source_role_id: role_id.to_owned(),
                     press_id,
                     mode: release_mode.unwrap_or_else(|| "complete_first_iteration".to_owned()),
                 })?;
@@ -6018,6 +6021,7 @@ impl Drop for AppCore {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::HashMap,
         path::Path,
         sync::{Arc, Mutex},
         thread,
@@ -6942,9 +6946,12 @@ mod tests {
     }
 
     #[test]
-    fn embedded_macro_waits_for_resource_override_and_runs_digit_one_actions() {
+    fn embedded_macro_from_one_role_runs_three_iterations_for_all_assigned_roles() {
         let (_directory, core) = core();
-        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let game_id = first_game_id(&core);
+        let role_id = create_role(&core, &game_id, 1);
+        let sibling_role_id = create_role(&core, &game_id, 2);
+        let unavailable_role_id = create_role(&core, &game_id, 3);
         let (launch, _) = drive_command(
             Arc::clone(&core),
             command(json!({
@@ -6958,12 +6965,29 @@ mod tests {
             None,
         );
         assert!(launch.is_ok());
+        let (sibling_launch, _) = drive_command(
+            Arc::clone(&core),
+            command(json!({
+                "type": "embeddedRoleLaunch",
+                "roleId": sibling_role_id,
+                "target": {
+                    "displayId": 2,
+                    "workArea": {"x": 1200, "y": 0, "width": 1200, "height": 800}
+                }
+            })),
+            None,
+        );
+        assert!(sibling_launch.is_ok());
         let macro_id = core
             .invoke(command(json!({
                 "type": "macroCreate",
                 "input": {
                     "name": "Digit one loop",
-                    "roleIds": [role_id.clone()],
+                    "roleIds": [
+                        role_id.clone(),
+                        sibling_role_id.clone(),
+                        unavailable_role_id
+                    ],
                     "trigger": {
                         "code": "KeyQ",
                         "ctrl": false,
@@ -6986,20 +7010,33 @@ mod tests {
         let receiver = core.subscribe().unwrap();
         let start_core = Arc::clone(&core);
         let start_macro_id = macro_id.clone();
+        let source_role_id = role_id.clone();
         let start = thread::spawn(move || {
-            start_core.invoke(CoreCommand::MacroStart {
-                request: crate::model::MacroInvocationRequest {
-                    macro_id: start_macro_id,
-                    role_id: None,
-                },
-            })
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(
+                    start_core.invoke_async(CoreCommand::OverlayRequest {
+                        role_id: source_role_id,
+                        request_json: json!({
+                            "type": "start",
+                            "macroId": start_macro_id
+                        })
+                        .to_string(),
+                        language: Some("zh-TW".to_owned()),
+                    }),
+                )
         });
         let mut resource_override_applied = false;
         let mut browser_action_started = false;
-        let mut releases = 0;
+        let mut releases = HashMap::<String, usize>::new();
         let mut failed = false;
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while releases < 3 || !start.is_finished() {
+        while releases.get(&role_id).copied().unwrap_or_default() < 3
+            || releases.get(&sibling_role_id).copied().unwrap_or_default() < 3
+            || !start.is_finished()
+        {
             assert!(
                 std::time::Instant::now() < deadline,
                 "embedded macro did not complete three iterations"
@@ -7030,7 +7067,9 @@ mod tests {
                                     {
                                         assert_eq!(code.as_deref(), Some("Digit1"));
                                         if phase == "release" {
-                                            releases += 1;
+                                            *releases
+                                                .entry(request.role_id.clone())
+                                                .or_default() += 1;
                                         }
                                     }
                                 }
@@ -7049,7 +7088,9 @@ mod tests {
                 core.dispatch_core_effect_results(results).unwrap();
             }
         }
-        assert!(start.join().unwrap().is_ok());
+        let start_view = start.join().unwrap().unwrap();
+        assert_eq!(start_view["startSummary"]["startedCount"], 2);
+        assert_eq!(start_view["startSummary"]["skippedCount"], 1);
         assert!(!failed);
 
         let stop_core = Arc::clone(&core);
@@ -7073,10 +7114,20 @@ mod tests {
         assert!(stop.join().unwrap().is_ok());
         let (stopped, _) = drive_command(
             Arc::clone(&core),
-            CoreCommand::EmbeddedRoleStop { role_id },
+            CoreCommand::EmbeddedRoleStop {
+                role_id: role_id.clone(),
+            },
             None,
         );
         assert!(stopped.is_ok());
+        let (sibling_stopped, _) = drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedRoleStop {
+                role_id: sibling_role_id,
+            },
+            None,
+        );
+        assert!(sibling_stopped.is_ok());
         core.shutdown();
     }
 

@@ -344,6 +344,11 @@ pub enum CoreCommand {
         #[ts(rename = "browserUserDataDir")]
         browser_user_data_dir: String,
     },
+    OperationCancel {
+        #[ts(rename = "operationId")]
+        operation_id: String,
+    },
+    CoreEffectMetrics,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1623,6 +1628,9 @@ pub enum CoreEvent {
     BrowserActions {
         actions: Vec<BrowserActionRequest>,
     },
+    CoreEffects {
+        effects: Vec<CoreEffectRequest>,
+    },
     MacroStatuses {
         statuses: Vec<MacroRunStatus>,
     },
@@ -2666,6 +2674,90 @@ pub struct BrowserActionResult {
     pub value_json: Option<String>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectTarget {
+    #[ts(type = "\"app\" | \"window\" | \"view\" | \"webContents\" | \"session\"")]
+    pub kind: String,
+    pub handle_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum CoreEffectAction {
+    CreateWindow { options_json: String },
+    CreateView { options_json: String },
+    AttachView { child_handle_id: String },
+    DetachView { child_handle_id: String },
+    Destroy,
+    LoadUrl { url: String },
+    SetBounds { bounds: StatePixelBoundsRecord },
+    SetVisible { visible: bool },
+    Focus,
+    Evaluate { source: String },
+    DebuggerCommand { method: String, params_json: String },
+    SessionClearStorage { storages: Vec<String> },
+    CookieSet { cookie_json: String },
+    SetAudioMuted { muted: bool },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectRequest {
+    pub effect_id: String,
+    pub operation_id: String,
+    pub target: CoreEffectTarget,
+    #[ts(type = "number")]
+    pub deadline_ms: u64,
+    pub action: CoreEffectAction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectResult {
+    pub effect_id: String,
+    pub operation_id: String,
+    pub ok: bool,
+    pub value_json: Option<String>,
+    pub error: Option<crate::error::CoreErrorPayload>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectDispatchReport {
+    pub accepted: Vec<String>,
+    pub duplicate: Vec<String>,
+    pub late: Vec<String>,
+    pub unknown: Vec<String>,
+    pub operation_mismatch: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectMetricsRecord {
+    pub pending_effect_count: u32,
+    pub active_operation_count: u32,
+    pub pending_effect_capacity: u32,
+    pub operation_capacity: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct OperationCancelResultRecord {
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

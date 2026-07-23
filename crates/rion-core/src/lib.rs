@@ -21,6 +21,7 @@ mod legal;
 mod macro_graph;
 mod macro_runtime;
 mod model;
+pub mod operation_actor;
 mod portable;
 mod pressure;
 mod resource;
@@ -45,11 +46,12 @@ pub use model::{
     ChromeProfileImportPreviewRecord, ChromeProfileImportRequest, ChromeProfileImportResultRecord,
     ChromeProfileImportWarningRecord, ChromeProfileImportedSessionRecord,
     CompatibilityCheckOutcome, CompatibilityCheckPlanRecord, CompatibilityRunPhase,
-    CompatibilityRunStatusRecord, CompatibilityVersionRecord, CoreCommand, CoreEvent,
-    CoreStateSnapshotRecord, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
-    ExternalBrowserActionDispatch, ExternalSessionCommand, ExternalSessionRecord,
-    ExternalSessionResult, GameBrowserSettingsRecord, GameCreateInputRecord, GameCreateRequest,
-    GameUpdateInputRecord, GameUpdateRequest, LayoutBounds, LayoutDividerBounds,
+    CompatibilityRunStatusRecord, CompatibilityVersionRecord, CoreCommand, CoreEffectAction,
+    CoreEffectDispatchReport, CoreEffectMetricsRecord, CoreEffectRequest, CoreEffectResult,
+    CoreEffectTarget, CoreEvent, CoreStateSnapshotRecord, EmbeddedKeyEffectRecord,
+    EmbeddedKeyTransitionRecord, ExternalBrowserActionDispatch, ExternalSessionCommand,
+    ExternalSessionRecord, ExternalSessionResult, GameBrowserSettingsRecord, GameCreateInputRecord,
+    GameCreateRequest, GameUpdateInputRecord, GameUpdateRequest, LayoutBounds, LayoutDividerBounds,
     LayoutDividerInput, LayoutRect, LayoutRoleBounds, LayoutRoleInput,
     LegalAcceptDocumentsInputRecord, LegalAcceptanceRecord, LegalAcceptanceStatusRecord,
     LegalDocumentVersionsRecord, LogEntry, LogErrorDetails, LogLevel, LogQuery, LogSource,
@@ -57,16 +59,17 @@ pub use model::{
     MacroInvocationRequest, MacroLastClick, MacroPressInvocationRequest, MacroPressRequest,
     MacroReleaseRequest, MacroRepeat, MacroRunStatus, MacroRuntimeSettings, MacroSettingsRecord,
     MacroStartRequest, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
-    MacroUpdateInputRecord, MacroUpdateRequest, PortableDataRecord, PortableDataSelectionRecord,
-    PortableGameRecord, PortableImportOperationSummaryRecord, PortableImportOperationsRecord,
-    PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
-    PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
-    PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
-    PortablePreferencesRecord, PortableRoleRecord, PressureLevel, ResourcePolicyDecision,
-    ResourcePolicyInput, ResourceRuntimeCommand, ResourceRuntimeEffectRecord,
-    ResourceRuntimeResult, ResourceRuntimeStatusRecord, ResourceRuntimeTargetRecord,
-    RoleCreateInputRecord, RoleCreateRequest, RoleGameAssignmentRecord, RolePathsRecord,
-    RoleUpdateInputRecord, RoleUpdateRequest, RuntimeWindowPreferencesRecord, StateCollection,
+    MacroUpdateInputRecord, MacroUpdateRequest, OperationCancelResultRecord, PortableDataRecord,
+    PortableDataSelectionRecord, PortableGameRecord, PortableImportOperationSummaryRecord,
+    PortableImportOperationsRecord, PortableImportPreviewRecord, PortableImportResultRecord,
+    PortableImportWarningRecord, PortableLaunchWorkspaceRecord,
+    PortableMacroConflictCandidateRecord, PortableMacroConflictRecord,
+    PortableMacroConflictResolutionRecord, PortableMacroRecord, PortablePreferencesRecord,
+    PortableRoleRecord, PressureLevel, ResourcePolicyDecision, ResourcePolicyInput,
+    ResourceRuntimeCommand, ResourceRuntimeEffectRecord, ResourceRuntimeResult,
+    ResourceRuntimeStatusRecord, ResourceRuntimeTargetRecord, RoleCreateInputRecord,
+    RoleCreateRequest, RoleGameAssignmentRecord, RolePathsRecord, RoleUpdateInputRecord,
+    RoleUpdateRequest, RuntimeWindowPreferencesRecord, StateCollection,
     StateCompatibilityChromeRecord, StateCompatibilityLoadRecord,
     StateCompatibilityObservationsRecord, StateCompatibilityRecommendationRecord,
     StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
@@ -130,6 +133,13 @@ mod generated_contract_tests {
                 "export type { CompatibilityVersionRecord } from \"./CompatibilityVersionRecord\";\n",
                 "export type { CoreErrorPayload } from \"./CoreErrorPayload\";\n",
                 "export type { CoreCommand } from \"./CoreCommand\";\n",
+                "export type { CoreCommandResult, CoreCommandResultMap, CoreJsonValue } from \"./CoreCommandResultMap\";\n",
+                "export type { CoreEffectAction } from \"./CoreEffectAction\";\n",
+                "export type { CoreEffectDispatchReport } from \"./CoreEffectDispatchReport\";\n",
+                "export type { CoreEffectMetricsRecord } from \"./CoreEffectMetricsRecord\";\n",
+                "export type { CoreEffectRequest } from \"./CoreEffectRequest\";\n",
+                "export type { CoreEffectResult } from \"./CoreEffectResult\";\n",
+                "export type { CoreEffectTarget } from \"./CoreEffectTarget\";\n",
                 "export type { CoreEvent } from \"./CoreEvent\";\n",
                 "export type { CoreStateSnapshotRecord } from \"./CoreStateSnapshotRecord\";\n",
                 "export type { EmbeddedKeyEffectRecord } from \"./EmbeddedKeyEffectRecord\";\n",
@@ -177,6 +187,7 @@ mod generated_contract_tests {
                 "export type { MacroTrigger } from \"./MacroTrigger\";\n",
                 "export type { MacroUpdateInputRecord } from \"./MacroUpdateInputRecord\";\n",
                 "export type { MacroUpdateRequest } from \"./MacroUpdateRequest\";\n",
+                "export type { OperationCancelResultRecord } from \"./OperationCancelResultRecord\";\n",
                 "export type { PressureLevel } from \"./PressureLevel\";\n",
                 "export type { PortableDataRecord } from \"./PortableDataRecord\";\n",
                 "export type { PortableDataSelectionRecord } from \"./PortableDataSelectionRecord\";\n",
@@ -242,6 +253,24 @@ mod generated_contract_tests {
                 "export type { WorkspaceUpdateRequest } from \"./WorkspaceUpdateRequest\";\n",
                 "export type { WindowsGraphicsEventCollectionRecord } from \"./WindowsGraphicsEventCollectionRecord\";\n",
                 "export type { WindowsGraphicsEventRecord } from \"./WindowsGraphicsEventRecord\";\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../src/shared/generated/CoreCommandResultMap.ts"),
+            concat!(
+                "// Generated by rion-core. Do not edit by hand.\n",
+                "import type { CoreCommand } from \"./CoreCommand\";\n",
+                "import type { CoreEffectMetricsRecord } from \"./CoreEffectMetricsRecord\";\n",
+                "import type { OperationCancelResultRecord } from \"./OperationCancelResultRecord\";\n\n",
+                "export type CoreJsonValue = null | boolean | number | string | CoreJsonValue[] | { [key: string]: CoreJsonValue };\n\n",
+                "type DefaultCoreCommandResultMap = { [K in CoreCommand[\"type\"]]: CoreJsonValue };\n\n",
+                "export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, \"operationCancel\" | \"coreEffectMetrics\"> & {\n",
+                "  operationCancel: OperationCancelResultRecord;\n",
+                "  coreEffectMetrics: CoreEffectMetricsRecord;\n",
+                "};\n\n",
+                "export type CoreCommandResult<C extends CoreCommand> = CoreCommandResultMap[C[\"type\"]];\n",
             ),
         )
         .unwrap();

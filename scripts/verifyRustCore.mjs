@@ -80,6 +80,7 @@ try {
   if (
     health.coreVersion !== version ||
     typeof core.subscribeCoreEvents !== "function" ||
+    typeof core.dispatchCoreEffectResults !== "function" ||
     typeof core.connectExternalChromeCdp !== "function" ||
     typeof core.prepareExternalChromeProfile !== "function" ||
     typeof core.prepareEmbeddedKeyTransition !== "function" ||
@@ -88,6 +89,25 @@ try {
     typeof core.resolveRolePaths !== "function"
   ) {
     throw new Error("Rust core addon failed its create/invoke integration check.");
+  }
+  const effectDispatchReport = JSON.parse(await core.dispatchCoreEffectResults(JSON.stringify([{
+    effectId: "verification-unknown-effect",
+    operationId: "verification-operation",
+    ok: true,
+    valueJson: null,
+    error: null
+  }])));
+  if (effectDispatchReport.unknown?.[0] !== "verification-unknown-effect") {
+    throw new Error(
+      `Rust core effect result dispatch returned an invalid report: ${JSON.stringify(effectDispatchReport)}.`
+    );
+  }
+  const effectMetrics = JSON.parse(await core.invoke(JSON.stringify({ type: "coreEffectMetrics" })));
+  if (
+    effectMetrics.pendingEffectCount !== 0 ||
+    !Number.isSafeInteger(effectMetrics.pendingEffectCapacity)
+  ) {
+    throw new Error(`Rust core effect metrics are invalid: ${JSON.stringify(effectMetrics)}.`);
   }
   if (typeof health.migrationBackup !== "string") {
     throw new Error("Rust core did not report a legacy migration backup.");

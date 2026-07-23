@@ -244,7 +244,7 @@ export const RUST_OWNED_MAIN_DEBT = {
     debt("completeEmbeddedKeyTransition", 5, "Embedded effect acknowledgement."),
     debt("connectExternalChromeCdp", 4, "External CDP is Rust-owned."),
     debt("createWorkspaceDividers", 3, "Layout decision command."),
-    debt("dispatchBrowserResults", 2, "Replaced by generic core effect results."),
+    debt("dispatchBrowserResults", 11, "Replaced by generic core effect results after browser cutover."),
     debt("dispatchExternalBrowserActions", 4, "External actions execute inside Rust."),
     debt("evaluateExternalChrome", 4, "External CDP command."),
     debt("findSystemChromeExecutable", 4, "External launch command."),

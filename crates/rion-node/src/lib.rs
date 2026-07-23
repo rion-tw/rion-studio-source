@@ -4,10 +4,11 @@ use napi::{Status, bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCa
 use napi_derive::napi;
 use rion_core::{
     AppCore, AppCoreOptions as CoreOptions, BrowserActionRequest, BrowserActionResult,
-    BrowserOperationRequest, BrowserRuntimeCommand, CdnRule, CoreCommand, CoreError, CoreEvent,
-    EmbeddedKeyTransitionRecord, ExternalChromeCdpSession, ExternalSessionCommand, LayoutRect,
-    LayoutRoleInput, ResourcePolicyInput, ResourceRuntimeCommand, StatePixelBoundsRecord,
-    WorkspaceDividerResizeInput, WorkspaceLayoutInput,
+    BrowserOperationRequest, BrowserRuntimeCommand, CdnRule, CoreCommand, CoreEffectResult,
+    CoreError, CoreEvent, EmbeddedKeyTransitionRecord, ExternalChromeCdpSession,
+    ExternalSessionCommand, LayoutRect, LayoutRoleInput, ResourcePolicyInput,
+    ResourceRuntimeCommand, StatePixelBoundsRecord, WorkspaceDividerResizeInput,
+    WorkspaceLayoutInput,
 };
 
 #[napi]
@@ -389,6 +390,20 @@ impl NativeAppCore {
             .await
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
             .map_err(to_napi_error)
+    }
+
+    #[napi]
+    pub async fn dispatch_core_effect_results(&self, results_json: String) -> Result<String> {
+        let results = serde_json::from_str::<Vec<CoreEffectResult>>(&results_json)
+            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
+        let core = Arc::clone(&self.inner);
+        let report =
+            napi::tokio::task::spawn_blocking(move || core.dispatch_core_effect_results(results))
+                .await
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
+                .map_err(to_napi_error)?;
+        serde_json::to_string(&report)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
     }
 
     #[napi]

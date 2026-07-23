@@ -1,5 +1,3 @@
-import { readFile, writeFile } from "node:fs/promises";
-
 import type { AppCoreClient } from "../core/nativeCore";
 import type {
   PortableDataSelection,
@@ -7,8 +5,7 @@ import type {
   PortableExportResult,
   PortableImportInput,
   PortableImportPreview,
-  PortableImportResult,
-  RionPortableDataV6
+  PortableImportResult
 } from "../../shared/types";
 
 interface PortableSaveDialogOptions {
@@ -36,10 +33,8 @@ interface PortableOpenDialogResult {
 export interface PortableDataManagerOptions {
   core: Pick<AppCoreClient, "invoke">;
   now?: () => Date;
-  readTextFile?: (path: string, encoding: BufferEncoding) => Promise<string>;
   showOpenDialog: (options: PortableOpenDialogOptions) => Promise<PortableOpenDialogResult>;
   showSaveDialog: (options: PortableSaveDialogOptions) => Promise<PortableSaveDialogResult>;
-  writeTextFile?: (path: string, data: string, encoding: BufferEncoding) => Promise<void>;
 }
 
 const ALL_PORTABLE_DATA: PortableDataSelection = {
@@ -56,22 +51,13 @@ const ALL_PORTABLE_DATA: PortableDataSelection = {
  */
 export class PortableDataManager {
   private readonly now: () => Date;
-  private readonly readTextFile: (path: string, encoding: BufferEncoding) => Promise<string>;
-  private readonly writeTextFile: (path: string, data: string, encoding: BufferEncoding) => Promise<void>;
 
   constructor(private readonly options: PortableDataManagerOptions) {
     this.now = options.now ?? (() => new Date());
-    this.readTextFile = options.readTextFile ?? readFile;
-    this.writeTextFile = options.writeTextFile ?? writeFile;
   }
 
   async exportData(input: PortableExportInput = {}): Promise<PortableExportResult | null> {
     const selection = input.selection ?? ALL_PORTABLE_DATA;
-    const data = await this.options.core.invoke<RionPortableDataV6>({
-      type: "portableExport",
-      ...(input.preferences ? { preferences: input.preferences } : {}),
-      selection
-    });
     const dialogResult = await this.options.showSaveDialog({
       defaultPath: `rion-studio-${formatDate(this.now())}.json`,
       filters: [{ name: "Rion Studio JSON", extensions: ["json"] }],
@@ -79,16 +65,12 @@ export class PortableDataManager {
     });
     if (dialogResult.canceled || !dialogResult.filePath) return null;
 
-    await this.writeTextFile(dialogResult.filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-    return {
-      filePath: dialogResult.filePath,
-      gameCount: data.games.length,
-      roleCount: data.roles.length,
-      workspaceCount: data.launchWorkspaces.length,
-      macroCount: data.macros.length,
-      preferencesIncluded: Boolean(data.preferences),
-      selection: effectiveSelection(data)
-    };
+    return this.options.core.invoke<PortableExportResult>({
+      type: "portableExportTo",
+      path: dialogResult.filePath,
+      ...(input.preferences ? { preferences: input.preferences } : {}),
+      selection
+    });
   }
 
   async previewImport(): Promise<PortableImportPreview | null> {
@@ -100,11 +82,9 @@ export class PortableDataManager {
     if (dialogResult.canceled || dialogResult.filePaths.length === 0) return null;
 
     const filePath = dialogResult.filePaths[0];
-    const rawJson = await this.readTextFile(filePath, "utf8");
     return this.options.core.invoke<PortableImportPreview>({
-      type: "portablePreview",
-      rawJson,
-      filePath
+      type: "portablePreviewFile",
+      path: filePath
     });
   }
 
@@ -120,16 +100,6 @@ export class PortableDataManager {
   async discardImport(importId: string): Promise<void> {
     await this.options.core.invoke({ type: "portableDiscard", importId });
   }
-}
-
-function effectiveSelection(data: RionPortableDataV6): PortableDataSelection {
-  return {
-    games: data.games.length > 0,
-    roles: data.roles.length > 0,
-    launchWorkspaces: data.launchWorkspaces.length > 0,
-    macros: data.macros.length > 0,
-    preferences: Boolean(data.preferences)
-  };
 }
 
 function formatDate(date: Date): string {

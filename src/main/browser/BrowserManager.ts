@@ -15,8 +15,6 @@ import type {
 
 import { DEFAULT_WORKSPACE_APPEARANCE_SETTINGS } from "../../shared/browserFonts";
 import type {
-  BrowserOperationLease,
-  BrowserOperationRequest,
   BrowserRuntimeCommand,
   BrowserRuntimeResult,
   BrowserRuntimeSnapshot,
@@ -124,8 +122,6 @@ export interface BrowserManagerOptions {
   applyBrowserProxy?: BrowserProxyApplier;
   applyCdnCompatibility?: BrowserCdnCompatibilityApplier;
   browserRuntimeState: {
-    acquireBrowserOperation: (request: BrowserOperationRequest) => Promise<BrowserOperationLease>;
-    completeBrowserOperation: (id: string) => void;
     invokeBrowserRuntime: (command: BrowserRuntimeCommand) => BrowserRuntimeResult;
   } & Pick<
     AppCoreClient,
@@ -1186,24 +1182,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await this.options.browserRuntimeState.invokeTyped({
       type: "browserRoleStop",
       roleId
-    });
-  }
-
-  runRoleOperation<T>(roleIds: string[], operation: () => Promise<T>): Promise<T> {
-    return this.withRoleOperation("normal", roleIds, operation);
-  }
-
-  stopRoleAndRunRecoverableMutation<T>(roleId: string, operation: () => Promise<T>): Promise<T> {
-    return this.withRoleOperation("recoverableMutation", [roleId], async () => {
-      await this.stop(roleId);
-      return operation();
-    });
-  }
-
-  stopRoleAndRunMutation<T>(roleId: string, operation: () => Promise<T>): Promise<T> {
-    return this.withRoleOperation("destructiveMutation", [roleId], async () => {
-      await this.stop(roleId);
-      return operation();
     });
   }
 
@@ -2906,30 +2884,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       session.webContents.close();
     }
     this.emitChange();
-  }
-
-  private async withRoleOperation<T>(
-    kind: BrowserOperationRequest["kind"],
-    roleIds: string[],
-    operation: () => Promise<T>
-  ): Promise<T> {
-    let lease: BrowserOperationLease | undefined;
-    try {
-      lease = await this.options.browserRuntimeState.acquireBrowserOperation({
-        kind,
-        roleIds
-      });
-      return await operation();
-    } catch (error) {
-      if (getErrorCode(error) === "ROLE_MUTATION_BLOCKED") {
-        throw new Error("Role not found.", { cause: error });
-      }
-      throw error;
-    } finally {
-      if (lease) {
-        this.options.browserRuntimeState.completeBrowserOperation(lease.id);
-      }
-    }
   }
 
   private async closeHostWindow(host: GameHostWindow): Promise<void> {

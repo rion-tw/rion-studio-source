@@ -72,23 +72,12 @@ export const RUST_OWNED_MAIN_DEBT = {
     debt("src/main/logging/zipWriter.ts:node:fs", 9, "Diagnostic archive streaming."),
     debt("src/main/logging/zipWriter.ts:node:fs/promises", 9, "Diagnostic archive output."),
     debt(
-      "src/main/portable/PortableDataManager.ts:node:fs/promises",
-      7,
-      "Portable file reading and writing."
-    ),
-    debt(
       "src/main/system-browser/SystemChromeCloser.ts:node:child_process",
       9,
       "System Chrome process control."
     )
   ],
-  orchestrationMethods: [
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.withRoleOperation",
-      7,
-      "Browser-data clearing moves behind the Rust profile/filesystem saga."
-    )
-  ],
+  orchestrationMethods: [],
   promiseTails: [
     debt("src/main/logging/LogService.ts:LogService.queue", 9, "Log batching and flush ordering.")
   ],

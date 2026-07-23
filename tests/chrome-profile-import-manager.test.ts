@@ -35,7 +35,7 @@ describe("ChromeProfileImportManager", () => {
       filePaths: ["/tmp/Chrome"]
     }));
     const manager = new ChromeProfileImportManager({
-      core: { invoke } as never,
+      core: { invoke, subscribe: vi.fn() } as never,
       showOpenDialog
     });
 
@@ -49,37 +49,30 @@ describe("ChromeProfileImportManager", () => {
     });
   });
 
-  it("executes only Electron effects between Rust prepare, commit, and finalize", async () => {
-    const commands: string[] = [];
-    const invoke = vi.fn(async (command: { type: string }) => {
-      commands.push(command.type);
-      if (command.type === "chromeProfilePrepare") {
-        return {
-          overwrittenRoleIds: ["role-1"],
-          profiles: [{ id: "Default", directoryName: "Default", name: "Aron" }]
-        };
-      }
-      if (command.type === "chromeProfileCommit") {
-        return {
-          roles: [role],
-          sessions: [{
-            profileId: "Default",
-            profileName: "Aron",
-            browserUserDataDir: "/tmp/roles/role-1/browser",
-            role
-          }]
-        };
-      }
-      return { finalized: true };
+  it("sends one high-level Rust intent and forwards Rust-owned progress", async () => {
+    let listener: ((events: never[]) => void) | undefined;
+    const subscribe = vi.fn((next: (events: never[]) => void) => {
+      listener = next;
+      return () => undefined;
     });
-    const stopRoles = vi.fn(async () => undefined);
-    const prepareImportedSession = vi.fn(async () => undefined);
+    const invoke = vi.fn(async () => {
+      listener?.([{
+        type: "chromeProfileImportProgress",
+        progress: {
+          completedProfileCount: 1,
+          currentProfileId: "Default",
+          currentProfileName: "Aron",
+          importId: "import-1",
+          phase: "completed",
+          totalProfileCount: 1
+        }
+      }] as never[]);
+      return { roles: [role] };
+    });
     const progress = vi.fn();
     const manager = new ChromeProfileImportManager({
-      core: { invoke } as never,
-      prepareImportedSession,
+      core: { invoke, subscribe } as never,
       showOpenDialog: vi.fn(),
-      stopRoles
     });
 
     await expect(manager.applyImport({
@@ -89,42 +82,23 @@ describe("ChromeProfileImportManager", () => {
       consentAccepted: true
     }, progress)).resolves.toEqual({ roles: [role] });
 
-    expect(commands).toEqual([
-      "chromeProfilePrepare",
-      "chromeProfileCommit",
-      "chromeProfileFinalize"
-    ]);
-    expect(stopRoles).toHaveBeenCalledWith(["role-1"]);
-    expect(prepareImportedSession).toHaveBeenCalledWith(role, "/tmp/roles/role-1/browser");
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith({
+      type: "chromeProfileApply",
+      importId: "import-1",
+      profileIds: ["Default"],
+      gameId: "game-1",
+      consentAccepted: true
+    });
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ phase: "completed" }));
   });
 
-  it("asks Rust to roll back when Electron session injection fails", async () => {
-    const commands: string[] = [];
-    const invoke = vi.fn(async (command: { type: string }) => {
-      commands.push(command.type);
-      if (command.type === "chromeProfilePrepare") {
-        return {
-          overwrittenRoleIds: [],
-          profiles: [{ id: "Default", directoryName: "Default", name: "Aron" }]
-        };
-      }
-      if (command.type === "chromeProfileCommit") {
-        return {
-          roles: [role],
-          sessions: [{
-            profileId: "Default",
-            profileName: "Aron",
-            browserUserDataDir: "/tmp/browser",
-            role
-          }]
-        };
-      }
-      return { rolledBack: true };
+  it("does not retain progress listeners after a Rust operation failure", async () => {
+    const invoke = vi.fn(async () => {
+      throw new Error("cookie import failed");
     });
     const manager = new ChromeProfileImportManager({
-      core: { invoke } as never,
-      prepareImportedSession: async () => { throw new Error("cookie import failed"); },
+      core: { invoke, subscribe: vi.fn() } as never,
       showOpenDialog: vi.fn()
     });
 
@@ -134,17 +108,13 @@ describe("ChromeProfileImportManager", () => {
       gameId: "game-1",
       consentAccepted: true
     })).rejects.toThrow("cookie import failed");
-    expect(commands).toEqual([
-      "chromeProfilePrepare",
-      "chromeProfileCommit",
-      "chromeProfileRollback"
-    ]);
+    expect(invoke).toHaveBeenCalledOnce();
   });
 
   it("delegates discard to Rust", async () => {
     const invoke = vi.fn(async () => ({ discarded: true }));
     const manager = new ChromeProfileImportManager({
-      core: { invoke } as never,
+      core: { invoke, subscribe: vi.fn() } as never,
       showOpenDialog: vi.fn()
     });
     await manager.discardImport("import-1");
@@ -153,7 +123,7 @@ describe("ChromeProfileImportManager", () => {
 
   it("preserves explicit close errors and maps native close failures", async () => {
     const unavailable = new ChromeProfileImportManager({
-      core: { invoke: vi.fn() } as never,
+      core: { invoke: vi.fn(), subscribe: vi.fn() } as never,
       showOpenDialog: vi.fn()
     });
     await expect(unavailable.closeChrome()).rejects.toMatchObject({
@@ -163,7 +133,7 @@ describe("ChromeProfileImportManager", () => {
     const explicit = new ChromeProfileImportError("CHROME_RUNNING", "still running");
     const manager = new ChromeProfileImportManager({
       closeChrome: async () => { throw explicit; },
-      core: { invoke: vi.fn() } as never,
+      core: { invoke: vi.fn(), subscribe: vi.fn() } as never,
       showOpenDialog: vi.fn()
     });
     await expect(manager.closeChrome()).rejects.toBe(explicit);

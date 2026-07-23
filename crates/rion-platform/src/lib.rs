@@ -7,6 +7,8 @@ mod pressure;
 pub use pressure::{SystemPressureSample, SystemPressureSampler};
 mod process;
 pub use process::{ExternalProcessExit, ExternalProcessSupervisor};
+mod filesystem;
+pub use filesystem::atomic_replace_file;
 mod system_fonts;
 pub use system_fonts::query_system_font_names;
 mod windows_events;

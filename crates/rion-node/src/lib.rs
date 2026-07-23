@@ -368,6 +368,7 @@ impl NativeAppCore {
                 | CoreCommand::RoleUpdate { .. }
                 | CoreCommand::RoleDelete { .. }
                 | CoreCommand::RolesDelete { .. }
+                | CoreCommand::RoleBrowserDataClear { .. }
                 | CoreCommand::WorkspaceCreate { .. }
                 | CoreCommand::WorkspaceUpdate { .. }
                 | CoreCommand::WorkspaceDelete { .. }
@@ -376,6 +377,7 @@ impl NativeAppCore {
                 | CoreCommand::MacroUpdate { .. }
                 | CoreCommand::MacroDelete { .. }
                 | CoreCommand::MacrosDelete { .. }
+                | CoreCommand::ChromeProfileApply { .. }
                 | CoreCommand::BrowserRoleLaunch { .. }
                 | CoreCommand::BrowserWorkspaceLaunch { .. }
                 | CoreCommand::BrowserRoleStop { .. }

@@ -23,6 +23,7 @@ import type {
   PortableExportInput,
   PortableImportInput,
   ReorderItemsInput,
+  Role,
   RoleStatus,
   UpdateLaunchWorkspaceInput,
   UpdateGameInput,
@@ -44,7 +45,6 @@ import {
   EXTERNAL_COMPAT_NOTICE,
   type BrowserManager
 } from "../browser/BrowserManager";
-import type { RoleBrowserDataManager } from "../browser/RoleBrowserDataManager";
 import type { ChromeProfileImportManager } from "../browser/ChromeProfileImportManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { RustSystemFontService } from "../game-browser/RustSystemFontService";
@@ -92,7 +92,7 @@ interface RegisterIpcHandlersOptions {
   recordIpcCommandLatency?: (channel: string, durationMs: number) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
-  roleBrowserDataManager?: Pick<RoleBrowserDataManager, "clear">;
+  clearRoleBrowserData?: (roleId: string) => Promise<Role>;
   chromeProfileImportManager?: Pick<
     ChromeProfileImportManager,
     "applyImport" | "closeChrome" | "discardImport" | "previewImport"
@@ -610,7 +610,10 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.rolesClearBrowserData, (_event, id: string) =>
     runDataMutation(options, async () => {
-      const role = await requireRoleBrowserDataManager(options).clear(id);
+      if (!options.clearRoleBrowserData) {
+        throw new Error("Role browser data clearing is not available.");
+      }
+      const role = await options.clearRoleBrowserData(id);
       options.onRolesChanged?.();
       return role;
     })
@@ -796,15 +799,6 @@ function runDataMutation<T>(
 
 async function deleteGameRecord(options: RegisterIpcHandlersOptions, id: string): Promise<void> {
   await requireGameStore(options).deleteGame(id);
-}
-
-function requireRoleBrowserDataManager(
-  options: RegisterIpcHandlersOptions
-): Pick<RoleBrowserDataManager, "clear"> {
-  if (!options.roleBrowserDataManager) {
-    throw new Error("Role browser data clearing is not available.");
-  }
-  return options.roleBrowserDataManager;
 }
 
 function normalizeBulkDeleteIds(input: BulkDeleteInput): string[] {

@@ -24,6 +24,7 @@ export type { ChromeProfileEntryRecord } from "./ChromeProfileEntryRecord";
 export type { ChromeProfileImportCommitRecord } from "./ChromeProfileImportCommitRecord";
 export type { ChromeProfileImportPrepareRecord } from "./ChromeProfileImportPrepareRecord";
 export type { ChromeProfileImportPreviewRecord } from "./ChromeProfileImportPreviewRecord";
+export type { ChromeProfileImportProgressRecord } from "./ChromeProfileImportProgressRecord";
 export type { ChromeProfileImportRequest } from "./ChromeProfileImportRequest";
 export type { ChromeProfileImportResultRecord } from "./ChromeProfileImportResultRecord";
 export type { ChromeProfileImportWarningRecord } from "./ChromeProfileImportWarningRecord";
@@ -100,6 +101,7 @@ export type { OperationCancelResultRecord } from "./OperationCancelResultRecord"
 export type { PressureLevel } from "./PressureLevel";
 export type { PortableDataRecord } from "./PortableDataRecord";
 export type { PortableDataSelectionRecord } from "./PortableDataSelectionRecord";
+export type { PortableExportResultRecord } from "./PortableExportResultRecord";
 export type { PortableGameRecord } from "./PortableGameRecord";
 export type { PortableImportOperationSummaryRecord } from "./PortableImportOperationSummaryRecord";
 export type { PortableImportOperationsRecord } from "./PortableImportOperationsRecord";

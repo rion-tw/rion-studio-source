@@ -22,10 +22,9 @@ import {
 } from "electron";
 
 import { ChromeProfileImportManager } from "./browser/ChromeProfileImportManager";
+import { ElectronProfileEffectAdapter } from "./browser/ElectronProfileEffectAdapter";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { RustWindowsGraphicsEventCollector } from "./browser/RustWindowsGraphicsEventCollector";
-import { ChromeProfileSessionImporter } from "./browser/ChromeProfileSessionImporter";
-import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
 import { AppCoreClient, readBootstrapGraphicsSettings } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
@@ -109,7 +108,7 @@ import {
   isRuntimeTabAction,
   type RuntimeTabAction
 } from "../shared/runtimeTabs";
-import type { MacroPageRequest, PendingWorkspaceLaunchRequest } from "../shared/types";
+import type { MacroPageRequest, PendingWorkspaceLaunchRequest, Role } from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
 
@@ -720,6 +719,12 @@ async function initializeApplication(): Promise<void> {
     }
   });
   const effectCore = appCoreClient;
+  const electronProfileEffectAdapter = new ElectronProfileEffectAdapter({
+    getEmbeddedSession: (roleId) =>
+      electronSession.fromPartition(createRoleSessionPartition(roleId)),
+    getImportedSession: (browserUserDataDir) =>
+      electronSession.fromPath(join(browserUserDataDir, "Default"))
+  });
   const electronEffectExecutor = new ElectronEffectExecutor(
     new ElectronHandleRegistry(),
     {
@@ -775,6 +780,10 @@ async function initializeApplication(): Promise<void> {
             );
           }
         }
+      },
+      executeProfileEffect: async ({ action }) => {
+        await electronProfileEffectAdapter.execute(action);
+        return undefined;
       },
       sendDebuggerCommand: async (contents, method, params) => {
         const electronContents = contents as Electron.WebContents;
@@ -849,32 +858,13 @@ async function initializeApplication(): Promise<void> {
   browserManager.setBeforeRolesStop(async (roleIds) => {
     await Promise.all(roleIds.map((roleId) => macroManager.stopRole(roleId)));
   });
-  const roleBrowserDataManager = new RoleBrowserDataManager({
-    browserManager,
-    getSession: (role) => role.browserSessionSource === "chrome-profile"
-      ? electronSession.fromPath(join(roleStore.getRolePaths(role.id).browserUserDataDir, "Default"))
-      : electronSession.fromPartition(createRoleSessionPartition(role.id)),
-    roleStore
-  });
-  const chromeProfileSessionImporter = new ChromeProfileSessionImporter({
-    readCookies: (browserUserDataDir) =>
-      appCoreClient!.invoke({ type: "chromeProfileReadCookies", browserUserDataDir })
-  });
   const chromeProfileImportManager = new ChromeProfileImportManager({
     closeChrome: () => requestGracefulChromeQuit({ platform: process.platform }),
     core: appCoreClient,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
         ? dialog.showOpenDialog(mainWindow, options)
-        : dialog.showOpenDialog(options),
-    prepareImportedSession: async (role, browserUserDataDir) => {
-      const importedSession = electronSession.fromPath(join(browserUserDataDir, "Default"));
-      await chromeProfileSessionImporter.importSession(role, browserUserDataDir, importedSession);
-    },
-    stopRoles: async (roleIds) => {
-      if (!browserManager) return;
-      await Promise.all(roleIds.map((roleId) => browserManager!.stop(roleId)));
-    }
+        : dialog.showOpenDialog(options)
   });
   macroOverlayRef.current = new MacroOverlayInjector(
     macroStore,
@@ -1019,7 +1009,8 @@ async function initializeApplication(): Promise<void> {
     macroSettingsStore,
     portableDataManager,
     chromeProfileImportManager,
-    roleBrowserDataManager,
+    clearRoleBrowserData: (roleId) =>
+      appCoreClient!.invoke<Role>({ type: "roleBrowserDataClear", roleId }),
     systemFontService,
     updateManager,
     onGameBrowserSettingsChanged: () => {

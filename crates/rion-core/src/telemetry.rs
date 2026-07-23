@@ -12,8 +12,9 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use crate::{
     error::{CoreError, CoreResult},
     model::{
-        CountedLatencySummaryRecord, LatencySummaryRecord, NapiLatencySummaryRecord,
-        PerformanceTelemetryRecord, TelemetryMetric, TelemetrySampleRecord,
+        CoreEffectMetricsRecord, CountedLatencySummaryRecord, LatencySummaryRecord,
+        NapiLatencySummaryRecord, PerformanceTelemetryRecord, TelemetryMetric,
+        TelemetrySampleRecord,
     },
 };
 
@@ -23,6 +24,7 @@ const WRITE_INTERVAL: Duration = Duration::from_secs(60);
 enum Request {
     Record(TelemetrySampleRecord),
     Napi(f64),
+    CoreEffects(CoreEffectMetricsRecord),
     Snapshot(Sender<PerformanceTelemetryRecord>),
     Shutdown(Sender<()>),
 }
@@ -58,6 +60,10 @@ impl TelemetryWorker {
 
     pub fn record_napi(&self, duration_ms: f64) {
         let _ = self.sender.try_send(Request::Napi(duration_ms));
+    }
+
+    pub fn record_core_effects(&self, metrics: CoreEffectMetricsRecord) {
+        let _ = self.sender.try_send(Request::CoreEffects(metrics));
     }
 
     pub fn snapshot(&self) -> CoreResult<PerformanceTelemetryRecord> {
@@ -96,6 +102,7 @@ fn run_worker(receiver: Receiver<Request>, output_path: Option<PathBuf>) {
                 metrics.napi_count = metrics.napi_count.saturating_add(1);
                 metrics.napi.record(duration_ms);
             }
+            Ok(Request::CoreEffects(core_effects)) => metrics.core_effects = core_effects,
             Ok(Request::Snapshot(response)) => {
                 let _ = response.send(metrics.snapshot());
             }
@@ -121,6 +128,7 @@ struct Metrics {
     cdp: LatencySampler,
     cdp_count: u64,
     core_event_batch_count: u64,
+    core_effects: CoreEffectMetricsRecord,
     ipc_command: LatencySampler,
     macro_schedule_to_dispatch: LatencySampler,
     napi: LatencySampler,
@@ -138,6 +146,7 @@ impl Metrics {
             cdp: LatencySampler::default(),
             cdp_count: 0,
             core_event_batch_count: 0,
+            core_effects: CoreEffectMetricsRecord::default(),
             ipc_command: LatencySampler::default(),
             macro_schedule_to_dispatch: LatencySampler::default(),
             napi: LatencySampler::default(),
@@ -196,6 +205,7 @@ impl Metrics {
                 latency: self.cdp.summary(),
             },
             core_event_batch_count: self.core_event_batch_count,
+            core_effects: self.core_effects.clone(),
             ipc_command: self.ipc_command.summary(),
             macro_schedule_to_dispatch: self.macro_schedule_to_dispatch.summary(),
             napi: NapiLatencySummaryRecord {
@@ -281,9 +291,17 @@ mod tests {
             count: 1,
         });
         worker.record_napi(2.0);
+        worker.record_core_effects(CoreEffectMetricsRecord {
+            peak_pending_effect_count: 3,
+            launch_operation_count: 1,
+            launch_effect_count: 7,
+            ..Default::default()
+        });
         let snapshot = worker.snapshot().unwrap();
         assert_eq!(snapshot.ipc_command.p95_ms, 5.0);
         assert_eq!(snapshot.napi.call_count, 1);
+        assert_eq!(snapshot.core_effects.peak_pending_effect_count, 3);
+        assert_eq!(snapshot.core_effects.launch_effect_count, 7);
         worker.shutdown();
         let persisted =
             serde_json::from_slice::<PerformanceTelemetryRecord>(&fs::read(output).unwrap())

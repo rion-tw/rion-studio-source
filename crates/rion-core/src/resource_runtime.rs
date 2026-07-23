@@ -117,11 +117,14 @@ impl ResourceRuntime {
                 role_id,
                 process_id,
             } => {
-                let workspace = self.workspace_mut(&workspace_id)?;
-                let target = workspace.targets.get_mut(&role_id).ok_or_else(|| {
-                    CoreError::InvalidInput("resource runtime target was not found".to_owned())
-                })?;
-                target.process_id = process_id;
+                validate_workspace_id(&workspace_id)?;
+                if let Some(target) = self
+                    .workspaces
+                    .get_mut(&workspace_id)
+                    .and_then(|workspace| workspace.targets.get_mut(&role_id))
+                {
+                    target.process_id = process_id;
+                }
             }
             ResourceRuntimeCommand::SetPressure { level, reason } => {
                 if !matches!(reason.as_str(), "baseline" | "cpu" | "memory" | "thermal") {
@@ -157,12 +160,6 @@ impl ResourceRuntime {
         Ok(ResourceRuntimeResult {
             effects,
             statuses: self.statuses(),
-        })
-    }
-
-    fn workspace_mut(&mut self, workspace_id: &str) -> CoreResult<&mut ManagedWorkspace> {
-        self.workspaces.get_mut(workspace_id).ok_or_else(|| {
-            CoreError::InvalidInput("resource runtime workspace was not found".to_owned())
         })
     }
 
@@ -321,6 +318,21 @@ mod tests {
             },
         );
         assert_eq!(result.effects[0].cpu_throttle_rate, 1);
+        assert!(result.statuses.is_empty());
+    }
+
+    #[test]
+    fn ignores_target_invalidation_before_workspace_activation() {
+        let mut runtime = ResourceRuntime::default();
+        let result = invoke(
+            &mut runtime,
+            ResourceRuntimeCommand::RefreshTarget {
+                workspace_id: "launching-tab".to_owned(),
+                role_id: "role-1".to_owned(),
+                process_id: Some(42),
+            },
+        );
+        assert!(result.effects.is_empty());
         assert!(result.statuses.is_empty());
     }
 

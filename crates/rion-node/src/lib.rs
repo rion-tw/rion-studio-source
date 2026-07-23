@@ -46,36 +46,7 @@ impl NativeAppCore {
             .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
         let core = Arc::clone(&self.inner);
         let telemetry_core = Arc::clone(&self.inner);
-        let value = if matches!(
-            command,
-            CoreCommand::GameDelete { .. }
-                | CoreCommand::GamesDelete { .. }
-                | CoreCommand::RoleUpdate { .. }
-                | CoreCommand::RoleDelete { .. }
-                | CoreCommand::RolesDelete { .. }
-                | CoreCommand::RoleBrowserDataClear { .. }
-                | CoreCommand::WorkspaceCreate { .. }
-                | CoreCommand::WorkspaceUpdate { .. }
-                | CoreCommand::WorkspaceDelete { .. }
-                | CoreCommand::WorkspacesDelete { .. }
-                | CoreCommand::MacroCreate { .. }
-                | CoreCommand::MacroUpdate { .. }
-                | CoreCommand::MacroDelete { .. }
-                | CoreCommand::MacrosDelete { .. }
-                | CoreCommand::ChromeProfileApply { .. }
-                | CoreCommand::CompatibilityRun { .. }
-                | CoreCommand::CdnResolveSession { .. }
-                | CoreCommand::GraphicsDiagnosticsAssemble { .. }
-                | CoreCommand::DiagnosticsExport { .. }
-                | CoreCommand::SystemChromeClose
-                | CoreCommand::OverlayRequest { .. }
-                | CoreCommand::BrowserRoleLaunch { .. }
-                | CoreCommand::BrowserWorkspaceLaunch { .. }
-                | CoreCommand::BrowserRoleStop { .. }
-                | CoreCommand::BrowserWorkspaceStop { .. }
-                | CoreCommand::BrowserExternalRecover { .. }
-                | CoreCommand::ExternalDiagnosticsCapture { .. }
-        ) {
+        let value = if command.requires_async_dispatch() {
             core.invoke_async(command).await.map_err(to_napi_error)?
         } else {
             napi::tokio::task::spawn_blocking(move || core.invoke(command))

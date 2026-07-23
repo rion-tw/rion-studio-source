@@ -72,15 +72,33 @@ struct ActorInner {
 struct ActorState {
     shutting_down: bool,
     pending: HashMap<String, PendingEffect>,
-    operations: HashMap<String, Arc<AtomicBool>>,
+    operations: HashMap<String, ActiveOperation>,
     completed: HashMap<String, CompletedEffect>,
     completed_order: VecDeque<String>,
+    peak_pending_effect_count: usize,
+    emitted_effect_count: u64,
+    acknowledged_effect_count: u64,
+    effect_ack_latency_ms: VecDeque<f64>,
+    launch_operation_count: u64,
+    launch_effect_count: u64,
+}
+
+struct ActiveOperation {
+    cancelled: Arc<AtomicBool>,
+    kind: OperationKind,
 }
 
 struct PendingEffect {
     operation_id: String,
     deadline: Instant,
+    enqueued_at: Instant,
     result: oneshot::Sender<CoreEffectResult>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OperationKind {
+    General,
+    Launch,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -115,6 +133,18 @@ impl OperationActor {
     }
 
     pub fn start(&self, plan: OperationPlan) -> CoreResult<OperationHandle> {
+        self.start_with_kind(plan, OperationKind::General)
+    }
+
+    pub fn start_launch(&self, plan: OperationPlan) -> CoreResult<OperationHandle> {
+        self.start_with_kind(plan, OperationKind::Launch)
+    }
+
+    fn start_with_kind(
+        &self,
+        plan: OperationPlan,
+        kind: OperationKind,
+    ) -> CoreResult<OperationHandle> {
         let operation_id = Uuid::new_v4().to_string();
         let cancelled = Arc::new(AtomicBool::new(false));
         {
@@ -128,9 +158,16 @@ impl OperationActor {
                     message: "The core operation queue is full.".to_owned(),
                 });
             }
-            state
-                .operations
-                .insert(operation_id.clone(), Arc::clone(&cancelled));
+            state.operations.insert(
+                operation_id.clone(),
+                ActiveOperation {
+                    cancelled: Arc::clone(&cancelled),
+                    kind,
+                },
+            );
+            if kind == OperationKind::Launch {
+                state.launch_operation_count = state.launch_operation_count.saturating_add(1);
+            }
         }
 
         let (outcome_sender, outcome) = oneshot::channel();
@@ -151,8 +188,13 @@ impl OperationActor {
                 let _ = outcome_sender.send(outcome);
             })
             .map_err(|error| {
-                if let Ok(mut state) = self.inner.state.lock() {
-                    state.operations.remove(&operation_id);
+                if let Ok(mut state) = self.inner.state.lock()
+                    && state
+                        .operations
+                        .remove(&operation_id)
+                        .is_some_and(|operation| operation.kind == OperationKind::Launch)
+                {
+                    state.launch_operation_count = state.launch_operation_count.saturating_sub(1);
                 }
                 CoreError::Internal(format!("failed to start operation actor task: {error}"))
             })?;
@@ -166,7 +208,11 @@ impl OperationActor {
     pub fn cancel(&self, operation_id: &str) -> CoreResult<bool> {
         let wake = {
             let mut state = self.state()?;
-            let Some(cancelled) = state.operations.get(operation_id).cloned() else {
+            let Some(cancelled) = state
+                .operations
+                .get(operation_id)
+                .map(|operation| Arc::clone(&operation.cancelled))
+            else {
                 return Ok(false);
             };
             cancelled.store(true, Ordering::Release);
@@ -239,6 +285,7 @@ impl OperationActor {
                         .pending
                         .remove(&effect_id)
                         .expect("pending effect exists");
+                    record_effect_ack(&mut state, &pending);
                     remember_completed(&mut state, effect_id.clone(), CompletedEffect::Completed);
                     report.accepted.push(effect_id);
                     Some((pending, result))
@@ -255,16 +302,28 @@ impl OperationActor {
         let Ok(state) = self.inner.state.lock() else {
             return CoreEffectMetricsRecord {
                 pending_effect_count: 0,
+                peak_pending_effect_count: 0,
                 active_operation_count: 0,
                 pending_effect_capacity: self.inner.pending_capacity as u32,
                 operation_capacity: self.inner.operation_capacity as u32,
+                emitted_effect_count: 0,
+                acknowledged_effect_count: 0,
+                effect_ack_latency: Default::default(),
+                launch_operation_count: 0,
+                launch_effect_count: 0,
             };
         };
         CoreEffectMetricsRecord {
             pending_effect_count: state.pending.len() as u32,
+            peak_pending_effect_count: state.peak_pending_effect_count as u32,
             active_operation_count: state.operations.len() as u32,
             pending_effect_capacity: self.inner.pending_capacity as u32,
             operation_capacity: self.inner.operation_capacity as u32,
+            emitted_effect_count: state.emitted_effect_count,
+            acknowledged_effect_count: state.acknowledged_effect_count,
+            effect_ack_latency: latency_summary(&state.effect_ack_latency_ms),
+            launch_operation_count: state.launch_operation_count,
+            launch_effect_count: state.launch_effect_count,
         }
     }
 
@@ -280,7 +339,8 @@ impl OperationActor {
             state
                 .operations
                 .values()
-                .for_each(|cancelled| cancelled.store(true, Ordering::Release));
+                .for_each(|operation| operation.cancelled.store(true, Ordering::Release));
+            state.operations.clear();
             let pending = state.pending.drain().collect::<Vec<_>>();
             for (effect_id, _) in &pending {
                 remember_completed(&mut state, effect_id.clone(), CompletedEffect::Completed);
@@ -416,9 +476,19 @@ fn execute_effect(
             PendingEffect {
                 operation_id: operation_id.to_owned(),
                 deadline,
+                enqueued_at: Instant::now(),
                 result: result_sender,
             },
         );
+        state.emitted_effect_count = state.emitted_effect_count.saturating_add(1);
+        if state
+            .operations
+            .get(operation_id)
+            .is_some_and(|operation| operation.kind == OperationKind::Launch)
+        {
+            state.launch_effect_count = state.launch_effect_count.saturating_add(1);
+        }
+        state.peak_pending_effect_count = state.peak_pending_effect_count.max(state.pending.len());
     }
     let deadline_ms = actor
         .origin
@@ -476,6 +546,38 @@ fn remember_completed(state: &mut ActorState, effect_id: String, completion: Com
         if let Some(expired) = state.completed_order.pop_front() {
             state.completed.remove(&expired);
         }
+    }
+}
+
+const EFFECT_ACK_SAMPLE_CAPACITY: usize = 1_024;
+
+fn record_effect_ack(state: &mut ActorState, pending: &PendingEffect) {
+    state.acknowledged_effect_count = state.acknowledged_effect_count.saturating_add(1);
+    if state.effect_ack_latency_ms.len() >= EFFECT_ACK_SAMPLE_CAPACITY {
+        state.effect_ack_latency_ms.pop_front();
+    }
+    state
+        .effect_ack_latency_ms
+        .push_back(pending.enqueued_at.elapsed().as_secs_f64() * 1_000.0);
+}
+
+fn latency_summary(samples: &VecDeque<f64>) -> crate::model::LatencySummaryRecord {
+    if samples.is_empty() {
+        return Default::default();
+    }
+    let mut values = samples.iter().copied().collect::<Vec<_>>();
+    values.sort_by(f64::total_cmp);
+    let percentile = |fraction: f64| {
+        let index = ((values.len() as f64 * fraction).ceil() as usize)
+            .saturating_sub(1)
+            .min(values.len().saturating_sub(1));
+        values.get(index).copied().unwrap_or(0.0)
+    };
+    crate::model::LatencySummaryRecord {
+        max_ms: values.last().copied().unwrap_or(0.0),
+        p50_ms: percentile(0.5),
+        p95_ms: percentile(0.95),
+        sample_count: values.len() as u32,
     }
 }
 
@@ -717,8 +819,55 @@ mod tests {
         ));
         let metrics = actor.metrics();
         assert_eq!(metrics.pending_effect_count, 1);
+        assert_eq!(metrics.peak_pending_effect_count, 1);
+        assert_eq!(metrics.emitted_effect_count, 1);
         assert_eq!(metrics.active_operation_count, 1);
         actor.shutdown();
+        let shutdown_metrics = actor.metrics();
+        assert_eq!(shutdown_metrics.pending_effect_count, 0);
+        assert_eq!(shutdown_metrics.active_operation_count, 0);
         let _ = handle.outcome.blocking_recv().unwrap();
+    }
+
+    #[test]
+    fn records_ack_latency_and_effects_per_launch() {
+        let (actor, effects) = actor();
+        let handle = actor
+            .start_launch(OperationPlan {
+                steps: vec![
+                    OperationStep {
+                        effect: effect(CoreEffectAction::Focus),
+                        compensation: None,
+                    },
+                    OperationStep {
+                        effect: effect(CoreEffectAction::SetVisible { visible: true }),
+                        compensation: None,
+                    },
+                ],
+            })
+            .unwrap();
+
+        let first = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor.dispatch_results(vec![success(&first)]).unwrap();
+        let second = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        actor.dispatch_results(vec![success(&second)]).unwrap();
+        let outcome = handle.outcome.blocking_recv().unwrap();
+        assert!(outcome.error.is_none());
+
+        let metrics = actor.metrics();
+        assert_eq!(metrics.pending_effect_count, 0);
+        assert_eq!(metrics.peak_pending_effect_count, 1);
+        assert_eq!(metrics.emitted_effect_count, 2);
+        assert_eq!(metrics.acknowledged_effect_count, 2);
+        assert_eq!(metrics.effect_ack_latency.sample_count, 2);
+        assert!(metrics.effect_ack_latency.p95_ms >= 0.0);
+        assert_eq!(metrics.launch_operation_count, 1);
+        assert_eq!(metrics.launch_effect_count, 2);
     }
 }

@@ -34,6 +34,21 @@ export function comparePerformanceSummaries(current, baseline) {
     rssGrowthPercent: current.nonRendererRssGrowthPercent,
     tabActivationP95RegressionPercent: latencyRegression("tabActivation")
   };
+  const coreEffects = current.runtimeTelemetry?.coreEffects;
+  const napi = current.runtimeTelemetry?.napi;
+  const diagnostics = {
+    effectQueuePeak: coreEffects?.peakPendingEffectCount,
+    effectQueueCapacity: coreEffects?.pendingEffectCapacity,
+    effectAckP95Ms: coreEffects?.effectAckLatency?.p95Ms,
+    launchEffectCount: coreEffects?.launchEffectCount,
+    launchOperationCount: coreEffects?.launchOperationCount,
+    effectsPerLaunch:
+      coreEffects?.launchOperationCount > 0
+        ? coreEffects.launchEffectCount / coreEffects.launchOperationCount
+        : 0,
+    napiCallCount: napi?.callCount,
+    napiP95Ms: napi?.p95Ms
+  };
   const latencyGates = [
     gates.ipcCommandP95RegressionPercent,
     gates.macroScheduleToDispatchP95RegressionPercent,
@@ -41,6 +56,7 @@ export function comparePerformanceSummaries(current, baseline) {
   ];
   return {
     gates,
+    diagnostics,
     missingTelemetryMetrics,
     passed:
       gates.nonRendererCpuImprovementPercent >= 30 &&
@@ -72,6 +88,33 @@ export function aggregatePerformanceSummaries(summaries) {
       }];
     })
   );
+  const coreEffectSamples = summaries.map((summary) => summary.runtimeTelemetry?.coreEffects);
+  if (coreEffectSamples.every(hasCoreEffectMetrics)) {
+    const value = (key) => median(coreEffectSamples.map((sample) => sample[key]));
+    const launchOperationCount = value("launchOperationCount");
+    const launchEffectCount = value("launchEffectCount");
+    runtimeTelemetry.coreEffects = {
+      acknowledgedEffectCount: value("acknowledgedEffectCount"),
+      activeOperationCount: value("activeOperationCount"),
+      effectAckLatency: aggregateLatency(
+        coreEffectSamples.map((sample) => sample.effectAckLatency)
+      ),
+      emittedEffectCount: value("emittedEffectCount"),
+      launchEffectCount,
+      launchOperationCount,
+      operationCapacity: value("operationCapacity"),
+      peakPendingEffectCount: value("peakPendingEffectCount"),
+      pendingEffectCapacity: value("pendingEffectCapacity"),
+      pendingEffectCount: value("pendingEffectCount")
+    };
+  }
+  const napiSamples = summaries.map((summary) => summary.runtimeTelemetry?.napi);
+  if (napiSamples.every(hasCountedLatency)) {
+    runtimeTelemetry.napi = {
+      ...aggregateLatency(napiSamples),
+      callCount: median(napiSamples.map((sample) => sample.callCount))
+    };
+  }
   return {
     medianNonRendererCpuPercent: value("medianNonRendererCpuPercent"),
     medianNonRendererRssBytes: value("medianNonRendererRssBytes"),
@@ -83,6 +126,39 @@ export function aggregatePerformanceSummaries(summaries) {
     runtimeTelemetry,
     sampleCount: summaries.reduce((count, summary) => count + (summary.sampleCount ?? 0), 0)
   };
+}
+
+function aggregateLatency(samples) {
+  return {
+    maxMs: median(samples.map((sample) => sample.maxMs)),
+    p50Ms: median(samples.map((sample) => sample.p50Ms)),
+    p95Ms: median(samples.map((sample) => sample.p95Ms)),
+    sampleCount: samples.reduce((count, sample) => count + sample.sampleCount, 0)
+  };
+}
+
+function hasCoreEffectMetrics(metrics) {
+  return metrics && [
+    "acknowledgedEffectCount",
+    "activeOperationCount",
+    "emittedEffectCount",
+    "launchEffectCount",
+    "launchOperationCount",
+    "operationCapacity",
+    "peakPendingEffectCount",
+    "pendingEffectCapacity",
+    "pendingEffectCount"
+  ].every((key) => Number.isFinite(metrics[key])) &&
+    hasLatencyShape(metrics.effectAckLatency);
+}
+
+function hasCountedLatency(metric) {
+  return Number.isFinite(metric?.callCount) && hasLatencyShape(metric);
+}
+
+function hasLatencyShape(metric) {
+  return metric && Number.isFinite(metric.maxMs) && Number.isFinite(metric.p50Ms) &&
+    Number.isFinite(metric.p95Ms) && Number.isSafeInteger(metric.sampleCount);
 }
 
 function hasSamples(metric) {

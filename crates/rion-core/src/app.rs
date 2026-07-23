@@ -943,10 +943,14 @@ impl AppCore {
                 runtime.telemetry.record(sample);
                 Ok(json!({ "recorded": true }))
             }),
-            CoreCommand::TelemetrySnapshot => self.with_runtime(|runtime| {
-                serde_json::to_value(runtime.telemetry.snapshot()?)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            }),
+            CoreCommand::TelemetrySnapshot => {
+                let core_effects = self.operation_actor.metrics();
+                self.with_runtime(|runtime| {
+                    runtime.telemetry.record_core_effects(core_effects);
+                    serde_json::to_value(runtime.telemetry.snapshot()?)
+                        .map_err(|error| CoreError::Internal(error.to_string()))
+                })
+            }
             CoreCommand::OverlayLanguageSet { language } => {
                 validate_overlay_language(&language)?;
                 *self.overlay_language.lock().map_err(|_| {
@@ -4514,9 +4518,12 @@ impl AppCore {
         steps: Vec<crate::operation_actor::OperationStep>,
         role_ids: &[String],
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
-        let handle = self
-            .operation_actor
-            .start(crate::operation_actor::OperationPlan { steps })?;
+        let plan = crate::operation_actor::OperationPlan { steps };
+        let handle = if role_ids.is_empty() {
+            self.operation_actor.start(plan)?
+        } else {
+            self.operation_actor.start_launch(plan)?
+        };
         let operation_id = handle.operation_id.clone();
         if !role_ids.is_empty() {
             let mut operations = self.embedded_operations.lock().map_err(|_| {
@@ -4764,6 +4771,11 @@ impl AppCore {
             self.macro_runtime.dispatch_results(browser_results)?;
         }
         let mut report = self.operation_actor.dispatch_results(operation_results)?;
+        let core_effects = self.operation_actor.metrics();
+        self.with_runtime(|runtime| {
+            runtime.telemetry.record_core_effects(core_effects);
+            Ok(())
+        })?;
         report.accepted.extend(browser_effect_ids);
         Ok(report)
     }
@@ -5201,6 +5213,7 @@ impl AppCore {
         self.browser_operations.shutdown();
         self.browser_action_effects.shutdown();
         self.operation_actor.shutdown();
+        let core_effects = self.operation_actor.metrics();
         self.resource_controller.shutdown();
         self.overlay_refresh.shutdown();
         self.external_automation.shutdown();
@@ -5217,6 +5230,7 @@ impl AppCore {
         {
             runtime.pressure.shutdown();
             runtime.scheduler.shutdown();
+            runtime.telemetry.record_core_effects(core_effects);
             runtime.telemetry.shutdown();
             runtime.logs.shutdown();
             runtime.state.shutdown();

@@ -34,7 +34,7 @@ Node-API addon; it is not a sidecar and the app does not use Tauri.
   layout helpers.
 - `src/renderer`: React renderer app. Contains routes, hooks, UI components,
   feature modules, translations, styling, and browser-safe presentation logic.
-- `tests`: Vitest unit tests for stores, IPC handlers, browser managers, Chrome
+- `tests`: Vitest unit tests for typed core clients, IPC handlers, Electron effects, Chrome
   profile import, dock menu behavior, and renderer utilities.
 
 ## Data Flow
@@ -88,8 +88,8 @@ Important runtime pieces:
 
 - Rust owns browser runtime role/workspace/tab state, launch transitions,
   operation ordering, display reservations, resource decisions, and macro
-  action queues. `BrowserManager` owns only embedded Electron object handles
-  and applies window/view/focus/layout effects selected by Rust.
+  action queues. `ElectronBrowserRuntime` owns only embedded Electron object
+  handles and applies window/view/focus/layout effects selected by Rust.
 - `ChromeProfileSessionImporter` reads Chrome Cookies using macOS Keychain or
   Windows DPAPI and injects them into the imported Electron session. Copied
   Local Storage, IndexedDB, and Service Worker data remain in the role profile.
@@ -166,8 +166,8 @@ Common test areas:
   ordering/cancellation/held-key release, and external CDP backpressure.
 - IPC: handler registration, state updates, error behavior, and interactions with
   stores/managers.
-- Browser managers: launch/focus/stop behavior, Chrome profile session injection,
-  browser user data lock retry behavior, rollback, and fallback paths.
+- Browser effect adapters: launch/focus/stop effects, Chrome profile session
+  injection, browser user data lock retry behavior, rollback, and fallback paths.
 - Renderer utilities: layout math, cover color helpers, status summaries, and
   workflow behavior that can be tested without Electron.
 

@@ -9,8 +9,10 @@ import type {
   BrowserActionResult,
   BrowserOperationLease,
   BrowserOperationRequest,
+  BrowserRoleStatusRecord,
   BrowserRuntimeCommand,
   BrowserRuntimeResult,
+  BrowserWorkspaceStatusRecord,
   CdnRule,
   CoreCommand,
   CoreCommandResult,
@@ -63,6 +65,8 @@ export interface ExternalChromeProcessLike {
 
 export interface NativeAppCore {
   acquireBrowserOperation: (requestJson: string) => Promise<string>;
+  browserStatuses: () => string;
+  browserWorkspaceStatuses: () => string;
   alignExternalChromeWindow: (processId: number, target: PixelBounds) => Promise<PixelBounds>;
   cancelWait: (id: string) => void;
   dispatchBrowserResults: (resultsJson: string) => Promise<void>;
@@ -250,6 +254,26 @@ export class AppCoreClient {
     try {
       return this.measureSync(() =>
         JSON.parse(this.native.invokeExternalSession(JSON.stringify(command))) as ExternalSessionResult
+      );
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  listBrowserStatuses(): BrowserRoleStatusRecord[] {
+    try {
+      return this.measureSync(() =>
+        JSON.parse(this.native.browserStatuses()) as BrowserRoleStatusRecord[]
+      );
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    }
+  }
+
+  listBrowserWorkspaceStatuses(): BrowserWorkspaceStatusRecord[] {
+    try {
+      return this.measureSync(() =>
+        JSON.parse(this.native.browserWorkspaceStatuses()) as BrowserWorkspaceStatusRecord[]
       );
     } catch (error) {
       throw normalizeNativeCoreError(error);

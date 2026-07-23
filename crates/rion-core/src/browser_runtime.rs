@@ -615,7 +615,7 @@ impl BrowserRuntime {
         Ok(())
     }
 
-    fn snapshot(&self) -> BrowserRuntimeSnapshot {
+    pub(crate) fn snapshot(&self) -> BrowserRuntimeSnapshot {
         let mut displays = self.displays.values().cloned().collect::<Vec<_>>();
         displays.sort_by_key(|display| display.display_id);
         let mut roles = self.roles.values().cloned().collect::<Vec<_>>();

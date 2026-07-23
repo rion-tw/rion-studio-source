@@ -1,5 +1,4 @@
 import type {
-  BrowserLaunchMode,
   RoleStatus,
   WorkspaceDisplayInfo,
   WorkspaceDisplayLaunchOption,
@@ -9,7 +8,6 @@ import type {
 import { resolveWorkspaceDisplayTarget } from "../../shared/workspaceDisplays";
 import {
   BrowserWorkspaceDisplayOccupiedError,
-  EXTERNAL_COMPAT_NOTICE,
   type BrowserManager
 } from "../browser/BrowserManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
@@ -52,29 +50,11 @@ export class WorkspaceLaunchCoordinator {
         : displays.find((display) =>
             display.id === (this.options.getDefaultWorkspaceDisplayId?.() ?? displays[0]?.id)
           );
-    const launchOptions = this.createDisplayLaunchOptions(displays, workspace.id);
-    const globalLaunchMode = await this.getGlobalLaunchMode();
-    const workspaceLaunchMode = workspace.browserLaunchMode === "inherit"
-      ? globalLaunchMode
-      : workspace.browserLaunchMode;
-    const selectableDisplays = workspaceLaunchMode === "external" ? launchOptions : displays;
-
     if (!targetDisplay) {
       return {
         kind: "display_selection_required",
         reason: "target_unavailable",
-        displays: selectableDisplays
-      };
-    }
-
-    if (
-      workspaceLaunchMode === "external" &&
-      launchOptions.find((display) => display.id === targetDisplay.id)?.occupiedByWorkspace
-    ) {
-      return {
-        kind: "display_selection_required",
-        reason: "target_occupied",
-        displays: selectableDisplays
+        displays
       };
     }
 
@@ -88,8 +68,7 @@ export class WorkspaceLaunchCoordinator {
             ? {}
             : { browserZoomPercent: slot.browserZoomPercent })
         })),
-        { displayId: targetDisplay.id, workArea: targetDisplay.workArea },
-        workspaceLaunchMode
+        { displayId: targetDisplay.id, workArea: targetDisplay.workArea }
       );
       await Promise.all(statuses.map((status) => {
         const role = launchItems.find((item) => item.role.id === status.roleId)?.role;
@@ -147,12 +126,6 @@ export class WorkspaceLaunchCoordinator {
     return this.options.getWorkspaceDisplays?.() ?? [DEFAULT_WORKSPACE_DISPLAY];
   }
 
-  private async getGlobalLaunchMode(): Promise<BrowserLaunchMode> {
-    return this.options.gameBrowserSettingsStore
-      ? (await this.options.gameBrowserSettingsStore.getSettings()).launchMode
-      : "embedded";
-  }
-
   private async recordLaunchSuccess(gameId: string, status: RoleStatus): Promise<void> {
     if (!this.options.gameCompatibilityManager) {
       return;
@@ -162,7 +135,7 @@ export class WorkspaceLaunchCoordinator {
     await this.options.gameCompatibilityManager.recordObservation(gameId, status.runtimeMode === "external"
       ? {
           lastExternalSuccessAt: timestamp,
-          ...(status.notice?.includes(EXTERNAL_COMPAT_NOTICE) ? { lastFallbackAt: timestamp } : {})
+          ...(status.notice?.includes(EMBEDDED_FALLBACK_NOTICE) ? { lastFallbackAt: timestamp } : {})
         }
       : { lastEmbeddedSuccessAt: timestamp });
   }
@@ -178,6 +151,9 @@ export class WorkspaceLaunchCoordinator {
     });
   }
 }
+
+const EMBEDDED_FALLBACK_NOTICE =
+  "The embedded browser could not load this game. It opened in external Chrome compatibility mode.";
 
 const DEFAULT_WORKSPACE_DISPLAY: WorkspaceDisplayInfo = {
   id: 0,

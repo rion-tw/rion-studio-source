@@ -7,7 +7,6 @@ import {
   BrowserManager,
   type BrowserManagerOptions,
   type BrowserWorkspaceLaunchItem,
-  BrowserWorkspaceDisplayOccupiedError,
   classifyNativeZoomShortcut,
   classifyRuntimeTabSwitchShortcut,
   createRoleSessionPartition,
@@ -27,7 +26,6 @@ import type {
   WorkspaceLayoutOutput
 } from "../src/shared/generated";
 import type {
-  BrowserLaunchMode,
   LaunchWorkspace,
   PixelBounds,
   Role,
@@ -2326,220 +2324,6 @@ describe("BrowserManager game host windows", () => {
     expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to external Chrome compatibility mode in auto mode when embedded game load fails", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
-      loadUrlHandlers: [
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        }
-      ]
-    });
-
-    const status = await harness.manager.launch(role);
-
-    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
-      notice:
-        "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
-      workArea: { x: 100, y: 50, width: 1200, height: 800 },
-      zoomFactor: 1
-    });
-    expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
-    expect(harness.manager.listStatuses()).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
-  });
-
-  it("keeps the selected work area when a workspace falls back to external Chrome", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const secondRole = createRole("role-2", "Alt");
-    const target = {
-      displayId: -22,
-      workArea: { x: -984, y: -200, width: 984, height: 1280 }
-    };
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
-      getWorkspaceAppearanceSettings: () => ({ background: "black", gap: 16 }),
-      loadUrlHandlers: [
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        },
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        }
-      ]
-    });
-
-    const launchItems = [
-      { role, rect: workspace.slots[0].rect },
-      { role: secondRole, rect: workspace.slots[1].rect }
-    ];
-    await harness.manager.launchWorkspace(
-      workspace,
-      launchItems,
-      target
-    );
-
-    expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining(target.workArea));
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
-      workspace,
-      launchItems,
-      expect.objectContaining({ workArea: target.workArea })
-    );
-    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
-      { workspaceId: workspace.id, workspaceName: workspace.name, displayId: -22 }
-    ]);
-  });
-
-  it("does not fall back to external Chrome in embedded-only mode", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("embedded"),
-      loadUrlHandlers: [
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        }
-      ]
-    });
-
-    await expect(harness.manager.launch(role)).rejects.toThrow(BrowserGameLoadError);
-
-    expect(externalChromeManager.launch).not.toHaveBeenCalled();
-  });
-
-  it("launches external Chrome directly in external mode without creating embedded views", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const getBrowserLaunchMode = vi.fn().mockResolvedValue("external");
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode
-    });
-
-    const status = await harness.manager.launch(role);
-
-    expect(getBrowserLaunchMode).toHaveBeenCalledWith(role);
-    expect(harness.createHostWindow).not.toHaveBeenCalled();
-    expect(harness.createView).not.toHaveBeenCalled();
-    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
-      notice: undefined,
-      workArea: { x: 100, y: 50, width: 1200, height: 800 },
-      zoomFactor: 1
-    });
-    expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external" });
-  });
-
-  it("delegates external freeze capture and single-role recovery to the external Chrome manager", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("external")
-    });
-    const recoveredStatus = { ...externalChromeManager.listStatuses()[0], pageHealth: "healthy" as const };
-    externalChromeManager.recover.mockResolvedValue(recoveredStatus);
-
-    await expect(harness.manager.captureExternalRoleDiagnostics(role.id)).resolves.toEqual({ roleId: role.id });
-    await expect(harness.manager.recoverExternalRole(role.id)).resolves.toEqual(recoveredStatus);
-
-    expect(externalChromeManager.captureDiagnostics).toHaveBeenCalledWith(role.id);
-    expect(externalChromeManager.recover).toHaveBeenCalledWith(role.id);
-  });
-
-  it("uses an explicitly selected display work area for a direct external launch", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const target = {
-      displayId: 22,
-      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
-    };
-    const harness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("external")
-    });
-
-    await harness.manager.launch(role, { target });
-
-    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
-      notice: undefined,
-      workArea: target.workArea,
-      zoomFactor: 1
-    });
-  });
-
-  it("ignores the embedded workspace gap in explicit external mode on every platform", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const getBrowserLaunchMode = vi.fn().mockResolvedValue("embedded");
-    const getWorkspaceAppearanceSettings = vi.fn(() => ({ background: "black" as const, gap: 16 as const }));
-    const secondRole = createRole("role-2", "Alt");
-    const adaptiveWorkspace = { ...workspace, browserZoomMode: "adaptive" as const };
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode,
-      getWorkspaceAppearanceSettings
-    });
-    const launchItems = [
-      { role, rect: workspace.slots[0].rect },
-      { role: secondRole, rect: workspace.slots[1].rect }
-    ];
-
-    await harness.manager.launchWorkspace(
-      adaptiveWorkspace,
-      launchItems,
-      undefined,
-      "external"
-    );
-
-    expect(getBrowserLaunchMode).not.toHaveBeenCalled();
-    expect(getWorkspaceAppearanceSettings).not.toHaveBeenCalled();
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
-      adaptiveWorkspace,
-      launchItems,
-      expect.objectContaining({
-        notice: undefined,
-        zoomFactor: 0.9,
-        zoomMode: "adaptive"
-      })
-    );
-  });
-
-  it("leaves external Chrome resource scheduling entirely to Chrome", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const secondRole = createRole("role-2", "Alt");
-    const firstTarget = createExternalResourceTarget();
-    const secondTarget = createExternalResourceTarget();
-    const statuses = [
-      { roleId: role.id, runtimeMode: "external" as const, state: "running" as const },
-      { roleId: secondRole.id, runtimeMode: "external" as const, state: "running" as const }
-    ];
-    externalChromeManager.getAutomationSession.mockImplementation((roleId: string) => ({
-      role: roleId === role.id ? role : secondRole,
-      target: roleId === role.id ? firstTarget.target : secondTarget.target
-    }));
-    externalChromeManager.launchWorkspace.mockResolvedValue(statuses);
-    externalChromeManager.listStatuses.mockReturnValue(statuses);
-    const harness = createHarness({ externalChromeManager });
-    const priorityWorkspace: LaunchWorkspace = {
-      ...workspace,
-      resourcePolicy: { mode: "adaptive" }
-    };
-
-    const result = await harness.manager.launchWorkspace(
-      priorityWorkspace,
-      [
-        { role, rect: priorityWorkspace.slots[0].rect },
-        { role: secondRole, rect: priorityWorkspace.slots[1].rect }
-      ],
-      undefined,
-      "external"
-    );
-
-    expect(result).toEqual(statuses);
-    expect(externalChromeManager.getAutomationSession).not.toHaveBeenCalled();
-    expect(firstTarget.setRate).not.toHaveBeenCalled();
-    expect(secondTarget.setRate).not.toHaveBeenCalled();
-  });
-
   it("applies browser font preferences after creating the effect handle and before navigation", async () => {
     const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
     const harness = createHarness({ applyBrowserFonts });
@@ -3349,125 +3133,6 @@ describe("BrowserManager game host windows", () => {
     await expect(launch).resolves.toHaveLength(4);
   });
 
-  it("waits for every concurrent embedded launch before falling back atomically", async () => {
-    let finishFirstLaunch!: () => void;
-    let secondLaunchStarted = false;
-    const externalChromeManager = createExternalChromeManager();
-    const secondRole = createRole("role-2", "Alt");
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
-      loadUrlHandlers: [
-        () => new Promise<void>((resolve) => {
-          finishFirstLaunch = resolve;
-        }),
-        async () => {
-          secondLaunchStarted = true;
-          throw new Error("ERR_FAILED (-2) loading the second role");
-        }
-      ]
-    });
-
-    const launch = harness.manager.launchWorkspace(workspace, [
-      { role, rect: workspace.slots[0].rect },
-      { role: secondRole, rect: workspace.slots[1].rect }
-    ]);
-
-    await vi.waitFor(() => expect(secondLaunchStarted).toBe(true));
-    expect(externalChromeManager.launchWorkspace).not.toHaveBeenCalled();
-    finishFirstLaunch();
-
-    await expect(launch).resolves.toEqual([
-      expect.objectContaining({ runtimeMode: "external" })
-    ]);
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledTimes(1);
-    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back a workspace to external Chrome compatibility mode after embedded game load failure", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const secondRole = createRole("role-2", "Alt");
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
-      loadUrlHandlers: [
-        async () => undefined,
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        }
-      ]
-    });
-    const target = {
-      displayId: 22,
-      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
-    };
-
-    const statuses = await harness.manager.launchWorkspace(
-      workspace,
-      [
-        { role, rect: workspace.slots[0].rect },
-        { role: secondRole, rect: workspace.slots[1].rect }
-      ],
-      target
-    );
-
-    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
-      workspace,
-      [
-        { role, rect: workspace.slots[0].rect },
-        { role: secondRole, rect: workspace.slots[1].rect }
-      ],
-      {
-        notice:
-          "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
-        workArea: target.workArea,
-        zoomMode: "fixed",
-        zoomFactor: 0.9
-      }
-    );
-    expect(statuses).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
-    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
-      { workspaceId: workspace.id, workspaceName: workspace.name, displayId: target.displayId }
-    ]);
-  });
-
-  it.each(["darwin", "win32"] as const)(
-    "hides a %s host closed during launch and still performs auto compatibility fallback",
-    async (platform) => {
-      let rejectLoad!: (error: Error) => void;
-      const externalChromeManager = createExternalChromeManager();
-      externalChromeManager.hasWorkspace.mockReturnValue(false);
-      externalChromeManager.listStatuses.mockReturnValue([]);
-      const harness = createHarness({
-        externalChromeManager,
-        getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
-        loadUrlHandlers: [
-          () =>
-            new Promise<void>((_resolve, reject) => {
-              rejectLoad = reject;
-            })
-        ],
-        platform
-      });
-      const launchPromise = harness.manager.launchWorkspace(workspace, [
-        { role, rect: { x: 0, y: 0, width: 1, height: 1 } }
-      ]);
-
-      await vi.waitFor(() => expect(rejectLoad).toBeTypeOf("function"));
-      const closeEvent = { preventDefault: vi.fn() };
-      harness.hosts[0].emit("close", closeEvent);
-      rejectLoad(new Error("ERR_FAILED (-2) because the view was closed"));
-
-      await expect(launchPromise).resolves.toEqual([
-        expect.objectContaining({ roleId: role.id, runtimeMode: "external", state: "running" })
-      ]);
-      expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
-      expect(harness.hosts[0].hide).toHaveBeenCalled();
-      expect(externalChromeManager.launchWorkspace).toHaveBeenCalledTimes(1);
-    }
-  );
-
   it("draws a four-pixel glass divider that is entirely draggable", async () => {
     const harness = createHarness();
 
@@ -4089,44 +3754,6 @@ describe("BrowserManager game host windows", () => {
     });
   });
 
-  it("reserves a target display only for an external Chrome workspace", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const harness = createHarness({ externalChromeManager, getBrowserLaunchMode: () => "external" });
-    const target = {
-      displayId: 22,
-      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
-    };
-    const firstLaunch = harness.manager.launchWorkspace(
-      workspace,
-      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
-      target
-    );
-
-    await vi.waitFor(() => {
-      expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
-        { workspaceId: workspace.id, workspaceName: workspace.name, displayId: 22 }
-      ]);
-    });
-    const secondWorkspace = { ...workspace, id: "workspace-2", name: "Second" };
-    await expect(
-      harness.manager.launchWorkspace(
-        secondWorkspace,
-        [{ role: createRole("role-3", "Third"), rect: { x: 0, y: 0, width: 1, height: 1 } }],
-        target
-      )
-    ).rejects.toBeInstanceOf(BrowserWorkspaceDisplayOccupiedError);
-    expect(harness.createHostWindow).not.toHaveBeenCalled();
-
-    await firstLaunch;
-    expect(harness.createHostWindow).not.toHaveBeenCalled();
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledTimes(1);
-
-    externalChromeManager.hasWorkspace.mockReturnValue(false);
-    await harness.manager.stopWorkspace(workspace.id);
-    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
-    expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([]);
-  });
-
   it("releases a target display when workspace navigation fails", async () => {
     const harness = createHarness({
       loadUrlHandlers: [vi.fn().mockRejectedValue(new Error("navigation failed"))]
@@ -4139,44 +3766,6 @@ describe("BrowserManager game host windows", () => {
         { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
       )
     ).rejects.toBeInstanceOf(BrowserGameLoadError);
-    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
-  });
-
-  it("releases an external workspace display when its last Chrome session exits", async () => {
-    const changes = new EventEmitter();
-    let workspaceActive = false;
-    const status = { roleId: role.id, runtimeMode: "external" as const, state: "running" as const };
-    const externalChromeManager = {
-      getAutomationSession: vi.fn(() => undefined),
-      hasSession: vi.fn(() => false),
-      hasWorkspace: vi.fn(() => workspaceActive),
-      launch: vi.fn().mockResolvedValue(status),
-      launchWorkspace: vi.fn(async () => {
-        workspaceActive = true;
-        changes.emit("change", [status]);
-        return [status];
-      }),
-      listStatuses: vi.fn(() => (workspaceActive ? [status] : [])),
-      on: changes.on.bind(changes),
-      setBeforeRoleStop: vi.fn(),
-      setMacroOverlayInstaller: vi.fn(),
-      stop: vi.fn().mockResolvedValue(undefined),
-      stopWorkspace: vi.fn().mockResolvedValue(undefined)
-    };
-    const harness = createHarness({
-      externalChromeManager: externalChromeManager as never,
-      getBrowserLaunchMode: () => "external"
-    });
-
-    await harness.manager.launchWorkspace(
-      workspace,
-      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
-      { displayId: 22, workArea: { x: 1200, y: 0, width: 1920, height: 1040 } }
-    );
-    expect(harness.manager.listWorkspaceDisplayReservations()).toHaveLength(1);
-
-    workspaceActive = false;
-    changes.emit("change", []);
     expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
   });
 
@@ -4662,8 +4251,6 @@ function createHarness(options: {
   applyBrowserFonts?: AnyMock;
   applyBrowserProxy?: AnyMock;
   deferFullscreenTransitions?: boolean;
-  externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
-  getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getWorkspaceAppearanceSettings?: () =>
@@ -4785,8 +4372,6 @@ function createHarness(options: {
     normalizeWorkspaceRects: normalizeTestWorkspaceRects,
     runtimeTabsPageUrl: "data:text/html,runtime-tabs",
     runtimeTabsPreloadPath: "/app/out/preload/runtime-tabs.cjs",
-    ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
-    ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
     ...(options.getRuntimeTabGameIcon
       ? { getRuntimeTabGameIcon: options.getRuntimeTabGameIcon }
@@ -4868,6 +4453,24 @@ function createHarness(options: {
     }
   };
   browserRuntimeState.setTypedInvoker(async (command: CoreCommand) => {
+    if (command.type === "browserRoleLaunch") {
+      command = {
+        type: "embeddedRoleLaunch",
+        roleId: command.roleId,
+        target: command.target,
+        ...(command.zoomFactor === undefined ? {} : { zoomFactor: command.zoomFactor })
+      };
+    } else if (command.type === "browserWorkspaceLaunch") {
+      command = {
+        type: "embeddedWorkspaceLaunch",
+        workspaceId: command.workspaceId,
+        target: command.target
+      };
+    } else if (command.type === "browserRoleStop") {
+      command = { type: "embeddedRoleStop", roleId: command.roleId };
+    } else if (command.type === "browserWorkspaceStop") {
+      command = { type: "embeddedWorkspaceStop", workspaceId: command.workspaceId };
+    }
     switch (command.type) {
       case "embeddedRoleLaunch": {
         const seededRole = seededRoles.get(command.roleId);
@@ -5268,59 +4871,6 @@ function createHarness(options: {
     manager,
     nativeChromeControllers,
     views
-  };
-}
-
-function createExternalChromeManager() {
-  const status = {
-    roleId: role.id,
-    runtimeMode: "external" as const,
-    state: "running" as const
-  };
-
-  return {
-    captureDiagnostics: vi.fn().mockResolvedValue({ roleId: role.id }),
-    getAutomationSession: vi.fn((
-      _roleId: string
-    ): { role: Role; target: ReturnType<typeof createExternalResourceTarget>["target"] } | undefined => undefined),
-    hasSession: vi.fn(() => false),
-    hasWorkspace: vi.fn(() => true),
-    launch: vi.fn().mockResolvedValue(status),
-    launchWorkspace: vi.fn().mockResolvedValue([status]),
-    listDiagnostics: vi.fn(() => [{ roleId: role.id }]),
-    listStatuses: vi.fn(() => [status]),
-    on: vi.fn(),
-    recover: vi.fn().mockResolvedValue(status),
-    setBeforeRoleStop: vi.fn(),
-    setMacroOverlayInstaller: vi.fn(),
-    stop: vi.fn().mockResolvedValue(undefined),
-    stopWorkspace: vi.fn().mockResolvedValue(undefined)
-  };
-}
-
-function createExternalResourceTarget() {
-  const focusListeners = new Set<() => void>();
-  const setRate = vi.fn().mockResolvedValue(undefined);
-  const target = {
-    close: vi.fn(),
-    dispatchClick: vi.fn().mockResolvedValue(undefined),
-    dispatchKey: vi.fn().mockResolvedValue(undefined),
-    evaluate: vi.fn().mockResolvedValue(undefined),
-    focus: vi.fn().mockResolvedValue(undefined),
-    installMacroOverlay: vi.fn().mockResolvedValue(undefined),
-    onDisconnect: vi.fn(() => () => undefined),
-    onFocus: vi.fn((listener: () => void) => {
-      focusListeners.add(listener);
-      return () => focusListeners.delete(listener);
-    }),
-    releaseThrottle: vi.fn().mockResolvedValue(undefined),
-    setCpuThrottleRate: setRate,
-    setWindowBounds: vi.fn().mockResolvedValue(undefined)
-  };
-  return {
-    emitFocus: () => focusListeners.forEach((listener) => listener()),
-    setRate,
-    target
   };
 }
 

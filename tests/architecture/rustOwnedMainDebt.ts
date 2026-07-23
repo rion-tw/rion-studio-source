@@ -22,11 +22,6 @@ const debt = (
 export const RUST_OWNED_MAIN_DEBT = {
   authoritativeMaps: [
     debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.handles",
-      4,
-      "External process and CDP session authority."
-    ),
-    debt(
       "src/main/core/ElectronBrowserActionAdapter.ts:ElectronBrowserActionAdapter.pendingActionCountsByRole",
       5,
       "Per-role browser action queue state."
@@ -103,90 +98,10 @@ export const RUST_OWNED_MAIN_DEBT = {
     )
   ],
   orchestrationMethods: [
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.invokeBrowserRuntime", 4, "External runtime transition bridge."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.launch", 4, "Embedded/external mode dispatch."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.launchWorkspace", 4, "Workspace mode dispatch."),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.listStatuses",
-      4,
-      "Embedded/external status projection."
-    ),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.listWorkspaceDisplayReservations",
-      4,
-      "External display reservation projection."
-    ),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.listWorkspaceRuntimeStatuses",
-      4,
-      "Embedded/external workspace projection."
-    ),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.stop", 4, "Embedded/external stop dispatch."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.stopWorkspace", 4, "Workspace stop dispatch."),
     debt(
       "src/main/browser/BrowserManager.ts:BrowserManager.withRoleOperation",
       6,
       "Mutation lease orchestration."
-    ),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.launchExternal",
-      4,
-      "Embedded-to-external dispatch."
-    ),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.launchExternalWorkspace",
-      4,
-      "Workspace external dispatch."
-    ),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.recoverExternalRole",
-      4,
-      "External recovery orchestration."
-    ),
-    debt("src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.deleteSession", 4, "External session cleanup."),
-    debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.handleAutomationDisconnect",
-      4,
-      "CDP recovery decision."
-    ),
-    debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.handleHealthChange",
-      4,
-      "External health transition."
-    ),
-    debt("src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.invokeSession", 4, "Granular session bridge."),
-    debt("src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.launch", 4, "External role launch."),
-    debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.launchSession",
-      4,
-      "Process/CDP launch saga."
-    ),
-    debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.launchWorkspace",
-      4,
-      "External workspace launch saga."
-    ),
-    debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.listStatuses",
-      4,
-      "External status projection."
-    ),
-    debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.listWorkspaceRuntimeStatuses",
-      4,
-      "External workspace projection."
-    ),
-    debt("src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.recover", 4, "External recovery saga."),
-    debt("src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.stop", 4, "External role stop."),
-    debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.stopForRecovery",
-      4,
-      "External recovery cleanup."
-    ),
-    debt(
-      "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.stopWorkspace",
-      4,
-      "External workspace rollback."
     )
   ],
   promiseTails: [
@@ -210,6 +125,8 @@ export const RUST_OWNED_MAIN_DEBT = {
   specializedNapiMethods: [
     debt("acquireBrowserOperation", 3, "Operation leases move behind invoke."),
     debt("alignExternalChromeWindow", 4, "External window operation actor effect."),
+    debt("browserStatuses", 11, "Synchronous status projection becomes a typed core event."),
+    debt("browserWorkspaceStatuses", 11, "Synchronous workspace projection becomes a typed core event."),
     debt("cancelWait", 5, "Scheduler cancellation moves behind invoke."),
     debt("captureExternalChromeDiagnostics", 4, "External diagnostics command."),
     debt("clearEmbeddedKeys", 5, "Held-key shutdown command."),

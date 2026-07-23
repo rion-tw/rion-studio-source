@@ -109,6 +109,23 @@ impl NativeExternalChromeCdpClient {
 #[napi]
 impl NativeAppCore {
     #[napi]
+    pub fn browser_statuses(&self) -> Result<String> {
+        serde_json::to_string(&self.inner.browser_statuses().map_err(to_napi_error)?)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn browser_workspace_statuses(&self) -> Result<String> {
+        serde_json::to_string(
+            &self
+                .inner
+                .browser_workspace_statuses()
+                .map_err(to_napi_error)?,
+        )
+        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
     pub fn invoke_external_session(&self, command_json: String) -> Result<String> {
         let command = serde_json::from_str::<ExternalSessionCommand>(&command_json)
             .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
@@ -344,14 +361,24 @@ impl NativeAppCore {
         let command = serde_json::from_str::<CoreCommand>(&command_json)
             .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
         let core = Arc::clone(&self.inner);
-        napi::tokio::task::spawn_blocking(move || core.invoke(command))
-            .await
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
-            .and_then(|value| {
-                serde_json::to_string(&value)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            })
-            .map_err(to_napi_error)
+        let value = if matches!(
+            command,
+            CoreCommand::BrowserRoleLaunch { .. }
+                | CoreCommand::BrowserWorkspaceLaunch { .. }
+                | CoreCommand::BrowserRoleStop { .. }
+                | CoreCommand::BrowserWorkspaceStop { .. }
+                | CoreCommand::BrowserExternalRecover { .. }
+                | CoreCommand::ExternalDiagnosticsCapture { .. }
+        ) {
+            core.invoke_async(command).await.map_err(to_napi_error)?
+        } else {
+            napi::tokio::task::spawn_blocking(move || core.invoke(command))
+                .await
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
+                .map_err(to_napi_error)?
+        };
+        serde_json::to_string(&value)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
     }
 
     #[napi]

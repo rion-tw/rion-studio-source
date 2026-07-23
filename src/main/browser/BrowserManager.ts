@@ -32,7 +32,6 @@ import type {
 } from "../../shared/generated";
 import type {
   AppLanguage,
-  BrowserLaunchMode,
   EmbeddedRuntimeState,
   EmbeddedRuntimeTabSummary,
   EmbeddedRuntimeWindowSummary,
@@ -59,7 +58,6 @@ import {
   formatWorkspaceResizeRatio,
   type WorkspaceResizeIndicatorPayload
 } from "../../shared/workspaceResize";
-import type { ExternalChromeLaunchItem, ExternalChromeManager } from "./ExternalChromeManager";
 import type { EmbeddedRuntimeDiagnosticContext } from "./EmbeddedRuntimeDiagnostics";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import type { AppCoreClient, EmbeddedKeyRuntimeClient } from "../core/nativeCore";
@@ -132,7 +130,13 @@ export interface BrowserManagerOptions {
     acquireBrowserOperation: (request: BrowserOperationRequest) => Promise<BrowserOperationLease>;
     completeBrowserOperation: (id: string) => void;
     invokeBrowserRuntime: (command: BrowserRuntimeCommand) => BrowserRuntimeResult;
-  } & ResourceRuntimeState & Pick<AppCoreClient, "invokeTyped">;
+  } & ResourceRuntimeState & Pick<
+    AppCoreClient,
+    | "evaluateExternalChrome"
+    | "invokeTyped"
+    | "listBrowserStatuses"
+    | "listBrowserWorkspaceStatuses"
+  >;
   createHostWindow: (options: BaseWindowConstructorOptions) => BaseWindow;
   createRuntimeChromeView?: (options: WebContentsViewConstructorOptions) => WebContentsView;
   createTabbedHostWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
@@ -142,8 +146,6 @@ export interface BrowserManagerOptions {
   embeddedPreloadPath: string;
   runtimeTabsPageUrl?: string;
   runtimeTabsPreloadPath?: string;
-  externalChromeManager?: ExternalChromeManager;
-  getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
   getRoleSession?: (role: Role) => Session | undefined;
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
@@ -480,15 +482,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       options.browserRuntimeState,
       options.resourcePressureMonitor
     );
-    this.options.externalChromeManager?.on("change", () => {
-      this.cleanupExternalWorkspaceRuntimeState();
-      this.emitChange();
-    });
     this.resourceCoordinator.on("change", () => this.emitChange());
   }
 
   setBeforeRolesStop(handler: BeforeRolesStop): void {
-    this.options.externalChromeManager?.setBeforeRoleStop((roleId) => handler([roleId]));
+    void handler;
   }
 
   setWorkspaceAppearanceSettings(settings: WorkspaceAppearanceSettings): void {
@@ -505,12 +503,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   setMacroOverlayInstaller(installer: BrowserMacroOverlayInstaller): void {
     this.macroOverlayInstaller = installer;
-  }
-
-  setExternalMacroOverlayInstaller(
-    installer: Parameters<ExternalChromeManager["setMacroOverlayInstaller"]>[0]
-  ): void {
-    this.options.externalChromeManager?.setMacroOverlayInstaller(installer);
   }
 
   async executeEmbeddedEffect(
@@ -743,20 +735,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   listStatuses(): RoleStatus[] {
-    const embeddedRoles = this.options.browserRuntimeState
-      .invokeBrowserRuntime({ type: "snapshot" })
-      .snapshot.roles
-      .filter((role) => role.runtime === "embedded" && this.roleHandles.has(role.roleId))
-      .map((role) => ({
-        roleId: role.roleId,
-        state: role.state,
-        ...(role.launchedAt ? { launchedAt: role.launchedAt } : {}),
-        runtimeMode: "embedded" as const
-      }));
-    return [
-      ...embeddedRoles,
-      ...(this.options.externalChromeManager?.listStatuses() ?? [])
-    ].map((status) => this.withResourceStatus(status));
+    return this.options.browserRuntimeState
+      .listBrowserStatuses()
+      .map((status) => this.withResourceStatus(status as RoleStatus));
   }
 
   listEmbeddedRuntimeState(): EmbeddedRuntimeState {
@@ -1035,13 +1016,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   listWorkspaceRuntimeStatuses(): BrowserWorkspaceRuntimeStatus[] {
-    return this.options.browserRuntimeState
-      .invokeBrowserRuntime({ type: "snapshot" })
-      .snapshot.workspaces
-      .map(({ workspaceId, state }) => ({
-        workspaceId,
-        state: state as BrowserWorkspaceRuntimeState
-      }));
+    return this.options.browserRuntimeState.listBrowserWorkspaceStatuses();
   }
 
   getRoleIdForWebContents(webContentsId: number): string | undefined {
@@ -1074,14 +1049,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   evaluateExternalRole<T = unknown>(roleId: string, source: string): Promise<T> {
-    if (!this.options.externalChromeManager) {
-      return Promise.reject(new Error("External Chrome compatibility mode is not available."));
-    }
-    return this.options.externalChromeManager.evaluate<T>(roleId, source);
+    return this.options.browserRuntimeState.evaluateExternalChrome<T>(roleId, source);
   }
 
   getExternalRoleName(roleId: string): string {
-    return this.options.externalChromeManager?.getAutomationSession(roleId)?.role.name ?? roleId;
+    return roleId;
   }
 
   getEmbeddedAutomationSession(roleId: string): BrowserAutomationSession | undefined {
@@ -1092,38 +1064,36 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   captureExternalRoleDiagnostics(roleId: string) {
-    if (!this.options.externalChromeManager) {
-      throw new Error("External Chrome compatibility mode is not available.");
-    }
-    return this.options.externalChromeManager.captureDiagnostics(roleId);
+    return this.options.browserRuntimeState.invokeTyped({
+      type: "externalDiagnosticsCapture",
+      roleId
+    });
   }
 
   recoverExternalRole(roleId: string): Promise<RoleStatus> {
-    if (!this.options.externalChromeManager) {
-      throw new Error("External Chrome compatibility mode is not available.");
-    }
-    return this.withRoleOperation("normal", [roleId], () =>
-      this.options.externalChromeManager!.recover(roleId));
+    return this.options.browserRuntimeState.invokeTyped({
+      type: "browserExternalRecover",
+      roleId
+    }) as Promise<RoleStatus>;
   }
 
   listExternalRoleDiagnostics() {
-    return this.options.externalChromeManager?.listDiagnostics() ?? [];
+    return this.options.browserRuntimeState.invokeTyped({ type: "externalDiagnosticsList" });
   }
 
-  captureAllExternalRoleDiagnostics() {
-    return this.options.externalChromeManager?.captureAllDiagnostics() ?? Promise.resolve([]);
+  async captureAllExternalRoleDiagnostics() {
+    const statuses = this.options.browserRuntimeState
+      .listBrowserStatuses()
+      .filter((status) => status.runtimeMode === "external");
+    return Promise.all(statuses.map(({ roleId }) => this.captureExternalRoleDiagnostics(roleId)));
   }
 
   async launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus | null> {
     const zoomFactor = options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR;
     const target = options.target ?? this.getDefaultLaunchTarget();
-    const launchMode = await this.getBrowserLaunchMode(role);
-    if (launchMode === "external") {
-      return this.launchExternal(role, undefined, zoomFactor, target.workArea);
-    }
     try {
       const [status] = await this.options.browserRuntimeState.invokeTyped({
-        type: "embeddedRoleLaunch",
+        type: "browserRoleLaunch",
         roleId: role.id,
         target: {
           displayId: target.displayId,
@@ -1134,9 +1104,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return status ?? null;
     } catch (error) {
       if (getErrorCode(error) === "LAUNCH_CANCELLED") return null;
-      if (launchMode === "auto" && getErrorCode(error) === "GAME_PAGE_LOAD_FAILED") {
-        return this.launchExternal(role, EXTERNAL_COMPAT_NOTICE, zoomFactor, target.workArea);
-      }
       throw error;
     }
   }
@@ -1145,25 +1112,20 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget,
-    launchMode?: BrowserLaunchMode
+    _launchMode?: "auto" | "embedded" | "external"
   ): Promise<RoleStatus[]> {
-    return this.launchWorkspaceThroughCore(workspace, items, target, launchMode);
+    void items;
+    return this.launchWorkspaceThroughCore(workspace, target);
   }
 
   private async launchWorkspaceThroughCore(
     workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template">,
-    items: BrowserWorkspaceLaunchItem[],
-    target?: BrowserWorkspaceLaunchTarget,
-    requestedLaunchMode?: BrowserLaunchMode
+    target?: BrowserWorkspaceLaunchTarget
   ): Promise<RoleStatus[]> {
-    const resolvedMode = requestedLaunchMode ?? await this.getBrowserLaunchMode();
-    if (resolvedMode === "external") {
-      return this.launchExternalWorkspace(workspace, items, undefined, target);
-    }
     const resolvedTarget = target ?? this.getDefaultLaunchTarget();
     try {
       return await this.options.browserRuntimeState.invokeTyped({
-        type: "embeddedWorkspaceLaunch",
+        type: "browserWorkspaceLaunch",
         workspaceId: workspace.id,
         target: {
           displayId: resolvedTarget.displayId,
@@ -1172,12 +1134,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       });
     } catch (error) {
       if (getErrorCode(error) === "LAUNCH_CANCELLED") return [];
-      if (resolvedMode === "auto" && getErrorCode(error) === "GAME_PAGE_LOAD_FAILED") {
-        return this.launchExternalWorkspace(
-          workspace,
-          items,
-          EXTERNAL_COMPAT_NOTICE,
-          resolvedTarget
+      if (getErrorCode(error) === "WORKSPACE_DISPLAY_OCCUPIED") {
+        const occupied = this.options.browserRuntimeState
+          .invokeBrowserRuntime({ type: "snapshot" })
+          .snapshot.workspaces.find(
+            (candidate) =>
+              candidate.exclusiveDisplay && candidate.displayId === resolvedTarget.displayId
+          );
+        throw new BrowserWorkspaceDisplayOccupiedError(
+          resolvedTarget.displayId,
+          occupied?.workspaceId ?? "unknown"
         );
       }
       throw error;
@@ -1185,14 +1151,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   async stop(roleId: string): Promise<void> {
-    if (this.roleHandles.has(roleId)) {
-      await this.options.browserRuntimeState.invokeTyped({
-        type: "embeddedRoleStop",
-        roleId
-      });
-      return;
-    }
-    await this.options.externalChromeManager?.stop(roleId);
+    await this.options.browserRuntimeState.invokeTyped({
+      type: "browserRoleStop",
+      roleId
+    });
   }
 
   runRoleOperation<T>(roleIds: string[], operation: () => Promise<T>): Promise<T> {
@@ -1214,16 +1176,10 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   async stopWorkspace(workspaceId: string): Promise<void> {
-    const hostId = this.workspaceTabHandleIds.get(workspaceId);
-    if (hostId) {
-      await this.options.browserRuntimeState.invokeTyped({
-        type: "embeddedWorkspaceStop",
-        workspaceId
-      });
-      return;
-    }
-    await this.options.externalChromeManager?.stopWorkspace(workspaceId);
-    this.cleanupWorkspaceRuntimeState(workspaceId);
+    await this.options.browserRuntimeState.invokeTyped({
+      type: "browserWorkspaceStop",
+      workspaceId
+    });
   }
 
   async stopAll(): Promise<void> {
@@ -2347,11 +2303,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
   }
 
-  private getBrowserLaunchMode(role?: Role): BrowserLaunchMode | Promise<BrowserLaunchMode> {
-    return this.options.getBrowserLaunchMode?.(role) ?? "embedded";
-  }
-
-
   private getWorkspaceAppearanceSettings():
     | WorkspaceAppearanceSettings
     | Promise<WorkspaceAppearanceSettings> {
@@ -2360,67 +2311,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private applyWorkspaceBackground(divider: GameDivider, settings: WorkspaceAppearanceSettings): void {
     divider.view.setBackgroundColor(settings.background === "black" ? "#FF000000" : "#00000000");
-  }
-
-  private async launchExternal(
-    role: Role,
-    notice?: string,
-    zoomFactor = DEFAULT_BROWSER_ZOOM_FACTOR,
-    workArea?: PixelBounds
-  ): Promise<RoleStatus> {
-    if (!this.options.externalChromeManager) {
-      throw new Error("External Chrome compatibility mode is not available.");
-    }
-
-    return this.options.externalChromeManager.launch(role, { notice, zoomFactor, workArea });
-  }
-
-  private async launchExternalWorkspace(
-    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id">,
-    items: ExternalChromeLaunchItem[],
-    notice?: string,
-    target?: BrowserWorkspaceLaunchTarget
-  ): Promise<RoleStatus[]> {
-    if (!this.options.externalChromeManager) {
-      throw new Error("External Chrome compatibility mode is not available.");
-    }
-
-    const workspaceName = "name" in workspace && typeof workspace.name === "string"
-      ? workspace.name
-      : workspace.id;
-    try {
-      this.invokeBrowserRuntime({
-        type: "createExternalWorkspace",
-        workspaceId: workspace.id,
-        name: workspaceName,
-        ...(target ? { displayId: target.displayId } : {}),
-        exclusiveDisplay: Boolean(target),
-        roleIds: items.map((item) => item.role.id)
-      });
-      return await this.options.externalChromeManager.launchWorkspace(workspace, items, {
-        notice,
-        workArea: target?.workArea,
-        zoomMode: workspace.browserZoomMode,
-        zoomFactor: workspace.browserZoomPercent / 100
-      });
-    } catch (error) {
-      this.invokeBrowserRuntime({
-        type: "removeWorkspace",
-        workspaceId: workspace.id
-      });
-      if (getErrorCode(error) === "WORKSPACE_DISPLAY_OCCUPIED" && target) {
-        const occupied = this.options.browserRuntimeState
-          .invokeBrowserRuntime({ type: "snapshot" })
-          .snapshot.workspaces.find(
-            (candidate) => candidate.exclusiveDisplay && candidate.displayId === target.displayId
-          );
-        throw new BrowserWorkspaceDisplayOccupiedError(
-          target.displayId,
-          occupied?.workspaceId ?? "unknown"
-        );
-      }
-      throw error;
-    }
   }
 
   private async applyBrowserProxy(session: BrowserSession): Promise<void> {
@@ -3059,28 +2949,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (host.workspaceId && this.workspaceTabHandleIds.get(host.workspaceId) === host.id) {
       this.workspaceTabHandleIds.delete(host.workspaceId);
     }
-  }
-
-  private cleanupExternalWorkspaceRuntimeState(): void {
-    this.options.browserRuntimeState
-      .invokeBrowserRuntime({ type: "snapshot" })
-      .snapshot.workspaces
-      .filter((workspace) => workspace.runtime === "external")
-      .forEach((workspace) => this.cleanupWorkspaceRuntimeState(workspace.workspaceId));
-  }
-
-  private cleanupWorkspaceRuntimeState(workspaceId: string): void {
-    if (
-      this.workspaceTabHandleIds.has(workspaceId) ||
-      this.options.externalChromeManager?.hasWorkspace?.(workspaceId)
-    ) {
-      return;
-    }
-
-    this.invokeBrowserRuntime({
-      type: "removeWorkspace",
-      workspaceId
-    });
   }
 
   private emitChange(): void {

@@ -67,11 +67,13 @@ impl ExternalProcessRuntime {
             .name(format!("rion-external-exit-{pid}"))
             .spawn(move || {
                 let Ok(event) = events.recv() else { return };
-                let is_current = entries
-                    .lock()
-                    .ok()
-                    .and_then(|entries| entries.get(&role_id).map(|entry| entry.generation))
-                    == Some(generation);
+                let is_current = entries.lock().ok().is_some_and(|mut entries| {
+                    if entries.get(&role_id).map(|entry| entry.generation) != Some(generation) {
+                        return false;
+                    }
+                    entries.remove(&role_id);
+                    true
+                });
                 if is_current {
                     on_exit(role_id, event);
                 }
@@ -150,6 +152,7 @@ mod tests {
         assert_eq!(role_id, "role-1");
         assert_eq!(event.exit_code, Some(expected_exit_code));
         assert!(!event.terminated);
+        assert!(!runtime.terminate("role-1").unwrap());
     }
 
     #[cfg(unix)]

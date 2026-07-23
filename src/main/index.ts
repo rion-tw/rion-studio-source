@@ -21,19 +21,12 @@ import {
   WebContentsView
 } from "electron";
 
-import {
-  ExternalChromeManager,
-  type ExternalChromeManagerOptions
-} from "./browser/ExternalChromeManager";
-import { connectExternalChromeAutomation } from "./browser/ExternalChromeAutomationTarget";
 import { ChromeProfileImportManager } from "./browser/ChromeProfileImportManager";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { RustWindowsGraphicsEventCollector } from "./browser/RustWindowsGraphicsEventCollector";
 import { ChromeProfileSessionImporter } from "./browser/ChromeProfileSessionImporter";
 import { RoleBrowserDataManager } from "./browser/RoleBrowserDataManager";
 import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
-import { RustExternalChromeHealthMonitor } from "./browser/RustExternalChromeHealthMonitor";
-import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
 import { AppCoreClient, readBootstrapGraphicsSettings } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
 import {
@@ -80,7 +73,11 @@ import { sendToWindowIfAvailable } from "./window/sendToWindow";
 import { RustLogPersistence } from "./logging/RustLogPersistence";
 import { writeZip } from "./logging/zipWriter";
 import { RustMacroManager } from "./macros/RustMacroManager";
-import { MacroOverlayInjector } from "./macros/MacroOverlayInjector";
+import {
+  MACRO_OVERLAY_SCRIPT,
+  MacroOverlayInjector,
+  isMacroOverlayRequest
+} from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
 import { MacroSettingsStore } from "./macros/MacroSettingsStore";
 import { PortableDataManager } from "./portable/PortableDataManager";
@@ -579,6 +576,7 @@ async function initializeApplication(): Promise<void> {
     broadcastWorkspacesChanged(await workspaceStore.listWorkspaces());
   };
   const macroStore = new MacroStore(userDataDir, stateRepository);
+  const macroOverlayRef: { current?: MacroOverlayInjector } = {};
   getDiagnosticDataCounts = async () => {
     const [games, roles, workspaces, macros] = await Promise.all([
       gameStore.listGames(), roleStore.listRoles(), workspaceStore.listWorkspaces(), macroStore.listMacros()
@@ -622,91 +620,12 @@ async function initializeApplication(): Promise<void> {
     updateCheckStarted = true;
     void updateManager.checkForUpdates();
   };
-  const externalChromeWindowBoundsAdapter = createExternalChromeWindowBoundsAdapter({
-    nativeAlignVisibleBounds: async ({ browserProcessId, physicalBounds }) =>
-      appCoreClient?.alignExternalChromeWindow(browserProcessId, physicalBounds) ?? physicalBounds
-  });
   const resourcePressureMonitor = new RustSystemPressureMonitor(appCoreClient);
   powerMonitor.on("speed-limit-change", ({ limit }) => resourcePressureMonitor.setSpeedLimit(limit));
   if (process.platform === "darwin") {
     powerMonitor.on("thermal-state-change", ({ state }) => resourcePressureMonitor.setThermalState(state));
   }
   resourcePressureMonitor.start();
-  const externalChromeHealthMonitor = new RustExternalChromeHealthMonitor(appCoreClient);
-  const externalChromeManager = new ExternalChromeManager(roleStore, {
-    adaptiveZoomResolver: (viewportWidth, currentPercent) =>
-      appCoreClient!.resolveAdaptiveWorkspaceZoom(viewportWidth, currentPercent),
-    externalSessionState: appCoreClient!,
-    captureAutomationDiagnostics: (roleId) =>
-      appCoreClient!.captureExternalChromeDiagnostics(roleId),
-    evaluateAutomation: (roleId, source) =>
-      appCoreClient!.evaluateExternalChrome(roleId, source),
-    focusAutomation: (roleId) => appCoreClient!.focusExternalChrome(roleId),
-    findExecutable: () => appCoreClient!.findSystemChromeExecutable(),
-    spawnChrome: (roleId: string, executablePath: string, args: string[]) =>
-      appCoreClient!.launchExternalChrome(roleId, executablePath, args),
-    prepareBrowserUserDataDir: (browserUserDataDir: string) =>
-      appCoreClient!.prepareExternalChromeProfile(browserUserDataDir),
-    connectAutomation: (
-      browserUserDataDir: string,
-      launchUrl: string,
-      options?: Parameters<ExternalChromeManagerOptions["connectAutomation"]>[2]
-    ) => connectExternalChromeAutomation(browserUserDataDir, launchUrl, {
-      ...options,
-      connectClient: (userDataDir, url, roleId, cdnCompatibilityEnabled) => {
-        if (!roleId) throw new Error("External Chrome role id is required.");
-        return appCoreClient!.connectExternalChromeCdp(
-          roleId,
-          userDataDir,
-          url,
-          10_000,
-          cdnCompatibilityEnabled
-        );
-      }
-    }),
-    setAutomationWindowBounds: (roleId, bounds) =>
-      appCoreClient!.setExternalChromeWindowBounds(roleId, bounds),
-    unregisterAutomation: (roleId) =>
-      appCoreClient!.unregisterExternalChromeAutomation(roleId),
-    healthMonitor: externalChromeHealthMonitor,
-    normalizeWorkspaceRects: (rects) => appCoreClient!.normalizeWorkspaceRects(rects),
-    applyBrowserPreferences: async (_role, browserUserDataDir, zoomFactor) => {
-      const settings = await gameBrowserSettingsStore.getSettings();
-      await appCoreClient!.invoke({
-        type: "browserPreferencesApply",
-        browserUserDataDir,
-        fonts: settings.fonts,
-        zoomFactor
-      });
-    },
-    prepareCdnCompatibility: async (role, _browserUserDataDir) => {
-      const settings = await gameBrowserSettingsStore.getSettings();
-      const browserSession = electronSession.fromPartition(createRoleSessionPartition(role.id));
-      await browserProxyApplier.applyToSession(browserSession);
-      return {
-        enabled: await cdnCompatibilityManager.resolveForSession(browserSession),
-        ...(settings.network.proxy.mode === "custom"
-          ? { proxyServer: settings.network.proxy.server }
-          : {})
-      };
-    },
-    getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
-    graphicsSettings: appliedBrowserGraphicsSettings,
-    onDiagnostic: ({ details, roleId, type }) => {
-      if (type === "page_heartbeat") {
-        return;
-      }
-      const context = { roleId, ...details };
-      if (type === "cdp_evaluate_failed" || type === "disconnect") {
-        logService.warn("browser", `external_chrome_${type}`, "External Chrome automation diagnostic.", context);
-      } else {
-        logService.info("browser", `external_chrome_${type}`, "External Chrome automation diagnostic.", context);
-      }
-    },
-    ...(externalChromeWindowBoundsAdapter
-      ? { windowBoundsAdapter: externalChromeWindowBoundsAdapter }
-      : {})
-  });
   const macRuntimeTabsControllerFactory = process.platform === "darwin"
     ? loadMacRuntimeTabsControllerFactory(getMacRuntimeTabsAddonPath())
     : undefined;
@@ -714,11 +633,11 @@ async function initializeApplication(): Promise<void> {
   embeddedRuntimeDiagnostics = new EmbeddedRuntimeDiagnostics(logService);
   powerMonitor.on("suspend", () => {
     embeddedRuntimeDiagnostics?.handleSuspend();
-    externalChromeManager.handleSuspend();
+    void appCoreClient?.invokeTyped({ type: "browserRuntimeSuspend", suspended: true });
   });
   powerMonitor.on("resume", () => {
     embeddedRuntimeDiagnostics?.handleResume();
-    externalChromeManager.handleResume();
+    void appCoreClient?.invokeTyped({ type: "browserRuntimeSuspend", suspended: false });
   });
   browserManager = new BrowserManager({
     browserRuntimeState: appCoreClient!,
@@ -751,7 +670,6 @@ async function initializeApplication(): Promise<void> {
     embeddedPreloadPath: join(__dirname, "../preload/embedded.cjs"),
     runtimeTabsPageUrl: createRuntimeTabsPageUrl(),
     runtimeTabsPreloadPath: join(__dirname, "../preload/runtime-tabs.cjs"),
-    externalChromeManager,
     recordTabActivationLatency: (durationMs) =>
       appCoreClient?.recordTabActivationLatency(durationMs),
     adaptiveZoomResolver: (viewportWidth, currentPercent) =>
@@ -762,14 +680,6 @@ async function initializeApplication(): Promise<void> {
     workspaceLayoutResolver: (input: Parameters<NonNullable<BrowserManagerOptions["workspaceLayoutResolver"]>>[0]) =>
       appCoreClient!.resolveWorkspaceLayout(input),
     resourcePressureMonitor,
-    getBrowserLaunchMode: async (role) => {
-      const globalMode = (await gameBrowserSettingsStore.getSettings()).launchMode;
-      if (!role) {
-        return globalMode;
-      }
-      const game = await gameStore.getGame(role.gameId);
-      return game.browserLaunchMode === "inherit" ? globalMode : game.browserLaunchMode;
-    },
     getRoleSession: (role) => role.browserSessionSource === "chrome-profile"
       ? electronSession.fromPath(join(roleStore.getRolePaths(role.id).browserUserDataDir, "Default"))
       : undefined,
@@ -824,6 +734,46 @@ async function initializeApplication(): Promise<void> {
         ) as unknown as import("./core/ElectronEffectExecutor").ElectronWindowEffectHandle,
       dispatchResults: (results) => effectCore.dispatchCoreEffectResults(results),
       executeEmbeddedEffect: ({ action }) => browserManager!.executeEmbeddedEffect(action),
+      executeExternalEffect: async ({ action }) => {
+        switch (action.type) {
+          case "externalPrepareSession": {
+            const settings = await gameBrowserSettingsStore.getSettings();
+            const browserSession = electronSession.fromPartition(
+              createRoleSessionPartition(action.roleId)
+            );
+            await browserProxyApplier.applyToSession(browserSession);
+            return {
+              cdnEnabled: await cdnCompatibilityManager.resolveForSession(browserSession),
+              ...(settings.network.proxy.mode === "custom" &&
+              settings.network.proxy.server.trim()
+                ? { proxyServer: settings.network.proxy.server }
+                : {})
+            };
+          }
+          case "externalResolvePhysicalBounds":
+            return process.platform === "win32"
+              ? screen.dipToScreenRect(null, action.bounds)
+              : action.bounds;
+          case "externalOverlaySource":
+            return MACRO_OVERLAY_SCRIPT;
+          case "externalOverlayRequest": {
+            const request = JSON.parse(action.requestJson) as unknown;
+            if (!isMacroOverlayRequest(request)) {
+              throw Object.assign(new Error("Invalid external macro overlay request."), {
+                code: "MACRO_OVERLAY_REQUEST_INVALID"
+              });
+            }
+            if (!macroOverlayRef.current) {
+              throw Object.assign(new Error("Macro overlay is not initialized."), {
+                code: "MACRO_OVERLAY_UNAVAILABLE"
+              });
+            }
+            return JSON.parse(
+              JSON.stringify(await macroOverlayRef.current.handleRequest(action.roleId, request))
+            );
+          }
+        }
+      },
       sendDebuggerCommand: async (contents, method, params) => {
         const electronContents = contents as Electron.WebContents;
         if (!electronContents.debugger.isAttached()) electronContents.debugger.attach("1.3");
@@ -864,33 +814,27 @@ async function initializeApplication(): Promise<void> {
     browserManager,
     appCoreClient
   );
-  externalChromeManager.on("health", (roleId, health, diagnostics) => {
-    const context = { roleId, pageHealth: health, ...(diagnostics ? { diagnostics } : {}) };
-    if (health === "unresponsive") {
-      latestExternalFreezeReportedAt = new Date();
-      logService.warn(
-        "browser",
-        "external_chrome_page_unresponsive",
-        "An external Chrome game page stopped responding.",
-        context
-      );
-      void macroManager.stopRole(roleId);
-      return;
+  appCoreClient.subscribe((events) => {
+    for (const event of events) {
+      if (event.type !== "externalHealthChanged") continue;
+      const context = { roleId: event.roleId, pageHealth: event.health };
+      if (event.health === "unresponsive") {
+        latestExternalFreezeReportedAt = new Date();
+        logService.warn(
+          "browser",
+          "external_chrome_page_unresponsive",
+          "An external Chrome game page stopped responding.",
+          context
+        );
+      } else {
+        logService.info(
+          "browser",
+          "external_chrome_page_recovered",
+          "An external Chrome game page diagnostics heartbeat recovered.",
+          context
+        );
+      }
     }
-    logService.info(
-      "browser",
-      "external_chrome_page_recovered",
-      "An external Chrome game page diagnostics heartbeat recovered.",
-      context
-    );
-  });
-  externalChromeManager.on("diagnostics", (roleId, diagnostics) => {
-    logService.warn(
-      "browser",
-      "external_chrome_unresponsive_snapshot",
-      "Captured diagnostics for an unresponsive external Chrome game page.",
-      { roleId, diagnostics }
-    );
   });
   const portableDataManager = new PortableDataManager({
     core: appCoreClient,
@@ -933,7 +877,7 @@ async function initializeApplication(): Promise<void> {
       await Promise.all(roleIds.map((roleId) => browserManager!.stop(roleId)));
     }
   });
-  const macroOverlayInjector = new MacroOverlayInjector(
+  macroOverlayRef.current = new MacroOverlayInjector(
     macroStore,
     macroManager,
     requestMacroPageFromOverlay,
@@ -957,16 +901,17 @@ async function initializeApplication(): Promise<void> {
     async () => (await gameBrowserSettingsStore.getSettings()).macroBadgePosition,
     (coordinate) => clipboard.writeText(formatMacroCoordinateClipboard(coordinate))
   );
-  browserManager.setMacroOverlayInstaller((role, page) => macroOverlayInjector.install(role, page));
-  browserManager.setExternalMacroOverlayInstaller((role, target) => macroOverlayInjector.installExternal(role, target));
+  browserManager.setMacroOverlayInstaller((role, page) =>
+    macroOverlayRef.current!.install(role, page)
+  );
   macroManager.on("change", (statuses) => {
-    macroOverlayInjector.refreshChangedMacroStatuses(statuses);
+    macroOverlayRef.current!.refreshChangedMacroStatuses(statuses);
     logService.info("macro", "macro_status_changed", "Macro runtime status changed.", {
       statuses: statuses.map((status) => ({ macroId: status.macroId, state: status.state }))
     });
   });
   browserManager.on("change", (statuses) => {
-    macroOverlayInjector.refreshChangedRoleStatuses(statuses);
+    macroOverlayRef.current!.refreshChangedRoleStatuses(statuses);
     logService.info("browser", "role_status_changed", "Browser role status changed.", {
       statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state, runtimeMode: status.runtimeMode }))
     });
@@ -1046,7 +991,7 @@ async function initializeApplication(): Promise<void> {
       const capturedAt = new Date();
       latestExternalFreezeReportedAt = capturedAt;
       const [diagnostics, windowsGraphicsEvents] = await Promise.all([
-        externalChromeManager.captureDiagnostics(roleId),
+        browserManager!.captureExternalRoleDiagnostics(roleId),
         new RustWindowsGraphicsEventCollector(appCoreClient!).collect(
           new Date(capturedAt.getTime() - 30 * 60_000)
         )
@@ -1080,10 +1025,10 @@ async function initializeApplication(): Promise<void> {
     updateManager,
     withDataMutation,
     onGameBrowserSettingsChanged: () => {
-      macroOverlayInjector.refreshInstalledOverlays(undefined, "game_browser_settings");
+      macroOverlayRef.current!.refreshInstalledOverlays(undefined, "game_browser_settings");
     },
     onMacrosChanged: () => {
-      macroOverlayInjector.refreshInstalledOverlays(undefined, "macro_definition");
+      macroOverlayRef.current!.refreshInstalledOverlays(undefined, "macro_definition");
       void macroStore.listMacros().then(broadcastMacrosChanged);
     },
     onLegalAccepted: () => {
@@ -1095,10 +1040,10 @@ async function initializeApplication(): Promise<void> {
       if (request.type === "game-input-context") {
         browserManager?.setGameInputContext(webContents.id, request.active);
       }
-      return macroOverlayInjector.handleEmbeddedRequest(webContents, activeRoleId, request);
+      return macroOverlayRef.current!.handleEmbeddedRequest(webContents, activeRoleId, request);
     },
     onOverlayLanguageChanged: (language) => {
-      macroOverlayInjector.setLanguage(language);
+      macroOverlayRef.current!.setLanguage(language);
       browserManager?.setRuntimeTabsLanguage(language);
       runtimeTabMenu?.setLanguage(language);
       applicationMenu?.setLanguage(language);

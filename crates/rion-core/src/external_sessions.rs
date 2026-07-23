@@ -163,7 +163,7 @@ impl ExternalSessionRuntime {
         })
     }
 
-    fn snapshot(&self) -> Vec<ExternalSessionRecord> {
+    pub fn snapshot(&self) -> Vec<ExternalSessionRecord> {
         let mut sessions = self.sessions.values().cloned().collect::<Vec<_>>();
         sessions.sort_by(|left, right| left.role.id.cmp(&right.role.id));
         sessions

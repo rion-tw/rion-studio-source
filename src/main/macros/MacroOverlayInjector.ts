@@ -555,7 +555,7 @@ export class MacroOverlayInjector {
       this.macroStore.listMacros(),
       this.getMacroBadgePosition?.() ?? Promise.resolve({ ...DEFAULT_MACRO_BADGE_POSITION })
     ]);
-    const statuses = this.macroManager.listStatuses();
+    const statuses = await this.macroManager.listStatuses();
     const currentRunningStatusKeys = new Set(
       statuses
         .filter((status) => status.state === "running")

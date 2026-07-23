@@ -7,7 +7,7 @@ export interface MacroManagerEvents {
 export type HeldTriggerReleaseMode = "complete_first_iteration" | "immediate";
 
 export interface MacroRuntimeManager {
-  listStatuses(): MacroRunStatus[];
+  listStatuses(): Promise<MacroRunStatus[]>;
   on(event: "change", listener: (statuses: MacroRunStatus[]) => void): this;
   pressForRole(macroId: string, roleId: string, pressId: string): Promise<MacroRunStatus[]>;
   releaseForRole(

@@ -154,18 +154,21 @@ describe("ElectronAutomationTarget", () => {
     ]);
   });
 
-  it("holds keys and keeps the post-input delay inside the shared target queue", async () => {
+  it("holds keys and applies its own post-input delay", async () => {
     vi.useFakeTimers();
     const harness = createHarness();
     const target = createTarget(harness);
 
-    const key = target.dispatchKey("F2", { holdMs: 20, postDelayMs: 10 });
+    let completed = false;
+    const key = target.dispatchKey("F2", { holdMs: 20, postDelayMs: 10 })
+      .then(() => {
+        completed = true;
+      });
     await vi.advanceTimersByTimeAsync(0);
     expect(keyEvents(harness)).toEqual([
       { type: "rawKeyDown", code: "F2", key: "F2", windowsVirtualKeyCode: 113 }
     ]);
 
-    const click = target.dispatchClick(50, 50);
     await vi.advanceTimersByTimeAsync(19);
     expect(inputEvents(harness)).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
@@ -176,11 +179,11 @@ describe("ElectronAutomationTarget", () => {
       windowsVirtualKeyCode: 113
     });
     await vi.advanceTimersByTimeAsync(9);
-    expect(inputEvents(harness)).toHaveLength(2);
+    expect(completed).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
 
-    await Promise.all([key, click]);
-    expect(inputEvents(harness)).toHaveLength(4);
+    await key;
+    expect(completed).toBe(true);
   });
 
   it("releases a held key when the dispatch is aborted", async () => {
@@ -220,42 +223,6 @@ describe("ElectronAutomationTarget", () => {
     expect(harness.webContents.executeJavaScript).not.toHaveBeenCalled();
     expect(harness.webContents.focus).not.toHaveBeenCalled();
     expect(inputEvents(harness)).toHaveLength(200);
-  });
-
-  it("serializes concurrent macro key dispatches for the same browser target", async () => {
-    const harness = createHarness();
-    let releaseFirstSuppression!: () => void;
-    const firstSuppression = new Promise<void>((resolve) => {
-      releaseFirstSuppression = resolve;
-    });
-    harness.frame.executeJavaScript.mockImplementation((source: string) => {
-      if (source.includes('suppressNextShortcut?.("F2", "keydown")')) {
-        return firstSuppression;
-      }
-      return Promise.resolve(source.includes('largest("canvas")') ? "canvas" : undefined);
-    });
-    const target = createTarget(harness);
-
-    const first = target.dispatchKey("F2");
-    await vi.waitFor(() => {
-      expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
-        expect.stringContaining('suppressNextShortcut?.("F2", "keydown")')
-      );
-    });
-    const second = target.dispatchKey("F3");
-    await Promise.resolve();
-    expect(harness.frame.executeJavaScript).not.toHaveBeenCalledWith(
-      expect.stringContaining('suppressNextShortcut?.("F3", "keydown")')
-    );
-
-    releaseFirstSuppression();
-    await Promise.all([first, second]);
-    expect(keyEvents(harness)).toEqual([
-      { type: "rawKeyDown", code: "F2", key: "F2", windowsVirtualKeyCode: 113 },
-      { type: "keyUp", code: "F2", key: "F2", windowsVirtualKeyCode: 113 },
-      { type: "rawKeyDown", code: "F3", key: "F3", windowsVirtualKeyCode: 114 },
-      { type: "keyUp", code: "F3", key: "F3", windowsVirtualKeyCode: 114 }
-    ]);
   });
 
   it("reference-counts held keys and preserves the hold when the same key is tapped", async () => {
@@ -303,71 +270,6 @@ describe("ElectronAutomationTarget", () => {
 
     await target.releaseKey("Digit1", "owner");
     expect(keyEvents(harness).at(-1)).toMatchObject({ type: "keyUp", code: "Digit1" });
-  });
-
-  it("serializes key and click input through the same target queue", async () => {
-    const harness = createHarness();
-    let releaseSuppression!: () => void;
-    const suppression = new Promise<void>((resolve) => {
-      releaseSuppression = resolve;
-    });
-    harness.frame.executeJavaScript.mockImplementation((source: string) =>
-      source.includes('suppressNextShortcut?.("F2", "keydown")')
-        ? suppression
-        : Promise.resolve(source.includes('largest("canvas")') ? "canvas" : undefined)
-    );
-    const target = createTarget(harness);
-
-    const key = target.dispatchKey("F2");
-    await vi.waitFor(() => expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('suppressNextShortcut?.("F2", "keydown")')
-    ));
-    const click = target.dispatchClick(20, 30);
-    await Promise.resolve();
-    expect(inputEvents(harness)).toHaveLength(0);
-
-    releaseSuppression();
-    await Promise.all([key, click]);
-    expect(inputEvents(harness)).toEqual([
-      ["Input.dispatchKeyEvent", { type: "rawKeyDown", code: "F2", key: "F2", windowsVirtualKeyCode: 113 }],
-      ["Input.dispatchKeyEvent", { type: "keyUp", code: "F2", key: "F2", windowsVirtualKeyCode: 113 }],
-      ["Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, x: 256, y: 216 }],
-      ["Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, x: 256, y: 216 }]
-    ]);
-  });
-
-  it("keeps held-key release inside the target input queue", async () => {
-    const harness = createHarness();
-    let releaseSuppression!: () => void;
-    const suppression = new Promise<void>((resolve) => {
-      releaseSuppression = resolve;
-    });
-    harness.frame.executeJavaScript.mockImplementation((source: string) =>
-      source.includes('suppressNextShortcut?.("F2", "keydown")')
-        ? suppression
-        : Promise.resolve(undefined)
-    );
-    const target = createTarget(harness);
-
-    await target.holdKey("KeyW", "owner");
-    const key = target.dispatchKey("F2");
-    await vi.waitFor(() => expect(harness.frame.executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('suppressNextShortcut?.("F2", "keydown")')
-    ));
-    const release = target.releaseKey("KeyW", "owner");
-    await Promise.resolve();
-    expect(keyEvents(harness)).toEqual([
-      { type: "rawKeyDown", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 }
-    ]);
-
-    releaseSuppression();
-    await Promise.all([key, release]);
-    expect(keyEvents(harness)).toEqual([
-      { type: "rawKeyDown", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 },
-      { type: "rawKeyDown", code: "F2", key: "F2", windowsVirtualKeyCode: 113 },
-      { type: "keyUp", code: "F2", key: "F2", windowsVirtualKeyCode: 113 },
-      { type: "keyUp", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 }
-    ]);
   });
 
   it("resolves anchored clicks against the current CSS visual viewport", async () => {

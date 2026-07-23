@@ -26,6 +26,7 @@ pub mod operation_actor;
 mod portable;
 mod pressure;
 mod resource;
+mod resource_controller;
 mod resource_runtime;
 mod role_browser_data;
 mod runtime_sequence;

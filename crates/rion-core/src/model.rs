@@ -281,6 +281,26 @@ pub enum CoreCommand {
         #[ts(rename = "leaseId")]
         lease_id: String,
     },
+    ResourceActivateWorkspace {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        #[ts(rename = "policyMode", type = "\"unrestricted\" | \"adaptive\"")]
+        policy_mode: String,
+        targets: Vec<ResourceRuntimeTargetRecord>,
+    },
+    ResourceDeactivateWorkspace {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+    },
+    ResourceRefreshTarget {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "processId")]
+        process_id: Option<u32>,
+    },
     ExternalHealthRegister {
         #[ts(rename = "roleId")]
         role_id: String,
@@ -1731,6 +1751,9 @@ pub enum CoreEvent {
     MacroStatuses {
         statuses: Vec<MacroRunStatus>,
     },
+    ResourceStatuses {
+        statuses: Vec<ResourceRuntimeStatusRecord>,
+    },
     CompatibilityStatuses {
         statuses: Vec<CompatibilityRunStatusRecord>,
     },
@@ -2846,6 +2869,9 @@ pub enum CoreEffectAction {
         policy: StateWorkspaceResourcePolicyRecord,
         role_ids: Vec<String>,
     },
+    EmbeddedApplyResourceEffects {
+        effects: Vec<ResourceRuntimeEffectRecord>,
+    },
     EmbeddedFocusRole {
         role_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3022,6 +3048,24 @@ pub struct BrowserRoleStatusRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
     pub page_health: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"throttled\" | \"macro_override\" | \"shared_process\" | \"unavailable\""
+    )]
+    pub resource_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "1 | 2 | 4")]
+    pub cpu_throttle_rate: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"normal\" | \"constrained\"")]
+    pub resource_pressure_level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"runtime_tab_background\" | \"cpu\" | \"memory\" | \"thermal\" | \"macro\" | \"shared_process\" | \"unavailable\""
+    )]
+    pub resource_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -3335,7 +3379,6 @@ pub struct MacroStartRequest {
 pub struct MacroInvocationRequest {
     pub macro_id: String,
     pub role_id: Option<String>,
-    pub active_role_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -3344,7 +3387,6 @@ pub struct MacroInvocationRequest {
 pub struct MacroPressInvocationRequest {
     pub macro_id: String,
     pub role_id: String,
-    pub active_role_ids: Vec<String>,
     pub press_id: String,
 }
 

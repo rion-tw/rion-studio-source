@@ -79,7 +79,7 @@ describe("MacroOverlayInjector", () => {
       onDisconnect: vi.fn(() => () => undefined)
     };
     const macroManager = {
-      listStatuses: vi.fn(() => []),
+      listStatuses: vi.fn(async () => []),
       start: vi.fn().mockResolvedValue([]),
       stop: vi.fn().mockResolvedValue(undefined)
     };
@@ -291,7 +291,7 @@ describe("MacroOverlayInjector", () => {
         lastClick: { sequence: 1, stepId: "click-step" },
         updatedAt: "2026-07-20T00:00:01.000Z"
       } satisfies MacroRunStatus;
-      const listStatuses = vi.fn(() => [] as MacroRunStatus[]);
+      const listStatuses = vi.fn(async () => [] as MacroRunStatus[]);
       const injector = createInjector({
         macroManager: {
           listStatuses,
@@ -333,7 +333,7 @@ describe("MacroOverlayInjector", () => {
     const releaseAll = vi.fn().mockResolvedValue(undefined);
     const injector = createInjector({
       macroManager: {
-        listStatuses: vi.fn(() => []),
+        listStatuses: vi.fn(async () => []),
         releaseAll,
         start: vi.fn().mockResolvedValue([]),
         stop: vi.fn().mockResolvedValue(undefined)
@@ -355,7 +355,7 @@ describe("MacroOverlayInjector", () => {
       runStatus("role-2", "macro-2")
     ];
     const macroManager = {
-      listStatuses: vi.fn(() => statuses),
+      listStatuses: vi.fn(async () => statuses),
       start: vi.fn().mockResolvedValue([statuses[0]]),
       stop: vi.fn().mockResolvedValue(undefined)
     };
@@ -409,7 +409,7 @@ describe("MacroOverlayInjector", () => {
     const release = vi.fn().mockResolvedValue(undefined);
     const injector = createInjector({
       macroManager: {
-        listStatuses: vi.fn(() => []),
+        listStatuses: vi.fn(async () => []),
         press,
         release,
         start: vi.fn().mockResolvedValue([]),
@@ -441,7 +441,7 @@ describe("MacroOverlayInjector", () => {
   it("returns a detached state without side effects for every stale request", async () => {
     const page = createPage();
     const listMacros = vi.fn().mockResolvedValue([assignedMacro]);
-    const listStatuses = vi.fn(() => []);
+    const listStatuses = vi.fn(async () => []);
     const startForRole = vi.fn();
     const stopForRole = vi.fn();
     const onMacroPageRequested = vi.fn();
@@ -488,7 +488,7 @@ describe("MacroOverlayInjector", () => {
 
   it("rejects start and stop requests for macros not assigned to the overlay role", async () => {
     const macroManager = {
-      listStatuses: vi.fn(() => []),
+      listStatuses: vi.fn(async () => []),
       start: vi.fn().mockResolvedValue([]),
       stop: vi.fn().mockResolvedValue(undefined)
     };
@@ -522,7 +522,7 @@ describe("MacroOverlayInjector", () => {
     const injector = new MacroOverlayInjector(
       { listMacros: vi.fn(() => macros.promise) },
       {
-        listStatuses: vi.fn(() => statuses),
+        listStatuses: vi.fn(async () => statuses),
         startForRole: vi.fn(),
         stopForRole: vi.fn()
       }
@@ -551,7 +551,7 @@ describe("MacroOverlayInjector", () => {
     const injector = new MacroOverlayInjector(
       { listMacros: vi.fn().mockResolvedValue([assignedMacro, blockedParent, unassignedChild]) },
       {
-        listStatuses: vi.fn(() => []),
+        listStatuses: vi.fn(async () => []),
         startForRole: vi.fn(),
         stopForRole: vi.fn()
       }
@@ -848,7 +848,7 @@ describe("macro shortcut editable guard", () => {
 function createInjector({
   getRoleStatus,
   macroManager = {
-    listStatuses: vi.fn(() => []),
+    listStatuses: vi.fn(async () => []),
     start: vi.fn().mockResolvedValue([]),
     stop: vi.fn().mockResolvedValue(undefined)
   },

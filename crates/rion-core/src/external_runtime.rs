@@ -180,6 +180,10 @@ pub(crate) fn role_statuses(
             runtime_mode: "embedded".to_owned(),
             automation_state: None,
             page_health: None,
+            resource_state: None,
+            cpu_throttle_rate: None,
+            resource_pressure_level: None,
+            resource_reason: None,
         })
         .chain(external.iter().map(|session| BrowserRoleStatusRecord {
             role_id: session.role.id.clone(),
@@ -195,6 +199,10 @@ pub(crate) fn role_statuses(
                 }
             }),
             page_health: session.page_health.clone(),
+            resource_state: None,
+            cpu_throttle_rate: None,
+            resource_pressure_level: None,
+            resource_reason: None,
         }))
         .collect::<Vec<_>>();
     statuses.sort_by(|left, right| left.role_id.cmp(&right.role_id));

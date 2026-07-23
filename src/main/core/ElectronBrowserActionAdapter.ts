@@ -18,31 +18,19 @@ export interface ElectronBrowserActionAdapterOptions {
   ) => Promise<unknown>;
   executeSession?: (roleId: string, operation: string, payload: unknown) => Promise<unknown>;
   getTarget: (roleId: string) => BrowserAutomationTarget | undefined;
-  maxPendingActions?: number;
-  maxPendingActionsPerRole?: number;
   now?: () => number;
   recordMacroScheduleToDispatchLatency?: (durationMs: number) => void;
 }
 
-const DEFAULT_MAX_PENDING_ACTIONS = 512;
-const DEFAULT_MAX_PENDING_ACTIONS_PER_ROLE = 128;
-
 export class ElectronBrowserActionAdapter {
   private accepting = true;
-  private readonly maxPendingActions: number;
-  private readonly maxPendingActionsPerRole: number;
   private readonly now: () => number;
-  private pendingActionCount = 0;
-  private readonly pendingActionCountsByRole = new Map<string, number>();
-  private readonly roleTails = new Map<string, Promise<void>>();
   private readonly unsubscribe: () => void;
 
   constructor(
     private readonly core: AppCoreClient,
     private readonly options: ElectronBrowserActionAdapterOptions
   ) {
-    this.maxPendingActions = options.maxPendingActions ?? DEFAULT_MAX_PENDING_ACTIONS;
-    this.maxPendingActionsPerRole = options.maxPendingActionsPerRole ?? DEFAULT_MAX_PENDING_ACTIONS_PER_ROLE;
     this.now = options.now ?? Date.now;
     this.unsubscribe = core.subscribe((events) => this.handleEvents(events));
   }
@@ -51,8 +39,6 @@ export class ElectronBrowserActionAdapter {
     if (!this.accepting) return;
     this.accepting = false;
     this.unsubscribe();
-    await Promise.allSettled(this.roleTails.values());
-    this.roleTails.clear();
   }
 
   private handleEvents(events: CoreEvent[]): void {
@@ -71,57 +57,30 @@ export class ElectronBrowserActionAdapter {
   private async handleActionBatch(actions: BrowserActionRequest[]): Promise<void> {
     try {
       const external = await this.core.dispatchExternalBrowserActions(actions);
-      const embedded = await Promise.all(external.unhandled.map((action) => this.enqueue(action)));
+      const embedded = await this.executeEmbeddedBatch(external.unhandled);
       await this.core.dispatchBrowserResults([...external.results, ...embedded]);
     } catch (error) {
       process.stderr.write(`Rion Studio browser action result dispatch failed: ${String(error)}\n`);
     }
   }
 
-  private enqueue(request: BrowserActionRequest): Promise<BrowserActionResult> {
-    if (this.pendingActionCount >= this.maxPendingActions) {
-      return Promise.resolve(createFailure(
-        request.requestId,
-        "BROWSER_ACTION_BACKPRESSURE",
-        "Browser action queue is full."
-      ));
-    }
-    const pendingForRole = this.pendingActionCountsByRole.get(request.roleId) ?? 0;
-    if (pendingForRole >= this.maxPendingActionsPerRole) {
-      return Promise.resolve(createFailure(
-        request.requestId,
-        "BROWSER_ACTION_BACKPRESSURE",
-        "Browser action queue for this role is full."
-      ));
-    }
-    this.pendingActionCount += 1;
-    this.pendingActionCountsByRole.set(request.roleId, pendingForRole + 1);
-    const previous = this.roleTails.get(request.roleId) ?? Promise.resolve();
-    let resolveResult: (result: BrowserActionResult) => void = () => undefined;
-    const result = new Promise<BrowserActionResult>((resolve) => {
-      resolveResult = resolve;
+  private async executeEmbeddedBatch(
+    actions: BrowserActionRequest[]
+  ): Promise<BrowserActionResult[]> {
+    const groups = new Map<string, Array<{ index: number; request: BrowserActionRequest }>>();
+    actions.forEach((request, index) => {
+      groups.set(request.roleId, [
+        ...(groups.get(request.roleId) ?? []),
+        { index, request }
+      ]);
     });
-    const execution = previous
-      .catch(() => undefined)
-      .then(async () => {
-        resolveResult(await this.execute(request));
-      })
-      .finally(() => {
-        this.pendingActionCount -= 1;
-        const remainingForRole = (this.pendingActionCountsByRole.get(request.roleId) ?? 1) - 1;
-        if (remainingForRole <= 0) {
-          this.pendingActionCountsByRole.delete(request.roleId);
-        } else {
-          this.pendingActionCountsByRole.set(request.roleId, remainingForRole);
-        }
-      });
-    this.roleTails.set(request.roleId, execution);
-    void execution.finally(() => {
-      if (this.roleTails.get(request.roleId) === execution) {
-        this.roleTails.delete(request.roleId);
+    const results = new Array<BrowserActionResult>(actions.length);
+    await Promise.all([...groups.values()].map(async (group) => {
+      for (const { index, request } of group) {
+        results[index] = await this.execute(request);
       }
-    });
-    return result;
+    }));
+    return results;
   }
 
   private async execute(request: BrowserActionRequest): Promise<BrowserActionResult> {

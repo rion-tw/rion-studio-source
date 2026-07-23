@@ -33,7 +33,8 @@ use crate::{
         ExternalChromeDiagnosticsRecord, ExternalPrepareSessionResultRecord,
         ExternalSessionCommand, ExternalSessionRecord, GameBrowserSettingsRecord,
         LegalAcceptanceRecord, MacroSettingsRecord, OperationCancelResultRecord,
-        ResourcePolicyDecision, ResourcePolicyInput, RuntimeWindowPreferencesRecord,
+        ResourcePolicyDecision, ResourcePolicyInput, ResourceRuntimeCommand,
+        ResourceRuntimeStatusRecord, ResourceRuntimeTargetRecord, RuntimeWindowPreferencesRecord,
         StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
         StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
         StateWorkspaceResourcePolicyRecord,
@@ -82,7 +83,7 @@ pub struct AppCore {
     operation_actor: Arc<crate::operation_actor::OperationActor>,
     platform: rion_platform::Platform,
     portable: Mutex<crate::portable::PortableRuntime>,
-    resource_runtime: Mutex<crate::resource_runtime::ResourceRuntime>,
+    resource_controller: Arc<crate::resource_controller::ResourceController>,
     runtime: Mutex<Option<Runtime>>,
     embedded_runtime_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
     state_mutation_guard: Mutex<()>,
@@ -110,8 +111,27 @@ impl AppCore {
         state.recover_portable_import(user_data_dir.clone())?;
         let logs = LogDatabaseWorker::start(database_paths.logs.clone())?;
         let subscribers = Arc::new(Mutex::new(Vec::new()));
+        let effect_subscribers = Arc::clone(&subscribers);
+        let operation_actor = Arc::new(crate::operation_actor::OperationActor::new(Arc::new(
+            move |effects| {
+                broadcast_events(
+                    &effect_subscribers,
+                    vec![CoreEvent::CoreEffects { effects }],
+                );
+            },
+        )));
+        let resource_subscribers = Arc::clone(&subscribers);
+        let resource_controller = Arc::new(crate::resource_controller::ResourceController::start(
+            Arc::clone(&operation_actor),
+            Arc::new(move |events| broadcast_events(&resource_subscribers, events)),
+        )?);
         let pressure_subscribers = Arc::clone(&subscribers);
+        let pressure_resources = Arc::clone(&resource_controller);
         let pressure = PressureMonitor::start(Arc::new(move |snapshot| {
+            let _ = pressure_resources.enqueue(ResourceRuntimeCommand::SetPressure {
+                level: snapshot.level.clone(),
+                reason: snapshot.reason.clone(),
+            });
             broadcast_events(
                 &pressure_subscribers,
                 vec![CoreEvent::PressureChanged { snapshot }],
@@ -119,7 +139,21 @@ impl AppCore {
         }))?;
         let scheduler = MonotonicScheduler::start()?;
         let macro_subscribers = Arc::clone(&subscribers);
+        let macro_resources = Arc::clone(&resource_controller);
         let macro_runtime = Arc::new(MacroRuntime::new(Arc::new(move |events| {
+            if let Some(CoreEvent::MacroStatuses { statuses }) = events
+                .iter()
+                .rev()
+                .find(|event| matches!(event, CoreEvent::MacroStatuses { .. }))
+            {
+                let role_ids = statuses
+                    .iter()
+                    .filter(|status| matches!(status.state.as_str(), "running" | "stopping"))
+                    .map(|status| status.role_id.clone())
+                    .collect();
+                let _ =
+                    macro_resources.enqueue(ResourceRuntimeCommand::SetMacroRoleIds { role_ids });
+            }
             broadcast_events(&macro_subscribers, events);
         })));
         let browser_runtime =
@@ -249,15 +283,6 @@ impl AppCore {
                 broadcast_events(&process_subscribers, events);
             },
         ));
-        let effect_subscribers = Arc::clone(&subscribers);
-        let operation_actor = Arc::new(crate::operation_actor::OperationActor::new(Arc::new(
-            move |effects| {
-                broadcast_events(
-                    &effect_subscribers,
-                    vec![CoreEvent::CoreEffects { effects }],
-                );
-            },
-        )));
         let core = Self {
             app_version: options.app_version,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
@@ -282,7 +307,7 @@ impl AppCore {
             operation_actor,
             platform,
             portable: Mutex::new(crate::portable::PortableRuntime::default()),
-            resource_runtime: Mutex::new(crate::resource_runtime::ResourceRuntime::default()),
+            resource_controller,
             runtime: Mutex::new(Some(Runtime {
                 state,
                 logs,
@@ -722,7 +747,7 @@ impl AppCore {
                     settings,
                     macro_id: request.macro_id,
                     role_id: request.role_id,
-                    active_role_ids: request.active_role_ids,
+                    active_role_ids: self.macro_active_role_ids()?,
                 };
                 serde_json::to_value(self.macro_runtime.start(request)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
@@ -736,7 +761,7 @@ impl AppCore {
                         settings,
                         macro_id: request.macro_id,
                         role_id: Some(request.role_id),
-                        active_role_ids: request.active_role_ids,
+                        active_role_ids: self.macro_active_role_ids()?,
                     },
                     press_id: request.press_id,
                 };
@@ -1077,7 +1102,10 @@ impl AppCore {
             | CoreCommand::BrowserRoleStop { .. }
             | CoreCommand::BrowserWorkspaceStop { .. }
             | CoreCommand::BrowserExternalRecover { .. }
-            | CoreCommand::ExternalDiagnosticsCapture { .. } => Err(CoreError::Internal(
+            | CoreCommand::ExternalDiagnosticsCapture { .. }
+            | CoreCommand::ResourceActivateWorkspace { .. }
+            | CoreCommand::ResourceDeactivateWorkspace { .. }
+            | CoreCommand::ResourceRefreshTarget { .. } => Err(CoreError::Internal(
                 "asynchronous browser intent reached the synchronous core dispatcher".to_owned(),
             )),
         }
@@ -1252,6 +1280,52 @@ impl AppCore {
             CoreCommand::ExternalDiagnosticsCapture { role_id } => {
                 serde_json::to_value(self.capture_external_diagnostics(&role_id).await?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::ResourceActivateWorkspace {
+                workspace_id,
+                policy_mode,
+                targets,
+            } => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || {
+                    core.resource_controller
+                        .invoke(ResourceRuntimeCommand::ActivateWorkspace {
+                            workspace_id,
+                            policy_mode,
+                            targets,
+                        })
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                Ok(json!({ "activated": true }))
+            }
+            CoreCommand::ResourceDeactivateWorkspace { workspace_id } => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || {
+                    core.resource_controller
+                        .invoke(ResourceRuntimeCommand::DeactivateWorkspace { workspace_id })
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                Ok(json!({ "deactivated": true }))
+            }
+            CoreCommand::ResourceRefreshTarget {
+                workspace_id,
+                role_id,
+                process_id,
+            } => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || {
+                    core.resource_controller
+                        .invoke(ResourceRuntimeCommand::RefreshTarget {
+                            workspace_id,
+                            role_id,
+                            process_id,
+                        })
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                Ok(json!({ "refreshed": true }))
             }
             command => self.invoke(command),
         }
@@ -2054,18 +2128,54 @@ impl AppCore {
     }
 
     pub fn browser_statuses(&self) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
-        let browser = self
+        let mut statuses = {
+            let browser = self
+                .browser_runtime
+                .lock()
+                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
+            let sessions = self
+                .external_sessions
+                .lock()
+                .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
+            crate::external_runtime::role_statuses(
+                browser.snapshot().roles.into_iter(),
+                &sessions.snapshot(),
+            )
+        };
+        let resources = self.resource_controller.snapshot()?.statuses;
+        for status in &mut statuses {
+            if let Some(resource) = resources
+                .iter()
+                .find(|resource| resource.role_id == status.role_id)
+            {
+                apply_resource_status(status, resource);
+            }
+        }
+        Ok(statuses)
+    }
+
+    fn macro_active_role_ids(&self) -> CoreResult<Vec<String>> {
+        let embedded = self
             .browser_runtime
             .lock()
-            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
-        let sessions = self
+            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
+            .snapshot()
+            .roles
+            .into_iter()
+            .filter(|role| role.runtime == "embedded" && role.state == "running")
+            .map(|role| role.role_id);
+        let external = self
             .external_sessions
             .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
-        Ok(crate::external_runtime::role_statuses(
-            browser.snapshot().roles.into_iter(),
-            &sessions.snapshot(),
-        ))
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
+            .snapshot()
+            .into_iter()
+            .filter(|session| session.state == "running" && session.automation_available)
+            .map(|session| session.role.id);
+        let mut role_ids = embedded.chain(external).collect::<Vec<_>>();
+        role_ids.sort();
+        role_ids.dedup();
+        Ok(role_ids)
     }
 
     pub fn browser_workspace_statuses(
@@ -2228,16 +2338,22 @@ impl AppCore {
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
+        let resource_policy = StateWorkspaceResourcePolicyRecord {
+            mode: "unrestricted".to_owned(),
+        };
         let plan = embedded_launch_effects(
             &tab_id,
             tab,
             std::slice::from_ref(&role),
-            StateWorkspaceResourcePolicyRecord {
-                mode: "unrestricted".to_owned(),
-            },
+            resource_policy.clone(),
             runtime_snapshot,
         );
-        if let Err(error) = self.run_effect_plan_for_roles(plan, std::slice::from_ref(&role.id)) {
+        let launch = self
+            .run_effect_plan_for_roles(plan, std::slice::from_ref(&role.id))
+            .and_then(|outcome| {
+                self.activate_embedded_resources(&tab_id, &resource_policy, &outcome)
+            });
+        if let Err(error) = launch {
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
                 role_id: role.id.clone(),
             });
@@ -2393,16 +2509,22 @@ impl AppCore {
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        if let Err(error) = self.run_effect_plan_for_roles(
-            embedded_launch_effects(
-                &tab_id,
-                tab,
-                &roles,
-                workspace.resource_policy.clone(),
-                runtime_snapshot,
-            ),
-            &role_ids,
-        ) {
+        let resource_policy = workspace.resource_policy.clone();
+        let launch = self
+            .run_effect_plan_for_roles(
+                embedded_launch_effects(
+                    &tab_id,
+                    tab,
+                    &roles,
+                    resource_policy.clone(),
+                    runtime_snapshot,
+                ),
+                &role_ids,
+            )
+            .and_then(|outcome| {
+                self.activate_embedded_resources(&tab_id, &resource_policy, &outcome)
+            });
+        if let Err(error) = launch {
             for role_id in &role_ids {
                 let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
                     role_id: role_id.clone(),
@@ -2436,6 +2558,26 @@ impl AppCore {
             .iter()
             .map(|role_id| embedded_launch_result(role_id, launched_at.clone()))
             .collect())
+    }
+
+    fn activate_embedded_resources(
+        &self,
+        tab_id: &str,
+        policy: &StateWorkspaceResourcePolicyRecord,
+        outcome: &crate::operation_actor::OperationOutcome,
+    ) -> CoreResult<()> {
+        let targets = outcome
+            .results
+            .last()
+            .ok_or_else(|| CoreError::Internal("embedded resource effect is missing".to_owned()))
+            .and_then(effect_value::<Vec<ResourceRuntimeTargetRecord>>)?;
+        self.resource_controller
+            .invoke(ResourceRuntimeCommand::ActivateWorkspace {
+                workspace_id: tab_id.to_owned(),
+                policy_mode: policy.mode.clone(),
+                targets,
+            })?;
+        Ok(())
     }
 
     fn stop_embedded_role(&self, role_id: &str) -> CoreResult<()> {
@@ -2475,10 +2617,20 @@ impl AppCore {
                 .iter()
                 .find(|tab| tab.id == tab_id)
                 .map_or(1, |tab| tab.role_ids.len());
+            let next_active_tab_id = (tab_role_count <= 1)
+                .then(|| next_active_tab_after_removal(&snapshot, &tab_id))
+                .flatten();
+            if let Some(workspace_id) = &next_active_tab_id {
+                self.resource_controller.invoke(
+                    ResourceRuntimeCommand::PrepareWorkspaceForeground {
+                        workspace_id: workspace_id.clone(),
+                    },
+                )?;
+            }
             let action = if tab_role_count <= 1 {
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
-                    next_active_tab_id: next_active_tab_after_removal(&snapshot, &tab_id),
+                    next_active_tab_id,
                 }
             } else {
                 CoreEffectAction::EmbeddedDestroyRole {
@@ -2491,6 +2643,13 @@ impl AppCore {
                 Duration::from_secs(15),
                 None,
             )]) {
+                if tab_role_count <= 1 {
+                    let _ = self.resource_controller.invoke(
+                        ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                            workspace_ids: hidden_embedded_workspace_ids(&snapshot),
+                        },
+                    );
+                }
                 let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                     role_id: role_id.to_owned(),
                     runtime: "embedded".to_owned(),
@@ -2505,6 +2664,10 @@ impl AppCore {
                 role_id: role_id.to_owned(),
             })?;
             if tab_role_count <= 1 {
+                self.resource_controller
+                    .invoke(ResourceRuntimeCommand::DeactivateWorkspace {
+                        workspace_id: tab_id.clone(),
+                    })?;
                 self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
                     tab_id: tab_id.clone(),
                 })?;
@@ -2513,6 +2676,8 @@ impl AppCore {
                         workspace_id,
                     })?;
                 }
+            } else {
+                self.reconcile_embedded_resource_roles()?;
             }
             Ok(())
         })();
@@ -2574,15 +2739,28 @@ impl AppCore {
                         .and_then(|role| role.launched_at.clone()),
                 })?;
             }
+            let next_active_tab_id = next_active_tab_after_removal(&snapshot, &tab_id);
+            if let Some(workspace_id) = &next_active_tab_id {
+                self.resource_controller.invoke(
+                    ResourceRuntimeCommand::PrepareWorkspaceForeground {
+                        workspace_id: workspace_id.clone(),
+                    },
+                )?;
+            }
             if let Err(error) = self.run_effect_plan(vec![effect_step(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
-                    next_active_tab_id: next_active_tab_after_removal(&snapshot, &tab_id),
+                    next_active_tab_id,
                 },
                 Duration::from_secs(15),
                 None,
             )]) {
+                let _ = self.resource_controller.invoke(
+                    ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                        workspace_ids: hidden_embedded_workspace_ids(&snapshot),
+                    },
+                );
                 for role_id in &workspace.role_ids {
                     if let Some(previous) =
                         snapshot.roles.iter().find(|role| role.role_id == *role_id)
@@ -2609,6 +2787,10 @@ impl AppCore {
                     role_id: role_id.clone(),
                 })?;
             }
+            self.resource_controller
+                .invoke(ResourceRuntimeCommand::DeactivateWorkspace {
+                    workspace_id: tab_id.clone(),
+                })?;
             self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab { tab_id })?;
             self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
                 workspace_id: workspace_id.to_owned(),
@@ -2620,6 +2802,23 @@ impl AppCore {
             (Ok(()), Ok(())) => Ok(()),
             (Err(error), _) | (Ok(()), Err(error)) => Err(error),
         }
+    }
+
+    fn reconcile_embedded_resource_roles(&self) -> CoreResult<()> {
+        let active_role_ids = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot
+            .roles
+            .into_iter()
+            .filter(|role| role.runtime == "embedded")
+            .map(|role| role.role_id)
+            .collect();
+        self.resource_controller
+            .invoke(ResourceRuntimeCommand::ReconcileRuntimeRoleIds {
+                runtime_mode: "embedded".to_owned(),
+                active_role_ids,
+            })?;
+        Ok(())
     }
 
     fn run_effect_plan(
@@ -2744,6 +2943,12 @@ impl AppCore {
             .clone()
             .invoke(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
+        let previous_hidden_workspace_ids = hidden_embedded_workspace_ids(&previous_snapshot);
+        let next_hidden_workspace_ids = hidden_embedded_workspace_ids(&next);
+        self.resource_controller
+            .invoke(ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                workspace_ids: next_hidden_workspace_ids,
+            })?;
         let focus_tab_id = focus_tab_id.or_else(|| {
             focus_active_display_id.and_then(|display_id| {
                 next.displays
@@ -2772,6 +2977,11 @@ impl AppCore {
             Duration::from_secs(15),
             Some(compensation),
         )]) {
+            let _ =
+                self.resource_controller
+                    .invoke(ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                        workspace_ids: previous_hidden_workspace_ids,
+                    });
             let mut runtime = self
                 .browser_runtime
                 .lock()
@@ -2790,10 +3000,7 @@ impl AppCore {
         &self,
         command: crate::model::ResourceRuntimeCommand,
     ) -> CoreResult<crate::model::ResourceRuntimeResult> {
-        self.resource_runtime
-            .lock()
-            .map_err(|_| CoreError::Internal("resource runtime lock poisoned".to_owned()))?
-            .invoke(command)
+        self.resource_controller.invoke(command)
     }
 
     pub fn prepare_embedded_key_transition(
@@ -3293,6 +3500,7 @@ impl AppCore {
     pub fn shutdown(&self) {
         self.browser_operations.shutdown();
         self.operation_actor.shutdown();
+        self.resource_controller.shutdown();
         self.external_automation.shutdown();
         self.external_processes.shutdown();
         self.macro_runtime.shutdown();
@@ -3344,6 +3552,10 @@ fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserR
         runtime_mode: result.runtime_mode,
         automation_state: None,
         page_health: None,
+        resource_state: None,
+        cpu_throttle_rate: None,
+        resource_pressure_level: None,
+        resource_reason: None,
     }
 }
 
@@ -3362,7 +3574,21 @@ fn external_status(session: &ExternalSessionRecord) -> crate::model::BrowserRole
             }
         }),
         page_health: session.page_health.clone(),
+        resource_state: None,
+        cpu_throttle_rate: None,
+        resource_pressure_level: None,
+        resource_reason: None,
     }
+}
+
+fn apply_resource_status(
+    status: &mut crate::model::BrowserRoleStatusRecord,
+    resource: &ResourceRuntimeStatusRecord,
+) {
+    status.resource_state = Some(resource.resource_state.clone());
+    status.cpu_throttle_rate = Some(resource.cpu_throttle_rate);
+    status.resource_pressure_level = resource.resource_pressure_level.clone();
+    status.resource_reason = resource.resource_reason.clone();
 }
 
 fn effect_value<T: DeserializeOwned>(result: &CoreEffectResult) -> CoreResult<T> {
@@ -3467,6 +3693,20 @@ fn effect_step(
             timeout: Duration::from_secs(15),
         }),
     }
+}
+
+fn hidden_embedded_workspace_ids(snapshot: &crate::model::BrowserRuntimeSnapshot) -> Vec<String> {
+    let active_tabs = snapshot
+        .displays
+        .iter()
+        .filter_map(|display| display.active_tab_id.as_deref())
+        .collect::<std::collections::HashSet<_>>();
+    snapshot
+        .tabs
+        .iter()
+        .filter(|tab| tab.hidden || !active_tabs.contains(tab.id.as_str()))
+        .map(|tab| tab.id.clone())
+        .collect()
 }
 
 fn embedded_launch_effects(
@@ -3700,16 +3940,35 @@ mod tests {
     }
 
     fn effect_result(effect: CoreEffectRequest, fail_action: Option<&str>) -> CoreEffectResult {
-        let action_name = match effect.action {
+        let action_name = match &effect.action {
             CoreEffectAction::EmbeddedLoadRoles { .. } => "embeddedLoadRoles",
             _ => "other",
         };
         let failed = fail_action == Some(action_name);
+        let value_json = match &effect.action {
+            CoreEffectAction::EmbeddedActivateResources { role_ids, .. } => Some(
+                serde_json::to_string(
+                    &role_ids
+                        .iter()
+                        .map(|role_id| ResourceRuntimeTargetRecord {
+                            role_id: role_id.clone(),
+                            runtime_mode: "embedded".to_owned(),
+                            process_id: None,
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap(),
+            ),
+            CoreEffectAction::EmbeddedApplyResourceEffects { .. } => {
+                Some(json!({ "unavailableRoleIds": [] }).to_string())
+            }
+            _ => None,
+        };
         CoreEffectResult {
             effect_id: effect.effect_id,
             operation_id: effect.operation_id,
             ok: !failed,
-            value_json: None,
+            value_json,
             error: failed.then(|| CoreErrorPayload {
                 code: "GAME_PAGE_LOAD_FAILED".to_owned(),
                 message: "The fixture rejected navigation.".to_owned(),

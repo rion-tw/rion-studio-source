@@ -32,6 +32,7 @@ pub struct MacroRuntime {
 }
 
 struct Shared {
+    action_role_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     events: EventSink,
     inner: Mutex<Inner>,
     next_id: AtomicU64,
@@ -86,6 +87,7 @@ impl MacroRuntime {
     pub fn new(events: EventSink) -> Self {
         Self {
             shared: Arc::new(Shared {
+                action_role_locks: Mutex::new(HashMap::new()),
                 events,
                 inner: Mutex::new(Inner::default()),
                 next_id: AtomicU64::new(1),
@@ -1007,6 +1009,35 @@ fn perform_actions_with_control(
     if actions.is_empty() {
         return Ok(());
     }
+    let mut role_ids = actions
+        .iter()
+        .map(|(role_id, _)| (*role_id).to_owned())
+        .collect::<Vec<_>>();
+    role_ids.sort();
+    role_ids.dedup();
+    let role_locks = {
+        let mut locks = shared
+            .action_role_locks
+            .lock()
+            .map_err(|_| "macro role action registry lock poisoned".to_owned())?;
+        role_ids
+            .iter()
+            .map(|role_id| {
+                Arc::clone(
+                    locks
+                        .entry(role_id.clone())
+                        .or_insert_with(|| Arc::new(Mutex::new(()))),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let _role_guards = role_locks
+        .iter()
+        .map(|lock| {
+            lock.lock()
+                .map_err(|_| "macro role action lock poisoned".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut pending_actions = Vec::with_capacity(actions.len());
     let requests = {
         let mut pending = shared
@@ -1681,6 +1712,49 @@ mod tests {
                 ["focus", "hold", "release"]
             );
         }
+    }
+
+    #[test]
+    fn keeps_only_one_unacknowledged_action_per_role_across_invocations() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let steps = vec![MacroStepDefinition::Delay {
+            id: "wait".to_owned(),
+            ms: 0,
+        }];
+        runtime.start(request(steps.clone())).unwrap();
+        let first = next_browser_actions(&receiver);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].role_id, "r1");
+
+        let mut second_request = request(steps);
+        second_request.macro_id = "m2".to_owned();
+        second_request.macros[0].id = "m2".to_owned();
+        let second_runtime = runtime.clone();
+        let second_start = thread::spawn(move || second_runtime.start(second_request).unwrap());
+
+        let wait_started = std::time::Instant::now();
+        while wait_started.elapsed() < Duration::from_millis(100) {
+            let remaining = Duration::from_millis(100).saturating_sub(wait_started.elapsed());
+            let Ok(batch) = receiver.recv_timeout(remaining) else {
+                break;
+            };
+            assert!(
+                batch
+                    .iter()
+                    .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
+                "a second same-role action escaped before the first result was acknowledged"
+            );
+        }
+        runtime.dispatch_results(success_results(first)).unwrap();
+        let second = next_browser_actions(&receiver);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].role_id, "r1");
+        runtime.dispatch_results(success_results(second)).unwrap();
+        second_start.join().unwrap();
+        runtime.shutdown();
     }
 
     #[test]

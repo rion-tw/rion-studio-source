@@ -1,4 +1,4 @@
-# Rust core architecture and release gates
+# Rust core architecture and 2.1 release gates
 
 Rion Studio keeps Electron, Chromium, React, preload and native UI integration. The
 required `rion-core.node` addon owns portable application state, SQLite, log storage,
@@ -20,8 +20,27 @@ loads the addon directly.
   migration backup and is not updated after migration.
 
 Missing or incompatible addons are fatal startup errors. Persistence never silently
-falls back to JSON. Rion Studio 2.0 has no TypeScript runtime-core fallback: runtime
+falls back to JSON. Rion Studio has no TypeScript runtime-core fallback: runtime
 decisions and side effects must have exactly one production implementation.
+
+## 2.1 command and effect boundary
+
+The production `NativeAppCore` object exposes only `invoke`,
+`subscribeCoreEvents`, `dispatchCoreEffectResults`, `matchCdnUrl`, and
+`shutdown`. Bootstrap reads remain a module-level call before the core is
+created. Commands, results, events, effects, and errors are generated from Rust.
+
+Rust operations read their authoritative inputs from SQLite, obtain operation
+leases, emit typed Electron effects, and wait for acknowledgements without
+holding a SQLite connection or global mutex. TypeScript owns the Electron handle
+registry and applies only Electron-specific effects. It does not maintain a
+parallel operation queue or runtime snapshot.
+
+The operation actor exposes release metrics through `coreEffectMetrics`:
+current and peak queue depth, effect capacity, active operations, emitted and
+acknowledged effect counts, acknowledgement p50/p95/max, and embedded-launch
+operation/effect counts. `telemetrySnapshot` separately reports NAPI call count
+and bridge latency.
 
 ## 2.0 migration and downgrade boundary
 
@@ -95,10 +114,13 @@ pnpm run performance:measure -- \
   --telemetry=/tmp/rion-telemetry.json
 ```
 
-The harness samples the complete process tree and the non-renderer host subset, records
-CPU/RSS medians and steady-state RSS growth, and can compare against a prior result via
-`--baseline=...`. After collecting exactly three baseline and three candidate runs for a
-scenario, aggregate the medians and enforce every gate with:
+The harness samples the complete process tree and the non-renderer host subset,
+records CPU/RSS medians and steady-state RSS growth, and can compare against a
+prior result via `--baseline=...`. Capture `coreEffectMetrics` and
+`telemetrySnapshot` before and after every launch so the report also includes
+peak effect queue depth, effect acknowledgement p95, effects per launch, and
+NAPI call count. After collecting exactly three baseline and three candidate
+runs for a scenario, aggregate the medians and enforce every gate with:
 
 ```bash
 pnpm run performance:aggregate -- \

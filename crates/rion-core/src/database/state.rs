@@ -102,7 +102,15 @@ pub(crate) enum StateMutation {
         id: String,
         source: String,
     },
+    RoleBrowserDataReset {
+        id: String,
+        operation_id: String,
+    },
     RoleAssignGameIds(Vec<RoleGameAssignmentRecord>),
+    ProfileRolesPatch {
+        upserts: Vec<StateRoleRecord>,
+        delete_ids: Vec<String>,
+    },
     WorkspaceCreate(WorkspaceCreateInputRecord),
     WorkspaceUpdate {
         id: String,
@@ -575,12 +583,61 @@ fn apply_domain_mutation(
             upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
             serde_json::to_value(role)
         }
+        StateMutation::RoleBrowserDataReset { id, operation_id } => {
+            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+            let role = set_role_browser_session_source(&mut roles, &id, "embedded")?;
+            let ordinal = roles.iter().position(|item| item.id == id).unwrap();
+            upsert_entity(&transaction, "roles", &json_value(&role)?, ordinal)?;
+            set_operation_journal_phase(&transaction, &operation_id, "committed")?;
+            serde_json::to_value(role)
+        }
         StateMutation::RoleAssignGameIds(assignments) => {
             let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
             let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
             assign_role_game_ids(&games, &mut roles, &assignments)?;
             for (ordinal, role) in roles.iter().enumerate() {
                 upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
+            }
+            serde_json::to_value(&roles)
+        }
+        StateMutation::ProfileRolesPatch {
+            upserts,
+            delete_ids,
+        } => {
+            let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
+            let mut roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
+            let delete_ids = delete_ids
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>();
+            roles.retain(|role| !delete_ids.contains(&role.id));
+            for role in upserts {
+                if let Some(index) = roles.iter().position(|candidate| candidate.id == role.id) {
+                    roles[index] = role;
+                } else {
+                    roles.push(role);
+                }
+            }
+            validate_profile_roles(&games, &roles)?;
+            for id in &delete_ids {
+                transaction
+                    .execute("DELETE FROM roles WHERE id=?1", params![id])
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            }
+            for (ordinal, role) in roles.iter().enumerate() {
+                upsert_entity(&transaction, "roles", &json_value(role)?, ordinal)?;
+            }
+            if !delete_ids.is_empty() {
+                let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                    &transaction,
+                    "launchWorkspaces",
+                )?;
+                let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
+                for role_id in delete_ids {
+                    clear_workspace_role(&mut workspaces, &role_id);
+                    clear_macro_role(&mut macros, &role_id);
+                }
+                sync_workspaces(&transaction, &workspaces)?;
+                sync_macros(&transaction, &macros)?;
             }
             serde_json::to_value(&roles)
         }
@@ -1529,26 +1586,7 @@ fn apply_profile_roles(
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     let games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
     let previous_roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;
-    let mut identities = std::collections::HashSet::new();
-    for role in &roles {
-        if !games.iter().any(|game| game.id == role.game_id) {
-            return Err(CoreError::Domain {
-                code: "ROLE_GAME_INVALID",
-                message: "Role game is invalid.".to_owned(),
-            });
-        }
-        let identity = (role.game_id.clone(), role.name.trim().to_lowercase());
-        if role.name.trim().is_empty() || !identities.insert(identity) {
-            return Err(CoreError::Domain {
-                code: "ROLE_NAME_DUPLICATE",
-                message: "A role with this name already exists.".to_owned(),
-            });
-        }
-        crate::domain::validate_collection_record(
-            crate::model::StateCollection::Roles,
-            &json_value(role)?,
-        )?;
-    }
+    validate_profile_roles(&games, &roles)?;
     let target_ids = roles
         .iter()
         .map(|role| role.id.as_str())
@@ -1584,6 +1622,30 @@ fn apply_profile_roles(
         .commit()
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     Ok(revision)
+}
+
+fn validate_profile_roles(games: &[StateGameRecord], roles: &[StateRoleRecord]) -> CoreResult<()> {
+    let mut identities = std::collections::HashSet::new();
+    for role in roles {
+        if !games.iter().any(|game| game.id == role.game_id) {
+            return Err(CoreError::Domain {
+                code: "ROLE_GAME_INVALID",
+                message: "Role game is invalid.".to_owned(),
+            });
+        }
+        let identity = (role.game_id.clone(), role.name.trim().to_lowercase());
+        if role.name.trim().is_empty() || !identities.insert(identity) {
+            return Err(CoreError::Domain {
+                code: "ROLE_NAME_DUPLICATE",
+                message: "A role with this name already exists.".to_owned(),
+            });
+        }
+        crate::domain::validate_collection_record(
+            crate::model::StateCollection::Roles,
+            &json_value(role)?,
+        )?;
+    }
+    Ok(())
 }
 
 fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value) -> CoreResult<()> {

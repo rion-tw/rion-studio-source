@@ -6,6 +6,7 @@ import type {
   BrowserProxySettingsRecord,
   ChromeProfileEntryRecord,
   ChromeProfileImportPreviewRecord,
+  ChromeProfileImportProgressRecord,
   ChromeProfileImportRequest,
   ChromeProfileImportResultRecord,
   ChromeProfileImportWarningRecord,
@@ -31,6 +32,7 @@ import type {
   MacroUpdateRequest,
   PortableDataRecord,
   PortableDataSelectionRecord,
+  PortableExportResultRecord,
   PortableGameRecord,
   PortableImportOperationsRecord,
   PortableImportOperationSummaryRecord,
@@ -469,15 +471,7 @@ export type PortableMacro = PortableMacroRecord;
 export type RionPortableDataV6 = PortableDataRecord;
 export type RionPortableData = PortableDataRecord;
 
-export interface PortableExportResult {
-  filePath: string;
-  gameCount: number;
-  roleCount: number;
-  workspaceCount: number;
-  macroCount: number;
-  preferencesIncluded: boolean;
-  selection: PortableDataSelection;
-}
+export type PortableExportResult = PortableExportResultRecord;
 
 export type PortableImportWarningCode = PortableImportWarningRecord["code"];
 
@@ -497,14 +491,7 @@ export type ChromeProfileImportInput = ChromeProfileImportRequest;
 
 export type ChromeProfileImportResult = ChromeProfileImportResultRecord;
 
-export interface ChromeProfileImportProgress {
-  completedProfileCount: number;
-  currentProfileId?: string;
-  currentProfileName?: string;
-  importId: string;
-  phase: "preparing" | "importing" | "completed";
-  totalProfileCount: number;
-}
+export type ChromeProfileImportProgress = ChromeProfileImportProgressRecord;
 
 export type AppUpdateState =
   | "unsupported"

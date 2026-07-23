@@ -63,6 +63,10 @@ pub enum CoreCommand {
     RolesDelete {
         ids: Vec<String>,
     },
+    RoleBrowserDataClear {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
     RoleBrowserDirectoryEnsure {
         id: String,
     },
@@ -208,6 +212,13 @@ pub enum CoreCommand {
         preferences: Option<PortablePreferencesRecord>,
         selection: PortableDataSelectionRecord,
     },
+    PortableExportTo {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        preferences: Option<PortablePreferencesRecord>,
+        selection: PortableDataSelectionRecord,
+    },
     PortablePreview {
         #[serde(rename = "rawJson")]
         #[ts(rename = "rawJson")]
@@ -215,6 +226,9 @@ pub enum CoreCommand {
         #[serde(rename = "filePath")]
         #[ts(rename = "filePath")]
         file_path: String,
+    },
+    PortablePreviewFile {
+        path: String,
     },
     PortableApply {
         #[serde(rename = "importId")]
@@ -334,6 +348,16 @@ pub enum CoreCommand {
         source_user_data_dir: String,
     },
     ChromeProfilePrepare {
+        #[ts(rename = "importId")]
+        import_id: String,
+        #[ts(rename = "profileIds")]
+        profile_ids: Vec<String>,
+        #[ts(rename = "gameId")]
+        game_id: String,
+        #[ts(rename = "consentAccepted")]
+        consent_accepted: bool,
+    },
+    ChromeProfileApply {
         #[ts(rename = "importId")]
         import_id: String,
         #[ts(rename = "profileIds")]
@@ -728,6 +752,19 @@ pub struct PortableImportResultRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableExportResultRecord {
+    pub file_path: String,
+    pub game_count: u32,
+    pub role_count: u32,
+    pub workspace_count: u32,
+    pub macro_count: u32,
+    pub preferences_included: bool,
+    pub selection: PortableDataSelectionRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ChromeProfileEntryRecord {
     pub id: String,
     pub directory_name: String,
@@ -778,6 +815,23 @@ pub struct ChromeProfileImportRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ChromeProfileImportResultRecord {
     pub roles: Vec<StateRoleRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportProgressRecord {
+    pub completed_profile_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub current_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub current_profile_name: Option<String>,
+    pub import_id: String,
+    #[ts(type = "\"preparing\" | \"importing\" | \"completed\"")]
+    pub phase: String,
+    pub total_profile_count: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1743,6 +1797,9 @@ pub enum CoreEvent {
     },
     CoreEffects {
         effects: Vec<CoreEffectRequest>,
+    },
+    ChromeProfileImportProgress {
+        progress: ChromeProfileImportProgressRecord,
     },
     BrowserStatuses {
         statuses: Vec<BrowserRoleStatusRecord>,
@@ -2847,6 +2904,21 @@ pub enum CoreEffectAction {
     },
     CookieSet {
         cookie_json: String,
+    },
+    ChromeProfileApplySession {
+        role_id: String,
+        browser_user_data_dir: String,
+        cookies_json: String,
+    },
+    ChromeProfileClearSession {
+        role_id: String,
+        browser_user_data_dir: String,
+    },
+    RoleBrowserDataClearSession {
+        role_id: String,
+        browser_user_data_dir: String,
+        #[ts(type = "\"embedded\" | \"chrome-profile\"")]
+        session_source: String,
     },
     SetAudioMuted {
         muted: bool,

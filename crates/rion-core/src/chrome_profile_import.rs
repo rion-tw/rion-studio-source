@@ -53,6 +53,13 @@ struct ProfileAssignment {
 pub(crate) struct PreparedChromeProfileCommit {
     pub result: ChromeProfileImportCommitRecord,
     pub roles: Vec<StateRoleRecord>,
+    pub upsert_roles: Vec<StateRoleRecord>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ChromeProfileRollbackPlan {
+    pub delete_role_ids: Vec<String>,
+    pub restore_roles: Vec<StateRoleRecord>,
 }
 
 #[derive(Debug, Serialize)]
@@ -338,16 +345,18 @@ impl ChromeProfileImportRuntime {
                 })
             })
             .collect::<CoreResult<Vec<_>>>()?;
+        let upsert_roles = prepared
+            .assignments
+            .iter()
+            .map(|assignment| assignment.role.clone())
+            .collect::<Vec<_>>();
         Ok(PreparedChromeProfileCommit {
             result: ChromeProfileImportCommitRecord {
-                roles: prepared
-                    .assignments
-                    .iter()
-                    .map(|assignment| assignment.role.clone())
-                    .collect(),
+                roles: upsert_roles.clone(),
                 sessions,
             },
             roles,
+            upsert_roles,
         })
     }
 
@@ -364,6 +373,35 @@ impl ChromeProfileImportRuntime {
                 )
             })?;
         Ok(prepared.original_roles.clone())
+    }
+
+    pub fn rollback_plan(&mut self, import_id: &str) -> CoreResult<ChromeProfileRollbackPlan> {
+        self.prune_expired();
+        let prepared = self
+            .pending_mut(import_id)?
+            .prepared
+            .as_ref()
+            .ok_or_else(|| {
+                domain(
+                    "IMPORT_NOT_PREPARED",
+                    "Chrome profile import is not active.",
+                )
+            })?;
+        let overwritten = prepared.overwritten_role_ids.iter().collect::<HashSet<_>>();
+        Ok(ChromeProfileRollbackPlan {
+            delete_role_ids: prepared
+                .assignments
+                .iter()
+                .filter(|assignment| !assignment.overwrites_existing)
+                .map(|assignment| assignment.role.id.clone())
+                .collect(),
+            restore_roles: prepared
+                .original_roles
+                .iter()
+                .filter(|role| overwritten.contains(&role.id))
+                .cloned()
+                .collect(),
+        })
     }
 
     pub fn finish_rollback(&mut self, import_id: &str) -> CoreResult<()> {
@@ -410,6 +448,13 @@ impl ChromeProfileImportRuntime {
         }
         cleanup_transaction(&self.user_data_dir, import_id)?;
         self.pending.remove(position);
+        Ok(())
+    }
+
+    pub fn abort_prepare(&mut self, import_id: &str) -> CoreResult<()> {
+        self.prune_expired();
+        let pending = self.pending_mut(import_id)?;
+        pending.prepared = None;
         Ok(())
     }
 

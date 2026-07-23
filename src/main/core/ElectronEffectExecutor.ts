@@ -103,6 +103,9 @@ export interface ElectronEffectExecutorOptions {
   executeExternalEffect?: (
     effect: CoreEffectRequest & { action: ExternalCoreEffectAction }
   ) => Promise<CoreJsonValue | undefined>;
+  executeProfileEffect?: (
+    effect: CoreEffectRequest & { action: ProfileCoreEffectAction }
+  ) => Promise<CoreJsonValue | undefined>;
   sendDebuggerCommand: (
     webContents: ElectronWebContentsEffectHandle,
     method: string,
@@ -175,6 +178,15 @@ export class ElectronEffectExecutor {
         );
       }
       return this.options.executeExternalEffect({ ...effect, action });
+    }
+    if (isProfileEffectAction(action)) {
+      if (!this.options.executeProfileEffect) {
+        throw effectError(
+          "ELECTRON_EFFECT_UNSUPPORTED",
+          "The profile and browser-data effect adapter is unavailable."
+        );
+      }
+      return this.options.executeProfileEffect({ ...effect, action });
     }
 
     const handle = this.handles.require(target.handleId);
@@ -277,6 +289,16 @@ export type ExternalCoreEffectAction = Extract<
   }
 >;
 
+export type ProfileCoreEffectAction = Extract<
+  CoreEffectRequest["action"],
+  {
+    type:
+      | "chromeProfileApplySession"
+      | "chromeProfileClearSession"
+      | "roleBrowserDataClearSession";
+  }
+>;
+
 function isEmbeddedEffectAction(
   action: CoreEffectRequest["action"]
 ): action is EmbeddedCoreEffectAction {
@@ -287,6 +309,12 @@ function isExternalEffectAction(
   action: CoreEffectRequest["action"]
 ): action is ExternalCoreEffectAction {
   return action.type.startsWith("external");
+}
+
+function isProfileEffectAction(
+  action: CoreEffectRequest["action"]
+): action is ProfileCoreEffectAction {
+  return action.type.startsWith("chromeProfile") || action.type === "roleBrowserDataClearSession";
 }
 
 function webContentsOf(handle: ElectronEffectHandle): ElectronWebContentsEffectHandle {

@@ -118,14 +118,20 @@ describe("Rust production architecture boundaries", () => {
     expect(manager).not.toContain("parsePortableData");
     expect(manager).not.toContain("buildImportPlan");
     expect(manager).not.toContain("writeJsonFileAtomically");
+    expect(manager).not.toContain("node:fs");
+    expect(manager).not.toContain("readFile");
+    expect(manager).not.toContain("writeFile");
     expect(manager).not.toContain("setInterval");
+    expect(manager).toContain('type: "portableExportTo"');
+    expect(manager).toContain('type: "portablePreviewFile"');
     expect(repository).not.toContain("replaceMany");
   });
 
   it("keeps Chrome profile discovery, pending state, file saga, and recovery out of TypeScript", async () => {
-    const [manager, sessionImporter] = await Promise.all([
+    const [manager, effectAdapter, core] = await Promise.all([
       readSource("src/main/browser/ChromeProfileImportManager.ts"),
-      readSource("src/main/browser/ChromeProfileSessionImporter.ts")
+      readSource("src/main/browser/ElectronProfileEffectAdapter.ts"),
+      readSource("crates/rion-core/src/app.rs")
     ]);
 
     expect(manager).not.toContain("node:fs");
@@ -133,11 +139,14 @@ describe("Rust production architecture boundaries", () => {
     expect(manager).not.toContain("copyDirectory");
     expect(manager).not.toContain("writeJsonFileAtomically");
     expect(manager).not.toContain("recoverChromeProfileImport");
-    expect(sessionImporter).not.toContain("node:fs");
-    expect(sessionImporter).not.toContain("node:sqlite");
-    expect(sessionImporter).not.toContain("node:crypto");
-    expect(sessionImporter).not.toContain("node:child_process");
-    expect(sessionImporter).toContain("readCookies:");
+    expect(manager).toContain('type: "chromeProfileApply"');
+    expect(manager).not.toContain('"chromeProfilePrepare"');
+    expect(manager).not.toContain('"chromeProfileCommit"');
+    expect(manager).not.toContain('"chromeProfileRollback"');
+    expect(effectAdapter).not.toContain("node:fs");
+    expect(effectAdapter).toContain("cookies.set");
+    expect(core).toContain("apply_chrome_profile_import");
+    expect(core).toContain("rollback_chrome_profile_import");
   });
 
   it("does not keep a JavaScript state snapshot cache or stringify diff", async () => {

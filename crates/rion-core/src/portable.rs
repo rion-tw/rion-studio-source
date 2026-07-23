@@ -1,5 +1,8 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    fs,
+    io::{BufReader, BufWriter, Write},
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -13,13 +16,14 @@ use crate::{
     macro_graph::validate_macro_graph,
     model::{
         CoreStateSnapshotRecord, MacroStepDefinition, MacroTrigger, PortableDataRecord,
-        PortableDataSelectionRecord, PortableGameRecord, PortableImportOperationsRecord,
-        PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
-        PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
-        PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
-        PortablePreferencesRecord, PortableRoleRecord, StateGameRecord, StateLaunchWorkspaceRecord,
-        StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
-        StateWorkspaceResourcePolicyRecord, StateWorkspaceSlotRecord,
+        PortableDataSelectionRecord, PortableExportResultRecord, PortableGameRecord,
+        PortableImportOperationsRecord, PortableImportPreviewRecord, PortableImportResultRecord,
+        PortableImportWarningRecord, PortableLaunchWorkspaceRecord,
+        PortableMacroConflictCandidateRecord, PortableMacroConflictRecord,
+        PortableMacroConflictResolutionRecord, PortableMacroRecord, PortablePreferencesRecord,
+        PortableRoleRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+        StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceResourcePolicyRecord,
+        StateWorkspaceSlotRecord,
     },
 };
 
@@ -29,6 +33,7 @@ const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
 const PENDING_IMPORT_TTL: Duration = Duration::from_secs(15 * 60);
+const MAX_PORTABLE_BYTES: u64 = 128 * 1024 * 1024;
 
 struct BuiltinGame {
     id: &'static str,
@@ -53,11 +58,15 @@ const BUILTIN_GAMES: &[BuiltinGame] = &[
 ];
 
 pub fn normalize(raw: &str) -> CoreResult<Value> {
-    if raw.len() > 128 * 1024 * 1024 {
+    if raw.len() as u64 > MAX_PORTABLE_BYTES {
         return Err(invalid("portable data is too large"));
     }
     let source: Value = serde_json::from_str(raw)
         .map_err(|error| invalid(format!("portable JSON is invalid: {error}")))?;
+    normalize_value(source)
+}
+
+fn normalize_value(source: Value) -> CoreResult<Value> {
     let object = source
         .as_object()
         .ok_or_else(|| invalid("portable data must be an object"))?;
@@ -866,8 +875,37 @@ impl PortableRuntime {
         file_path: String,
         snapshot: CoreStateSnapshotRecord,
     ) -> CoreResult<PortableImportPreviewRecord> {
-        self.prune_expired();
         let normalized = normalize(raw_json)?;
+        self.preview_normalized(normalized, file_path, snapshot)
+    }
+
+    pub fn preview_file(
+        &mut self,
+        file_path: String,
+        snapshot: CoreStateSnapshotRecord,
+    ) -> CoreResult<PortableImportPreviewRecord> {
+        let path = absolute_portable_path(&file_path)?;
+        let metadata = fs::symlink_metadata(&path).map_err(|error| portable_io(&path, error))?;
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(invalid("portable import path must be a regular file"));
+        }
+        if metadata.len() > MAX_PORTABLE_BYTES {
+            return Err(invalid("portable data is too large"));
+        }
+        let file = fs::File::open(&path).map_err(|error| portable_io(&path, error))?;
+        let source = serde_json::from_reader(BufReader::new(file))
+            .map_err(|error| invalid(format!("portable JSON is invalid: {error}")))?;
+        self.preview_normalized(source, file_path, snapshot)
+    }
+
+    fn preview_normalized(
+        &mut self,
+        source: Value,
+        file_path: String,
+        snapshot: CoreStateSnapshotRecord,
+    ) -> CoreResult<PortableImportPreviewRecord> {
+        self.prune_expired();
+        let normalized = normalize_value(source)?;
         let data = serde_json::from_value::<PortableDataRecord>(normalized)
             .map_err(|error| invalid(format!("portable data model is invalid: {error}")))?;
         validate_preferences(data.preferences.as_ref())?;
@@ -998,6 +1036,74 @@ pub(crate) fn export(
     };
     ensure_selected_content(&data, &selection)?;
     Ok(data)
+}
+
+pub(crate) fn write_export(
+    path: &str,
+    data: &PortableDataRecord,
+    requested_selection: &PortableDataSelectionRecord,
+) -> CoreResult<PortableExportResultRecord> {
+    let path = absolute_portable_path(path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| invalid("portable export path has no parent directory"))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid("portable export path is invalid"))?;
+    let temporary = parent.join(format!(".{file_name}.{}.tmp", Uuid::new_v4()));
+    let result = (|| {
+        let file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)
+            .map_err(|error| portable_io(&temporary, error))?;
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, data)
+            .map_err(|error| invalid(format!("portable export serialization failed: {error}")))?;
+        writer
+            .write_all(b"\n")
+            .and_then(|()| writer.flush())
+            .map_err(|error| portable_io(&temporary, error))?;
+        writer
+            .into_inner()
+            .map_err(|error| portable_io(&temporary, error.into_error()))?
+            .sync_all()
+            .map_err(|error| portable_io(&temporary, error))?;
+        rion_platform::atomic_replace_file(&temporary, &path)
+            .map_err(|error| CoreError::Platform(error.to_string()))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result?;
+
+    let selection = effective_selection(data, &normalize_selection(requested_selection.clone()));
+    Ok(PortableExportResultRecord {
+        file_path: path.to_string_lossy().into_owned(),
+        game_count: data.games.len() as u32,
+        role_count: data.roles.len() as u32,
+        workspace_count: data.launch_workspaces.len() as u32,
+        macro_count: data.macros.len() as u32,
+        preferences_included: data.preferences.is_some(),
+        selection,
+    })
+}
+
+fn absolute_portable_path(value: &str) -> CoreResult<PathBuf> {
+    let path = PathBuf::from(value.trim());
+    if value.trim().is_empty() || !path.is_absolute() {
+        return Err(invalid("portable path must be absolute"));
+    }
+    Ok(path)
+}
+
+fn portable_io(path: &Path, error: std::io::Error) -> CoreError {
+    CoreError::Platform(format!(
+        "portable file operation failed for {}: {error}",
+        path.display()
+    ))
 }
 
 fn build_import_plan(
@@ -2093,6 +2199,7 @@ fn invalid(message: impl Into<String>) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     fn fixture(schema: u64) -> String {
         json!({
@@ -2321,5 +2428,51 @@ mod tests {
         assert_eq!(value["appVersion"], "2.0.0");
         assert!(value["roles"][0].get("createdAt").is_none());
         assert!(value["roles"][0].get("browserSessionSource").is_none());
+    }
+
+    #[test]
+    fn portable_files_are_atomically_replaced_and_streamed_back_into_preview() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("rion.json");
+        fs::write(&path, b"old").unwrap();
+        let data =
+            serde_json::from_value::<PortableDataRecord>(normalize(&fixture(6)).unwrap()).unwrap();
+        let selection = all_selection();
+
+        let result = write_export(path.to_str().unwrap(), &data, &selection).unwrap();
+        assert_eq!(result.file_path, path.to_string_lossy());
+        assert!(!fs::read(&path).unwrap().starts_with(b"old"));
+        assert!(fs::read_dir(directory.path()).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")
+        }));
+
+        let preview = PortableRuntime::default()
+            .preview_file(
+                path.to_string_lossy().into_owned(),
+                CoreStateSnapshotRecord::default(),
+            )
+            .unwrap();
+        assert_eq!(preview.game_count, 1);
+        assert_eq!(preview.role_count, 1);
+    }
+
+    #[test]
+    fn portable_file_preview_rejects_oversized_inputs_before_reading() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("oversized.json");
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(MAX_PORTABLE_BYTES + 1).unwrap();
+
+        let error = PortableRuntime::default()
+            .preview_file(
+                path.to_string_lossy().into_owned(),
+                CoreStateSnapshotRecord::default(),
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), "CORE_INPUT_INVALID");
     }
 }

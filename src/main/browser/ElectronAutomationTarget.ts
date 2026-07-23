@@ -65,7 +65,6 @@ export interface BrowserInputDispatchOptions {
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
   private readonly debuggerSession: ElectronDebuggerSession;
   private inputLease?: ElectronDebuggerLease;
-  private inputDispatchTail: Promise<void> = Promise.resolve();
   private transientOwnerSequence = 0;
 
   constructor(
@@ -129,7 +128,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   dispatchKey(input: MacroKeyInput | string, options: BrowserInputDispatchOptions = {}): Promise<void> {
-    return this.enqueueInput(() => this.dispatchKeyUnlocked(toMacroKeyInput(input), options));
+    return this.dispatchKeyUnlocked(toMacroKeyInput(input), options);
   }
 
   dispose(): void {
@@ -143,11 +142,11 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     ownerId: string,
     options: BrowserInputDispatchOptions = {}
   ): Promise<void> {
-    return this.enqueueInput(() => this.holdKeyUnlocked(toMacroKeyInput(input), ownerId, options));
+    return this.holdKeyUnlocked(toMacroKeyInput(input), ownerId, options);
   }
 
   releaseKey(input: MacroKeyInput | string, ownerId: string): Promise<void> {
-    return this.enqueueInput(() => this.releaseKeyUnlocked(toMacroKeyInput(input), ownerId));
+    return this.releaseKeyUnlocked(toMacroKeyInput(input), ownerId);
   }
 
   private async dispatchKeyUnlocked(input: MacroKeyInput, options: BrowserInputDispatchOptions): Promise<void> {
@@ -338,11 +337,11 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     yPercent: number,
     options: BrowserInputDispatchOptions = {}
   ): Promise<void> {
-    return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, options));
+    return this.dispatchClickUnlocked(xPercent, yPercent, options);
   }
 
   dispatchClickPixels(xPx: number, yPx: number, options: BrowserInputDispatchOptions = {}): Promise<void> {
-    return this.enqueueInput(() => this.dispatchClickPixelsUnlocked(xPx, yPx, options));
+    return this.dispatchClickPixelsUnlocked(xPx, yPx, options);
   }
 
   dispatchClickAnchored(
@@ -352,7 +351,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     y: number,
     options: BrowserInputDispatchOptions = {}
   ): Promise<void> {
-    return this.enqueueInput(() => this.dispatchClickAnchoredUnlocked(anchor, unit, x, y, options));
+    return this.dispatchClickAnchoredUnlocked(anchor, unit, x, y, options);
   }
 
   private async dispatchClickUnlocked(
@@ -500,7 +499,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
 
   private scheduleHeldKeyReassertion(): void {
     if (!this.keyRuntime.hasEmbeddedHeldKeys(this.roleId) || this.webContents.isDestroyed()) return;
-    void this.enqueueInput(() => this.reassertHeldKeysUnlocked()).catch(() => undefined);
+    void this.reassertHeldKeysUnlocked().catch(() => undefined);
   }
 
   private async reassertHeldKeysUnlocked(signal?: AbortSignal): Promise<void> {
@@ -528,12 +527,6 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       height: Math.max(1, Math.round(height)),
       width: Math.max(1, Math.round(width))
     };
-  }
-
-  private enqueueInput(operation: () => Promise<void>): Promise<void> {
-    const result = this.inputDispatchTail.then(operation);
-    this.inputDispatchTail = result.catch(() => undefined);
-    return result;
   }
 
   async evaluate<T = unknown>(source: string): Promise<T> {

@@ -254,6 +254,7 @@ type EmbeddedCoreEffectAction = Extract<
   {
     type:
       | "embeddedActivateResources"
+      | "embeddedApplyResourceEffects"
       | "embeddedApplyRuntime"
       | "embeddedConfigureRoleSessions"
       | "embeddedCreateTab"

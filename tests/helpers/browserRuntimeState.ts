@@ -127,20 +127,34 @@ export function createBrowserRuntimeState() {
   };
 
   return {
-    ...resourceRuntime,
+    invokeResourceRuntimeForTest: resourceRuntime.invokeResourceRuntime,
     evaluateExternalChrome<T>(): Promise<T> {
       return Promise.reject(new Error("External Chrome is not configured in this test harness."));
     },
     listBrowserStatuses(): BrowserRoleStatusRecord[] {
-      return snapshot().roles.map((role) => ({
-        roleId: role.roleId,
-        state: role.state,
-        ...(role.launchedAt ? { launchedAt: role.launchedAt } : {}),
-        runtimeMode: role.runtime,
-        ...(role.runtime === "external"
-          ? { automationState: "ready" as const, pageHealth: "healthy" as const }
-          : {})
-      }));
+      const resourceStatuses = resourceRuntime.invokeResourceRuntime({ type: "snapshot" }).statuses;
+      return snapshot().roles.map((role) => {
+        const resource = resourceStatuses.find((status) => status.roleId === role.roleId);
+        return {
+          roleId: role.roleId,
+          state: role.state,
+          ...(role.launchedAt ? { launchedAt: role.launchedAt } : {}),
+          runtimeMode: role.runtime,
+          ...(role.runtime === "external"
+            ? { automationState: "ready" as const, pageHealth: "healthy" as const }
+            : {}),
+          ...(resource ? {
+            resourceState: resource.resourceState,
+            cpuThrottleRate: resource.cpuThrottleRate,
+            ...(resource.resourcePressureLevel
+              ? { resourcePressureLevel: resource.resourcePressureLevel }
+              : {}),
+            ...(resource.resourceReason && resource.resourceReason !== "baseline"
+              ? { resourceReason: resource.resourceReason }
+              : {})
+          } : {})
+        };
+      });
     },
     listBrowserWorkspaceStatuses() {
       return snapshot().workspaces.map(({ state, workspaceId }) => ({ state, workspaceId }));

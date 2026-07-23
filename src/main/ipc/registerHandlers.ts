@@ -174,12 +174,14 @@ export function registerIpcHandlers(
   });
 
   handle(IPC_CHANNELS.appSnapshot, async () => {
-    const [games, gameCompatibilityReports, roles, launchWorkspaces, macros] = await Promise.all([
+    const [games, gameCompatibilityReports, roles, launchWorkspaces, macros, macroStatuses] =
+      await Promise.all([
       options.gameStore?.listGames() ?? Promise.resolve([]),
       options.gameCompatibilityManager?.listReports() ?? Promise.resolve([]),
       roleStore.listRoles(),
       workspaceStore.listWorkspaces(),
-      options.macroStore?.listMacros() ?? Promise.resolve([])
+      options.macroStore?.listMacros() ?? Promise.resolve([]),
+      options.macroManager?.listStatuses() ?? Promise.resolve([])
     ]);
 
     return {
@@ -192,7 +194,7 @@ export function registerIpcHandlers(
       launchWorkspaces,
       workspaceDisplays: getWorkspaceDisplays(options),
       macros,
-      macroStatuses: options.macroManager?.listStatuses() ?? []
+      macroStatuses
     };
   });
 

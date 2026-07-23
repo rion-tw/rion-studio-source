@@ -6,10 +6,8 @@ import {
   type ElectronDebuggerLease,
   type ElectronDebuggerSession
 } from "./ElectronDebuggerSession";
-import type { WorkspaceResourceTarget } from "./WorkspaceResourceCoordinator";
 
-export class ElectronWorkspaceResourceTarget implements WorkspaceResourceTarget {
-  readonly runtimeMode = "embedded" as const;
+export class ElectronWorkspaceResourceTarget {
   private currentRate: 1 | WorkspaceCpuThrottleRate | undefined;
   private desiredRate: 1 | WorkspaceCpuThrottleRate = 1;
   private readonly debuggerSession: ElectronDebuggerSession;

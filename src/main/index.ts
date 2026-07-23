@@ -679,7 +679,6 @@ async function initializeApplication(): Promise<void> {
     workspaceDividerResizeResolver: (input) => appCoreClient!.resizeWorkspaceDivider(input),
     workspaceLayoutResolver: (input: Parameters<NonNullable<BrowserManagerOptions["workspaceLayoutResolver"]>>[0]) =>
       appCoreClient!.resolveWorkspaceLayout(input),
-    resourcePressureMonitor,
     getRoleSession: (role) => role.browserSessionSource === "chrome-profile"
       ? electronSession.fromPath(join(roleStore.getRolePaths(role.id).browserUserDataDir, "Default"))
       : undefined,
@@ -716,6 +715,11 @@ async function initializeApplication(): Promise<void> {
       dispatchRuntimeTabAction(runtimeWindow, displayId, action);
     },
     prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
+  });
+  appCoreClient.subscribe((events) => {
+    if (events.some((event) => event.type === "resourceStatuses")) {
+      browserManager?.notifyResourceStatusesChanged();
+    }
   });
   const effectCore = appCoreClient;
   const electronEffectExecutor = new ElectronEffectExecutor(
@@ -810,10 +814,7 @@ async function initializeApplication(): Promise<void> {
     recordMacroScheduleToDispatchLatency: (durationMs) =>
       appCoreClient?.recordMacroScheduleToDispatchLatency(durationMs)
   });
-  const macroManager = new RustMacroManager(
-    browserManager,
-    appCoreClient
-  );
+  const macroManager = new RustMacroManager(appCoreClient);
   appCoreClient.subscribe((events) => {
     for (const event of events) {
       if (event.type !== "externalHealthChanged") continue;

@@ -203,18 +203,18 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps resource policy state and pressure sampling in Rust", async () => {
-    const [coordinator, runtime, pressure] = await Promise.all([
-      readSource("src/main/browser/WorkspaceResourceCoordinator.ts"),
+    const [controller, runtime, browser, pressure] = await Promise.all([
+      readSource("crates/rion-core/src/resource_controller.rs"),
       readSource("crates/rion-core/src/resource_runtime.rs"),
+      readSource("src/main/browser/BrowserManager.ts"),
       readSource("src/main/browser/RustSystemPressureMonitor.ts")
     ]);
 
-    expect(coordinator).not.toContain("hiddenRuntimeTabIds");
-    expect(coordinator).not.toContain("macroRoleIds");
-    expect(coordinator).not.toContain("pressureSnapshot");
-    expect(coordinator).not.toContain("roleStatuses");
-    expect(coordinator).not.toContain("resolveCpuThrottle");
-    expect(coordinator).toContain("invokeResourceRuntime");
+    expect(browser).not.toContain("WorkspaceResourceCoordinator");
+    expect(browser).not.toContain("resourcePressureMonitor");
+    expect(controller).toContain("struct ResourceController");
+    expect(controller).toContain("EmbeddedApplyResourceEffects");
+    expect(controller).toContain("ResourceRuntimeCommand");
     expect(runtime).toContain("struct ResourceRuntime");
     expect(pressure).not.toContain("setInterval");
   });

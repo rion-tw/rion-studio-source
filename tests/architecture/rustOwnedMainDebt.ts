@@ -22,21 +22,6 @@ const debt = (
 export const RUST_OWNED_MAIN_DEBT = {
   authoritativeMaps: [
     debt(
-      "src/main/core/ElectronBrowserActionAdapter.ts:ElectronBrowserActionAdapter.pendingActionCountsByRole",
-      5,
-      "Per-role browser action queue state."
-    ),
-    debt(
-      "src/main/core/ElectronBrowserActionAdapter.ts:ElectronBrowserActionAdapter.roleTails",
-      5,
-      "Per-role browser action ordering."
-    ),
-    debt(
-      "src/main/browser/WorkspaceResourceCoordinator.ts:WorkspaceResourceCoordinator.workspaces",
-      5,
-      "Workspace resource runtime authority."
-    ),
-    debt(
       "src/main/game-browser/CdnCompatibilityManager.ts:CdnCompatibilityManager.cache",
       8,
       "CDN detection cache and TTL authority."
@@ -106,16 +91,6 @@ export const RUST_OWNED_MAIN_DEBT = {
   ],
   promiseTails: [
     debt(
-      "src/main/browser/ElectronAutomationTarget.ts:ElectronAutomationTarget.inputDispatchTail",
-      5,
-      "Embedded input ordering."
-    ),
-    debt(
-      "src/main/browser/WorkspaceResourceCoordinator.ts:WorkspaceResourceCoordinator.tail",
-      5,
-      "Resource effect ordering."
-    ),
-    debt(
       "src/main/persistence/SerialTaskQueue.ts:SerialTaskQueue.tail",
       6,
       "Cross-store mutation ordering."
@@ -142,7 +117,7 @@ export const RUST_OWNED_MAIN_DEBT = {
     debt("hasEmbeddedHeldKeys", 5, "Held-key state remains internal to Rust."),
     debt("invokeBrowserRuntime", 3, "Replaced by high-level invoke commands."),
     debt("invokeExternalSession", 4, "External session state remains internal to Rust."),
-    debt("invokeResourceRuntime", 5, "Resource state remains internal to Rust."),
+    debt("invokeResourceRuntime", 11, "Resource state remains internal to Rust."),
     debt("normalizeWorkspaceRects", 3, "Layout decision command."),
     debt("prepareEmbeddedKeyTransition", 5, "Embedded input effect."),
     debt("prepareExternalChromeProfile", 7, "Profile import operation actor."),

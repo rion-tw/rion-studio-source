@@ -19,6 +19,8 @@ import type {
   CoreCommand,
   CoreEffectAction,
   LayoutRoleInput,
+  ResourceRuntimeCommand,
+  ResourceRuntimeTargetRecord,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
   WorkspaceDividerResizeOutput,
@@ -3095,15 +3097,13 @@ describe("BrowserManager game host windows", () => {
   it.each([
     {
       name: "an unrestricted workspace",
-      resourcePolicy: { mode: "unrestricted" as const },
-      pressureLevel: "normal" as const
+      resourcePolicy: { mode: "unrestricted" as const }
     },
     {
       name: "an adaptive workspace under constrained system pressure",
-      resourcePolicy: { mode: "adaptive" as const },
-      pressureLevel: "constrained" as const
+      resourcePolicy: { mode: "adaptive" as const }
     }
-  ])("launches every role concurrently for $name", async ({ resourcePolicy, pressureLevel }) => {
+  ])("launches every role concurrently for $name", async ({ resourcePolicy }) => {
     const started: number[] = [];
     const releases: Array<() => void> = [];
     const loadUrlHandlers = Array.from({ length: 4 }, (_, index) => async () => {
@@ -3112,14 +3112,7 @@ describe("BrowserManager game host windows", () => {
         releases[index] = resolve;
       });
     });
-    const resourcePressureMonitor: NonNullable<BrowserManagerOptions["resourcePressureMonitor"]> = {
-      getSnapshot: () => ({
-        level: pressureLevel,
-        reason: pressureLevel === "constrained" ? "cpu" : "baseline"
-      }),
-      on: vi.fn()
-    };
-    const harness = createHarness({ loadUrlHandlers, resourcePressureMonitor });
+    const harness = createHarness({ loadUrlHandlers });
     const rects = getDefaultWorkspaceRects("quad");
     const roles = Array.from({ length: 4 }, (_, index) => createRole(`role-${index + 1}`, `Role ${index + 1}`));
     const launch = harness.manager.launchWorkspace(
@@ -4264,7 +4257,6 @@ function createHarness(options: {
   persistWorkspaceRoleZoom?: BrowserManagerOptions["persistWorkspaceRoleZoom"];
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
-  resourcePressureMonitor?: BrowserManagerOptions["resourcePressureMonitor"];
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
   workspaceLayoutResolver?: BrowserManagerOptions["workspaceLayoutResolver"];
@@ -4398,9 +4390,6 @@ function createHarness(options: {
     ...(options.prefersReducedTransparency
       ? { prefersReducedTransparency: options.prefersReducedTransparency }
       : {}),
-    ...(options.resourcePressureMonitor
-      ? { resourcePressureMonitor: options.resourcePressureMonitor }
-      : {}),
     workspaceDividerResolver: resolveTestWorkspaceDividers,
     workspaceDividerResizeResolver: resizeTestWorkspaceDivider,
     workspaceLayoutResolver: options.workspaceLayoutResolver ?? resolveTestWorkspaceLayout
@@ -4417,6 +4406,25 @@ function createHarness(options: {
     manager.executeEmbeddedEffect(
       action as Parameters<BrowserManager["executeEmbeddedEffect"]>[0]
     );
+  const applyResourceCommand = async (command: ResourceRuntimeCommand): Promise<void> => {
+    let result = browserRuntimeState.invokeResourceRuntimeForTest(command);
+    if (result.effects.length === 0) return;
+    const effectResult = await executeEmbedded({
+      type: "embeddedApplyResourceEffects",
+      effects: result.effects
+    }) as { unavailableRoleIds?: string[] };
+    if ((effectResult.unavailableRoleIds?.length ?? 0) === 0) return;
+    result = browserRuntimeState.invokeResourceRuntimeForTest({
+      type: "setUnavailableRoleIds",
+      roleIds: effectResult.unavailableRoleIds ?? []
+    });
+    if (result.effects.length > 0) {
+      await executeEmbedded({
+        type: "embeddedApplyResourceEffects",
+        effects: result.effects
+      });
+    }
+  };
   const applyRuntime = async (
     snapshot: BrowserRuntimeSnapshot,
     target?: { displayId: number; workArea: PixelBounds },
@@ -4424,6 +4432,15 @@ function createHarness(options: {
     focusTabId?: string,
     focusWindowDisplayIds: number[] = []
   ): Promise<BrowserRuntimeSnapshot> => {
+    const activeTabIds = new Set(snapshot.displays.flatMap((display) =>
+      display.activeTabId ? [display.activeTabId] : []
+    ));
+    await applyResourceCommand({
+      type: "setHiddenWorkspaceIds",
+      workspaceIds: snapshot.tabs
+        .filter((tab) => tab.hidden || !activeTabIds.has(tab.id))
+        .map((tab) => tab.id)
+    });
     await executeEmbedded({
       type: "embeddedApplyRuntime",
       snapshot,
@@ -4563,11 +4580,17 @@ function createHarness(options: {
             type: "embeddedInstallOverlays",
             roleIds: [seededRole.id]
           });
-          await executeEmbedded({
+          const targets = await executeEmbedded({
             type: "embeddedActivateResources",
             tabId,
             policy: { mode: "unrestricted" },
             roleIds: [seededRole.id]
+          }) as ResourceRuntimeTargetRecord[];
+          await applyResourceCommand({
+            type: "activateWorkspace",
+            workspaceId: tabId,
+            policyMode: "unrestricted",
+            targets
           });
         } catch (error) {
           await executeEmbedded({ type: "embeddedDestroyTab", tabId });
@@ -4682,11 +4705,17 @@ function createHarness(options: {
             type: "embeddedInstallOverlays",
             roleIds
           });
-          await executeEmbedded({
+          const targets = await executeEmbedded({
             type: "embeddedActivateResources",
             tabId,
             policy: seeded.workspace.resourcePolicy,
             roleIds
+          }) as ResourceRuntimeTargetRecord[];
+          await applyResourceCommand({
+            type: "activateWorkspace",
+            workspaceId: tabId,
+            policyMode: seeded.workspace.resourcePolicy.mode,
+            targets
           });
         } catch (error) {
           await executeEmbedded({ type: "embeddedDestroyTab", tabId });
@@ -4759,6 +4788,12 @@ function createHarness(options: {
           (tabId) => tabId !== runtime.tabId &&
             !snapshot.tabs.find(({ id }) => id === tabId)?.hidden
         );
+        if (nextActiveTabId) {
+          await applyResourceCommand({
+            type: "prepareWorkspaceForeground",
+            workspaceId: nextActiveTabId
+          });
+        }
         await executeEmbedded({
           type: "embeddedDestroyTab",
           tabId: runtime.tabId,
@@ -4835,6 +4870,28 @@ function createHarness(options: {
           sourceDisplayId: command.displayId,
           targetDisplayId: command.fallback.displayId
         }).snapshot, command.fallback, [command.fallback.displayId]);
+      case "resourceActivateWorkspace":
+        await applyResourceCommand({
+          type: "activateWorkspace",
+          workspaceId: command.workspaceId,
+          policyMode: command.policyMode,
+          targets: command.targets
+        });
+        return { activated: true };
+      case "resourceDeactivateWorkspace":
+        await applyResourceCommand({
+          type: "deactivateWorkspace",
+          workspaceId: command.workspaceId
+        });
+        return { deactivated: true };
+      case "resourceRefreshTarget":
+        await applyResourceCommand({
+          type: "refreshTarget",
+          workspaceId: command.workspaceId,
+          roleId: command.roleId,
+          processId: command.processId
+        });
+        return { refreshed: true };
       default:
         throw new Error(`Unexpected typed command in BrowserManager test: ${command.type}`);
     }

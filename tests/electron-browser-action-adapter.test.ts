@@ -123,7 +123,7 @@ describe("ElectronBrowserActionAdapter", () => {
     ]);
   });
 
-  it("runs different roles concurrently while applying per-role backpressure", async () => {
+  it("runs different Rust-ordered role groups concurrently", async () => {
     let listener: ((events: never[]) => void) | undefined;
     const dispatchBrowserResults = vi.fn(async (_results: unknown) => undefined);
     const releases = new Map<string, () => void>();
@@ -143,7 +143,6 @@ describe("ElectronBrowserActionAdapter", () => {
           releases.set(roleId, resolve);
         }))
       }) as never,
-      maxPendingActionsPerRole: 1,
       now: () => 1_000
     });
 
@@ -151,7 +150,6 @@ describe("ElectronBrowserActionAdapter", () => {
       type: "browserActions",
       actions: [
         { requestId: "r1-first", roleId: "r1", deadlineMs: 2_000, action: { type: "focus" } },
-        { requestId: "r1-full", roleId: "r1", deadlineMs: 2_000, action: { type: "focus" } },
         { requestId: "r2-first", roleId: "r2", deadlineMs: 2_000, action: { type: "focus" } }
       ]
     }] as never);
@@ -162,7 +160,6 @@ describe("ElectronBrowserActionAdapter", () => {
     await vi.waitFor(() => expect(dispatchBrowserResults).toHaveBeenCalledOnce());
     expect(dispatchBrowserResults.mock.calls[0]?.[0]).toMatchObject([
       { requestId: "r1-first", ok: true },
-      { requestId: "r1-full", ok: false, errorCode: "BROWSER_ACTION_BACKPRESSURE" },
       { requestId: "r2-first", ok: true }
     ]);
     await adapter.shutdown();

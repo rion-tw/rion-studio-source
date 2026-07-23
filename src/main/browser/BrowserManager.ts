@@ -24,6 +24,8 @@ import type {
   CoreJsonValue,
   LayoutRect,
   LayoutRoleInput,
+  ResourceRuntimeEffectRecord,
+  ResourceRuntimeTargetRecord,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
   WorkspaceDividerResizeOutput,
@@ -67,11 +69,6 @@ import type {
   MacRuntimeTabsController,
   MacRuntimeTabsControllerFactory
 } from "./MacRuntimeTabsController";
-import type { SystemPressureSource } from "./RustSystemPressureMonitor";
-import {
-  WorkspaceResourceCoordinator,
-  type ResourceRuntimeState
-} from "./WorkspaceResourceCoordinator";
 
 export interface BrowserManagerEvents {
   change: [RoleStatus[]];
@@ -130,7 +127,7 @@ export interface BrowserManagerOptions {
     acquireBrowserOperation: (request: BrowserOperationRequest) => Promise<BrowserOperationLease>;
     completeBrowserOperation: (id: string) => void;
     invokeBrowserRuntime: (command: BrowserRuntimeCommand) => BrowserRuntimeResult;
-  } & ResourceRuntimeState & Pick<
+  } & Pick<
     AppCoreClient,
     | "evaluateExternalChrome"
     | "invokeTyped"
@@ -169,7 +166,6 @@ export interface BrowserManagerOptions {
   ) => void;
   performNativeZoom?: NativeZoomPerformer;
   persistWorkspaceRoleZoom?: WorkspaceRoleZoomPersister;
-  resourcePressureMonitor?: SystemPressureSource;
   adaptiveZoomResolver: (
     viewportWidth: number,
     currentPercent?: WorkspaceBrowserZoomPercent
@@ -310,6 +306,8 @@ interface BrowserSession {
   hostId: string;
   popupViews: Set<WebContentsView>;
   rect: NormalizedRect;
+  removeResourceInvalidation: () => void;
+  resourceTarget: ElectronWorkspaceResourceTarget;
   role: Role;
   target: BrowserAutomationTarget;
   view: WebContentsView;
@@ -337,6 +335,7 @@ type EmbeddedCoreEffectAction = Extract<
   {
     type:
       | "embeddedActivateResources"
+      | "embeddedApplyResourceEffects"
       | "embeddedApplyRuntime"
       | "embeddedConfigureRoleSessions"
       | "embeddedCreateTab"
@@ -368,6 +367,17 @@ function getErrorCode(error: unknown): string | undefined {
 
 function effectError(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code });
+}
+
+function asCpuThrottleRate(effect: ResourceRuntimeEffectRecord): 1 | 2 | 4 {
+  if (effect.cpuThrottleRate === 1 || effect.cpuThrottleRate === 2 ||
+    effect.cpuThrottleRate === 4) {
+    return effect.cpuThrottleRate;
+  }
+  throw effectError(
+    "RESOURCE_THROTTLE_RATE_INVALID",
+    `Unsupported CPU throttle rate: ${effect.cpuThrottleRate}`
+  );
 }
 
 async function waitForAllEffects(effects: Promise<void>[]): Promise<void> {
@@ -471,18 +481,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly workspaceTabHandleIds = new Map<string, string>();
   private runtimeTabsLanguage: AppLanguage = "en";
   private alwaysShowToolbarInFullScreen = false;
-  private readonly resourceCoordinator: WorkspaceResourceCoordinator;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
 
   constructor(
     private readonly options: BrowserManagerOptions
   ) {
     super();
-    this.resourceCoordinator = new WorkspaceResourceCoordinator(
-      options.browserRuntimeState,
-      options.resourcePressureMonitor
-    );
-    this.resourceCoordinator.on("change", () => this.emitChange());
   }
 
   setBeforeRolesStop(handler: BeforeRolesStop): void {
@@ -568,7 +572,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         await waitForAllEffects(action.roles.map(async (role) => {
           const session = this.requireEmbeddedSession(role.roleId);
           this.assertSessionActive(session);
-          await this.applyZoom(session, role.zoomFactor);
+          if (session.zoomMode !== "adaptive") {
+            await this.applyZoom(session, role.zoomFactor);
+          }
           this.assertSessionActive(session);
           try {
             await session.webContents.loadURL(role.url);
@@ -577,7 +583,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
             throw new BrowserGameLoadError();
           }
           this.assertSessionActive(session);
-          await this.applyZoom(session, role.zoomFactor);
+          if (session.zoomMode === "adaptive") {
+            const host = this.tabHandles.get(session.hostId);
+            if (host) this.layoutHost(host);
+          } else {
+            await this.applyZoom(session, role.zoomFactor);
+          }
         }));
         return undefined;
       }
@@ -590,13 +601,40 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         return undefined;
       }
       case "embeddedActivateResources": {
-        const targets = action.roleIds.map((roleId) => {
-          const session = this.requireEmbeddedSession(roleId);
-          return new ElectronWorkspaceResourceTarget(roleId, session.webContents);
+        const targets = action.roleIds.map((roleId): ResourceRuntimeTargetRecord => {
+          const target = this.requireEmbeddedSession(roleId).resourceTarget;
+          return {
+            roleId,
+            runtimeMode: "embedded",
+            ...(target.getProcessId() ? { processId: target.getProcessId() } : {})
+          };
         });
-        await this.resourceCoordinator.activateWorkspace(action.tabId, action.policy, targets);
-        await this.reconcileRuntimeTabs();
-        return undefined;
+        await this.requireEmbeddedSession(action.roleIds[0] ?? "").resourceTarget.focus();
+        return targets;
+      }
+      case "embeddedApplyResourceEffects": {
+        const unavailableRoleIds = new Set<string>();
+        await Promise.all(action.effects.flatMap((effect) =>
+          effect.roleIds.map(async (roleId) => {
+            const target = this.roleHandles.get(roleId)?.resourceTarget;
+            if (!target) {
+              unavailableRoleIds.add(roleId);
+              return;
+            }
+            try {
+              if (effect.release) {
+                await target.releaseThrottle();
+              } else {
+                await target.setCpuThrottleRate(asCpuThrottleRate(effect));
+              }
+            } catch (error) {
+              unavailableRoleIds.add(roleId);
+              await target.releaseThrottle().catch(() => undefined);
+              console.warn(`Workspace CPU throttling is unavailable for role ${roleId}.`, error);
+            }
+          })
+        ));
+        return { unavailableRoleIds: [...unavailableRoleIds] };
       }
       case "embeddedFocusRole": {
         const session = this.requireEmbeddedSession(action.roleId);
@@ -611,13 +649,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         await this.destroyRoleHandles(action.roleId);
         return undefined;
       case "embeddedDestroyTab":
-        await this.destroyTabHandles(action.tabId, action.nextActiveTabId ?? undefined);
+        await this.destroyTabHandles(action.tabId);
         return undefined;
     }
-  }
-
-  setMacroActiveRoleIds(roleIds: Iterable<string>): Promise<void> {
-    return this.resourceCoordinator.setMacroActiveRoleIds(roleIds);
   }
 
   private invokeBrowserRuntime(command: BrowserRuntimeCommand): BrowserRuntimeResult {
@@ -666,12 +700,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const runtimeDisplays = new Map(
       snapshot.displays.map((display) => [display.displayId, display])
     );
-    for (const display of snapshot.displays) {
-      if (display.activeTabId) {
-        await this.prepareRuntimeTabForeground(display.activeTabId);
-      }
-    }
-
     const touchedDisplays = new Set<EmbeddedDisplayHost>();
     for (const runtimeTab of snapshot.tabs) {
       const tab = this.tabHandles.get(runtimeTab.id);
@@ -724,7 +752,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         this.destroyDisplayHostIfEmpty(displayHost);
       }
     });
-    await this.reconcileRuntimeTabs();
+    this.reconcileRuntimeTabs();
     if (focusTabId) {
       const tab = this.tabHandles.get(focusTabId);
       const displayHost = tab ? this.getDisplayHost(tab) : undefined;
@@ -737,7 +765,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   listStatuses(): RoleStatus[] {
     return this.options.browserRuntimeState
       .listBrowserStatuses()
-      .map((status) => this.withResourceStatus(status as RoleStatus));
+      .map((status) => status as RoleStatus);
+  }
+
+  notifyResourceStatusesChanged(): void {
+    this.emitChange();
   }
 
   listEmbeddedRuntimeState(): EmbeddedRuntimeState {
@@ -2131,27 +2163,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     };
   }
 
-  private async reconcileRuntimeTabs(): Promise<void> {
-    const hiddenRuntimeTabIds = [...this.tabHandles.values()].flatMap((tab) => {
-      const displayHost = this.getDisplayHost(tab);
-      const isInternalHidden = tab.hidden || displayHost?.activeTabId !== tab.id;
-      return isInternalHidden ? [tab.id] : [];
-    });
-    const resourceUpdate = this.resourceCoordinator.setHiddenRuntimeTabIds(hiddenRuntimeTabIds);
+  private reconcileRuntimeTabs(): void {
     this.displayHosts.forEach((host) => {
       this.layoutDisplayHost(host);
       this.sendRuntimeChromeState(host);
     });
     this.emit("runtimeChange", this.listEmbeddedRuntimeState());
-    await resourceUpdate.catch((error) => {
-      console.warn("Failed to reconcile runtime tab resource state.", error);
-    });
-  }
-
-  private async prepareRuntimeTabForeground(tabId: string): Promise<void> {
-    await this.resourceCoordinator.prepareWorkspaceForeground(tabId).catch((error) => {
-      console.warn(`Failed to release runtime tab throttling before display: ${tabId}`, error);
-    });
   }
 
   private createSession(
@@ -2182,12 +2199,15 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       }
     });
     const webContents = view.webContents;
+    const resourceTarget = new ElectronWorkspaceResourceTarget(role.id, webContents);
     const session: BrowserSession = {
       abortController: new AbortController(),
       gameInputContextActive: false,
       hostId: host.id,
       popupViews: new Set(),
       rect,
+      removeResourceInvalidation: () => undefined,
+      resourceTarget,
       role,
       target: new ElectronAutomationTarget(
         view,
@@ -2203,6 +2223,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     };
 
     this.roleHandles.set(role.id, session);
+    session.removeResourceInvalidation = resourceTarget.onInvalidated(() => {
+      if (this.roleHandles.get(role.id) !== session) return;
+      void this.options.browserRuntimeState.invokeTyped({
+        type: "resourceRefreshTarget",
+        workspaceId: host.id,
+        roleId: role.id,
+        ...(resourceTarget.getProcessId() ? { processId: resourceTarget.getProcessId() } : {})
+      }).catch((error) => {
+        console.warn(`Failed to refresh resource target for role ${role.id}.`, error);
+      });
+    });
     host.roleIds.add(role.id);
     host.window.contentView.addChildView(view);
     this.options.onEmbeddedWebContentsCreated?.({
@@ -2818,18 +2849,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
   }
 
-  private async destroyTabHandles(
-    hostId: string,
-    nextActiveTabId?: string
-  ): Promise<void> {
+  private async destroyTabHandles(hostId: string): Promise<void> {
     const host = this.tabHandles.get(hostId);
     if (!host || host.closing) {
       return;
     }
 
     host.closing = true;
-    if (nextActiveTabId) await this.prepareRuntimeTabForeground(nextActiveTabId);
-    await this.resourceCoordinator.deactivateWorkspace(host.id);
     const roleIds = [...host.roleIds];
     roleIds.forEach((roleId) => {
       const session = this.roleHandles.get(roleId);
@@ -2857,12 +2883,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     session.abortController.abort();
     session.target.dispose();
+    session.removeResourceInvalidation();
+    void session.resourceTarget.releaseThrottle().catch(() => undefined);
     const host = this.tabHandles.get(session.hostId);
     if (host?.activeDividerResize?.roleIds.includes(roleId)) {
       this.finishDividerResize(host);
     }
     this.roleHandles.delete(roleId);
-    void this.resourceCoordinator.reconcileRuntimeRoleIds("embedded", this.roleHandles.keys());
     host?.roleIds.delete(roleId);
     if (host && !host.window.isDestroyed()) {
       host.window.contentView.removeChildView(session.view);
@@ -2931,7 +2958,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       this.layoutDisplayHost(displayHost);
       this.destroyDisplayHostIfEmpty(displayHost);
     }
-    await this.reconcileRuntimeTabs();
+    this.reconcileRuntimeTabs();
   }
 
   private deleteHost(host: GameHostWindow): void {
@@ -2981,10 +3008,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       .some((role) => role.roleId === roleId && role.runtime === "embedded" && role.state === "running");
   }
 
-  private withResourceStatus(status: RoleStatus): RoleStatus {
-    const resourceStatus = this.resourceCoordinator.getStatus(status.roleId);
-    return resourceStatus ? { ...status, ...resourceStatus } : status;
-  }
 }
 
 function isBrowserWindow(window: BaseWindow): window is BrowserWindow {

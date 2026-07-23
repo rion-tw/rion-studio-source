@@ -41,4 +41,10 @@ const cargo = await resolveCargoExecutable();
 await run(cargo, ["build", "--locked", "--release", "-p", "rion-node"]);
 await mkdir(outputDirectory, { recursive: true });
 await copyFile(source, destination);
+if (process.platform === "darwin") {
+  // APFS copy-on-write can retain the linker's ad-hoc signature metadata while
+  // changing the destination mtime. Re-sign the copied Node addon so macOS does
+  // not kill the host process when it validates the first executable page.
+  await run("/usr/bin/codesign", ["--force", "--sign", "-", destination]);
+}
 console.log(`Built Rust application core: ${destination}`);

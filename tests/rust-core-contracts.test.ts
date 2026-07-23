@@ -60,6 +60,9 @@ describe("Rust addon build verification", () => {
     expect(script).toContain('"--locked", "--release", "-p", "rion-node"');
     expect(script).toContain('`${process.platform}-${process.arch}`');
     expect(script).toContain('"rion-core.node"');
+    expect(script).toContain('process.platform === "darwin"');
+    expect(script).toContain('"/usr/bin/codesign"');
+    expect(script).toContain('["--force", "--sign", "-", destination]');
   });
 
   it("loads the packaged addon with Electron through the generic command/effect surface", async () => {

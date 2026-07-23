@@ -388,8 +388,8 @@ pub enum CoreCommand {
     MacroStopForRole {
         #[ts(rename = "macroId")]
         macro_id: String,
-        #[ts(rename = "roleId")]
-        role_id: String,
+        #[ts(rename = "sourceRoleId")]
+        source_role_id: String,
     },
     MacroStopRole {
         #[ts(rename = "roleId")]
@@ -3913,7 +3913,7 @@ pub struct MacroStartRequest {
     pub macros: Vec<MacroDefinition>,
     pub settings: MacroRuntimeSettings,
     pub macro_id: String,
-    pub role_id: Option<String>,
+    pub source_role_id: Option<String>,
     pub active_role_ids: Vec<String>,
 }
 
@@ -3922,7 +3922,7 @@ pub struct MacroStartRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroInvocationRequest {
     pub macro_id: String,
-    pub role_id: Option<String>,
+    pub source_role_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -3930,7 +3930,7 @@ pub struct MacroInvocationRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroPressInvocationRequest {
     pub macro_id: String,
-    pub role_id: String,
+    pub source_role_id: String,
     pub press_id: String,
 }
 
@@ -3947,7 +3947,7 @@ pub struct MacroPressRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroReleaseRequest {
     pub macro_id: String,
-    pub role_id: String,
+    pub source_role_id: String,
     pub press_id: String,
     pub mode: String,
 }

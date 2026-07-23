@@ -150,20 +150,31 @@ fn dispatch_batch(
     macros: &Arc<MacroRuntime>,
     io: &tokio::runtime::Runtime,
 ) {
-    let dispatch = io.block_on(external.dispatch(batch.clone()));
+    let (external_actions, unhandled) = match external.split_actions(batch.clone()) {
+        Ok(partitioned) => partitioned,
+        Err(_) => (Vec::new(), batch),
+    };
+    if !unhandled.is_empty() {
+        events(vec![CoreEvent::CoreEffects {
+            effects: unhandled.into_iter().map(effect_request).collect(),
+        }]);
+    }
+    if external_actions.is_empty() {
+        return;
+    }
+    let dispatch = io.block_on(external.dispatch(external_actions.clone()));
     let (results, unhandled) = match dispatch {
         Ok(dispatch) => (dispatch.results, dispatch.unhandled),
-        Err(_) => (Vec::new(), batch),
+        Err(_) => (Vec::new(), external_actions),
     };
     if !results.is_empty() {
         dispatch_results(results, health, macros);
     }
-    if unhandled.is_empty() {
-        return;
+    if !unhandled.is_empty() {
+        events(vec![CoreEvent::CoreEffects {
+            effects: unhandled.into_iter().map(effect_request).collect(),
+        }]);
     }
-    events(vec![CoreEvent::CoreEffects {
-        effects: unhandled.into_iter().map(effect_request).collect(),
-    }]);
 }
 
 fn dispatch_results(
@@ -194,6 +205,8 @@ fn effect_request(request: BrowserActionRequest) -> CoreEffectRequest {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
     use super::*;
     use crate::{CoreErrorPayload, model::BrowserAction};
 
@@ -242,5 +255,71 @@ mod tests {
             })
             .is_none()
         );
+    }
+
+    #[test]
+    fn mixed_batches_publish_embedded_effects_before_waiting_for_external_cdp() {
+        let external_responded = Arc::new(AtomicBool::new(false));
+        let external = Arc::new(ExternalAutomationRuntime::new("darwin".to_owned()));
+        external
+            .register(
+                "external-role".to_owned(),
+                Arc::new(crate::ExternalChromeCdpSession::test_session(
+                    Duration::from_millis(50),
+                    Arc::clone(&external_responded),
+                )),
+            )
+            .unwrap();
+        let effect_was_early = Arc::new(AtomicBool::new(false));
+        let effect_was_early_output = Arc::clone(&effect_was_early);
+        let external_responded_output = Arc::clone(&external_responded);
+        let events: EventSink =
+            Arc::new(move |events| {
+                if events.iter().any(|event| matches!(
+                event,
+                CoreEvent::CoreEffects { effects }
+                    if effects.iter().any(|effect| effect.target.handle_id == "embedded-role")
+            )) && !external_responded_output.load(Ordering::Acquire)
+            {
+                effect_was_early_output.store(true, Ordering::Release);
+            }
+            });
+        let health = Arc::new(Mutex::new(
+            ExternalHealthRuntime::new(Arc::new(|_| {})).unwrap(),
+        ));
+        let macros = Arc::new(MacroRuntime::new(Arc::new(|_| {})));
+        let io = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        dispatch_batch(
+            vec![
+                BrowserActionRequest {
+                    request_id: "external".to_owned(),
+                    role_id: "external-role".to_owned(),
+                    origin: "macro".to_owned(),
+                    scheduled_at_ms: 0,
+                    deadline_ms: u64::MAX,
+                    action: BrowserAction::Focus,
+                },
+                BrowserActionRequest {
+                    request_id: "embedded".to_owned(),
+                    role_id: "embedded-role".to_owned(),
+                    origin: "macro".to_owned(),
+                    scheduled_at_ms: 0,
+                    deadline_ms: u64::MAX,
+                    action: BrowserAction::Focus,
+                },
+            ],
+            &events,
+            &external,
+            &health,
+            &macros,
+            &io,
+        );
+        assert!(effect_was_early.load(Ordering::Acquire));
+        assert!(external_responded.load(Ordering::Acquire));
+        health.lock().unwrap().shutdown();
+        external.shutdown();
     }
 }

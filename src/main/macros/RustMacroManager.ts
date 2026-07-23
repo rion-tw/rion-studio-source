@@ -38,7 +38,7 @@ export class RustMacroManager
 
   pressForRole(macroId: string, roleId: string, pressId: string): Promise<MacroRunStatus[]> {
     return this.core.invoke({
-      type: "macroPress", request: { macroId, roleId, pressId }
+      type: "macroPress", request: { macroId, sourceRoleId: roleId, pressId }
     }).then((statuses) => statuses.map(fromNativeStatus));
   }
 
@@ -50,7 +50,7 @@ export class RustMacroManager
   ): Promise<void> {
     return this.core.invoke({
       type: "macroRelease",
-      request: { macroId, roleId, pressId, mode }
+      request: { macroId, sourceRoleId: roleId, pressId, mode }
     }).then(() => undefined);
   }
 
@@ -63,7 +63,7 @@ export class RustMacroManager
   }
 
   stopForRole(macroId: string, roleId: string): Promise<void> {
-    return this.core.invoke({ type: "macroStopForRole", macroId, roleId })
+    return this.core.invoke({ type: "macroStopForRole", macroId, sourceRoleId: roleId })
       .then(() => undefined);
   }
 
@@ -73,7 +73,7 @@ export class RustMacroManager
 
   private async startUnlocked(macroId: string, roleId?: string): Promise<MacroRunStatus[]> {
     return (await this.core.invoke({
-      type: "macroStart", request: { macroId, roleId: roleId ?? null }
+      type: "macroStart", request: { macroId, sourceRoleId: roleId ?? null }
     })).map(fromNativeStatus);
   }
 

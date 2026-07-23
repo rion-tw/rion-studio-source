@@ -86,6 +86,31 @@ pub struct ExternalChromeCdpSession {
 }
 
 impl ExternalChromeCdpSession {
+    #[cfg(test)]
+    pub(crate) fn test_session(
+        response_delay: Duration,
+        responded: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        let (commands, mut command_receiver) = mpsc::channel(MAX_COMMAND_QUEUE);
+        let (_event_sender, events) = bounded(MAX_EVENT_QUEUE);
+        std::thread::spawn(move || {
+            while let Some(command) = command_receiver.blocking_recv() {
+                match command {
+                    CdpCommand::Send { response, .. } => {
+                        std::thread::sleep(response_delay);
+                        responded.store(true, std::sync::atomic::Ordering::Release);
+                        let _ = response.send(Ok(json!({})));
+                    }
+                    CdpCommand::Close => break,
+                }
+            }
+        });
+        Self {
+            commands,
+            events: Mutex::new(Some(events)),
+        }
+    }
+
     pub(crate) async fn connect(
         browser_user_data_dir: PathBuf,
         launch_url: String,

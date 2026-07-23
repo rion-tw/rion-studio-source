@@ -18,6 +18,10 @@ use crate::{
 
 const MAX_PENDING_ACTIONS: usize = 512;
 const DIAGNOSTIC_REQUEST_TIMEOUT: Duration = Duration::from_secs(4);
+type PartitionedActions = (
+    Vec<(BrowserActionRequest, Arc<ExternalTarget>)>,
+    Vec<BrowserActionRequest>,
+);
 
 #[derive(Default)]
 struct InputState {
@@ -252,27 +256,9 @@ impl ExternalAutomationRuntime {
         &self,
         actions: Vec<BrowserActionRequest>,
     ) -> CoreResult<ExternalBrowserActionDispatch> {
-        let targets = self
-            .targets
-            .read()
-            .map_err(|_| CoreError::Internal("external target lock poisoned".to_owned()))?
-            .clone();
-        let mut unhandled = Vec::new();
+        let (actions, unhandled) = self.partition_actions(actions)?;
         let mut tasks = Vec::new();
-        for action in actions {
-            let Some(target) = targets.get(&action.role_id).cloned() else {
-                unhandled.push(action);
-                continue;
-            };
-            if matches!(
-                action.action,
-                BrowserAction::Cookies { .. }
-                    | BrowserAction::Session { .. }
-                    | BrowserAction::Debugger { .. }
-            ) {
-                unhandled.push(action);
-                continue;
-            }
+        for (action, target) in actions {
             let pending = Arc::clone(&self.pending);
             tasks.push(async move {
                 let Ok(_permit) = pending.try_acquire_owned() else {
@@ -289,6 +275,47 @@ impl ExternalAutomationRuntime {
             results: join_all(tasks).await,
             unhandled,
         })
+    }
+
+    pub fn split_actions(
+        &self,
+        actions: Vec<BrowserActionRequest>,
+    ) -> CoreResult<(Vec<BrowserActionRequest>, Vec<BrowserActionRequest>)> {
+        let (handled, unhandled) = self.partition_actions(actions)?;
+        Ok((
+            handled.into_iter().map(|(action, _)| action).collect(),
+            unhandled,
+        ))
+    }
+
+    fn partition_actions(
+        &self,
+        actions: Vec<BrowserActionRequest>,
+    ) -> CoreResult<PartitionedActions> {
+        let targets = self
+            .targets
+            .read()
+            .map_err(|_| CoreError::Internal("external target lock poisoned".to_owned()))?
+            .clone();
+        let mut unhandled = Vec::new();
+        let mut handled = Vec::new();
+        for action in actions {
+            let Some(target) = targets.get(&action.role_id).cloned() else {
+                unhandled.push(action);
+                continue;
+            };
+            if matches!(
+                action.action,
+                BrowserAction::Cookies { .. }
+                    | BrowserAction::Session { .. }
+                    | BrowserAction::Debugger { .. }
+            ) {
+                unhandled.push(action);
+                continue;
+            }
+            handled.push((action, target));
+        }
+        Ok((handled, unhandled))
     }
 
     pub fn shutdown(&self) {

@@ -1189,7 +1189,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   }
 
   async stopAll(): Promise<void> {
-    await Promise.all(this.listStatuses().map((status) => this.stop(status.roleId)));
+    const statuses = await this.options.browserRuntimeState.invoke({ type: "browserStatuses" });
+    const roleIds = [...new Set(statuses.map((status) => status.roleId))];
+    await Promise.all(roleIds.map((roleId) => this.stop(roleId)));
   }
 
   handleDividerPointer(webContentsId: number, payload: unknown): void | Promise<void> {

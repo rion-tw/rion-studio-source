@@ -316,6 +316,44 @@ describe("ElectronBrowserRuntime game host windows", () => {
     await expect(harness.manager.stop(role.id)).resolves.toBeUndefined();
   });
 
+  it("stops roles from the authoritative Rust status query when the event cache is stale", async () => {
+    const harness = createHarness();
+    await Promise.resolve();
+    expect(harness.manager.listStatuses()).toEqual([]);
+    const tabId = harness.browserRuntimeState.invokeBrowserRuntime({
+      type: "createTab",
+      sourceId: role.id,
+      name: role.name,
+      displayId: 1,
+      tabType: "role",
+      roleIds: [role.id]
+    }).createdTabId!;
+    harness.browserRuntimeState.invokeBrowserRuntime({
+      type: "roleTransition",
+      roleId: role.id,
+      runtime: "embedded",
+      tabId,
+      state: "launching"
+    });
+    harness.browserRuntimeState.invokeBrowserRuntime({
+      type: "roleTransition",
+      roleId: role.id,
+      runtime: "embedded",
+      tabId,
+      state: "running",
+      launchedAt: new Date().toISOString()
+    });
+    const invoke = vi.fn(async () => undefined);
+    harness.browserRuntimeState.setTypedInvoker(invoke);
+
+    await harness.manager.stopAll();
+
+    expect(invoke).toHaveBeenCalledWith({
+      type: "browserRoleStop",
+      roleId: role.id
+    });
+  });
+
   it.each([
     ["darwin", {
       backgroundColor: "#000000",
@@ -4866,6 +4904,7 @@ function createHarness(options: {
 
   return {
     beforeRolesStop,
+    browserRuntimeState,
     chromeViews,
     createHostWindow,
     createMacRuntimeTabsController,

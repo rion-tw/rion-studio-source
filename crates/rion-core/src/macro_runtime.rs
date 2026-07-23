@@ -1590,7 +1590,7 @@ mod tests {
                 label: None,
             }]))
             .unwrap();
-        let mut phases = Vec::new();
+        let mut phases = Vec::<String>::new();
         while phases.len() < 3 {
             for event in receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
                 if let CoreEvent::BrowserActions { actions } = event {
@@ -1614,6 +1614,70 @@ mod tests {
             }
         }
         assert_eq!(phases, ["focus", "hold", "release"]);
+    }
+
+    #[test]
+    fn one_second_digit_one_loop_completes_three_iterations_without_failing() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![MacroStepDefinition::Key {
+            id: "digit-1".to_owned(),
+            code: "Digit1".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: Some("1".to_owned()),
+        }]);
+        start.macros[0].trigger = Some(crate::model::MacroTrigger {
+            code: "KeyQ".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
+        runtime.start(start).unwrap();
+
+        let mut phases = Vec::new();
+        let mut iteration_started = Vec::new();
+        let mut completed_iterations = 0;
+        while completed_iterations < 3 {
+            for event in receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
+                if let CoreEvent::BrowserActions { actions } = event {
+                    for action in &actions {
+                        match &action.action {
+                            BrowserAction::Focus => phases.push("focus".to_owned()),
+                            BrowserAction::Key { code, phase, .. } => {
+                                assert_eq!(code.as_deref(), Some("Digit1"));
+                                if phase == "hold" {
+                                    iteration_started.push(std::time::Instant::now());
+                                } else if phase == "release" {
+                                    completed_iterations += 1;
+                                }
+                                phases.push(phase.clone());
+                            }
+                            _ => phases.push("other".to_owned()),
+                        }
+                    }
+                    runtime.dispatch_results(success_results(actions)).unwrap();
+                }
+            }
+        }
+
+        runtime.stop_macro("m1").unwrap();
+        assert_eq!(
+            phases,
+            [
+                "focus", "hold", "release", "hold", "release", "hold", "release"
+            ]
+        );
+        for interval in iteration_started.windows(2) {
+            let elapsed = interval[1].duration_since(interval[0]);
+            assert!(elapsed >= Duration::from_millis(850), "{elapsed:?}");
+            assert!(elapsed < Duration::from_millis(1_500), "{elapsed:?}");
+        }
+        assert!(runtime.statuses().unwrap().is_empty());
     }
 
     #[test]

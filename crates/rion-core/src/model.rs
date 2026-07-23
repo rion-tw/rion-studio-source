@@ -304,6 +304,19 @@ pub enum CoreCommand {
     },
     TelemetrySnapshot,
     SystemChromeClose,
+    OverlayRequest {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "requestJson")]
+        request_json: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        language: Option<String>,
+    },
+    OverlayLanguageSet {
+        #[ts(type = "\"en\" | \"zh-TW\" | \"zh-CN\" | \"ja\"")]
+        language: String,
+    },
     MacroStart {
         request: MacroInvocationRequest,
     },
@@ -1951,6 +1964,10 @@ pub enum CoreEvent {
     ResourceStatuses {
         statuses: Vec<ResourceRuntimeStatusRecord>,
     },
+    OverlayChanged {
+        #[ts(rename = "roleIds")]
+        role_ids: Vec<String>,
+    },
     CompatibilityStatuses {
         statuses: Vec<CompatibilityRunStatusRecord>,
     },
@@ -3307,9 +3324,11 @@ pub enum CoreEffectAction {
     ExternalOverlaySource {
         role_id: String,
     },
-    ExternalOverlayRequest {
+    OverlayOpenMacroPage {
         role_id: String,
-        request_json: String,
+    },
+    OverlayCopyCoordinate {
+        coordinate: MacroCoordinateRecord,
     },
 }
 
@@ -3824,6 +3843,98 @@ pub struct MacroRunStatus {
 pub struct MacroLastClick {
     pub sequence: u32,
     pub step_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum MacroOverlayRequestRecord {
+    GameInputContext {
+        active: bool,
+    },
+    List,
+    Open,
+    CopyCoordinate {
+        #[serde(flatten)]
+        coordinate: MacroCoordinateRecord,
+    },
+    Start {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+    },
+    Stop {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+    },
+    Press {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+        #[ts(rename = "pressId")]
+        press_id: String,
+    },
+    Release {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+        #[ts(rename = "pressId")]
+        press_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(
+            optional,
+            rename = "releaseMode",
+            type = "\"complete_first_iteration\" | \"immediate\""
+        )]
+        release_mode: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroCoordinateRecord {
+    pub x_percent: f64,
+    pub x_px: u32,
+    pub viewport_height_px: u32,
+    pub viewport_width_px: u32,
+    pub y_percent: f64,
+    pub y_px: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroOverlayStartSummaryRecord {
+    pub skipped_count: u32,
+    pub started_count: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroOverlayViewModelRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "1 | 2 | 4")]
+    pub cpu_throttle_rate: Option<u8>,
+    #[serde(default)]
+    pub detached: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"en\" | \"zh-TW\" | \"zh-CN\" | \"ja\"")]
+    pub language: Option<String>,
+    pub macro_badge_position: MacroBadgePositionRecord,
+    pub macros: Vec<MacroDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"throttled\" | \"macro_override\" | \"shared_process\" | \"unavailable\""
+    )]
+    pub resource_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub start_summary: Option<MacroOverlayStartSummaryRecord>,
+    pub statuses: Vec<MacroRunStatus>,
 }
 
 #[cfg(test)]

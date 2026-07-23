@@ -156,6 +156,11 @@
   const clickMarkerEvents = new Map();
   const clickMarkerFlashStates = new Map();
   const clickMarkerFlashDurationMs = 120;
+  const clickStatusRetentionMs = 180;
+  const retainedClickStatuses = new Map();
+  const seenClickStatusEvents = new Map();
+  let clickStatusRetentionTimer = undefined;
+  let latestCoreStatuses = [];
   const macroIterationTimings = new Map();
   let renderedActiveBadgesMarkup = null;
   let renderedClickMarkersMarkup = null;
@@ -593,8 +598,73 @@
     state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
     state.resourceState = nextState?.resourceState;
     state.cpuThrottleRate = nextState?.cpuThrottleRate || 1;
-    state.statuses = Array.isArray(nextState?.statuses) ? nextState.statuses : state.statuses;
+    if (Array.isArray(nextState?.statuses)) {
+      latestCoreStatuses = nextState.statuses;
+      retainAndApplyClickStatuses();
+    }
     state.lastRefreshAt = Date.now();
+  }
+
+  function retainAndApplyClickStatuses() {
+    const now = Date.now();
+    const statuses = latestCoreStatuses.map((status) => ({ ...status }));
+    statuses.forEach((status) => {
+      if (!status?.lastClick) return;
+      const key = String(status.roleId) + ":" + String(status.macroId);
+      const eventKey = [
+        status.startedAt,
+        status.lastClick.stepId,
+        status.lastClick.sequence
+      ].join(":");
+      if (seenClickStatusEvents.get(key) !== eventKey) {
+        seenClickStatusEvents.set(key, eventKey);
+        retainedClickStatuses.set(key, {
+          eventKey,
+          expiresAt: now + clickStatusRetentionMs,
+          status: { ...status, clickFlash: true }
+        });
+      }
+    });
+
+    retainedClickStatuses.forEach((retained, key) => {
+      if (retained.expiresAt <= now) {
+        retainedClickStatuses.delete(key);
+        return;
+      }
+      const index = statuses.findIndex(
+        (status) => String(status.roleId) + ":" + String(status.macroId) === key
+      );
+      if (index >= 0) {
+        const status = statuses[index];
+        const eventKey = status.lastClick
+          ? [status.startedAt, status.lastClick.stepId, status.lastClick.sequence].join(":")
+          : "";
+        if (eventKey === retained.eventKey) {
+          statuses[index] = { ...status, clickFlash: true };
+        }
+      } else {
+        statuses.push({ ...retained.status });
+      }
+    });
+    state.statuses = statuses;
+    scheduleClickStatusRetention();
+  }
+
+  function scheduleClickStatusRetention() {
+    if (clickStatusRetentionTimer !== undefined) {
+      clearTimeout(clickStatusRetentionTimer);
+      clickStatusRetentionTimer = undefined;
+    }
+    if (retainedClickStatuses.size === 0 || isDisposed) return;
+    const now = Date.now();
+    const nextExpiry = Math.min(
+      ...[...retainedClickStatuses.values()].map((retained) => retained.expiresAt)
+    );
+    clickStatusRetentionTimer = setTimeout(() => {
+      clickStatusRetentionTimer = undefined;
+      retainAndApplyClickStatuses();
+      updatePresentation();
+    }, Math.max(0, nextExpiry - now));
   }
 
   function isRunning(macroId) {
@@ -1393,6 +1463,12 @@
     document.removeEventListener("visibilitychange", handleVisibilityChange, true);
 
     cancelReconciliation();
+    if (clickStatusRetentionTimer !== undefined) {
+      clearTimeout(clickStatusRetentionTimer);
+      clickStatusRetentionTimer = undefined;
+    }
+    retainedClickStatuses.clear();
+    seenClickStatusEvents.clear();
 
     removeHost(hostId);
     if (window[controllerKey]?.version === scriptVersion) {

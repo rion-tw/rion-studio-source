@@ -11,6 +11,7 @@ import type { ExternalChromeDiagnosticsRecord } from "./ExternalChromeDiagnostic
 import type { GraphicsDiagnosticsRecord } from "./GraphicsDiagnosticsRecord";
 import type { LogPageRecord } from "./LogPageRecord";
 import type { LogStorageStatusRecord } from "./LogStorageStatusRecord";
+import type { MacroOverlayViewModelRecord } from "./MacroOverlayViewModelRecord";
 import type { OperationCancelResultRecord } from "./OperationCancelResultRecord";
 import type { PerformanceTelemetryRecord } from "./PerformanceTelemetryRecord";
 import type { StateCompatibilityReportRecord } from "./StateCompatibilityReportRecord";
@@ -20,7 +21,7 @@ export type CoreJsonValue = null | boolean | number | string | CoreJsonValue[] |
 
 type DefaultCoreCommandResultMap = { [K in CoreCommand["type"]]: CoreJsonValue };
 
-export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "operationCancel" | "coreEffectMetrics" | "embeddedRoleLaunch" | "embeddedWorkspaceLaunch" | "embeddedWindowsShow" | "embeddedTabActivate" | "embeddedTabActivateAdjacent" | "embeddedTabHide" | "embeddedTabReorder" | "embeddedTabMove" | "embeddedDisplayRemove" | "browserRoleLaunch" | "browserWorkspaceLaunch" | "browserExternalRecover" | "browserStatuses" | "browserWorkspaceStatuses" | "externalDiagnosticsCapture" | "externalDiagnosticsList" | "compatibilityRun" | "cdnResolveSession" | "graphicsDiagnosticsAssemble" | "logsQuery" | "logsStatus" | "diagnosticsExport" | "telemetrySnapshot" | "windowsGraphicsEventsCollect"> & {
+export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "operationCancel" | "coreEffectMetrics" | "embeddedRoleLaunch" | "embeddedWorkspaceLaunch" | "embeddedWindowsShow" | "embeddedTabActivate" | "embeddedTabActivateAdjacent" | "embeddedTabHide" | "embeddedTabReorder" | "embeddedTabMove" | "embeddedDisplayRemove" | "browserRoleLaunch" | "browserWorkspaceLaunch" | "browserExternalRecover" | "browserStatuses" | "browserWorkspaceStatuses" | "externalDiagnosticsCapture" | "externalDiagnosticsList" | "compatibilityRun" | "cdnResolveSession" | "graphicsDiagnosticsAssemble" | "logsQuery" | "logsStatus" | "diagnosticsExport" | "telemetrySnapshot" | "overlayRequest" | "windowsGraphicsEventsCollect"> & {
   operationCancel: OperationCancelResultRecord;
   coreEffectMetrics: CoreEffectMetricsRecord;
   embeddedRoleLaunch: EmbeddedLaunchResultRecord[];
@@ -46,6 +47,7 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "operationC
   logsStatus: LogStorageStatusRecord;
   diagnosticsExport: DiagnosticExportResultRecord;
   telemetrySnapshot: PerformanceTelemetryRecord;
+  overlayRequest: MacroOverlayViewModelRecord;
   windowsGraphicsEventsCollect: WindowsGraphicsEventCollectionRecord;
 };
 

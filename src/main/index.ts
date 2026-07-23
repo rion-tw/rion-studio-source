@@ -62,8 +62,7 @@ import { sendToWindowIfAvailable } from "./window/sendToWindow";
 import { RustMacroManager } from "./macros/RustMacroManager";
 import {
   MACRO_OVERLAY_SCRIPT,
-  MacroOverlayInjector,
-  isMacroOverlayRequest
+  MacroOverlayInjector
 } from "./macros/MacroOverlayInjector";
 import { MacroStore } from "./macros/MacroStore";
 import { MacroSettingsStore } from "./macros/MacroSettingsStore";
@@ -682,22 +681,16 @@ async function initializeApplication(): Promise<void> {
               : action.bounds;
           case "externalOverlaySource":
             return MACRO_OVERLAY_SCRIPT;
-          case "externalOverlayRequest": {
-            const request = JSON.parse(action.requestJson) as unknown;
-            if (!isMacroOverlayRequest(request)) {
-              throw Object.assign(new Error("Invalid external macro overlay request."), {
-                code: "MACRO_OVERLAY_REQUEST_INVALID"
-              });
-            }
-            if (!macroOverlayRef.current) {
-              throw Object.assign(new Error("Macro overlay is not initialized."), {
-                code: "MACRO_OVERLAY_UNAVAILABLE"
-              });
-            }
-            return JSON.parse(
-              JSON.stringify(await macroOverlayRef.current.handleRequest(action.roleId, request))
-            );
-          }
+        }
+      },
+      executeOverlayEffect: async ({ action }) => {
+        switch (action.type) {
+          case "overlayOpenMacroPage":
+            await requestMacroPageFromOverlay({ roleId: action.roleId });
+            return undefined;
+          case "overlayCopyCoordinate":
+            clipboard.writeText(formatMacroCoordinateClipboard(action.coordinate));
+            return undefined;
         }
       },
       executeProfileEffect: async ({ action }) => {
@@ -789,44 +782,27 @@ async function initializeApplication(): Promise<void> {
         ? dialog.showOpenDialog(mainWindow, options)
         : dialog.showOpenDialog(options)
   });
-  macroOverlayRef.current = new MacroOverlayInjector(
-    macroStore,
-    macroManager,
-    requestMacroPageFromOverlay,
-    (roleId) => browserManager?.listStatuses().find((status) => status.roleId === roleId),
-    (details) => {
-      logService.info(
-        "browser",
-        "external_overlay_refresh_requested",
-        "External Chrome overlay refresh requested.",
-        details
-      );
-    },
-    (details) => {
-      logService.info(
-        "browser",
-        "embedded_overlay_refresh_requested",
-        "Embedded game overlay refresh requested.",
-        details
-      );
-    },
-    async () => (await gameBrowserSettingsStore.getSettings()).macroBadgePosition,
-    (coordinate) => clipboard.writeText(formatMacroCoordinateClipboard(coordinate))
-  );
+  macroOverlayRef.current = new MacroOverlayInjector(appCoreClient);
   browserManager.setMacroOverlayInstaller((role, page) =>
     macroOverlayRef.current!.install(role, page)
   );
   macroManager.on("change", (statuses) => {
-    macroOverlayRef.current!.refreshChangedMacroStatuses(statuses);
     logService.info("macro", "macro_status_changed", "Macro runtime status changed.", {
       statuses: statuses.map((status) => ({ macroId: status.macroId, state: status.state }))
     });
   });
   browserManager.on("change", (statuses) => {
-    macroOverlayRef.current!.refreshChangedRoleStatuses(statuses);
     logService.info("browser", "role_status_changed", "Browser role status changed.", {
       statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state, runtimeMode: status.runtimeMode }))
     });
+  });
+  appCoreClient.subscribe((events) => {
+    for (const event of events) {
+      if (event.type !== "overlayChanged") continue;
+      macroOverlayRef.current?.refreshInstalledOverlays(
+        event.roleIds.length === 0 ? undefined : event.roleIds
+      );
+    }
   });
   const graphicsDiagnosticsService = new GraphicsDiagnosticsService({
     app,
@@ -919,11 +895,8 @@ async function initializeApplication(): Promise<void> {
       appCoreClient!.invoke<Role>({ type: "roleBrowserDataClear", roleId }),
     systemFontService,
     updateManager,
-    onGameBrowserSettingsChanged: () => {
-      macroOverlayRef.current!.refreshInstalledOverlays(undefined, "game_browser_settings");
-    },
+    onGameBrowserSettingsChanged: () => undefined,
     onMacrosChanged: () => {
-      macroOverlayRef.current!.refreshInstalledOverlays(undefined, "macro_definition");
       void macroStore.listMacros().then(broadcastMacrosChanged);
     },
     onLegalAccepted: () => {
@@ -932,13 +905,13 @@ async function initializeApplication(): Promise<void> {
     },
     onMacroOverlayRequest: async (webContents, request) => {
       const activeRoleId = browserManager?.getRoleIdForWebContents(webContents.id);
-      if (request.type === "game-input-context") {
+      if (isGameInputContextRequest(request)) {
         browserManager?.setGameInputContext(webContents.id, request.active);
       }
       return macroOverlayRef.current!.handleEmbeddedRequest(webContents, activeRoleId, request);
     },
     onOverlayLanguageChanged: (language) => {
-      macroOverlayRef.current!.setLanguage(language);
+      void macroOverlayRef.current!.setLanguage(language);
       browserManager?.setRuntimeTabsLanguage(language);
       runtimeTabMenu?.setLanguage(language);
       applicationMenu?.setLanguage(language);
@@ -1123,6 +1096,19 @@ function formatStartupFailure(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message
     : "The application could not finish starting. Please quit and try again.";
+}
+
+function isGameInputContextRequest(
+  value: unknown
+): value is { active: boolean; type: "game-input-context" } {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    value.type === "game-input-context" &&
+    "active" in value &&
+    typeof value.active === "boolean"
+  );
 }
 
 function ensureApplicationStarted(): void {

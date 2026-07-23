@@ -111,7 +111,8 @@ describe("Rust production architecture boundaries", () => {
     expect(external).toContain("held_key_owners");
     expect(external).toContain("Input.dispatchKeyEvent");
     expect(external).toContain("Input.dispatchMouseEvent");
-    expect(core).toContain("ExternalOverlayRequest");
+    expect(core).not.toContain("CoreEffectAction::ExternalOverlayRequest");
+    expect(core).toContain("handle_overlay_request(role_id, &request_json, None)");
     expect(core).toContain("handle_external_cdp_event");
   });
 
@@ -456,5 +457,35 @@ describe("Rust production architecture boundaries", () => {
     expect(graphics).toContain("normalize_web_graphics");
     expect(graphics).toContain("GraphicsDiagnosticsRecord");
     expect(bootstrap).toContain("fn graphics_switches");
+  });
+
+  it("keeps overlay projection, request validation, refresh ordering, and external CDP in Rust", async () => {
+    const [adapter, overlay, core, page] = await Promise.all([
+      readSource("src/main/macros/MacroOverlayInjector.ts"),
+      readSource("crates/rion-core/src/overlay.rs"),
+      readSource("crates/rion-core/src/app.rs"),
+      readSource("src/main/macros/overlay/macroOverlayRuntime.js")
+    ]);
+
+    for (const forbidden of [
+      "externalRefreshStates",
+      "contentRefreshStates",
+      "pendingClickStatuses",
+      "previousMacroStatuses",
+      "previousRolePresentation",
+      "findUnassignedMacroDependency",
+      "listStatuses",
+      "setTimeout"
+    ]) {
+      expect(adapter).not.toContain(forbidden);
+    }
+    expect(adapter).toContain('type: "overlayRequest"');
+    expect(overlay).toContain("struct OverlayProjection");
+    expect(overlay).toContain("REFRESH_MIN_INTERVAL");
+    expect(core).toContain("handle_overlay_request");
+    expect(core).toContain("OverlayCopyCoordinate");
+    expect(core).toContain("OverlayOpenMacroPage");
+    expect(page).toContain("retainedClickStatuses");
+    expect(page).toContain("clickStatusRetentionTimer");
   });
 });

@@ -36,12 +36,13 @@ use crate::{
         ExternalGraphicsDiagnosticsRecord, ExternalPrepareSessionResultRecord,
         ExternalSessionCommand, ExternalSessionRecord, GameBrowserSettingsRecord,
         GraphicsDiagnosticsRecord, GraphicsVersionRecord, LegalAcceptanceRecord, LogCaptureRecord,
-        MacroSettingsRecord, OperationCancelResultRecord, ResourcePolicyDecision,
-        ResourcePolicyInput, ResourceRuntimeCommand, ResourceRuntimeStatusRecord,
-        ResourceRuntimeTargetRecord, RuntimeWindowPreferencesRecord,
-        StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
-        StateMacroRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
-        StateWorkspaceResourcePolicyRecord,
+        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
+        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
+        OperationCancelResultRecord, ResourcePolicyDecision, ResourcePolicyInput,
+        ResourceRuntimeCommand, ResourceRuntimeStatusRecord, ResourceRuntimeTargetRecord,
+        RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
+        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
+        StatePixelBoundsRecord, StateRoleRecord, StateWorkspaceResourcePolicyRecord,
     },
     pressure::PressureMonitor,
     resource::resolve_resource_policy,
@@ -96,6 +97,8 @@ pub struct AppCore {
     macro_runtime: Arc<MacroRuntime>,
     log_capture: Mutex<crate::log_capture::LogCaptureRuntime>,
     operation_actor: Arc<crate::operation_actor::OperationActor>,
+    overlay_language: Mutex<Option<String>>,
+    overlay_refresh: crate::overlay::OverlayRefreshRuntime,
     platform: rion_platform::Platform,
     portable: Mutex<crate::portable::PortableRuntime>,
     resource_controller: Arc<crate::resource_controller::ResourceController>,
@@ -315,6 +318,17 @@ impl AppCore {
                 broadcast_events(&process_subscribers, events);
             },
         ));
+        let (overlay_event_sender, overlay_event_receiver) = bounded(EVENT_QUEUE_CAPACITY);
+        subscribers
+            .lock()
+            .map_err(|_| CoreError::Internal("subscriber lock poisoned".to_owned()))?
+            .push(overlay_event_sender);
+        let overlay_subscribers = Arc::clone(&subscribers);
+        let overlay_refresh = crate::overlay::OverlayRefreshRuntime::start(
+            overlay_event_receiver,
+            Arc::new(move |events| broadcast_events(&overlay_subscribers, events)),
+            Arc::clone(&external_automation),
+        )?;
         let core = Self {
             app_version: options.app_version,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
@@ -341,6 +355,8 @@ impl AppCore {
             )),
             macro_runtime,
             operation_actor,
+            overlay_language: Mutex::new(None),
+            overlay_refresh,
             platform,
             portable: Mutex::new(crate::portable::PortableRuntime::default()),
             resource_controller,
@@ -836,6 +852,14 @@ impl AppCore {
                 serde_json::to_value(runtime.telemetry.snapshot()?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }),
+            CoreCommand::OverlayLanguageSet { language } => {
+                validate_overlay_language(&language)?;
+                *self.overlay_language.lock().map_err(|_| {
+                    CoreError::Internal("overlay language lock poisoned".to_owned())
+                })? = Some(language.clone());
+                self.overlay_refresh.invalidate(Vec::new());
+                Ok(json!({ "language": language }))
+            }
             CoreCommand::MacroStart { request } => {
                 let (macros, settings) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
@@ -1191,6 +1215,7 @@ impl AppCore {
             | CoreCommand::GraphicsDiagnosticsAssemble { .. }
             | CoreCommand::DiagnosticsExport { .. }
             | CoreCommand::SystemChromeClose
+            | CoreCommand::OverlayRequest { .. }
             | CoreCommand::BrowserRoleLaunch { .. }
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleStop { .. }
@@ -1357,6 +1382,15 @@ impl AppCore {
                 .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "closed": true }))
             }
+            CoreCommand::OverlayRequest {
+                role_id,
+                request_json,
+                language,
+            } => serde_json::to_value(
+                self.handle_overlay_request(&role_id, &request_json, language)
+                    .await?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserRoleLaunch {
                 role_id,
                 target,
@@ -3272,28 +3306,12 @@ impl AppCore {
                     .unwrap_or(Value::Null)
                     .to_string();
                 let result = self
-                    .request_core_effect(
-                        role_id,
-                        CoreEffectAction::ExternalOverlayRequest {
-                            role_id: role_id.to_owned(),
-                            request_json,
-                        },
-                        Duration::from_secs(10),
-                    )
+                    .handle_overlay_request(role_id, &request_json, None)
                     .await;
                 let (ok, value_json) = match result {
-                    Ok(result) if result.ok => {
-                        (true, result.value_json.unwrap_or_else(|| "null".to_owned()))
-                    }
-                    Ok(result) => (
-                        false,
-                        serde_json::to_string(
-                            &result
-                                .error
-                                .map(|error| error.message)
-                                .unwrap_or_else(|| "Overlay request failed.".to_owned()),
-                        )
-                        .unwrap_or_else(|_| "\"Overlay request failed.\"".to_owned()),
+                    Ok(view_model) => (
+                        true,
+                        serde_json::to_string(&view_model).unwrap_or_else(|_| "null".to_owned()),
                     ),
                     Err(error) => (
                         false,
@@ -3499,6 +3517,154 @@ impl AppCore {
             .into_iter()
             .next()
             .ok_or_else(|| CoreError::Internal("core effect returned no result".to_owned()))
+    }
+
+    async fn handle_overlay_request(
+        &self,
+        role_id: &str,
+        request_json: &str,
+        language: Option<String>,
+    ) -> CoreResult<MacroOverlayViewModelRecord> {
+        self.ensure_role_exists(role_id)?;
+        let language = {
+            let mut current = self
+                .overlay_language
+                .lock()
+                .map_err(|_| CoreError::Internal("overlay language lock poisoned".to_owned()))?;
+            if let Some(language) = language {
+                validate_overlay_language(&language)?;
+                *current = Some(language);
+            }
+            current.clone()
+        };
+        let request = crate::overlay::parse_request(request_json)?;
+        let mut start_summary = None;
+        match request {
+            MacroOverlayRequestRecord::GameInputContext { .. }
+            | MacroOverlayRequestRecord::List => {}
+            MacroOverlayRequestRecord::Open => {
+                self.request_core_effect(
+                    role_id,
+                    CoreEffectAction::OverlayOpenMacroPage {
+                        role_id: role_id.to_owned(),
+                    },
+                    Duration::from_secs(10),
+                )
+                .await?;
+            }
+            MacroOverlayRequestRecord::CopyCoordinate { coordinate } => {
+                self.request_core_effect(
+                    role_id,
+                    CoreEffectAction::OverlayCopyCoordinate { coordinate },
+                    Duration::from_secs(10),
+                )
+                .await?;
+            }
+            MacroOverlayRequestRecord::Start { macro_id } => {
+                let (macros, settings) =
+                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
+                let assigned_count = macros
+                    .iter()
+                    .find(|definition| definition.id == macro_id)
+                    .map_or(0, |definition| definition.role_ids.len());
+                let statuses = self.macro_runtime.start(MacroStartRequest {
+                    macros,
+                    settings,
+                    macro_id,
+                    role_id: Some(role_id.to_owned()),
+                    active_role_ids: self.macro_active_role_ids()?,
+                })?;
+                start_summary = Some(MacroOverlayStartSummaryRecord {
+                    skipped_count: assigned_count.saturating_sub(statuses.len()) as u32,
+                    started_count: statuses.len() as u32,
+                });
+            }
+            MacroOverlayRequestRecord::Stop { macro_id } => {
+                let (macros, _) =
+                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
+                self.macro_runtime.stop_macro_role(&macro_id, role_id)?;
+            }
+            MacroOverlayRequestRecord::Press { macro_id, press_id } => {
+                let (macros, settings) =
+                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
+                let assigned_count = macros
+                    .iter()
+                    .find(|definition| definition.id == macro_id)
+                    .map_or(0, |definition| definition.role_ids.len());
+                let statuses = self.macro_runtime.press(MacroPressRequest {
+                    start: MacroStartRequest {
+                        macros,
+                        settings,
+                        macro_id,
+                        role_id: Some(role_id.to_owned()),
+                        active_role_ids: self.macro_active_role_ids()?,
+                    },
+                    press_id,
+                })?;
+                start_summary = Some(MacroOverlayStartSummaryRecord {
+                    skipped_count: assigned_count.saturating_sub(statuses.len()) as u32,
+                    started_count: statuses.len() as u32,
+                });
+            }
+            MacroOverlayRequestRecord::Release {
+                macro_id,
+                press_id,
+                release_mode,
+            } => {
+                let (macros, _) =
+                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
+                self.macro_runtime.release(MacroReleaseRequest {
+                    macro_id,
+                    role_id: role_id.to_owned(),
+                    press_id,
+                    mode: release_mode.unwrap_or_else(|| "complete_first_iteration".to_owned()),
+                })?;
+            }
+        }
+        self.overlay_view_model(role_id, language, start_summary)
+    }
+
+    fn overlay_view_model(
+        &self,
+        role_id: &str,
+        language: Option<String>,
+        start_summary: Option<MacroOverlayStartSummaryRecord>,
+    ) -> CoreResult<MacroOverlayViewModelRecord> {
+        let (macros, macro_badge_position) =
+            self.with_runtime(|runtime| runtime.state.overlay_configuration())?;
+        let macros = crate::overlay::available_macros(&macros, role_id);
+        let macro_ids = macros
+            .iter()
+            .map(|definition| definition.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let statuses = self
+            .macro_runtime
+            .statuses()?
+            .into_iter()
+            .filter(|status| {
+                status.role_id == role_id && macro_ids.contains(status.macro_id.as_str())
+            })
+            .collect();
+        let role_status = self
+            .browser_statuses()?
+            .into_iter()
+            .find(|status| status.role_id == role_id);
+        Ok(MacroOverlayViewModelRecord {
+            cpu_throttle_rate: role_status
+                .as_ref()
+                .and_then(|status| status.cpu_throttle_rate),
+            detached: false,
+            language,
+            macro_badge_position,
+            macros,
+            resource_state: role_status.and_then(|status| status.resource_state),
+            start_summary,
+            statuses,
+        })
     }
 
     async fn acquire_browser_operation_async(
@@ -4891,6 +5057,7 @@ impl AppCore {
         self.browser_operations.shutdown();
         self.operation_actor.shutdown();
         self.resource_controller.shutdown();
+        self.overlay_refresh.shutdown();
         self.external_automation.shutdown();
         self.external_processes.shutdown();
         self.macro_runtime.shutdown();
@@ -5146,6 +5313,16 @@ fn remove_external_notice(current: Option<String>, target: &str) -> Option<Strin
         let next = current.replace(target, "").trim().to_owned();
         (!next.is_empty()).then_some(next)
     })
+}
+
+fn validate_overlay_language(language: &str) -> CoreResult<()> {
+    if matches!(language, "en" | "zh-TW" | "zh-CN" | "ja") {
+        Ok(())
+    } else {
+        Err(CoreError::InvalidInput(
+            "macro overlay language is invalid".to_owned(),
+        ))
+    }
 }
 
 fn external_overlay_bridge_source() -> String {
@@ -5889,6 +6066,81 @@ mod tests {
             })
             .unwrap();
         core.browser_operations.complete(&lease.id).unwrap();
+        core.shutdown();
+    }
+
+    #[test]
+    fn overlay_requests_validate_and_return_rust_projected_view_models_and_ui_effects() {
+        let (_directory, core) = core();
+        let game_id = first_game_id(&core);
+        let role_id = create_role(&core, &game_id, 1);
+        let macro_record = core
+            .invoke(command(json!({
+                "type": "macroCreate",
+                "input": {
+                    "name": "Overlay macro",
+                    "roleIds": [role_id.clone()],
+                    "steps": [{"type": "delay", "ms": 10}]
+                }
+            })))
+            .unwrap();
+        let macro_id = macro_record["id"].as_str().unwrap().to_owned();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let view = runtime
+            .block_on(core.invoke_async(command(json!({
+                "type": "overlayRequest",
+                "roleId": role_id.clone(),
+                "requestJson": "{\"type\":\"list\"}",
+                "language": "zh-TW"
+            }))))
+            .unwrap();
+        assert_eq!(view["language"], "zh-TW");
+        assert_eq!(view["macros"][0]["id"], macro_id);
+        assert_eq!(view["statuses"], json!([]));
+
+        let error = runtime
+            .block_on(core.invoke_async(command(json!({
+                "type": "overlayRequest",
+                "roleId": role_id.clone(),
+                "requestJson": "{\"type\":\"start\",\"macroId\":\"not-assigned\"}"
+            }))))
+            .unwrap_err();
+        assert_eq!(error.code(), "MACRO_ROLE_INVALID");
+
+        let (opened, actions, _) = drive_async_command(
+            Arc::clone(&core),
+            command(json!({
+                "type": "overlayRequest",
+                "roleId": role_id.clone(),
+                "requestJson": "{\"type\":\"open\"}"
+            })),
+            None,
+        );
+        assert!(opened.is_ok());
+        assert!(actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::OverlayOpenMacroPage { role_id: current }
+                if current == &role_id
+        )));
+
+        let (copied, actions, _) = drive_async_command(
+            Arc::clone(&core),
+            command(json!({
+                "type": "overlayRequest",
+                "roleId": role_id.clone(),
+                "requestJson": "{\"type\":\"copy-coordinate\",\"xPercent\":12.5,\"xPx\":10,\"viewportHeightPx\":100,\"viewportWidthPx\":100,\"yPercent\":25,\"yPx\":20}"
+            })),
+            None,
+        );
+        assert!(copied.is_ok());
+        assert!(actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::OverlayCopyCoordinate { coordinate }
+                if coordinate.x_px == 10 && coordinate.y_px == 20
+        )));
         core.shutdown();
     }
 

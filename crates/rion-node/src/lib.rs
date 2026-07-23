@@ -403,6 +403,7 @@ impl NativeAppCore {
                 | CoreCommand::GraphicsDiagnosticsAssemble { .. }
                 | CoreCommand::DiagnosticsExport { .. }
                 | CoreCommand::SystemChromeClose
+                | CoreCommand::OverlayRequest { .. }
                 | CoreCommand::BrowserRoleLaunch { .. }
                 | CoreCommand::BrowserWorkspaceLaunch { .. }
                 | CoreCommand::BrowserRoleStop { .. }

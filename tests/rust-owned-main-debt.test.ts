@@ -24,6 +24,7 @@ const allowedNodeIoImports = new Set([
   "src/main/browser/MacRuntimeTabsController.ts:node:fs"
 ]);
 const allowedMapProperties = new Set([
+  "src/main/core/ElectronEffectExecutor.ts:ElectronHandleRegistry.handles",
   "src/main/browser/BrowserManager.ts:BrowserManager.displayHostByChromeWebContentsId",
   "src/main/browser/BrowserManager.ts:BrowserManager.displayHosts",
   "src/main/browser/BrowserManager.ts:BrowserManager.dividerByWebContentsId",
@@ -35,7 +36,12 @@ const allowedMapProperties = new Set([
 ]);
 const rustOwnedOrchestrationName =
   /^(?:deleteSession|handleAutomationDisconnect|handleDisplayRemoved|handleHealthChange|hideRuntimeTab|invokeBrowserRuntime|invokeSession|launch(?:External|ExternalWorkspace|Session|Unlocked|Workspace|WorkspaceUnlocked)?|listStatuses|listWorkspaceDisplayReservations|listWorkspaceRuntimeStatuses|moveRuntimeTab|recover(?:ExternalRole)?|reorderRuntimeTab|showRuntimeTab|stop(?:All|ForRecovery|Host|RuntimeTab|Unlocked|Workspace)?|syncRuntimeProjection|withRoleOperation)$/;
-const allowedNativeAppCoreMethods = new Set(["invoke", "shutdown", "subscribeCoreEvents"]);
+const allowedNativeAppCoreMethods = new Set([
+  "dispatchCoreEffectResults",
+  "invoke",
+  "shutdown",
+  "subscribeCoreEvents"
+]);
 
 interface ParsedSource {
   file: string;

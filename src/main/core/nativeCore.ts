@@ -13,6 +13,9 @@ import type {
   BrowserRuntimeResult,
   CdnRule,
   CoreCommand,
+  CoreCommandResult,
+  CoreEffectDispatchReport,
+  CoreEffectResult,
   CoreEvent,
   EmbeddedKeyTransitionRecord,
   ExternalBrowserActionDispatch,
@@ -63,6 +66,7 @@ export interface NativeAppCore {
   alignExternalChromeWindow: (processId: number, target: PixelBounds) => Promise<PixelBounds>;
   cancelWait: (id: string) => void;
   dispatchBrowserResults: (resultsJson: string) => Promise<void>;
+  dispatchCoreEffectResults: (resultsJson: string) => Promise<string>;
   dispatchExternalBrowserActions: (actionsJson: string) => Promise<string>;
   focusExternalChrome: (roleId: string) => Promise<void>;
   setExternalChromeWindowBounds: (roleId: string, boundsJson: string) => Promise<void>;
@@ -218,6 +222,10 @@ export class AppCoreClient {
     }
   }
 
+  async invokeTyped<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
+    return this.invoke<CoreCommandResult<C>>(command);
+  }
+
   invokeBrowserRuntime(command: BrowserRuntimeCommand): BrowserRuntimeResult {
     try {
       return this.measureSync(() =>
@@ -338,6 +346,21 @@ export class AppCoreClient {
     try {
       await this.native.dispatchBrowserResults(JSON.stringify(results));
       this.metrics.browserResultCount += results.length;
+    } catch (error) {
+      throw normalizeNativeCoreError(error);
+    } finally {
+      this.metrics.recordNapi(performance.now() - startedAt);
+    }
+  }
+
+  async dispatchCoreEffectResults(
+    results: CoreEffectResult[]
+  ): Promise<CoreEffectDispatchReport> {
+    const startedAt = performance.now();
+    try {
+      return JSON.parse(
+        await this.native.dispatchCoreEffectResults(JSON.stringify(results))
+      ) as CoreEffectDispatchReport;
     } catch (error) {
       throw normalizeNativeCoreError(error);
     } finally {

@@ -23,10 +23,11 @@ use crate::{
     layout,
     macro_runtime::MacroRuntime,
     model::{
-        AppCoreOptions, BrowserActionResult, CdnRule, CoreCommand, CoreEvent,
-        GameBrowserSettingsRecord, LegalAcceptanceRecord, MacroSettingsRecord,
-        ResourcePolicyDecision, ResourcePolicyInput, RuntimeWindowPreferencesRecord,
-        StateCompatibilityReportRecord, StateGameRecord, StateRoleRecord,
+        AppCoreOptions, BrowserActionResult, CdnRule, CoreCommand, CoreEffectDispatchReport,
+        CoreEffectResult, CoreEvent, GameBrowserSettingsRecord, LegalAcceptanceRecord,
+        MacroSettingsRecord, OperationCancelResultRecord, ResourcePolicyDecision,
+        ResourcePolicyInput, RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord,
+        StateGameRecord, StateRoleRecord,
     },
     pressure::PressureMonitor,
     resource::resolve_resource_policy,
@@ -56,6 +57,7 @@ pub struct AppCore {
     external_processes: crate::external_processes::ExternalProcessRuntime,
     external_sessions: Mutex<crate::external_sessions::ExternalSessionRuntime>,
     macro_runtime: MacroRuntime,
+    operation_actor: crate::operation_actor::OperationActor,
     platform: rion_platform::Platform,
     portable: Mutex<crate::portable::PortableRuntime>,
     resource_runtime: Mutex<crate::resource_runtime::ResourceRuntime>,
@@ -114,6 +116,14 @@ impl AppCore {
                 );
             },
         ));
+        let effect_subscribers = Arc::clone(&subscribers);
+        let operation_actor =
+            crate::operation_actor::OperationActor::new(Arc::new(move |effects| {
+                broadcast_events(
+                    &effect_subscribers,
+                    vec![CoreEvent::CoreEffects { effects }],
+                );
+            }));
         let core = Self {
             app_version: options.app_version,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
@@ -138,6 +148,7 @@ impl AppCore {
                 crate::external_sessions::ExternalSessionRuntime::default(),
             ),
             macro_runtime,
+            operation_actor,
             platform,
             portable: Mutex::new(crate::portable::PortableRuntime::default()),
             resource_runtime: Mutex::new(crate::resource_runtime::ResourceRuntime::default()),
@@ -756,6 +767,14 @@ impl AppCore {
                 self.platform,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::OperationCancel { operation_id } => {
+                serde_json::to_value(OperationCancelResultRecord {
+                    cancelled: self.operation_actor.cancel(&operation_id)?,
+                })
+                .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::CoreEffectMetrics => serde_json::to_value(self.operation_actor.metrics())
+                .map_err(|error| CoreError::Internal(error.to_string())),
         }
     }
 
@@ -837,6 +856,13 @@ impl AppCore {
     pub fn dispatch_browser_results(&self, results: Vec<BrowserActionResult>) -> CoreResult<()> {
         self.external_health()?.dispatch_results(results.clone());
         self.macro_runtime.dispatch_results(results)
+    }
+
+    pub fn dispatch_core_effect_results(
+        &self,
+        results: Vec<CoreEffectResult>,
+    ) -> CoreResult<CoreEffectDispatchReport> {
+        self.operation_actor.dispatch_results(results)
     }
 
     pub fn replace_cdn_rules(&self, rules: Vec<CdnRule>) -> CoreResult<Vec<String>> {
@@ -1272,6 +1298,7 @@ impl AppCore {
 
     pub fn shutdown(&self) {
         self.browser_operations.shutdown();
+        self.operation_actor.shutdown();
         self.external_automation.shutdown();
         self.external_processes.shutdown();
         self.macro_runtime.shutdown();

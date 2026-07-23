@@ -24,6 +24,28 @@ describe("generated Rust core contracts", () => {
     expect(contract).toContain('{ "type": "browserActions"');
     expect(contract).toContain("actions: Array<BrowserActionRequest>");
   });
+
+  it("generates the generic operation effect and command-result protocol", async () => {
+    const [event, request, action, result, resultMap] = await Promise.all([
+      readFile("src/shared/generated/CoreEvent.ts", "utf8"),
+      readFile("src/shared/generated/CoreEffectRequest.ts", "utf8"),
+      readFile("src/shared/generated/CoreEffectAction.ts", "utf8"),
+      readFile("src/shared/generated/CoreEffectResult.ts", "utf8"),
+      readFile("src/shared/generated/CoreCommandResultMap.ts", "utf8")
+    ]);
+
+    expect(event).toContain('{ "type": "coreEffects"');
+    expect(request).toContain("effectId: string");
+    expect(request).toContain("operationId: string");
+    expect(request).toContain("deadlineMs: number");
+    expect(action).toContain('{ "type": "createWindow"');
+    expect(action).toContain('{ "type": "debuggerCommand"');
+    expect(result).toContain("error: CoreErrorPayload | null");
+    expect(resultMap).toContain("export type CoreCommandResultMap");
+    for (const contract of [event, request, action, result, resultMap]) {
+      expect(contract).not.toContain("unknown");
+    }
+  });
 });
 
 describe("Rust addon build verification", () => {
@@ -48,5 +70,6 @@ describe("Rust addon build verification", () => {
     expect(core).toContain("Runtime.executionContextCreated");
     expect(core).toContain("prepareEmbeddedKeyTransition");
     expect(core).toContain("hasEmbeddedHeldKeys");
+    expect(core).toContain("dispatchCoreEffectResults");
   });
 });

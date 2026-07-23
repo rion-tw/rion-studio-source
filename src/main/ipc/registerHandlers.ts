@@ -43,8 +43,8 @@ import {
 import {
   BrowserLaunchCancelledError,
   EXTERNAL_COMPAT_NOTICE,
-  type BrowserManager
-} from "../browser/BrowserManager";
+  type ElectronBrowserRuntime
+} from "../browser/ElectronBrowserRuntime";
 import type { ChromeProfileImportManager } from "../browser/ChromeProfileImportManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { RustSystemFontService } from "../game-browser/RustSystemFontService";
@@ -120,7 +120,7 @@ interface RegisterIpcHandlersOptions {
 export function registerIpcHandlers(
   roleStore: RoleStore,
   workspaceStore: LaunchWorkspaceStore,
-  browserManager: BrowserManager,
+  browserManager: ElectronBrowserRuntime,
   options: RegisterIpcHandlersOptions = {}
 ): void {
   const handle = <Arguments extends unknown[], Result>(

@@ -6,12 +6,6 @@ export interface RustBoundaryDebt {
   reason: string;
 }
 
-const debt = (
-  key: string,
-  targetCommit: RustBoundaryTargetCommit,
-  reason: string
-): RustBoundaryDebt => ({ key, targetCommit, reason });
-
 /**
  * Exact production debt present when the 2.1 thin-TypeScript migration began.
  *
@@ -25,39 +19,5 @@ export const RUST_OWNED_MAIN_DEBT = {
   nodeIoImports: [],
   orchestrationMethods: [],
   promiseTails: [],
-  specializedNapiMethods: [
-    debt("acquireBrowserOperation", 3, "Operation leases move behind invoke."),
-    debt("alignExternalChromeWindow", 4, "External window operation actor effect."),
-    debt("browserStatuses", 11, "Synchronous status projection becomes a typed core event."),
-    debt("browserWorkspaceStatuses", 11, "Synchronous workspace projection becomes a typed core event."),
-    debt("cancelWait", 5, "Scheduler cancellation moves behind invoke."),
-    debt("captureExternalChromeDiagnostics", 4, "External diagnostics command."),
-    debt("clearEmbeddedKeys", 5, "Held-key shutdown command."),
-    debt("completeBrowserOperation", 3, "Operation leases move behind invoke."),
-    debt("completeEmbeddedKeyTransition", 5, "Embedded effect acknowledgement."),
-    debt("connectExternalChromeCdp", 4, "External CDP is Rust-owned."),
-    debt("createWorkspaceDividers", 3, "Layout decision command."),
-    debt("dispatchBrowserResults", 11, "Replaced by generic core effect results after browser cutover."),
-    debt("dispatchExternalBrowserActions", 4, "External actions execute inside Rust."),
-    debt("evaluateExternalChrome", 4, "External CDP command."),
-    debt("findSystemChromeExecutable", 4, "External launch command."),
-    debt("focusExternalChrome", 4, "External focus command."),
-    debt("hasEmbeddedHeldKeys", 5, "Held-key state remains internal to Rust."),
-    debt("invokeBrowserRuntime", 3, "Replaced by high-level invoke commands."),
-    debt("invokeExternalSession", 4, "External session state remains internal to Rust."),
-    debt("invokeResourceRuntime", 11, "Resource state remains internal to Rust."),
-    debt("normalizeWorkspaceRects", 3, "Layout decision command."),
-    debt("prepareEmbeddedKeyTransition", 5, "Embedded input effect."),
-    debt("prepareExternalChromeProfile", 7, "Profile import operation actor."),
-    debt("reassertEmbeddedKeys", 5, "Held-key recovery effect."),
-    debt("resizeWorkspaceDivider", 3, "Layout decision command."),
-    debt("resolveAdaptiveWorkspaceZoom", 3, "Layout decision command."),
-    debt("resolveResourcePolicy", 5, "Resource policy remains internal to Rust."),
-    debt("resolveRolePaths", 7, "Profile filesystem operation."),
-    debt("resolveWorkspaceLayout", 3, "Layout decision command."),
-    debt("scheduleWait", 5, "Scheduling remains internal to Rust."),
-    debt("setExternalChromeWindowBounds", 4, "External window operation actor effect."),
-    debt("unregisterExternalChromeAutomation", 4, "External CDP lifecycle remains internal to Rust."),
-    debt("updateSystemPressureSignals", 5, "Pressure sampling enters via typed command/event.")
-  ]
+  specializedNapiMethods: []
 } satisfies Record<string, RustBoundaryDebt[]>;

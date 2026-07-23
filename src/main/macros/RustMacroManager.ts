@@ -24,7 +24,7 @@ export class RustMacroManager
   }
 
   async listStatuses(): Promise<MacroRunStatus[]> {
-    return (await this.core.invoke<NativeMacroRunStatus[]>({ type: "macroStatuses" }))
+    return (await this.core.invoke({ type: "macroStatuses" }))
       .map(fromNativeStatus);
   }
 
@@ -37,7 +37,7 @@ export class RustMacroManager
   }
 
   pressForRole(macroId: string, roleId: string, pressId: string): Promise<MacroRunStatus[]> {
-    return this.core.invoke<NativeMacroRunStatus[]>({
+    return this.core.invoke({
       type: "macroPress", request: { macroId, roleId, pressId }
     }).then((statuses) => statuses.map(fromNativeStatus));
   }
@@ -48,10 +48,10 @@ export class RustMacroManager
     pressId: string,
     mode: HeldTriggerReleaseMode = "complete_first_iteration"
   ): Promise<void> {
-    return this.core.invoke<void>({
+    return this.core.invoke({
       type: "macroRelease",
       request: { macroId, roleId, pressId, mode }
-    });
+    }).then(() => undefined);
   }
 
   async releaseHeldTriggersForRole(roleId: string): Promise<void> {
@@ -63,7 +63,8 @@ export class RustMacroManager
   }
 
   stopForRole(macroId: string, roleId: string): Promise<void> {
-    return this.core.invoke<void>({ type: "macroStopForRole", macroId, roleId });
+    return this.core.invoke({ type: "macroStopForRole", macroId, roleId })
+      .then(() => undefined);
   }
 
   async stopRole(roleId: string): Promise<void> {
@@ -71,7 +72,7 @@ export class RustMacroManager
   }
 
   private async startUnlocked(macroId: string, roleId?: string): Promise<MacroRunStatus[]> {
-    return (await this.core.invoke<NativeMacroRunStatus[]>({
+    return (await this.core.invoke({
       type: "macroStart", request: { macroId, roleId: roleId ?? null }
     })).map(fromNativeStatus);
   }

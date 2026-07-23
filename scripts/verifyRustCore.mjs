@@ -1,11 +1,9 @@
 import { access, chmod, lstat, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { WebSocketServer } from "ws";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const defaultPath = join(
@@ -81,14 +79,23 @@ try {
     health.coreVersion !== version ||
     typeof core.subscribeCoreEvents !== "function" ||
     typeof core.dispatchCoreEffectResults !== "function" ||
-    typeof core.connectExternalChromeCdp !== "function" ||
-    typeof core.prepareExternalChromeProfile !== "function" ||
-    typeof core.prepareEmbeddedKeyTransition !== "function" ||
-    typeof core.completeEmbeddedKeyTransition !== "function" ||
-    typeof core.reassertEmbeddedKeys !== "function" ||
-    typeof core.resolveRolePaths !== "function"
+    typeof core.invoke !== "function" ||
+    typeof core.matchCdnUrl !== "function" ||
+    typeof core.shutdown !== "function"
   ) {
     throw new Error("Rust core addon failed its create/invoke integration check.");
+  }
+  for (const removedMethod of [
+    "connectExternalChromeCdp",
+    "dispatchBrowserResults",
+    "invokeBrowserRuntime",
+    "invokeResourceRuntime",
+    "prepareEmbeddedKeyTransition",
+    "resolveRolePaths"
+  ]) {
+    if (typeof core[removedMethod] === "function") {
+      throw new Error(`Rust core addon still exposes specialized method ${removedMethod}.`);
+    }
   }
   const effectDispatchReport = JSON.parse(await core.dispatchCoreEffectResults(JSON.stringify([{
     effectId: "verification-unknown-effect",
@@ -129,39 +136,46 @@ try {
   ) {
     throw new Error("Rust core failed the packaged legacy migration snapshot check.");
   }
-  const firstHold = JSON.parse(core.prepareEmbeddedKeyTransition(
-    "fixture-role",
-    "hold",
-    "KeyW",
-    JSON.stringify(["ControlLeft"]),
-    "owner-1"
-  ));
+  const invoke = async (command) => JSON.parse(await core.invoke(JSON.stringify(command)));
+  const firstHold = await invoke({
+    type: "embeddedKeyPrepare",
+    roleId: "fixture-role",
+    phase: "hold",
+    code: "KeyW",
+    modifierCodes: ["ControlLeft"],
+    ownerId: "owner-1"
+  });
   if (
     firstHold.effects.map((effect) => `${effect.phase}:${effect.code}`).join(",") !==
     "rawKeyDown:ControlLeft,rawKeyDown:KeyW"
   ) {
     throw new Error(`Rust embedded key ownership returned invalid effects: ${JSON.stringify(firstHold)}.`);
   }
-  core.completeEmbeddedKeyTransition(firstHold.transitionId, true);
-  const secondHold = JSON.parse(core.prepareEmbeddedKeyTransition(
-    "fixture-role",
-    "hold",
-    "KeyW",
-    JSON.stringify(["ControlLeft"]),
-    "owner-2"
-  ));
-  if (secondHold.effects.length !== 0 || !core.hasEmbeddedHeldKeys("fixture-role")) {
+  await invoke({ type: "embeddedKeyComplete", transitionId: firstHold.transitionId, succeeded: true });
+  const secondHold = await invoke({
+    type: "embeddedKeyPrepare",
+    roleId: "fixture-role",
+    phase: "hold",
+    code: "KeyW",
+    modifierCodes: ["ControlLeft"],
+    ownerId: "owner-2"
+  });
+  if (secondHold.effects.length !== 0 || !await invoke({
+    type: "embeddedKeysHeld",
+    roleId: "fixture-role"
+  })) {
     throw new Error("Rust embedded key ownership did not reference-count duplicate holds.");
   }
-  core.completeEmbeddedKeyTransition(secondHold.transitionId, true);
+  await invoke({ type: "embeddedKeyComplete", transitionId: secondHold.transitionId, succeeded: true });
   for (const ownerId of ["owner-1", "owner-2"]) {
-    const release = JSON.parse(core.prepareEmbeddedKeyTransition(
-      "fixture-role",
-      "release",
-      "KeyW",
-      JSON.stringify(["ControlLeft"]),
+    const release = await invoke({
+      type: "embeddedKeyPrepare",
+      roleId: "fixture-role",
+      phase: "release",
+      code: "KeyW",
+      modifierCodes: ["ControlLeft"],
       ownerId
-    ));
+    });
     if (ownerId === "owner-1" && release.effects.length !== 0) {
       throw new Error("Rust embedded key ownership released a shared key too early.");
     }
@@ -172,12 +186,12 @@ try {
     ) {
       throw new Error("Rust embedded key ownership did not release the final owner.");
     }
-    core.completeEmbeddedKeyTransition(release.transitionId, true);
+    await invoke({ type: "embeddedKeyComplete", transitionId: release.transitionId, succeeded: true });
   }
-  if (core.hasEmbeddedHeldKeys("fixture-role")) {
+  if (await invoke({ type: "embeddedKeysHeld", roleId: "fixture-role" })) {
     throw new Error("Rust embedded key ownership leaked held keys.");
   }
-  const rolePaths = JSON.parse(core.resolveRolePaths("fixture-role"));
+  const rolePaths = await invoke({ type: "rolePathsResolve", id: "fixture-role" });
   if (rolePaths.browserUserDataDir !== join(userDataDir, "roles", "fixture-role", "browser")) {
     throw new Error(`Rust role path resolver returned an invalid path: ${JSON.stringify(rolePaths)}.`);
   }
@@ -209,76 +223,6 @@ try {
   const processExit = await exit;
   if (processExit.exitCode !== 7 || processExit.terminated !== false) {
     throw new Error(`Rust process supervisor returned an invalid exit: ${JSON.stringify(processExit)}.`);
-  }
-  const launchUrl = "https://fixture.rion.test/play";
-  await core.prepareExternalChromeProfile(userDataDir);
-  const server = createServer((request, response) => {
-    if (request.url === "/json/list") {
-      const { port } = server.address();
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify([{
-        id: "fixture-page",
-        type: "page",
-        url: launchUrl,
-        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/fixture-page`
-      }]));
-      return;
-    }
-    response.writeHead(404).end();
-  });
-  const webSockets = new WebSocketServer({ noServer: true });
-  server.on("upgrade", (request, socket, head) => {
-    webSockets.handleUpgrade(request, socket, head, (webSocket) => {
-      webSockets.emit("connection", webSocket, request);
-    });
-  });
-  webSockets.on("connection", (webSocket) => {
-    webSocket.send(JSON.stringify({ method: "Runtime.executionContextCreated", params: { context: { id: 1 } } }));
-    webSocket.on("message", (data) => {
-      const command = JSON.parse(data.toString());
-      webSocket.send(JSON.stringify({ id: command.id, result: { method: command.method } }));
-    });
-  });
-  await new Promise((resolveListen, rejectListen) => {
-    server.once("error", rejectListen);
-    server.listen(0, "127.0.0.1", resolveListen);
-  });
-  try {
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("Fixture server has no TCP port.");
-    await writeFile(join(userDataDir, "DevToolsActivePort"), `${address.port}\n`, "utf8");
-    const cdp = await core.connectExternalChromeCdp(
-      "fixture-role",
-      userDataDir,
-      launchUrl,
-      2_000,
-      false
-    );
-    const notification = new Promise((resolveNotification, rejectNotification) => {
-      const timeout = setTimeout(
-        () => rejectNotification(new Error("Rust CDP client did not forward a notification.")),
-        2_000
-      );
-      cdp.subscribeEvents((eventJson) => {
-        const event = JSON.parse(eventJson);
-        if (event.type === "notification") {
-          clearTimeout(timeout);
-          resolveNotification(event);
-        }
-      });
-    });
-    const reply = JSON.parse(await cdp.send("Runtime.evaluate", "{}", 1_000));
-    if (reply.method !== "Runtime.evaluate") {
-      throw new Error(`Rust CDP client returned an invalid reply: ${JSON.stringify(reply)}.`);
-    }
-    const event = await notification;
-    if (event.method !== "Runtime.executionContextCreated") {
-      throw new Error(`Rust CDP client returned an invalid event: ${JSON.stringify(event)}.`);
-    }
-    cdp.close();
-  } finally {
-    for (const client of webSockets.clients) client.terminate();
-    await new Promise((resolveClose) => server.close(resolveClose));
   }
   await core.shutdown();
   core = undefined;

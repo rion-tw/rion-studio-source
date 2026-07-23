@@ -15,7 +15,7 @@ import type { AppCoreClient } from "../core/nativeCore";
 const MAX_CAPTURE_DEPTH = 8;
 const MAX_CAPTURE_KEYS = 80;
 
-type LogCoreClient = Pick<AppCoreClient, "invokeTyped" | "subscribe">;
+type LogCoreClient = Pick<AppCoreClient, "invoke" | "subscribe">;
 interface LogInitializationContext {
   appVersion: string;
   arch: string;
@@ -108,11 +108,11 @@ export class LogService extends EventEmitter {
         : { contextRawJson: JSON.stringify(toJsonCaptureValue(context)) }),
       ...(error === undefined ? {} : { error: captureError(error) })
     };
-    this.track(core.invokeTyped({ type: "logsCapture", entries: [capture] }));
+    this.track(core.invoke({ type: "logsCapture", entries: [capture] }));
   }
 
   async setLevel(level: LogLevel): Promise<void> {
-    await this.requireCore().invokeTyped({ type: "logsSetLevel", level });
+    await this.requireCore().invoke({ type: "logsSetLevel", level });
     this.info("main", "log_level_changed", `Log level changed to ${level}.`);
   }
 
@@ -134,17 +134,17 @@ export class LogService extends EventEmitter {
 
   async getStatus(): Promise<LogStorageStatusRecord> {
     await this.flush();
-    return this.requireCore().invokeTyped({ type: "logsStatus" });
+    return this.requireCore().invoke({ type: "logsStatus" });
   }
 
   async query(query: LogQuery = {}): Promise<LogPageRecord> {
     await this.flush();
-    return this.requireCore().invokeTyped({ type: "logsQuery", query });
+    return this.requireCore().invoke({ type: "logsQuery", query });
   }
 
   async clear(): Promise<void> {
     await this.flush();
-    await this.requireCore().invokeTyped({ type: "logsClear" });
+    await this.requireCore().invoke({ type: "logsClear" });
     this.info("main", "logs_cleared", "Application logs were cleared by the user.");
     await this.flush();
   }

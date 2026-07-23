@@ -29,10 +29,10 @@ use crate::model::{
     GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
     MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings,
     MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
-    RoleUpdateInputRecord, RuntimeWindowPreferencesRecord, StateCompatibilityObservationsRecord,
-    StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
-    StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord,
-    WorkspaceUpdateInputRecord,
+    RoleUpdateInputRecord, RuntimeWindowPreferencesRecord, StateCollection,
+    StateCompatibilityObservationsRecord, StateCompatibilityReportRecord, StateGameRecord,
+    StateLaunchWorkspaceRecord, StateMacroRecord, StateRoleRecord, WorkspaceCreateInputRecord,
+    WorkspaceDisplayInfoRecord, WorkspaceUpdateInputRecord,
 };
 
 pub(crate) const SCHEMA_VERSION: u32 = 4;
@@ -157,6 +157,47 @@ pub(crate) enum StateMutation {
     CompatibilityReportDelete {
         game_id: String,
     },
+}
+
+impl StateMutation {
+    pub(crate) fn changed_collections(&self) -> Vec<StateCollection> {
+        use StateCollection::{CompatibilityReports, Games, LaunchWorkspaces, Macros, Roles};
+
+        match self {
+            Self::GameCreate(_) | Self::GameUpdate { .. } | Self::GameResetBuiltin { .. } => {
+                vec![Games]
+            }
+            Self::GameDelete { .. } | Self::GamesDelete { .. } => {
+                vec![Games, CompatibilityReports]
+            }
+            Self::RoleCreate(_)
+            | Self::RoleUpdate { .. }
+            | Self::RoleReorder { .. }
+            | Self::RoleSetBrowserSessionSource { .. }
+            | Self::RoleBrowserDataReset { .. }
+            | Self::RoleAssignGameIds(_)
+            | Self::ProfileRolesPatch { .. } => vec![Roles],
+            Self::RoleDelete { .. } | Self::RolesDelete { .. } => {
+                vec![Roles, LaunchWorkspaces, Macros]
+            }
+            Self::WorkspaceCreate(_)
+            | Self::WorkspaceUpdate { .. }
+            | Self::WorkspaceReorder { .. }
+            | Self::WorkspaceDelete { .. }
+            | Self::WorkspacesDelete { .. }
+            | Self::WorkspaceClearRole { .. }
+            | Self::WorkspaceSetRoleBrowserZoom { .. }
+            | Self::WorkspaceReconcileDisplays(_) => vec![LaunchWorkspaces],
+            Self::MacroCreate(_)
+            | Self::MacroUpdate { .. }
+            | Self::MacroDelete { .. }
+            | Self::MacrosDelete { .. }
+            | Self::MacrosClearRole { .. } => vec![Macros],
+            Self::CompatibilityReportSave(_)
+            | Self::CompatibilityReportRecordObservation { .. }
+            | Self::CompatibilityReportDelete { .. } => vec![CompatibilityReports],
+        }
+    }
 }
 
 pub struct StateDatabaseWorker {

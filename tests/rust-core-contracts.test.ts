@@ -57,7 +57,7 @@ describe("Rust addon build verification", () => {
     expect(script).toContain('"rion-core.node"');
   });
 
-  it("loads the packaged addon with Electron and verifies process and CDP integration", async () => {
+  it("loads the packaged addon with Electron through the generic command/effect surface", async () => {
     const [packaged, core] = await Promise.all([
       readFile("scripts/verifyPackagedRustCore.mjs", "utf8"),
       readFile("scripts/verifyRustCore.mjs", "utf8")
@@ -66,10 +66,10 @@ describe("Rust addon build verification", () => {
     expect(packaged).toContain('ELECTRON_RUN_AS_NODE: "1"');
     expect(core).toContain("externalProcessLaunch");
     expect(core).toContain("externalProcessExited");
-    expect(core).toContain("connectExternalChromeCdp");
-    expect(core).toContain("Runtime.executionContextCreated");
-    expect(core).toContain("prepareEmbeddedKeyTransition");
-    expect(core).toContain("hasEmbeddedHeldKeys");
+    expect(core).toContain('type: "embeddedKeyPrepare"');
+    expect(core).toContain('type: "embeddedKeysHeld"');
+    expect(core).not.toContain("core.connectExternalChromeCdp(");
+    expect(core).not.toContain("core.prepareEmbeddedKeyTransition(");
     expect(core).toContain("dispatchCoreEffectResults");
   });
 });

@@ -5,7 +5,7 @@ import type { CoreCommand, CoreEvent, LogEntry } from "../src/shared/generated";
 
 function createCore() {
   let listener: ((events: CoreEvent[]) => void) | undefined;
-  const invokeTyped = vi.fn(async (command: CoreCommand) => {
+  const invoke = vi.fn(async (command: CoreCommand) => {
     if (command.type === "logsStatus") {
       return {
         currentLevel: "info",
@@ -23,7 +23,7 @@ function createCore() {
   });
   return {
     core: {
-      invokeTyped,
+      invoke,
       subscribe: (next: (events: CoreEvent[]) => void) => {
         listener = next;
         return () => {
@@ -32,13 +32,13 @@ function createCore() {
       }
     },
     emit: (events: CoreEvent[]) => listener?.(events),
-    invokeTyped
+    invoke
   };
 }
 
 describe("LogService", () => {
   it("submits raw captures while Rust owns identity, redaction, filtering and persistence", async () => {
-    const { core, invokeTyped } = createCore();
+    const { core, invoke } = createCore();
     const service = new LogService();
     await service.initialize(core as never);
     service.info("browser", "role_started", "Role started.", {
@@ -47,7 +47,7 @@ describe("LogService", () => {
     });
     await service.flush();
 
-    const capture = invokeTyped.mock.calls.find(
+    const capture = invoke.mock.calls.find(
       ([command]) => command.type === "logsCapture" && command.entries[0]?.event === "role_started"
     )?.[0];
     expect(capture).toMatchObject({
@@ -66,7 +66,7 @@ describe("LogService", () => {
   });
 
   it("forwards Rust-captured entries and delegates level, query, status and clear commands", async () => {
-    const { core, emit, invokeTyped } = createCore();
+    const { core, emit, invoke } = createCore();
     const service = new LogService();
     const received: LogEntry[] = [];
     service.on("entry", (entry) => received.push(entry));
@@ -87,24 +87,24 @@ describe("LogService", () => {
     await service.clear();
 
     expect(received).toEqual([entry]);
-    expect(invokeTyped).toHaveBeenCalledWith({ type: "logsSetLevel", level: "debug" });
-    expect(invokeTyped).toHaveBeenCalledWith({
+    expect(invoke).toHaveBeenCalledWith({ type: "logsSetLevel", level: "debug" });
+    expect(invoke).toHaveBeenCalledWith({
       type: "logsQuery",
       query: { search: "captured" }
     });
-    expect(invokeTyped).toHaveBeenCalledWith({ type: "logsStatus" });
-    expect(invokeTyped).toHaveBeenCalledWith({ type: "logsClear" });
+    expect(invoke).toHaveBeenCalledWith({ type: "logsStatus" });
+    expect(invoke).toHaveBeenCalledWith({ type: "logsClear" });
   });
 
   it("tracks only transport acknowledgements and ignores late capture after shutdown", async () => {
-    const { core, invokeTyped } = createCore();
+    const { core, invoke } = createCore();
     const service = new LogService();
     await service.initialize(core as never);
     service.warn("main", "before_shutdown", "Before shutdown.");
     await service.shutdown();
     service.warn("main", "after_shutdown", "After shutdown.");
 
-    const events = invokeTyped.mock.calls
+    const events = invoke.mock.calls
       .map(([command]) => command)
       .filter((command): command is Extract<CoreCommand, { type: "logsCapture" }> =>
         command.type === "logsCapture"

@@ -46,7 +46,7 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps workspace reservations and role operation ordering in Rust", async () => {
-    const manager = await readSource("src/main/browser/BrowserManager.ts");
+    const manager = await readSource("src/main/browser/ElectronBrowserRuntime.ts");
     const runtime = await readSource("crates/rion-core/src/browser_runtime.rs");
     const operations = await readSource("crates/rion-core/src/browser_operations.rs");
 
@@ -64,7 +64,7 @@ describe("Rust production architecture boundaries", () => {
 
   it("keeps workspace geometry, divider resize, and adaptive zoom decisions in Rust", async () => {
     const [manager, layout, sharedLayout] = await Promise.all([
-      readSource("src/main/browser/BrowserManager.ts"),
+      readSource("src/main/browser/ElectronBrowserRuntime.ts"),
       readSource("crates/rion-core/src/layout.rs"),
       readSource("src/shared/workspaceLayout.ts")
     ]);
@@ -107,7 +107,8 @@ describe("Rust production architecture boundaries", () => {
       readSource("crates/rion-core/src/app.rs")
     ]);
 
-    expect(adapter).toContain("dispatchExternalBrowserActions");
+    expect(adapter).toContain("executeEffect");
+    expect(adapter).not.toContain("dispatchExternalBrowserActions");
     expect(external).toContain("held_key_owners");
     expect(external).toContain("Input.dispatchKeyEvent");
     expect(external).toContain("Input.dispatchMouseEvent");
@@ -118,7 +119,6 @@ describe("Rust production architecture boundaries", () => {
 
   it("keeps portable parsing, pending sessions, planning, and persistence out of TypeScript", async () => {
     const manager = await readSource("src/main/portable/PortableDataManager.ts");
-    const repository = await readSource("src/main/core/RustStateRepository.ts");
 
     expect(manager).not.toContain("pendingImport");
     expect(manager).not.toContain("parsePortableData");
@@ -130,7 +130,6 @@ describe("Rust production architecture boundaries", () => {
     expect(manager).not.toContain("setInterval");
     expect(manager).toContain('type: "portableExportTo"');
     expect(manager).toContain('type: "portablePreviewFile"');
-    expect(repository).not.toContain("replaceMany");
   });
 
   it("keeps Chrome profile discovery, pending state, file saga, and recovery out of TypeScript", async () => {
@@ -156,15 +155,14 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("does not keep a JavaScript state snapshot cache or stringify diff", async () => {
-    const [repository, database] = await Promise.all([
-      readSource("src/main/core/RustStateRepository.ts"),
+    const [client, database] = await Promise.all([
+      readSource("src/main/core/nativeCore.ts"),
       readSource("crates/rion-core/src/database/state.rs")
     ]);
 
-    expect(repository).not.toContain("cachedSnapshot");
-    expect(repository).not.toContain("JSON.stringify");
-    expect(repository).not.toContain("private tail");
-    expect(repository).not.toContain("private serialize");
+    expect(client).not.toContain("cachedSnapshot");
+    expect(client).not.toContain("private tail");
+    expect(client).not.toContain("private serialize");
     const ordinaryMutation = database.slice(
       database.indexOf("fn apply_domain_mutation"),
       database.indexOf("fn validate_workspace_role_references")
@@ -250,7 +248,7 @@ describe("Rust production architecture boundaries", () => {
     const [controller, runtime, browser, pressure] = await Promise.all([
       readSource("crates/rion-core/src/resource_controller.rs"),
       readSource("crates/rion-core/src/resource_runtime.rs"),
-      readSource("src/main/browser/BrowserManager.ts"),
+      readSource("src/main/browser/ElectronBrowserRuntime.ts"),
       readSource("src/main/browser/RustSystemPressureMonitor.ts")
     ]);
 
@@ -303,7 +301,8 @@ describe("Rust production architecture boundaries", () => {
     expect(runtime).toContain("stop_role_matching");
     expect(target).not.toContain("macroInvocations");
     expect(target).not.toContain("heldKeyOwners");
-    expect(target).toContain("prepareEmbeddedKeyTransition");
+    expect(target).toContain('type: "embeddedKeyPrepare"');
+    expect(target).not.toContain("prepareEmbeddedKeyTransition");
     expect(embeddedInput).toContain("struct EmbeddedInputRuntime");
     expect(embeddedInput).toContain("pending_role_ids");
     expect(embeddedInput).toContain("apply_release");
@@ -424,7 +423,7 @@ describe("Rust production architecture boundaries", () => {
     expect(roleStore).not.toContain("writeFile");
     expect(roleStore).not.toContain("writeJsonFileAtomically");
     expect(roleStore).not.toContain("cachedFile");
-    expect(roleStore).toContain("this.core.resolveRolePaths(id)");
+    expect(roleStore).toContain('type: "rolePathsResolve"');
   });
 
   it("keeps compatibility decisions and run state in Rust", async () => {

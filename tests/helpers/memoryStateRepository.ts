@@ -1,9 +1,4 @@
 import type {
-  CoreStateKey,
-  CoreStateSnapshot,
-  StateRepository
-} from "../../src/main/core/RustStateRepository";
-import type {
   CreateGameInput,
   CreateRoleInput,
   Game,
@@ -31,9 +26,17 @@ import {
 } from "../../src/shared/workspaceLayout";
 import { normalizeGameBrowserSettings } from "../../src/shared/browserFonts";
 import { normalizeMacroSettings } from "../../src/shared/macroSettings";
-import type { RuntimeWindowPreferencesRecord } from "../../src/shared/generated";
+import type {
+  CoreCommand,
+  CoreCommandResult,
+  CoreStateSnapshotRecord,
+  RuntimeWindowPreferencesRecord
+} from "../../src/shared/generated";
 
-export class MemoryStateRepository implements StateRepository {
+type CoreStateSnapshot = CoreStateSnapshotRecord;
+type CoreStateKey = keyof CoreStateSnapshot;
+
+export class MemoryStateRepository {
   constructor(private state: Partial<CoreStateSnapshot> = {}) {
     if (state.games === undefined) {
       const timestamp = "2026-01-01T00:00:00.000Z";
@@ -437,6 +440,144 @@ export class MemoryStateRepository implements StateRepository {
       ...macro,
       roleIds: macro.roleIds.filter((id) => id !== roleId)
     })));
+  }
+
+  async invoke<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
+    let result: unknown;
+    switch (command.type) {
+      case "gamesList":
+        result = await this.listGames();
+        break;
+      case "gameGet":
+        result = await this.getGame(command.id);
+        break;
+      case "gameCreate":
+        result = await this.createGame(command.input as CreateGameInput);
+        break;
+      case "gameUpdate":
+        result = await this.updateGame(command.id, command.input as UpdateGameInput);
+        break;
+      case "gameResetBuiltin":
+        result = await this.resetBuiltinGame(command.id);
+        break;
+      case "gameDelete":
+        await this.deleteGame(command.id);
+        result = null;
+        break;
+      case "gamesDelete":
+        result = await this.deleteGames(command.ids);
+        break;
+      case "rolesList":
+        result = await this.listRoles();
+        break;
+      case "roleGet":
+        result = await this.getRole(command.id);
+        break;
+      case "roleCreate":
+        result = await this.createRole(command.input as CreateRoleInput);
+        break;
+      case "roleUpdate":
+        result = await this.updateRole(command.id, command.input as UpdateRoleInput);
+        break;
+      case "roleReorder":
+        result = await this.reorderRoles(command.orderedIds);
+        break;
+      case "roleDelete":
+        await this.deleteRole(command.id);
+        result = null;
+        break;
+      case "rolesDelete":
+        result = await this.deleteRoles(command.ids);
+        break;
+      case "roleSetBrowserSessionSource":
+        result = await this.setRoleBrowserSessionSource(command.id, command.source);
+        break;
+      case "roleAssignGameIds":
+        result = await this.assignRoleGameIds(new Map(
+          command.assignments.map(({ roleId, gameId }) => [roleId, gameId])
+        ));
+        break;
+      case "workspacesList":
+        result = await this.listWorkspaces();
+        break;
+      case "workspaceGet":
+        result = await this.getWorkspace(command.id);
+        break;
+      case "workspaceCreate":
+        result = await this.createWorkspace(command.input as CreateLaunchWorkspaceInput);
+        break;
+      case "workspaceUpdate":
+        result = await this.updateWorkspace(command.id, command.input as UpdateLaunchWorkspaceInput);
+        break;
+      case "workspaceReorder":
+        result = await this.reorderWorkspaces(command.orderedIds);
+        break;
+      case "workspaceDelete":
+        await this.deleteWorkspace(command.id);
+        result = null;
+        break;
+      case "workspacesDelete":
+        result = await this.deleteWorkspaces(command.ids);
+        break;
+      case "workspaceClearRole":
+        await this.clearWorkspaceRole(command.roleId);
+        result = null;
+        break;
+      case "workspaceSetRoleBrowserZoom":
+        result = await this.setWorkspaceRoleBrowserZoom(
+          command.workspaceId,
+          command.roleId,
+          command.browserZoomPercent
+        ) ?? null;
+        break;
+      case "workspaceReconcileDisplays":
+        result = await this.reconcileWorkspaceDisplays(command.displays as WorkspaceDisplayInfo[]);
+        break;
+      case "macrosList":
+        result = await this.listMacros();
+        break;
+      case "macroGet":
+        result = await this.getMacro(command.id);
+        break;
+      case "macroCreate":
+        result = await this.createMacro(command.input as CreateMacroInput);
+        break;
+      case "macroUpdate":
+        result = await this.updateMacro(command.id, command.input as UpdateMacroInput);
+        break;
+      case "macroDelete":
+        await this.deleteMacro(command.id);
+        result = null;
+        break;
+      case "macrosDelete":
+        result = await this.deleteMacros(command.ids);
+        break;
+      case "macrosClearRole":
+        await this.clearMacroRole(command.roleId);
+        result = null;
+        break;
+      case "gameBrowserSettingsGet":
+        result = await this.getGameBrowserSettings();
+        break;
+      case "gameBrowserSettingsReplace":
+        result = await this.replaceGameBrowserSettings(command.settings);
+        break;
+      case "macroSettingsGet":
+        result = await this.getMacroSettings();
+        break;
+      case "macroSettingsReplace":
+        result = await this.replaceMacroSettings(command.settings);
+        break;
+      case "runtimeWindowPreferencesGet":
+        result = await this.getRuntimeWindowPreferences();
+        break;
+      case "runtimeWindowPreferencesReplace":
+        result = await this.replaceRuntimeWindowPreferences(command.preferences);
+        break;
+      default:
+        throw new Error(`Unsupported memory core command: ${command.type}`);
+    }
+    return result as CoreCommandResult<C>;
   }
 
   private async deleteMany(

@@ -205,7 +205,7 @@ function createCore(result: MacroOverlayViewModelRecord = viewModel) {
   return {
     invoke,
     client: {
-      invokeTyped: invoke
+      invoke: invoke
     } as never
   };
 }

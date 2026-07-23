@@ -25,12 +25,12 @@ const allowedNodeIoImports = new Set([
 ]);
 const allowedMapProperties = new Set([
   "src/main/core/ElectronEffectExecutor.ts:ElectronHandleRegistry.handles",
-  "src/main/browser/BrowserManager.ts:BrowserManager.displayHostByChromeWebContentsId",
-  "src/main/browser/BrowserManager.ts:BrowserManager.displayHosts",
-  "src/main/browser/BrowserManager.ts:BrowserManager.dividerByWebContentsId",
-  "src/main/browser/BrowserManager.ts:BrowserManager.roleHandles",
-  "src/main/browser/BrowserManager.ts:BrowserManager.tabHandles",
-  "src/main/browser/BrowserManager.ts:BrowserManager.workspaceTabHandleIds",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHostByChromeWebContentsId",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHosts",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.dividerByWebContentsId",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.roleHandles",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.tabHandles",
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.workspaceTabHandleIds",
   "src/main/browser/EmbeddedRuntimeDiagnostics.ts:EmbeddedRuntimeDiagnostics.records",
   "src/main/games/GameCompatibilityManager.ts:GameCompatibilityManager.windows",
   "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.contentRoleIds",
@@ -116,7 +116,7 @@ describe("Rust-owned main-process debt manifest", () => {
 
   it("matches browser lifecycle methods that still orchestrate Rust-owned state", async () => {
     const sources = await Promise.all([
-      readSource("src/main/browser/BrowserManager.ts")
+      readSource("src/main/browser/ElectronBrowserRuntime.ts")
     ]);
     const actual: string[] = [];
 

@@ -65,7 +65,7 @@ export class PortableDataManager {
     });
     if (dialogResult.canceled || !dialogResult.filePath) return null;
 
-    return this.options.core.invoke<PortableExportResult>({
+    return this.options.core.invoke({
       type: "portableExportTo",
       path: dialogResult.filePath,
       ...(input.preferences ? { preferences: input.preferences } : {}),
@@ -82,14 +82,14 @@ export class PortableDataManager {
     if (dialogResult.canceled || dialogResult.filePaths.length === 0) return null;
 
     const filePath = dialogResult.filePaths[0];
-    return this.options.core.invoke<PortableImportPreview>({
+    return this.options.core.invoke({
       type: "portablePreviewFile",
       path: filePath
     });
   }
 
   applyImport(input: PortableImportInput): Promise<PortableImportResult> {
-    return this.options.core.invoke<PortableImportResult>({
+    return this.options.core.invoke({
       type: "portableApply",
       importId: input.importId,
       selection: input.selection,

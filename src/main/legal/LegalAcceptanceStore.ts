@@ -20,7 +20,7 @@ export class LegalAcceptanceStore {
   }
 
   getStatus(): Promise<LegalAcceptanceStatus> {
-    return this.options.core.invoke<LegalAcceptanceStatus>({
+    return this.options.core.invoke({
       type: "legalAcceptanceStatus",
       versions: this.versions
     });
@@ -31,7 +31,7 @@ export class LegalAcceptanceStore {
   }
 
   accept(input: AcceptLegalDocumentsInput): Promise<LegalAcceptanceStatus> {
-    return this.options.core.invoke<LegalAcceptanceStatus>({
+    return this.options.core.invoke({
       type: "legalAcceptanceAccept",
       versions: this.versions,
       input

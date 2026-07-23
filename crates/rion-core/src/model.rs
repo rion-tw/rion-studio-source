@@ -75,6 +75,9 @@ pub enum CoreCommand {
     RoleBrowserDirectoryReset {
         id: String,
     },
+    RolePathsResolve {
+        id: String,
+    },
     RoleSetBrowserSessionSource {
         id: String,
         #[ts(type = "\"embedded\" | \"chrome-profile\"")]
@@ -280,6 +283,58 @@ pub enum CoreCommand {
     },
     LayoutResolve {
         input: WorkspaceLayoutInput,
+    },
+    LayoutNormalizeRects {
+        rects: Vec<LayoutRect>,
+    },
+    LayoutCreateDividers {
+        roles: Vec<LayoutRoleInput>,
+    },
+    LayoutResizeDivider {
+        input: WorkspaceDividerResizeInput,
+    },
+    LayoutAdaptiveZoom {
+        #[ts(rename = "viewportWidth")]
+        viewport_width: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "currentPercent")]
+        current_percent: Option<u32>,
+    },
+    EmbeddedKeyPrepare {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "\"hold\" | \"release\" | \"tap\"")]
+        phase: String,
+        code: String,
+        #[ts(rename = "modifierCodes")]
+        modifier_codes: Vec<String>,
+        #[ts(rename = "ownerId")]
+        owner_id: String,
+    },
+    EmbeddedKeyComplete {
+        #[ts(rename = "transitionId")]
+        transition_id: String,
+        succeeded: bool,
+    },
+    EmbeddedKeysReassert {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    EmbeddedKeysHeld {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    EmbeddedKeysClear {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    SystemPressureUpdate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "speedLimit")]
+        speed_limit: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "thermalState")]
+        thermal_state: Option<String>,
     },
     LogsCapture {
         entries: Vec<LogCaptureRecord>,
@@ -529,6 +584,7 @@ pub enum CoreCommand {
     },
     BrowserStatuses,
     BrowserWorkspaceStatuses,
+    BrowserRuntimeSnapshot,
     BrowserRuntimeSuspend {
         suspended: bool,
     },
@@ -1469,6 +1525,26 @@ pub enum StateCollection {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BulkDeleteSkippedItemRecord {
+    pub id: String,
+    #[ts(type = "\"protected\" | \"in_use\" | \"not_found\" | \"busy\" | \"failed\"")]
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub related_names: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BulkDeleteResultRecord {
+    pub deleted_ids: Vec<String>,
+    pub skipped: Vec<BulkDeleteSkippedItemRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateGameRecord {
     pub id: String,
     #[ts(type = "\"builtin\" | \"custom\"")]
@@ -1938,6 +2014,7 @@ pub enum CoreEvent {
     StateChanged {
         #[ts(type = "number")]
         revision: u64,
+        changed_collections: Vec<StateCollection>,
     },
     LogsChanged,
     LogEntriesCaptured {
@@ -3330,6 +3407,9 @@ pub enum CoreEffectAction {
     OverlayCopyCoordinate {
         coordinate: MacroCoordinateRecord,
     },
+    BrowserAction {
+        request: Box<BrowserActionRequest>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -3941,7 +4021,7 @@ pub struct MacroOverlayViewModelRecord {
 mod command_tests {
     use serde_json::json;
 
-    use super::{CoreCommand, CoreEvent};
+    use super::{CoreCommand, CoreEvent, StateCollection};
 
     #[test]
     fn enum_fields_use_the_generated_camel_case_contract() {
@@ -3959,5 +4039,15 @@ mod command_tests {
         .unwrap();
         assert_eq!(event["roleId"], "role-1");
         assert!(event.get("role_id").is_none());
+
+        let state_changed = serde_json::to_value(CoreEvent::StateChanged {
+            revision: 4,
+            changed_collections: vec![StateCollection::Roles, StateCollection::LaunchWorkspaces],
+        })
+        .unwrap();
+        assert_eq!(
+            state_changed["changedCollections"],
+            json!(["roles", "launchWorkspaces"])
+        );
     }
 }

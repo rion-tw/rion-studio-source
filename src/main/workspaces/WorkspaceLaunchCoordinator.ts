@@ -8,15 +8,18 @@ import type {
 import { resolveWorkspaceDisplayTarget } from "../../shared/workspaceDisplays";
 import {
   BrowserWorkspaceDisplayOccupiedError,
-  type BrowserManager
-} from "../browser/BrowserManager";
+  type ElectronBrowserRuntime
+} from "../browser/ElectronBrowserRuntime";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { GameCompatibilityManager } from "../games/GameCompatibilityManager";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "./LaunchWorkspaceStore";
 
 interface WorkspaceLaunchCoordinatorOptions {
-  browserManager: Pick<BrowserManager, "launchWorkspace" | "listWorkspaceDisplayReservations">;
+  browserManager: Pick<
+    ElectronBrowserRuntime,
+    "launchWorkspace" | "listWorkspaceDisplayReservations"
+  >;
   gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings">;
   gameCompatibilityManager?: Pick<GameCompatibilityManager, "recordObservation">;
   getDefaultWorkspaceDisplayId?: () => number;

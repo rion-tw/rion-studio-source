@@ -28,15 +28,14 @@ import {
   ElectronEffectExecutor,
   ElectronHandleRegistry
 } from "./core/ElectronEffectExecutor";
-import { RustStateRepository } from "./core/RustStateRepository";
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
 import {
-  BrowserManager,
-  type BrowserManagerOptions,
+  ElectronBrowserRuntime,
+  type ElectronBrowserRuntimeOptions,
   createRoleSessionPartition,
   GAME_DIVIDER_POINTER_CHANNEL
-} from "./browser/BrowserManager";
+} from "./browser/ElectronBrowserRuntime";
 import { AppQuickMenu } from "./menu/AppQuickMenu";
 import { ApplicationMenuController } from "./menu/ApplicationMenu";
 import { RuntimeTabMenuController } from "./menu/RuntimeTabMenu";
@@ -94,7 +93,11 @@ import {
   isRuntimeTabAction,
   type RuntimeTabAction
 } from "../shared/runtimeTabs";
-import type { MacroPageRequest, PendingWorkspaceLaunchRequest, Role } from "../shared/types";
+import type {
+  MacroPageRequest,
+  PendingWorkspaceLaunchRequest,
+  WorkspaceBrowserZoomPercent
+} from "../shared/types";
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "false";
 
@@ -118,7 +121,7 @@ app.on("gpu-info-update", () => {
 
 let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
-let browserManager: BrowserManager | null = null;
+let browserManager: ElectronBrowserRuntime | null = null;
 let embeddedRuntimeDiagnostics: EmbeddedRuntimeDiagnostics | null = null;
 let latestExternalFreezeReportedAt: Date | undefined;
 let appQuickMenu: AppQuickMenu | null = null;
@@ -220,7 +223,7 @@ async function exportDiagnostics() {
     ? await app.getGPUInfo("basic").catch(() => undefined)
     : undefined;
   try {
-    const exported = await appCoreClient.invokeTyped({
+    const exported = await appCoreClient.invoke({
       type: "diagnosticsExport",
       path: filePath,
       snapshot: {
@@ -468,7 +471,6 @@ async function initializeApplication(): Promise<void> {
     platform: process.platform,
     arch: process.arch
   });
-  const stateRepository = new RustStateRepository(appCoreClient);
   appCoreClient.subscribe((events) => {
     if (events.some((event) => event.type === "ready")) {
       logService.info("main", "rust_core_ready", "Rust application core is ready.", {
@@ -476,20 +478,20 @@ async function initializeApplication(): Promise<void> {
       });
     }
   });
-  const roleStore = new RoleStore(userDataDir, stateRepository, appCoreClient);
-  const gameStore = new GameStore(userDataDir, stateRepository);
-  const workspaceStore = new LaunchWorkspaceStore(userDataDir, stateRepository);
+  const roleStore = new RoleStore(userDataDir, appCoreClient);
+  const gameStore = new GameStore(userDataDir, appCoreClient);
+  const workspaceStore = new LaunchWorkspaceStore(userDataDir, appCoreClient);
   await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
   const notifyWorkspacesChanged = async (): Promise<void> => {
     appQuickMenu?.scheduleRefresh();
     broadcastWorkspacesChanged(await workspaceStore.listWorkspaces());
   };
-  const macroStore = new MacroStore(userDataDir, stateRepository);
+  const macroStore = new MacroStore(userDataDir, appCoreClient);
   const macroOverlayRef: { current?: MacroOverlayInjector } = {};
-  const macroSettingsStore = new MacroSettingsStore(userDataDir, stateRepository);
+  const macroSettingsStore = new MacroSettingsStore(userDataDir, appCoreClient);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir, { core: appCoreClient });
-  const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir, stateRepository);
-  const runtimeWindowPreferencesStore = new RuntimeWindowPreferencesStore(userDataDir, stateRepository);
+  const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir, appCoreClient);
+  const runtimeWindowPreferencesStore = new RuntimeWindowPreferencesStore(userDataDir, appCoreClient);
   const runtimeWindowPreferences = await runtimeWindowPreferencesStore.getPreferences();
   const browserProxyApplier = new BrowserProxyApplier({
     getSettings: () => gameBrowserSettingsStore.getSettings()
@@ -546,13 +548,13 @@ async function initializeApplication(): Promise<void> {
   embeddedRuntimeDiagnostics = new EmbeddedRuntimeDiagnostics(logService);
   powerMonitor.on("suspend", () => {
     embeddedRuntimeDiagnostics?.handleSuspend();
-    void appCoreClient?.invokeTyped({ type: "browserRuntimeSuspend", suspended: true });
+    void appCoreClient?.invoke({ type: "browserRuntimeSuspend", suspended: true });
   });
   powerMonitor.on("resume", () => {
     embeddedRuntimeDiagnostics?.handleResume();
-    void appCoreClient?.invokeTyped({ type: "browserRuntimeSuspend", suspended: false });
+    void appCoreClient?.invoke({ type: "browserRuntimeSuspend", suspended: false });
   });
-  browserManager = new BrowserManager({
+  browserManager = new ElectronBrowserRuntime({
     browserRuntimeState: appCoreClient!,
     applyBrowserFonts: async (role, partition) => {
       const browserUserDataDir = await roleStore.ensureBrowserUserDataDir(role.id);
@@ -586,14 +588,22 @@ async function initializeApplication(): Promise<void> {
     recordTabActivationLatency: (durationMs) =>
       appCoreClient?.recordTabActivationLatency(durationMs),
     adaptiveZoomResolver: (viewportWidth, currentPercent) =>
-      appCoreClient!.resolveAdaptiveWorkspaceZoom(viewportWidth, currentPercent),
-    normalizeWorkspaceRects: (rects) => appCoreClient!.normalizeWorkspaceRects(rects),
-    workspaceDividerResolver: (roles) => appCoreClient!.createWorkspaceDividers(roles),
-    workspaceDividerResizeResolver: (input) => appCoreClient!.resizeWorkspaceDivider(input),
-    workspaceLayoutResolver: (input: Parameters<NonNullable<BrowserManagerOptions["workspaceLayoutResolver"]>>[0]) =>
-      appCoreClient!.resolveWorkspaceLayout(input),
-    getRoleSession: (role) => role.browserSessionSource === "chrome-profile"
-      ? electronSession.fromPath(join(roleStore.getRolePaths(role.id).browserUserDataDir, "Default"))
+      appCoreClient!.invoke({
+        type: "layoutAdaptiveZoom",
+        viewportWidth,
+        ...(currentPercent === undefined ? {} : { currentPercent })
+      }).then((value) => value as WorkspaceBrowserZoomPercent),
+    workspaceDividerResolver: (roles) =>
+      appCoreClient!.invoke({ type: "layoutCreateDividers", roles }),
+    workspaceDividerResizeResolver: (input) =>
+      appCoreClient!.invoke({ type: "layoutResizeDivider", input }),
+    workspaceLayoutResolver: (input: Parameters<NonNullable<ElectronBrowserRuntimeOptions["workspaceLayoutResolver"]>>[0]) =>
+      appCoreClient!.invoke({ type: "layoutResolve", input }),
+    getRoleSession: async (role) => role.browserSessionSource === "chrome-profile"
+      ? electronSession.fromPath(join(
+          (await roleStore.getRolePaths(role.id)).browserUserDataDir,
+          "Default"
+        ))
       : undefined,
     getRuntimeTabGameIcon: async (role) => {
       const game = await gameStore.getGame(role.gameId);
@@ -637,6 +647,11 @@ async function initializeApplication(): Promise<void> {
     }
   });
   const effectCore = appCoreClient;
+  electronBrowserActionAdapter = new ElectronBrowserActionAdapter({
+    getTarget: (roleId) => browserManager?.getEmbeddedAutomationSession(roleId)?.target,
+    recordMacroScheduleToDispatchLatency: (durationMs) =>
+      appCoreClient?.recordMacroScheduleToDispatchLatency(durationMs)
+  });
   const electronProfileEffectAdapter = new ElectronProfileEffectAdapter({
     getEmbeddedSession: (roleId) =>
       electronSession.fromPartition(createRoleSessionPartition(roleId)),
@@ -658,6 +673,8 @@ async function initializeApplication(): Promise<void> {
           JSON.parse(optionsJson) as Electron.BaseWindowConstructorOptions
         ) as unknown as import("./core/ElectronEffectExecutor").ElectronWindowEffectHandle,
       dispatchResults: (results) => effectCore.dispatchCoreEffectResults(results),
+      executeBrowserActionEffect: ({ action }) =>
+        electronBrowserActionAdapter!.executeEffect(action),
       executeEmbeddedEffect: ({ action }) => browserManager!.executeEmbeddedEffect(action),
       executeExternalEffect: async ({ action }) => {
         switch (action.type) {
@@ -728,14 +745,44 @@ async function initializeApplication(): Promise<void> {
     runtimeWindowPreferences.alwaysShowToolbarInFullScreen
   );
   ipcMain.on(GAME_DIVIDER_POINTER_CHANNEL, (event, payload) => {
-    browserManager?.handleDividerPointer(event.sender.id, payload);
-  });
-  electronBrowserActionAdapter = new ElectronBrowserActionAdapter(appCoreClient, {
-    getTarget: (roleId) => browserManager?.getEmbeddedAutomationSession(roleId)?.target,
-    recordMacroScheduleToDispatchLatency: (durationMs) =>
-      appCoreClient?.recordMacroScheduleToDispatchLatency(durationMs)
+    void browserManager?.handleDividerPointer(event.sender.id, payload);
   });
   const macroManager = new RustMacroManager(appCoreClient);
+  appCoreClient.subscribe((events) => {
+    const changed = new Set(events.flatMap((event) =>
+      event.type === "stateChanged" ? event.changedCollections : []
+    ));
+    if (changed.has("games")) {
+      void gameStore.listGames().then((games) => {
+        BrowserWindow.getAllWindows().forEach((window) =>
+          sendToWindowIfAvailable(window, IPC_CHANNELS.gamesChanged, games));
+      });
+    }
+    if (changed.has("roles")) {
+      appQuickMenu?.scheduleRefresh();
+    }
+    if (changed.has("launchWorkspaces")) {
+      void workspaceStore.listWorkspaces().then((workspaces) => {
+        appQuickMenu?.scheduleRefresh();
+        broadcastWorkspacesChanged(workspaces);
+      });
+    }
+    if (changed.has("macros")) {
+      void macroStore.listMacros().then(broadcastMacrosChanged);
+    }
+    if (changed.has("compatibilityReports")) {
+      void gameCompatibilityManager.listReports().then((reports) => {
+        const statuses = gameCompatibilityManager.listStatuses();
+        BrowserWindow.getAllWindows().forEach((window) =>
+          sendToWindowIfAvailable(
+            window,
+            IPC_CHANNELS.gamesCompatibilityChanged,
+            reports,
+            statuses
+          ));
+      });
+    }
+  });
   appCoreClient.subscribe((events) => {
     for (const event of events) {
       if (event.type !== "externalHealthChanged") continue;
@@ -774,7 +821,7 @@ async function initializeApplication(): Promise<void> {
   });
   const chromeProfileImportManager = new ChromeProfileImportManager({
     closeChrome: async () => {
-      await appCoreClient!.invokeTyped({ type: "systemChromeClose" });
+      await appCoreClient!.invoke({ type: "systemChromeClose" });
     },
     core: appCoreClient,
     showOpenDialog: (options) =>
@@ -861,8 +908,8 @@ async function initializeApplication(): Promise<void> {
       const capturedAt = new Date();
       latestExternalFreezeReportedAt = capturedAt;
       const [diagnostics, windowsGraphicsEvents] = await Promise.all([
-        appCoreClient!.invokeTyped({ type: "externalDiagnosticsCapture", roleId }),
-        appCoreClient!.invokeTyped({
+        appCoreClient!.invoke({ type: "externalDiagnosticsCapture", roleId }),
+        appCoreClient!.invoke({
           type: "windowsGraphicsEventsCollect",
           since: new Date(capturedAt.getTime() - 30 * 60_000).toISOString()
         })
@@ -892,7 +939,7 @@ async function initializeApplication(): Promise<void> {
     portableDataManager,
     chromeProfileImportManager,
     clearRoleBrowserData: (roleId) =>
-      appCoreClient!.invoke<Role>({ type: "roleBrowserDataClear", roleId }),
+      appCoreClient!.invoke({ type: "roleBrowserDataClear", roleId }),
     systemFontService,
     updateManager,
     onGameBrowserSettingsChanged: () => undefined,

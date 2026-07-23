@@ -10,7 +10,7 @@ import type {
 import type { AppLanguage, Role } from "../../shared/types";
 import type { AppCoreClient } from "../core/nativeCore";
 
-type OverlayCoreClient = Pick<AppCoreClient, "invokeTyped">;
+type OverlayCoreClient = Pick<AppCoreClient, "invoke">;
 
 export type MacroOverlayRequest = MacroOverlayRequestRecord;
 
@@ -52,7 +52,7 @@ export class MacroOverlayInjector {
 
   async setLanguage(language: AppLanguage): Promise<void> {
     this.language = language;
-    await this.core.invokeTyped({ type: "overlayLanguageSet", language });
+    await this.core.invoke({ type: "overlayLanguageSet", language });
     this.refreshInstalledOverlays();
   }
 
@@ -82,7 +82,7 @@ export class MacroOverlayInjector {
       throw new Error("Embedded game view is associated with a different role.");
     }
 
-    return this.core.invokeTyped({
+    return this.core.invoke({
       type: "overlayRequest",
       roleId: installedRoleId,
       requestJson: JSON.stringify(request),
@@ -101,13 +101,13 @@ export class MacroOverlayInjector {
 
     webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
       if (isMainFrame) {
-        void this.core.invokeTyped({ type: "macroReleaseRole", roleId });
+        void this.core.invoke({ type: "macroReleaseRole", roleId });
       }
     });
 
     webContents.once("destroyed", () => {
       this.installedContents.delete(webContents);
-      void this.core.invokeTyped({ type: "macroReleaseRole", roleId });
+      void this.core.invoke({ type: "macroReleaseRole", roleId });
     });
   }
 

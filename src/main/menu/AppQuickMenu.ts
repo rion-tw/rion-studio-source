@@ -1,7 +1,7 @@
 import { Menu } from "electron";
 
 import type { PendingWorkspaceLaunchRequest } from "../../shared/types";
-import type { BrowserManager } from "../browser/BrowserManager";
+import type { ElectronBrowserRuntime } from "../browser/ElectronBrowserRuntime";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import type { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCoordinator";
@@ -9,7 +9,7 @@ import { buildAppQuickMenuTemplate } from "./AppQuickMenuTemplate";
 
 interface AppQuickMenuOptions {
   browserManager: Pick<
-    BrowserManager,
+    ElectronBrowserRuntime,
     "launch" | "listEmbeddedRuntimeState" | "listStatuses" | "listWorkspaceRuntimeStatuses" |
       "showEmbeddedRuntimeWindows" | "stopAll" | "stopWorkspace"
   >;

@@ -68,7 +68,7 @@ export class ChromeProfileImportManager {
   }
 
   async previewImport(): Promise<ChromeProfileImportPreview | null> {
-    const { path: defaultPath } = await this.options.core.invoke<{ path?: string }>({
+    const { path: defaultPath } = await this.options.core.invoke({
       type: "chromeProfileDefaultPath"
     });
     const result = await this.options.showOpenDialog({
@@ -77,7 +77,7 @@ export class ChromeProfileImportManager {
       title: "Choose Chrome User Data folder"
     });
     if (result.canceled || !result.filePaths[0]) return null;
-    return this.options.core.invoke<ChromeProfileImportPreview>({
+    return this.options.core.invoke({
       type: "chromeProfilePreview",
       sourceUserDataDir: result.filePaths[0]
     });
@@ -91,7 +91,7 @@ export class ChromeProfileImportManager {
       ? { importId: input.importId, listener: onProgress }
       : undefined;
     try {
-      return await this.options.core.invoke<ChromeProfileImportResult>({
+      return await this.options.core.invoke({
         type: "chromeProfileApply",
         ...input
       });

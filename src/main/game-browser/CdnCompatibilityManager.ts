@@ -67,7 +67,7 @@ export class CdnCompatibilityManager {
     const handleId = `cdn-session-${this.nextSessionHandleId++}`;
     this.options.handles.register(handleId, session as unknown as ElectronEffectHandle);
     try {
-      return await this.options.core.invoke<CdnResolutionRecord>({
+      return await this.options.core.invoke({
         type: "cdnResolveSession",
         sessionHandleId: handleId
       });

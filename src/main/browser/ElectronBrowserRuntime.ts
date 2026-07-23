@@ -15,12 +15,9 @@ import type {
 
 import { DEFAULT_WORKSPACE_APPEARANCE_SETTINGS } from "../../shared/browserFonts";
 import type {
-  BrowserRuntimeCommand,
-  BrowserRuntimeResult,
   BrowserRuntimeSnapshot,
   CoreEffectAction,
   CoreJsonValue,
-  LayoutRect,
   LayoutRoleInput,
   ResourceRuntimeEffectRecord,
   ResourceRuntimeTargetRecord,
@@ -68,7 +65,7 @@ import type {
   MacRuntimeTabsControllerFactory
 } from "./MacRuntimeTabsController";
 
-export interface BrowserManagerEvents {
+export interface ElectronBrowserRuntimeEvents {
   change: [RoleStatus[]];
   runtimeChange: [EmbeddedRuntimeState];
 }
@@ -116,20 +113,13 @@ export type NativeZoomPerformer = (
   webContents: WebContents,
   event: ElectronKeyboardEvent
 ) => boolean;
+type MaybePromise<T> = T | Promise<T>;
 
-export interface BrowserManagerOptions {
+export interface ElectronBrowserRuntimeOptions {
   applyBrowserFonts?: (role: Role, partition: string) => Promise<void>;
   applyBrowserProxy?: BrowserProxyApplier;
   applyCdnCompatibility?: BrowserCdnCompatibilityApplier;
-  browserRuntimeState: {
-    invokeBrowserRuntime: (command: BrowserRuntimeCommand) => BrowserRuntimeResult;
-  } & Pick<
-    AppCoreClient,
-    | "evaluateExternalChrome"
-    | "invokeTyped"
-    | "listBrowserStatuses"
-    | "listBrowserWorkspaceStatuses"
-  >;
+  browserRuntimeState: Pick<AppCoreClient, "invoke" | "subscribe">;
   createHostWindow: (options: BaseWindowConstructorOptions) => BaseWindow;
   createRuntimeChromeView?: (options: WebContentsViewConstructorOptions) => WebContentsView;
   createTabbedHostWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
@@ -140,7 +130,7 @@ export interface BrowserManagerOptions {
   runtimeTabsPageUrl?: string;
   runtimeTabsPreloadPath?: string;
   getCursorScreenPoint?: () => { x: number; y: number };
-  getRoleSession?: (role: Role) => Session | undefined;
+  getRoleSession?: (role: Role) => Session | undefined | Promise<Session | undefined>;
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getLaunchWorkArea: () => PixelBounds;
   getDefaultLaunchTarget?: () => BrowserWorkspaceLaunchTarget;
@@ -165,13 +155,12 @@ export interface BrowserManagerOptions {
   adaptiveZoomResolver: (
     viewportWidth: number,
     currentPercent?: WorkspaceBrowserZoomPercent
-  ) => WorkspaceBrowserZoomPercent;
-  normalizeWorkspaceRects: (rects: LayoutRect[]) => LayoutRect[];
-  workspaceDividerResolver: (roles: LayoutRoleInput[]) => WorkspaceDividerDescriptor[];
+  ) => MaybePromise<WorkspaceBrowserZoomPercent>;
+  workspaceDividerResolver: (roles: LayoutRoleInput[]) => MaybePromise<WorkspaceDividerDescriptor[]>;
   workspaceDividerResizeResolver: (
     input: WorkspaceDividerResizeInput
-  ) => WorkspaceDividerResizeOutput;
-  workspaceLayoutResolver: (input: WorkspaceLayoutInput) => WorkspaceLayoutOutput;
+  ) => MaybePromise<WorkspaceDividerResizeOutput>;
+  workspaceLayoutResolver: (input: WorkspaceLayoutInput) => MaybePromise<WorkspaceLayoutOutput>;
   recordTabActivationLatency?: (durationMs: number) => void;
 }
 
@@ -468,21 +457,45 @@ function getWorkspaceWindowMaterialOptions(
   return { backgroundColor: "#000000" };
 }
 
-export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
+export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeEvents> {
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
   private readonly displayHosts = new Map<number, EmbeddedDisplayHost>();
   private readonly displayHostByChromeWebContentsId = new Map<number, EmbeddedDisplayHost>();
   private readonly tabHandles = new Map<string, GameHostWindow>();
   private readonly roleHandles = new Map<string, BrowserSession>();
   private readonly workspaceTabHandleIds = new Map<string, string>();
+  private runtimeSnapshot: BrowserRuntimeSnapshot = {
+    displays: [],
+    roles: [],
+    tabs: [],
+    workspaces: []
+  };
+  private roleStatuses: RoleStatus[] = [];
+  private workspaceStatuses: BrowserWorkspaceRuntimeStatus[] = [];
   private runtimeTabsLanguage: AppLanguage = "en";
   private alwaysShowToolbarInFullScreen = false;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
 
   constructor(
-    private readonly options: BrowserManagerOptions
+    private readonly options: ElectronBrowserRuntimeOptions
   ) {
     super();
+    options.browserRuntimeState.subscribe((events) => {
+      for (const event of events) {
+        if (event.type === "browserStatuses") {
+          this.roleStatuses = event.statuses.map((status) => status as RoleStatus);
+          this.emitChange();
+        }
+      }
+    });
+    void options.browserRuntimeState.invoke({ type: "browserStatuses" })
+      .then((statuses) => {
+        this.roleStatuses = statuses.map((status) => status as RoleStatus);
+      });
+    void options.browserRuntimeState.invoke({ type: "browserWorkspaceStatuses" })
+      .then((statuses) => {
+        this.workspaceStatuses = statuses;
+      });
   }
 
   setBeforeRolesStop(handler: BeforeRolesStop): void {
@@ -497,7 +510,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
       host.workspaceAppearance = { ...settings };
       host.dividers.forEach((divider) => this.applyWorkspaceBackground(divider, settings));
-      this.layoutHost(host);
+      void this.layoutHost(host);
     });
   }
 
@@ -523,7 +536,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
           tab.tabId
         );
         for (const role of tab.roles) {
-          this.createSession(
+          await this.createSession(
             role.role,
             host,
             role.rect,
@@ -581,7 +594,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
           this.assertSessionActive(session);
           if (session.zoomMode === "adaptive") {
             const host = this.tabHandles.get(session.hostId);
-            if (host) this.layoutHost(host);
+            if (host) await this.layoutHost(host);
           } else {
             await this.applyZoom(session, role.zoomFactor);
           }
@@ -650,13 +663,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
   }
 
-  private invokeBrowserRuntime(command: BrowserRuntimeCommand): BrowserRuntimeResult {
-    const result = this.options.browserRuntimeState.invokeBrowserRuntime(command);
-    this.syncRuntimeProjection(result.snapshot);
-    return result;
-  }
-
   private syncRuntimeProjection(snapshot: BrowserRuntimeSnapshot): void {
+    this.runtimeSnapshot = snapshot;
     const displays = new Map(snapshot.displays.map((display) => [display.displayId, display]));
     this.displayHosts.forEach((handle, displayId) => {
       const display = displays.get(displayId);
@@ -759,9 +767,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   listStatuses(): RoleStatus[] {
-    return this.options.browserRuntimeState
-      .listBrowserStatuses()
-      .map((status) => status as RoleStatus);
+    return this.roleStatuses.map((status) => ({ ...status }));
   }
 
   notifyResourceStatusesChanged(): void {
@@ -769,7 +775,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   listEmbeddedRuntimeState(): EmbeddedRuntimeState {
-    const runtime = this.options.browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+    const runtime = this.runtimeSnapshot;
     const windows: EmbeddedRuntimeWindowSummary[] = runtime.displays.flatMap((display) => {
       const host = this.displayHosts.get(display.displayId);
       return host
@@ -951,7 +957,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   async showEmbeddedRuntimeWindows(displayId?: number): Promise<void> {
-    await this.options.browserRuntimeState.invokeTyped({
+    await this.options.browserRuntimeState.invoke({
       type: "embeddedWindowsShow",
       ...(displayId === undefined ? {} : { displayId })
     });
@@ -960,7 +966,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   async showRuntimeTab(tabId: string): Promise<void> {
     const startedAt = performance.now();
     try {
-      await this.options.browserRuntimeState.invokeTyped({
+      await this.options.browserRuntimeState.invoke({
         type: "embeddedTabActivate",
         tabId
       });
@@ -970,7 +976,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   async hideRuntimeTab(tabId: string): Promise<void> {
-    await this.options.browserRuntimeState.invokeTyped({
+    await this.options.browserRuntimeState.invoke({
       type: "embeddedTabHide",
       tabId
     });
@@ -985,7 +991,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   reorderRuntimeTab(tabId: string, beforeTabId?: string): void {
-    void this.options.browserRuntimeState.invokeTyped({
+    void this.options.browserRuntimeState.invoke({
       type: "embeddedTabReorder",
       tabId,
       ...(beforeTabId ? { beforeTabId } : {})
@@ -997,7 +1003,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   async moveRuntimeTab(tabId: string, displayId: number): Promise<void> {
     const targetInfo = this.getLaunchTargetForDisplay(displayId);
     if (!targetInfo) return;
-    await this.options.browserRuntimeState.invokeTyped({
+    await this.options.browserRuntimeState.invoke({
       type: "embeddedTabMove",
       tabId,
       target: targetInfo
@@ -1007,7 +1013,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   handleDisplayRemoved(displayId: number, fallbackDisplayId: number): void {
     const targetInfo = this.getLaunchTargetForDisplay(fallbackDisplayId);
     if (!targetInfo || displayId === fallbackDisplayId) return;
-    void this.options.browserRuntimeState.invokeTyped({
+    void this.options.browserRuntimeState.invoke({
       type: "embeddedDisplayRemove",
       displayId,
       fallback: targetInfo
@@ -1029,9 +1035,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   listWorkspaceDisplayReservations(): Array<{ workspaceId: string; workspaceName: string; displayId: number }> {
-    return this.options.browserRuntimeState
-      .invokeBrowserRuntime({ type: "snapshot" })
-      .snapshot.workspaces
+    return this.runtimeSnapshot.workspaces
       .filter(
         (workspace): workspace is typeof workspace & { displayId: number } =>
           workspace.exclusiveDisplay && workspace.displayId !== undefined
@@ -1044,7 +1048,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   listWorkspaceRuntimeStatuses(): BrowserWorkspaceRuntimeStatus[] {
-    return this.options.browserRuntimeState.listBrowserWorkspaceStatuses();
+    return this.workspaceStatuses.map((status) => ({ ...status }));
   }
 
   getRoleIdForWebContents(webContentsId: number): string | undefined {
@@ -1076,10 +1080,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return { role: session.role, target: session.target };
   }
 
-  evaluateExternalRole<T = unknown>(roleId: string, source: string): Promise<T> {
-    return this.options.browserRuntimeState.evaluateExternalChrome<T>(roleId, source);
-  }
-
   getExternalRoleName(roleId: string): string {
     return roleId;
   }
@@ -1092,27 +1092,25 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   captureExternalRoleDiagnostics(roleId: string) {
-    return this.options.browserRuntimeState.invokeTyped({
+    return this.options.browserRuntimeState.invoke({
       type: "externalDiagnosticsCapture",
       roleId
     });
   }
 
   recoverExternalRole(roleId: string): Promise<RoleStatus> {
-    return this.options.browserRuntimeState.invokeTyped({
+    return this.options.browserRuntimeState.invoke({
       type: "browserExternalRecover",
       roleId
     }) as Promise<RoleStatus>;
   }
 
   listExternalRoleDiagnostics() {
-    return this.options.browserRuntimeState.invokeTyped({ type: "externalDiagnosticsList" });
+    return this.options.browserRuntimeState.invoke({ type: "externalDiagnosticsList" });
   }
 
   async captureAllExternalRoleDiagnostics() {
-    const statuses = this.options.browserRuntimeState
-      .listBrowserStatuses()
-      .filter((status) => status.runtimeMode === "external");
+    const statuses = this.roleStatuses.filter((status) => status.runtimeMode === "external");
     return Promise.all(statuses.map(({ roleId }) => this.captureExternalRoleDiagnostics(roleId)));
   }
 
@@ -1120,7 +1118,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const zoomFactor = options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR;
     const target = options.target ?? this.getDefaultLaunchTarget();
     try {
-      const [status] = await this.options.browserRuntimeState.invokeTyped({
+      const [status] = await this.options.browserRuntimeState.invoke({
         type: "browserRoleLaunch",
         roleId: role.id,
         target: {
@@ -1152,7 +1150,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   ): Promise<RoleStatus[]> {
     const resolvedTarget = target ?? this.getDefaultLaunchTarget();
     try {
-      return await this.options.browserRuntimeState.invokeTyped({
+      return await this.options.browserRuntimeState.invoke({
         type: "browserWorkspaceLaunch",
         workspaceId: workspace.id,
         target: {
@@ -1163,9 +1161,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     } catch (error) {
       if (getErrorCode(error) === "LAUNCH_CANCELLED") return [];
       if (getErrorCode(error) === "WORKSPACE_DISPLAY_OCCUPIED") {
-        const occupied = this.options.browserRuntimeState
-          .invokeBrowserRuntime({ type: "snapshot" })
-          .snapshot.workspaces.find(
+        const occupied = this.runtimeSnapshot.workspaces.find(
             (candidate) =>
               candidate.exclusiveDisplay && candidate.displayId === resolvedTarget.displayId
           );
@@ -1179,14 +1175,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   async stop(roleId: string): Promise<void> {
-    await this.options.browserRuntimeState.invokeTyped({
+    await this.options.browserRuntimeState.invoke({
       type: "browserRoleStop",
       roleId
     });
   }
 
   async stopWorkspace(workspaceId: string): Promise<void> {
-    await this.options.browserRuntimeState.invokeTyped({
+    await this.options.browserRuntimeState.invoke({
       type: "browserWorkspaceStop",
       workspaceId
     });
@@ -1196,7 +1192,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await Promise.all(this.listStatuses().map((status) => this.stop(status.roleId)));
   }
 
-  handleDividerPointer(webContentsId: number, payload: unknown): void {
+  handleDividerPointer(webContentsId: number, payload: unknown): void | Promise<void> {
     const target = this.dividerByWebContentsId.get(webContentsId);
     if (!target || !isGameDividerPointerPayload(payload)) {
       return;
@@ -1214,7 +1210,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     if (payload.phase === "reset") {
       this.finishDividerResize(host);
-      this.resizeDivider(host, target.divider, target.divider.defaultPosition);
+      const reset = this.resizeDivider(host, target.divider, target.divider.defaultPosition);
+      if (isPromiseLike(reset)) return reset.then(() => undefined);
       return;
     }
 
@@ -1232,16 +1229,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (payload.phase === "start") {
       this.finishDividerResize(host);
       const result = this.resizeDivider(host, target.divider, nextPosition);
-      if (!result) {
-        return;
-      }
-
-      host.activeDividerResize = {
-        divider: target.divider,
-        roleIds: result.roleIds,
-        snappedPosition: result.position
+      const beginResize = (resolved: GameDividerResizeResult | undefined): void => {
+        if (!resolved) return;
+        host.activeDividerResize = {
+          divider: target.divider,
+          roleIds: resolved.roleIds,
+          snappedPosition: resolved.position
+        };
+        this.sendDividerResizeIndicators(resolved.roleIds, "show");
       };
-      this.sendDividerResizeIndicators(result.roleIds, "show");
+      if (isPromiseLike(result)) return result.then(beginResize);
+      beginResize(result);
       return;
     }
 
@@ -1254,13 +1252,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       nextPosition,
       activeResize?.snappedPosition
     );
-    if (!result || !activeResize || !result.changed) {
-      return;
-    }
-
-    activeResize.snappedPosition = result.position;
-    activeResize.roleIds = result.roleIds;
-    this.sendDividerResizeIndicators(result.roleIds, "update");
+    const updateResize = (resolved: GameDividerResizeResult | undefined): void => {
+      if (!resolved || !activeResize || !resolved.changed) return;
+      activeResize.snappedPosition = resolved.position;
+      activeResize.roleIds = resolved.roleIds;
+      this.sendDividerResizeIndicators(resolved.roleIds, "update");
+    };
+    if (isPromiseLike(result)) return result.then(updateResize);
+    updateResize(result);
   }
 
   private createHost(
@@ -1539,7 +1538,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (!displayHost || displayHost.window.isDestroyed()) return;
     displayHost.tabIds.forEach((tabId) => {
       const tab = this.tabHandles.get(tabId);
-      if (tab) this.layoutHost(tab);
+      if (tab) void this.layoutHost(tab);
     });
     this.layoutRuntimeChrome(displayHost);
     this.sendRuntimeChromeState(displayHost);
@@ -2149,20 +2148,29 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.emit("runtimeChange", this.listEmbeddedRuntimeState());
   }
 
-  private createSession(
+  private async createSession(
     role: Role,
     host: GameHostWindow,
     rect: NormalizedRect,
     zoomFactor: number,
     zoomMode: WorkspaceBrowserZoomMode = "fixed"
-  ): BrowserSession {
+  ): Promise<BrowserSession> {
+    const layoutPreview = await this.options.workspaceLayoutResolver({
+      active: true,
+      contentBounds: this.getTabContentBounds(host),
+      dividers: [],
+      gap: 0,
+      hidden: false,
+      roles: [{ rect, roleId: "layout-preview" }],
+      windowVisible: true
+    });
+    const previewWidth = layoutPreview.roles[0]?.bounds.width ??
+      this.getTabContentBounds(host).width;
     const initialZoomFactor = zoomMode === "adaptive"
-      ? this.options.adaptiveZoomResolver(
-          this.resolveRectBounds(rect, this.getTabContentBounds(host)).width
-        ) / 100
+      ? (await this.options.adaptiveZoomResolver(previewWidth)) / 100
       : zoomFactor;
     const partition = createRoleSessionPartition(role.id);
-    const roleSession = this.options.getRoleSession?.(role);
+    const roleSession = await this.options.getRoleSession?.(role);
     const view = this.options.createView({
       webPreferences: {
         backgroundThrottling: true,
@@ -2203,7 +2211,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.roleHandles.set(role.id, session);
     session.removeResourceInvalidation = resourceTarget.onInvalidated(() => {
       if (this.roleHandles.get(role.id) !== session) return;
-      void this.options.browserRuntimeState.invokeTyped({
+      void this.options.browserRuntimeState.invoke({
         type: "resourceRefreshTarget",
         workspaceId: host.id,
         roleId: role.id,
@@ -2238,7 +2246,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         session.zoomPersistenceTimer = undefined;
       }
       if (this.roleHandles.get(role.id) === session) {
-        void this.options.browserRuntimeState.invokeTyped({
+        void this.options.browserRuntimeState.invoke({
           type: "embeddedRoleStop",
           roleId: role.id
         }).catch(() => {
@@ -2266,7 +2274,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async createHostDividers(host: GameHostWindow): Promise<void> {
-    const descriptors = this.options.workspaceDividerResolver(
+    const descriptors = await this.options.workspaceDividerResolver(
       [...host.roleIds]
         .map((roleId) => this.roleHandles.get(roleId))
         .filter((session): session is BrowserSession => Boolean(session))
@@ -2298,7 +2306,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       loadPromises.push(view.webContents.loadURL(createDividerDataUrl(divider.axis)).then(() => undefined));
       return divider;
     });
-    this.layoutHost(host);
+    void this.layoutHost(host);
     this.bringRuntimeChromeToFront(this.getDisplayHost(host));
     await Promise.all(loadPromises);
   }
@@ -2406,7 +2414,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     displayHost: EmbeddedDisplayHost,
     direction: RuntimeTabSwitchDirection
   ): void {
-    void this.options.browserRuntimeState.invokeTyped({
+    void this.options.browserRuntimeState.invoke({
       type: "embeddedTabActivateAdjacent",
       displayId: displayHost.displayId,
       direction
@@ -2443,7 +2451,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       }
     });
 
-    popupView.setBounds(this.getSessionBounds(host, session));
+    popupView.setBounds(session.view.getBounds());
     host.window.contentView.addChildView(popupView);
     this.bringRuntimeChromeToFront(this.getDisplayHost(host));
     session.popupViews.add(popupView);
@@ -2470,14 +2478,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return popupView;
   }
 
-  private layoutHost(host: GameHostWindow): void {
+  private layoutHost(host: GameHostWindow): Promise<void> {
     const displayHost = this.getDisplayHost(host);
     if (!displayHost || !this.shouldLayoutHost(host)) {
-      return;
+      return Promise.resolve();
     }
 
     const contentBounds = this.getTabContentBounds(host);
-    const resolvedLayout = this.options.workspaceLayoutResolver({
+    const pendingLayout = this.options.workspaceLayoutResolver({
       active: displayHost.activeTabId === host.id,
       contentBounds,
       dividers: host.dividers.map((divider) => ({
@@ -2493,30 +2501,37 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       }),
       windowVisible: isWindowVisible(displayHost.window)
     });
-    const visible = resolvedLayout.visible;
-    host.roleIds.forEach((roleId) => {
-      const session = this.roleHandles.get(roleId);
-      if (!session) return;
-      session.view.setVisible(visible);
-      session.popupViews.forEach((popupView) => popupView.setVisible(visible));
-    });
-    host.dividers.forEach((divider) => divider.view.setVisible(visible));
-    if (!visible) return;
+    const applyLayout = (resolvedLayout: WorkspaceLayoutOutput): void => {
+      const visible = resolvedLayout.visible;
+      host.roleIds.forEach((roleId) => {
+        const session = this.roleHandles.get(roleId);
+        if (!session) return;
+        session.view.setVisible(visible);
+        session.popupViews.forEach((popupView) => popupView.setVisible(visible));
+      });
+      host.dividers.forEach((divider) => divider.view.setVisible(visible));
+      if (!visible) return;
 
-    const boundsByRole = new Map(
-      resolvedLayout.roles.map((role) => [role.roleId, role.bounds])
-    );
-    host.roleIds.forEach((roleId) => {
-      const session = this.roleHandles.get(roleId);
-      const bounds = boundsByRole.get(roleId);
-      if (!session || !bounds) return;
-      session.view.setBounds(bounds);
-      session.popupViews.forEach((popupView) => popupView.setBounds(bounds));
-      this.applyAdaptiveZoom(session, bounds.width);
-    });
-    resolvedLayout.dividers.forEach(({ bounds, index }) => {
-      host.dividers[index]?.view.setBounds(bounds);
-    });
+      const boundsByRole = new Map(
+        resolvedLayout.roles.map((role) => [role.roleId, role.bounds])
+      );
+      host.roleIds.forEach((roleId) => {
+        const session = this.roleHandles.get(roleId);
+        const bounds = boundsByRole.get(roleId);
+        if (!session || !bounds) return;
+        session.view.setBounds(bounds);
+        session.popupViews.forEach((popupView) => popupView.setBounds(bounds));
+        void this.applyAdaptiveZoom(session, bounds.width);
+      });
+      resolvedLayout.dividers.forEach(({ bounds, index }) => {
+        host.dividers[index]?.view.setBounds(bounds);
+      });
+    };
+    if (isPromiseLike(pendingLayout)) {
+      return pendingLayout.then((resolvedLayout) => applyLayout(resolvedLayout));
+    }
+    applyLayout(pendingLayout);
+    return Promise.resolve();
   }
 
   private shouldLayoutHost(host: GameHostWindow): boolean {
@@ -2528,50 +2543,15 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return contentBounds.width > 1 && contentBounds.height > 1;
   }
 
-  private getSessionBounds(host: GameHostWindow, session: BrowserSession): PixelBounds {
-    const bounds = this.options.workspaceLayoutResolver({
-      active: true,
-      contentBounds: this.getTabContentBounds(host),
-      dividers: host.dividers.map(({ afterRoleIds, axis, beforeRoleIds }) => ({
-        afterRoleIds,
-        axis,
-        beforeRoleIds
-      })),
-      gap: host.workspaceAppearance.gap,
-      hidden: false,
-      roles: [...host.roleIds].flatMap((roleId) => {
-        const candidate = this.roleHandles.get(roleId);
-        return candidate ? [{ rect: candidate.rect, roleId }] : [];
-      }),
-      windowVisible: true
-    }).roles.find(({ roleId }) => roleId === session.role.id)?.bounds;
-    if (!bounds) throw new Error(`Rust workspace layout omitted role ${session.role.id}.`);
-    return bounds;
-  }
-
-  private resolveRectBounds(rect: NormalizedRect, contentBounds: PixelBounds): PixelBounds {
-    const bounds = this.options.workspaceLayoutResolver({
-      active: true,
-      contentBounds,
-      dividers: [],
-      gap: 0,
-      hidden: false,
-      roles: [{ rect, roleId: "layout-preview" }],
-      windowVisible: true
-    }).roles[0]?.bounds;
-    if (!bounds) throw new Error("Rust workspace layout omitted preview bounds.");
-    return bounds;
-  }
-
   private resizeDivider(
     host: GameHostWindow,
     divider: GameDivider,
     requestedPosition: number,
     previousPosition?: number
-  ): GameDividerResizeResult | undefined {
+  ): MaybePromise<GameDividerResizeResult | undefined> {
     const dividerIndex = host.dividers.indexOf(divider);
     if (dividerIndex < 0) return undefined;
-    const result = this.options.workspaceDividerResizeResolver({
+    const pendingResult = this.options.workspaceDividerResizeResolver({
       dividerIndex,
       dividers: host.dividers.map(({ afterRoleIds, axis, beforeRoleIds, defaultPosition }) => ({
         afterRoleIds,
@@ -2586,14 +2566,17 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         return candidate ? [{ rect: candidate.rect, roleId }] : [];
       })
     });
-    if (result.changed) {
-      result.roles.forEach(({ rect, roleId }) => {
-        const session = this.roleHandles.get(roleId);
-        if (session) session.rect = rect;
-      });
-      this.layoutHost(host);
-    }
-    return { changed: result.changed, position: result.position, roleIds: result.roleIds };
+    const applyResult = (result: WorkspaceDividerResizeOutput): GameDividerResizeResult => {
+      if (result.changed) {
+        result.roles.forEach(({ rect, roleId }) => {
+          const session = this.roleHandles.get(roleId);
+          if (session) session.rect = rect;
+        });
+        void this.layoutHost(host);
+      }
+      return { changed: result.changed, position: result.position, roleIds: result.roleIds };
+    };
+    return isPromiseLike(pendingResult) ? pendingResult.then(applyResult) : applyResult(pendingResult);
   }
 
   private finishDividerResize(host: GameHostWindow, divider?: GameDivider): void {
@@ -2627,16 +2610,18 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.setSessionZoomFactor(session, zoomFactor);
   }
 
-  private applyAdaptiveZoom(session: BrowserSession, viewportWidth: number): void {
+  private applyAdaptiveZoom(session: BrowserSession, viewportWidth: number): Promise<void> {
     if (session.zoomMode !== "adaptive") {
-      return;
+      return Promise.resolve();
     }
     const currentPercent = Math.round(session.zoomFactor * 100) as WorkspaceBrowserZoomPercent;
-    const nextPercent = this.options.adaptiveZoomResolver(viewportWidth, currentPercent);
-    if (nextPercent === currentPercent) {
-      return;
-    }
-    this.setSessionZoomFactor(session, nextPercent / 100);
+    const pendingPercent = this.options.adaptiveZoomResolver(viewportWidth, currentPercent);
+    const applyPercent = (nextPercent: WorkspaceBrowserZoomPercent): void => {
+      if (nextPercent !== currentPercent) this.setSessionZoomFactor(session, nextPercent / 100);
+    };
+    if (isPromiseLike(pendingPercent)) return pendingPercent.then(applyPercent);
+    applyPercent(pendingPercent);
+    return Promise.resolve();
   }
 
   private setSessionZoomFactor(session: BrowserSession, zoomFactor: number): void {
@@ -2940,9 +2925,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private toStatus(roleId: string): RoleStatus {
-    const role = this.options.browserRuntimeState
-      .invokeBrowserRuntime({ type: "snapshot" })
-      .snapshot.roles
+    const role = this.runtimeSnapshot.roles
       .find((candidate) => candidate.roleId === roleId && candidate.runtime === "embedded");
     if (!role) {
       throw new Error("Rust browser runtime is missing the embedded role state.");
@@ -2956,9 +2939,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private isEmbeddedRoleRunning(roleId: string): boolean {
-    return this.options.browserRuntimeState
-      .invokeBrowserRuntime({ type: "snapshot" })
-      .snapshot.roles
+    return this.runtimeSnapshot.roles
       .some((role) => role.roleId === roleId && role.runtime === "embedded" && role.state === "running");
   }
 
@@ -3060,4 +3041,8 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
     typeof payload.screenPosition === "number" &&
     Number.isFinite(payload.screenPosition)
   );
+}
+
+function isPromiseLike<T>(value: MaybePromise<T>): value is Promise<T> {
+  return typeof (value as Promise<T>)?.then === "function";
 }

@@ -40,8 +40,8 @@ use crate::{
         MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
         OperationCancelResultRecord, ResourcePolicyDecision, ResourcePolicyInput,
         ResourceRuntimeCommand, ResourceRuntimeStatusRecord, ResourceRuntimeTargetRecord,
-        RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
-        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
+        RuntimeWindowPreferencesRecord, StateCollection, StateCompatibilityReportRecord,
+        StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
         StatePixelBoundsRecord, StateRoleRecord, StateWorkspaceResourcePolicyRecord,
     },
     pressure::PressureMonitor,
@@ -81,6 +81,7 @@ struct Runtime {
 
 pub struct AppCore {
     app_version: String,
+    browser_action_effects: crate::browser_action_effects::BrowserActionEffectRuntime,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
     cdn: Arc<RwLock<CdnMatcher>>,
     cdn_detection: Mutex<crate::cdn_detection::CdnDetectionRuntime>,
@@ -173,6 +174,8 @@ impl AppCore {
             })
             .transpose()?;
         let telemetry = crate::telemetry::TelemetryWorker::start(telemetry_path)?;
+        let (browser_action_sender, browser_action_receiver) =
+            crate::browser_action_effects::action_queue();
         let macro_subscribers = Arc::clone(&subscribers);
         let macro_resources = Arc::clone(&resource_controller);
         let macro_runtime = Arc::new(MacroRuntime::new(Arc::new(move |events| {
@@ -189,7 +192,17 @@ impl AppCore {
                 let _ =
                     macro_resources.enqueue(ResourceRuntimeCommand::SetMacroRoleIds { role_ids });
             }
-            broadcast_events(&macro_subscribers, events);
+            let mut public_events = Vec::with_capacity(events.len());
+            for event in events {
+                if let CoreEvent::BrowserActions { actions } = event {
+                    let _ = browser_action_sender.send(actions);
+                } else {
+                    public_events.push(event);
+                }
+            }
+            if !public_events.is_empty() {
+                broadcast_events(&macro_subscribers, public_events);
+            }
         })));
         let browser_runtime =
             Arc::new(Mutex::new(crate::browser_runtime::BrowserRuntime::default()));
@@ -261,6 +274,15 @@ impl AppCore {
         let external_automation = Arc::new(
             crate::external_automation::ExternalAutomationRuntime::new(platform_name.to_owned()),
         );
+        let browser_action_subscribers = Arc::clone(&subscribers);
+        let browser_action_effects =
+            crate::browser_action_effects::BrowserActionEffectRuntime::start(
+                browser_action_receiver,
+                Arc::new(move |events| broadcast_events(&browser_action_subscribers, events)),
+                Arc::clone(&external_automation),
+                Arc::clone(&external_health),
+                Arc::clone(&macro_runtime),
+            )?;
         let process_subscribers = Arc::clone(&subscribers);
         let process_browser_runtime = Arc::clone(&browser_runtime);
         let process_external_sessions = Arc::clone(&external_sessions);
@@ -331,6 +353,7 @@ impl AppCore {
         )?;
         let core = Self {
             app_version: options.app_version,
+            browser_action_effects,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
             browser_runtime,
             cdn: Arc::new(RwLock::new(CdnMatcher::bundled()?)),
@@ -473,6 +496,11 @@ impl AppCore {
                 let _guard = self.state_mutation_guard()?;
                 self.ensure_role_exists(&id)?;
                 serde_json::to_value(crate::role_browser_data::reset(&self.user_data_dir, &id)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::RolePathsResolve { id } => {
+                self.ensure_role_exists(&id)?;
+                serde_json::to_value(self.resolve_role_paths(&id)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::RoleSetBrowserSessionSource { id, source } => {
@@ -790,7 +818,16 @@ impl AppCore {
                         self.with_runtime(|runtime| runtime.state.replace_snapshot(snapshot))?;
                     portable.discard(&import_id);
                     if changed {
-                        self.emit(vec![CoreEvent::StateChanged { revision }]);
+                        self.emit(vec![CoreEvent::StateChanged {
+                            revision,
+                            changed_collections: vec![
+                                StateCollection::Games,
+                                StateCollection::Roles,
+                                StateCollection::LaunchWorkspaces,
+                                StateCollection::Macros,
+                                StateCollection::CompatibilityReports,
+                            ],
+                        }]);
                     }
                     serde_json::to_value(prepared.result)
                         .map_err(|error| CoreError::Internal(error.to_string()))
@@ -809,6 +846,64 @@ impl AppCore {
             }
             CoreCommand::LayoutResolve { input } => serde_json::to_value(layout::resolve(&input))
                 .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::LayoutNormalizeRects { rects } => {
+                serde_json::to_value(self.normalize_workspace_rects(&rects))
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::LayoutCreateDividers { roles } => {
+                serde_json::to_value(self.create_workspace_dividers(&roles))
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::LayoutResizeDivider { input } => {
+                serde_json::to_value(self.resize_workspace_divider(&input)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::LayoutAdaptiveZoom {
+                viewport_width,
+                current_percent,
+            } => Ok(json!(self.resolve_adaptive_workspace_zoom(
+                viewport_width,
+                current_percent,
+            ))),
+            CoreCommand::EmbeddedKeyPrepare {
+                role_id,
+                phase,
+                code,
+                modifier_codes,
+                owner_id,
+            } => serde_json::to_value(self.prepare_embedded_key_transition(
+                &role_id,
+                &phase,
+                &code,
+                &modifier_codes,
+                &owner_id,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedKeyComplete {
+                transition_id,
+                succeeded,
+            } => {
+                self.complete_embedded_key_transition(&transition_id, succeeded)?;
+                Ok(json!({ "completed": true }))
+            }
+            CoreCommand::EmbeddedKeysReassert { role_id } => {
+                serde_json::to_value(self.reassert_embedded_keys(&role_id)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::EmbeddedKeysHeld { role_id } => {
+                Ok(json!(self.has_embedded_held_keys(&role_id)?))
+            }
+            CoreCommand::EmbeddedKeysClear { role_id } => {
+                self.clear_embedded_keys(&role_id)?;
+                Ok(json!({ "cleared": true }))
+            }
+            CoreCommand::SystemPressureUpdate {
+                speed_limit,
+                thermal_state,
+            } => {
+                self.update_system_pressure_signals(speed_limit, thermal_state)?;
+                Ok(json!({ "updated": true }))
+            }
             CoreCommand::LogsCapture { entries } => {
                 let entries = self.capture_logs(entries)?;
                 let inserted = self.with_runtime(|runtime| runtime.logs.append(entries.clone()))?;
@@ -1008,7 +1103,10 @@ impl AppCore {
                         return Err(error);
                     }
                 };
-                self.emit(vec![CoreEvent::StateChanged { revision }]);
+                self.emit(vec![CoreEvent::StateChanged {
+                    revision,
+                    changed_collections: vec![StateCollection::Roles],
+                }]);
                 serde_json::to_value(prepared.result)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
@@ -1023,7 +1121,10 @@ impl AppCore {
                 let revision =
                     self.with_runtime(|runtime| runtime.state.apply_profile_roles(roles))?;
                 profile_import.finish_rollback(&import_id)?;
-                self.emit(vec![CoreEvent::StateChanged { revision }]);
+                self.emit(vec![CoreEvent::StateChanged {
+                    revision,
+                    changed_collections: vec![StateCollection::Roles],
+                }]);
                 Ok(json!({ "rolledBack": true }))
             }
             CoreCommand::ChromeProfileDiscard { import_id } => {
@@ -1186,6 +1287,15 @@ impl AppCore {
                 .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserWorkspaceStatuses => {
                 serde_json::to_value(self.browser_workspace_statuses()?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserRuntimeSnapshot => {
+                let snapshot = self
+                    .browser_runtime
+                    .lock()
+                    .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
+                    .snapshot();
+                serde_json::to_value(snapshot)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserRuntimeSuspend { suspended } => {
@@ -2288,7 +2398,10 @@ impl AppCore {
             .get("revision")
             .and_then(Value::as_u64)
             .unwrap_or_default();
-        self.emit(vec![CoreEvent::StateChanged { revision }]);
+        self.emit(vec![CoreEvent::StateChanged {
+            revision,
+            changed_collections: vec![StateCollection::Roles],
+        }]);
         Ok(prepared)
     }
 
@@ -2307,7 +2420,10 @@ impl AppCore {
             .get("revision")
             .and_then(Value::as_u64)
             .unwrap_or_default();
-        self.emit(vec![CoreEvent::StateChanged { revision }]);
+        self.emit(vec![CoreEvent::StateChanged {
+            revision,
+            changed_collections: vec![StateCollection::Roles],
+        }]);
         Ok(())
     }
 
@@ -4628,7 +4744,28 @@ impl AppCore {
         &self,
         results: Vec<CoreEffectResult>,
     ) -> CoreResult<CoreEffectDispatchReport> {
-        self.operation_actor.dispatch_results(results)
+        let mut browser_results = Vec::new();
+        let mut operation_results = Vec::new();
+        let mut browser_effect_ids = Vec::new();
+        for result in results {
+            let effect_id = result.effect_id.clone();
+            if let Some(result) =
+                crate::browser_action_effects::result_as_browser_action(result.clone())
+            {
+                browser_effect_ids.push(effect_id);
+                browser_results.push(result);
+            } else {
+                operation_results.push(result);
+            }
+        }
+        if !browser_results.is_empty() {
+            self.external_health()?
+                .dispatch_results(browser_results.clone());
+            self.macro_runtime.dispatch_results(browser_results)?;
+        }
+        let mut report = self.operation_actor.dispatch_results(operation_results)?;
+        report.accepted.extend(browser_effect_ids);
+        Ok(report)
     }
 
     pub fn match_cdn_url(&self, url: &str) -> CoreResult<Option<String>> {
@@ -4687,7 +4824,10 @@ impl AppCore {
             serde_json::to_value(value).map_err(|error| CoreError::Internal(error.to_string()))?;
         self.with_runtime(|runtime| {
             let revision = runtime.state.replace_scalar(key.to_owned(), value)?;
-            self.emit(vec![CoreEvent::StateChanged { revision }]);
+            self.emit(vec![CoreEvent::StateChanged {
+                revision,
+                changed_collections: Vec::new(),
+            }]);
             Ok(json!({ "revision": revision }))
         })
     }
@@ -4717,12 +4857,16 @@ impl AppCore {
 
     fn mutate_state(&self, mutation: StateMutation) -> CoreResult<Value> {
         let _guard = self.state_mutation_guard()?;
+        let changed_collections = mutation.changed_collections();
         let result = self.with_runtime(|runtime| runtime.state.mutate(mutation))?;
         let revision = result
             .get("revision")
             .and_then(Value::as_u64)
             .unwrap_or_default();
-        self.emit(vec![CoreEvent::StateChanged { revision }]);
+        self.emit(vec![CoreEvent::StateChanged {
+            revision,
+            changed_collections,
+        }]);
         Ok(result.get("value").cloned().unwrap_or(Value::Null))
     }
 
@@ -5055,6 +5199,7 @@ impl AppCore {
 
     pub fn shutdown(&self) {
         self.browser_operations.shutdown();
+        self.browser_action_effects.shutdown();
         self.operation_actor.shutdown();
         self.resource_controller.shutdown();
         self.overlay_refresh.shutdown();

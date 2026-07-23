@@ -132,7 +132,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   dispose(): void {
-    this.keyRuntime.clearEmbeddedKeys(this.roleId);
+    void this.keyRuntime.invoke({ type: "embeddedKeysClear", roleId: this.roleId });
     this.inputLease?.release();
     this.inputLease = undefined;
   }
@@ -179,8 +179,11 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       }
       await waitForDelay(postDelayMs, signal);
     } finally {
-      if (!hadInputLease && !this.keyRuntime.hasEmbeddedHeldKeys(this.roleId)) {
-        this.releaseInputLeaseIfIdle();
+      if (
+        !hadInputLease &&
+        !await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })
+      ) {
+        await this.releaseInputLeaseIfIdle();
       }
     }
   }
@@ -198,7 +201,10 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     await this.ensureInputLease();
     let held = false;
     try {
-      if (!hadInputLease && this.keyRuntime.hasEmbeddedHeldKeys(this.roleId)) {
+      if (
+        !hadInputLease &&
+        await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })
+      ) {
         await this.reassertHeldKeysUnlocked(signal);
       }
       await this.executePreparedKeyTransition("hold", code, modifierCodes, ownerId, signal);
@@ -213,18 +219,18 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           ownerId
         ).catch(() => undefined);
       }
-      this.releaseInputLeaseIfIdle();
+      await this.releaseInputLeaseIfIdle();
       throw error;
     }
   }
 
   private async releaseKeyUnlocked(input: MacroKeyInput, ownerId: string): Promise<void> {
-    if (this.keyRuntime.hasEmbeddedHeldKeys(this.roleId)) {
+    if (await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })) {
       await this.ensureInputLease();
     }
     const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
     await this.executePreparedKeyTransition("release", code, modifierCodes, ownerId);
-    this.releaseInputLeaseIfIdle();
+    await this.releaseInputLeaseIfIdle();
   }
 
   private async executePreparedKeyTransition(
@@ -234,13 +240,14 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     ownerId: string,
     signal?: AbortSignal
   ): Promise<void> {
-    const transition = this.keyRuntime.prepareEmbeddedKeyTransition(
-      this.roleId,
+    const transition = await this.keyRuntime.invoke({
+      type: "embeddedKeyPrepare",
+      roleId: this.roleId,
       phase,
       code,
       modifierCodes,
       ownerId
-    );
+    });
     const executed: EmbeddedKeyEffectRecord[] = [];
     try {
       for (const effect of transition.effects) {
@@ -248,7 +255,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
         executed.push(effect);
         await this.executeKeyEffect(effect);
       }
-      this.completeKeyTransition(transition, true);
+      await this.completeKeyTransition(transition, true);
     } catch (error) {
       if (!this.webContents.isDestroyed() && this.debuggerSession.isAttached()) {
         for (const effect of executed.reverse()) {
@@ -261,17 +268,21 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           }).catch(() => undefined);
         }
       }
-      this.completeKeyTransition(transition, false);
+      await this.completeKeyTransition(transition, false);
       throw error;
     }
   }
 
-  private completeKeyTransition(
+  private async completeKeyTransition(
     transition: EmbeddedKeyTransitionRecord,
     succeeded: boolean
-  ): void {
+  ): Promise<void> {
     if (transition.transitionId) {
-      this.keyRuntime.completeEmbeddedKeyTransition(transition.transitionId, succeeded);
+      await this.keyRuntime.invoke({
+        type: "embeddedKeyComplete",
+        transitionId: transition.transitionId,
+        succeeded
+      });
     }
   }
 
@@ -394,7 +405,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       if (didRelease) options.onClick?.();
       await waitForDelay(postDelayMs, signal);
     } finally {
-      this.releaseInputLeaseIfIdle();
+      await this.releaseInputLeaseIfIdle();
     }
   }
 
@@ -430,7 +441,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       if (didRelease) options.onClick?.();
       await waitForDelay(postDelayMs, signal);
     } finally {
-      this.releaseInputLeaseIfIdle();
+      await this.releaseInputLeaseIfIdle();
     }
   }
 
@@ -478,7 +489,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       if (didRelease) options.onClick?.();
       await waitForDelay(postDelayMs, signal);
     } finally {
-      this.releaseInputLeaseIfIdle();
+      await this.releaseInputLeaseIfIdle();
     }
   }
 
@@ -491,21 +502,34 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     this.inputLease = await this.debuggerSession.acquire();
   }
 
-  private releaseInputLeaseIfIdle(): void {
-    if (this.keyRuntime.hasEmbeddedHeldKeys(this.roleId)) return;
+  private async releaseInputLeaseIfIdle(): Promise<void> {
+    if (await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })) return;
     this.inputLease?.release();
     this.inputLease = undefined;
   }
 
   private scheduleHeldKeyReassertion(): void {
-    if (!this.keyRuntime.hasEmbeddedHeldKeys(this.roleId) || this.webContents.isDestroyed()) return;
-    void this.reassertHeldKeysUnlocked().catch(() => undefined);
+    if (this.webContents.isDestroyed()) return;
+    void this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })
+      .then((hasHeldKeys) => {
+        if (hasHeldKeys && !this.webContents.isDestroyed()) {
+          return this.reassertHeldKeysUnlocked();
+        }
+        return undefined;
+      })
+      .catch(() => undefined);
   }
 
   private async reassertHeldKeysUnlocked(signal?: AbortSignal): Promise<void> {
-    if (!this.keyRuntime.hasEmbeddedHeldKeys(this.roleId) || this.webContents.isDestroyed()) return;
+    if (
+      this.webContents.isDestroyed() ||
+      !await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })
+    ) return;
     await this.ensureInputLease();
-    const transition = this.keyRuntime.reassertEmbeddedKeys(this.roleId);
+    const transition = await this.keyRuntime.invoke({
+      type: "embeddedKeysReassert",
+      roleId: this.roleId
+    });
     for (const effect of transition.effects) {
       signal?.throwIfAborted();
       await this.executeKeyEffect(effect);

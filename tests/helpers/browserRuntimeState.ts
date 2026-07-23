@@ -4,6 +4,7 @@ import type {
   BrowserRoleStatusRecord,
   CoreCommand,
   CoreCommandResult,
+  CoreEvent,
   BrowserRuntimeCommand,
   BrowserRuntimeDisplayRecord,
   BrowserRuntimeRoleRecord,
@@ -25,6 +26,7 @@ export function createBrowserRuntimeState() {
   const operationQueues = new Map<string, string[]>();
   const roleVersions = new Map<string, number>();
   const blockedRoleIds = new Set<string>();
+  const listeners = new Set<(events: CoreEvent[]) => void>();
   let typedInvoker: ((command: CoreCommand) => Promise<unknown>) | undefined;
   let typedTail: Promise<void> = Promise.resolve();
   const operationTickets = new Map<string, {
@@ -127,6 +129,14 @@ export function createBrowserRuntimeState() {
   };
 
   return {
+    subscribe(listener: (events: CoreEvent[]) => void): () => void {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    publishStatuses(): void {
+      const statuses = this.listBrowserStatuses();
+      listeners.forEach((listener) => listener([{ type: "browserStatuses", statuses }]));
+    },
     invokeResourceRuntimeForTest: resourceRuntime.invokeResourceRuntime,
     evaluateExternalChrome<T>(): Promise<T> {
       return Promise.reject(new Error("External Chrome is not configured in this test harness."));
@@ -159,7 +169,16 @@ export function createBrowserRuntimeState() {
     listBrowserWorkspaceStatuses() {
       return snapshot().workspaces.map(({ state, workspaceId }) => ({ state, workspaceId }));
     },
-    invokeTyped<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
+    invoke<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
+      if (command.type === "browserStatuses") {
+        return Promise.resolve(this.listBrowserStatuses()) as Promise<CoreCommandResult<C>>;
+      }
+      if (command.type === "browserWorkspaceStatuses") {
+        return Promise.resolve(this.listBrowserWorkspaceStatuses()) as Promise<CoreCommandResult<C>>;
+      }
+      if (command.type === "browserRuntimeSnapshot") {
+        return Promise.resolve(snapshot()) as Promise<CoreCommandResult<C>>;
+      }
       if (!typedInvoker) {
         return Promise.reject(new Error("The test Rust intent executor is not configured."));
       }
@@ -403,7 +422,9 @@ export function createBrowserRuntimeState() {
           workspaces.delete(command.workspaceId);
           break;
       }
-      return { ...(createdTabId ? { createdTabId } : {}), snapshot: snapshot() };
+      const runtimeSnapshot = snapshot();
+      this.publishStatuses();
+      return { ...(createdTabId ? { createdTabId } : {}), snapshot: runtimeSnapshot };
     }
   };
 }

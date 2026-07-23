@@ -38,7 +38,7 @@ export class GraphicsDiagnosticsService {
       ? this.options.app.isHardwareAccelerationEnabled()
       : null;
 
-    return this.options.core.invoke<GraphicsDiagnosticsRecord>({
+    return this.options.core.invoke({
       type: "graphicsDiagnosticsAssemble",
       appliedSettings: this.options.appliedSettings,
       embeddedRawJson: serializeRaw(embedded.value),

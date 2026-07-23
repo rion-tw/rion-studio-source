@@ -4,7 +4,6 @@ import type { BrowserWindow, BrowserWindowConstructorOptions, Session } from "el
 
 import type { CompatibilityCoreEffectAction } from "../core/ElectronEffectExecutor";
 import type {
-  CompatibilityRunStatusRecord,
   CompatibilityVersionRecord,
   CoreEffectRequest,
   CoreJsonValue
@@ -55,7 +54,7 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
       this.statusProjection = structuredClone(event.statuses);
       this.emit("change");
     });
-    void options.core.invoke<CompatibilityRunStatusRecord[]>({ type: "compatibilityStatuses" })
+    void options.core.invoke({ type: "compatibilityStatuses" })
       .then((statuses) => {
         this.statusProjection = structuredClone(statuses);
       })
@@ -67,14 +66,14 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
   }
 
   listReports(): Promise<GameCompatibilityReport[]> {
-    return this.options.core.invoke<GameCompatibilityReport[]>({
+    return this.options.core.invoke({
       type: "compatibilityReportsCurrent",
       versions: this.versions()
     });
   }
 
   runCheck(gameId: string): Promise<GameCompatibilityReport> {
-    return this.options.core.invoke<GameCompatibilityReport>({
+    return this.options.core.invoke({
       type: "compatibilityRun",
       gameId,
       versions: this.versions()

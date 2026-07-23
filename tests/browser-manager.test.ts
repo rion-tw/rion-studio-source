@@ -4,15 +4,15 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   BrowserGameLoadError,
-  BrowserManager,
-  type BrowserManagerOptions,
+  ElectronBrowserRuntime,
+  type ElectronBrowserRuntimeOptions,
   type BrowserWorkspaceLaunchItem,
   classifyNativeZoomShortcut,
   classifyRuntimeTabSwitchShortcut,
   createRoleSessionPartition,
   isExpectedNativeZoomResult,
   normalizedRectToPixelBounds
-} from "../src/main/browser/BrowserManager";
+} from "../src/main/browser/ElectronBrowserRuntime";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
 import type {
   BrowserRuntimeSnapshot,
@@ -154,7 +154,7 @@ const persistedLayoutDividerCases: Array<[WorkspaceLayoutTemplate, PixelBounds[]
   ]]
 ];
 
-describe("BrowserManager game host windows", () => {
+describe("ElectronBrowserRuntime game host windows", () => {
   it("creates a persistent isolated partition for each role", () => {
     expect(createRoleSessionPartition("role:one/two")).toBe("persist:rion-role-role-one-two");
   });
@@ -2744,7 +2744,7 @@ describe("BrowserManager game host windows", () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      const performNativeZoom = vi.fn<NonNullable<BrowserManagerOptions["performNativeZoom"]>>(
+      const performNativeZoom = vi.fn<NonNullable<ElectronBrowserRuntimeOptions["performNativeZoom"]>>(
         () => true
       );
       const persistWorkspaceRoleZoom = vi.fn().mockResolvedValue(undefined);
@@ -3251,7 +3251,7 @@ describe("BrowserManager game host windows", () => {
   });
 
   it("uses the Rust workspace layout decision as the Electron object adapter boundary", async () => {
-    const workspaceLayoutResolver = vi.fn(() => ({
+    const workspaceLayoutResolver = vi.fn(async () => ({
       dividers: [{ bounds: { x: 490, y: 0, width: 20, height: 800 }, index: 0 }],
       roles: [
         { bounds: { x: 0, y: 0, width: 490, height: 800 }, roleId: role.id },
@@ -4177,15 +4177,15 @@ function createHarness(options: {
     | Promise<WorkspaceAppearanceSettings>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   macNativeChromeError?: Error;
-  handleRuntimeTabAction?: BrowserManagerOptions["handleRuntimeTabAction"];
-  onEmbeddedWebContentsCreated?: BrowserManagerOptions["onEmbeddedWebContentsCreated"];
-  performNativeZoom?: BrowserManagerOptions["performNativeZoom"];
-  persistWorkspaceRoleZoom?: BrowserManagerOptions["persistWorkspaceRoleZoom"];
+  handleRuntimeTabAction?: ElectronBrowserRuntimeOptions["handleRuntimeTabAction"];
+  onEmbeddedWebContentsCreated?: ElectronBrowserRuntimeOptions["onEmbeddedWebContentsCreated"];
+  performNativeZoom?: ElectronBrowserRuntimeOptions["performNativeZoom"];
+  persistWorkspaceRoleZoom?: ElectronBrowserRuntimeOptions["persistWorkspaceRoleZoom"];
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
-  workspaceLayoutResolver?: BrowserManagerOptions["workspaceLayoutResolver"];
+  workspaceLayoutResolver?: ElectronBrowserRuntimeOptions["workspaceLayoutResolver"];
   useTabbedHostWindow?: boolean;
   useMacNativeChrome?: boolean;
 } = {}) {
@@ -4193,7 +4193,7 @@ function createHarness(options: {
   const chromeViews: ReturnType<typeof createMockView>[] = [];
   const nativeChromeControllers: Array<{
     destroy: ReturnType<typeof vi.fn>;
-    emitAction: (action: Parameters<NonNullable<BrowserManagerOptions["handleRuntimeTabAction"]>>[2]) => void;
+    emitAction: (action: Parameters<NonNullable<ElectronBrowserRuntimeOptions["handleRuntimeTabAction"]>>[2]) => void;
     emitContentLayout: (layout: { heightInset: number; valid: boolean; yOffset: number }) => void;
     getContentLayout: ReturnType<typeof vi.fn>;
     prepareFullscreenTransition: ReturnType<typeof vi.fn>;
@@ -4273,7 +4273,7 @@ function createHarness(options: {
   });
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
   const browserRuntimeState = createBrowserRuntimeState();
-  const manager = new BrowserManager({
+  const manager = new ElectronBrowserRuntime({
     browserRuntimeState,
     adaptiveZoomResolver: resolveTestAdaptiveZoom,
     ...(options.applyCdnCompatibility ? { applyCdnCompatibility: options.applyCdnCompatibility } : {}),
@@ -4287,7 +4287,6 @@ function createHarness(options: {
     dividerPreloadPath: "/app/out/preload/divider.cjs",
     embeddedKeyRuntime: createEmbeddedKeyRuntimeState(),
     embeddedPreloadPath: "/app/out/preload/embedded.cjs",
-    normalizeWorkspaceRects: normalizeTestWorkspaceRects,
     runtimeTabsPageUrl: "data:text/html,runtime-tabs",
     runtimeTabsPreloadPath: "/app/out/preload/runtime-tabs.cjs",
     ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
@@ -4330,16 +4329,22 @@ function createHarness(options: {
   }>();
   const executeEmbedded = (action: CoreEffectAction): Promise<unknown> =>
     manager.executeEmbeddedEffect(
-      action as Parameters<BrowserManager["executeEmbeddedEffect"]>[0]
+      action as Parameters<ElectronBrowserRuntime["executeEmbeddedEffect"]>[0]
     );
   const applyResourceCommand = async (command: ResourceRuntimeCommand): Promise<void> => {
     let result = browserRuntimeState.invokeResourceRuntimeForTest(command);
-    if (result.effects.length === 0) return;
+    if (result.effects.length === 0) {
+      browserRuntimeState.publishStatuses();
+      return;
+    }
     const effectResult = await executeEmbedded({
       type: "embeddedApplyResourceEffects",
       effects: result.effects
     }) as { unavailableRoleIds?: string[] };
-    if ((effectResult.unavailableRoleIds?.length ?? 0) === 0) return;
+    if ((effectResult.unavailableRoleIds?.length ?? 0) === 0) {
+      browserRuntimeState.publishStatuses();
+      return;
+    }
     result = browserRuntimeState.invokeResourceRuntimeForTest({
       type: "setUnavailableRoleIds",
       roleIds: effectResult.unavailableRoleIds ?? []
@@ -4350,6 +4355,7 @@ function createHarness(options: {
         effects: result.effects
       });
     }
+    browserRuntimeState.publishStatuses();
   };
   const applyRuntime = async (
     snapshot: BrowserRuntimeSnapshot,
@@ -4521,17 +4527,23 @@ function createHarness(options: {
         } catch (error) {
           await executeEmbedded({ type: "embeddedDestroyTab", tabId });
           removeRoleRuntime(seededRole.id);
+          await applyRuntime(
+            browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot,
+            undefined,
+            [command.target.displayId]
+          );
           throw error;
         }
         const launchedAt = new Date().toISOString();
-        browserRuntimeState.invokeBrowserRuntime({
+        const runningSnapshot = browserRuntimeState.invokeBrowserRuntime({
           type: "roleTransition",
           roleId: seededRole.id,
           runtime: "embedded",
           tabId,
           state: "running",
           launchedAt
-        });
+        }).snapshot;
+        await applyRuntime(runningSnapshot);
         return [{ launchedAt, roleId: seededRole.id, runtimeMode: "embedded", state: "running" }];
       }
       case "embeddedWorkspaceLaunch": {
@@ -4650,6 +4662,11 @@ function createHarness(options: {
             type: "removeWorkspace",
             workspaceId: seeded.workspace.id
           });
+          await applyRuntime(
+            browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot,
+            undefined,
+            [command.target.displayId]
+          );
           throw error;
         }
         const launchedAt = new Date().toISOString();
@@ -4664,11 +4681,12 @@ function createHarness(options: {
             launchedAt
           });
         }
-        browserRuntimeState.invokeBrowserRuntime({
+        const runningSnapshot = browserRuntimeState.invokeBrowserRuntime({
           type: "setWorkspaceState",
           workspaceId: seeded.workspace.id,
           state: "running"
-        });
+        }).snapshot;
+        await applyRuntime(runningSnapshot);
         return roleIds.map((roleId) => ({
           launchedAt,
           roleId,
@@ -4698,6 +4716,9 @@ function createHarness(options: {
           await executeEmbedded({ type: "embeddedDestroyRole", roleId: command.roleId });
         }
         removeRoleRuntime(command.roleId);
+        await applyRuntime(
+          browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot
+        );
         return { stopped: true };
       }
       case "embeddedWorkspaceStop": {
@@ -4726,10 +4747,11 @@ function createHarness(options: {
           nextActiveTabId
         });
         runtime.roleIds.forEach(removeRoleRuntime);
-        browserRuntimeState.invokeBrowserRuntime({
+        const stoppedSnapshot = browserRuntimeState.invokeBrowserRuntime({
           type: "removeWorkspace",
           workspaceId: command.workspaceId
-        });
+        }).snapshot;
+        await applyRuntime(stoppedSnapshot);
         return { stopped: true };
       }
       case "embeddedWindowsShow": {
@@ -4819,14 +4841,14 @@ function createHarness(options: {
         });
         return { refreshed: true };
       default:
-        throw new Error(`Unexpected typed command in BrowserManager test: ${command.type}`);
+        throw new Error(`Unexpected typed command in ElectronBrowserRuntime test: ${command.type}`);
     }
   });
   const launch = manager.launch.bind(manager);
   manager.launch = ((launchRole, launchOptions) => {
     seededRoles.set(launchRole.id, launchRole);
     return launch(launchRole, launchOptions);
-  }) as BrowserManager["launch"];
+  }) as ElectronBrowserRuntime["launch"];
   const launchWorkspace = manager.launchWorkspace.bind(manager);
   manager.launchWorkspace = ((launchWorkspaceRecord, items, target, launchMode) => {
     items.forEach(({ role: itemRole }) => seededRoles.set(itemRole.id, itemRole));
@@ -4839,7 +4861,7 @@ function createHarness(options: {
       workspace: launchWorkspaceRecord
     });
     return launchWorkspace(launchWorkspaceRecord, items, target, launchMode);
-  }) as BrowserManager["launchWorkspace"];
+  }) as ElectronBrowserRuntime["launchWorkspace"];
   manager.setBeforeRolesStop(beforeRolesStop);
 
   return {
@@ -4929,7 +4951,7 @@ function createMockBrowserHost(deferFullscreenTransitions = false) {
 }
 
 function createMockNativeZoomPerformer() {
-  const perform: NonNullable<BrowserManagerOptions["performNativeZoom"]> = (
+  const perform: NonNullable<ElectronBrowserRuntimeOptions["performNativeZoom"]> = (
     action,
     _window,
     targetWebContents

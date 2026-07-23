@@ -100,6 +100,9 @@ export interface ElectronEffectExecutorOptions {
   executeCdnEffect?: (
     effect: CoreEffectRequest & { action: CdnCoreEffectAction }
   ) => Promise<CoreJsonValue | undefined>;
+  executeBrowserActionEffect?: (
+    effect: CoreEffectRequest & { action: BrowserCoreEffectAction }
+  ) => Promise<CoreJsonValue | undefined>;
   executeCompatibilityEffect?: (
     effect: CoreEffectRequest & { action: CompatibilityCoreEffectAction }
   ) => Promise<CoreJsonValue | undefined>;
@@ -223,6 +226,15 @@ export class ElectronEffectExecutor {
         );
       }
       return this.options.executeCdnEffect({ ...effect, action });
+    }
+    if (isBrowserEffectAction(action)) {
+      if (!this.options.executeBrowserActionEffect) {
+        throw effectError(
+          "ELECTRON_EFFECT_UNSUPPORTED",
+          "The embedded browser action effect adapter is unavailable."
+        );
+      }
+      return this.options.executeBrowserActionEffect({ ...effect, action });
     }
 
     const handle = this.handles.require(target.handleId);
@@ -356,6 +368,11 @@ export type CdnCoreEffectAction = Extract<
   { type: "cdnProbeGoogle" }
 >;
 
+export type BrowserCoreEffectAction = Extract<
+  CoreEffectRequest["action"],
+  { type: "browserAction" }
+>;
+
 function isEmbeddedEffectAction(
   action: CoreEffectRequest["action"]
 ): action is EmbeddedCoreEffectAction {
@@ -390,6 +407,12 @@ function isCdnEffectAction(
   action: CoreEffectRequest["action"]
 ): action is CdnCoreEffectAction {
   return action.type === "cdnProbeGoogle";
+}
+
+function isBrowserEffectAction(
+  action: CoreEffectRequest["action"]
+): action is BrowserCoreEffectAction {
+  return action.type === "browserAction";
 }
 
 function webContentsOf(handle: ElectronEffectHandle): ElectronWebContentsEffectHandle {

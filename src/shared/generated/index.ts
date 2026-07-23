@@ -20,6 +20,8 @@ export type { BrowserRuntimeTabRecord } from "./BrowserRuntimeTabRecord";
 export type { BrowserRuntimeWorkspaceRecord } from "./BrowserRuntimeWorkspaceRecord";
 export type { BrowserWorkspaceStatusRecord } from "./BrowserWorkspaceStatusRecord";
 export type { BootstrapPlanRecord } from "./BootstrapPlanRecord";
+export type { BulkDeleteResultRecord } from "./BulkDeleteResultRecord";
+export type { BulkDeleteSkippedItemRecord } from "./BulkDeleteSkippedItemRecord";
 export type { CdnRule } from "./CdnRule";
 export type { CdnResolutionRecord } from "./CdnResolutionRecord";
 export type { ChromiumSwitchRecord } from "./ChromiumSwitchRecord";

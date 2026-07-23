@@ -6,7 +6,7 @@ import type {
   Role,
   RoleStatus
 } from "../../shared/types";
-import type { BrowserWorkspaceRuntimeStatus } from "../browser/BrowserManager";
+import type { BrowserWorkspaceRuntimeStatus } from "../browser/ElectronBrowserRuntime";
 
 export interface AppQuickMenuState {
   includeQuit: boolean;

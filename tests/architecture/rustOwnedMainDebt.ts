@@ -20,33 +20,7 @@ const debt = (
  * requires deleting its manifest entry in the commit that transfers ownership.
  */
 export const RUST_OWNED_MAIN_DEBT = {
-  authoritativeMaps: [
-    debt(
-      "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.externalRefreshStates",
-      10,
-      "External overlay refresh scheduling."
-    ),
-    debt(
-      "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.contentRefreshStates",
-      10,
-      "Embedded overlay refresh scheduling."
-    ),
-    debt(
-      "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.pendingClickStatuses",
-      10,
-      "Macro click status retention."
-    ),
-    debt(
-      "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.previousMacroStatuses",
-      10,
-      "Macro status projection."
-    ),
-    debt(
-      "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.previousRolePresentation",
-      10,
-      "Role status projection."
-    )
-  ],
+  authoritativeMaps: [],
   coreIntervals: [],
   nodeIoImports: [],
   orchestrationMethods: [],

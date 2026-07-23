@@ -52,10 +52,6 @@ import type { GameCompatibilityManager } from "../games/GameCompatibilityManager
 import type { GameStore } from "../games/GameStore";
 import type { LegalAcceptanceStore } from "../legal/LegalAcceptanceStore";
 import type { MacroRuntimeManager } from "../macros/MacroRuntimeManager";
-import {
-  isMacroOverlayRequest,
-  type MacroOverlayRequest
-} from "../macros/MacroOverlayInjector";
 import type { MacroStore } from "../macros/MacroStore";
 import type { MacroSettingsStore } from "../macros/MacroSettingsStore";
 import type { PortableDataManager } from "../portable/PortableDataManager";
@@ -85,7 +81,7 @@ interface RegisterIpcHandlersOptions {
   consumePendingWorkspaceLaunchRequest?: () => PendingWorkspaceLaunchRequest | null;
   onGameBrowserSettingsChanged?: () => void;
   onMacrosChanged?: () => void;
-  onMacroOverlayRequest?: (webContents: WebContents, request: MacroOverlayRequest) => Promise<unknown>;
+  onMacroOverlayRequest?: (webContents: WebContents, request: unknown) => Promise<unknown>;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
   onLegalAccepted?: () => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
@@ -325,8 +321,8 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.macrosConsumePageRequest, () => options.consumePendingMacroPageRequest?.() ?? null);
 
-  handle(IPC_CHANNELS.macrosOverlayRequest, (event, request: MacroOverlayRequest) => {
-    if (!options.onMacroOverlayRequest || !isMacroOverlayRequest(request)) {
+  handle(IPC_CHANNELS.macrosOverlayRequest, (event, request: unknown) => {
+    if (!options.onMacroOverlayRequest) {
       throw new Error("Macro overlay request is invalid.");
     }
 

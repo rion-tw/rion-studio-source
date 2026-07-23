@@ -216,6 +216,38 @@ impl ExternalAutomationRuntime {
         serde_json::from_str(&value).map_err(|error| CoreError::Internal(error.to_string()))
     }
 
+    pub fn role_ids(&self) -> CoreResult<Vec<String>> {
+        let mut role_ids = self
+            .targets
+            .read()
+            .map_err(|_| CoreError::Internal("external target lock poisoned".to_owned()))?
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        role_ids.sort();
+        Ok(role_ids)
+    }
+
+    pub async fn refresh_overlay(&self, role_id: &str) -> CoreResult<()> {
+        let target = self.target(role_id)?;
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            target.cdp.send(
+                "Runtime.evaluate".to_owned(),
+                Some(json!({
+                    "expression":"void window.__rionStudioMacroOverlay?.refresh?.()"
+                })),
+                None,
+                None,
+            ),
+        )
+        .await
+        .map_err(|_| {
+            CoreError::ExternalChrome("external overlay refresh timed out".to_owned())
+        })??;
+        Ok(())
+    }
+
     pub async fn dispatch(
         &self,
         actions: Vec<BrowserActionRequest>,

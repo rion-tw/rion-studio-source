@@ -109,6 +109,9 @@ export interface ElectronEffectExecutorOptions {
   executeExternalEffect?: (
     effect: CoreEffectRequest & { action: ExternalCoreEffectAction }
   ) => Promise<CoreJsonValue | undefined>;
+  executeOverlayEffect?: (
+    effect: CoreEffectRequest & { action: OverlayCoreEffectAction }
+  ) => Promise<CoreJsonValue | undefined>;
   executeProfileEffect?: (
     effect: CoreEffectRequest & { action: ProfileCoreEffectAction }
   ) => Promise<CoreJsonValue | undefined>;
@@ -184,6 +187,15 @@ export class ElectronEffectExecutor {
         );
       }
       return this.options.executeExternalEffect({ ...effect, action });
+    }
+    if (isOverlayEffectAction(action)) {
+      if (!this.options.executeOverlayEffect) {
+        throw effectError(
+          "ELECTRON_EFFECT_UNSUPPORTED",
+          "The macro overlay presentation effect adapter is unavailable."
+        );
+      }
+      return this.options.executeOverlayEffect({ ...effect, action });
     }
     if (isProfileEffectAction(action)) {
       if (!this.options.executeProfileEffect) {
@@ -306,11 +318,15 @@ export type ExternalCoreEffectAction = Extract<
   CoreEffectRequest["action"],
   {
     type:
-      | "externalOverlayRequest"
       | "externalOverlaySource"
       | "externalPrepareSession"
       | "externalResolvePhysicalBounds";
   }
+>;
+
+export type OverlayCoreEffectAction = Extract<
+  CoreEffectRequest["action"],
+  { type: "overlayCopyCoordinate" | "overlayOpenMacroPage" }
 >;
 
 export type ProfileCoreEffectAction = Extract<
@@ -350,6 +366,12 @@ function isExternalEffectAction(
   action: CoreEffectRequest["action"]
 ): action is ExternalCoreEffectAction {
   return action.type.startsWith("external");
+}
+
+function isOverlayEffectAction(
+  action: CoreEffectRequest["action"]
+): action is OverlayCoreEffectAction {
+  return action.type === "overlayCopyCoordinate" || action.type === "overlayOpenMacroPage";
 }
 
 function isProfileEffectAction(

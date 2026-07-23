@@ -34,7 +34,6 @@ const allowedMapProperties = new Set([
   "src/main/browser/EmbeddedRuntimeDiagnostics.ts:EmbeddedRuntimeDiagnostics.records",
   "src/main/games/GameCompatibilityManager.ts:GameCompatibilityManager.windows",
   "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.contentRoleIds",
-  "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.externalHostRoleIds",
   "src/main/startup/startupWindow.ts:RendererReadyGate.pendingByWebContentsId"
 ]);
 const rustOwnedOrchestrationName = /^(?:withRoleOperation)$/;

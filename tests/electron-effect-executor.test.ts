@@ -173,4 +173,44 @@ describe("ElectronEffectExecutor", () => {
     ]);
     expect(report.accepted).toEqual([effect.effectId]);
   });
+
+  it("routes overlay presentation effects without retaining overlay state", async () => {
+    const executeOverlayEffect = vi.fn(async () => undefined);
+    const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
+      clearSessionStorage: vi.fn(async () => undefined),
+      createView: vi.fn(),
+      createWindow: vi.fn(),
+      dispatchResults: vi.fn(async () => ({
+        accepted: [],
+        duplicate: [],
+        late: [],
+        unknown: [],
+        operationMismatch: []
+      })),
+      executeOverlayEffect,
+      sendDebuggerCommand: vi.fn(async () => null),
+      setCookie: vi.fn(async () => undefined)
+    });
+    const openEffect = request({
+      type: "overlayOpenMacroPage",
+      roleId: "role-1"
+    });
+    const copyEffect = request({
+      type: "overlayCopyCoordinate",
+      coordinate: {
+        xPercent: 25,
+        xPx: 320,
+        viewportHeightPx: 720,
+        viewportWidthPx: 1_280,
+        yPercent: 75,
+        yPx: 540
+      }
+    });
+
+    await expect(executor.execute(openEffect)).resolves.toMatchObject({ ok: true });
+    await expect(executor.execute(copyEffect)).resolves.toMatchObject({ ok: true });
+
+    expect(executeOverlayEffect).toHaveBeenNthCalledWith(1, openEffect);
+    expect(executeOverlayEffect).toHaveBeenNthCalledWith(2, copyEffect);
+  });
 });

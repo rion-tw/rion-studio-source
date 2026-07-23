@@ -27,9 +27,9 @@ use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
     GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
-    MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings, MacroSettingsRecord,
-    MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
-    RuntimeWindowPreferencesRecord, StateCompatibilityObservationsRecord,
+    MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings,
+    MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
+    RoleUpdateInputRecord, RuntimeWindowPreferencesRecord, StateCompatibilityObservationsRecord,
     StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
     StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord,
     WorkspaceUpdateInputRecord,
@@ -60,6 +60,7 @@ enum Request {
     DomainMutation(Box<StateMutation>, Sender<CoreResult<Value>>),
     Metadata(Sender<CoreResult<Value>>),
     MacroConfiguration(Sender<CoreResult<(Vec<MacroDefinition>, MacroRuntimeSettings)>>),
+    OverlayConfiguration(Sender<CoreResult<(Vec<MacroDefinition>, MacroBadgePositionRecord)>>),
     RecoverPortableImport(PathBuf, Sender<CoreResult<bool>>),
     OperationJournals(Sender<CoreResult<Vec<OperationJournalRecord>>>),
     OperationJournalPut(OperationJournalRecord, Sender<CoreResult<()>>),
@@ -283,6 +284,12 @@ impl StateDatabaseWorker {
         request(&self.sender, Request::MacroConfiguration)
     }
 
+    pub fn overlay_configuration(
+        &self,
+    ) -> CoreResult<(Vec<MacroDefinition>, MacroBadgePositionRecord)> {
+        request(&self.sender, Request::OverlayConfiguration)
+    }
+
     pub fn recover_portable_import(&self, user_data_dir: PathBuf) -> CoreResult<bool> {
         let (response_sender, response_receiver) = bounded(1);
         self.sender
@@ -378,6 +385,9 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             }
             Request::MacroConfiguration(response) => {
                 let _ = response.send(read_macro_configuration(&connection));
+            }
+            Request::OverlayConfiguration(response) => {
+                let _ = response.send(read_overlay_configuration(&connection));
             }
             Request::RecoverPortableImport(user_data_dir, response) => {
                 let result = recover_sqlite_portable_import(&mut connection, &user_data_dir);
@@ -1109,6 +1119,30 @@ fn read_macro_configuration(
             default_loop_delay_ms: settings.default_loop_delay_ms,
         },
     ))
+}
+
+fn read_overlay_configuration(
+    connection: &Connection,
+) -> CoreResult<(Vec<MacroDefinition>, MacroBadgePositionRecord)> {
+    let (macros, _) = read_macro_configuration(connection)?;
+    let settings = connection
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='gameBrowserSettings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+        .map(|payload| {
+            serde_json::from_str::<GameBrowserSettingsRecord>(&payload).map_err(|error| {
+                CoreError::StateDatabase(format!(
+                    "stored game browser settings are invalid: {error}"
+                ))
+            })
+        })
+        .transpose()?
+        .unwrap_or_else(default_game_browser_settings);
+    Ok((macros, settings.macro_badge_position))
 }
 
 fn recover_sqlite_portable_import(

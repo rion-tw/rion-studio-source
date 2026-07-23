@@ -448,6 +448,9 @@ describe("macro overlay interactions", () => {
 
       statuses = [];
       await controller.refresh();
+      expect(layer.hidden).toBe(false);
+      expect(layer.querySelectorAll(".click-marker")).toHaveLength(2);
+      await new Promise((resolve) => setTimeout(resolve, 190));
       expect(layer.hidden).toBe(true);
       expect(layer.querySelectorAll(".click-marker")).toHaveLength(0);
     } finally {

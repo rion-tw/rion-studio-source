@@ -22,16 +22,6 @@ const debt = (
 export const RUST_OWNED_MAIN_DEBT = {
   authoritativeMaps: [
     debt(
-      "src/main/game-browser/CdnCompatibilityManager.ts:CdnCompatibilityManager.cache",
-      8,
-      "CDN detection cache and TTL authority."
-    ),
-    debt(
-      "src/main/game-browser/CdnCompatibilityManager.ts:CdnCompatibilityManager.inFlightDetections",
-      8,
-      "CDN probe deduplication authority."
-    ),
-    debt(
       "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.externalRefreshStates",
       10,
       "External overlay refresh scheduling."
@@ -106,13 +96,11 @@ export const RUST_OWNED_MAIN_DEBT = {
     debt("prepareEmbeddedKeyTransition", 5, "Embedded input effect."),
     debt("prepareExternalChromeProfile", 7, "Profile import operation actor."),
     debt("reassertEmbeddedKeys", 5, "Held-key recovery effect."),
-    debt("replaceCdnRules", 8, "CDN rule update command."),
     debt("resizeWorkspaceDivider", 3, "Layout decision command."),
     debt("resolveAdaptiveWorkspaceZoom", 3, "Layout decision command."),
     debt("resolveResourcePolicy", 5, "Resource policy remains internal to Rust."),
     debt("resolveRolePaths", 7, "Profile filesystem operation."),
     debt("resolveWorkspaceLayout", 3, "Layout decision command."),
-    debt("rewriteCdnUrl", 8, "Renamed to the explicit synchronous CDN hot path."),
     debt("scheduleWait", 5, "Scheduling remains internal to Rust."),
     debt("setExternalChromeWindowBounds", 4, "External window operation actor effect."),
     debt("unregisterExternalChromeAutomation", 4, "External CDP lifecycle remains internal to Rust."),

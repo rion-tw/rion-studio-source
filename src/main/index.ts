@@ -26,7 +26,7 @@ import { ElectronProfileEffectAdapter } from "./browser/ElectronProfileEffectAda
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { RustWindowsGraphicsEventCollector } from "./browser/RustWindowsGraphicsEventCollector";
 import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
-import { AppCoreClient, readBootstrapGraphicsSettings } from "./core/nativeCore";
+import { AppCoreClient, readBootstrapPlan } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
 import {
   ElectronEffectExecutor,
@@ -46,16 +46,10 @@ import { ApplicationMenuController } from "./menu/ApplicationMenu";
 import { RuntimeTabMenuController } from "./menu/RuntimeTabMenu";
 import { buildWindowsTrayMenuTemplate } from "./tray/WindowsTrayMenu";
 import { BrowserProxyApplier } from "./game-browser/BrowserProxyApplier";
-import {
-  CdnCompatibilityManager,
-  getCdnCompatibilityRules
-} from "./game-browser/CdnCompatibilityManager";
+import { CdnCompatibilityManager } from "./game-browser/CdnCompatibilityManager";
 import { GameBrowserSettingsStore } from "./game-browser/GameBrowserSettingsStore";
-import { GraphicsDiagnosticsService, readGpuDevice } from "./game-browser/GraphicsDiagnosticsService";
-import {
-  configureChromiumCommandLine,
-  normalizeAppliedBrowserGraphicsSettings
-} from "./game-browser/BrowserLaunchConfiguration";
+import { GraphicsDiagnosticsService } from "./game-browser/GraphicsDiagnosticsService";
+import { configureChromiumCommandLine } from "./game-browser/BrowserLaunchConfiguration";
 import { RustSystemFontService } from "./game-browser/RustSystemFontService";
 import { GameCompatibilityManager } from "./games/GameCompatibilityManager";
 import { GameStore } from "./games/GameStore";
@@ -116,13 +110,15 @@ const testUserDataPath = resolveTestUserDataPath();
 if (testUserDataPath) app.setPath("userData", testUserDataPath);
 
 const bootstrapUserDataDir = app.getPath("userData");
-const appliedBrowserGraphicsSettings = normalizeAppliedBrowserGraphicsSettings(readBootstrapGraphicsSettings({
+const bootstrapPlan = readBootstrapPlan({
   appVersion: app.getVersion(),
   isPackaged: app.isPackaged,
+  platform: process.platform,
   resourcesPath: process.resourcesPath,
   userDataDir: bootstrapUserDataDir
-}));
-configureChromiumCommandLine(app.commandLine, appliedBrowserGraphicsSettings, process.platform);
+}, app.commandLine.getSwitchValue("enable-features"), app.commandLine.getSwitchValue("disable-features"));
+const appliedBrowserGraphicsSettings = bootstrapPlan.appliedGraphicsSettings;
+configureChromiumCommandLine(app.commandLine, bootstrapPlan.switches);
 let gpuInfoReady = false;
 app.on("gpu-info-update", () => {
   gpuInfoReady = true;
@@ -303,7 +299,7 @@ async function exportDiagnostics() {
         scaleFactor: display.scaleFactor
       })),
       gpuFeatureStatus: app.getGPUFeatureStatus(),
-      ...(readGpuDevice(gpuInfo) ? { gpuDevice: readGpuDevice(gpuInfo) } : {})
+      ...(gpuInfo === undefined ? {} : { gpuInfo })
     },
     externalChrome,
     windowsGraphicsEvents,
@@ -586,10 +582,20 @@ async function initializeApplication(): Promise<void> {
   const browserProxyApplier = new BrowserProxyApplier({
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
-  appCoreClient.replaceCdnRules(getCdnCompatibilityRules());
+  const electronEffectHandles = new ElectronHandleRegistry();
   const cdnCompatibilityManager = new CdnCompatibilityManager({
-    getSettings: () => gameBrowserSettingsStore.getSettings(),
-    rewriteUrl: (url: string) => appCoreClient?.rewriteCdnUrl(url)
+    core: appCoreClient,
+    handles: electronEffectHandles,
+    matchCdnUrl: (url: string) => appCoreClient?.matchCdnUrl(url)
+  });
+  const gameCompatibilityManager = new GameCompatibilityManager({
+    applyCdnCompatibility: async (session) => {
+      await cdnCompatibilityManager.applyToSession(session);
+    },
+    applyProxy: (session) => browserProxyApplier.applyToSession(session),
+    core: appCoreClient,
+    createWindow: (options) => new BrowserWindow(options),
+    getLaunchWorkArea: () => getMainWindowDisplayWorkArea()
   });
   const systemFontService = new RustSystemFontService(appCoreClient);
   const updateManager = new AppUpdateManager({
@@ -726,7 +732,7 @@ async function initializeApplication(): Promise<void> {
       electronSession.fromPath(join(browserUserDataDir, "Default"))
   });
   const electronEffectExecutor = new ElectronEffectExecutor(
-    new ElectronHandleRegistry(),
+    electronEffectHandles,
     {
       clearSessionStorage: async (sessionHandle, storages) => {
         await electronSession.fromPartition(sessionHandle.partition).clearStorageData({
@@ -785,6 +791,8 @@ async function initializeApplication(): Promise<void> {
         await electronProfileEffectAdapter.execute(action);
         return undefined;
       },
+      executeCdnEffect: (effect) => cdnCompatibilityManager.executeEffect(effect),
+      executeCompatibilityEffect: (effect) => gameCompatibilityManager.executeEffect(effect),
       sendDebuggerCommand: async (contents, method, params) => {
         const electronContents = contents as Electron.WebContents;
         if (!electronContents.debugger.isAttached()) electronContents.debugger.attach("1.3");
@@ -905,28 +913,10 @@ async function initializeApplication(): Promise<void> {
       statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state, runtimeMode: status.runtimeMode }))
     });
   });
-  const gameCompatibilityManager = new GameCompatibilityManager({
-    applyCdnCompatibility: async (session) => {
-      await cdnCompatibilityManager.applyToSession(session);
-    },
-    applyProxy: (session) => browserProxyApplier.applyToSession(session),
-    core: appCoreClient,
-    createWindow: (options) => new BrowserWindow(options),
-    getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
-    isSystemChromeAvailable: () => {
-      try {
-        appCoreClient!.findSystemChromeExecutable();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-  });
   const graphicsDiagnosticsService = new GraphicsDiagnosticsService({
     app,
     appliedSettings: appliedBrowserGraphicsSettings,
-    browserManager,
-    gameBrowserSettingsStore,
+    core: appCoreClient,
     isGpuInfoReady: () => gpuInfoReady
   });
   const workspaceLauncher = new WorkspaceLaunchCoordinator({

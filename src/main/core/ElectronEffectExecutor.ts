@@ -97,6 +97,12 @@ export interface ElectronEffectExecutorOptions {
   createView: (optionsJson: string) => ElectronViewEffectHandle;
   createWindow: (optionsJson: string) => ElectronWindowEffectHandle;
   dispatchResults: (results: CoreEffectResult[]) => Promise<CoreEffectDispatchReport>;
+  executeCdnEffect?: (
+    effect: CoreEffectRequest & { action: CdnCoreEffectAction }
+  ) => Promise<CoreJsonValue | undefined>;
+  executeCompatibilityEffect?: (
+    effect: CoreEffectRequest & { action: CompatibilityCoreEffectAction }
+  ) => Promise<CoreJsonValue | undefined>;
   executeEmbeddedEffect?: (
     effect: CoreEffectRequest & { action: EmbeddedCoreEffectAction }
   ) => Promise<CoreJsonValue | undefined>;
@@ -187,6 +193,24 @@ export class ElectronEffectExecutor {
         );
       }
       return this.options.executeProfileEffect({ ...effect, action });
+    }
+    if (isCompatibilityEffectAction(action)) {
+      if (!this.options.executeCompatibilityEffect) {
+        throw effectError(
+          "ELECTRON_EFFECT_UNSUPPORTED",
+          "The compatibility effect adapter is unavailable."
+        );
+      }
+      return this.options.executeCompatibilityEffect({ ...effect, action });
+    }
+    if (isCdnEffectAction(action)) {
+      if (!this.options.executeCdnEffect) {
+        throw effectError(
+          "ELECTRON_EFFECT_UNSUPPORTED",
+          "The CDN probe effect adapter is unavailable."
+        );
+      }
+      return this.options.executeCdnEffect({ ...effect, action });
     }
 
     const handle = this.handles.require(target.handleId);
@@ -299,6 +323,23 @@ export type ProfileCoreEffectAction = Extract<
   }
 >;
 
+export type CompatibilityCoreEffectAction = Extract<
+  CoreEffectRequest["action"],
+  {
+    type:
+      | "compatibilityCreateWindow"
+      | "compatibilityConfigureSession"
+      | "compatibilityLoadUrl"
+      | "compatibilityProbeGraphics"
+      | "compatibilityCleanupWindow";
+  }
+>;
+
+export type CdnCoreEffectAction = Extract<
+  CoreEffectRequest["action"],
+  { type: "cdnProbeGoogle" }
+>;
+
 function isEmbeddedEffectAction(
   action: CoreEffectRequest["action"]
 ): action is EmbeddedCoreEffectAction {
@@ -315,6 +356,18 @@ function isProfileEffectAction(
   action: CoreEffectRequest["action"]
 ): action is ProfileCoreEffectAction {
   return action.type.startsWith("chromeProfile") || action.type === "roleBrowserDataClearSession";
+}
+
+function isCompatibilityEffectAction(
+  action: CoreEffectRequest["action"]
+): action is CompatibilityCoreEffectAction {
+  return action.type.startsWith("compatibility");
+}
+
+function isCdnEffectAction(
+  action: CoreEffectRequest["action"]
+): action is CdnCoreEffectAction {
+  return action.type === "cdnProbeGoogle";
 }
 
 function webContentsOf(handle: ElectronEffectHandle): ElectronWebContentsEffectHandle {

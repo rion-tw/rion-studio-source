@@ -172,6 +172,11 @@ pub enum CoreCommand {
     CompatibilityReportsCurrent {
         versions: CompatibilityVersionRecord,
     },
+    CompatibilityRun {
+        #[ts(rename = "gameId")]
+        game_id: String,
+        versions: CompatibilityVersionRecord,
+    },
     GameBrowserSettingsGet,
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,
@@ -243,11 +248,30 @@ pub enum CoreCommand {
         #[ts(rename = "importId")]
         import_id: String,
     },
-    CdnReplaceRules {
-        rules: Vec<CdnRule>,
+    CdnResolveSession {
+        #[ts(rename = "sessionHandleId")]
+        session_handle_id: String,
     },
-    CdnRewriteUrl {
-        url: String,
+    GraphicsDiagnosticsAssemble {
+        #[ts(rename = "appliedSettings")]
+        applied_settings: BrowserGraphicsSettingsRecord,
+        #[ts(rename = "embeddedRawJson")]
+        embedded_raw_json: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "embeddedError")]
+        embedded_error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "gpuInfoRawJson")]
+        gpu_info_raw_json: Option<String>,
+        #[ts(rename = "featureStatusRawJson")]
+        feature_status_raw_json: String,
+        #[ts(rename = "gpuInfoReady")]
+        gpu_info_ready: bool,
+        #[serde(default)]
+        #[ts(type = "boolean | null", rename = "hardwareAccelerationEnabled")]
+        hardware_acceleration_enabled: Option<bool>,
+        platform: String,
+        versions: GraphicsVersionRecord,
     },
     ResourceResolve {
         input: ResourcePolicyInput,
@@ -1716,6 +1740,106 @@ pub struct CompatibilityCheckPlanRecord {
     pub started_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromiumSwitchRecord {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BootstrapPlanRecord {
+    pub applied_graphics_settings: BrowserGraphicsSettingsRecord,
+    pub switches: Vec<ChromiumSwitchRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CdnResolutionRecord {
+    pub enabled: bool,
+    pub request_patterns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GraphicsVersionRecord {
+    pub chromium: String,
+    pub electron: String,
+    pub node: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GraphicsDeviceDiagnosticsRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub device_id: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub device_string: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub driver_vendor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub driver_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub vendor_id: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub vendor_string: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalGraphicsDiagnosticsRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub probe: Option<StateWebGraphicsRecord>,
+    pub role_id: String,
+    pub role_name: String,
+    #[ts(type = "\"ready\" | \"unavailable\"")]
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GraphicsDiagnosticsRecord {
+    pub applied_settings: BrowserGraphicsSettingsRecord,
+    pub applied_switches: Vec<String>,
+    pub collected_at: String,
+    pub embedded: StateWebGraphicsRecord,
+    pub external_roles: Vec<ExternalGraphicsDiagnosticsRecord>,
+    pub feature_status: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub gpu_device: Option<GraphicsDeviceDiagnosticsRecord>,
+    pub gpu_info_ready: bool,
+    #[ts(type = "boolean | null")]
+    pub hardware_acceleration_enabled: Option<bool>,
+    pub platform: String,
+    pub restart_required: bool,
+    pub saved_settings: BrowserGraphicsSettingsRecord,
+    pub versions: GraphicsVersionRecord,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(
     tag = "kind",
@@ -2919,6 +3043,26 @@ pub enum CoreEffectAction {
         browser_user_data_dir: String,
         #[ts(type = "\"embedded\" | \"chrome-profile\"")]
         session_source: String,
+    },
+    CompatibilityCreateWindow {
+        plan: CompatibilityCheckPlanRecord,
+    },
+    CompatibilityConfigureSession {
+        game_id: String,
+    },
+    CompatibilityLoadUrl {
+        game_id: String,
+        url: String,
+    },
+    CompatibilityProbeGraphics {
+        game_id: String,
+        source: String,
+    },
+    CompatibilityCleanupWindow {
+        game_id: String,
+    },
+    CdnProbeGoogle {
+        url: String,
     },
     SetAudioMuted {
         muted: bool,

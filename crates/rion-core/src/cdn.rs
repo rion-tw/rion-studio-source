@@ -1,4 +1,5 @@
 use regex::{Captures, Regex};
+use serde::Deserialize;
 use url::Url;
 
 use crate::{
@@ -8,7 +9,6 @@ use crate::{
 
 #[derive(Debug)]
 struct CompiledRule {
-    id: String,
     matcher: Regex,
     substitution: String,
     source_host: String,
@@ -19,7 +19,22 @@ pub struct CdnMatcher {
     rules: Vec<CompiledRule>,
 }
 
+#[derive(Deserialize)]
+struct RulesDocument {
+    rules: Vec<CdnRule>,
+}
+
 impl CdnMatcher {
+    pub fn bundled() -> CoreResult<Self> {
+        let document = serde_json::from_str::<RulesDocument>(include_str!(
+            "../assets/cdn_compatibility_rules.json"
+        ))
+        .map_err(|error| CoreError::Internal(format!("bundled CDN rules are invalid: {error}")))?;
+        let mut matcher = Self::default();
+        matcher.replace_rules(document.rules)?;
+        Ok(matcher)
+    }
+
     pub fn replace_rules(&mut self, rules: Vec<CdnRule>) -> CoreResult<()> {
         let mut compiled = Vec::with_capacity(rules.len());
         for rule in rules {
@@ -32,7 +47,6 @@ impl CdnMatcher {
                 CoreError::InvalidInput(format!("invalid CDN rule {}: {error}", rule.id))
             })?;
             compiled.push(CompiledRule {
-                id: rule.id,
                 matcher,
                 substitution: convert_substitution(&rule.regex_substitution),
                 source_host: rule.source_host.to_ascii_lowercase(),
@@ -56,10 +70,6 @@ impl CdnMatcher {
                 .into_owned();
             (rewritten != input).then_some(rewritten)
         })
-    }
-
-    pub fn rule_ids(&self) -> Vec<&str> {
-        self.rules.iter().map(|rule| rule.id.as_str()).collect()
     }
 
     pub fn request_patterns(&self) -> Vec<String> {
@@ -127,5 +137,16 @@ mod tests {
             Some("https://ajax.loli.net/a.js".to_owned())
         );
         assert_eq!(matcher.rewrite("https://example.com/a.js"), None);
+    }
+
+    #[test]
+    fn bundled_rules_compile_and_expose_the_eight_filtered_hosts() {
+        let matcher = CdnMatcher::bundled().unwrap();
+        assert_eq!(matcher.request_patterns().len(), 8);
+        assert!(
+            matcher
+                .request_patterns()
+                .contains(&"https://www.google.com/*".to_owned())
+        );
     }
 }

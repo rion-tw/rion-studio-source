@@ -4,6 +4,7 @@ mod browser_operations;
 mod browser_preferences;
 mod browser_runtime;
 mod cdn;
+mod cdn_detection;
 mod chrome_cookies;
 mod chrome_profile_import;
 mod compatibility_runtime;
@@ -17,6 +18,7 @@ mod external_health;
 mod external_processes;
 mod external_runtime;
 mod external_sessions;
+mod graphics_diagnostics;
 mod layout;
 mod legal;
 mod macro_graph;
@@ -35,30 +37,32 @@ mod system_fonts;
 mod windows_graphics_events;
 
 pub use app::AppCore;
-pub use bootstrap_settings::read_graphics_settings as read_bootstrap_graphics_settings;
+pub use bootstrap_settings::read_plan as read_bootstrap_plan;
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use external_chrome::{CdpEvent, ExternalChromeCdpSession};
 pub use model::{
-    AppCoreOptions, BrowserAction, BrowserActionRequest, BrowserActionResult,
+    AppCoreOptions, BootstrapPlanRecord, BrowserAction, BrowserActionRequest, BrowserActionResult,
     BrowserCdnCompatibilityRecord, BrowserFontSettingsRecord, BrowserGraphicsBackendSettingsRecord,
     BrowserGraphicsSettingsRecord, BrowserNetworkSettingsRecord, BrowserOperationLease,
     BrowserOperationRequest, BrowserProxySettingsRecord, BrowserRoleStatusRecord,
     BrowserRuntimeCommand, BrowserRuntimeDisplayRecord, BrowserRuntimeResult,
     BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot, BrowserRuntimeTabRecord,
-    BrowserRuntimeWorkspaceRecord, BrowserWorkspaceStatusRecord, CdnRule, ChromeProfileEntryRecord,
-    ChromeProfileImportCommitRecord, ChromeProfileImportPrepareRecord,
+    BrowserRuntimeWorkspaceRecord, BrowserWorkspaceStatusRecord, CdnResolutionRecord, CdnRule,
+    ChromeProfileEntryRecord, ChromeProfileImportCommitRecord, ChromeProfileImportPrepareRecord,
     ChromeProfileImportPreviewRecord, ChromeProfileImportProgressRecord,
     ChromeProfileImportRequest, ChromeProfileImportResultRecord, ChromeProfileImportWarningRecord,
-    ChromeProfileImportedSessionRecord, CompatibilityCheckOutcome, CompatibilityCheckPlanRecord,
-    CompatibilityRunPhase, CompatibilityRunStatusRecord, CompatibilityVersionRecord, CoreCommand,
-    CoreEffectAction, CoreEffectDispatchReport, CoreEffectMetricsRecord, CoreEffectRequest,
-    CoreEffectResult, CoreEffectTarget, CoreEvent, CoreStateSnapshotRecord,
-    EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchResultRecord,
-    EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord,
-    EmbeddedTabEffectRecord, ExternalBrowserActionDispatch, ExternalChromeDiagnosticsRecord,
+    ChromeProfileImportedSessionRecord, ChromiumSwitchRecord, CompatibilityCheckOutcome,
+    CompatibilityCheckPlanRecord, CompatibilityRunPhase, CompatibilityRunStatusRecord,
+    CompatibilityVersionRecord, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
+    CoreEffectMetricsRecord, CoreEffectRequest, CoreEffectResult, CoreEffectTarget, CoreEvent,
+    CoreStateSnapshotRecord, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
+    EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
+    EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, ExternalBrowserActionDispatch,
+    ExternalChromeDiagnosticsRecord, ExternalGraphicsDiagnosticsRecord,
     ExternalPrepareSessionResultRecord, ExternalSessionCommand, ExternalSessionRecord,
     ExternalSessionResult, GameBrowserSettingsRecord, GameCreateInputRecord, GameCreateRequest,
-    GameUpdateInputRecord, GameUpdateRequest, LayoutBounds, LayoutDividerBounds,
+    GameUpdateInputRecord, GameUpdateRequest, GraphicsDeviceDiagnosticsRecord,
+    GraphicsDiagnosticsRecord, GraphicsVersionRecord, LayoutBounds, LayoutDividerBounds,
     LayoutDividerInput, LayoutRect, LayoutRoleBounds, LayoutRoleInput,
     LegalAcceptDocumentsInputRecord, LegalAcceptanceRecord, LegalAcceptanceStatusRecord,
     LegalDocumentVersionsRecord, LogEntry, LogErrorDetails, LogLevel, LogQuery, LogSource,
@@ -126,7 +130,10 @@ mod generated_contract_tests {
                 "export type { BrowserRuntimeTabRecord } from \"./BrowserRuntimeTabRecord\";\n",
                 "export type { BrowserRuntimeWorkspaceRecord } from \"./BrowserRuntimeWorkspaceRecord\";\n",
                 "export type { BrowserWorkspaceStatusRecord } from \"./BrowserWorkspaceStatusRecord\";\n",
+                "export type { BootstrapPlanRecord } from \"./BootstrapPlanRecord\";\n",
                 "export type { CdnRule } from \"./CdnRule\";\n",
+                "export type { CdnResolutionRecord } from \"./CdnResolutionRecord\";\n",
+                "export type { ChromiumSwitchRecord } from \"./ChromiumSwitchRecord\";\n",
                 "export type { ChromeProfileEntryRecord } from \"./ChromeProfileEntryRecord\";\n",
                 "export type { ChromeProfileImportCommitRecord } from \"./ChromeProfileImportCommitRecord\";\n",
                 "export type { ChromeProfileImportPrepareRecord } from \"./ChromeProfileImportPrepareRecord\";\n",
@@ -161,6 +168,7 @@ mod generated_contract_tests {
                 "export type { EmbeddedTabEffectRecord } from \"./EmbeddedTabEffectRecord\";\n",
                 "export type { ExternalBrowserActionDispatch } from \"./ExternalBrowserActionDispatch\";\n",
                 "export type { ExternalChromeDiagnosticsRecord } from \"./ExternalChromeDiagnosticsRecord\";\n",
+                "export type { ExternalGraphicsDiagnosticsRecord } from \"./ExternalGraphicsDiagnosticsRecord\";\n",
                 "export type { ExternalPrepareSessionResultRecord } from \"./ExternalPrepareSessionResultRecord\";\n",
                 "export type { ExternalSessionCommand } from \"./ExternalSessionCommand\";\n",
                 "export type { ExternalSessionRecord } from \"./ExternalSessionRecord\";\n",
@@ -170,6 +178,9 @@ mod generated_contract_tests {
                 "export type { GameCreateRequest } from \"./GameCreateRequest\";\n",
                 "export type { GameUpdateInputRecord } from \"./GameUpdateInputRecord\";\n",
                 "export type { GameUpdateRequest } from \"./GameUpdateRequest\";\n",
+                "export type { GraphicsDeviceDiagnosticsRecord } from \"./GraphicsDeviceDiagnosticsRecord\";\n",
+                "export type { GraphicsDiagnosticsRecord } from \"./GraphicsDiagnosticsRecord\";\n",
+                "export type { GraphicsVersionRecord } from \"./GraphicsVersionRecord\";\n",
                 "export type { LayoutBounds } from \"./LayoutBounds\";\n",
                 "export type { LayoutDividerBounds } from \"./LayoutDividerBounds\";\n",
                 "export type { LayoutDividerInput } from \"./LayoutDividerInput\";\n",
@@ -282,14 +293,17 @@ mod generated_contract_tests {
                 "import type { BrowserRoleStatusRecord } from \"./BrowserRoleStatusRecord\";\n",
                 "import type { BrowserRuntimeSnapshot } from \"./BrowserRuntimeSnapshot\";\n",
                 "import type { BrowserWorkspaceStatusRecord } from \"./BrowserWorkspaceStatusRecord\";\n",
+                "import type { CdnResolutionRecord } from \"./CdnResolutionRecord\";\n",
                 "import type { CoreCommand } from \"./CoreCommand\";\n",
                 "import type { CoreEffectMetricsRecord } from \"./CoreEffectMetricsRecord\";\n",
                 "import type { EmbeddedLaunchResultRecord } from \"./EmbeddedLaunchResultRecord\";\n",
                 "import type { ExternalChromeDiagnosticsRecord } from \"./ExternalChromeDiagnosticsRecord\";\n",
-                "import type { OperationCancelResultRecord } from \"./OperationCancelResultRecord\";\n\n",
+                "import type { GraphicsDiagnosticsRecord } from \"./GraphicsDiagnosticsRecord\";\n",
+                "import type { OperationCancelResultRecord } from \"./OperationCancelResultRecord\";\n",
+                "import type { StateCompatibilityReportRecord } from \"./StateCompatibilityReportRecord\";\n\n",
                 "export type CoreJsonValue = null | boolean | number | string | CoreJsonValue[] | { [key: string]: CoreJsonValue };\n\n",
                 "type DefaultCoreCommandResultMap = { [K in CoreCommand[\"type\"]]: CoreJsonValue };\n\n",
-                "export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, \"operationCancel\" | \"coreEffectMetrics\" | \"embeddedRoleLaunch\" | \"embeddedWorkspaceLaunch\" | \"embeddedWindowsShow\" | \"embeddedTabActivate\" | \"embeddedTabActivateAdjacent\" | \"embeddedTabHide\" | \"embeddedTabReorder\" | \"embeddedTabMove\" | \"embeddedDisplayRemove\" | \"browserRoleLaunch\" | \"browserWorkspaceLaunch\" | \"browserExternalRecover\" | \"browserStatuses\" | \"browserWorkspaceStatuses\" | \"externalDiagnosticsCapture\" | \"externalDiagnosticsList\"> & {\n",
+                "export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, \"operationCancel\" | \"coreEffectMetrics\" | \"embeddedRoleLaunch\" | \"embeddedWorkspaceLaunch\" | \"embeddedWindowsShow\" | \"embeddedTabActivate\" | \"embeddedTabActivateAdjacent\" | \"embeddedTabHide\" | \"embeddedTabReorder\" | \"embeddedTabMove\" | \"embeddedDisplayRemove\" | \"browserRoleLaunch\" | \"browserWorkspaceLaunch\" | \"browserExternalRecover\" | \"browserStatuses\" | \"browserWorkspaceStatuses\" | \"externalDiagnosticsCapture\" | \"externalDiagnosticsList\" | \"compatibilityRun\" | \"cdnResolveSession\" | \"graphicsDiagnosticsAssemble\"> & {\n",
                 "  operationCancel: OperationCancelResultRecord;\n",
                 "  coreEffectMetrics: CoreEffectMetricsRecord;\n",
                 "  embeddedRoleLaunch: EmbeddedLaunchResultRecord[];\n",
@@ -308,6 +322,9 @@ mod generated_contract_tests {
                 "  browserWorkspaceStatuses: BrowserWorkspaceStatusRecord[];\n",
                 "  externalDiagnosticsCapture: ExternalChromeDiagnosticsRecord;\n",
                 "  externalDiagnosticsList: ExternalChromeDiagnosticsRecord[];\n",
+                "  compatibilityRun: StateCompatibilityReportRecord;\n",
+                "  cdnResolveSession: CdnResolutionRecord;\n",
+                "  graphicsDiagnosticsAssemble: GraphicsDiagnosticsRecord;\n",
                 "};\n\n",
                 "export type CoreCommandResult<C extends CoreCommand> = CoreCommandResultMap[C[\"type\"]];\n",
             ),

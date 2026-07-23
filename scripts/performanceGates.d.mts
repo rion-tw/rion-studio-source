@@ -17,7 +17,21 @@ export interface PerformanceSummary {
   runtimeTelemetry?: Partial<Record<
     "ipcCommand" | "macroScheduleToDispatch" | "tabActivation",
     LatencySummary
-  >>;
+  >> & {
+    coreEffects?: {
+      acknowledgedEffectCount: number;
+      activeOperationCount: number;
+      effectAckLatency: LatencySummary;
+      emittedEffectCount: number;
+      launchEffectCount: number;
+      launchOperationCount: number;
+      operationCapacity: number;
+      peakPendingEffectCount: number;
+      pendingEffectCapacity: number;
+      pendingEffectCount: number;
+    };
+    napi?: LatencySummary & { callCount: number };
+  };
 }
 
 export interface PerformanceComparison {
@@ -32,6 +46,16 @@ export interface PerformanceComparison {
     tabActivationP95RegressionPercent?: number;
   };
   missingTelemetryMetrics: string[];
+  diagnostics: {
+    effectQueuePeak?: number;
+    effectQueueCapacity?: number;
+    effectAckP95Ms?: number;
+    launchEffectCount?: number;
+    launchOperationCount?: number;
+    effectsPerLaunch: number;
+    napiCallCount?: number;
+    napiP95Ms?: number;
+  };
   passed: boolean;
 }
 

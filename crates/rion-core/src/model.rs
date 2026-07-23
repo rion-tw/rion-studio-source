@@ -595,6 +595,44 @@ pub enum CoreCommand {
     ExternalDiagnosticsList,
 }
 
+impl CoreCommand {
+    pub fn requires_async_dispatch(&self) -> bool {
+        matches!(
+            self,
+            Self::GameDelete { .. }
+                | Self::GamesDelete { .. }
+                | Self::RoleUpdate { .. }
+                | Self::RoleDelete { .. }
+                | Self::RolesDelete { .. }
+                | Self::RoleBrowserDataClear { .. }
+                | Self::WorkspaceCreate { .. }
+                | Self::WorkspaceUpdate { .. }
+                | Self::WorkspaceDelete { .. }
+                | Self::WorkspacesDelete { .. }
+                | Self::MacroCreate { .. }
+                | Self::MacroUpdate { .. }
+                | Self::MacroDelete { .. }
+                | Self::MacrosDelete { .. }
+                | Self::ChromeProfileApply { .. }
+                | Self::CompatibilityRun { .. }
+                | Self::CdnResolveSession { .. }
+                | Self::GraphicsDiagnosticsAssemble { .. }
+                | Self::DiagnosticsExport { .. }
+                | Self::SystemChromeClose
+                | Self::OverlayRequest { .. }
+                | Self::BrowserRoleLaunch { .. }
+                | Self::BrowserWorkspaceLaunch { .. }
+                | Self::BrowserRoleStop { .. }
+                | Self::BrowserWorkspaceStop { .. }
+                | Self::BrowserExternalRecover { .. }
+                | Self::ExternalDiagnosticsCapture { .. }
+                | Self::ResourceActivateWorkspace { .. }
+                | Self::ResourceDeactivateWorkspace { .. }
+                | Self::ResourceRefreshTarget { .. }
+        )
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -3138,6 +3176,7 @@ pub struct PerformanceTelemetryRecord {
     pub ipc_command: LatencySummaryRecord,
     pub macro_schedule_to_dispatch: LatencySummaryRecord,
     pub napi: NapiLatencySummaryRecord,
+    pub core_effects: CoreEffectMetricsRecord,
     #[ts(type = "number")]
     pub process_launch_count: u64,
     #[ts(type = "number")]
@@ -3446,14 +3485,24 @@ pub struct CoreEffectDispatchReport {
     pub operation_mismatch: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct CoreEffectMetricsRecord {
     pub pending_effect_count: u32,
+    pub peak_pending_effect_count: u32,
     pub active_operation_count: u32,
     pub pending_effect_capacity: u32,
     pub operation_capacity: u32,
+    #[ts(type = "number")]
+    pub emitted_effect_count: u64,
+    #[ts(type = "number")]
+    pub acknowledged_effect_count: u64,
+    pub effect_ack_latency: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub launch_operation_count: u64,
+    #[ts(type = "number")]
+    pub launch_effect_count: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -4049,5 +4098,34 @@ mod command_tests {
             state_changed["changedCollections"],
             json!(["roles", "launchWorkspaces"])
         );
+    }
+
+    #[test]
+    fn resource_effect_commands_use_the_async_dispatcher() {
+        for command in [
+            json!({
+                "type": "resourceActivateWorkspace",
+                "workspaceId": "workspace-1",
+                "policyMode": "adaptive",
+                "targets": []
+            }),
+            json!({
+                "type": "resourceDeactivateWorkspace",
+                "workspaceId": "workspace-1"
+            }),
+            json!({
+                "type": "resourceRefreshTarget",
+                "workspaceId": "workspace-1",
+                "roleId": "role-1",
+                "processId": 42
+            }),
+        ] {
+            assert!(
+                serde_json::from_value::<CoreCommand>(command)
+                    .unwrap()
+                    .requires_async_dispatch()
+            );
+        }
+        assert!(!CoreCommand::BrowserStatuses.requires_async_dispatch());
     }
 }

@@ -42,6 +42,11 @@ describe("generated Rust core contracts", () => {
     expect(action).toContain('{ "type": "debuggerCommand"');
     expect(result).toContain("error: CoreErrorPayload | null");
     expect(resultMap).toContain("export type CoreCommandResultMap");
+    const metrics = await readFile("src/shared/generated/CoreEffectMetricsRecord.ts", "utf8");
+    expect(metrics).toContain("peakPendingEffectCount: number");
+    expect(metrics).toContain("effectAckLatency: LatencySummaryRecord");
+    expect(metrics).toContain("launchOperationCount: number");
+    expect(metrics).toContain("launchEffectCount: number");
     for (const contract of [event, request, action, result, resultMap]) {
       expect(contract).not.toContain("unknown");
     }

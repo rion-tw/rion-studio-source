@@ -112,7 +112,13 @@ try {
   const effectMetrics = JSON.parse(await core.invoke(JSON.stringify({ type: "coreEffectMetrics" })));
   if (
     effectMetrics.pendingEffectCount !== 0 ||
-    !Number.isSafeInteger(effectMetrics.pendingEffectCapacity)
+    !Number.isSafeInteger(effectMetrics.pendingEffectCapacity) ||
+    !Number.isSafeInteger(effectMetrics.peakPendingEffectCount) ||
+    !Number.isSafeInteger(effectMetrics.emittedEffectCount) ||
+    !Number.isSafeInteger(effectMetrics.acknowledgedEffectCount) ||
+    !Number.isFinite(effectMetrics.effectAckLatency?.p95Ms) ||
+    !Number.isSafeInteger(effectMetrics.launchOperationCount) ||
+    !Number.isSafeInteger(effectMetrics.launchEffectCount)
   ) {
     throw new Error(`Rust core effect metrics are invalid: ${JSON.stringify(effectMetrics)}.`);
   }

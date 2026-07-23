@@ -1,9 +1,9 @@
 import type {
+  BulkDeleteResult,
   CreateGameInput,
   Game,
   UpdateGameInput
 } from "../../shared/types";
-import type { RoleStore } from "../roles/RoleStore";
 import type { StateRepository } from "../core/RustStateRepository";
 
 export class GameStoreError extends Error {
@@ -27,7 +27,6 @@ export class GameStoreError extends Error {
 export class GameStore {
   constructor(
     _userDataDir: string,
-    private readonly roleStore: Pick<RoleStore, "assignGameIds" | "listRoles">,
     private readonly stateRepository: StateRepository
   ) {}
 
@@ -52,23 +51,14 @@ export class GameStore {
   }
 
   async deleteGame(id: string): Promise<void> {
-    try {
-      await this.repository().deleteGame(id);
-    } catch (error) {
-      if (getErrorCode(error) !== "GAME_IN_USE") throw error;
-      const assignedRoles = (await this.roleStore.listRoles()).filter((role) => role.gameId === id);
-      throw new GameStoreError("GAME_IN_USE", "Move or delete assigned roles before deleting this game.", {
-        roleCount: assignedRoles.length,
-        roleNames: assignedRoles.map((role) => role.name)
-      });
-    }
+    await this.repository().deleteGame(id);
+  }
+
+  deleteGames(ids: string[]): Promise<BulkDeleteResult> {
+    return this.repository().deleteGames(ids);
   }
 
   private repository(): StateRepository {
     return this.stateRepository;
   }
-}
-
-function getErrorCode(error: unknown): string | undefined {
-  return error instanceof Error && "code" in error ? String(error.code) : undefined;
 }

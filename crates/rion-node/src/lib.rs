@@ -363,7 +363,20 @@ impl NativeAppCore {
         let core = Arc::clone(&self.inner);
         let value = if matches!(
             command,
-            CoreCommand::BrowserRoleLaunch { .. }
+            CoreCommand::GameDelete { .. }
+                | CoreCommand::GamesDelete { .. }
+                | CoreCommand::RoleUpdate { .. }
+                | CoreCommand::RoleDelete { .. }
+                | CoreCommand::RolesDelete { .. }
+                | CoreCommand::WorkspaceCreate { .. }
+                | CoreCommand::WorkspaceUpdate { .. }
+                | CoreCommand::WorkspaceDelete { .. }
+                | CoreCommand::WorkspacesDelete { .. }
+                | CoreCommand::MacroCreate { .. }
+                | CoreCommand::MacroUpdate { .. }
+                | CoreCommand::MacroDelete { .. }
+                | CoreCommand::MacrosDelete { .. }
+                | CoreCommand::BrowserRoleLaunch { .. }
                 | CoreCommand::BrowserWorkspaceLaunch { .. }
                 | CoreCommand::BrowserRoleStop { .. }
                 | CoreCommand::BrowserWorkspaceStop { .. }

@@ -187,6 +187,10 @@ export class MemoryStateRepository implements StateRepository {
     await this.replace("games", games.filter((game) => game.id !== id));
   }
 
+  async deleteGames(ids: string[]): Promise<BulkDeleteResult> {
+    return this.deleteMany(ids, () => this.listGames(), (id) => this.deleteGame(id));
+  }
+
   async listRoles(): Promise<Role[]> {
     return this.read("roles", []);
   }
@@ -250,6 +254,10 @@ export class MemoryStateRepository implements StateRepository {
     const roles = await this.listRoles();
     if (!roles.some((role) => role.id === id)) throw codedError("ROLE_NOT_FOUND", "Role not found.");
     await this.replace("roles", roles.filter((role) => role.id !== id));
+  }
+
+  async deleteRoles(ids: string[]): Promise<BulkDeleteResult> {
+    return this.deleteMany(ids, () => this.listRoles(), (id) => this.deleteRole(id));
   }
 
   async setRoleBrowserSessionSource(id: string, source: RoleBrowserSessionSource): Promise<Role> {
@@ -328,6 +336,14 @@ export class MemoryStateRepository implements StateRepository {
 
   async deleteWorkspace(id: string): Promise<void> {
     await this.replace("launchWorkspaces", (await this.listWorkspaces()).filter((item) => item.id !== id));
+  }
+
+  async deleteWorkspaces(ids: string[]): Promise<BulkDeleteResult> {
+    return this.deleteMany(
+      ids,
+      () => this.listWorkspaces(),
+      (id) => this.deleteWorkspace(id)
+    );
   }
 
   async clearWorkspaceRole(roleId: string): Promise<void> {
@@ -421,6 +437,23 @@ export class MemoryStateRepository implements StateRepository {
       ...macro,
       roleIds: macro.roleIds.filter((id) => id !== roleId)
     })));
+  }
+
+  private async deleteMany(
+    ids: string[],
+    list: () => Promise<Array<{ id: string }>>,
+    remove: (id: string) => Promise<void>
+  ): Promise<BulkDeleteResult> {
+    const normalized = [...new Set(ids)];
+    const existing = new Set((await list()).map((item) => item.id));
+    const deletedIds = normalized.filter((id) => existing.has(id));
+    for (const id of deletedIds) await remove(id);
+    return {
+      deletedIds,
+      skipped: normalized
+        .filter((id) => !existing.has(id))
+        .map((id) => ({ id, reason: "not_found" }))
+    };
   }
 
   listCompatibilityReports(): Promise<GameCompatibilityReport[]> {

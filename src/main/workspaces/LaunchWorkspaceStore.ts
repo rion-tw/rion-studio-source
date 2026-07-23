@@ -1,4 +1,5 @@
 import type {
+  BulkDeleteResult,
   CreateLaunchWorkspaceInput,
   LaunchWorkspace,
   ReorderItemsInput,
@@ -69,6 +70,10 @@ export class LaunchWorkspaceStore {
 
   deleteWorkspace(id: string): Promise<void> {
     return this.repository().deleteWorkspace(id);
+  }
+
+  deleteWorkspaces(ids: string[]): Promise<BulkDeleteResult> {
+    return this.repository().deleteWorkspaces(ids);
   }
 
   clearRole(roleId: string): Promise<void> {

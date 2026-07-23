@@ -48,12 +48,14 @@ export interface StateRepository {
   updateGame(id: string, input: UpdateGameInput): Promise<Game>;
   resetBuiltinGame(id: string): Promise<Game>;
   deleteGame(id: string): Promise<void>;
+  deleteGames(ids: string[]): Promise<BulkDeleteResult>;
   listRoles(): Promise<Role[]>;
   getRole(id: string): Promise<Role>;
   createRole(input: CreateRoleInput): Promise<Role>;
   updateRole(id: string, input: UpdateRoleInput): Promise<Role>;
   reorderRoles(orderedIds: string[]): Promise<Role[]>;
   deleteRole(id: string): Promise<void>;
+  deleteRoles(ids: string[]): Promise<BulkDeleteResult>;
   setRoleBrowserSessionSource(id: string, source: RoleBrowserSessionSource): Promise<Role>;
   assignRoleGameIds(assignments: ReadonlyMap<string, string>): Promise<Role[]>;
   listWorkspaces(): Promise<LaunchWorkspace[]>;
@@ -62,6 +64,7 @@ export interface StateRepository {
   updateWorkspace(id: string, input: UpdateLaunchWorkspaceInput): Promise<LaunchWorkspace>;
   reorderWorkspaces(orderedIds: string[]): Promise<LaunchWorkspace[]>;
   deleteWorkspace(id: string): Promise<void>;
+  deleteWorkspaces(ids: string[]): Promise<BulkDeleteResult>;
   clearWorkspaceRole(roleId: string): Promise<void>;
   setWorkspaceRoleBrowserZoom(
     workspaceId: string,
@@ -155,6 +158,10 @@ export class RustStateRepository implements StateRepository {
     return this.core.invoke({ type: "gameDelete", id }).then(() => undefined);
   }
 
+  deleteGames(ids: string[]): Promise<BulkDeleteResult> {
+    return this.core.invoke<BulkDeleteResult>({ type: "gamesDelete", ids });
+  }
+
   listRoles(): Promise<Role[]> {
     return this.core.invoke<Role[]>({ type: "rolesList" });
   }
@@ -202,6 +209,10 @@ export class RustStateRepository implements StateRepository {
     return this.core.invoke({ type: "roleDelete", id }).then(() => undefined);
   }
 
+  deleteRoles(ids: string[]): Promise<BulkDeleteResult> {
+    return this.core.invoke<BulkDeleteResult>({ type: "rolesDelete", ids });
+  }
+
   setRoleBrowserSessionSource(id: string, source: RoleBrowserSessionSource): Promise<Role> {
     return this.core.invoke<Role>({ type: "roleSetBrowserSessionSource", id, source });
   }
@@ -245,6 +256,10 @@ export class RustStateRepository implements StateRepository {
 
   deleteWorkspace(id: string): Promise<void> {
     return this.core.invoke({ type: "workspaceDelete", id }).then(() => undefined);
+  }
+
+  deleteWorkspaces(ids: string[]): Promise<BulkDeleteResult> {
+    return this.core.invoke<BulkDeleteResult>({ type: "workspacesDelete", ids });
   }
 
   clearWorkspaceRole(roleId: string): Promise<void> {

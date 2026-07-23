@@ -408,6 +408,41 @@ pub enum CoreCommand {
         display_id: i64,
         fallback: EmbeddedLaunchTargetRecord,
     },
+    BrowserRoleLaunch {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        target: EmbeddedLaunchTargetRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "zoomFactor")]
+        zoom_factor: Option<f64>,
+    },
+    BrowserWorkspaceLaunch {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        target: EmbeddedLaunchTargetRecord,
+    },
+    BrowserRoleStop {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    BrowserWorkspaceStop {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+    },
+    BrowserExternalRecover {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    BrowserStatuses,
+    BrowserWorkspaceStatuses,
+    BrowserRuntimeSuspend {
+        suspended: bool,
+    },
+    ExternalDiagnosticsCapture {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    ExternalDiagnosticsList,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1690,6 +1725,9 @@ pub enum CoreEvent {
     CoreEffects {
         effects: Vec<CoreEffectRequest>,
     },
+    BrowserStatuses {
+        statuses: Vec<BrowserRoleStatusRecord>,
+    },
     MacroStatuses {
         statuses: Vec<MacroRunStatus>,
     },
@@ -2836,6 +2874,21 @@ pub enum CoreEffectAction {
         #[ts(optional, rename = "focusTabId")]
         focus_tab_id: Option<String>,
     },
+    ExternalPrepareSession {
+        role_id: String,
+        #[ts(type = "\"auto\" | \"off\" | \"on\"")]
+        cdn_mode: String,
+    },
+    ExternalResolvePhysicalBounds {
+        bounds: StatePixelBoundsRecord,
+    },
+    ExternalOverlaySource {
+        role_id: String,
+    },
+    ExternalOverlayRequest {
+        role_id: String,
+        request_json: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2946,6 +2999,74 @@ pub struct EmbeddedLaunchResultRecord {
     pub launched_at: String,
     #[ts(type = "\"embedded\"")]
     pub runtime_mode: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRoleStatusRecord {
+    pub role_id: String,
+    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launched_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notice: Option<String>,
+    #[ts(type = "\"embedded\" | \"external\"")]
+    pub runtime_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"ready\" | \"unavailable\"")]
+    pub automation_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
+    pub page_health: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserWorkspaceStatusRecord {
+    pub workspace_id: String,
+    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalPrepareSessionResultRecord {
+    pub cdn_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub proxy_server: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalChromeDiagnosticsRecord {
+    pub automation_state: String,
+    pub bounds: StatePixelBoundsRecord,
+    pub captured_at: String,
+    pub external_role_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
+    pub page_health: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub physical_bounds: Option<StatePixelBoundsRecord>,
+    pub role_id: String,
+    #[ts(type = "\"external\"")]
+    pub runtime_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_id: Option<String>,
+    pub zoom_factor: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub chrome_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

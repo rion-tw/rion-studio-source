@@ -10,6 +10,7 @@ export type { BrowserGraphicsBackendSettingsRecord } from "./BrowserGraphicsBack
 export type { BrowserGraphicsSettingsRecord } from "./BrowserGraphicsSettingsRecord";
 export type { BrowserNetworkSettingsRecord } from "./BrowserNetworkSettingsRecord";
 export type { BrowserProxySettingsRecord } from "./BrowserProxySettingsRecord";
+export type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 export type { BrowserRuntimeCommand } from "./BrowserRuntimeCommand";
 export type { BrowserRuntimeDisplayRecord } from "./BrowserRuntimeDisplayRecord";
 export type { BrowserRuntimeResult } from "./BrowserRuntimeResult";
@@ -17,6 +18,7 @@ export type { BrowserRuntimeRoleRecord } from "./BrowserRuntimeRoleRecord";
 export type { BrowserRuntimeSnapshot } from "./BrowserRuntimeSnapshot";
 export type { BrowserRuntimeTabRecord } from "./BrowserRuntimeTabRecord";
 export type { BrowserRuntimeWorkspaceRecord } from "./BrowserRuntimeWorkspaceRecord";
+export type { BrowserWorkspaceStatusRecord } from "./BrowserWorkspaceStatusRecord";
 export type { CdnRule } from "./CdnRule";
 export type { ChromeProfileEntryRecord } from "./ChromeProfileEntryRecord";
 export type { ChromeProfileImportCommitRecord } from "./ChromeProfileImportCommitRecord";
@@ -50,6 +52,8 @@ export type { EmbeddedRoleLoadEffectRecord } from "./EmbeddedRoleLoadEffectRecor
 export type { EmbeddedRoleViewEffectRecord } from "./EmbeddedRoleViewEffectRecord";
 export type { EmbeddedTabEffectRecord } from "./EmbeddedTabEffectRecord";
 export type { ExternalBrowserActionDispatch } from "./ExternalBrowserActionDispatch";
+export type { ExternalChromeDiagnosticsRecord } from "./ExternalChromeDiagnosticsRecord";
+export type { ExternalPrepareSessionResultRecord } from "./ExternalPrepareSessionResultRecord";
 export type { ExternalSessionCommand } from "./ExternalSessionCommand";
 export type { ExternalSessionRecord } from "./ExternalSessionRecord";
 export type { ExternalSessionResult } from "./ExternalSessionResult";

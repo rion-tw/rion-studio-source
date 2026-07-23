@@ -134,4 +134,43 @@ describe("ElectronEffectExecutor", () => {
       }
     });
   });
+
+  it("routes external browser effects without requiring an Electron handle", async () => {
+    const executeExternalEffect = vi.fn(async () => ({
+      proxyServer: "http://127.0.0.1:4010"
+    }));
+    const dispatchResults = vi.fn(async (results: CoreEffectResult[]) => ({
+      accepted: results.map((result) => result.effectId),
+      duplicate: [],
+      late: [],
+      unknown: [],
+      operationMismatch: []
+    }));
+    const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
+      clearSessionStorage: vi.fn(async () => undefined),
+      createView: vi.fn(),
+      createWindow: vi.fn(),
+      dispatchResults,
+      executeExternalEffect,
+      sendDebuggerCommand: vi.fn(async () => null),
+      setCookie: vi.fn(async () => undefined)
+    });
+    const effect = request({
+      type: "externalPrepareSession",
+      roleId: "role-1",
+      cdnMode: "auto"
+    });
+
+    const report = await executor.executeAndDispatch([effect]);
+
+    expect(executeExternalEffect).toHaveBeenCalledWith(effect);
+    expect(dispatchResults).toHaveBeenCalledWith([
+      expect.objectContaining({
+        effectId: effect.effectId,
+        ok: true,
+        valueJson: JSON.stringify({ proxyServer: "http://127.0.0.1:4010" })
+      })
+    ]);
+    expect(report.accepted).toEqual([effect.effectId]);
+  });
 });

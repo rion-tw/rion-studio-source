@@ -6,7 +6,9 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
+use futures_util::future::join_all;
 use rion_platform::PixelBounds;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::{
@@ -28,10 +30,12 @@ use crate::{
         CdnRule, CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult,
         CoreEffectTarget, CoreEvent, EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord,
         EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
-        GameBrowserSettingsRecord, LegalAcceptanceRecord, MacroSettingsRecord,
-        OperationCancelResultRecord, ResourcePolicyDecision, ResourcePolicyInput,
-        RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
-        StateLaunchWorkspaceRecord, StateNormalizedRectRecord, StateRoleRecord,
+        ExternalChromeDiagnosticsRecord, ExternalPrepareSessionResultRecord,
+        ExternalSessionCommand, ExternalSessionRecord, GameBrowserSettingsRecord,
+        LegalAcceptanceRecord, MacroSettingsRecord, OperationCancelResultRecord,
+        ResourcePolicyDecision, ResourcePolicyInput, RuntimeWindowPreferencesRecord,
+        StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
+        StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
         StateWorkspaceResourcePolicyRecord,
     },
     pressure::PressureMonitor,
@@ -40,6 +44,18 @@ use crate::{
 };
 
 const EVENT_QUEUE_CAPACITY: usize = 64;
+const CDN_COMPATIBILITY_EXTERNAL_NOTICE: &str =
+    "China CDN compatibility mode is active in external Chrome.";
+const CDN_COMPATIBILITY_UNAVAILABLE_NOTICE: &str = "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.";
+const EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE: &str =
+    "Macro control could not connect to compatibility mode. Restart this role to try again.";
+const EXTERNAL_COMPAT_NOTICE: &str = "The embedded browser could not load this game. It opened in external Chrome compatibility mode.";
+const EXTERNAL_OVERLAY_BINDING: &str = "rionStudioMacroOverlay";
+const EXTERNAL_OVERLAY_BRIDGE_KEY: &str = "__rionStudioExternalMacroBridge";
+const EXTERNAL_PAGE_UNRESPONSIVE_NOTICE: &str =
+    "The external Chrome game page stopped responding. Capture diagnostics or restart this role.";
+const EXTERNAL_ZOOM_UNAVAILABLE_NOTICE: &str =
+    "Workspace zoom could not be applied in external Chrome. Restart this role to try again.";
 
 struct Runtime {
     state: StateDatabaseWorker,
@@ -52,23 +68,23 @@ pub struct AppCore {
     app_version: String,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
     cdn: Arc<RwLock<CdnMatcher>>,
-    browser_runtime: Mutex<crate::browser_runtime::BrowserRuntime>,
+    browser_runtime: Arc<Mutex<crate::browser_runtime::BrowserRuntime>>,
     chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
     compatibility_runtime: Mutex<crate::compatibility_runtime::CompatibilityRuntime>,
     database_paths: DatabasePaths,
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
-    external_automation: crate::external_automation::ExternalAutomationRuntime,
-    external_health: Mutex<ExternalHealthRuntime>,
+    external_automation: Arc<crate::external_automation::ExternalAutomationRuntime>,
+    external_health: Arc<Mutex<ExternalHealthRuntime>>,
     external_processes: crate::external_processes::ExternalProcessRuntime,
-    external_sessions: Mutex<crate::external_sessions::ExternalSessionRuntime>,
-    macro_runtime: MacroRuntime,
-    operation_actor: crate::operation_actor::OperationActor,
+    external_sessions: Arc<Mutex<crate::external_sessions::ExternalSessionRuntime>>,
+    macro_runtime: Arc<MacroRuntime>,
+    operation_actor: Arc<crate::operation_actor::OperationActor>,
     platform: rion_platform::Platform,
     portable: Mutex<crate::portable::PortableRuntime>,
     resource_runtime: Mutex<crate::resource_runtime::ResourceRuntime>,
     runtime: Mutex<Option<Runtime>>,
-    embedded_runtime_sequence: crate::runtime_sequence::RuntimeOperationSequence,
+    embedded_runtime_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
     state_mutation_guard: Mutex<()>,
     subscribers: Arc<Mutex<Vec<Sender<Vec<CoreEvent>>>>>,
     system_fonts: Mutex<Option<Vec<crate::model::SystemFontFamilyRecord>>>,
@@ -103,38 +119,149 @@ impl AppCore {
         }))?;
         let scheduler = MonotonicScheduler::start()?;
         let macro_subscribers = Arc::clone(&subscribers);
-        let macro_runtime = MacroRuntime::new(Arc::new(move |events| {
+        let macro_runtime = Arc::new(MacroRuntime::new(Arc::new(move |events| {
             broadcast_events(&macro_subscribers, events);
-        }));
+        })));
+        let browser_runtime =
+            Arc::new(Mutex::new(crate::browser_runtime::BrowserRuntime::default()));
+        let external_sessions = Arc::new(Mutex::new(
+            crate::external_sessions::ExternalSessionRuntime::default(),
+        ));
         let health_subscribers = Arc::clone(&subscribers);
-        let external_health = ExternalHealthRuntime::new(Arc::new(move |events| {
-            broadcast_events(&health_subscribers, events);
-        }))?;
+        let health_browser_runtime = Arc::clone(&browser_runtime);
+        let health_external_sessions = Arc::clone(&external_sessions);
+        let external_health = Arc::new(Mutex::new(ExternalHealthRuntime::new(Arc::new(
+            move |mut events| {
+                let mut changed = false;
+                for event in &events {
+                    match event {
+                        CoreEvent::ExternalHealthChanged { role_id, health } => {
+                            if let Ok(mut sessions) = health_external_sessions.lock()
+                                && let Some(session) = sessions.get(role_id).cloned()
+                            {
+                                let notice = if health == "unresponsive" {
+                                    append_external_notice(
+                                        session.notice,
+                                        EXTERNAL_PAGE_UNRESPONSIVE_NOTICE,
+                                    )
+                                } else {
+                                    remove_external_notice(
+                                        session.notice,
+                                        EXTERNAL_PAGE_UNRESPONSIVE_NOTICE,
+                                    )
+                                };
+                                let _ = sessions.invoke(ExternalSessionCommand::SetHealth {
+                                    role_id: role_id.clone(),
+                                    health: Some(health.clone()),
+                                    page_hidden: session.page_hidden,
+                                });
+                                let _ = sessions.invoke(ExternalSessionCommand::SetNotice {
+                                    role_id: role_id.clone(),
+                                    notice,
+                                });
+                                changed = true;
+                            }
+                        }
+                        CoreEvent::ExternalHealthProbeFailed { role_id, .. } => {
+                            if let Ok(mut sessions) = health_external_sessions.lock() {
+                                let _ = sessions.invoke(ExternalSessionCommand::RecordCdpTimeout {
+                                    role_id: role_id.clone(),
+                                    at_ms: system_epoch_millis(),
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if changed
+                    && let (Ok(browser), Ok(sessions)) = (
+                        health_browser_runtime.lock(),
+                        health_external_sessions.lock(),
+                    )
+                {
+                    events.push(CoreEvent::BrowserStatuses {
+                        statuses: crate::external_runtime::role_statuses(
+                            browser.snapshot().roles.into_iter(),
+                            &sessions.snapshot(),
+                        ),
+                    });
+                }
+                broadcast_events(&health_subscribers, events);
+            },
+        ))?));
+        let external_automation = Arc::new(
+            crate::external_automation::ExternalAutomationRuntime::new(platform_name.to_owned()),
+        );
         let process_subscribers = Arc::clone(&subscribers);
+        let process_browser_runtime = Arc::clone(&browser_runtime);
+        let process_external_sessions = Arc::clone(&external_sessions);
+        let process_external_automation = Arc::clone(&external_automation);
+        let process_external_health = Arc::clone(&external_health);
+        let process_macro_runtime = Arc::clone(&macro_runtime);
         let external_processes = crate::external_processes::ExternalProcessRuntime::new(Arc::new(
             move |role_id, event| {
-                broadcast_events(
-                    &process_subscribers,
-                    vec![CoreEvent::ExternalProcessExited {
-                        role_id,
-                        exit_code: event.exit_code,
-                        terminated: event.terminated,
-                    }],
-                );
+                let mut changed = false;
+                if let (Ok(mut browser), Ok(mut sessions)) = (
+                    process_browser_runtime.lock(),
+                    process_external_sessions.lock(),
+                ) && let Some(session) = sessions.get(&role_id).cloned()
+                {
+                    let _ = sessions.invoke(crate::model::ExternalSessionCommand::Remove {
+                        role_id: role_id.clone(),
+                        preserve_workspace: false,
+                    });
+                    let _ = browser.invoke(crate::model::BrowserRuntimeCommand::RemoveRole {
+                        role_id: role_id.clone(),
+                    });
+                    if let Some(workspace_id) = session.workspace_id
+                        && !sessions.workspace_has_sessions(&workspace_id)
+                    {
+                        let _ =
+                            browser.invoke(crate::model::BrowserRuntimeCommand::RemoveWorkspace {
+                                workspace_id,
+                            });
+                    }
+                    changed = true;
+                }
+                let _ = process_external_automation.unregister(&role_id);
+                if let Ok(health) = process_external_health.lock() {
+                    let _ = health.remove(role_id.clone());
+                }
+                let _ = process_macro_runtime.release_role(&role_id);
+                let mut events = vec![CoreEvent::ExternalProcessExited {
+                    role_id,
+                    exit_code: event.exit_code,
+                    terminated: event.terminated,
+                }];
+                if changed
+                    && let (Ok(browser), Ok(sessions)) = (
+                        process_browser_runtime.lock(),
+                        process_external_sessions.lock(),
+                    )
+                {
+                    events.push(CoreEvent::BrowserStatuses {
+                        statuses: crate::external_runtime::role_statuses(
+                            browser.snapshot().roles.into_iter(),
+                            &sessions.snapshot(),
+                        ),
+                    });
+                }
+                broadcast_events(&process_subscribers, events);
             },
         ));
         let effect_subscribers = Arc::clone(&subscribers);
-        let operation_actor =
-            crate::operation_actor::OperationActor::new(Arc::new(move |effects| {
+        let operation_actor = Arc::new(crate::operation_actor::OperationActor::new(Arc::new(
+            move |effects| {
                 broadcast_events(
                     &effect_subscribers,
                     vec![CoreEvent::CoreEffects { effects }],
                 );
-            }));
+            },
+        )));
         let core = Self {
             app_version: options.app_version,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
-            browser_runtime: Mutex::new(crate::browser_runtime::BrowserRuntime::default()),
+            browser_runtime,
             cdn: Arc::new(RwLock::new(CdnMatcher::default())),
             chrome_profile_import: Mutex::new(
                 crate::chrome_profile_import::ChromeProfileImportRuntime::new(
@@ -147,14 +274,10 @@ impl AppCore {
             database_paths,
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
             embedded_operations: Mutex::new(std::collections::HashMap::new()),
-            external_automation: crate::external_automation::ExternalAutomationRuntime::new(
-                platform_name.to_owned(),
-            ),
-            external_health: Mutex::new(external_health),
+            external_automation,
+            external_health,
             external_processes,
-            external_sessions: Mutex::new(
-                crate::external_sessions::ExternalSessionRuntime::default(),
-            ),
+            external_sessions,
             macro_runtime,
             operation_actor,
             platform,
@@ -166,7 +289,9 @@ impl AppCore {
                 pressure,
                 scheduler,
             })),
-            embedded_runtime_sequence: crate::runtime_sequence::RuntimeOperationSequence::default(),
+            embedded_runtime_sequence: Arc::new(
+                crate::runtime_sequence::RuntimeOperationSequence::default(),
+            ),
             state_mutation_guard: Mutex::new(()),
             subscribers,
             system_fonts: Mutex::new(None),
@@ -921,7 +1046,1043 @@ impl AppCore {
                 None,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::BrowserStatuses => serde_json::to_value(self.browser_statuses()?)
+                .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::BrowserWorkspaceStatuses => {
+                serde_json::to_value(self.browser_workspace_statuses()?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserRuntimeSuspend { suspended } => {
+                self.external_health()?.suspend(suspended)?;
+                Ok(json!({ "suspended": suspended }))
+            }
+            CoreCommand::ExternalDiagnosticsList => {
+                let sessions = self
+                    .external_sessions
+                    .lock()
+                    .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
+                    .snapshot();
+                serde_json::to_value(
+                    sessions
+                        .iter()
+                        .map(|session| {
+                            crate::external_runtime::diagnostics(session, sessions.len(), None)
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserRoleLaunch { .. }
+            | CoreCommand::BrowserWorkspaceLaunch { .. }
+            | CoreCommand::BrowserRoleStop { .. }
+            | CoreCommand::BrowserWorkspaceStop { .. }
+            | CoreCommand::BrowserExternalRecover { .. }
+            | CoreCommand::ExternalDiagnosticsCapture { .. } => Err(CoreError::Internal(
+                "asynchronous browser intent reached the synchronous core dispatcher".to_owned(),
+            )),
         }
+    }
+
+    pub async fn invoke_async(self: &Arc<Self>, command: CoreCommand) -> CoreResult<Value> {
+        match command {
+            CoreCommand::BrowserRoleLaunch {
+                role_id,
+                target,
+                zoom_factor,
+            } => {
+                let role = self.external_role(&role_id)?;
+                let game = self.external_game(&role.game_id)?;
+                let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+                    "gameBrowserSettings",
+                    "game browser settings are missing",
+                )?;
+                let mode = crate::external_runtime::resolve_launch_mode(
+                    &game.browser_launch_mode,
+                    &settings.launch_mode,
+                );
+                let zoom_factor = zoom_factor.unwrap_or(1.0);
+                let statuses = match mode {
+                    "external" => {
+                        vec![
+                            self.launch_external_role(role, target, zoom_factor, None, settings)
+                                .await?,
+                        ]
+                    }
+                    "auto" => {
+                        let core = Arc::clone(self);
+                        let embedded_target = target.clone();
+                        let role_id = role.id.clone();
+                        match tokio::task::spawn_blocking(move || {
+                            core.launch_embedded_role(&role_id, embedded_target, zoom_factor)
+                        })
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))?
+                        {
+                            Ok(statuses) => statuses.into_iter().map(embedded_status).collect(),
+                            Err(error) if error.code() == "GAME_PAGE_LOAD_FAILED" => {
+                                vec![
+                                    self.launch_external_role(
+                                        role,
+                                        target,
+                                        zoom_factor,
+                                        Some(EXTERNAL_COMPAT_NOTICE.to_owned()),
+                                        settings,
+                                    )
+                                    .await?,
+                                ]
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
+                    _ => {
+                        let core = Arc::clone(self);
+                        let role_id = role.id;
+                        tokio::task::spawn_blocking(move || {
+                            core.launch_embedded_role(&role_id, target, zoom_factor)
+                        })
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))??
+                        .into_iter()
+                        .map(embedded_status)
+                        .collect()
+                    }
+                };
+                serde_json::to_value(statuses)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserWorkspaceLaunch {
+                workspace_id,
+                target,
+            } => {
+                let workspace = self.external_workspace(&workspace_id)?;
+                let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+                    "gameBrowserSettings",
+                    "game browser settings are missing",
+                )?;
+                let mode = crate::external_runtime::resolve_launch_mode(
+                    &workspace.browser_launch_mode,
+                    &settings.launch_mode,
+                );
+                let statuses = match mode {
+                    "external" => {
+                        self.launch_external_workspace(workspace, target, None, settings)
+                            .await?
+                    }
+                    "auto" => {
+                        let core = Arc::clone(self);
+                        let embedded_target = target.clone();
+                        let embedded_workspace_id = workspace.id.clone();
+                        match tokio::task::spawn_blocking(move || {
+                            core.launch_embedded_workspace(&embedded_workspace_id, embedded_target)
+                        })
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))?
+                        {
+                            Ok(statuses) => statuses.into_iter().map(embedded_status).collect(),
+                            Err(error) if error.code() == "GAME_PAGE_LOAD_FAILED" => {
+                                self.launch_external_workspace(
+                                    workspace,
+                                    target,
+                                    Some(EXTERNAL_COMPAT_NOTICE.to_owned()),
+                                    settings,
+                                )
+                                .await?
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
+                    _ => {
+                        let core = Arc::clone(self);
+                        let embedded_workspace_id = workspace.id;
+                        tokio::task::spawn_blocking(move || {
+                            core.launch_embedded_workspace(&embedded_workspace_id, target)
+                        })
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))??
+                        .into_iter()
+                        .map(embedded_status)
+                        .collect()
+                    }
+                };
+                serde_json::to_value(statuses)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserRoleStop { role_id } => {
+                let runtime = self
+                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                    .snapshot
+                    .roles
+                    .into_iter()
+                    .find(|role| role.role_id == role_id)
+                    .map(|role| role.runtime);
+                if runtime.as_deref() == Some("external") {
+                    self.stop_external_role(&role_id).await?;
+                } else {
+                    let core = Arc::clone(self);
+                    tokio::task::spawn_blocking(move || core.stop_embedded_role(&role_id))
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))??;
+                }
+                Ok(json!({ "stopped": true }))
+            }
+            CoreCommand::BrowserWorkspaceStop { workspace_id } => {
+                let runtime = self
+                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                    .snapshot
+                    .workspaces
+                    .into_iter()
+                    .find(|workspace| workspace.workspace_id == workspace_id)
+                    .map(|workspace| workspace.runtime);
+                if runtime.as_deref() == Some("external") {
+                    self.stop_external_workspace(&workspace_id).await?;
+                } else {
+                    let core = Arc::clone(self);
+                    tokio::task::spawn_blocking(move || {
+                        core.stop_embedded_workspace(&workspace_id)
+                    })
+                    .await
+                    .map_err(|error| CoreError::Internal(error.to_string()))??;
+                }
+                Ok(json!({ "stopped": true }))
+            }
+            CoreCommand::BrowserExternalRecover { role_id } => {
+                serde_json::to_value(self.recover_external_role(&role_id).await?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::ExternalDiagnosticsCapture { role_id } => {
+                serde_json::to_value(self.capture_external_diagnostics(&role_id).await?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            command => self.invoke(command),
+        }
+    }
+
+    fn external_role(&self, role_id: &str) -> CoreResult<StateRoleRecord> {
+        self.read_typed_state_collection::<StateRoleRecord>("roles")?
+            .into_iter()
+            .find(|role| role.id == role_id)
+            .ok_or_else(|| CoreError::Domain {
+                code: "ROLE_NOT_FOUND",
+                message: "Role not found.".to_owned(),
+            })
+    }
+
+    fn external_game(&self, game_id: &str) -> CoreResult<StateGameRecord> {
+        self.read_typed_state_collection::<StateGameRecord>("games")?
+            .into_iter()
+            .find(|game| game.id == game_id)
+            .ok_or_else(|| CoreError::Domain {
+                code: "GAME_NOT_FOUND",
+                message: "Game not found.".to_owned(),
+            })
+    }
+
+    fn external_workspace(&self, workspace_id: &str) -> CoreResult<StateLaunchWorkspaceRecord> {
+        self.read_typed_state_collection::<StateLaunchWorkspaceRecord>("launchWorkspaces")?
+            .into_iter()
+            .find(|workspace| workspace.id == workspace_id)
+            .ok_or_else(|| CoreError::Domain {
+                code: "WORKSPACE_NOT_FOUND",
+                message: "Launch workspace not found.".to_owned(),
+            })
+    }
+
+    async fn launch_external_role(
+        self: &Arc<Self>,
+        role: StateRoleRecord,
+        target: EmbeddedLaunchTargetRecord,
+        zoom_factor: f64,
+        notice: Option<String>,
+        settings: GameBrowserSettingsRecord,
+    ) -> CoreResult<crate::model::BrowserRoleStatusRecord> {
+        if let Some(existing) = self.external_session(&role.id)? {
+            self.invoke_external_session(ExternalSessionCommand::UpdateRole { role })?;
+            let _ = self.external_automation.focus(&existing.role.id).await;
+            return self
+                .external_session(&existing.role.id)?
+                .map(|session| external_status(&session))
+                .ok_or_else(|| CoreError::Internal("external session disappeared".to_owned()));
+        }
+
+        let role_id = role.id.clone();
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: vec![role_id.clone()],
+                kind: "normal".to_owned(),
+            })
+            .await?;
+        let result = self
+            .launch_external_session(
+                role,
+                target.work_area.clone(),
+                None,
+                None,
+                notice,
+                zoom_factor,
+                settings,
+            )
+            .await;
+        let completion = self.browser_operations.complete(&lease.id);
+        match (result, completion) {
+            (Ok(session), Ok(())) => Ok(external_status(&session)),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        }
+    }
+
+    async fn launch_external_workspace(
+        self: &Arc<Self>,
+        workspace: StateLaunchWorkspaceRecord,
+        target: EmbeddedLaunchTargetRecord,
+        notice: Option<String>,
+        settings: GameBrowserSettingsRecord,
+    ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+        let available_roles = self
+            .read_typed_state_collection::<StateRoleRecord>("roles")?
+            .into_iter()
+            .map(|role| (role.id.clone(), role))
+            .collect::<std::collections::HashMap<_, _>>();
+        let slots = workspace
+            .slots
+            .iter()
+            .filter_map(|slot| {
+                let role_id = slot.role_id.as_ref()?;
+                Some((slot, available_roles.get(role_id).cloned()))
+            })
+            .collect::<Vec<_>>();
+        if slots.is_empty() {
+            return Err(CoreError::Domain {
+                code: "WORKSPACE_ROLES_REQUIRED",
+                message: "The launch workspace has no roles.".to_owned(),
+            });
+        }
+        if slots.iter().any(|(_, role)| role.is_none()) {
+            return Err(CoreError::Domain {
+                code: "WORKSPACE_ROLE_NOT_FOUND",
+                message: "A launch workspace role no longer exists.".to_owned(),
+            });
+        }
+        let role_ids = slots
+            .iter()
+            .filter_map(|(_, role)| role.as_ref().map(|role| role.id.clone()))
+            .collect::<Vec<_>>();
+        if role_ids
+            .iter()
+            .any(|role_id| self.external_session(role_id).ok().flatten().is_some())
+        {
+            return Err(CoreError::Domain {
+                code: "ROLE_ALREADY_RUNNING",
+                message: "A workspace role is already running.".to_owned(),
+            });
+        }
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: role_ids.clone(),
+                kind: "normal".to_owned(),
+            })
+            .await?;
+        let result = async {
+            self.invoke_browser_runtime(BrowserRuntimeCommand::CreateExternalWorkspace {
+                workspace_id: workspace.id.clone(),
+                name: workspace.name.clone(),
+                display_id: Some(target.display_id),
+                exclusive_display: true,
+                role_ids: role_ids.clone(),
+            })?;
+            let bounds = crate::external_runtime::workspace_bounds(
+                &slots
+                    .iter()
+                    .map(|(slot, _)| slot.rect.clone())
+                    .collect::<Vec<_>>(),
+                &target.work_area,
+                self.platform,
+            );
+            let physical_bounds = if self.platform == rion_platform::Platform::Windows {
+                let physical_work_area = self
+                    .resolve_external_physical_bounds(&target.work_area)
+                    .await?;
+                Some(crate::external_runtime::workspace_bounds(
+                    &slots
+                        .iter()
+                        .map(|(slot, _)| slot.rect.clone())
+                        .collect::<Vec<_>>(),
+                    &physical_work_area,
+                    self.platform,
+                ))
+            } else {
+                None
+            };
+            let launches = slots
+                .iter()
+                .zip(bounds)
+                .enumerate()
+                .map(|(index, ((slot, role), bounds))| {
+                    let core = Arc::clone(self);
+                    let role = role.clone().expect("workspace roles were validated");
+                    let physical_bounds = physical_bounds
+                        .as_ref()
+                        .and_then(|items| items.get(index))
+                        .cloned();
+                    let workspace_id = workspace.id.clone();
+                    let notice = notice.clone();
+                    let settings = settings.clone();
+                    let zoom_factor = slot.browser_zoom_percent.map_or_else(
+                        || {
+                            if workspace.browser_zoom_mode == "adaptive" {
+                                f64::from(layout::adaptive_zoom_percent(
+                                    f64::from(bounds.width),
+                                    None,
+                                )) / 100.0
+                            } else {
+                                workspace.browser_zoom_percent / 100.0
+                            }
+                        },
+                        |percent| percent / 100.0,
+                    );
+                    async move {
+                        core.launch_external_session(
+                            role,
+                            bounds,
+                            physical_bounds,
+                            Some(workspace_id),
+                            notice,
+                            zoom_factor,
+                            settings,
+                        )
+                        .await
+                    }
+                })
+                .collect::<Vec<_>>();
+            let results = join_all(launches).await;
+            if let Some(error) = results.iter().find_map(|result| result.as_ref().err()) {
+                let code = error.code();
+                let message = error.to_string();
+                for role_id in &role_ids {
+                    let _ = self.stop_external_session(role_id, true).await;
+                }
+                let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
+                    workspace_id: workspace.id.clone(),
+                });
+                return Err(CoreError::Effect {
+                    code: code.to_owned(),
+                    message,
+                });
+            }
+            let by_role_id = results
+                .into_iter()
+                .filter_map(Result::ok)
+                .map(|session| (session.role.id.clone(), external_status(&session)))
+                .collect::<std::collections::HashMap<_, _>>();
+            if let Some(first) = role_ids.first() {
+                let _ = self.external_automation.focus(first).await;
+            }
+            Ok(role_ids
+                .iter()
+                .filter_map(|role_id| by_role_id.get(role_id).cloned())
+                .collect::<Vec<_>>())
+        }
+        .await;
+        let completion = self.browser_operations.complete(&lease.id);
+        match (result, completion) {
+            (Ok(statuses), Ok(())) => Ok(statuses),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn launch_external_session(
+        self: &Arc<Self>,
+        role: StateRoleRecord,
+        bounds: StatePixelBoundsRecord,
+        physical_bounds: Option<StatePixelBoundsRecord>,
+        workspace_id: Option<String>,
+        notice: Option<String>,
+        zoom_factor: f64,
+        settings: GameBrowserSettingsRecord,
+    ) -> CoreResult<ExternalSessionRecord> {
+        let paths = crate::role_browser_data::ensure(&self.user_data_dir, &role.id)?;
+        let browser_user_data_dir = PathBuf::from(&paths.browser_user_data_dir);
+        self.prepare_external_chrome_profile(browser_user_data_dir.clone())?;
+        let mut session_notice = notice;
+        if crate::browser_preferences::apply(
+            &self.user_data_dir,
+            &browser_user_data_dir,
+            None,
+            &settings.fonts,
+            Some(zoom_factor),
+        )
+        .is_err()
+        {
+            session_notice =
+                append_external_notice(session_notice, EXTERNAL_ZOOM_UNAVAILABLE_NOTICE);
+        }
+
+        let prepared = self
+            .request_core_effect(
+                &role.id,
+                CoreEffectAction::ExternalPrepareSession {
+                    role_id: role.id.clone(),
+                    cdn_mode: settings.network.cdn_compatibility.mode.clone(),
+                },
+                Duration::from_secs(10),
+            )
+            .await
+            .and_then(|result| effect_value::<ExternalPrepareSessionResultRecord>(&result));
+        let (cdn_enabled, proxy_server) = match prepared {
+            Ok(value) => {
+                let proxy = value.proxy_server.or_else(|| {
+                    (settings.network.proxy.mode == "custom"
+                        && !settings.network.proxy.server.trim().is_empty())
+                    .then(|| settings.network.proxy.server.clone())
+                });
+                (value.cdn_enabled, proxy)
+            }
+            Err(_) => {
+                session_notice =
+                    append_external_notice(session_notice, CDN_COMPATIBILITY_UNAVAILABLE_NOTICE);
+                (false, None)
+            }
+        };
+
+        let executable = self.find_chrome_executable()?;
+        let arguments = crate::external_runtime::build_arguments(
+            &role.launch_url,
+            &paths.browser_user_data_dir,
+            &bounds,
+            proxy_server.as_deref(),
+            &settings.graphics,
+            self.platform,
+        );
+        self.invoke_external_session(ExternalSessionCommand::Begin {
+            role: role.clone(),
+            bounds: bounds.clone(),
+            physical_bounds: physical_bounds.clone(),
+            workspace_id: workspace_id.clone(),
+            notice: session_notice.clone(),
+            zoom_factor,
+        })?;
+        self.emit_browser_statuses();
+        let process_id =
+            match self
+                .external_processes
+                .launch(role.id.clone(), &executable, &arguments)
+            {
+                Ok(process_id) => process_id,
+                Err(error) => {
+                    let _ = self.invoke_external_session(ExternalSessionCommand::Remove {
+                        role_id: role.id.clone(),
+                        preserve_workspace: false,
+                    });
+                    self.emit_browser_statuses();
+                    return Err(error);
+                }
+            };
+
+        let automation = self
+            .connect_external_chrome_cdp(
+                role.id.clone(),
+                browser_user_data_dir,
+                role.launch_url.clone(),
+                Some(Duration::from_secs(10)),
+                cdn_enabled,
+            )
+            .await;
+        match automation {
+            Ok(session) => {
+                if let Err(error) = self
+                    .initialize_external_automation(&role.id, Arc::clone(&session))
+                    .await
+                {
+                    let _ = self.external_automation.unregister(&role.id);
+                    session_notice = append_external_notice(
+                        session_notice,
+                        EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE,
+                    );
+                    self.invoke_external_session(ExternalSessionCommand::SetNotice {
+                        role_id: role.id.clone(),
+                        notice: session_notice.clone(),
+                    })?;
+                    self.invoke_external_session(ExternalSessionCommand::SetAutomation {
+                        role_id: role.id.clone(),
+                        available: false,
+                        cdn_active: false,
+                    })?;
+                    let _ = error;
+                } else {
+                    if cdn_enabled {
+                        session_notice = append_external_notice(
+                            session_notice,
+                            CDN_COMPATIBILITY_EXTERNAL_NOTICE,
+                        );
+                        self.invoke_external_session(ExternalSessionCommand::SetNotice {
+                            role_id: role.id.clone(),
+                            notice: session_notice.clone(),
+                        })?;
+                    }
+                    self.invoke_external_session(ExternalSessionCommand::SetAutomation {
+                        role_id: role.id.clone(),
+                        available: true,
+                        cdn_active: cdn_enabled,
+                    })?;
+                    self.invoke_external_session(ExternalSessionCommand::SetHealth {
+                        role_id: role.id.clone(),
+                        health: Some("healthy".to_owned()),
+                        page_hidden: false,
+                    })?;
+                    self.external_health()?.register(role.id.clone())?;
+                    let _ = self
+                        .external_automation
+                        .set_window_bounds(&role.id, bounds.clone())
+                        .await;
+                }
+            }
+            Err(_) => {
+                session_notice =
+                    append_external_notice(session_notice, EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE);
+                self.invoke_external_session(ExternalSessionCommand::SetNotice {
+                    role_id: role.id.clone(),
+                    notice: session_notice,
+                })?;
+                self.invoke_external_session(ExternalSessionCommand::SetAutomation {
+                    role_id: role.id.clone(),
+                    available: false,
+                    cdn_active: false,
+                })?;
+            }
+        }
+
+        if self.platform == rion_platform::Platform::Windows
+            && let Some(physical_bounds) = &physical_bounds
+        {
+            let target = PixelBounds {
+                x: physical_bounds.x,
+                y: physical_bounds.y,
+                width: physical_bounds.width,
+                height: physical_bounds.height,
+            };
+            let _ = self.align_external_chrome_window(process_id, target);
+        }
+        let launched_at = chrono::Utc::now().to_rfc3339();
+        self.invoke_external_session(ExternalSessionCommand::SetRunning {
+            role_id: role.id.clone(),
+            launched_at,
+        })?;
+        self.emit_browser_statuses();
+        self.external_session(&role.id)?
+            .ok_or_else(|| CoreError::Internal("external session disappeared".to_owned()))
+    }
+
+    async fn initialize_external_automation(
+        self: &Arc<Self>,
+        role_id: &str,
+        session: Arc<crate::ExternalChromeCdpSession>,
+    ) -> CoreResult<()> {
+        let events = session.take_events()?;
+        session
+            .send("Page.enable".to_owned(), None, None, None)
+            .await?;
+        session
+            .send("Runtime.enable".to_owned(), None, None, None)
+            .await?;
+        session
+            .send(
+                "Runtime.addBinding".to_owned(),
+                Some(json!({"name":EXTERNAL_OVERLAY_BINDING})),
+                None,
+                None,
+            )
+            .await?;
+        self.install_external_overlay(role_id, &session).await;
+
+        let weak = Arc::downgrade(self);
+        let role_id = role_id.to_owned();
+        let runtime_handle = tokio::runtime::Handle::current();
+        std::thread::Builder::new()
+            .name(format!("rion-external-events-{role_id}"))
+            .spawn(move || {
+                while let Ok(event) = events.recv() {
+                    let Some(core) = weak.upgrade() else {
+                        break;
+                    };
+                    let role_id = role_id.clone();
+                    let session = Arc::clone(&session);
+                    runtime_handle.spawn(async move {
+                        core.handle_external_cdp_event(&role_id, &session, event)
+                            .await;
+                    });
+                }
+            })
+            .map_err(|error| CoreError::Internal(error.to_string()))?;
+        Ok(())
+    }
+
+    async fn install_external_overlay(
+        self: &Arc<Self>,
+        role_id: &str,
+        session: &crate::ExternalChromeCdpSession,
+    ) {
+        let Ok(source_result) = self
+            .request_core_effect(
+                role_id,
+                CoreEffectAction::ExternalOverlaySource {
+                    role_id: role_id.to_owned(),
+                },
+                Duration::from_secs(5),
+            )
+            .await
+        else {
+            return;
+        };
+        let Ok(source) = effect_value::<String>(&source_result) else {
+            return;
+        };
+        let bootstrap = external_overlay_bridge_source();
+        let expression = format!("{bootstrap}\n{source}");
+        let _ = session
+            .send(
+                "Runtime.evaluate".to_owned(),
+                Some(json!({"expression":expression})),
+                Some(Duration::from_secs(5)),
+                None,
+            )
+            .await;
+    }
+
+    async fn handle_external_cdp_event(
+        self: &Arc<Self>,
+        role_id: &str,
+        session: &crate::ExternalChromeCdpSession,
+        event: crate::external_chrome::CdpEvent,
+    ) {
+        match event {
+            crate::external_chrome::CdpEvent::Disconnected { message: _ } => {
+                let _ = self.invoke_external_session(ExternalSessionCommand::SetAutomation {
+                    role_id: role_id.to_owned(),
+                    available: false,
+                    cdn_active: false,
+                });
+                let _ = self
+                    .external_health()
+                    .and_then(|health| health.remove(role_id.to_owned()));
+                let _ = self.macro_runtime.release_role(role_id);
+                self.emit_browser_statuses();
+            }
+            crate::external_chrome::CdpEvent::Notification { method, params, .. }
+                if method == "Page.frameNavigated"
+                    && params
+                        .as_ref()
+                        .and_then(|value| value.get("frame"))
+                        .and_then(|value| value.get("parentId"))
+                        .is_none() =>
+            {
+                let _ = self.macro_runtime.release_role(role_id);
+                self.install_external_overlay(role_id, session).await;
+            }
+            crate::external_chrome::CdpEvent::Notification { method, params, .. }
+                if method == "Runtime.bindingCalled" =>
+            {
+                let Some(payload) = params
+                    .as_ref()
+                    .and_then(|value| value.get("payload"))
+                    .and_then(Value::as_str)
+                else {
+                    return;
+                };
+                let Ok(envelope) = serde_json::from_str::<Value>(payload) else {
+                    return;
+                };
+                let Some(request_id) = envelope.get("id").and_then(Value::as_str) else {
+                    return;
+                };
+                let request_json = envelope
+                    .get("request")
+                    .cloned()
+                    .unwrap_or(Value::Null)
+                    .to_string();
+                let result = self
+                    .request_core_effect(
+                        role_id,
+                        CoreEffectAction::ExternalOverlayRequest {
+                            role_id: role_id.to_owned(),
+                            request_json,
+                        },
+                        Duration::from_secs(10),
+                    )
+                    .await;
+                let (ok, value_json) = match result {
+                    Ok(result) if result.ok => {
+                        (true, result.value_json.unwrap_or_else(|| "null".to_owned()))
+                    }
+                    Ok(result) => (
+                        false,
+                        serde_json::to_string(
+                            &result
+                                .error
+                                .map(|error| error.message)
+                                .unwrap_or_else(|| "Overlay request failed.".to_owned()),
+                        )
+                        .unwrap_or_else(|_| "\"Overlay request failed.\"".to_owned()),
+                    ),
+                    Err(error) => (
+                        false,
+                        serde_json::to_string(&error.to_string())
+                            .unwrap_or_else(|_| "\"Overlay request failed.\"".to_owned()),
+                    ),
+                };
+                let request_id =
+                    serde_json::to_string(request_id).unwrap_or_else(|_| "\"invalid\"".to_owned());
+                let expression = format!(
+                    "window[{bridge}]?.resolve({request_id},{ok},{value});",
+                    bridge = serde_json::to_string(EXTERNAL_OVERLAY_BRIDGE_KEY)
+                        .expect("bridge key is valid JSON"),
+                    value = value_json
+                );
+                let _ = session
+                    .send(
+                        "Runtime.evaluate".to_owned(),
+                        Some(json!({"expression":expression})),
+                        None,
+                        None,
+                    )
+                    .await;
+            }
+            _ => {}
+        }
+    }
+
+    async fn stop_external_role(self: &Arc<Self>, role_id: &str) -> CoreResult<()> {
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: vec![role_id.to_owned()],
+                kind: "normal".to_owned(),
+            })
+            .await?;
+        let result = self.stop_external_session(role_id, false).await;
+        let completion = self.browser_operations.complete(&lease.id);
+        match (result, completion) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), _) | (Ok(()), Err(error)) => Err(error),
+        }
+    }
+
+    async fn stop_external_workspace(self: &Arc<Self>, workspace_id: &str) -> CoreResult<()> {
+        let role_ids = self
+            .external_sessions
+            .lock()
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
+            .snapshot()
+            .into_iter()
+            .filter(|session| session.workspace_id.as_deref() == Some(workspace_id))
+            .map(|session| session.role.id)
+            .collect::<Vec<_>>();
+        if role_ids.is_empty() {
+            return Ok(());
+        }
+        let lease = self
+            .acquire_browser_operation_async(BrowserOperationRequest {
+                role_ids: role_ids.clone(),
+                kind: "normal".to_owned(),
+            })
+            .await?;
+        let results = join_all(
+            role_ids
+                .iter()
+                .map(|role_id| self.stop_external_session(role_id, true)),
+        )
+        .await;
+        let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
+            workspace_id: workspace_id.to_owned(),
+        });
+        let completion = self.browser_operations.complete(&lease.id);
+        if let Some(error) = results.into_iter().find_map(Result::err) {
+            return Err(error);
+        }
+        completion
+    }
+
+    async fn stop_external_session(
+        &self,
+        role_id: &str,
+        preserve_workspace: bool,
+    ) -> CoreResult<()> {
+        if self.external_session(role_id)?.is_none() {
+            return Ok(());
+        }
+        self.invoke_external_session(ExternalSessionCommand::SetStopping {
+            role_id: role_id.to_owned(),
+        })?;
+        let _ = self.macro_runtime.release_role(role_id);
+        let _ = self.external_health()?.remove(role_id.to_owned());
+        let _ = self.external_automation.unregister(role_id);
+        let _ = self.external_processes.terminate(role_id);
+        self.invoke_external_session(ExternalSessionCommand::Remove {
+            role_id: role_id.to_owned(),
+            preserve_workspace,
+        })?;
+        self.emit_browser_statuses();
+        Ok(())
+    }
+
+    async fn recover_external_role(
+        self: &Arc<Self>,
+        role_id: &str,
+    ) -> CoreResult<crate::model::BrowserRoleStatusRecord> {
+        let session = self
+            .external_session(role_id)?
+            .ok_or_else(|| CoreError::Domain {
+                code: "EXTERNAL_SESSION_NOT_FOUND",
+                message: "External Chrome role is not running.".to_owned(),
+            })?;
+        if session.state != "running" || session.page_health.as_deref() != Some("unresponsive") {
+            return Err(CoreError::Domain {
+                code: "EXTERNAL_RECOVERY_NOT_REQUIRED",
+                message: "External Chrome role does not need recovery.".to_owned(),
+            });
+        }
+        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+            "gameBrowserSettings",
+            "game browser settings are missing",
+        )?;
+        let notice = remove_external_notice(session.notice, EXTERNAL_PAGE_UNRESPONSIVE_NOTICE);
+        self.stop_external_session(role_id, true).await?;
+        let replacement = self
+            .launch_external_session(
+                session.role,
+                session.bounds,
+                session.physical_bounds,
+                session.workspace_id,
+                notice,
+                session.zoom_factor,
+                settings,
+            )
+            .await?;
+        let _ = self.external_automation.focus(role_id).await;
+        Ok(external_status(&replacement))
+    }
+
+    async fn capture_external_diagnostics(
+        &self,
+        role_id: &str,
+    ) -> CoreResult<ExternalChromeDiagnosticsRecord> {
+        let session = self
+            .external_session(role_id)?
+            .ok_or_else(|| CoreError::Domain {
+                code: "EXTERNAL_SESSION_NOT_FOUND",
+                message: "External Chrome role is not running.".to_owned(),
+            })?;
+        let chrome = if session.automation_available {
+            self.external_automation.diagnostics(role_id).await.ok()
+        } else {
+            None
+        };
+        let count = self
+            .external_sessions
+            .lock()
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
+            .snapshot()
+            .len();
+        Ok(crate::external_runtime::diagnostics(
+            &session, count, chrome,
+        ))
+    }
+
+    async fn resolve_external_physical_bounds(
+        self: &Arc<Self>,
+        bounds: &StatePixelBoundsRecord,
+    ) -> CoreResult<StatePixelBoundsRecord> {
+        let result = self
+            .request_core_effect(
+                "external-bounds",
+                CoreEffectAction::ExternalResolvePhysicalBounds {
+                    bounds: bounds.clone(),
+                },
+                Duration::from_secs(5),
+            )
+            .await?;
+        effect_value(&result)
+    }
+
+    async fn request_core_effect(
+        &self,
+        handle_id: &str,
+        action: CoreEffectAction,
+        timeout: Duration,
+    ) -> CoreResult<CoreEffectResult> {
+        let handle = self
+            .operation_actor
+            .start(crate::operation_actor::OperationPlan {
+                steps: vec![effect_step(handle_id, action, timeout, None)],
+            })?;
+        let outcome = handle.outcome.await.map_err(|_| {
+            CoreError::Internal("operation actor stopped before returning an outcome".to_owned())
+        })?;
+        if let Some(error) = outcome.error {
+            return Err(CoreError::Effect {
+                code: error.code,
+                message: error.message,
+            });
+        }
+        outcome
+            .results
+            .into_iter()
+            .next()
+            .ok_or_else(|| CoreError::Internal("core effect returned no result".to_owned()))
+    }
+
+    async fn acquire_browser_operation_async(
+        self: &Arc<Self>,
+        request: BrowserOperationRequest,
+    ) -> CoreResult<crate::model::BrowserOperationLease> {
+        let core = Arc::clone(self);
+        tokio::task::spawn_blocking(move || core.browser_operations.acquire(request))
+            .await
+            .map_err(|error| CoreError::Internal(error.to_string()))?
+    }
+
+    fn external_session(&self, role_id: &str) -> CoreResult<Option<ExternalSessionRecord>> {
+        Ok(self
+            .external_sessions
+            .lock()
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
+            .get(role_id)
+            .cloned())
+    }
+
+    fn emit_browser_statuses(&self) {
+        if let Ok(statuses) = self.browser_statuses() {
+            self.emit(vec![CoreEvent::BrowserStatuses { statuses }]);
+        }
+    }
+
+    pub fn browser_statuses(&self) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+        let browser = self
+            .browser_runtime
+            .lock()
+            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
+        let sessions = self
+            .external_sessions
+            .lock()
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
+        Ok(crate::external_runtime::role_statuses(
+            browser.snapshot().roles.into_iter(),
+            &sessions.snapshot(),
+        ))
+    }
+
+    pub fn browser_workspace_statuses(
+        &self,
+    ) -> CoreResult<Vec<crate::model::BrowserWorkspaceStatusRecord>> {
+        let browser = self
+            .browser_runtime
+            .lock()
+            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
+        let sessions = self
+            .external_sessions
+            .lock()
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
+        Ok(crate::external_runtime::workspace_statuses(
+            &sessions.snapshot(),
+            browser.snapshot().workspaces.into_iter(),
+        ))
     }
 
     pub fn invoke_browser_runtime(
@@ -1965,14 +3126,14 @@ impl AppCore {
         command: crate::model::ExternalSessionCommand,
     ) -> CoreResult<crate::model::ExternalSessionResult> {
         self.with_runtime(|_| Ok(()))?;
-        let mut sessions = self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
         let mut browser = self
             .browser_runtime
             .lock()
             .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
+        let mut sessions = self
+            .external_sessions
+            .lock()
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?;
         let previous = sessions.clone();
         let removed = match &command {
             crate::model::ExternalSessionCommand::Remove { role_id, .. } => {
@@ -2172,6 +3333,114 @@ impl AppCore {
     fn emit(&self, events: Vec<CoreEvent>) {
         broadcast_events(&self.subscribers, events);
     }
+}
+
+fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserRoleStatusRecord {
+    crate::model::BrowserRoleStatusRecord {
+        role_id: result.role_id,
+        state: result.state,
+        launched_at: Some(result.launched_at),
+        notice: None,
+        runtime_mode: result.runtime_mode,
+        automation_state: None,
+        page_health: None,
+    }
+}
+
+fn external_status(session: &ExternalSessionRecord) -> crate::model::BrowserRoleStatusRecord {
+    crate::model::BrowserRoleStatusRecord {
+        role_id: session.role.id.clone(),
+        state: session.state.clone(),
+        launched_at: session.launched_at.clone(),
+        notice: session.notice.clone(),
+        runtime_mode: "external".to_owned(),
+        automation_state: (session.state == "running").then(|| {
+            if session.automation_available {
+                "ready".to_owned()
+            } else {
+                "unavailable".to_owned()
+            }
+        }),
+        page_health: session.page_health.clone(),
+    }
+}
+
+fn effect_value<T: DeserializeOwned>(result: &CoreEffectResult) -> CoreResult<T> {
+    if !result.ok {
+        let error = result
+            .error
+            .clone()
+            .unwrap_or_else(|| crate::error::CoreErrorPayload {
+                code: "CORE_EFFECT_FAILED".to_owned(),
+                message: "The Electron effect failed.".to_owned(),
+            });
+        return Err(CoreError::Effect {
+            code: error.code,
+            message: error.message,
+        });
+    }
+    let value = result.value_json.as_deref().unwrap_or("null");
+    serde_json::from_str(value).map_err(|error| {
+        CoreError::Internal(format!(
+            "Electron effect returned an invalid result: {error}"
+        ))
+    })
+}
+
+fn append_external_notice(current: Option<String>, next: &str) -> Option<String> {
+    match current {
+        Some(current) if current.contains(next) => Some(current),
+        Some(current) => Some(format!("{current} {next}")),
+        None => Some(next.to_owned()),
+    }
+}
+
+fn remove_external_notice(current: Option<String>, target: &str) -> Option<String> {
+    current.and_then(|current| {
+        let next = current.replace(target, "").trim().to_owned();
+        (!next.is_empty()).then_some(next)
+    })
+}
+
+fn external_overlay_bridge_source() -> String {
+    format!(
+        r#"(() => {{
+  const bindingName = {binding};
+  const bridgeKey = {bridge};
+  if (window[bridgeKey]?.version === 1 || typeof window[bindingName] !== "function") return;
+  const nativeBinding = window[bindingName];
+  let nextId = 1;
+  const pending = new Map();
+  window[bridgeKey] = {{
+    version: 1,
+    resolve(id, ok, value) {{
+      const request = pending.get(id);
+      if (!request) return;
+      pending.delete(id);
+      if (ok) request.resolve(value);
+      else request.reject(new Error(String(value)));
+    }}
+  }};
+  window[bindingName] = (request) => new Promise((resolve, reject) => {{
+    const id = nextId++;
+    pending.set(id, {{ resolve, reject }});
+    nativeBinding(JSON.stringify({{ id, request }}));
+  }});
+}})()"#,
+        binding =
+            serde_json::to_string(EXTERNAL_OVERLAY_BINDING).expect("overlay binding is valid JSON"),
+        bridge = serde_json::to_string(EXTERNAL_OVERLAY_BRIDGE_KEY)
+            .expect("overlay bridge key is valid JSON"),
+    )
+}
+
+fn system_epoch_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 fn effect_step(

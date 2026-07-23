@@ -63,14 +63,13 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps workspace geometry, divider resize, and adaptive zoom decisions in Rust", async () => {
-    const [manager, externalManager, layout, sharedLayout] = await Promise.all([
+    const [manager, layout, sharedLayout] = await Promise.all([
       readSource("src/main/browser/BrowserManager.ts"),
-      readSource("src/main/browser/ExternalChromeManager.ts"),
       readSource("crates/rion-core/src/layout.rs"),
       readSource("src/shared/workspaceLayout.ts")
     ]);
 
-    for (const source of [manager, externalManager, sharedLayout]) {
+    for (const source of [manager, sharedLayout]) {
       expect(source).not.toContain("getAdaptiveWorkspaceBrowserZoomPercent");
       expect(source).not.toContain("normalizeWorkspaceRectEdges");
     }
@@ -97,21 +96,18 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("routes external macro actions through the Rust CDP executor", async () => {
-    const [adapter, external, overlay] = await Promise.all([
+    const [adapter, external, core] = await Promise.all([
       readSource("src/main/core/ElectronBrowserActionAdapter.ts"),
       readSource("crates/rion-core/src/external_automation.rs"),
-      readSource("src/main/browser/ExternalChromeAutomationTarget.ts")
+      readSource("crates/rion-core/src/app.rs")
     ]);
 
     expect(adapter).toContain("dispatchExternalBrowserActions");
     expect(external).toContain("held_key_owners");
     expect(external).toContain("Input.dispatchKeyEvent");
     expect(external).toContain("Input.dispatchMouseEvent");
-    expect(overlay).not.toContain("Input.dispatchKeyEvent");
-    expect(overlay).not.toContain("Input.dispatchMouseEvent");
-    expect(overlay).not.toContain("Fetch.enable");
-    expect(overlay).not.toContain("waitForDevToolsPort");
-    expect(overlay).not.toContain("heldKeyOwners");
+    expect(core).toContain("ExternalOverlayRequest");
+    expect(core).toContain("handle_external_cdp_event");
   });
 
   it("keeps portable parsing, pending sessions, planning, and persistence out of TypeScript", async () => {
@@ -181,16 +177,15 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps external Chrome health scheduling and probes out of TypeScript", async () => {
-    const [manager, target] = await Promise.all([
-      readSource("src/main/browser/ExternalChromeManager.ts"),
-      readSource("src/main/browser/ExternalChromeAutomationTarget.ts")
+    const [main, health] = await Promise.all([
+      readSource("src/main/index.ts"),
+      readSource("crates/rion-core/src/external_health.rs")
     ]);
 
-    expect(manager).not.toContain("setInterval");
-    expect(manager).not.toContain("checkPageHealth");
-    expect(manager).not.toContain("probeCdpRoundTrip");
-    expect(manager).not.toContain("EXTERNAL_HEARTBEAT_STALL_MS");
-    expect(target).not.toContain("window.setInterval");
+    expect(main).not.toContain("RustExternalChromeHealthMonitor");
+    expect(main).not.toContain("externalChromeManager.handleSuspend");
+    expect(health).toContain("PROBE_INTERVAL");
+    expect(health).toContain("ExternalHealthChanged");
   });
 
   it("keeps embedded runtime diagnostics event-driven", async () => {
@@ -225,24 +220,20 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps external Chrome process, CDP, and session authority in Rust", async () => {
-    const [manager, main, automation, sessions, processes, addon] = await Promise.all([
-      readSource("src/main/browser/ExternalChromeManager.ts"),
+    const [main, app, automation, sessions, processes, addon] = await Promise.all([
       readSource("src/main/index.ts"),
+      readSource("crates/rion-core/src/app.rs"),
       readSource("crates/rion-core/src/external_chrome.rs"),
       readSource("crates/rion-core/src/external_sessions.rs"),
       readSource("crates/rion-core/src/external_processes.rs"),
       readSource("crates/rion-node/src/lib.rs")
     ]);
 
-    expect(manager).not.toContain('from "node:child_process"');
-    expect(manager).not.toContain('from "node:fs');
-    expect(manager).not.toContain("private readonly sessions");
-    expect(manager).not.toContain("findExecutable ??");
-    expect(manager).not.toContain("spawnChrome ??");
-    expect(manager).not.toContain("connectAutomation ??");
-    expect(main).toContain("captureExternalChromeDiagnostics");
-    expect(main).toContain("focusExternalChrome");
-    expect(main).toContain("setExternalChromeWindowBounds");
+    expect(main).not.toContain("ExternalChromeManager");
+    expect(main).not.toContain("connectExternalChromeAutomation");
+    expect(app).toContain("launch_external_session");
+    expect(app).toContain("launch_external_workspace");
+    expect(app).toContain("recover_external_role");
     expect(automation).toContain("Fetch.requestPaused");
     expect(automation).toContain("RECONNECT_TIMEOUT");
     expect(automation).toContain("connect_devtools_socket");

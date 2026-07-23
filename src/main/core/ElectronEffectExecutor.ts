@@ -100,6 +100,9 @@ export interface ElectronEffectExecutorOptions {
   executeEmbeddedEffect?: (
     effect: CoreEffectRequest & { action: EmbeddedCoreEffectAction }
   ) => Promise<CoreJsonValue | undefined>;
+  executeExternalEffect?: (
+    effect: CoreEffectRequest & { action: ExternalCoreEffectAction }
+  ) => Promise<CoreJsonValue | undefined>;
   sendDebuggerCommand: (
     webContents: ElectronWebContentsEffectHandle,
     method: string,
@@ -163,6 +166,15 @@ export class ElectronEffectExecutor {
         );
       }
       return this.options.executeEmbeddedEffect({ ...effect, action });
+    }
+    if (isExternalEffectAction(action)) {
+      if (!this.options.executeExternalEffect) {
+        throw effectError(
+          "ELECTRON_EFFECT_UNSUPPORTED",
+          "The external browser effect adapter is unavailable."
+        );
+      }
+      return this.options.executeExternalEffect({ ...effect, action });
     }
 
     const handle = this.handles.require(target.handleId);
@@ -253,10 +265,27 @@ type EmbeddedCoreEffectAction = Extract<
   }
 >;
 
+export type ExternalCoreEffectAction = Extract<
+  CoreEffectRequest["action"],
+  {
+    type:
+      | "externalOverlayRequest"
+      | "externalOverlaySource"
+      | "externalPrepareSession"
+      | "externalResolvePhysicalBounds";
+  }
+>;
+
 function isEmbeddedEffectAction(
   action: CoreEffectRequest["action"]
 ): action is EmbeddedCoreEffectAction {
   return action.type.startsWith("embedded");
+}
+
+function isExternalEffectAction(
+  action: CoreEffectRequest["action"]
+): action is ExternalCoreEffectAction {
+  return action.type.startsWith("external");
 }
 
 function webContentsOf(handle: ElectronEffectHandle): ElectronWebContentsEffectHandle {

@@ -1,6 +1,7 @@
 import type {
   BrowserOperationLease,
   BrowserOperationRequest,
+  BrowserRoleStatusRecord,
   CoreCommand,
   CoreCommandResult,
   BrowserRuntimeCommand,
@@ -127,11 +128,33 @@ export function createBrowserRuntimeState() {
 
   return {
     ...resourceRuntime,
+    evaluateExternalChrome<T>(): Promise<T> {
+      return Promise.reject(new Error("External Chrome is not configured in this test harness."));
+    },
+    listBrowserStatuses(): BrowserRoleStatusRecord[] {
+      return snapshot().roles.map((role) => ({
+        roleId: role.roleId,
+        state: role.state,
+        ...(role.launchedAt ? { launchedAt: role.launchedAt } : {}),
+        runtimeMode: role.runtime,
+        ...(role.runtime === "external"
+          ? { automationState: "ready" as const, pageHealth: "healthy" as const }
+          : {})
+      }));
+    },
+    listBrowserWorkspaceStatuses() {
+      return snapshot().workspaces.map(({ state, workspaceId }) => ({ state, workspaceId }));
+    },
     invokeTyped<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
       if (!typedInvoker) {
         return Promise.reject(new Error("The test Rust intent executor is not configured."));
       }
-      if (command.type === "embeddedRoleStop" || command.type === "embeddedWorkspaceStop") {
+      if (
+        command.type === "browserRoleStop" ||
+        command.type === "browserWorkspaceStop" ||
+        command.type === "embeddedRoleStop" ||
+        command.type === "embeddedWorkspaceStop"
+      ) {
         return typedInvoker(command) as Promise<CoreCommandResult<C>>;
       }
       const result = typedTail.then(() => typedInvoker!(command));

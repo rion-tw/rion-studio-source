@@ -37,8 +37,7 @@ const allowedMapProperties = new Set([
   "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.externalHostRoleIds",
   "src/main/startup/startupWindow.ts:RendererReadyGate.pendingByWebContentsId"
 ]);
-const rustOwnedOrchestrationName =
-  /^(?:deleteSession|handleAutomationDisconnect|handleHealthChange|invokeBrowserRuntime|invokeSession|launch|launchExternal|launchExternalWorkspace|launchSession|launchWorkspace|listStatuses|listWorkspaceDisplayReservations|listWorkspaceRuntimeStatuses|recover|recoverExternalRole|stop|stopForRecovery|stopWorkspace|withRoleOperation)$/;
+const rustOwnedOrchestrationName = /^(?:withRoleOperation)$/;
 const allowedNativeAppCoreMethods = new Set([
   "dispatchCoreEffectResults",
   "invoke",
@@ -117,8 +116,7 @@ describe("Rust-owned main-process debt manifest", () => {
 
   it("matches browser lifecycle methods that still orchestrate Rust-owned state", async () => {
     const sources = await Promise.all([
-      readSource("src/main/browser/BrowserManager.ts"),
-      readSource("src/main/browser/ExternalChromeManager.ts")
+      readSource("src/main/browser/BrowserManager.ts")
     ]);
     const actual: string[] = [];
 

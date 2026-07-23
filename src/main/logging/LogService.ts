@@ -1,72 +1,59 @@
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import { EventEmitter } from "node:events";
 
-import {
-  LOG_LEVELS,
-  type LogEntry,
-  type LogLevel,
-  type LogPage,
-  type LogQuery,
-  type LogSource,
-  type LogStorageStatus
-} from "../../shared/types";
-import { sanitizeError, sanitizeText, sanitizeValue } from "./logSanitizer";
-import type { ZipFile } from "./zipWriter";
+import type {
+  LogCaptureRecord,
+  LogEntry,
+  LogErrorDetails,
+  LogLevel,
+  LogPageRecord,
+  LogQuery,
+  LogSource,
+  LogStorageStatusRecord
+} from "../../shared/generated";
+import type { AppCoreClient } from "../core/nativeCore";
 
-const LEVEL_VALUE: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
-const PRE_CORE_BUFFER_MAX_ENTRIES = 256;
-export interface LogServiceOptions {
-  userDataPath: string;
-  now?: () => Date;
-  platform?: NodeJS.Platform;
-  appVersion?: string;
-  /** Retained only for source compatibility; production logging never writes JSONL. */
-  deferFileWrites?: boolean;
+const MAX_CAPTURE_DEPTH = 8;
+const MAX_CAPTURE_KEYS = 80;
+
+type LogCoreClient = Pick<AppCoreClient, "invokeTyped" | "subscribe">;
+interface LogInitializationContext {
+  appVersion: string;
+  arch: string;
+  platform: string;
 }
 
-export interface LogPersistence {
-  append: (entries: LogEntry[]) => Promise<void>;
-  clear: () => Promise<void>;
-  exportJsonlTo: (path: string) => Promise<void>;
-  getStatus: (currentLevel: LogLevel) => Promise<LogStorageStatus>;
-  query: (query: LogQuery) => Promise<LogPage>;
-}
-
+/**
+ * Thin capture adapter. Rust owns level filtering, session/sequence identity,
+ * redaction, bounded buffering, persistence batching, retention and queries.
+ */
 export class LogService extends EventEmitter {
-  readonly directory: string;
-  readonly sessionId = randomUUID();
-  private currentLevel: LogLevel = "info";
-  private sequence = 0;
-  private queue = Promise.resolve();
-  private pendingEntries: LogEntry[] = [];
-  private persistence?: LogPersistence;
+  private core?: LogCoreClient;
+  private readonly inFlight = new Set<Promise<unknown>>();
   private stopped = false;
-  private readonly now: () => Date;
-  private readonly userDataPath: string;
+  private unsubscribe?: () => void;
 
-  constructor(private readonly options: LogServiceOptions) {
-    super();
-    this.userDataPath = options.userDataPath;
-    this.directory = join(options.userDataPath, "logs");
-    this.now = options.now ?? (() => new Date());
-  }
-
-  async initialize(): Promise<void> {
-    this.info("main", "app_session_started", "Application logging started.", {
-      appVersion: this.options.appVersion,
-      platform: this.options.platform ?? process.platform,
-      arch: process.arch
-    });
-  }
-
-  async usePersistence(persistence: LogPersistence): Promise<void> {
-    if (this.stopped) {
-      throw new Error("Log service is shut down.");
+  async initialize(
+    core: LogCoreClient,
+    context: LogInitializationContext = {
+      appVersion: "unknown",
+      arch: process.arch,
+      platform: process.platform
     }
-    await this.queue;
-    this.persistence = persistence;
-    await this.flushPending();
+  ): Promise<void> {
+    if (this.stopped) throw new Error("Log service is shut down.");
+    this.core = core;
+    this.unsubscribe = core.subscribe((events) => {
+      for (const event of events) {
+        if (event.type !== "logEntriesCaptured") continue;
+        event.entries.forEach((entry) => this.emit("entry", entry));
+      }
+    });
+    this.info("main", "app_session_started", "Application logging started.", {
+      appVersion: context.appVersion,
+      platform: context.platform,
+      arch: context.arch
+    });
+    await this.flush();
   }
 
   debug(source: LogSource, event: string, message: string, context?: Record<string, unknown>): void {
@@ -106,101 +93,121 @@ export class LogService extends EventEmitter {
     error?: unknown
   ): void {
     if (this.stopped) return;
-    if (LEVEL_VALUE[level] < LEVEL_VALUE[this.currentLevel]) return;
-    const entry: LogEntry = {
-      id: `${this.sessionId}:${++this.sequence}`,
-      timestamp: this.now().toISOString(),
+    const core = this.core;
+    if (!core) {
+      process.stderr.write(`Rion Studio early log (${level}/${event}) occurred before core initialization.\n`);
+      return;
+    }
+    const capture: LogCaptureRecord = {
       level,
       source,
-      event: sanitizeText(event, this.userDataPath).slice(0, 120),
-      message: sanitizeText(message, this.userDataPath),
-      sessionId: this.sessionId
+      event,
+      message,
+      ...(context === undefined
+        ? {}
+        : { contextRawJson: JSON.stringify(toJsonCaptureValue(context)) }),
+      ...(error === undefined ? {} : { error: captureError(error) })
     };
-    const sanitized = sanitizeValue(context, this.userDataPath);
-    if (sanitized && typeof sanitized === "object" && !Array.isArray(sanitized)) {
-      entry.context = sanitized as Record<string, unknown>;
-    }
-    if (error instanceof Error) entry.error = sanitizeError(error, this.userDataPath);
-    else if (error !== undefined) {
-      entry.error = { name: "Error", message: sanitizeText(String(error), this.userDataPath) };
-    }
-    this.emit("entry", entry);
-    this.queue = this.queue.then(() => this.writeEntry(entry)).catch((writeError) => {
-      process.stderr.write(`Rion Studio log database write failed: ${String(writeError)}\n`);
-    });
+    this.track(core.invokeTyped({ type: "logsCapture", entries: [capture] }));
   }
 
-  setLevel(level: LogLevel): void {
-    if (!LOG_LEVELS.includes(level)) throw new Error("Invalid log level.");
-    this.currentLevel = level;
+  async setLevel(level: LogLevel): Promise<void> {
+    await this.requireCore().invokeTyped({ type: "logsSetLevel", level });
     this.info("main", "log_level_changed", `Log level changed to ${level}.`);
   }
 
   async flush(): Promise<void> {
-    await this.queue;
-    await this.flushPending();
+    while (this.inFlight.size > 0) {
+      await Promise.allSettled([...this.inFlight]);
+    }
   }
 
   async shutdown(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    await this.queue;
-    await this.flushPending();
-    this.persistence = undefined;
+    await this.flush();
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    this.core = undefined;
     this.removeAllListeners();
   }
 
-  async getStatus(): Promise<LogStorageStatus> {
+  async getStatus(): Promise<LogStorageStatusRecord> {
     await this.flush();
-    return this.requirePersistence().getStatus(this.currentLevel);
+    return this.requireCore().invokeTyped({ type: "logsStatus" });
   }
 
-  async query(query: LogQuery = {}): Promise<LogPage> {
+  async query(query: LogQuery = {}): Promise<LogPageRecord> {
     await this.flush();
-    return this.requirePersistence().query(query);
+    return this.requireCore().invokeTyped({ type: "logsQuery", query });
   }
 
   async clear(): Promise<void> {
     await this.flush();
-    await this.requirePersistence().clear();
+    await this.requireCore().invokeTyped({ type: "logsClear" });
     this.info("main", "logs_cleared", "Application logs were cleared by the user.");
-  }
-
-  async getFiles(exportPath: string): Promise<ZipFile[]> {
     await this.flush();
-    await this.requirePersistence().exportJsonlTo(exportPath);
-    return [{ name: "rion-studio-logs.jsonl", path: exportPath }];
   }
 
-  private async writeEntry(entry: LogEntry): Promise<void> {
-    if (this.persistence) {
-      await this.persistence.append([entry]);
-      return;
-    }
-    if (this.pendingEntries.length >= PRE_CORE_BUFFER_MAX_ENTRIES) {
-      const discardIndex = this.pendingEntries.findIndex(
-        (candidate) => candidate.level === "debug" || candidate.level === "info"
-      );
-      this.pendingEntries.splice(discardIndex < 0 ? 0 : discardIndex, 1);
-    }
-    this.pendingEntries.push(entry);
+  private track(operation: Promise<unknown>): void {
+    this.inFlight.add(operation);
+    void operation
+      .catch((error) => {
+        process.stderr.write(`Rion Studio log capture failed: ${String(error)}\n`);
+      })
+      .finally(() => this.inFlight.delete(operation));
   }
 
-  private async flushPending(): Promise<void> {
-    if (!this.persistence || this.pendingEntries.length === 0) return;
-    const entries = this.pendingEntries.splice(0);
-    try {
-      await this.persistence.append(entries);
-    } catch (error) {
-      this.pendingEntries.unshift(...entries);
-      throw error;
-    }
-  }
-
-  private requirePersistence(): LogPersistence {
-    if (!this.persistence) {
-      throw new Error("Rust log persistence is not initialized.");
-    }
-    return this.persistence;
+  private requireCore(): LogCoreClient {
+    if (!this.core) throw new Error("Rust log capture is not initialized.");
+    return this.core;
   }
 }
+
+function toJsonCaptureValue(
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>()
+): unknown {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "undefined") return null;
+  if (value instanceof Error) return captureError(value);
+  if (typeof value !== "object") return String(value);
+  if (depth >= MAX_CAPTURE_DEPTH) return "<MAX_DEPTH>";
+  if (seen.has(value)) return "<CIRCULAR>";
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, MAX_CAPTURE_KEYS)
+      .map((item) => toJsonCaptureValue(item, depth + 1, seen));
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .slice(0, MAX_CAPTURE_KEYS)
+      .map(([key, item]) => [key, toJsonCaptureValue(item, depth + 1, seen)])
+  );
+}
+
+function captureError(error: unknown, depth = 0): LogErrorDetails {
+  if (!(error instanceof Error)) {
+    return { name: "Error", message: String(error) };
+  }
+  return {
+    name: error.name || "Error",
+    message: error.message,
+    ...(error.stack ? { stack: error.stack } : {}),
+    ...(error.cause !== undefined && depth < MAX_CAPTURE_DEPTH
+      ? { cause: captureError(error.cause, depth + 1) }
+      : {})
+  };
+}
+
+export type { LogEntry };

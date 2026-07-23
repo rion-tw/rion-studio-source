@@ -199,13 +199,24 @@ describe("Rust production architecture boundaries", () => {
     expect(main).not.toContain("rust_subsystem_fallback_active");
   });
 
-  it("keeps production log persistence and batching out of TypeScript", async () => {
-    const logging = await readSource("src/main/logging/LogService.ts");
+  it("keeps log identity, filtering, redaction, persistence and batching in Rust", async () => {
+    const [adapter, capture, persistence] = await Promise.all([
+      readSource("src/main/logging/LogService.ts"),
+      readSource("crates/rion-core/src/log_capture.rs"),
+      readSource("crates/rion-core/src/database/logs.rs")
+    ]);
 
-    expect(logging).not.toContain("useFileFallback");
-    expect(logging).not.toContain("writeFileEntry");
-    expect(logging).not.toContain("setTimeout");
-    expect(logging).not.toContain("appendFile");
+    expect(adapter).not.toContain("randomUUID");
+    expect(adapter).not.toContain("private sequence");
+    expect(adapter).not.toContain("currentLevel");
+    expect(adapter).not.toContain("pendingEntries");
+    expect(adapter).not.toContain("sanitizeText");
+    expect(adapter).not.toContain("node:fs");
+    expect(adapter).toContain('type: "logsCapture"');
+    expect(capture).toContain("CAPTURE_QUEUE_CAPACITY");
+    expect(capture).toContain("sanitize_value");
+    expect(persistence).toContain("BATCH_INTERVAL");
+    expect(persistence).toContain("BATCH_MAX_ENTRIES");
   });
 
   it("keeps external Chrome health scheduling and probes out of TypeScript", async () => {
@@ -337,17 +348,36 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps Windows graphics event-log access and parsing in Rust", async () => {
-    const [adapter, platform, parser] = await Promise.all([
-      readSource("src/main/browser/RustWindowsGraphicsEventCollector.ts"),
+    const [main, platform, parser] = await Promise.all([
+      readSource("src/main/index.ts"),
       readSource("crates/rion-platform/src/windows_events.rs"),
       readSource("crates/rion-core/src/windows_graphics_events.rs")
     ]);
 
-    expect(adapter).not.toContain("node:child_process");
-    expect(adapter).not.toContain("wevtutil");
-    expect(adapter).toContain('type: "windowsGraphicsEventsCollect"');
+    expect(main).not.toContain("RustWindowsGraphicsEventCollector");
+    expect(main).toContain('type: "windowsGraphicsEventsCollect"');
     expect(platform).toContain('Command::new("wevtutil")');
     expect(parser).toContain("fn parse");
+  });
+
+  it("keeps diagnostic ZIP, telemetry timers and system process control in Rust", async () => {
+    const [main, native, diagnostics, telemetry, platform] = await Promise.all([
+      readSource("src/main/index.ts"),
+      readSource("src/main/core/nativeCore.ts"),
+      readSource("crates/rion-core/src/diagnostics.rs"),
+      readSource("crates/rion-core/src/telemetry.rs"),
+      readSource("crates/rion-platform/src/system.rs")
+    ]);
+
+    expect(main).not.toContain("node:fs");
+    expect(main).not.toContain("node:os");
+    expect(main).not.toContain("performanceTelemetryTimer");
+    expect(main).not.toContain("writeZip");
+    expect(main).toContain('type: "diagnosticsExport"');
+    expect(native).not.toContain("class PerformanceMetrics");
+    expect(diagnostics).toContain("atomic_replace_file");
+    expect(telemetry).toContain("WRITE_INTERVAL");
+    expect(platform).toContain("request_graceful_chrome_quit");
   });
 
   it("keeps scalar production metadata stores free of filesystem persistence", async () => {

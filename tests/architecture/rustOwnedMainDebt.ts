@@ -47,30 +47,10 @@ export const RUST_OWNED_MAIN_DEBT = {
       "Role status projection."
     )
   ],
-  coreIntervals: [
-    debt(
-      "src/main/index.ts:performanceTelemetryTimer",
-      9,
-      "Performance sampling and persistence belong to Rust."
-    )
-  ],
-  nodeIoImports: [
-    debt("src/main/index.ts:node:fs", 9, "Startup and telemetry filesystem I/O."),
-    debt("src/main/index.ts:node:fs/promises", 9, "Telemetry filesystem I/O."),
-    debt("src/main/index.ts:node:os", 9, "Host performance sampling."),
-    debt("src/main/logging/logSanitizer.ts:node:os", 9, "Path redaction inputs."),
-    debt("src/main/logging/zipWriter.ts:node:fs", 9, "Diagnostic archive streaming."),
-    debt("src/main/logging/zipWriter.ts:node:fs/promises", 9, "Diagnostic archive output."),
-    debt(
-      "src/main/system-browser/SystemChromeCloser.ts:node:child_process",
-      9,
-      "System Chrome process control."
-    )
-  ],
+  coreIntervals: [],
+  nodeIoImports: [],
   orchestrationMethods: [],
-  promiseTails: [
-    debt("src/main/logging/LogService.ts:LogService.queue", 9, "Log batching and flush ordering.")
-  ],
+  promiseTails: [],
   specializedNapiMethods: [
     debt("acquireBrowserOperation", 3, "Operation leases move behind invoke."),
     debt("alignExternalChromeWindow", 4, "External window operation actor effect."),

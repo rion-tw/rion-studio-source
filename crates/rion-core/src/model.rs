@@ -10,6 +10,8 @@ pub struct AppCoreOptions {
     pub user_data_dir: String,
     pub platform: String,
     pub app_version: String,
+    #[serde(default)]
+    pub performance_telemetry_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -279,8 +281,11 @@ pub enum CoreCommand {
     LayoutResolve {
         input: WorkspaceLayoutInput,
     },
-    LogsAppend {
-        entries: Vec<LogEntry>,
+    LogsCapture {
+        entries: Vec<LogCaptureRecord>,
+    },
+    LogsSetLevel {
+        level: LogLevel,
     },
     LogsQuery {
         query: LogQuery,
@@ -290,6 +295,15 @@ pub enum CoreCommand {
     LogsExportTo {
         path: String,
     },
+    DiagnosticsExport {
+        path: String,
+        snapshot: ElectronDiagnosticsSnapshotRecord,
+    },
+    TelemetryRecord {
+        sample: TelemetrySampleRecord,
+    },
+    TelemetrySnapshot,
+    SystemChromeClose,
     MacroStart {
         request: MacroInvocationRequest,
     },
@@ -1913,6 +1927,9 @@ pub enum CoreEvent {
         revision: u64,
     },
     LogsChanged,
+    LogEntriesCaptured {
+        entries: Vec<LogEntry>,
+    },
     PressureChanged {
         snapshot: SystemPressureSnapshot,
     },
@@ -2832,6 +2849,22 @@ pub struct LogErrorDetails {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LogCaptureRecord {
+    pub level: LogLevel,
+    pub source: LogSource,
+    pub event: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, rename = "contextRawJson")]
+    pub context_raw_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<LogErrorDetails>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct LogEntry {
     pub id: String,
     pub timestamp: String,
@@ -2869,6 +2902,154 @@ pub struct LogQuery {
     pub cursor: Option<String>,
     #[ts(optional)]
     pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LogPageRecord {
+    pub entries: Vec<LogEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LogStorageStatusRecord {
+    pub current_level: LogLevel,
+    #[ts(type = "number")]
+    pub file_count: u64,
+    #[ts(type = "number")]
+    pub total_bytes: u64,
+    pub oldest_timestamp: Option<String>,
+    pub newest_timestamp: Option<String>,
+    pub retention_days: u32,
+    #[ts(type = "number")]
+    pub max_bytes: u64,
+    pub directory: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct DiagnosticDisplayRecord {
+    pub bounds: StatePixelBoundsRecord,
+    pub resolution: StateResolutionRecord,
+    pub scale_factor: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ElectronDiagnosticsSnapshotRecord {
+    pub application_name: String,
+    pub application_version: String,
+    pub packaged: bool,
+    pub electron_version: String,
+    pub chromium_version: String,
+    pub node_version: String,
+    pub locale: String,
+    pub system_version: String,
+    pub displays: Vec<DiagnosticDisplayRecord>,
+    pub gpu_feature_status_raw_json: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub gpu_info_raw_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub external_freeze_reported_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct DiagnosticExportResultRecord {
+    pub file_path: String,
+    pub log_file_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum TelemetryMetric {
+    IpcCommand,
+    MacroScheduleToDispatch,
+    TabActivation,
+    Cdp,
+    CoreEventBatch,
+    BrowserResult,
+    ProcessLaunch,
+    ScheduledWait,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct TelemetrySampleRecord {
+    pub metric: TelemetryMetric,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub duration_ms: Option<f64>,
+    #[serde(default = "default_telemetry_count")]
+    pub count: u32,
+}
+
+fn default_telemetry_count() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LatencySummaryRecord {
+    pub max_ms: f64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub sample_count: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CountedLatencySummaryRecord {
+    #[ts(type = "number")]
+    pub message_count: u64,
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub latency: LatencySummaryRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct NapiLatencySummaryRecord {
+    #[ts(type = "number")]
+    pub call_count: u64,
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub latency: LatencySummaryRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PerformanceTelemetryRecord {
+    #[ts(type = "number")]
+    pub browser_result_count: u64,
+    pub cdp: CountedLatencySummaryRecord,
+    #[ts(type = "number")]
+    pub core_event_batch_count: u64,
+    pub ipc_command: LatencySummaryRecord,
+    pub macro_schedule_to_dispatch: LatencySummaryRecord,
+    pub napi: NapiLatencySummaryRecord,
+    #[ts(type = "number")]
+    pub process_launch_count: u64,
+    #[ts(type = "number")]
+    pub scheduled_wait_count: u64,
+    pub started_at: String,
+    pub tab_activation: LatencySummaryRecord,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

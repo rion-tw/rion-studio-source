@@ -1,7 +1,4 @@
-import { existsSync } from "node:fs";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { cpus, freemem, totalmem } from "node:os";
+import { join } from "node:path";
 
 import {
   app,
@@ -24,7 +21,6 @@ import {
 import { ChromeProfileImportManager } from "./browser/ChromeProfileImportManager";
 import { ElectronProfileEffectAdapter } from "./browser/ElectronProfileEffectAdapter";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
-import { RustWindowsGraphicsEventCollector } from "./browser/RustWindowsGraphicsEventCollector";
 import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
 import { AppCoreClient, readBootstrapPlan } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
@@ -63,8 +59,6 @@ import {
 import { LegalAcceptanceStore } from "./legal/LegalAcceptanceStore";
 import { LogService } from "./logging/LogService";
 import { sendToWindowIfAvailable } from "./window/sendToWindow";
-import { RustLogPersistence } from "./logging/RustLogPersistence";
-import { writeZip } from "./logging/zipWriter";
 import { RustMacroManager } from "./macros/RustMacroManager";
 import {
   MACRO_OVERLAY_SCRIPT,
@@ -75,7 +69,6 @@ import { MacroStore } from "./macros/MacroStore";
 import { MacroSettingsStore } from "./macros/MacroSettingsStore";
 import { PortableDataManager } from "./portable/PortableDataManager";
 import { RoleStore } from "./roles/RoleStore";
-import { requestGracefulChromeQuit } from "./system-browser/SystemChromeCloser";
 import {
   createStartupPageUrl,
   loadRendererPage,
@@ -142,60 +135,16 @@ let mainWindowReady = false;
 let startupPromise: Promise<void> | null = null;
 let isApplicationQuitting = false;
 let quitCleanupPromise: Promise<void> | null = null;
-let getDiagnosticDataCounts = async () => ({ games: 0, roles: 0, workspaces: 0, macros: 0 });
 let appCoreClient: AppCoreClient | null = null;
 let electronBrowserActionAdapter: ElectronBrowserActionAdapter | null = null;
 let electronEffectUnsubscribe: (() => void) | null = null;
-let performanceTelemetryTimer: ReturnType<typeof setInterval> | undefined;
 const rendererReadyGate = new RendererReadyGate();
 const RENDERER_READY_TIMEOUT_MS = 15_000;
-const logService = new LogService({
-  appVersion: app.getVersion(),
-  platform: process.platform,
-  userDataPath: app.getPath("userData")
-});
-
-async function writePerformanceTelemetry(): Promise<void> {
-  const performanceTelemetryPath = process.env.RION_PERFORMANCE_TELEMETRY_PATH;
-  if (!performanceTelemetryPath || !appCoreClient) return;
-  const outputPath = resolve(performanceTelemetryPath);
-  await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(
-    outputPath,
-    `${JSON.stringify(appCoreClient.getPerformanceMetrics(), null, 2)}\n`,
-    "utf8"
-  );
-}
-
-async function startPerformanceTelemetry(): Promise<void> {
-  if (!process.env.RION_PERFORMANCE_TELEMETRY_PATH || performanceTelemetryTimer) return;
-  try {
-    await writePerformanceTelemetry();
-  } catch (error) {
-    logService.warn(
-      "main",
-      "telemetry_export_failed",
-      "Failed to export the initial performance telemetry snapshot.",
-      { error: error instanceof Error ? error.message : String(error) }
-    );
-  }
-  performanceTelemetryTimer = setInterval(() => {
-    void writePerformanceTelemetry().catch((error) => {
-      logService.warn(
-        "main",
-        "telemetry_export_failed",
-        "Failed to export performance telemetry.",
-        { error: error instanceof Error ? error.message : String(error) }
-      );
-    });
-  }, 60_000);
-  performanceTelemetryTimer.unref?.();
-}
+const logService = new LogService();
 
 ipcMain.on(EMBEDDED_RUNTIME_DIAGNOSTICS_CHANNEL, (event, payload: unknown) => {
   embeddedRuntimeDiagnostics?.handlePageEvent(event.sender, payload);
 });
-const loggingReady = logService.initialize();
 logService.on("entry", (entry) => {
   sendToWindowIfAvailable(mainWindow, IPC_CHANNELS.logsEntryAdded, entry);
 });
@@ -263,67 +212,44 @@ async function exportDiagnostics() {
     : await dialog.showSaveDialog({
         defaultPath: `Rion-Studio-Diagnostics-${date}.zip`,
         filters: [{ name: "ZIP archive", extensions: ["zip"] }]
-      });
+  });
   if (result.canceled || !result.filePath) return null;
   const filePath = result.filePath.toLowerCase().endsWith(".zip") ? result.filePath : `${result.filePath}.zip`;
-  const temporaryPath = `${filePath}.tmp`;
-  const logExportPath = `${temporaryPath}.logs.jsonl`;
-  const logFiles = await logService.getFiles(logExportPath);
-  const logStatus = await logService.getStatus();
-  const cpu = cpus()[0];
+  if (!appCoreClient) throw new Error("Rust diagnostics are not initialized.");
   const displays = screen.getAllDisplays();
-  const capturedAt = new Date();
-  const graphicsEventWindowStart = latestExternalFreezeReportedAt
-    ? new Date(latestExternalFreezeReportedAt.getTime() - 30 * 60_000)
-    : new Date(capturedAt.getTime() - 30 * 60_000);
-  const [gpuInfo, windowsGraphicsEvents, externalChrome] = await Promise.all([
-    gpuInfoReady ? app.getGPUInfo("basic").catch(() => undefined) : Promise.resolve(undefined),
-    new RustWindowsGraphicsEventCollector(appCoreClient!).collect(graphicsEventWindowStart),
-    browserManager?.captureAllExternalRoleDiagnostics() ?? Promise.resolve([])
-  ]);
-  const diagnostics = {
-    generatedAt: capturedAt.toISOString(),
-    application: { name: app.getName(), version: app.getVersion(), packaged: app.isPackaged },
-    runtime: { electron: process.versions.electron, chromium: process.versions.chrome, node: process.versions.node },
-    system: {
-      platform: process.platform,
-      release: process.getSystemVersion(),
-      arch: process.arch,
-      locale: app.getLocale(),
-      cpu: cpu ? { model: cpu.model, cores: cpus().length } : undefined,
-      memory: { totalBytes: totalmem(), freeBytes: freemem() },
-      displayCount: displays.length,
-      displays: displays.map((display) => ({
-        bounds: display.bounds,
-        resolution: display.size,
-        scaleFactor: display.scaleFactor
-      })),
-      gpuFeatureStatus: app.getGPUFeatureStatus(),
-      ...(gpuInfo === undefined ? {} : { gpuInfo })
-    },
-    externalChrome,
-    windowsGraphicsEvents,
-    windowsGraphicsEventWindow: {
-      ...(latestExternalFreezeReportedAt ? { freezeReportedAt: latestExternalFreezeReportedAt.toISOString() } : {}),
-      since: graphicsEventWindowStart.toISOString(),
-      until: capturedAt.toISOString()
-    },
-    dataCounts: await getDiagnosticDataCounts(),
-    logging: { ...logStatus, directory: "<USER_DATA>/logs" }
-  };
+  const gpuInfo = gpuInfoReady
+    ? await app.getGPUInfo("basic").catch(() => undefined)
+    : undefined;
   try {
-    await writeZip(temporaryPath, [
-      { name: "diagnostics.json", data: Buffer.from(JSON.stringify(diagnostics, null, 2)) },
-      ...logFiles.map((file) => ({ ...file, name: `logs/${file.name}` }))
-    ]);
-    await unlink(filePath).catch(() => undefined);
-    await rename(temporaryPath, filePath);
-    await unlink(logExportPath).catch(() => undefined);
-    logService.info("main", "diagnostics_exported", "A diagnostic bundle was exported.", { logFileCount: logFiles.length });
-    return { filePath, logFileCount: logFiles.length };
+    const exported = await appCoreClient.invokeTyped({
+      type: "diagnosticsExport",
+      path: filePath,
+      snapshot: {
+        applicationName: app.getName(),
+        applicationVersion: app.getVersion(),
+        packaged: app.isPackaged,
+        electronVersion: process.versions.electron,
+        chromiumVersion: process.versions.chrome,
+        nodeVersion: process.versions.node,
+        locale: app.getLocale(),
+        systemVersion: process.getSystemVersion(),
+        displays: displays.map((display) => ({
+          bounds: display.bounds,
+          resolution: display.size,
+          scaleFactor: display.scaleFactor
+        })),
+        gpuFeatureStatusRawJson: JSON.stringify(app.getGPUFeatureStatus()),
+        ...(gpuInfo === undefined ? {} : { gpuInfoRawJson: JSON.stringify(gpuInfo) }),
+        ...(latestExternalFreezeReportedAt
+          ? { externalFreezeReportedAt: latestExternalFreezeReportedAt.toISOString() }
+          : {})
+      }
+    });
+    logService.info("main", "diagnostics_exported", "A diagnostic bundle was exported.", {
+      logFileCount: exported.logFileCount
+    });
+    return exported;
   } catch (error) {
-    await unlink(temporaryPath).catch(() => undefined);
-    await unlink(logExportPath).catch(() => undefined);
     logService.error("main", "diagnostics_export_failed", "Failed to export diagnostic bundle.", error);
     throw error;
   }
@@ -331,11 +257,6 @@ async function exportDiagnostics() {
 
 function loadAppIcon() {
   const iconPath = getAppIconPath();
-
-  if (!existsSync(iconPath)) {
-    return undefined;
-  }
-
   const icon = nativeImage.createFromPath(iconPath);
   return icon.isEmpty() ? undefined : icon;
 }
@@ -425,11 +346,6 @@ function createWindowsTray(): void {
   }
 
   const iconPath = getWindowsTrayIconPath();
-  if (!existsSync(iconPath)) {
-    console.error(`Windows tray icon was not found: ${iconPath}`);
-    return;
-  }
-
   const icon = nativeImage.createFromPath(iconPath);
   if (icon.isEmpty()) {
     console.error(`Windows tray icon could not be loaded: ${iconPath}`);
@@ -541,14 +457,18 @@ function consumePendingWorkspaceLaunchRequest(): PendingWorkspaceLaunchRequest |
 
 async function initializeApplication(): Promise<void> {
   const userDataDir = app.getPath("userData");
-  await logService.flush();
   appCoreClient = await AppCoreClient.create({
     appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
+    performanceTelemetryPath: process.env.RION_PERFORMANCE_TELEMETRY_PATH,
     resourcesPath: process.resourcesPath,
     userDataDir
   });
-  await logService.usePersistence(new RustLogPersistence(appCoreClient));
+  await logService.initialize(appCoreClient, {
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch
+  });
   const stateRepository = new RustStateRepository(appCoreClient);
   appCoreClient.subscribe((events) => {
     if (events.some((event) => event.type === "ready")) {
@@ -557,7 +477,6 @@ async function initializeApplication(): Promise<void> {
       });
     }
   });
-  await startPerformanceTelemetry();
   const roleStore = new RoleStore(userDataDir, stateRepository, appCoreClient);
   const gameStore = new GameStore(userDataDir, stateRepository);
   const workspaceStore = new LaunchWorkspaceStore(userDataDir, stateRepository);
@@ -568,12 +487,6 @@ async function initializeApplication(): Promise<void> {
   };
   const macroStore = new MacroStore(userDataDir, stateRepository);
   const macroOverlayRef: { current?: MacroOverlayInjector } = {};
-  getDiagnosticDataCounts = async () => {
-    const [games, roles, workspaces, macros] = await Promise.all([
-      gameStore.listGames(), roleStore.listRoles(), workspaceStore.listWorkspaces(), macroStore.listMacros()
-    ]);
-    return { games: games.length, roles: roles.length, workspaces: workspaces.length, macros: macros.length };
-  };
   const macroSettingsStore = new MacroSettingsStore(userDataDir, stateRepository);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir, { core: appCoreClient });
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir, stateRepository);
@@ -867,7 +780,9 @@ async function initializeApplication(): Promise<void> {
     await Promise.all(roleIds.map((roleId) => macroManager.stopRole(roleId)));
   });
   const chromeProfileImportManager = new ChromeProfileImportManager({
-    closeChrome: () => requestGracefulChromeQuit({ platform: process.platform }),
+    closeChrome: async () => {
+      await appCoreClient!.invokeTyped({ type: "systemChromeClose" });
+    },
     core: appCoreClient,
     showOpenDialog: (options) =>
       mainWindow && !mainWindow.isDestroyed()
@@ -970,10 +885,11 @@ async function initializeApplication(): Promise<void> {
       const capturedAt = new Date();
       latestExternalFreezeReportedAt = capturedAt;
       const [diagnostics, windowsGraphicsEvents] = await Promise.all([
-        browserManager!.captureExternalRoleDiagnostics(roleId),
-        new RustWindowsGraphicsEventCollector(appCoreClient!).collect(
-          new Date(capturedAt.getTime() - 30 * 60_000)
-        )
+        appCoreClient!.invokeTyped({ type: "externalDiagnosticsCapture", roleId }),
+        appCoreClient!.invokeTyped({
+          type: "windowsGraphicsEventsCollect",
+          since: new Date(capturedAt.getTime() - 30 * 60_000).toISOString()
+        })
       ]);
       logService.warn(
         "browser",
@@ -1163,7 +1079,6 @@ async function prepareRendererWindow(loadingWindow: BrowserWindow): Promise<void
 }
 
 async function startApplication(): Promise<void> {
-  await loggingReady;
   const loadingWindow = createStartupWindow();
 
   try {
@@ -1377,22 +1292,6 @@ app.on("before-quit", (event) => {
     } finally {
       embeddedRuntimeDiagnostics?.stop();
       embeddedRuntimeDiagnostics = null;
-      if (performanceTelemetryTimer) {
-        clearInterval(performanceTelemetryTimer);
-        performanceTelemetryTimer = undefined;
-      }
-      if (process.env.RION_PERFORMANCE_TELEMETRY_PATH && appCoreClient) {
-        try {
-          await writePerformanceTelemetry();
-        } catch (error) {
-          logService.warn(
-            "main",
-            "telemetry_export_failed",
-            "Failed to export performance telemetry.",
-            { error: error instanceof Error ? error.message : String(error) }
-          );
-        }
-      }
       await electronBrowserActionAdapter?.shutdown();
       electronBrowserActionAdapter = null;
       logService.info("main", "app_quitting", "Application is quitting.");

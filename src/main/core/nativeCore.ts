@@ -23,10 +23,12 @@ import type {
   ExternalBrowserActionDispatch,
   ExternalSessionCommand,
   ExternalSessionResult,
+  PerformanceTelemetryRecord,
   ResourcePolicyDecision,
   ResourcePolicyInput,
   ResourceRuntimeCommand,
   ResourceRuntimeResult,
+  TelemetryMetric,
   RolePathsRecord,
   LayoutRect,
   LayoutRoleInput,
@@ -129,6 +131,7 @@ interface NativeCoreAddon {
   ) => string;
   createAppCore: (options: {
     appVersion: string;
+    performanceTelemetryPath?: string;
     platform: string;
     userDataDir: string;
   }) => Promise<NativeAppCore>;
@@ -153,21 +156,9 @@ export interface AppCoreClientOptions {
   appVersion: string;
   isPackaged?: boolean;
   platform?: NodeJS.Platform;
+  performanceTelemetryPath?: string;
   resourcesPath?: string;
   userDataDir: string;
-}
-
-export interface RuntimePerformanceMetrics {
-  browserResultCount: number;
-  cdp: LatencySummary & { messageCount: number };
-  coreEventBatchCount: number;
-  ipcCommand: LatencySummary;
-  macroScheduleToDispatch: LatencySummary;
-  napi: LatencySummary & { callCount: number };
-  processLaunchCount: number;
-  scheduledWaitCount: number;
-  startedAt: string;
-  tabActivation: LatencySummary;
 }
 
 export interface EmbeddedKeyRuntimeClient {
@@ -184,34 +175,25 @@ export interface EmbeddedKeyRuntimeClient {
   reassertEmbeddedKeys(roleId: string): EmbeddedKeyTransitionRecord;
 }
 
-interface LatencySummary {
-  maxMs: number;
-  p50Ms: number;
-  p95Ms: number;
-  sampleCount: number;
-}
-
 export class AppCoreClient {
   private readonly eventListeners = new Set<(events: CoreEvent[]) => void>();
   private lastEvents: CoreEvent[] = [];
-  private readonly metrics = new PerformanceMetrics();
 
   private constructor(
     readonly version: string,
-    private readonly native: NativeAppCore
+    private readonly native: NativeAppCore,
+    private readonly telemetryEnabled: boolean
   ) {
-    const startedAt = performance.now();
     this.native.subscribeCoreEvents((eventsJson) => {
       try {
         const events = JSON.parse(eventsJson) as CoreEvent[];
-        this.metrics.coreEventBatchCount += 1;
+        this.recordTelemetry("coreEventBatch");
         this.lastEvents = events;
         this.eventListeners.forEach((listener) => listener(events));
       } catch (error) {
         process.stderr.write(`Rion Studio core event decoding failed: ${String(error)}\n`);
       }
     });
-    this.metrics.recordNapi(performance.now() - startedAt);
   }
 
   static async create(options: AppCoreClientOptions): Promise<AppCoreClient> {
@@ -219,23 +201,25 @@ export class AppCoreClient {
     try {
       const native = await addon.createAppCore({
         appVersion: options.appVersion,
+        performanceTelemetryPath: options.performanceTelemetryPath,
         platform: options.platform ?? process.platform,
         userDataDir: options.userDataDir
       });
-      return new AppCoreClient(addon.coreVersion(), native);
+      return new AppCoreClient(
+        addon.coreVersion(),
+        native,
+        options.performanceTelemetryPath !== undefined
+      );
     } catch (error) {
       throw normalizeNativeCoreError(error);
     }
   }
 
   async invoke<T>(command: CoreCommand): Promise<T> {
-    const startedAt = performance.now();
     try {
       return JSON.parse(await this.native.invoke(JSON.stringify(command))) as T;
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
@@ -296,15 +280,12 @@ export class AppCoreClient {
   async acquireBrowserOperation(
     request: BrowserOperationRequest
   ): Promise<BrowserOperationLease> {
-    const startedAt = performance.now();
     try {
       return JSON.parse(
         await this.native.acquireBrowserOperation(JSON.stringify(request))
       ) as BrowserOperationLease;
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
@@ -379,29 +360,23 @@ export class AppCoreClient {
   }
 
   async dispatchBrowserResults(results: BrowserActionResult[]): Promise<void> {
-    const startedAt = performance.now();
     try {
       await this.native.dispatchBrowserResults(JSON.stringify(results));
-      this.metrics.browserResultCount += results.length;
+      this.recordTelemetry("browserResult", undefined, results.length);
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
   async dispatchCoreEffectResults(
     results: CoreEffectResult[]
   ): Promise<CoreEffectDispatchReport> {
-    const startedAt = performance.now();
     try {
       return JSON.parse(
         await this.native.dispatchCoreEffectResults(JSON.stringify(results))
       ) as CoreEffectDispatchReport;
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
@@ -423,7 +398,7 @@ export class AppCoreClient {
           executablePath,
           arguments: arguments_
         });
-        this.metrics.processLaunchCount += 1;
+        this.recordTelemetry("processLaunch");
         return result.pid;
       },
       async () => {
@@ -440,13 +415,10 @@ export class AppCoreClient {
   }
 
   async prepareExternalChromeProfile(path: string): Promise<void> {
-    const startedAt = performance.now();
     try {
       await this.native.prepareExternalChromeProfile(path);
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
@@ -457,7 +429,6 @@ export class AppCoreClient {
     timeoutMs?: number,
     cdnEnabled?: boolean
   ): Promise<CdpEventClientLike> {
-    const startedAt = performance.now();
     try {
       const native = await this.native.connectExternalChromeCdp(
         roleId,
@@ -467,71 +438,54 @@ export class AppCoreClient {
         cdnEnabled
       );
       return new RustExternalChromeCdpClient(native, (durationMs) => {
-        this.metrics.recordCdp(durationMs);
+        this.recordTelemetry("cdp", durationMs);
       });
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
   async dispatchExternalBrowserActions(
     actions: BrowserActionRequest[]
   ): Promise<ExternalBrowserActionDispatch> {
-    const startedAt = performance.now();
     try {
       return JSON.parse(
         await this.native.dispatchExternalBrowserActions(JSON.stringify(actions))
       ) as ExternalBrowserActionDispatch;
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
   async focusExternalChrome(roleId: string): Promise<void> {
-    const startedAt = performance.now();
     try {
       await this.native.focusExternalChrome(roleId);
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
   async setExternalChromeWindowBounds(roleId: string, bounds: PixelBounds): Promise<void> {
-    const startedAt = performance.now();
     try {
       await this.native.setExternalChromeWindowBounds(roleId, JSON.stringify(bounds));
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
   async captureExternalChromeDiagnostics<T>(roleId: string): Promise<T> {
-    const startedAt = performance.now();
     try {
       return JSON.parse(await this.native.captureExternalChromeDiagnostics(roleId)) as T;
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
   async evaluateExternalChrome<T>(roleId: string, source: string): Promise<T> {
-    const startedAt = performance.now();
     try {
       return JSON.parse(await this.native.evaluateExternalChrome(roleId, source)) as T;
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
@@ -544,13 +498,9 @@ export class AppCoreClient {
   }
 
   alignExternalChromeWindow(processId: number, target: PixelBounds): Promise<PixelBounds> {
-    const startedAt = performance.now();
     return this.native.alignExternalChromeWindow(processId, target)
       .catch((error) => {
         throw normalizeNativeCoreError(error);
-      })
-      .finally(() => {
-        this.metrics.recordNapi(performance.now() - startedAt);
       });
   }
 
@@ -612,12 +562,10 @@ export class AppCoreClient {
   }
 
   scheduleWait(id: string, durationMs: number): Promise<void> {
-    const startedAt = performance.now();
     const wait = this.native.scheduleWait(id, durationMs).catch((error) => {
       throw normalizeNativeCoreError(error);
     });
-    this.metrics.scheduledWaitCount += 1;
-    this.metrics.recordNapi(performance.now() - startedAt);
+    this.recordTelemetry("scheduledWait");
     return wait;
   }
 
@@ -634,42 +582,52 @@ export class AppCoreClient {
     );
   }
 
-  getPerformanceMetrics(): RuntimePerformanceMetrics {
-    return this.metrics.snapshot();
+  getPerformanceMetrics(): Promise<PerformanceTelemetryRecord> {
+    return this.invokeTyped({ type: "telemetrySnapshot" });
   }
 
   recordIpcCommandLatency(durationMs: number): void {
-    this.metrics.recordIpcCommand(durationMs);
+    this.recordTelemetry("ipcCommand", durationMs);
   }
 
   recordMacroScheduleToDispatchLatency(durationMs: number): void {
-    this.metrics.recordMacroScheduleToDispatch(durationMs);
+    this.recordTelemetry("macroScheduleToDispatch", durationMs);
   }
 
   recordTabActivationLatency(durationMs: number): void {
-    this.metrics.recordTabActivation(durationMs);
+    this.recordTelemetry("tabActivation", durationMs);
   }
 
   async shutdown(): Promise<void> {
-    const startedAt = performance.now();
     try {
       await this.native.shutdown();
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
   }
 
   private measureSync<T>(operation: () => T): T {
-    const startedAt = performance.now();
     try {
       return operation();
     } catch (error) {
       throw normalizeNativeCoreError(error);
-    } finally {
-      this.metrics.recordNapi(performance.now() - startedAt);
     }
+  }
+
+  private recordTelemetry(
+    metric: TelemetryMetric,
+    durationMs?: number,
+    count = 1
+  ): void {
+    if (!this.telemetryEnabled) return;
+    void this.invokeTyped({
+      type: "telemetryRecord",
+      sample: {
+        metric,
+        count,
+        ...(durationMs === undefined ? {} : { durationMs })
+      }
+    }).catch(() => undefined);
   }
 }
 
@@ -798,84 +756,6 @@ class RustExternalChromeCdpClient implements CdpEventClientLike {
     this.disconnected = true;
     this.disconnectListeners.forEach((listener) => listener());
   }
-}
-
-class PerformanceMetrics {
-  browserResultCount = 0;
-  coreEventBatchCount = 0;
-  processLaunchCount = 0;
-  scheduledWaitCount = 0;
-  private readonly cdpLatency = new LatencySampler();
-  private readonly ipcCommandLatency = new LatencySampler();
-  private readonly macroScheduleToDispatchLatency = new LatencySampler();
-  private readonly napiLatency = new LatencySampler();
-  private readonly tabActivationLatency = new LatencySampler();
-  private readonly startedAt = new Date().toISOString();
-  private cdpMessageCount = 0;
-  private napiCallCount = 0;
-
-  recordCdp(durationMs: number): void {
-    this.cdpMessageCount += 1;
-    this.cdpLatency.record(durationMs);
-  }
-
-  recordNapi(durationMs: number): void {
-    this.napiCallCount += 1;
-    this.napiLatency.record(durationMs);
-  }
-
-  recordIpcCommand(durationMs: number): void {
-    this.ipcCommandLatency.record(durationMs);
-  }
-
-  recordMacroScheduleToDispatch(durationMs: number): void {
-    this.macroScheduleToDispatchLatency.record(durationMs);
-  }
-
-  recordTabActivation(durationMs: number): void {
-    this.tabActivationLatency.record(durationMs);
-  }
-
-  snapshot(): RuntimePerformanceMetrics {
-    return {
-      browserResultCount: this.browserResultCount,
-      cdp: { messageCount: this.cdpMessageCount, ...this.cdpLatency.summary() },
-      coreEventBatchCount: this.coreEventBatchCount,
-      ipcCommand: this.ipcCommandLatency.summary(),
-      macroScheduleToDispatch: this.macroScheduleToDispatchLatency.summary(),
-      napi: { callCount: this.napiCallCount, ...this.napiLatency.summary() },
-      processLaunchCount: this.processLaunchCount,
-      scheduledWaitCount: this.scheduledWaitCount,
-      startedAt: this.startedAt,
-      tabActivation: this.tabActivationLatency.summary()
-    };
-  }
-}
-
-class LatencySampler {
-  private readonly samples = new Float64Array(1_024);
-  private count = 0;
-
-  record(value: number): void {
-    this.samples[this.count % this.samples.length] = value;
-    this.count += 1;
-  }
-
-  summary(): LatencySummary {
-    const sampleCount = Math.min(this.count, this.samples.length);
-    if (sampleCount === 0) return { maxMs: 0, p50Ms: 0, p95Ms: 0, sampleCount: 0 };
-    const values = Array.from(this.samples.slice(0, sampleCount)).sort((left, right) => left - right);
-    return {
-      maxMs: values.at(-1) ?? 0,
-      p50Ms: percentile(values, 0.5),
-      p95Ms: percentile(values, 0.95),
-      sampleCount
-    };
-  }
-}
-
-function percentile(values: number[], percentileValue: number): number {
-  return values[Math.min(values.length - 1, Math.ceil(values.length * percentileValue) - 1)] ?? 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

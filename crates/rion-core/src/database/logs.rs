@@ -11,11 +11,11 @@ use chrono::{Duration as ChronoDuration, Utc};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use rusqlite::{Connection, params, params_from_iter, types::Value as SqlValue};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::{
     error::{CoreError, CoreResult},
-    model::{LogEntry, LogErrorDetails, LogLevel, LogQuery},
+    model::{LogEntry, LogErrorDetails, LogLevel, LogPageRecord, LogQuery, LogStorageStatusRecord},
 };
 
 const RETENTION_DAYS: i64 = 14;
@@ -37,7 +37,7 @@ pub struct LogStatus {
 
 enum Request {
     Append(Vec<LogEntry>, Sender<CoreResult<usize>>),
-    Query(LogQuery, Sender<CoreResult<Value>>),
+    Query(LogQuery, Sender<CoreResult<LogPageRecord>>),
     Clear(Sender<CoreResult<()>>),
     Status(Sender<CoreResult<LogStatus>>),
     ExportTo(PathBuf, Sender<CoreResult<()>>),
@@ -74,7 +74,7 @@ impl LogDatabaseWorker {
         receiver.recv().map_err(|_| CoreError::ShuttingDown)?
     }
 
-    pub fn query(&self, query: LogQuery) -> CoreResult<Value> {
+    pub fn query(&self, query: LogQuery) -> CoreResult<LogPageRecord> {
         let (sender, receiver) = bounded(1);
         self.sender
             .send(Request::Query(query, sender))
@@ -96,6 +96,25 @@ impl LogDatabaseWorker {
             .send(Request::Status(sender))
             .map_err(|_| CoreError::ShuttingDown)?;
         receiver.recv().map_err(|_| CoreError::ShuttingDown)?
+    }
+
+    pub fn storage_status(&self, current_level: LogLevel) -> CoreResult<LogStorageStatusRecord> {
+        let status = self.status()?;
+        let directory = Path::new(&status.database_path)
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .to_string_lossy()
+            .into_owned();
+        Ok(LogStorageStatusRecord {
+            current_level,
+            file_count: u64::from(status.entry_count > 0),
+            total_bytes: status.total_bytes,
+            oldest_timestamp: status.oldest_timestamp,
+            newest_timestamp: status.newest_timestamp,
+            retention_days: status.retention_days,
+            max_bytes: status.max_bytes,
+            directory,
+        })
     }
 
     pub fn export_jsonl_to(&self, path: PathBuf) -> CoreResult<()> {
@@ -365,7 +384,7 @@ fn insert_entry(connection: &Connection, entry: &LogEntry) -> CoreResult<usize> 
         .map_err(|error| CoreError::LogDatabase(error.to_string()))
 }
 
-fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<Value> {
+fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPageRecord> {
     validate_query(query)?;
     let offset = query
         .cursor
@@ -461,33 +480,30 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<Value>
     for row in rows {
         let (id, timestamp, level, source, event, message, session_id, context, error) =
             row.map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-        entries.push(
-            serde_json::to_value(LogEntry {
-                id,
-                timestamp,
-                level: serde_json::from_value(Value::String(level))
-                    .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
-                source: serde_json::from_value(Value::String(source))
-                    .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
-                event,
-                message,
-                session_id,
-                context: context.as_deref().map(parse_context_json).transpose()?,
-                error: error
-                    .as_deref()
-                    .map(serde_json::from_str::<LogErrorDetails>)
-                    .transpose()
-                    .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
-            })
-            .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
-        );
+        entries.push(LogEntry {
+            id,
+            timestamp,
+            level: serde_json::from_value(Value::String(level))
+                .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+            source: serde_json::from_value(Value::String(source))
+                .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+            event,
+            message,
+            session_id,
+            context: context.as_deref().map(parse_context_json).transpose()?,
+            error: error
+                .as_deref()
+                .map(serde_json::from_str::<LogErrorDetails>)
+                .transpose()
+                .map_err(|error| CoreError::LogDatabase(error.to_string()))?,
+        });
     }
     let has_more = entries.len() > limit as usize;
     entries.truncate(limit as usize);
-    Ok(json!({
-      "entries": entries,
-      "nextCursor": has_more.then(|| (offset + limit).to_string())
-    }))
+    Ok(LogPageRecord {
+        entries,
+        next_cursor: has_more.then(|| (offset + limit).to_string()),
+    })
 }
 
 fn clear_entries(connection: &Connection) -> CoreResult<()> {
@@ -698,8 +714,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(page["entries"].as_array().unwrap().len(), 1);
-        assert_eq!(page["entries"][0]["id"], "2");
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].id, "2");
     }
 
     #[test]

@@ -73,10 +73,19 @@ impl NativeAppCore {
                     let is_shutdown = events
                         .iter()
                         .any(|event| matches!(event, CoreEvent::Shutdown));
+                    let is_critical = is_shutdown
+                        || events
+                            .iter()
+                            .any(|event| matches!(event, CoreEvent::CoreEffects { .. }));
                     let Ok(serialized) = serde_json::to_string(&events) else {
                         continue;
                     };
-                    let _ = threadsafe.call(serialized, ThreadsafeFunctionCallMode::NonBlocking);
+                    let mode = if is_critical {
+                        ThreadsafeFunctionCallMode::Blocking
+                    } else {
+                        ThreadsafeFunctionCallMode::NonBlocking
+                    };
+                    let _ = threadsafe.call(serialized, mode);
                     if is_shutdown {
                         break;
                     }

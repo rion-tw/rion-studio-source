@@ -118,6 +118,7 @@ export interface ElectronEffectExecutorOptions {
   executeProfileEffect?: (
     effect: CoreEffectRequest & { action: ProfileCoreEffectAction }
   ) => Promise<CoreJsonValue | undefined>;
+  onResult?: (effect: CoreEffectRequest, result: CoreEffectResult) => void;
   sendDebuggerCommand: (
     webContents: ElectronWebContentsEffectHandle,
     method: string,
@@ -131,20 +132,55 @@ export interface ElectronEffectExecutorOptions {
  * cancellation, and compensation remain authoritative in the Rust actor.
  */
 export class ElectronEffectExecutor {
+  private accepting = true;
+  private readonly inFlight = new Set<Promise<CoreEffectDispatchReport>>();
+
   constructor(
     readonly handles: ElectronHandleRegistry,
     private readonly options: ElectronEffectExecutorOptions
   ) {}
 
-  async executeAndDispatch(effects: CoreEffectRequest[]): Promise<CoreEffectDispatchReport> {
+  executeAndDispatch(effects: CoreEffectRequest[]): Promise<CoreEffectDispatchReport> {
+    if (!this.accepting) {
+      return Promise.reject(
+        effectError(
+          "ELECTRON_EFFECT_EXECUTOR_CLOSED",
+          "The Electron effect executor is shutting down."
+        )
+      );
+    }
+    const operation = this.executeAndDispatchTracked(effects);
+    this.inFlight.add(operation);
+    void operation.then(
+      () => this.inFlight.delete(operation),
+      () => this.inFlight.delete(operation)
+    );
+    return operation;
+  }
+
+  async drain(): Promise<void> {
+    while (this.inFlight.size > 0) {
+      await Promise.allSettled([...this.inFlight]);
+    }
+  }
+
+  async closeAndDrain(): Promise<void> {
+    this.accepting = false;
+    await this.drain();
+  }
+
+  private async executeAndDispatchTracked(
+    effects: CoreEffectRequest[]
+  ): Promise<CoreEffectDispatchReport> {
     const results = await Promise.all(effects.map((effect) => this.execute(effect)));
     return this.options.dispatchResults(results);
   }
 
   async execute(effect: CoreEffectRequest): Promise<CoreEffectResult> {
+    let result: CoreEffectResult;
     try {
       const value = await this.apply(effect);
-      return {
+      result = {
         effectId: effect.effectId,
         operationId: effect.operationId,
         ok: true,
@@ -153,7 +189,7 @@ export class ElectronEffectExecutor {
       };
     } catch (error) {
       const normalized = normalizeEffectError(error);
-      return {
+      result = {
         effectId: effect.effectId,
         operationId: effect.operationId,
         ok: false,
@@ -161,6 +197,12 @@ export class ElectronEffectExecutor {
         error: normalized
       };
     }
+    try {
+      this.options.onResult?.(effect, result);
+    } catch {
+      // Diagnostics must not interfere with effect acknowledgement.
+    }
+    return result;
   }
 
   private async apply(effect: CoreEffectRequest): Promise<CoreJsonValue | undefined> {

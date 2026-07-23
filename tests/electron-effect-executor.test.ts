@@ -112,6 +112,7 @@ describe("ElectronEffectExecutor", () => {
   });
 
   it("returns stable typed failures for missing or incompatible handles", async () => {
+    const onResult = vi.fn();
     const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
       clearSessionStorage: vi.fn(async () => undefined),
       createView: vi.fn(),
@@ -123,6 +124,7 @@ describe("ElectronEffectExecutor", () => {
         unknown: [],
         operationMismatch: []
       })),
+      onResult,
       sendDebuggerCommand: vi.fn(async () => null),
       setCookie: vi.fn(async () => undefined)
     });
@@ -132,6 +134,64 @@ describe("ElectronEffectExecutor", () => {
       error: {
         code: "ELECTRON_EFFECT_TARGET_NOT_FOUND"
       }
+    });
+    expect(onResult).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { kind: "view", handleId: "missing" } }),
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: "ELECTRON_EFFECT_TARGET_NOT_FOUND" })
+      })
+    );
+  });
+
+  it("drains in-flight result dispatches before closing and rejects later batches", async () => {
+    let resolveDispatch!: (value: {
+      accepted: string[];
+      duplicate: string[];
+      late: string[];
+      unknown: string[];
+      operationMismatch: string[];
+    }) => void;
+    const dispatchResults = vi.fn(() => new Promise<{
+      accepted: string[];
+      duplicate: string[];
+      late: string[];
+      unknown: string[];
+      operationMismatch: string[];
+    }>((resolve) => {
+      resolveDispatch = resolve;
+    }));
+    const executor = new ElectronEffectExecutor(new ElectronHandleRegistry(), {
+      clearSessionStorage: vi.fn(async () => undefined),
+      createView: vi.fn(),
+      createWindow: vi.fn(),
+      dispatchResults,
+      sendDebuggerCommand: vi.fn(async () => null),
+      setCookie: vi.fn(async () => undefined)
+    });
+    const effect = request({ type: "focus" }, "missing");
+    const execution = executor.executeAndDispatch([effect]);
+    await vi.waitFor(() => expect(dispatchResults).toHaveBeenCalledOnce());
+
+    let drained = false;
+    const closing = executor.closeAndDrain().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    resolveDispatch({
+      accepted: [effect.effectId],
+      duplicate: [],
+      late: [],
+      unknown: [],
+      operationMismatch: []
+    });
+    await execution;
+    await closing;
+    expect(drained).toBe(true);
+    await expect(executor.executeAndDispatch([effect])).rejects.toMatchObject({
+      code: "ELECTRON_EFFECT_EXECUTOR_CLOSED"
     });
   });
 

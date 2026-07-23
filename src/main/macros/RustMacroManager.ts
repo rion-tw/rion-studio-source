@@ -6,7 +6,6 @@ import type {
 import type { MacroRunStatus } from "../../shared/types";
 import type { AppCoreClient } from "../core/nativeCore";
 import {
-  MacroMutationBusyError,
   type HeldTriggerReleaseMode,
   type MacroManagerEvents,
   type MacroRuntimeManager
@@ -71,22 +70,6 @@ export class RustMacroManager
     await this.core.invoke({ type: "macroStopRole", roleId });
   }
 
-  runStoppedMutation<T>(macroId: string, operation: () => Promise<T>): Promise<T> {
-    return this.withRustMutationLease([macroId], false, operation);
-  }
-
-  runStoppedMutations<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
-    return this.withRustMutationLease(macroIds, false, operation);
-  }
-
-  stopAndRunMutation<T>(macroId: string, operation: () => Promise<T>): Promise<T> {
-    return this.withRustMutationLease([macroId], true, operation);
-  }
-
-  stopAndRunMutations<T>(macroIds: string[], operation: () => Promise<T>): Promise<T> {
-    return this.withRustMutationLease(macroIds, true, operation);
-  }
-
   private async startUnlocked(macroId: string, roleId?: string): Promise<MacroRunStatus[]> {
     return (await this.core.invoke<NativeMacroRunStatus[]>({
       type: "macroStart", request: { macroId, roleId: roleId ?? null }
@@ -97,34 +80,6 @@ export class RustMacroManager
     await this.core.invoke({ type: "macroStop", macroId });
   }
 
-  private async withRustMutationLease<T>(
-    macroIds: string[],
-    stopActive: boolean,
-    operation: () => Promise<T>
-  ): Promise<T> {
-    let leaseId: string;
-    try {
-      ({ leaseId } = await this.core.invoke<{ leaseId: string }>({
-        type: "macroMutationAcquire",
-        macroIds: [...new Set(macroIds)],
-        stopActive
-      }));
-    } catch (error) {
-      if (isErrorWithCode(error, "MACRO_MUTATION_BUSY")) {
-        throw new MacroMutationBusyError();
-      }
-      throw error;
-    }
-    try {
-      return await operation();
-    } finally {
-      await this.core.invoke({ type: "macroMutationRelease", leaseId });
-    }
-  }
-}
-
-function isErrorWithCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
 }
 
 function fromNativeStatus(status: NativeMacroRunStatus): MacroRunStatus {

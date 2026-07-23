@@ -85,16 +85,11 @@ export const RUST_OWNED_MAIN_DEBT = {
   orchestrationMethods: [
     debt(
       "src/main/browser/BrowserManager.ts:BrowserManager.withRoleOperation",
-      6,
-      "Mutation lease orchestration."
+      7,
+      "Browser-data clearing moves behind the Rust profile/filesystem saga."
     )
   ],
   promiseTails: [
-    debt(
-      "src/main/persistence/SerialTaskQueue.ts:SerialTaskQueue.tail",
-      6,
-      "Cross-store mutation ordering."
-    ),
     debt("src/main/logging/LogService.ts:LogService.queue", 9, "Log batching and flush ordering.")
   ],
   specializedNapiMethods: [

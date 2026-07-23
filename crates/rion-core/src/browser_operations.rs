@@ -191,6 +191,31 @@ impl BrowserOperationCoordinator {
         Ok(())
     }
 
+    pub fn abort(&self, id: &str) -> CoreResult<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| CoreError::Internal("browser operation lock poisoned".to_owned()))?;
+        let (kind, role_ids) = state
+            .tickets
+            .get(id)
+            .map(|ticket| (ticket.kind, ticket.role_ids.clone()))
+            .ok_or_else(|| {
+                domain(
+                    "BROWSER_OPERATION_NOT_FOUND",
+                    "Browser operation lease was not found.",
+                )
+            })?;
+        if kind == OperationKind::DestructiveMutation {
+            for role_id in &role_ids {
+                state.blocked_role_ids.remove(role_id);
+            }
+        }
+        Self::remove_ticket(&mut state, id);
+        self.changed.notify_all();
+        Ok(())
+    }
+
     pub fn shutdown(&self) {
         if let Ok(mut state) = self.state.lock() {
             state.shutting_down = true;
@@ -297,6 +322,18 @@ mod tests {
                 .code(),
             "ROLE_MUTATION_BLOCKED"
         );
+    }
+
+    #[test]
+    fn aborting_a_destructive_operation_unblocks_the_role() {
+        let coordinator = BrowserOperationCoordinator::default();
+        let destructive = coordinator
+            .acquire(request(&["r1"], "destructiveMutation"))
+            .unwrap();
+        coordinator.abort(&destructive.id).unwrap();
+
+        let next = coordinator.acquire(request(&["r1"], "normal")).unwrap();
+        coordinator.complete(&next.id).unwrap();
     }
 
     #[test]

@@ -81,7 +81,6 @@ import {
 import { MacroStore } from "./macros/MacroStore";
 import { MacroSettingsStore } from "./macros/MacroSettingsStore";
 import { PortableDataManager } from "./portable/PortableDataManager";
-import { SerialTaskQueue } from "./persistence/SerialTaskQueue";
 import { RoleStore } from "./roles/RoleStore";
 import { requestGracefulChromeQuit } from "./system-browser/SystemChromeCloser";
 import {
@@ -564,11 +563,8 @@ async function initializeApplication(): Promise<void> {
     }
   });
   await startPerformanceTelemetry();
-  const dataMutationQueue = new SerialTaskQueue();
-  const withDataMutation = <T>(operation: () => Promise<T>): Promise<T> =>
-    dataMutationQueue.run(operation);
   const roleStore = new RoleStore(userDataDir, stateRepository, appCoreClient);
-  const gameStore = new GameStore(userDataDir, roleStore, stateRepository);
+  const gameStore = new GameStore(userDataDir, stateRepository);
   const workspaceStore = new LaunchWorkspaceStore(userDataDir, stateRepository);
   await workspaceStore.reconcileTargetDisplays(getWorkspaceDisplayInfos());
   const notifyWorkspacesChanged = async (): Promise<void> => {
@@ -704,8 +700,10 @@ async function initializeApplication(): Promise<void> {
     performNativeZoom: (action, runtimeWindow, targetWebContents, event) =>
       applicationMenu?.performZoom(action, event, runtimeWindow, targetWebContents) ?? false,
     persistWorkspaceRoleZoom: async (workspaceId, roleId, browserZoomPercent) => {
-      const updated = await withDataMutation(() =>
-        workspaceStore.updateRoleBrowserZoom(workspaceId, roleId, browserZoomPercent)
+      const updated = await workspaceStore.updateRoleBrowserZoom(
+        workspaceId,
+        roleId,
+        browserZoomPercent
       );
       if (updated) {
         await notifyWorkspacesChanged();
@@ -1024,7 +1022,6 @@ async function initializeApplication(): Promise<void> {
     roleBrowserDataManager,
     systemFontService,
     updateManager,
-    withDataMutation,
     onGameBrowserSettingsChanged: () => {
       macroOverlayRef.current!.refreshInstalledOverlays(undefined, "game_browser_settings");
     },
@@ -1073,7 +1070,7 @@ async function initializeApplication(): Promise<void> {
     const displays = getWorkspaceDisplayInfos();
     broadcastWorkspaceDisplaysChanged(displays);
     appQuickMenu?.scheduleRefresh();
-    void withDataMutation(() => workspaceStore.reconcileTargetDisplays(displays))
+    void workspaceStore.reconcileTargetDisplays(displays)
       .then(() => appQuickMenu?.scheduleRefresh())
       .catch((error) => console.error("Failed to reconcile workspace target displays.", error));
   };

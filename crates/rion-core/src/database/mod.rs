@@ -7,4 +7,4 @@ mod state;
 pub use bootstrap::{DatabasePaths, bootstrap_databases};
 pub use logs::LogDatabaseWorker;
 pub use state::StateDatabaseWorker;
-pub(crate) use state::{SCHEMA_VERSION, StateMutation};
+pub(crate) use state::{OperationJournalRecord, SCHEMA_VERSION, StateMutation};

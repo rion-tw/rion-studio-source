@@ -159,6 +159,24 @@ describe("Rust production architecture boundaries", () => {
     expect(database).toContain("fn read_typed_collection");
   });
 
+  it("keeps runtime-aware mutations, bulk classification, and rollback journals in Rust", async () => {
+    const [handlers, app, database] = await Promise.all([
+      readSource("src/main/ipc/registerHandlers.ts"),
+      readSource("crates/rion-core/src/app.rs"),
+      readSource("crates/rion-core/src/database/state.rs")
+    ]);
+
+    expect(handlers).not.toContain("runWithExistingRoles");
+    expect(handlers).not.toContain("runBulkDelete");
+    expect(handlers).not.toContain("withDataMutation");
+    expect(handlers).not.toContain("stopAndRunMutation");
+    expect(app).toContain("delete_role_saga");
+    expect(app).toContain("quarantine");
+    expect(database).toContain("operation_journal");
+    expect(database).toContain("StateMutation::GamesDelete");
+    expect(database).toContain("StateMutation::WorkspacesDelete");
+  });
+
   it("does not expose the removed TypeScript runtime fallback switch", async () => {
     const main = await readSource("src/main/index.ts");
 

@@ -1,4 +1,5 @@
 import type {
+  BulkDeleteResult,
   CreateRoleInput,
   ReorderItemsInput,
   Role,
@@ -46,6 +47,10 @@ export class RoleStore {
 
   async deleteRole(id: string): Promise<void> {
     await this.repository().deleteRole(id);
+  }
+
+  deleteRoles(ids: string[]): Promise<BulkDeleteResult> {
+    return this.repository().deleteRoles(ids);
   }
 
   updateBrowserSessionSource(id: string, source: RoleBrowserSessionSource): Promise<Role> {

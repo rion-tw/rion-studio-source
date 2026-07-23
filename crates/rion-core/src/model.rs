@@ -39,6 +39,9 @@ pub enum CoreCommand {
     GameDelete {
         id: String,
     },
+    GamesDelete {
+        ids: Vec<String>,
+    },
     RolesList,
     RoleGet {
         id: String,
@@ -56,6 +59,9 @@ pub enum CoreCommand {
     },
     RoleDelete {
         id: String,
+    },
+    RolesDelete {
+        ids: Vec<String>,
     },
     RoleBrowserDirectoryEnsure {
         id: String,
@@ -88,6 +94,9 @@ pub enum CoreCommand {
     },
     WorkspaceDelete {
         id: String,
+    },
+    WorkspacesDelete {
+        ids: Vec<String>,
     },
     WorkspaceClearRole {
         #[ts(rename = "roleId")]
@@ -271,16 +280,6 @@ pub enum CoreCommand {
         role_id: String,
     },
     MacroStatuses,
-    MacroMutationAcquire {
-        #[ts(rename = "macroIds")]
-        macro_ids: Vec<String>,
-        #[ts(rename = "stopActive")]
-        stop_active: bool,
-    },
-    MacroMutationRelease {
-        #[ts(rename = "leaseId")]
-        lease_id: String,
-    },
     ResourceActivateWorkspace {
         #[ts(rename = "workspaceId")]
         workspace_id: String,

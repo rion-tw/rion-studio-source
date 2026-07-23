@@ -5,17 +5,22 @@ import type { BrowserWorkspaceStatusRecord } from "./BrowserWorkspaceStatusRecor
 import type { CdnResolutionRecord } from "./CdnResolutionRecord";
 import type { CoreCommand } from "./CoreCommand";
 import type { CoreEffectMetricsRecord } from "./CoreEffectMetricsRecord";
+import type { DiagnosticExportResultRecord } from "./DiagnosticExportResultRecord";
 import type { EmbeddedLaunchResultRecord } from "./EmbeddedLaunchResultRecord";
 import type { ExternalChromeDiagnosticsRecord } from "./ExternalChromeDiagnosticsRecord";
 import type { GraphicsDiagnosticsRecord } from "./GraphicsDiagnosticsRecord";
+import type { LogPageRecord } from "./LogPageRecord";
+import type { LogStorageStatusRecord } from "./LogStorageStatusRecord";
 import type { OperationCancelResultRecord } from "./OperationCancelResultRecord";
+import type { PerformanceTelemetryRecord } from "./PerformanceTelemetryRecord";
 import type { StateCompatibilityReportRecord } from "./StateCompatibilityReportRecord";
+import type { WindowsGraphicsEventCollectionRecord } from "./WindowsGraphicsEventCollectionRecord";
 
 export type CoreJsonValue = null | boolean | number | string | CoreJsonValue[] | { [key: string]: CoreJsonValue };
 
 type DefaultCoreCommandResultMap = { [K in CoreCommand["type"]]: CoreJsonValue };
 
-export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "operationCancel" | "coreEffectMetrics" | "embeddedRoleLaunch" | "embeddedWorkspaceLaunch" | "embeddedWindowsShow" | "embeddedTabActivate" | "embeddedTabActivateAdjacent" | "embeddedTabHide" | "embeddedTabReorder" | "embeddedTabMove" | "embeddedDisplayRemove" | "browserRoleLaunch" | "browserWorkspaceLaunch" | "browserExternalRecover" | "browserStatuses" | "browserWorkspaceStatuses" | "externalDiagnosticsCapture" | "externalDiagnosticsList" | "compatibilityRun" | "cdnResolveSession" | "graphicsDiagnosticsAssemble"> & {
+export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "operationCancel" | "coreEffectMetrics" | "embeddedRoleLaunch" | "embeddedWorkspaceLaunch" | "embeddedWindowsShow" | "embeddedTabActivate" | "embeddedTabActivateAdjacent" | "embeddedTabHide" | "embeddedTabReorder" | "embeddedTabMove" | "embeddedDisplayRemove" | "browserRoleLaunch" | "browserWorkspaceLaunch" | "browserExternalRecover" | "browserStatuses" | "browserWorkspaceStatuses" | "externalDiagnosticsCapture" | "externalDiagnosticsList" | "compatibilityRun" | "cdnResolveSession" | "graphicsDiagnosticsAssemble" | "logsQuery" | "logsStatus" | "diagnosticsExport" | "telemetrySnapshot" | "windowsGraphicsEventsCollect"> & {
   operationCancel: OperationCancelResultRecord;
   coreEffectMetrics: CoreEffectMetricsRecord;
   embeddedRoleLaunch: EmbeddedLaunchResultRecord[];
@@ -37,6 +42,11 @@ export type CoreCommandResultMap = Omit<DefaultCoreCommandResultMap, "operationC
   compatibilityRun: StateCompatibilityReportRecord;
   cdnResolveSession: CdnResolutionRecord;
   graphicsDiagnosticsAssemble: GraphicsDiagnosticsRecord;
+  logsQuery: LogPageRecord;
+  logsStatus: LogStorageStatusRecord;
+  diagnosticsExport: DiagnosticExportResultRecord;
+  telemetrySnapshot: PerformanceTelemetryRecord;
+  windowsGraphicsEventsCollect: WindowsGraphicsEventCollectionRecord;
 };
 
 export type CoreCommandResult<C extends CoreCommand> = CoreCommandResultMap[C["type"]];

@@ -11,6 +11,10 @@ mod filesystem;
 pub use filesystem::atomic_replace_file;
 mod system_fonts;
 pub use system_fonts::query_system_font_names;
+mod system;
+pub use system::{
+    SystemHostDiagnostics, collect_system_host_diagnostics, request_graceful_chrome_quit,
+};
 mod windows_events;
 pub use windows_events::query_windows_display_driver_events;
 

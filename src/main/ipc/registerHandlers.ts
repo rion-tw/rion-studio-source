@@ -495,7 +495,7 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.logsSetLevel, async (_event, level: LogLevel) => {
     if (!options.logService || !LOG_LEVELS.includes(level)) throw new Error("Invalid log level.");
-    options.logService.setLevel(level);
+    await options.logService.setLevel(level);
     return options.logService.getStatus();
   });
 

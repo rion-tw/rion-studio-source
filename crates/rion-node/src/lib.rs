@@ -1,4 +1,9 @@
-use std::{path::PathBuf, sync::Arc, thread, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    thread,
+    time::{Duration, Instant},
+};
 
 use napi::{Status, bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCallMode};
 use napi_derive::napi;
@@ -33,6 +38,7 @@ pub struct AppCoreOptions {
     pub user_data_dir: String,
     pub platform: String,
     pub app_version: String,
+    pub performance_telemetry_path: Option<String>,
 }
 
 #[napi(object)]
@@ -370,9 +376,11 @@ impl NativeAppCore {
 
     #[napi]
     pub async fn invoke(&self, command_json: String) -> Result<String> {
+        let started_at = Instant::now();
         let command = serde_json::from_str::<CoreCommand>(&command_json)
             .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
         let core = Arc::clone(&self.inner);
+        let telemetry_core = Arc::clone(&self.inner);
         let value = if matches!(
             command,
             CoreCommand::GameDelete { .. }
@@ -393,6 +401,8 @@ impl NativeAppCore {
                 | CoreCommand::CompatibilityRun { .. }
                 | CoreCommand::CdnResolveSession { .. }
                 | CoreCommand::GraphicsDiagnosticsAssemble { .. }
+                | CoreCommand::DiagnosticsExport { .. }
+                | CoreCommand::SystemChromeClose
                 | CoreCommand::BrowserRoleLaunch { .. }
                 | CoreCommand::BrowserWorkspaceLaunch { .. }
                 | CoreCommand::BrowserRoleStop { .. }
@@ -407,6 +417,7 @@ impl NativeAppCore {
                 .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
                 .map_err(to_napi_error)?
         };
+        telemetry_core.record_napi_latency(started_at.elapsed().as_secs_f64() * 1_000.0);
         serde_json::to_string(&value)
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
     }
@@ -592,6 +603,7 @@ pub async fn create_app_core(options: AppCoreOptions) -> Result<NativeAppCore> {
         user_data_dir: options.user_data_dir,
         platform: options.platform,
         app_version: options.app_version,
+        performance_telemetry_path: options.performance_telemetry_path,
     };
     let core = napi::tokio::task::spawn_blocking(move || AppCore::create(options))
         .await

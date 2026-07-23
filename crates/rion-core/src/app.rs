@@ -30,11 +30,12 @@ use crate::{
         CdnResolutionRecord, ChromeProfileImportProgressRecord, ChromeProfileImportedSessionRecord,
         CompatibilityCheckOutcome, CompatibilityRunPhase, CompatibilityVersionRecord, CoreCommand,
         CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult, CoreEffectTarget, CoreEvent,
+        DiagnosticExportResultRecord, ElectronDiagnosticsSnapshotRecord,
         EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
         EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, ExternalChromeDiagnosticsRecord,
         ExternalGraphicsDiagnosticsRecord, ExternalPrepareSessionResultRecord,
         ExternalSessionCommand, ExternalSessionRecord, GameBrowserSettingsRecord,
-        GraphicsDiagnosticsRecord, GraphicsVersionRecord, LegalAcceptanceRecord,
+        GraphicsDiagnosticsRecord, GraphicsVersionRecord, LegalAcceptanceRecord, LogCaptureRecord,
         MacroSettingsRecord, OperationCancelResultRecord, ResourcePolicyDecision,
         ResourcePolicyInput, ResourceRuntimeCommand, ResourceRuntimeStatusRecord,
         ResourceRuntimeTargetRecord, RuntimeWindowPreferencesRecord,
@@ -74,6 +75,7 @@ struct Runtime {
     logs: LogDatabaseWorker,
     pressure: PressureMonitor,
     scheduler: MonotonicScheduler,
+    telemetry: crate::telemetry::TelemetryWorker,
 }
 
 pub struct AppCore {
@@ -92,6 +94,7 @@ pub struct AppCore {
     external_processes: crate::external_processes::ExternalProcessRuntime,
     external_sessions: Arc<Mutex<crate::external_sessions::ExternalSessionRuntime>>,
     macro_runtime: Arc<MacroRuntime>,
+    log_capture: Mutex<crate::log_capture::LogCaptureRuntime>,
     operation_actor: Arc<crate::operation_actor::OperationActor>,
     platform: rion_platform::Platform,
     portable: Mutex<crate::portable::PortableRuntime>,
@@ -151,6 +154,22 @@ impl AppCore {
             );
         }))?;
         let scheduler = MonotonicScheduler::start()?;
+        let telemetry_path = options
+            .performance_telemetry_path
+            .as_deref()
+            .map(PathBuf::from);
+        let telemetry_path = telemetry_path
+            .map(|path| {
+                if path.is_absolute() {
+                    Ok(path)
+                } else {
+                    std::env::current_dir()
+                        .map(|directory| directory.join(path))
+                        .map_err(|error| CoreError::Platform(error.to_string()))
+                }
+            })
+            .transpose()?;
+        let telemetry = crate::telemetry::TelemetryWorker::start(telemetry_path)?;
         let macro_subscribers = Arc::clone(&subscribers);
         let macro_resources = Arc::clone(&resource_controller);
         let macro_runtime = Arc::new(MacroRuntime::new(Arc::new(move |events| {
@@ -317,6 +336,9 @@ impl AppCore {
             external_health,
             external_processes,
             external_sessions,
+            log_capture: Mutex::new(crate::log_capture::LogCaptureRuntime::new(
+                user_data_dir.clone(),
+            )),
             macro_runtime,
             operation_actor,
             platform,
@@ -327,6 +349,7 @@ impl AppCore {
                 logs,
                 pressure,
                 scheduler,
+                telemetry,
             })),
             embedded_runtime_sequence: Arc::new(
                 crate::runtime_sequence::RuntimeOperationSequence::default(),
@@ -770,28 +793,48 @@ impl AppCore {
             }
             CoreCommand::LayoutResolve { input } => serde_json::to_value(layout::resolve(&input))
                 .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::LogsAppend { entries } => self.with_runtime(|runtime| {
-                let inserted = runtime.logs.append(entries)?;
+            CoreCommand::LogsCapture { entries } => {
+                let entries = self.capture_logs(entries)?;
+                let inserted = self.with_runtime(|runtime| runtime.logs.append(entries.clone()))?;
                 if inserted > 0 {
-                    self.emit(vec![CoreEvent::LogsChanged]);
+                    self.emit(vec![
+                        CoreEvent::LogEntriesCaptured { entries },
+                        CoreEvent::LogsChanged,
+                    ]);
                 }
                 Ok(json!({ "inserted": inserted }))
-            }),
-            CoreCommand::LogsQuery { query } => {
-                self.with_runtime(|runtime| runtime.logs.query(query))
             }
+            CoreCommand::LogsSetLevel { level } => {
+                self.log_capture()?.set_level(level);
+                Ok(json!({ "level": level }))
+            }
+            CoreCommand::LogsQuery { query } => self.with_runtime(|runtime| {
+                serde_json::to_value(runtime.logs.query(query)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }),
             CoreCommand::LogsClear => self.with_runtime(|runtime| {
                 runtime.logs.clear()?;
                 self.emit(vec![CoreEvent::LogsChanged]);
                 Ok(json!({ "cleared": true }))
             }),
-            CoreCommand::LogsStatus => self.with_runtime(|runtime| {
-                serde_json::to_value(runtime.logs.status()?)
-                    .map_err(|error| CoreError::Internal(error.to_string()))
-            }),
+            CoreCommand::LogsStatus => {
+                let current_level = self.log_capture()?.current_level();
+                self.with_runtime(|runtime| {
+                    serde_json::to_value(runtime.logs.storage_status(current_level)?)
+                        .map_err(|error| CoreError::Internal(error.to_string()))
+                })
+            }
             CoreCommand::LogsExportTo { path } => self.with_runtime(|runtime| {
                 runtime.logs.export_jsonl_to(PathBuf::from(&path))?;
                 Ok(json!({ "path": path }))
+            }),
+            CoreCommand::TelemetryRecord { sample } => self.with_runtime(|runtime| {
+                runtime.telemetry.record(sample);
+                Ok(json!({ "recorded": true }))
+            }),
+            CoreCommand::TelemetrySnapshot => self.with_runtime(|runtime| {
+                serde_json::to_value(runtime.telemetry.snapshot()?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }),
             CoreCommand::MacroStart { request } => {
                 let (macros, settings) =
@@ -1146,6 +1189,8 @@ impl AppCore {
             | CoreCommand::CompatibilityRun { .. }
             | CoreCommand::CdnResolveSession { .. }
             | CoreCommand::GraphicsDiagnosticsAssemble { .. }
+            | CoreCommand::DiagnosticsExport { .. }
+            | CoreCommand::SystemChromeClose
             | CoreCommand::BrowserRoleLaunch { .. }
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleStop { .. }
@@ -1295,6 +1340,23 @@ impl AppCore {
                 .await?,
             )
             .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::DiagnosticsExport { path, snapshot } => {
+                serde_json::to_value(self.export_diagnostics(path, snapshot).await?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::SystemChromeClose => {
+                let platform = self.platform;
+                tokio::task::spawn_blocking(move || {
+                    rion_platform::request_graceful_chrome_quit(platform)
+                        .map_err(|_| CoreError::Domain {
+                            code: "CHROME_CLOSE_FAILED",
+                            message: "Unable to ask Google Chrome to close. Close Chrome manually and try again.".to_owned(),
+                        })
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                Ok(json!({ "closed": true }))
+            }
             CoreCommand::BrowserRoleLaunch {
                 role_id,
                 target,
@@ -4843,6 +4905,7 @@ impl AppCore {
         {
             runtime.pressure.shutdown();
             runtime.scheduler.shutdown();
+            runtime.telemetry.shutdown();
             runtime.logs.shutdown();
             runtime.state.shutdown();
         }
@@ -4858,6 +4921,135 @@ impl AppCore {
             .lock()
             .map_err(|_| CoreError::Internal("runtime lock poisoned".to_owned()))?;
         operation(runtime.as_ref().ok_or(CoreError::ShuttingDown)?)
+    }
+
+    pub fn record_napi_latency(&self, duration_ms: f64) {
+        let _ = self.with_runtime(|runtime| {
+            runtime.telemetry.record_napi(duration_ms);
+            Ok(())
+        });
+    }
+
+    fn capture_logs(
+        &self,
+        entries: Vec<LogCaptureRecord>,
+    ) -> CoreResult<Vec<crate::model::LogEntry>> {
+        Ok(self.log_capture()?.capture(entries))
+    }
+
+    fn log_capture(
+        &self,
+    ) -> CoreResult<std::sync::MutexGuard<'_, crate::log_capture::LogCaptureRuntime>> {
+        self.log_capture
+            .lock()
+            .map_err(|_| CoreError::Internal("log capture lock poisoned".to_owned()))
+    }
+
+    async fn export_diagnostics(
+        self: &Arc<Self>,
+        path: String,
+        snapshot: ElectronDiagnosticsSnapshotRecord,
+    ) -> CoreResult<DiagnosticExportResultRecord> {
+        let captured_at = chrono::Utc::now();
+        let freeze_reported_at = snapshot
+            .external_freeze_reported_at
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&chrono::Utc));
+        let graphics_since = freeze_reported_at
+            .map(|value| value - chrono::Duration::minutes(30))
+            .unwrap_or_else(|| captured_at - chrono::Duration::minutes(30));
+        let windows_graphics_events =
+            crate::windows_graphics_events::collect(self.platform, &graphics_since.to_rfc3339())?;
+        let host = rion_platform::collect_system_host_diagnostics();
+        let state = self.read_typed_snapshot()?;
+        let external_role_ids = self
+            .external_sessions
+            .lock()
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
+            .snapshot()
+            .into_iter()
+            .map(|session| session.role.id)
+            .collect::<Vec<_>>();
+        let mut external_chrome = Vec::with_capacity(external_role_ids.len());
+        for role_id in external_role_ids {
+            if let Ok(diagnostics) = self.capture_external_diagnostics(&role_id).await {
+                external_chrome.push(diagnostics);
+            }
+        }
+        let current_level = self.log_capture()?.current_level();
+        let logging = self.with_runtime(|runtime| runtime.logs.storage_status(current_level))?;
+        let gpu_feature_status =
+            serde_json::from_str::<Value>(&snapshot.gpu_feature_status_raw_json)
+                .unwrap_or(Value::Null);
+        let gpu_info = snapshot
+            .gpu_info_raw_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+        let diagnostics = json!({
+            "generatedAt": captured_at.to_rfc3339(),
+            "application": {
+                "name": snapshot.application_name,
+                "version": snapshot.application_version,
+                "packaged": snapshot.packaged,
+            },
+            "runtime": {
+                "electron": snapshot.electron_version,
+                "chromium": snapshot.chromium_version,
+                "node": snapshot.node_version,
+            },
+            "system": {
+                "platform": match self.platform {
+                    rion_platform::Platform::Macos => "darwin",
+                    rion_platform::Platform::Windows => "win32",
+                },
+                "release": snapshot.system_version,
+                "arch": std::env::consts::ARCH,
+                "locale": snapshot.locale,
+                "cpu": host.cpu_model.map(|model| json!({
+                    "model": model,
+                    "cores": host.cpu_cores,
+                })),
+                "memory": {
+                    "totalBytes": host.total_memory_bytes,
+                    "freeBytes": host.free_memory_bytes,
+                },
+                "displayCount": snapshot.displays.len(),
+                "displays": snapshot.displays,
+                "gpuFeatureStatus": gpu_feature_status,
+                "gpuInfo": gpu_info,
+            },
+            "externalChrome": external_chrome,
+            "windowsGraphicsEvents": windows_graphics_events,
+            "windowsGraphicsEventWindow": {
+                "freezeReportedAt": freeze_reported_at.map(|value| value.to_rfc3339()),
+                "since": graphics_since.to_rfc3339(),
+                "until": captured_at.to_rfc3339(),
+            },
+            "dataCounts": {
+                "games": state.games.len(),
+                "roles": state.roles.len(),
+                "workspaces": state.launch_workspaces.len(),
+                "macros": state.macros.len(),
+            },
+            "logging": {
+                "currentLevel": logging.current_level,
+                "fileCount": logging.file_count,
+                "totalBytes": logging.total_bytes,
+                "oldestTimestamp": logging.oldest_timestamp,
+                "newestTimestamp": logging.newest_timestamp,
+                "retentionDays": logging.retention_days,
+                "maxBytes": logging.max_bytes,
+                "directory": "<USER_DATA>/logs",
+            },
+        });
+        self.with_runtime(|runtime| {
+            crate::diagnostics::export_bundle(
+                PathBuf::from(path).as_path(),
+                &diagnostics,
+                &runtime.logs,
+            )
+        })
     }
 
     fn external_health(&self) -> CoreResult<std::sync::MutexGuard<'_, ExternalHealthRuntime>> {
@@ -5381,6 +5573,7 @@ mod tests {
                 app_version: "2.1.0-test".to_owned(),
                 platform: "darwin".to_owned(),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
+                performance_telemetry_path: None,
             })
             .unwrap(),
         );

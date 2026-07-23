@@ -12,6 +12,7 @@ import type {
   ChromeProfileImportWarningRecord,
   CompatibilityRunPhase,
   CompatibilityRunStatusRecord,
+  DiagnosticExportResultRecord,
   ExternalGraphicsDiagnosticsRecord,
   GameCreateRequest,
   GameBrowserSettingsRecord,
@@ -24,8 +25,10 @@ import type {
   LogEntry as RustLogEntry,
   LogErrorDetails as RustLogErrorDetails,
   LogLevel as RustLogLevel,
+  LogPageRecord,
   LogQuery as RustLogQuery,
   LogSource as RustLogSource,
+  LogStorageStatusRecord,
   MacroCreateRequest,
   MacroBadgePositionRecord,
   MacroRepeat as RustMacroRepeat,
@@ -511,21 +514,9 @@ export type LogEntry = RustLogEntry;
 
 export type LogQuery = RustLogQuery;
 
-export interface LogPage {
-  entries: LogEntry[];
-  nextCursor?: string;
-}
+export type LogPage = LogPageRecord;
 
-export interface LogStorageStatus {
-  currentLevel: LogLevel;
-  fileCount: number;
-  totalBytes: number;
-  oldestTimestamp?: string;
-  newestTimestamp?: string;
-  retentionDays: number;
-  maxBytes: number;
-  directory: string;
-}
+export type LogStorageStatus = LogStorageStatusRecord;
 
 export interface RendererLogEvent {
   event: "renderer_error" | "unhandled_rejection";
@@ -533,7 +524,4 @@ export interface RendererLogEvent {
   stack?: string;
 }
 
-export interface DiagnosticExportResult {
-  filePath: string;
-  logFileCount: number;
-}
+export type DiagnosticExportResult = DiagnosticExportResultRecord;

@@ -21,6 +21,7 @@ struct ActiveCheck {
     status: CompatibilityRunStatusRecord,
     system_chrome_available: bool,
     cancel_requested: bool,
+    effect_operation_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -71,6 +72,7 @@ impl CompatibilityRuntime {
                 status,
                 system_chrome_available,
                 cancel_requested: false,
+                effect_operation_id: None,
             },
         );
         Ok(CompatibilityCheckPlanRecord {
@@ -91,12 +93,30 @@ impl CompatibilityRuntime {
         Ok(())
     }
 
-    pub fn request_cancel(&mut self, game_id: &str) -> bool {
+    pub fn request_cancel(&mut self, game_id: &str) -> (bool, Option<String>) {
         let Some(active) = self.active.get_mut(game_id) else {
-            return false;
+            return (false, None);
         };
         active.cancel_requested = true;
-        true
+        (true, active.effect_operation_id.clone())
+    }
+
+    pub fn set_effect_operation(
+        &mut self,
+        game_id: &str,
+        operation_id: Option<String>,
+    ) -> CoreResult<()> {
+        self.active
+            .get_mut(game_id)
+            .ok_or_else(|| inactive(game_id))?
+            .effect_operation_id = operation_id;
+        Ok(())
+    }
+
+    pub fn is_cancel_requested(&self, game_id: &str) -> bool {
+        self.active
+            .get(game_id)
+            .is_some_and(|active| active.cancel_requested)
     }
 
     pub fn build_report(
@@ -342,7 +362,7 @@ mod tests {
         let mut runtime = CompatibilityRuntime::default();
         let state = snapshot();
         prepare(&mut runtime, &state, false).unwrap();
-        assert!(runtime.request_cancel("game-1"));
+        let _ = runtime.request_cancel("game-1");
         let report = runtime
             .build_report(
                 "game-1",

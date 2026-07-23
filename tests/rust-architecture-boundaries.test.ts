@@ -91,7 +91,12 @@ describe("Rust production architecture boundaries", () => {
     expect(manager).not.toContain("new RegExp");
     expect(manager).not.toContain("rewriteCdnCompatibilityUrl");
     expect(manager).not.toContain("compiledRules");
-    expect(manager).toContain("this.rewriteUrl(details.url)");
+    expect(manager).not.toContain("inFlightDetections");
+    expect(manager).not.toContain("DetectionCacheEntry");
+    expect(manager).not.toContain("setTimeout");
+    expect(manager).toContain('type: "cdnResolveSession"');
+    expect(manager).toContain("this.options.matchCdnUrl(details.url)");
+    expect(matcher).toContain("pub fn bundled()");
     expect(matcher).toContain("pub fn rewrite(&self");
   });
 
@@ -398,9 +403,28 @@ describe("Rust production architecture boundaries", () => {
     expect(manager).not.toContain("createHash");
     expect(manager).not.toContain("configurationFingerprint");
     expect(manager).not.toContain("activeChecks");
-    expect(manager).toContain('type: "compatibilityPrepare"');
-    expect(manager).toContain('type: "compatibilityComplete"');
+    expect(manager).toContain('type: "compatibilityRun"');
+    expect(manager).not.toContain('type: "compatibilityPrepare"');
+    expect(manager).not.toContain('type: "compatibilityComplete"');
+    expect(manager).not.toContain("setTimeout");
     expect(runtime).toContain("configuration_fingerprint");
     expect(runtime).toContain("cancel_requested");
+    expect(runtime).toContain("effect_operation_id");
+  });
+
+  it("keeps graphics normalization, switch selection, and report assembly in Rust", async () => {
+    const [adapter, graphics, bootstrap] = await Promise.all([
+      readSource("src/main/game-browser/GraphicsDiagnosticsService.ts"),
+      readSource("crates/rion-core/src/graphics_diagnostics.rs"),
+      readSource("crates/rion-core/src/bootstrap_settings.rs")
+    ]);
+
+    expect(adapter).not.toContain("normalizeAvailability");
+    expect(adapter).not.toContain("readGpuDevice");
+    expect(adapter).not.toContain("getGraphicsSwitches");
+    expect(adapter).toContain('type: "graphicsDiagnosticsAssemble"');
+    expect(graphics).toContain("normalize_web_graphics");
+    expect(graphics).toContain("GraphicsDiagnosticsRecord");
+    expect(bootstrap).toContain("fn graphics_switches");
   });
 });

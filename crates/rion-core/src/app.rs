@@ -27,15 +27,17 @@ use crate::{
     macro_runtime::MacroRuntime,
     model::{
         AppCoreOptions, BrowserActionResult, BrowserOperationRequest, BrowserRuntimeCommand,
-        CdnRule, ChromeProfileImportProgressRecord, ChromeProfileImportedSessionRecord,
-        CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult,
-        CoreEffectTarget, CoreEvent, EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord,
-        EmbeddedRoleLoadEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
-        ExternalChromeDiagnosticsRecord, ExternalPrepareSessionResultRecord,
+        CdnResolutionRecord, ChromeProfileImportProgressRecord, ChromeProfileImportedSessionRecord,
+        CompatibilityCheckOutcome, CompatibilityRunPhase, CompatibilityVersionRecord, CoreCommand,
+        CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult, CoreEffectTarget, CoreEvent,
+        EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
+        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, ExternalChromeDiagnosticsRecord,
+        ExternalGraphicsDiagnosticsRecord, ExternalPrepareSessionResultRecord,
         ExternalSessionCommand, ExternalSessionRecord, GameBrowserSettingsRecord,
-        LegalAcceptanceRecord, MacroSettingsRecord, OperationCancelResultRecord,
-        ResourcePolicyDecision, ResourcePolicyInput, ResourceRuntimeCommand,
-        ResourceRuntimeStatusRecord, ResourceRuntimeTargetRecord, RuntimeWindowPreferencesRecord,
+        GraphicsDiagnosticsRecord, GraphicsVersionRecord, LegalAcceptanceRecord,
+        MacroSettingsRecord, OperationCancelResultRecord, ResourcePolicyDecision,
+        ResourcePolicyInput, ResourceRuntimeCommand, ResourceRuntimeStatusRecord,
+        ResourceRuntimeTargetRecord, RuntimeWindowPreferencesRecord,
         StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
         StateMacroRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
         StateWorkspaceResourcePolicyRecord,
@@ -59,6 +61,14 @@ const EXTERNAL_PAGE_UNRESPONSIVE_NOTICE: &str =
 const EXTERNAL_ZOOM_UNAVAILABLE_NOTICE: &str =
     "Workspace zoom could not be applied in external Chrome. Restart this role to try again.";
 
+fn compatibility_load_timeout() -> Duration {
+    if cfg!(test) {
+        Duration::from_millis(100)
+    } else {
+        Duration::from_secs(20)
+    }
+}
+
 struct Runtime {
     state: StateDatabaseWorker,
     logs: LogDatabaseWorker,
@@ -70,6 +80,7 @@ pub struct AppCore {
     app_version: String,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
     cdn: Arc<RwLock<CdnMatcher>>,
+    cdn_detection: Mutex<crate::cdn_detection::CdnDetectionRuntime>,
     browser_runtime: Arc<Mutex<crate::browser_runtime::BrowserRuntime>>,
     chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
     compatibility_runtime: Mutex<crate::compatibility_runtime::CompatibilityRuntime>,
@@ -289,7 +300,8 @@ impl AppCore {
             app_version: options.app_version,
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),
             browser_runtime,
-            cdn: Arc::new(RwLock::new(CdnMatcher::default())),
+            cdn: Arc::new(RwLock::new(CdnMatcher::bundled()?)),
+            cdn_detection: Mutex::new(crate::cdn_detection::CdnDetectionRuntime::default()),
             chrome_profile_import: Mutex::new(
                 crate::chrome_profile_import::ChromeProfileImportRuntime::new(
                     user_data_dir.clone(),
@@ -548,7 +560,11 @@ impl AppCore {
                 Ok(saved)
             }
             CoreCommand::CompatibilityCancel { game_id } => {
-                let requested = self.compatibility_runtime()?.request_cancel(&game_id);
+                let (requested, operation_id) =
+                    self.compatibility_runtime()?.request_cancel(&game_id);
+                if let Some(operation_id) = operation_id {
+                    let _ = self.operation_actor.cancel(&operation_id)?;
+                }
                 Ok(json!({ "requested": requested }))
             }
             CoreCommand::CompatibilityReportsCurrent { versions } => {
@@ -747,21 +763,6 @@ impl AppCore {
             }
             CoreCommand::PortableDiscard { import_id } => {
                 Ok(json!({ "discarded": self.portable()?.discard(&import_id) }))
-            }
-            CoreCommand::CdnReplaceRules { rules } => {
-                let mut matcher = self
-                    .cdn
-                    .write()
-                    .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?;
-                matcher.replace_rules(rules)?;
-                Ok(json!({ "ruleIds": matcher.rule_ids() }))
-            }
-            CoreCommand::CdnRewriteUrl { url } => {
-                let matcher = self
-                    .cdn
-                    .read()
-                    .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?;
-                Ok(json!({ "redirectUrl": matcher.rewrite(&url) }))
             }
             CoreCommand::ResourceResolve { input } => {
                 serde_json::to_value(resolve_resource_policy(&input))
@@ -1142,6 +1143,9 @@ impl AppCore {
             }
             CoreCommand::RoleBrowserDataClear { .. }
             | CoreCommand::ChromeProfileApply { .. }
+            | CoreCommand::CompatibilityRun { .. }
+            | CoreCommand::CdnResolveSession { .. }
+            | CoreCommand::GraphicsDiagnosticsAssemble { .. }
             | CoreCommand::BrowserRoleLaunch { .. }
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleStop { .. }
@@ -1259,6 +1263,38 @@ impl AppCore {
                 self.apply_chrome_profile_import(import_id, profile_ids, game_id, consent_accepted)
                     .await
             }
+            CoreCommand::CompatibilityRun { game_id, versions } => {
+                self.run_compatibility_check(game_id, versions).await
+            }
+            CoreCommand::CdnResolveSession { session_handle_id } => {
+                serde_json::to_value(self.resolve_cdn_session(session_handle_id).await?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::GraphicsDiagnosticsAssemble {
+                applied_settings,
+                embedded_raw_json,
+                embedded_error,
+                gpu_info_raw_json,
+                feature_status_raw_json,
+                gpu_info_ready,
+                hardware_acceleration_enabled,
+                platform,
+                versions,
+            } => serde_json::to_value(
+                self.assemble_graphics_diagnostics(
+                    applied_settings,
+                    embedded_raw_json,
+                    embedded_error,
+                    gpu_info_raw_json,
+                    feature_status_raw_json,
+                    gpu_info_ready,
+                    hardware_acceleration_enabled,
+                    platform,
+                    versions,
+                )
+                .await?,
+            )
+            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserRoleLaunch {
                 role_id,
                 target,
@@ -2269,6 +2305,367 @@ impl AppCore {
                 total_profile_count: total as u32,
             },
         }]);
+    }
+
+    async fn run_compatibility_check(
+        self: &Arc<Self>,
+        game_id: String,
+        versions: CompatibilityVersionRecord,
+    ) -> CoreResult<Value> {
+        let system_chrome_available = self.find_chrome_executable().is_ok();
+        let plan = {
+            let _guard = self.state_mutation_guard()?;
+            let games = self.read_typed_state_collection::<StateGameRecord>("games")?;
+            let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+                "gameBrowserSettings",
+                "game browser settings are missing",
+            )?;
+            let (plan, statuses) = {
+                let mut runtime = self.compatibility_runtime()?;
+                let plan = runtime.prepare(
+                    &games,
+                    &settings,
+                    &game_id,
+                    system_chrome_available,
+                    &versions,
+                )?;
+                (plan, runtime.statuses())
+            };
+            self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
+            plan
+        };
+        let started = std::time::Instant::now();
+        let mut window_created = false;
+        let operation = async {
+            self.request_compatibility_effect(
+                &game_id,
+                CoreEffectAction::CompatibilityCreateWindow { plan: plan.clone() },
+                Duration::from_secs(5),
+            )
+            .await?;
+            window_created = true;
+            self.request_compatibility_effect(
+                &game_id,
+                CoreEffectAction::CompatibilityConfigureSession {
+                    game_id: game_id.clone(),
+                },
+                Duration::from_secs(10),
+            )
+            .await?;
+            self.transition_compatibility(&game_id, CompatibilityRunPhase::Loading)?;
+            let loaded = self
+                .request_compatibility_effect(
+                    &game_id,
+                    CoreEffectAction::CompatibilityLoadUrl {
+                        game_id: game_id.clone(),
+                        url: plan.launch_url.clone(),
+                    },
+                    compatibility_load_timeout(),
+                )
+                .await
+                .map_err(compatibility_load_error)?;
+            let loaded: Value = effect_value(&loaded)?;
+            let final_origin = loaded
+                .get("finalUrl")
+                .and_then(Value::as_str)
+                .and_then(|value| url::Url::parse(value).ok())
+                .map(|url| url.origin().ascii_serialization());
+
+            self.transition_compatibility(&game_id, CompatibilityRunPhase::Probing)?;
+            let graphics = match self
+                .request_compatibility_effect(
+                    &game_id,
+                    CoreEffectAction::CompatibilityProbeGraphics {
+                        game_id: game_id.clone(),
+                        source: crate::graphics_diagnostics::WEB_GRAPHICS_PROBE_SOURCE.to_owned(),
+                    },
+                    Duration::from_secs(2),
+                )
+                .await
+            {
+                Ok(result) => {
+                    crate::graphics_diagnostics::normalize_web_graphics(effect_value(&result)?)
+                }
+                Err(error) => {
+                    crate::graphics_diagnostics::unavailable_probe(Some(error.to_string()))
+                }
+            };
+            Ok::<_, CoreError>((final_origin, graphics))
+        }
+        .await;
+
+        let cancelled = self.compatibility_runtime()?.is_cancel_requested(&game_id);
+        let duration_ms = started.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+        let outcome = if cancelled {
+            CompatibilityCheckOutcome::Cancelled { duration_ms }
+        } else {
+            match operation {
+                Ok((final_origin, graphics)) => CompatibilityCheckOutcome::Loaded {
+                    duration_ms,
+                    final_origin,
+                    graphics,
+                },
+                Err(error) => CompatibilityCheckOutcome::Failed {
+                    duration_ms,
+                    error_code: error.code().to_owned(),
+                },
+            }
+        };
+
+        self.transition_compatibility(&game_id, CompatibilityRunPhase::CleaningUp)?;
+        self.compatibility_runtime()?
+            .set_effect_operation(&game_id, None)?;
+        if window_created {
+            let _ = self
+                .request_core_effect(
+                    &game_id,
+                    CoreEffectAction::CompatibilityCleanupWindow {
+                        game_id: game_id.clone(),
+                    },
+                    Duration::from_secs(10),
+                )
+                .await;
+        }
+        let report = self
+            .compatibility_runtime()?
+            .build_report(&game_id, outcome)?;
+        let saved = self.mutate_state(StateMutation::CompatibilityReportSave(Box::new(report)))?;
+        let statuses = {
+            let mut runtime = self.compatibility_runtime()?;
+            runtime.finish(&game_id);
+            runtime.statuses()
+        };
+        self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
+        Ok(saved)
+    }
+
+    async fn request_compatibility_effect(
+        &self,
+        game_id: &str,
+        action: CoreEffectAction,
+        timeout: Duration,
+    ) -> CoreResult<CoreEffectResult> {
+        if self.compatibility_runtime()?.is_cancel_requested(game_id) {
+            return Err(CoreError::Effect {
+                code: "CORE_OPERATION_CANCELLED".to_owned(),
+                message: "The compatibility check was cancelled.".to_owned(),
+            });
+        }
+        let handle = self
+            .operation_actor
+            .start(crate::operation_actor::OperationPlan {
+                steps: vec![effect_step(game_id, action, timeout, None)],
+            })?;
+        self.compatibility_runtime()?
+            .set_effect_operation(game_id, Some(handle.operation_id.clone()))?;
+        if self.compatibility_runtime()?.is_cancel_requested(game_id) {
+            let _ = self.operation_actor.cancel(&handle.operation_id)?;
+        }
+        let outcome = handle.outcome.await.map_err(|_| {
+            CoreError::Internal("compatibility effect operation stopped".to_owned())
+        })?;
+        self.compatibility_runtime()?
+            .set_effect_operation(game_id, None)?;
+        if let Some(error) = outcome.error {
+            return Err(CoreError::Effect {
+                code: error.code,
+                message: error.message,
+            });
+        }
+        outcome.results.into_iter().next().ok_or_else(|| {
+            CoreError::Internal("compatibility effect returned no result".to_owned())
+        })
+    }
+
+    fn transition_compatibility(
+        &self,
+        game_id: &str,
+        phase: CompatibilityRunPhase,
+    ) -> CoreResult<()> {
+        let statuses = {
+            let mut runtime = self.compatibility_runtime()?;
+            runtime.transition(game_id, phase)?;
+            runtime.statuses()
+        };
+        self.emit(vec![CoreEvent::CompatibilityStatuses { statuses }]);
+        Ok(())
+    }
+
+    async fn resolve_cdn_session(
+        &self,
+        session_handle_id: String,
+    ) -> CoreResult<CdnResolutionRecord> {
+        if session_handle_id.trim().is_empty() || session_handle_id.len() > 160 {
+            return Err(CoreError::InvalidInput(
+                "CDN session handle is invalid".to_owned(),
+            ));
+        }
+        let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
+            "gameBrowserSettings",
+            "game browser settings are missing",
+        )?;
+        let start = self
+            .cdn_detection
+            .lock()
+            .map_err(|_| CoreError::Internal("CDN detection lock poisoned".to_owned()))?
+            .begin(
+                &settings.network.cdn_compatibility.mode,
+                &settings.network.proxy,
+            )?;
+        let enabled = match start {
+            crate::cdn_detection::DetectionStart::Immediate(enabled) => enabled,
+            crate::cdn_detection::DetectionStart::Follower(receiver) => receiver
+                .await
+                .map_err(|_| CoreError::Internal("CDN detection leader stopped".to_owned()))?,
+            crate::cdn_detection::DetectionStart::Leader { cache_key } => {
+                let timeout = self
+                    .cdn_detection
+                    .lock()
+                    .map_err(|_| CoreError::Internal("CDN detection lock poisoned".to_owned()))?
+                    .probe_timeout();
+                let google_available = self
+                    .request_core_effect(
+                        &session_handle_id,
+                        CoreEffectAction::CdnProbeGoogle {
+                            url: "https://www.google.com/recaptcha/api.js?render=explicit"
+                                .to_owned(),
+                        },
+                        timeout,
+                    )
+                    .await
+                    .ok()
+                    .and_then(|result| effect_value::<Value>(&result).ok())
+                    .and_then(|value| value.get("available").and_then(Value::as_bool))
+                    .unwrap_or(false);
+                let enabled = !google_available;
+                self.cdn_detection
+                    .lock()
+                    .map_err(|_| CoreError::Internal("CDN detection lock poisoned".to_owned()))?
+                    .complete(cache_key, enabled);
+                enabled
+            }
+        };
+        let request_patterns = if enabled {
+            self.cdn
+                .read()
+                .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?
+                .request_patterns()
+        } else {
+            Vec::new()
+        };
+        Ok(CdnResolutionRecord {
+            enabled,
+            request_patterns,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn assemble_graphics_diagnostics(
+        &self,
+        applied_settings: crate::model::BrowserGraphicsSettingsRecord,
+        embedded_raw_json: String,
+        embedded_error: Option<String>,
+        gpu_info_raw_json: Option<String>,
+        feature_status_raw_json: String,
+        gpu_info_ready: bool,
+        hardware_acceleration_enabled: Option<bool>,
+        platform: String,
+        versions: GraphicsVersionRecord,
+    ) -> CoreResult<GraphicsDiagnosticsRecord> {
+        let requested_platform = rion_platform::Platform::parse(&platform)
+            .map_err(|error| CoreError::Platform(error.to_string()))?;
+        if requested_platform != self.platform {
+            return Err(CoreError::InvalidInput(
+                "graphics diagnostics platform does not match the application core".to_owned(),
+            ));
+        }
+        let saved_settings = self
+            .read_scalar_state::<GameBrowserSettingsRecord>(
+                "gameBrowserSettings",
+                "game browser settings are missing",
+            )?
+            .graphics;
+        let sessions = self
+            .external_sessions
+            .lock()
+            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
+            .snapshot()
+            .into_iter()
+            .filter(|session| session.state == "running")
+            .collect::<Vec<_>>();
+        let automation = Arc::clone(&self.external_automation);
+        let external_roles = join_all(sessions.into_iter().map(|session| {
+            let automation = Arc::clone(&automation);
+            async move {
+                if !session.automation_available {
+                    return ExternalGraphicsDiagnosticsRecord {
+                        error: Some("Chrome DevTools connection is unavailable.".to_owned()),
+                        probe: None,
+                        role_id: session.role.id,
+                        role_name: session.role.name,
+                        state: "unavailable".to_owned(),
+                    };
+                }
+                match tokio::time::timeout(
+                    Duration::from_secs(2),
+                    automation.evaluate(
+                        &session.role.id,
+                        crate::graphics_diagnostics::WEB_GRAPHICS_PROBE_SOURCE,
+                    ),
+                )
+                .await
+                {
+                    Ok(Ok(value)) => {
+                        let probe = crate::graphics_diagnostics::normalize_web_graphics(value);
+                        let unavailable = probe.error.is_some()
+                            || (probe.webgl == "unknown"
+                                && probe.webgl2 == "unknown"
+                                && probe.webgpu == "unknown");
+                        ExternalGraphicsDiagnosticsRecord {
+                            error: unavailable.then(|| {
+                                probe.error.clone().unwrap_or_else(|| {
+                                    "Chrome graphics probe returned invalid data.".to_owned()
+                                })
+                            }),
+                            probe: Some(probe),
+                            role_id: session.role.id,
+                            role_name: session.role.name,
+                            state: if unavailable { "unavailable" } else { "ready" }.to_owned(),
+                        }
+                    }
+                    Ok(Err(error)) => ExternalGraphicsDiagnosticsRecord {
+                        error: Some(error.to_string()),
+                        probe: None,
+                        role_id: session.role.id,
+                        role_name: session.role.name,
+                        state: "unavailable".to_owned(),
+                    },
+                    Err(_) => ExternalGraphicsDiagnosticsRecord {
+                        error: Some("Chrome graphics probe timed out.".to_owned()),
+                        probe: None,
+                        role_id: session.role.id,
+                        role_name: session.role.name,
+                        state: "unavailable".to_owned(),
+                    },
+                }
+            }
+        }))
+        .await;
+        Ok(crate::graphics_diagnostics::assemble(
+            crate::graphics_diagnostics::GraphicsDiagnosticsInput {
+                applied_settings,
+                embedded_raw_json,
+                embedded_error,
+                external_roles,
+                feature_status_raw_json,
+                gpu_info_raw_json,
+                gpu_info_ready,
+                hardware_acceleration_enabled,
+                platform: requested_platform,
+                saved_settings,
+                versions,
+            },
+        ))
     }
 
     fn external_role(&self, role_id: &str) -> CoreResult<StateRoleRecord> {
@@ -4006,16 +4403,7 @@ impl AppCore {
         self.operation_actor.dispatch_results(results)
     }
 
-    pub fn replace_cdn_rules(&self, rules: Vec<CdnRule>) -> CoreResult<Vec<String>> {
-        let mut matcher = self
-            .cdn
-            .write()
-            .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?;
-        matcher.replace_rules(rules)?;
-        Ok(matcher.rule_ids().into_iter().map(str::to_owned).collect())
-    }
-
-    pub fn rewrite_cdn_url(&self, url: &str) -> CoreResult<Option<String>> {
+    pub fn match_cdn_url(&self, url: &str) -> CoreResult<Option<String>> {
         let matcher = self
             .cdn
             .read()
@@ -4727,6 +5115,17 @@ fn complete_profile_lease(
     }
 }
 
+fn compatibility_load_error(error: CoreError) -> CoreError {
+    if error.code() == "CORE_EFFECT_TIMEOUT" {
+        CoreError::Effect {
+            code: "COMPATIBILITY_LOAD_TIMEOUT".to_owned(),
+            message: "The compatibility test page did not load before the deadline.".to_owned(),
+        }
+    } else {
+        error
+    }
+}
+
 fn hidden_embedded_workspace_ids(snapshot: &crate::model::BrowserRuntimeSnapshot) -> Vec<String> {
     let active_tabs = snapshot
         .displays
@@ -5099,6 +5498,9 @@ mod tests {
             CoreEffectAction::ChromeProfileApplySession { .. } => "chromeProfileApplySession",
             CoreEffectAction::ChromeProfileClearSession { .. } => "chromeProfileClearSession",
             CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
+            CoreEffectAction::CompatibilityLoadUrl { .. } => "compatibilityLoadUrl",
+            CoreEffectAction::CompatibilityProbeGraphics { .. } => "compatibilityProbeGraphics",
+            CoreEffectAction::CdnProbeGoogle { .. } => "cdnProbeGoogle",
             _ => "other",
         };
         let failed = fail_action == Some(action_name);
@@ -5118,6 +5520,21 @@ mod tests {
             ),
             CoreEffectAction::EmbeddedApplyResourceEffects { .. } => {
                 Some(json!({ "unavailableRoleIds": [] }).to_string())
+            }
+            CoreEffectAction::CompatibilityLoadUrl { .. } => {
+                Some(json!({ "finalUrl": "https://example.com/play?session=private" }).to_string())
+            }
+            CoreEffectAction::CompatibilityProbeGraphics { .. } => Some(
+                json!({
+                    "webgl":"available",
+                    "webgl2":"available",
+                    "webgpu":"unavailable",
+                    "renderer":"Fixture GPU"
+                })
+                .to_string(),
+            ),
+            CoreEffectAction::CdnProbeGoogle { .. } => {
+                Some(json!({ "available": false }).to_string())
             }
             _ => None,
         };
@@ -5583,6 +6000,134 @@ mod tests {
             })
             .unwrap();
         core.browser_operations.complete(&lease.id).unwrap();
+        core.shutdown();
+    }
+
+    #[test]
+    fn compatibility_run_owns_effect_order_report_outcome_and_cleanup() {
+        let (_directory, core) = core();
+        let game_id = first_game_id(&core);
+
+        let (result, actions, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::CompatibilityRun {
+                game_id: game_id.clone(),
+                versions: CompatibilityVersionRecord {
+                    chrome: "140".to_owned(),
+                    electron: "40".to_owned(),
+                },
+            },
+            None,
+        );
+
+        let report = result.unwrap();
+        assert_eq!(report["gameId"], game_id);
+        assert_eq!(report["load"]["state"], "available");
+        assert_eq!(report["load"]["finalOrigin"], "https://example.com");
+        assert_eq!(report["graphics"]["renderer"], "Fixture GPU");
+        assert!(matches!(
+            actions.as_slice(),
+            [
+                CoreEffectAction::CompatibilityCreateWindow { .. },
+                CoreEffectAction::CompatibilityConfigureSession { .. },
+                CoreEffectAction::CompatibilityLoadUrl { .. },
+                CoreEffectAction::CompatibilityProbeGraphics { .. },
+                CoreEffectAction::CompatibilityCleanupWindow { .. }
+            ]
+        ));
+        assert!(core.compatibility_runtime().unwrap().statuses().is_empty());
+        core.shutdown();
+    }
+
+    #[test]
+    fn compatibility_load_deadline_is_owned_by_rust_and_still_cleans_up() {
+        let (_directory, core) = core();
+        let game_id = first_game_id(&core);
+        let receiver = core.subscribe().unwrap();
+        let invocation_core = Arc::clone(&core);
+        let invocation = thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(invocation_core.invoke_async(CoreCommand::CompatibilityRun {
+                    game_id,
+                    versions: CompatibilityVersionRecord {
+                        chrome: "140".to_owned(),
+                        electron: "40".to_owned(),
+                    },
+                }))
+        });
+        let mut saw_cleanup = false;
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !invocation.is_finished() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "compatibility timeout fixture did not complete"
+            );
+            let Ok(events) = receiver.recv_timeout(Duration::from_millis(50)) else {
+                continue;
+            };
+            for event in events {
+                let CoreEvent::CoreEffects { effects } = event else {
+                    continue;
+                };
+                let results = effects
+                    .into_iter()
+                    .filter_map(|effect| {
+                        if matches!(effect.action, CoreEffectAction::CompatibilityLoadUrl { .. }) {
+                            return None;
+                        }
+                        if matches!(
+                            effect.action,
+                            CoreEffectAction::CompatibilityCleanupWindow { .. }
+                        ) {
+                            saw_cleanup = true;
+                        }
+                        Some(effect_result(effect, None))
+                    })
+                    .collect::<Vec<_>>();
+                if !results.is_empty() {
+                    core.dispatch_core_effect_results(results).unwrap();
+                }
+            }
+        }
+        let report = invocation.join().unwrap().unwrap();
+        assert_eq!(report["load"]["state"], "failed");
+        assert_eq!(report["load"]["errorCode"], "COMPATIBILITY_LOAD_TIMEOUT");
+        assert!(saw_cleanup);
+        core.shutdown();
+    }
+
+    #[test]
+    fn cdn_auto_detection_is_deduplicated_cached_and_returns_bundled_patterns() {
+        let (_directory, core) = core();
+
+        let (first, first_actions, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::CdnResolveSession {
+                session_handle_id: "session-1".to_owned(),
+            },
+            None,
+        );
+        let (second, second_actions, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::CdnResolveSession {
+                session_handle_id: "session-2".to_owned(),
+            },
+            None,
+        );
+
+        assert_eq!(first.unwrap()["enabled"], true);
+        assert_eq!(second.unwrap()["enabled"], true);
+        assert_eq!(
+            first_actions
+                .iter()
+                .filter(|action| matches!(action, CoreEffectAction::CdnProbeGoogle { .. }))
+                .count(),
+            1
+        );
+        assert!(second_actions.is_empty());
         core.shutdown();
     }
 

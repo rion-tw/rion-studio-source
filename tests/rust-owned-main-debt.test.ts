@@ -41,6 +41,7 @@ const rustOwnedOrchestrationName = /^(?:withRoleOperation)$/;
 const allowedNativeAppCoreMethods = new Set([
   "dispatchCoreEffectResults",
   "invoke",
+  "matchCdnUrl",
   "shutdown",
   "subscribeCoreEvents"
 ]);

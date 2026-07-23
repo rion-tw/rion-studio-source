@@ -13,7 +13,7 @@ import type {
   BrowserRuntimeCommand,
   BrowserRuntimeResult,
   BrowserWorkspaceStatusRecord,
-  CdnRule,
+  BootstrapPlanRecord,
   CoreCommand,
   CoreCommandResult,
   CoreEffectDispatchReport,
@@ -101,7 +101,7 @@ export interface NativeAppCore {
   ) => string;
   prepareExternalChromeProfile: (path: string) => Promise<void>;
   reassertEmbeddedKeys: (roleId: string) => string;
-  replaceCdnRules: (rulesJson: string) => string[];
+  matchCdnUrl: (url: string) => string | null;
   createWorkspaceDividers: (inputJson: string) => string;
   normalizeWorkspaceRects: (inputJson: string) => string;
   resolveAdaptiveWorkspaceZoom: (viewportWidth: number, currentPercent?: number) => number;
@@ -109,7 +109,6 @@ export interface NativeAppCore {
   resolveRolePaths: (roleId: string) => string;
   resizeWorkspaceDivider: (inputJson: string) => string;
   resolveWorkspaceLayout: (inputJson: string) => string;
-  rewriteCdnUrl: (url: string) => string | null;
   shutdown: () => Promise<void>;
   scheduleWait: (id: string, durationMs: number) => Promise<void>;
   subscribeCoreEvents: (callback: (eventsJson: string) => void) => void;
@@ -122,7 +121,12 @@ export interface NativeAppCore {
 
 interface NativeCoreAddon {
   coreVersion: () => string;
-  readBootstrapGraphicsSettings: (userDataDir: string) => string;
+  readBootstrapPlan: (
+    userDataDir: string,
+    platform: string,
+    currentEnableFeatures: string,
+    currentDisableFeatures: string
+  ) => string;
   createAppCore: (options: {
     appVersion: string;
     platform: string;
@@ -130,9 +134,18 @@ interface NativeCoreAddon {
   }) => Promise<NativeAppCore>;
 }
 
-export function readBootstrapGraphicsSettings(options: AppCoreClientOptions): unknown {
+export function readBootstrapPlan(
+  options: AppCoreClientOptions,
+  currentEnableFeatures: string,
+  currentDisableFeatures: string
+): BootstrapPlanRecord {
   const addon = loadNativeCoreAddon(options);
-  return JSON.parse(addon.readBootstrapGraphicsSettings(options.userDataDir));
+  return JSON.parse(addon.readBootstrapPlan(
+    options.userDataDir,
+    options.platform ?? process.platform,
+    currentEnableFeatures,
+    currentDisableFeatures
+  )) as BootstrapPlanRecord;
 }
 
 export interface AppCoreClientOptions {
@@ -541,12 +554,8 @@ export class AppCoreClient {
       });
   }
 
-  replaceCdnRules(rules: CdnRule[]): string[] {
-    return this.measureSync(() => this.native.replaceCdnRules(JSON.stringify(rules)));
-  }
-
-  rewriteCdnUrl(url: string): string | undefined {
-    return this.measureSync(() => this.native.rewriteCdnUrl(url) ?? undefined);
+  matchCdnUrl(url: string): string | undefined {
+    return this.measureSync(() => this.native.matchCdnUrl(url) ?? undefined);
   }
 
   resolveResourcePolicy(input: ResourcePolicyInput): ResourcePolicyDecision {
@@ -890,7 +899,7 @@ function loadNativeCoreAddon(options: AppCoreClientOptions): NativeCoreAddon {
     if (
       typeof addon.coreVersion !== "function" ||
       typeof addon.createAppCore !== "function" ||
-      typeof addon.readBootstrapGraphicsSettings !== "function"
+      typeof addon.readBootstrapPlan !== "function"
     ) {
       throw new Error("The addon does not expose the required Node-API surface.");
     }

@@ -12,9 +12,12 @@ import type {
   ChromeProfileImportWarningRecord,
   CompatibilityRunPhase,
   CompatibilityRunStatusRecord,
+  ExternalGraphicsDiagnosticsRecord,
   GameCreateRequest,
   GameBrowserSettingsRecord,
   GameUpdateRequest,
+  GraphicsDeviceDiagnosticsRecord,
+  GraphicsDiagnosticsRecord,
   LegalAcceptDocumentsInputRecord,
   LegalAcceptanceStatusRecord,
   LegalDocumentVersionsRecord,
@@ -375,43 +378,11 @@ export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";
 
 export type WebGraphicsDiagnostics = StateWebGraphicsRecord;
 
-export interface GraphicsDeviceDiagnostics {
-  active?: boolean;
-  deviceId?: number;
-  deviceString?: string;
-  driverVendor?: string;
-  driverVersion?: string;
-  vendorId?: number;
-  vendorString?: string;
-}
+export type GraphicsDeviceDiagnostics = GraphicsDeviceDiagnosticsRecord;
 
-export interface ExternalGraphicsDiagnostics {
-  error?: string;
-  probe?: WebGraphicsDiagnostics;
-  roleId: string;
-  roleName: string;
-  state: "ready" | "unavailable";
-}
+export type ExternalGraphicsDiagnostics = ExternalGraphicsDiagnosticsRecord;
 
-export interface GraphicsDiagnostics {
-  appliedSettings: BrowserGraphicsSettings;
-  appliedSwitches: string[];
-  collectedAt: string;
-  embedded: WebGraphicsDiagnostics;
-  externalRoles: ExternalGraphicsDiagnostics[];
-  featureStatus: Record<string, string>;
-  gpuDevice?: GraphicsDeviceDiagnostics;
-  gpuInfoReady: boolean;
-  hardwareAccelerationEnabled: boolean | null;
-  platform: string;
-  restartRequired: boolean;
-  savedSettings: BrowserGraphicsSettings;
-  versions: {
-    chromium: string;
-    electron: string;
-    node: string;
-  };
-}
+export type GraphicsDiagnostics = GraphicsDiagnosticsRecord;
 
 export type GameCompatibilityRunPhase = CompatibilityRunPhase;
 

@@ -15,89 +15,86 @@ const probe = {
 };
 
 describe("GraphicsDiagnosticsService", () => {
-  it("collects Electron GPU state and only probes already-running external sessions", async () => {
-    const externalEvaluate = vi.fn().mockResolvedValue(probe);
+  it("submits only raw Electron probes to the Rust diagnostics assembler", async () => {
+    const diagnostics = {
+      appliedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+      appliedSwitches: [],
+      collectedAt: "2026-07-23T00:00:00.000Z",
+      embedded: probe,
+      externalRoles: [],
+      featureStatus: { webgl: "enabled" },
+      gpuInfoReady: true,
+      hardwareAccelerationEnabled: true,
+      platform: "darwin",
+      restartRequired: false,
+      savedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+      versions: { chromium: "140", electron: "40", node: "24" }
+    };
+    const invoke = vi.fn(async () => diagnostics);
     const app = {
-      getGPUFeatureStatus: vi.fn(() => ({
-        gpu_compositing: "enabled",
-        rasterization: "enabled_on",
-        webgl: "enabled",
-        webgl2: "enabled"
-      })),
+      getGPUFeatureStatus: vi.fn(() => ({ webgl: "enabled", malformed: 7 })),
       getGPUInfo: vi.fn().mockResolvedValue({
-        auxAttributes: { driverVendor: "Apple", driverVersion: "1.0" },
-        gpuDevice: [{ active: true, deviceId: 2, deviceString: "Apple M GPU", vendorId: 1 }]
+        gpuDevice: [{ active: true, deviceString: "Apple M GPU" }]
       }),
       isHardwareAccelerationEnabled: vi.fn(() => true)
     };
     const service = new GraphicsDiagnosticsService({
       app: app as never,
-      appliedSettings: {
-        ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
-        preferHighPerformanceGpu: true
-      },
-      browserManager: {
-        evaluateExternalRole: externalEvaluate,
-        getExternalRoleName: vi.fn(() => "Alt"),
-        listStatuses: vi.fn(() => [
-          { roleId: "embedded-1", runtimeMode: "embedded", state: "running" },
-          {
-            roleId: "external-1",
-            runtimeMode: "external",
-            state: "running",
-            automationState: "ready"
-          }
-        ])
-      } as never,
-      gameBrowserSettingsStore: {
-        getSettings: vi.fn().mockResolvedValue({ graphics: DEFAULT_BROWSER_GRAPHICS_SETTINGS })
-      } as never,
+      appliedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+      core: { invoke } as never,
       isGpuInfoReady: () => true,
-      platform: "darwin"
+      platform: "darwin",
+      versions: { chrome: "140", electron: "40", node: "24" } as NodeJS.ProcessVersions
     });
 
-    const diagnostics = await service.collect({ executeJavaScript: vi.fn().mockResolvedValue(probe) });
+    await expect(service.collect({
+      executeJavaScript: vi.fn().mockResolvedValue(probe)
+    })).resolves.toEqual(diagnostics);
 
-    expect(diagnostics).toMatchObject({
-      appliedSettings: {
-        ...LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
-        preferHighPerformanceGpu: true
-      },
-      savedSettings: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
-      appliedSwitches: ["--force-high-performance-gpu"],
-      restartRequired: true,
-      hardwareAccelerationEnabled: true,
+    expect(invoke).toHaveBeenCalledWith({
+      type: "graphicsDiagnosticsAssemble",
+      appliedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
+      embeddedRawJson: JSON.stringify(probe),
+      gpuInfoRawJson: JSON.stringify({
+        gpuDevice: [{ active: true, deviceString: "Apple M GPU" }]
+      }),
+      featureStatusRawJson: JSON.stringify({ webgl: "enabled", malformed: 7 }),
       gpuInfoReady: true,
-      gpuDevice: { deviceString: "Apple M GPU", driverVersion: "1.0" },
-      embedded: { webgl2: "available", webgpu: "available" },
-      externalRoles: [{ roleId: "external-1", roleName: "Alt", state: "ready" }]
+      hardwareAccelerationEnabled: true,
+      platform: "darwin",
+      versions: { chromium: "140", electron: "40", node: "24" }
     });
-    expect(externalEvaluate).toHaveBeenCalledOnce();
-    expect(app.getGPUInfo).toHaveBeenCalledWith("basic");
   });
 
-  it("returns partial diagnostics before Electron emits gpu-info-update", async () => {
+  it("passes explicit partial raw inputs before Electron reports GPU readiness", async () => {
+    const invoke = vi.fn(async (command) => command);
     const app = {
       getGPUFeatureStatus: vi.fn(),
       getGPUInfo: vi.fn(),
-      isHardwareAccelerationEnabled: vi.fn(() => true)
+      isHardwareAccelerationEnabled: vi.fn()
     };
     const service = new GraphicsDiagnosticsService({
       app: app as never,
-      appliedSettings: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS,
-      browserManager: { getAutomationSession: vi.fn(), listStatuses: vi.fn(() => []) } as never,
-      gameBrowserSettingsStore: {
-        getSettings: vi.fn().mockResolvedValue({ graphics: LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS })
-      } as never,
-      isGpuInfoReady: () => false
+      appliedSettings: DEFAULT_BROWSER_GRAPHICS_SETTINGS,
+      core: { invoke } as never,
+      isGpuInfoReady: () => false,
+      platform: "win32",
+      versions: { chrome: "140", electron: "40", node: "24" } as NodeJS.ProcessVersions
     });
 
-    const diagnostics = await service.collect({ executeJavaScript: vi.fn().mockResolvedValue(probe) });
+    await service.collect({
+      executeJavaScript: vi.fn().mockRejectedValue(new Error("probe unavailable"))
+    });
 
-    expect(diagnostics.gpuInfoReady).toBe(false);
-    expect(diagnostics.hardwareAccelerationEnabled).toBeNull();
-    expect(diagnostics.featureStatus).toEqual({});
-    expect(diagnostics.gpuDevice).toBeUndefined();
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({
+      type: "graphicsDiagnosticsAssemble",
+      embeddedRawJson: "null",
+      embeddedError: "probe unavailable",
+      featureStatusRawJson: "{}",
+      gpuInfoReady: false,
+      hardwareAccelerationEnabled: null,
+      platform: "win32"
+    }));
     expect(app.getGPUInfo).not.toHaveBeenCalled();
     expect(app.getGPUFeatureStatus).not.toHaveBeenCalled();
     expect(app.isHardwareAccelerationEnabled).not.toHaveBeenCalled();

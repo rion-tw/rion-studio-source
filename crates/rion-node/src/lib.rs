@@ -4,16 +4,28 @@ use napi::{Status, bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCa
 use napi_derive::napi;
 use rion_core::{
     AppCore, AppCoreOptions as CoreOptions, BrowserActionRequest, BrowserActionResult,
-    BrowserOperationRequest, BrowserRuntimeCommand, CdnRule, CoreCommand, CoreEffectResult,
-    CoreError, CoreEvent, EmbeddedKeyTransitionRecord, ExternalChromeCdpSession,
-    ExternalSessionCommand, LayoutRect, LayoutRoleInput, ResourcePolicyInput,
-    ResourceRuntimeCommand, StatePixelBoundsRecord, WorkspaceDividerResizeInput,
-    WorkspaceLayoutInput,
+    BrowserOperationRequest, BrowserRuntimeCommand, CoreCommand, CoreEffectResult, CoreError,
+    CoreEvent, EmbeddedKeyTransitionRecord, ExternalChromeCdpSession, ExternalSessionCommand,
+    LayoutRect, LayoutRoleInput, ResourcePolicyInput, ResourceRuntimeCommand,
+    StatePixelBoundsRecord, WorkspaceDividerResizeInput, WorkspaceLayoutInput,
 };
 
 #[napi]
-pub fn read_bootstrap_graphics_settings(user_data_dir: String) -> String {
-    rion_core::read_bootstrap_graphics_settings(PathBuf::from(user_data_dir).as_path())
+pub fn read_bootstrap_plan(
+    user_data_dir: String,
+    platform: String,
+    current_enable_features: String,
+    current_disable_features: String,
+) -> Result<String> {
+    let platform = rion_platform::Platform::parse(&platform)
+        .map_err(|error| to_napi_error(CoreError::Platform(error.to_string())))?;
+    serde_json::to_string(&rion_core::read_bootstrap_plan(
+        PathBuf::from(user_data_dir).as_path(),
+        platform,
+        &current_enable_features,
+        &current_disable_features,
+    ))
+    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
 }
 
 #[napi(object)]
@@ -378,6 +390,9 @@ impl NativeAppCore {
                 | CoreCommand::MacroDelete { .. }
                 | CoreCommand::MacrosDelete { .. }
                 | CoreCommand::ChromeProfileApply { .. }
+                | CoreCommand::CompatibilityRun { .. }
+                | CoreCommand::CdnResolveSession { .. }
+                | CoreCommand::GraphicsDiagnosticsAssemble { .. }
                 | CoreCommand::BrowserRoleLaunch { .. }
                 | CoreCommand::BrowserWorkspaceLaunch { .. }
                 | CoreCommand::BrowserRoleStop { .. }
@@ -449,15 +464,8 @@ impl NativeAppCore {
     }
 
     #[napi]
-    pub fn replace_cdn_rules(&self, rules_json: String) -> Result<Vec<String>> {
-        let rules = serde_json::from_str::<Vec<CdnRule>>(&rules_json)
-            .map_err(|error| to_napi_error(CoreError::InvalidInput(error.to_string())))?;
-        self.inner.replace_cdn_rules(rules).map_err(to_napi_error)
-    }
-
-    #[napi]
-    pub fn rewrite_cdn_url(&self, url: String) -> Result<Option<String>> {
-        self.inner.rewrite_cdn_url(&url).map_err(to_napi_error)
+    pub fn match_cdn_url(&self, url: String) -> Result<Option<String>> {
+        self.inner.match_cdn_url(&url).map_err(to_napi_error)
     }
 
     #[napi]

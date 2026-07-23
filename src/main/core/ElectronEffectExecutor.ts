@@ -97,6 +97,9 @@ export interface ElectronEffectExecutorOptions {
   createView: (optionsJson: string) => ElectronViewEffectHandle;
   createWindow: (optionsJson: string) => ElectronWindowEffectHandle;
   dispatchResults: (results: CoreEffectResult[]) => Promise<CoreEffectDispatchReport>;
+  executeEmbeddedEffect?: (
+    effect: CoreEffectRequest & { action: EmbeddedCoreEffectAction }
+  ) => Promise<CoreJsonValue | undefined>;
   sendDebuggerCommand: (
     webContents: ElectronWebContentsEffectHandle,
     method: string,
@@ -151,6 +154,15 @@ export class ElectronEffectExecutor {
     if (action.type === "createView") {
       this.handles.register(target.handleId, this.options.createView(action.optionsJson));
       return undefined;
+    }
+    if (isEmbeddedEffectAction(action)) {
+      if (!this.options.executeEmbeddedEffect) {
+        throw effectError(
+          "ELECTRON_EFFECT_UNSUPPORTED",
+          "The embedded browser effect adapter is unavailable."
+        );
+      }
+      return this.options.executeEmbeddedEffect({ ...effect, action });
     }
 
     const handle = this.handles.require(target.handleId);
@@ -223,6 +235,28 @@ export class ElectronEffectExecutor {
         return undefined;
     }
   }
+}
+
+type EmbeddedCoreEffectAction = Extract<
+  CoreEffectRequest["action"],
+  {
+    type:
+      | "embeddedActivateResources"
+      | "embeddedApplyRuntime"
+      | "embeddedConfigureRoleSessions"
+      | "embeddedCreateTab"
+      | "embeddedDestroyRole"
+      | "embeddedDestroyTab"
+      | "embeddedFocusRole"
+      | "embeddedInstallOverlays"
+      | "embeddedLoadRoles";
+  }
+>;
+
+function isEmbeddedEffectAction(
+  action: CoreEffectRequest["action"]
+): action is EmbeddedCoreEffectAction {
+  return action.type.startsWith("embedded");
 }
 
 function webContentsOf(handle: ElectronEffectHandle): ElectronWebContentsEffectHandle {

@@ -28,6 +28,9 @@ const allowedMapProperties = new Set([
   "src/main/browser/BrowserManager.ts:BrowserManager.displayHostByChromeWebContentsId",
   "src/main/browser/BrowserManager.ts:BrowserManager.displayHosts",
   "src/main/browser/BrowserManager.ts:BrowserManager.dividerByWebContentsId",
+  "src/main/browser/BrowserManager.ts:BrowserManager.roleHandles",
+  "src/main/browser/BrowserManager.ts:BrowserManager.tabHandles",
+  "src/main/browser/BrowserManager.ts:BrowserManager.workspaceTabHandleIds",
   "src/main/browser/EmbeddedRuntimeDiagnostics.ts:EmbeddedRuntimeDiagnostics.records",
   "src/main/games/GameCompatibilityManager.ts:GameCompatibilityManager.windows",
   "src/main/macros/MacroOverlayInjector.ts:MacroOverlayInjector.contentRoleIds",
@@ -35,7 +38,7 @@ const allowedMapProperties = new Set([
   "src/main/startup/startupWindow.ts:RendererReadyGate.pendingByWebContentsId"
 ]);
 const rustOwnedOrchestrationName =
-  /^(?:deleteSession|handleAutomationDisconnect|handleDisplayRemoved|handleHealthChange|hideRuntimeTab|invokeBrowserRuntime|invokeSession|launch(?:External|ExternalWorkspace|Session|Unlocked|Workspace|WorkspaceUnlocked)?|listStatuses|listWorkspaceDisplayReservations|listWorkspaceRuntimeStatuses|moveRuntimeTab|recover(?:ExternalRole)?|reorderRuntimeTab|showRuntimeTab|stop(?:All|ForRecovery|Host|RuntimeTab|Unlocked|Workspace)?|syncRuntimeProjection|withRoleOperation)$/;
+  /^(?:deleteSession|handleAutomationDisconnect|handleHealthChange|invokeBrowserRuntime|invokeSession|launch|launchExternal|launchExternalWorkspace|launchSession|launchWorkspace|listStatuses|listWorkspaceDisplayReservations|listWorkspaceRuntimeStatuses|recover|recoverExternalRole|stop|stopForRecovery|stopWorkspace|withRoleOperation)$/;
 const allowedNativeAppCoreMethods = new Set([
   "dispatchCoreEffectResults",
   "invoke",

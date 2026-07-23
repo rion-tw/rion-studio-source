@@ -1,6 +1,8 @@
 import type {
   BrowserOperationLease,
   BrowserOperationRequest,
+  CoreCommand,
+  CoreCommandResult,
   BrowserRuntimeCommand,
   BrowserRuntimeDisplayRecord,
   BrowserRuntimeRoleRecord,
@@ -22,6 +24,8 @@ export function createBrowserRuntimeState() {
   const operationQueues = new Map<string, string[]>();
   const roleVersions = new Map<string, number>();
   const blockedRoleIds = new Set<string>();
+  let typedInvoker: ((command: CoreCommand) => Promise<unknown>) | undefined;
+  let typedTail: Promise<void> = Promise.resolve();
   const operationTickets = new Map<string, {
     active: boolean;
     kind: BrowserOperationRequest["kind"];
@@ -123,6 +127,20 @@ export function createBrowserRuntimeState() {
 
   return {
     ...resourceRuntime,
+    invokeTyped<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
+      if (!typedInvoker) {
+        return Promise.reject(new Error("The test Rust intent executor is not configured."));
+      }
+      if (command.type === "embeddedRoleStop" || command.type === "embeddedWorkspaceStop") {
+        return typedInvoker(command) as Promise<CoreCommandResult<C>>;
+      }
+      const result = typedTail.then(() => typedInvoker!(command));
+      typedTail = result.then(() => undefined, () => undefined);
+      return result as Promise<CoreCommandResult<C>>;
+    },
+    setTypedInvoker(invoker: (command: CoreCommand) => Promise<unknown>): void {
+      typedInvoker = invoker;
+    },
     acquireBrowserOperation(request: BrowserOperationRequest): Promise<BrowserOperationLease> {
       const roleIds = [...new Set(request.roleIds)].sort();
       const id = `browser-operation-${++nextOperationId}`;

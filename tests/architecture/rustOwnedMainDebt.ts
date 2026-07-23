@@ -21,13 +21,6 @@ const debt = (
  */
 export const RUST_OWNED_MAIN_DEBT = {
   authoritativeMaps: [
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.hosts", 3, "Embedded host authority."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.sessions", 3, "Embedded session authority."),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.workspaceHostIds",
-      3,
-      "Workspace-to-host authority."
-    ),
     debt(
       "src/main/browser/ExternalChromeManager.ts:ExternalChromeManager.handles",
       4,
@@ -110,50 +103,30 @@ export const RUST_OWNED_MAIN_DEBT = {
     )
   ],
   orchestrationMethods: [
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.handleDisplayRemoved", 3, "Display recovery decision."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.hideRuntimeTab", 3, "Tab visibility transition."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.invokeBrowserRuntime", 3, "Granular runtime mutation bridge."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.launch", 3, "Role launch orchestration."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.launchUnlocked", 3, "Role launch orchestration."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.launchWorkspace", 3, "Workspace launch orchestration."),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.launchWorkspaceUnlocked",
-      3,
-      "Workspace launch orchestration."
-    ),
+    debt("src/main/browser/BrowserManager.ts:BrowserManager.invokeBrowserRuntime", 4, "External runtime transition bridge."),
+    debt("src/main/browser/BrowserManager.ts:BrowserManager.launch", 4, "Embedded/external mode dispatch."),
+    debt("src/main/browser/BrowserManager.ts:BrowserManager.launchWorkspace", 4, "Workspace mode dispatch."),
     debt(
       "src/main/browser/BrowserManager.ts:BrowserManager.listStatuses",
-      3,
-      "Runtime status projection."
+      4,
+      "Embedded/external status projection."
     ),
     debt(
       "src/main/browser/BrowserManager.ts:BrowserManager.listWorkspaceDisplayReservations",
-      3,
-      "Display reservation projection."
+      4,
+      "External display reservation projection."
     ),
     debt(
       "src/main/browser/BrowserManager.ts:BrowserManager.listWorkspaceRuntimeStatuses",
-      3,
-      "Workspace status projection."
+      4,
+      "Embedded/external workspace projection."
     ),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.moveRuntimeTab", 3, "Tab move transition."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.reorderRuntimeTab", 3, "Tab ordering transition."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.showRuntimeTab", 3, "Tab activation transition."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.stop", 3, "Role stop orchestration."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.stopAll", 3, "Shutdown orchestration."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.stopHost", 3, "Embedded host rollback."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.stopRuntimeTab", 3, "Tab stop orchestration."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.stopUnlocked", 3, "Role stop orchestration."),
-    debt("src/main/browser/BrowserManager.ts:BrowserManager.stopWorkspace", 3, "Workspace stop orchestration."),
-    debt(
-      "src/main/browser/BrowserManager.ts:BrowserManager.syncRuntimeProjection",
-      3,
-      "TypeScript runtime projection."
-    ),
+    debt("src/main/browser/BrowserManager.ts:BrowserManager.stop", 4, "Embedded/external stop dispatch."),
+    debt("src/main/browser/BrowserManager.ts:BrowserManager.stopWorkspace", 4, "Workspace stop dispatch."),
     debt(
       "src/main/browser/BrowserManager.ts:BrowserManager.withRoleOperation",
-      3,
-      "Operation lease and Promise orchestration."
+      6,
+      "Mutation lease orchestration."
     ),
     debt(
       "src/main/browser/BrowserManager.ts:BrowserManager.launchExternal",

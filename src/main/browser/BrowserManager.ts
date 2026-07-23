@@ -20,6 +20,8 @@ import type {
   BrowserRuntimeCommand,
   BrowserRuntimeResult,
   BrowserRuntimeSnapshot,
+  CoreEffectAction,
+  CoreJsonValue,
   LayoutRect,
   LayoutRoleInput,
   WorkspaceDividerDescriptor,
@@ -60,7 +62,7 @@ import {
 import type { ExternalChromeLaunchItem, ExternalChromeManager } from "./ExternalChromeManager";
 import type { EmbeddedRuntimeDiagnosticContext } from "./EmbeddedRuntimeDiagnostics";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
-import type { EmbeddedKeyRuntimeClient } from "../core/nativeCore";
+import type { AppCoreClient, EmbeddedKeyRuntimeClient } from "../core/nativeCore";
 import { ElectronWorkspaceResourceTarget } from "./ElectronWorkspaceResourceTarget";
 import type {
   MacRuntimeTabsContentLayout,
@@ -130,7 +132,7 @@ export interface BrowserManagerOptions {
     acquireBrowserOperation: (request: BrowserOperationRequest) => Promise<BrowserOperationLease>;
     completeBrowserOperation: (id: string) => void;
     invokeBrowserRuntime: (command: BrowserRuntimeCommand) => BrowserRuntimeResult;
-  } & ResourceRuntimeState;
+  } & ResourceRuntimeState & Pick<AppCoreClient, "invokeTyped">;
   createHostWindow: (options: BaseWindowConstructorOptions) => BaseWindow;
   createRuntimeChromeView?: (options: WebContentsViewConstructorOptions) => WebContentsView;
   createTabbedHostWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
@@ -328,6 +330,21 @@ interface NativeZoomShortcutInput {
 
 export type NativeZoomShortcutAction = "in" | "out" | "reset";
 export type RuntimeTabSwitchDirection = "next" | "previous";
+type EmbeddedCoreEffectAction = Extract<
+  CoreEffectAction,
+  {
+    type:
+      | "embeddedActivateResources"
+      | "embeddedApplyRuntime"
+      | "embeddedConfigureRoleSessions"
+      | "embeddedCreateTab"
+      | "embeddedDestroyRole"
+      | "embeddedDestroyTab"
+      | "embeddedFocusRole"
+      | "embeddedInstallOverlays"
+      | "embeddedLoadRoles";
+  }
+>;
 
 const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
 const WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS = 200;
@@ -346,7 +363,18 @@ function getErrorCode(error: unknown): string | undefined {
     ? error.code
     : undefined;
 }
-const FULL_WINDOW_RECT: NormalizedRect = { x: 0, y: 0, width: 1, height: 1 };
+
+function effectError(code: string, message: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code });
+}
+
+async function waitForAllEffects(effects: Promise<void>[]): Promise<void> {
+  const results = await Promise.allSettled(effects);
+  const failed = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (failed) throw failed.reason;
+}
 
 export function classifyNativeZoomShortcut(
   input: NativeZoomShortcutInput,
@@ -436,13 +464,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private readonly dividerByWebContentsId = new Map<number, { divider: GameDivider; hostId: string }>();
   private readonly displayHosts = new Map<number, EmbeddedDisplayHost>();
   private readonly displayHostByChromeWebContentsId = new Map<number, EmbeddedDisplayHost>();
-  private readonly hosts = new Map<string, GameHostWindow>();
-  private readonly sessions = new Map<string, BrowserSession>();
-  private readonly workspaceHostIds = new Map<string, string>();
+  private readonly tabHandles = new Map<string, GameHostWindow>();
+  private readonly roleHandles = new Map<string, BrowserSession>();
+  private readonly workspaceTabHandleIds = new Map<string, string>();
   private runtimeTabsLanguage: AppLanguage = "en";
   private alwaysShowToolbarInFullScreen = false;
   private readonly resourceCoordinator: WorkspaceResourceCoordinator;
-  private beforeRolesStop?: BeforeRolesStop;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
 
   constructor(
@@ -461,12 +488,11 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   setBeforeRolesStop(handler: BeforeRolesStop): void {
-    this.beforeRolesStop = handler;
     this.options.externalChromeManager?.setBeforeRoleStop((roleId) => handler([roleId]));
   }
 
   setWorkspaceAppearanceSettings(settings: WorkspaceAppearanceSettings): void {
-    this.hosts.forEach((host) => {
+    this.tabHandles.forEach((host) => {
       if (!host.workspaceId) {
         return;
       }
@@ -487,6 +513,117 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     this.options.externalChromeManager?.setMacroOverlayInstaller(installer);
   }
 
+  async executeEmbeddedEffect(
+    action: EmbeddedCoreEffectAction
+  ): Promise<CoreJsonValue | undefined> {
+    switch (action.type) {
+      case "embeddedCreateTab": {
+        const tab = action.tab;
+        const host = this.createHost(
+          tab.name,
+          tab.workspaceId,
+          tab.target.workArea,
+          tab.workspaceAppearance,
+          tab.target.displayId,
+          tab.sourceId,
+          undefined,
+          tab.workspaceTemplate as WorkspaceLayoutTemplate | undefined,
+          tab.tabId
+        );
+        for (const role of tab.roles) {
+          this.createSession(
+            role.role,
+            host,
+            role.rect,
+            role.zoomFactor,
+            role.zoomMode
+          );
+        }
+        if (tab.roles.length > 1) await this.createHostDividers(host);
+        const firstRole = tab.roles[0]?.role;
+        if (firstRole && !tab.workspaceId) {
+          void this.resolveRuntimeTabGameIcon(firstRole)
+            .then((gameIconDataUrl) => {
+              if (!gameIconDataUrl || this.tabHandles.get(host.id) !== host || host.closing) return;
+              host.gameIconDataUrl = gameIconDataUrl;
+              this.emitChange();
+            });
+        }
+        return undefined;
+      }
+      case "embeddedApplyRuntime":
+        await this.applyEmbeddedRuntimeEffect(
+          action.snapshot,
+          action.target,
+          action.revealDisplayIds,
+          action.focusWindowDisplayIds,
+          action.focusTabId
+        );
+        return undefined;
+      case "embeddedConfigureRoleSessions": {
+        await waitForAllEffects(action.roleIds.map(async (roleId) => {
+          const session = this.requireEmbeddedSession(roleId);
+          await this.applyBrowserFonts(session.role);
+          this.assertSessionActive(session);
+          await this.applyBrowserProxy(session);
+          this.assertSessionActive(session);
+          await this.applyCdnCompatibility(session);
+          this.assertSessionActive(session);
+        }));
+        return undefined;
+      }
+      case "embeddedLoadRoles": {
+        await waitForAllEffects(action.roles.map(async (role) => {
+          const session = this.requireEmbeddedSession(role.roleId);
+          this.assertSessionActive(session);
+          await this.applyZoom(session, role.zoomFactor);
+          this.assertSessionActive(session);
+          try {
+            await session.webContents.loadURL(role.url);
+          } catch {
+            this.assertSessionActive(session);
+            throw new BrowserGameLoadError();
+          }
+          this.assertSessionActive(session);
+          await this.applyZoom(session, role.zoomFactor);
+        }));
+        return undefined;
+      }
+      case "embeddedInstallOverlays": {
+        await waitForAllEffects(action.roleIds.map(async (roleId) => {
+          const session = this.requireEmbeddedSession(roleId);
+          await this.installMacroOverlay(session.role, session.webContents);
+          this.assertSessionActive(session);
+        }));
+        return undefined;
+      }
+      case "embeddedActivateResources": {
+        const targets = action.roleIds.map((roleId) => {
+          const session = this.requireEmbeddedSession(roleId);
+          return new ElectronWorkspaceResourceTarget(roleId, session.webContents);
+        });
+        await this.resourceCoordinator.activateWorkspace(action.tabId, action.policy, targets);
+        await this.reconcileRuntimeTabs();
+        return undefined;
+      }
+      case "embeddedFocusRole": {
+        const session = this.requireEmbeddedSession(action.roleId);
+        if (typeof action.zoomFactor === "number") {
+          await this.applyZoom(session, action.zoomFactor);
+          this.assertSessionActive(session);
+        }
+        await session.target.focus();
+        return undefined;
+      }
+      case "embeddedDestroyRole":
+        await this.destroyRoleHandles(action.roleId);
+        return undefined;
+      case "embeddedDestroyTab":
+        await this.destroyTabHandles(action.tabId, action.nextActiveTabId ?? undefined);
+        return undefined;
+    }
+  }
+
   setMacroActiveRoleIds(roleIds: Iterable<string>): Promise<void> {
     return this.resourceCoordinator.setMacroActiveRoleIds(roleIds);
   }
@@ -505,7 +642,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       handle.tabIds = display ? [...display.tabIds] : [];
     });
     snapshot.tabs.forEach((tab) => {
-      const handle = this.hosts.get(tab.id);
+      const handle = this.tabHandles.get(tab.id);
       const display = this.displayHosts.get(tab.displayId);
       if (!handle) return;
       handle.hidden = tab.hidden;
@@ -516,11 +653,100 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     });
   }
 
+  private requireEmbeddedSession(roleId: string): BrowserSession {
+    const session = this.roleHandles.get(roleId);
+    if (!session || session.webContents.isDestroyed()) {
+      throw effectError(
+        "EMBEDDED_ROLE_HANDLE_NOT_FOUND",
+        `The embedded role handle was not found: ${roleId}`
+      );
+    }
+    return session;
+  }
+
+  private async applyEmbeddedRuntimeEffect(
+    snapshot: BrowserRuntimeSnapshot,
+    target: BrowserWorkspaceLaunchTarget | undefined,
+    revealDisplayIds: number[],
+    focusWindowDisplayIds: number[],
+    focusTabId: string | undefined
+  ): Promise<void> {
+    const runtimeDisplays = new Map(
+      snapshot.displays.map((display) => [display.displayId, display])
+    );
+    for (const display of snapshot.displays) {
+      if (display.activeTabId) {
+        await this.prepareRuntimeTabForeground(display.activeTabId);
+      }
+    }
+
+    const touchedDisplays = new Set<EmbeddedDisplayHost>();
+    for (const runtimeTab of snapshot.tabs) {
+      const tab = this.tabHandles.get(runtimeTab.id);
+      if (!tab) continue;
+      const source = this.getDisplayHost(tab);
+      const destination = this.displayHosts.get(runtimeTab.displayId) ??
+        (target?.displayId === runtimeTab.displayId
+          ? this.getOrCreateDisplayHost(target)
+          : undefined);
+      if (!destination) {
+        throw effectError(
+          "EMBEDDED_DISPLAY_HANDLE_NOT_FOUND",
+          `The embedded display handle was not found: ${runtimeTab.displayId}`
+        );
+      }
+      if (source && source !== destination) {
+        const sourceWasFullscreen = this.isDisplayHostFullscreen(source);
+        const destinationWasFullscreen = this.isDisplayHostFullscreen(destination);
+        this.detachTabViews(tab, source);
+        tab.window = destination.window;
+        tab.displayHostId = destination.id;
+        this.attachTabViews(tab, destination);
+        this.handleDisplayHostFullscreenTransition(source, sourceWasFullscreen);
+        this.handleDisplayHostFullscreenTransition(destination, destinationWasFullscreen);
+        touchedDisplays.add(source);
+      }
+      touchedDisplays.add(destination);
+    }
+
+    this.syncRuntimeProjection(snapshot);
+    const displaysFocusedByShow = new Set<number>();
+    this.displayHosts.forEach((displayHost, displayId) => {
+      const runtimeDisplay = runtimeDisplays.get(displayId);
+      if (!runtimeDisplay?.activeTabId) {
+        this.hideDisplayHost(displayHost);
+      } else if (revealDisplayIds.includes(displayId)) {
+        if (!isWindowVisible(displayHost.window) || displayHost.window.isMinimized()) {
+          displaysFocusedByShow.add(displayId);
+          this.showDisplayHost(displayHost);
+        } else if (focusWindowDisplayIds.includes(displayId)) {
+          displayHost.window.focus();
+        }
+      }
+      touchedDisplays.add(displayHost);
+    });
+    touchedDisplays.forEach((displayHost) => {
+      this.layoutDisplayHost(displayHost);
+      this.sendRuntimeChromeState(displayHost);
+      if (!runtimeDisplays.has(displayHost.displayId)) {
+        this.destroyDisplayHostIfEmpty(displayHost);
+      }
+    });
+    await this.reconcileRuntimeTabs();
+    if (focusTabId) {
+      const tab = this.tabHandles.get(focusTabId);
+      const displayHost = tab ? this.getDisplayHost(tab) : undefined;
+      if (displayHost && !displaysFocusedByShow.has(displayHost.displayId)) {
+        this.restoreActiveGameViewFocus(displayHost);
+      }
+    }
+  }
+
   listStatuses(): RoleStatus[] {
     const embeddedRoles = this.options.browserRuntimeState
       .invokeBrowserRuntime({ type: "snapshot" })
       .snapshot.roles
-      .filter((role) => role.runtime === "embedded" && this.sessions.has(role.roleId))
+      .filter((role) => role.runtime === "embedded" && this.roleHandles.has(role.roleId))
       .map((role) => ({
         roleId: role.roleId,
         state: role.state,
@@ -551,7 +777,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const tabs: EmbeddedRuntimeTabSummary[] = runtime.displays.flatMap((display) =>
       display.tabIds.flatMap((tabId) => {
         const runtimeTab = tabById.get(tabId);
-        const handle = this.hosts.get(tabId);
+        const handle = this.tabHandles.get(tabId);
         const displayHost = this.displayHosts.get(display.displayId);
         return runtimeTab && handle && displayHost
           ? [{
@@ -564,7 +790,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
               ...(runtimeTab.tabType === "workspace"
                 ? {
                     roleNames: runtimeTab.roleIds.map(
-                      (roleId) => this.sessions.get(roleId)?.role.name ?? roleId
+                      (roleId) => this.roleHandles.get(roleId)?.role.name ?? roleId
                     )
                   }
                 : {}),
@@ -580,7 +806,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   setRuntimeTabAudioMuted(tabId: string, muted: boolean): void {
-    const tab = this.hosts.get(tabId);
+    const tab = this.tabHandles.get(tabId);
     if (!tab || tab.audioMuted === muted) return;
 
     tab.audioMuted = muted;
@@ -716,123 +942,69 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   async showEmbeddedRuntimeWindows(displayId?: number): Promise<void> {
-    const targets = displayId === undefined
-      ? [...this.displayHosts.values()]
-      : [this.displayHosts.get(displayId)].filter((host): host is EmbeddedDisplayHost => Boolean(host));
-    await Promise.all(targets.map(async (host) => {
-      const runtime = this.invokeBrowserRuntime({ type: "showDisplay", displayId: host.displayId });
-      const foregroundTabId = runtime.snapshot.displays.find(
-        ({ displayId }) => displayId === host.displayId
-      )?.activeTabId;
-      if (foregroundTabId) await this.prepareRuntimeTabForeground(foregroundTabId);
-      this.showDisplayHost(host);
-    }));
-    await this.reconcileRuntimeTabs();
+    await this.options.browserRuntimeState.invokeTyped({
+      type: "embeddedWindowsShow",
+      ...(displayId === undefined ? {} : { displayId })
+    });
   }
 
   async showRuntimeTab(tabId: string): Promise<void> {
-    const tab = this.hosts.get(tabId);
-    if (!tab) return;
-    const displayHost = this.getDisplayHost(tab);
-    if (!displayHost) return;
     const startedAt = performance.now();
     try {
-      await this.prepareRuntimeTabForeground(tab.id);
-      this.invokeBrowserRuntime({ type: "activateTab", tabId: tab.id });
-      this.showDisplayHost(displayHost);
-      this.layoutDisplayHost(displayHost);
-      await this.reconcileRuntimeTabs();
+      await this.options.browserRuntimeState.invokeTyped({
+        type: "embeddedTabActivate",
+        tabId
+      });
     } finally {
       this.options.recordTabActivationLatency?.(performance.now() - startedAt);
     }
   }
 
   async hideRuntimeTab(tabId: string): Promise<void> {
-    const tab = this.hosts.get(tabId);
-    if (!tab) return;
-    const displayHost = this.getDisplayHost(tab);
-    if (!displayHost) return;
-    const result = this.invokeBrowserRuntime({ type: "hideTab", tabId: tab.id });
-    const nextTabId = result.snapshot.displays.find(
-      ({ displayId }) => displayId === displayHost.displayId
-    )?.activeTabId;
-    if (nextTabId) await this.prepareRuntimeTabForeground(nextTabId);
-    if (!displayHost.activeTabId) {
-      this.hideDisplayHost(displayHost);
-    }
-    this.layoutDisplayHost(displayHost);
-    await this.reconcileRuntimeTabs();
+    await this.options.browserRuntimeState.invokeTyped({
+      type: "embeddedTabHide",
+      tabId
+    });
   }
 
   stopRuntimeTab(tabId: string): Promise<void> {
-    return this.stopHost(tabId);
+    const host = this.tabHandles.get(tabId);
+    if (!host) return Promise.resolve();
+    if (host.workspaceId) return this.stopWorkspace(host.workspaceId);
+    const roleId = host.roleIds.values().next().value;
+    return roleId ? this.stop(roleId) : Promise.resolve();
   }
 
   reorderRuntimeTab(tabId: string, beforeTabId?: string): void {
-    const tab = this.hosts.get(tabId);
-    const displayHost = tab ? this.getDisplayHost(tab) : undefined;
-    if (!tab || !displayHost) return;
-    this.invokeBrowserRuntime({
-      type: "reorderTab",
+    void this.options.browserRuntimeState.invokeTyped({
+      type: "embeddedTabReorder",
       tabId,
       ...(beforeTabId ? { beforeTabId } : {})
+    }).catch((error) => {
+      console.error("Failed to reorder embedded runtime tab.", error);
     });
-    this.sendRuntimeChromeState(displayHost);
-    this.emitChange();
   }
 
   async moveRuntimeTab(tabId: string, displayId: number): Promise<void> {
-    const tab = this.hosts.get(tabId);
-    const source = tab ? this.getDisplayHost(tab) : undefined;
     const targetInfo = this.getLaunchTargetForDisplay(displayId);
-    if (!tab || !source || !targetInfo || source.displayId === displayId) return;
-    await this.prepareRuntimeTabForeground(tab.id);
-    const runtime = this.invokeBrowserRuntime({ type: "moveTab", tabId, displayId });
-    const target = this.getOrCreateDisplayHost(targetInfo);
-    this.syncRuntimeProjection(runtime.snapshot);
-    const sourceWasFullscreen = this.isDisplayHostFullscreen(source);
-    const targetWasFullscreen = this.isDisplayHostFullscreen(target);
-
-    this.detachTabViews(tab, source);
-    tab.window = target.window;
-    tab.displayHostId = target.id;
-    this.attachTabViews(tab, target);
-    this.handleDisplayHostFullscreenTransition(source, sourceWasFullscreen);
-    this.handleDisplayHostFullscreenTransition(target, targetWasFullscreen);
-    this.showDisplayHost(target);
-    this.layoutDisplayHost(source);
-    this.layoutDisplayHost(target);
-    this.destroyDisplayHostIfEmpty(source);
-    await this.reconcileRuntimeTabs();
+    if (!targetInfo) return;
+    await this.options.browserRuntimeState.invokeTyped({
+      type: "embeddedTabMove",
+      tabId,
+      target: targetInfo
+    });
   }
 
   handleDisplayRemoved(displayId: number, fallbackDisplayId: number): void {
-    const source = this.displayHosts.get(displayId);
     const targetInfo = this.getLaunchTargetForDisplay(fallbackDisplayId);
-    if (!source || !targetInfo || displayId === fallbackDisplayId) return;
-    const sourceWasVisible = isWindowVisible(source.window);
-    const sourceTabIds = [...source.tabIds];
-    const runtime = this.invokeBrowserRuntime({
-      type: "moveDisplayTabs",
-      sourceDisplayId: displayId,
-      targetDisplayId: fallbackDisplayId
+    if (!targetInfo || displayId === fallbackDisplayId) return;
+    void this.options.browserRuntimeState.invokeTyped({
+      type: "embeddedDisplayRemove",
+      displayId,
+      fallback: targetInfo
+    }).catch((error) => {
+      console.error("Failed to move embedded tabs from a removed display.", error);
     });
-    const target = this.getOrCreateDisplayHost(targetInfo);
-    this.syncRuntimeProjection(runtime.snapshot);
-    const targetWasFullscreen = this.isDisplayHostFullscreen(target);
-    for (const tabId of sourceTabIds) {
-      const tab = this.hosts.get(tabId);
-      if (!tab) continue;
-      this.detachTabViews(tab, source);
-      tab.window = target.window;
-      tab.displayHostId = target.id;
-      this.attachTabViews(tab, target);
-    }
-    this.handleDisplayHostFullscreenTransition(target, targetWasFullscreen);
-    if (sourceWasVisible && !isWindowVisible(target.window)) showWindowWithoutFocus(target.window);
-    this.layoutDisplayHost(target);
-    this.destroyDisplayHostIfEmpty(source);
-    void this.reconcileRuntimeTabs();
   }
 
   handleDisplayMetricsChanged(displayId: number, workArea: PixelBounds): void {
@@ -873,14 +1045,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   getRoleIdForWebContents(webContentsId: number): string | undefined {
-    return [...this.sessions.entries()].find(([, session]) =>
+    return [...this.roleHandles.entries()].find(([, session]) =>
       session.webContents.id === webContentsId ||
       [...session.popupViews].some((view) => view.webContents?.id === webContentsId)
     )?.[0];
   }
 
   setGameInputContext(webContentsId: number, active: boolean): void {
-    const session = [...this.sessions.values()].find(
+    const session = [...this.roleHandles.values()].find(
       (candidate) => candidate.webContents.id === webContentsId
     );
     if (!session || session.webContents.isDestroyed()) return;
@@ -892,7 +1064,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   getAutomationSession(roleId: string): BrowserAutomationSession | undefined {
-    const session = this.sessions.get(roleId);
+    const session = this.roleHandles.get(roleId);
 
     if (!session || !this.isEmbeddedRoleRunning(roleId) || session.webContents.isDestroyed()) {
       return undefined;
@@ -913,7 +1085,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   getEmbeddedAutomationSession(roleId: string): BrowserAutomationSession | undefined {
-    const session = this.sessions.get(roleId);
+    const session = this.roleHandles.get(roleId);
     return session && this.isEmbeddedRoleRunning(roleId) && !session.webContents.isDestroyed()
       ? { role: session.role, target: session.target }
       : undefined;
@@ -942,70 +1114,27 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     return this.options.externalChromeManager?.captureAllDiagnostics() ?? Promise.resolve([]);
   }
 
-  launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus | null> {
-    return this.runRoleOperation([role.id], () => this.launchUnlocked(role, options));
-  }
-
-  private async launchUnlocked(role: Role, options: BrowserLaunchOptions): Promise<RoleStatus | null> {
+  async launch(role: Role, options: BrowserLaunchOptions = {}): Promise<RoleStatus | null> {
     const zoomFactor = options.zoomFactor ?? DEFAULT_BROWSER_ZOOM_FACTOR;
     const target = options.target ?? this.getDefaultLaunchTarget();
     const launchMode = await this.getBrowserLaunchMode(role);
     if (launchMode === "external") {
       return this.launchExternal(role, undefined, zoomFactor, target.workArea);
     }
-
-    const existing = this.sessions.get(role.id);
-    if (existing) {
-      existing.role = role;
-      await this.focusSession(existing);
-      await this.applyZoom(existing, zoomFactor);
-      await this.installMacroOverlay(role, existing.webContents);
-      return this.toStatus(role.id);
-    }
-
-    if (this.options.externalChromeManager?.hasSession(role.id)) {
-      return this.launchExternal(role, undefined, zoomFactor, target.workArea);
-    }
-
-    const gameIconPromise = this.resolveRuntimeTabGameIcon(role);
-    const host = this.createHost(
-      role.name,
-      undefined,
-      target.workArea,
-      undefined,
-      target.displayId,
-      role.id,
-      undefined,
-      undefined,
-      [role.id]
-    );
-    await this.applyBrowserFonts(role);
-    const session = this.createSession(role, host, FULL_WINDOW_RECT, zoomFactor);
-
     try {
-      await this.showRuntimeTab(host.id);
-      const launchPromise = this.finishLaunch(session, zoomFactor);
-      const iconPromise = gameIconPromise.then((gameIconDataUrl) => {
-        if (!gameIconDataUrl || this.hosts.get(host.id) !== host || host.closing) return;
-        host.gameIconDataUrl = gameIconDataUrl;
-        this.emitChange();
+      const [status] = await this.options.browserRuntimeState.invokeTyped({
+        type: "embeddedRoleLaunch",
+        roleId: role.id,
+        target: {
+          displayId: target.displayId,
+          workArea: target.workArea
+        },
+        zoomFactor
       });
-      await Promise.all([launchPromise, iconPromise]);
-      this.assertSessionActive(session);
-      await this.resourceCoordinator.activateWorkspace(
-        host.id,
-        { mode: "unrestricted" },
-        [new ElectronWorkspaceResourceTarget(role.id, session.webContents)]
-      );
-      await this.reconcileRuntimeTabs();
-      await session.target.focus();
-      return this.toStatus(role.id);
+      return status ?? null;
     } catch (error) {
-      const launchWasCancelled = error instanceof BrowserLaunchCancelledError ||
-        host.closing || host.window.isDestroyed();
-      await this.stopHost(host.id);
-      if (launchWasCancelled) return null;
-      if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
+      if (getErrorCode(error) === "LAUNCH_CANCELLED") return null;
+      if (launchMode === "auto" && getErrorCode(error) === "GAME_PAGE_LOAD_FAILED") {
         return this.launchExternal(role, EXTERNAL_COMPAT_NOTICE, zoomFactor, target.workArea);
       }
       throw error;
@@ -1018,136 +1147,52 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     target?: BrowserWorkspaceLaunchTarget,
     launchMode?: BrowserLaunchMode
   ): Promise<RoleStatus[]> {
-    return this.runRoleOperation(
-      items.map((item) => item.role.id),
-      () => this.launchWorkspaceUnlocked(workspace, items, target, launchMode)
-    );
+    return this.launchWorkspaceThroughCore(workspace, items, target, launchMode);
   }
 
-  private async launchWorkspaceUnlocked(
+  private async launchWorkspaceThroughCore(
     workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget,
     requestedLaunchMode?: BrowserLaunchMode
   ): Promise<RoleStatus[]> {
-    const runningRoles = items
-      .map((item) => item.role)
-      .filter((role) => this.sessions.has(role.id) || this.options.externalChromeManager?.hasSession(role.id));
-    if (runningRoles.length > 0) {
-      throw new BrowserRoleAlreadyRunningError(runningRoles);
+    const resolvedMode = requestedLaunchMode ?? await this.getBrowserLaunchMode();
+    if (resolvedMode === "external") {
+      return this.launchExternalWorkspace(workspace, items, undefined, target);
     }
-
-    this.invokeBrowserRuntime({
-      type: "beginWorkspace",
-      workspaceId: workspace.id,
-      name: workspace.name,
-      ...(target ? { displayId: target.displayId } : {}),
-      roleIds: items.map((item) => item.role.id)
-    });
-    this.emitChange();
-
+    const resolvedTarget = target ?? this.getDefaultLaunchTarget();
     try {
-      const launchMode = requestedLaunchMode ?? await this.getBrowserLaunchMode();
-      if (launchMode === "external") {
-        return this.launchExternalWorkspace(workspace, items, undefined, target);
+      return await this.options.browserRuntimeState.invokeTyped({
+        type: "embeddedWorkspaceLaunch",
+        workspaceId: workspace.id,
+        target: {
+          displayId: resolvedTarget.displayId,
+          workArea: resolvedTarget.workArea
+        }
+      });
+    } catch (error) {
+      if (getErrorCode(error) === "LAUNCH_CANCELLED") return [];
+      if (resolvedMode === "auto" && getErrorCode(error) === "GAME_PAGE_LOAD_FAILED") {
+        return this.launchExternalWorkspace(
+          workspace,
+          items,
+          EXTERNAL_COMPAT_NOTICE,
+          resolvedTarget
+        );
       }
-
-      const workspaceAppearance = await this.getWorkspaceAppearanceSettings();
-      const host = this.createHost(
-        workspace.name,
-        workspace.id,
-        target?.workArea,
-        workspaceAppearance,
-        target?.displayId,
-        workspace.id,
-        undefined,
-        workspace.template,
-        items.map((item) => item.role.id)
-      );
-      try {
-        await Promise.all(items.map((item) => this.applyBrowserFonts(item.role)));
-        const normalizedRects = this.options.normalizeWorkspaceRects(items.map((item) => item.rect));
-        const sessions = items.map((item, index) =>
-          this.createSession(
-            item.role,
-            host,
-            normalizedRects[index],
-            (item.browserZoomPercent ?? workspace.browserZoomPercent) / 100,
-            item.browserZoomPercent === undefined ? workspace.browserZoomMode : "fixed"
-          )
-        );
-        const dividersReady = this.createHostDividers(host);
-        await this.showRuntimeTab(host.id);
-        const launchResults = await Promise.allSettled(
-          [
-            dividersReady,
-            ...sessions.map((session) => this.finishLaunch(session, session.zoomFactor))
-          ]
-        );
-        const failedLaunch = launchResults.find(
-          (result): result is PromiseRejectedResult => result.status === "rejected"
-        );
-        if (failedLaunch) throw failedLaunch.reason;
-        if (host.closing || host.window.isDestroyed()) {
-          return [];
-        }
-        sessions.forEach((session) => this.assertSessionActive(session));
-        await this.resourceCoordinator.activateWorkspace(
-          host.id,
-          workspace.resourcePolicy,
-          sessions.map((session) =>
-            new ElectronWorkspaceResourceTarget(session.role.id, session.webContents)
-          )
-        );
-        await this.reconcileRuntimeTabs();
-        return sessions.map((session) =>
-          this.withResourceStatus(this.toStatus(session.role.id))
-        );
-      } catch (error) {
-        const launchWasCancelled = error instanceof BrowserLaunchCancelledError ||
-          host.closing || host.window.isDestroyed();
-        await this.stopHost(host.id);
-        if (launchWasCancelled) {
-          return [];
-        }
-        if (launchMode === "auto" && error instanceof BrowserGameLoadError) {
-          return this.launchExternalWorkspace(workspace, items, EXTERNAL_COMPAT_NOTICE, target);
-        }
-        throw error;
-      }
-    } finally {
-      this.cleanupWorkspaceRuntimeState(workspace.id);
-      this.emitChange();
+      throw error;
     }
   }
 
-  stop(roleId: string): Promise<void> {
-    return this.withRoleOperation("normal", [roleId], () => this.stopUnlocked(roleId));
-  }
-
-  private async stopUnlocked(roleId: string): Promise<void> {
-    const session = this.sessions.get(roleId);
-    if (!session) {
-      await this.options.externalChromeManager?.stop(roleId);
+  async stop(roleId: string): Promise<void> {
+    if (this.roleHandles.has(roleId)) {
+      await this.options.browserRuntimeState.invokeTyped({
+        type: "embeddedRoleStop",
+        roleId
+      });
       return;
     }
-
-    const host = this.hosts.get(session.hostId);
-    this.invokeBrowserRuntime({
-      type: "roleTransition",
-      roleId,
-      runtime: "embedded",
-      ...(host?.workspaceId ? { workspaceId: host.workspaceId } : {}),
-      tabId: session.hostId,
-      state: "stopping"
-    });
-    this.emitChange();
-    await this.runBeforeRolesStop([roleId]);
-    this.destroySession(roleId, session);
-
-    if (host && host.roleIds.size === 0 && !host.closing) {
-      await this.closeHostWindow(host);
-    }
+    await this.options.externalChromeManager?.stop(roleId);
   }
 
   runRoleOperation<T>(roleIds: string[], operation: () => Promise<T>): Promise<T> {
@@ -1156,35 +1201,33 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   stopRoleAndRunRecoverableMutation<T>(roleId: string, operation: () => Promise<T>): Promise<T> {
     return this.withRoleOperation("recoverableMutation", [roleId], async () => {
-      await this.stopUnlocked(roleId);
+      await this.stop(roleId);
       return operation();
     });
   }
 
   stopRoleAndRunMutation<T>(roleId: string, operation: () => Promise<T>): Promise<T> {
     return this.withRoleOperation("destructiveMutation", [roleId], async () => {
-      await this.stopUnlocked(roleId);
+      await this.stop(roleId);
       return operation();
     });
   }
 
   async stopWorkspace(workspaceId: string): Promise<void> {
-    const hostId = this.workspaceHostIds.get(workspaceId);
-    await this.resourceCoordinator.deactivateWorkspace(hostId ?? workspaceId);
+    const hostId = this.workspaceTabHandleIds.get(workspaceId);
     if (hostId) {
-      await this.stopHost(hostId);
+      await this.options.browserRuntimeState.invokeTyped({
+        type: "embeddedWorkspaceStop",
+        workspaceId
+      });
+      return;
     }
     await this.options.externalChromeManager?.stopWorkspace(workspaceId);
-    this.invokeBrowserRuntime({
-      type: "removeWorkspace",
-      workspaceId
-    });
     this.cleanupWorkspaceRuntimeState(workspaceId);
   }
 
   async stopAll(): Promise<void> {
-    await Promise.all([...this.hosts.keys()].map((hostId) => this.stopHost(hostId)));
-    await Promise.all(this.options.externalChromeManager?.listStatuses().map((status) => this.stop(status.roleId)) ?? []);
+    await Promise.all(this.listStatuses().map((status) => this.stop(status.roleId)));
   }
 
   handleDividerPointer(webContentsId: number, payload: unknown): void {
@@ -1193,7 +1236,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return;
     }
 
-    const host = this.hosts.get(target.hostId);
+    const host = this.tabHandles.get(target.hostId);
     if (!host || host.window.isDestroyed()) {
       return;
     }
@@ -1263,29 +1306,19 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     sourceId = workspaceId ?? title,
     gameIconDataUrl?: string,
     workspaceTemplate?: WorkspaceLayoutTemplate,
-    roleIds: string[] = []
+    runtimeTabId?: string
   ): GameHostWindow {
     const target = displayId === undefined
       ? this.getDefaultLaunchTarget()
       : { displayId, workArea: launchBounds ?? this.options.getLaunchWorkArea() };
-    const runtime = this.invokeBrowserRuntime({
-      type: "createTab",
-      sourceId,
-      name: title,
-      displayId: target.displayId,
-      tabType: workspaceId ? "workspace" : "role",
-      ...(workspaceId ? { workspaceId } : {}),
-      roleIds
-    });
-    const id = runtime.createdTabId;
-    if (!id) throw new Error("Rust browser runtime did not create a tab id.");
-    let displayHost: EmbeddedDisplayHost;
-    try {
-      displayHost = this.getOrCreateDisplayHost(target);
-    } catch (error) {
-      this.invokeBrowserRuntime({ type: "removeTab", tabId: id });
-      throw error;
+    const id = runtimeTabId;
+    if (!id) {
+      throw effectError(
+        "EMBEDDED_TAB_ID_REQUIRED",
+        "Rust must create the embedded runtime tab before Electron handles."
+      );
     }
+    const displayHost = this.getOrCreateDisplayHost(target);
     const host: GameHostWindow = {
       audioMuted: false,
       closing: false,
@@ -1305,10 +1338,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       workspaceId
     };
 
-    this.hosts.set(host.id, host);
-    this.syncRuntimeProjection(runtime.snapshot);
+    this.tabHandles.set(host.id, host);
+    if (!displayHost.tabIds.includes(host.id)) {
+      displayHost.tabIds.push(host.id);
+    }
     if (workspaceId) {
-      this.workspaceHostIds.set(workspaceId, host.id);
+      this.workspaceTabHandleIds.set(workspaceId, host.id);
     }
     this.layoutDisplayHost(displayHost);
     this.sendRuntimeChromeState(displayHost);
@@ -1537,7 +1572,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private layoutDisplayHost(displayHost: EmbeddedDisplayHost | undefined): void {
     if (!displayHost || displayHost.window.isDestroyed()) return;
     displayHost.tabIds.forEach((tabId) => {
-      const tab = this.hosts.get(tabId);
+      const tab = this.tabHandles.get(tabId);
       if (tab) this.layoutHost(tab);
     });
     this.layoutRuntimeChrome(displayHost);
@@ -1570,7 +1605,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private detachTabViews(tab: GameHostWindow, displayHost: EmbeddedDisplayHost): void {
     if (displayHost.window.isDestroyed()) return;
     tab.roleIds.forEach((roleId) => {
-      const session = this.sessions.get(roleId);
+      const session = this.roleHandles.get(roleId);
       if (!session) return;
       displayHost.window.contentView.removeChildView(session.view);
       session.popupViews.forEach((view) => displayHost.window.contentView.removeChildView(view));
@@ -1581,7 +1616,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private attachTabViews(tab: GameHostWindow, displayHost: EmbeddedDisplayHost): void {
     if (displayHost.window.isDestroyed()) return;
     tab.roleIds.forEach((roleId) => {
-      const session = this.sessions.get(roleId);
+      const session = this.roleHandles.get(roleId);
       if (!session) return;
       displayHost.window.contentView.addChildView(session.view);
       session.popupViews.forEach((view) => displayHost.window.contentView.addChildView(view));
@@ -1625,12 +1660,12 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       fullscreen: this.isDisplayHostFullscreen(displayHost),
       language: this.runtimeTabsLanguage,
       tabIconDataUrls: Object.fromEntries(
-        [...this.hosts.values()].flatMap((host) =>
+        [...this.tabHandles.values()].flatMap((host) =>
           host.gameIconDataUrl ? [[host.id, host.gameIconDataUrl] as const] : []
         )
       ),
       tabWorkspaceTemplates: Object.fromEntries(
-        [...this.hosts.values()].flatMap((host) =>
+        [...this.tabHandles.values()].flatMap((host) =>
           host.workspaceTemplate ? [[host.id, host.workspaceTemplate] as const] : []
         )
       ),
@@ -1659,7 +1694,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private isDisplayHostFullscreen(displayHost: EmbeddedDisplayHost): boolean {
     return displayHost.windowFullscreen || displayHost.tabIds.some(
-      (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
+      (tabId) => (this.tabHandles.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
     );
   }
 
@@ -1806,7 +1841,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     if (displayHost.macNativeTabs) {
       const transitioning = displayHost.windowFullscreenTransitionTarget !== undefined;
       const htmlFullscreen = displayHost.tabIds.some(
-        (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
+        (tabId) => (this.tabHandles.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
       );
       if (
         displayHost.windowFullscreenTransitionTarget === true &&
@@ -1880,7 +1915,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
     if (displayHost.windowFullscreen) return this.alwaysShowToolbarInFullScreen;
     return !displayHost.tabIds.some(
-      (tabId) => (this.hosts.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
+      (tabId) => (this.tabHandles.get(tabId)?.htmlFullscreenWebContentsIds.size ?? 0) > 0
     );
   }
 
@@ -2119,13 +2154,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       webContents.setAudioMuted(true);
     }
     webContents.on("audio-state-changed", () => {
-      if (this.hosts.get(host.id) === host) this.emitChange();
+      if (this.tabHandles.get(host.id) === host) this.emitChange();
     });
   }
 
   private getRuntimeTabWebContents(host: GameHostWindow): WebContents[] {
     return [...host.roleIds].flatMap((roleId) => {
-      const session = this.sessions.get(roleId);
+      const session = this.roleHandles.get(roleId);
       return session ? [session.webContents, ...[...session.popupViews].flatMap((view) =>
         view.webContents ? [view.webContents] : [])] : [];
     });
@@ -2141,7 +2176,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   }
 
   private async reconcileRuntimeTabs(): Promise<void> {
-    const hiddenRuntimeTabIds = [...this.hosts.values()].flatMap((tab) => {
+    const hiddenRuntimeTabIds = [...this.tabHandles.values()].flatMap((tab) => {
       const displayHost = this.getDisplayHost(tab);
       const isInternalHidden = tab.hidden || displayHost?.activeTabId !== tab.id;
       return isInternalHidden ? [tab.id] : [];
@@ -2211,16 +2246,8 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       zoomMode
     };
 
-    this.sessions.set(role.id, session);
+    this.roleHandles.set(role.id, session);
     host.roleIds.add(role.id);
-    this.invokeBrowserRuntime({
-      type: "roleTransition",
-      roleId: role.id,
-      runtime: "embedded",
-      ...(host.workspaceId ? { workspaceId: host.workspaceId } : {}),
-      tabId: host.id,
-      state: "launching"
-    });
     host.window.contentView.addChildView(view);
     this.options.onEmbeddedWebContentsCreated?.({
       hostId: host.id,
@@ -2245,14 +2272,16 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
         clearTimeout(session.zoomPersistenceTimer);
         session.zoomPersistenceTimer = undefined;
       }
-      if (this.sessions.get(role.id) === session) {
-        this.sessions.delete(role.id);
-        host.roleIds.delete(role.id);
-        void this.resourceCoordinator.reconcileRuntimeRoleIds("embedded", this.sessions.keys());
-        if (host.roleIds.size === 0 && !host.closing) {
-          void this.closeHostWindow(host);
-        }
-        this.emitChange();
+      if (this.roleHandles.get(role.id) === session) {
+        void this.options.browserRuntimeState.invokeTyped({
+          type: "embeddedRoleStop",
+          roleId: role.id
+        }).catch(() => {
+          if (this.roleHandles.get(role.id) !== session) return;
+          this.roleHandles.delete(role.id);
+          host.roleIds.delete(role.id);
+          this.emitChange();
+        });
       }
     });
     this.emitChange();
@@ -2274,7 +2303,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
   private async createHostDividers(host: GameHostWindow): Promise<void> {
     const descriptors = this.options.workspaceDividerResolver(
       [...host.roleIds]
-        .map((roleId) => this.sessions.get(roleId))
+        .map((roleId) => this.roleHandles.get(roleId))
         .filter((session): session is BrowserSession => Boolean(session))
         .map((session) => ({ rect: session.rect, roleId: session.role.id }))
     );
@@ -2309,43 +2338,9 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await Promise.all(loadPromises);
   }
 
-  private async finishLaunch(session: BrowserSession, zoomFactor: number): Promise<void> {
-    this.assertSessionActive(session);
-    await this.applyZoom(session, zoomFactor);
-    this.assertSessionActive(session);
-    await this.applyBrowserProxy(session);
-    this.assertSessionActive(session);
-    await this.applyCdnCompatibility(session);
-    this.assertSessionActive(session);
-    try {
-      await session.webContents.loadURL(session.role.launchUrl);
-    } catch {
-      this.assertSessionActive(session);
-      throw new BrowserGameLoadError();
-    }
-    this.assertSessionActive(session);
-    await this.applyZoom(session, zoomFactor);
-    this.assertSessionActive(session);
-    const launchedAt = new Date().toISOString();
-    this.invokeBrowserRuntime({
-      type: "roleTransition",
-      roleId: session.role.id,
-      runtime: "embedded",
-      ...(this.hosts.get(session.hostId)?.workspaceId
-        ? { workspaceId: this.hosts.get(session.hostId)?.workspaceId }
-        : {}),
-      tabId: session.hostId,
-      state: "running",
-      launchedAt
-    });
-    await this.installMacroOverlay(session.role, session.webContents);
-    this.assertSessionActive(session);
-    this.emitChange();
-  }
-
   private assertSessionActive(session: BrowserSession): void {
-    const host = this.hosts.get(session.hostId);
-    if (this.sessions.get(session.role.id) !== session ||
+    const host = this.tabHandles.get(session.hostId);
+    if (this.roleHandles.get(session.role.id) !== session ||
       !host || host.closing || host.window.isDestroyed() ||
       session.abortController.signal.aborted || session.webContents.isDestroyed()) {
       throw new BrowserLaunchCancelledError();
@@ -2512,16 +2507,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     displayHost: EmbeddedDisplayHost,
     direction: RuntimeTabSwitchDirection
   ): void {
-    this.invokeBrowserRuntime({
-      type: "activateAdjacentTab",
+    void this.options.browserRuntimeState.invokeTyped({
+      type: "embeddedTabActivateAdjacent",
       displayId: displayHost.displayId,
       direction
+    }).catch((error) => {
+      console.error("Failed to switch embedded runtime tab.", error);
     });
-
-    // Keep input handling synchronous. Resource throttling reconciles in the
-    // background, while the selected tab and its focus update immediately.
-    void this.reconcileRuntimeTabs();
-    this.restoreActiveGameViewFocus(displayHost);
   }
 
   private isProtectedGameInputActive(session: BrowserSession, webContents: WebContents): boolean {
@@ -2532,7 +2524,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     session: BrowserSession,
     windowOptions: BrowserWindowConstructorOptions
   ): WebContentsView {
-    const host = this.hosts.get(session.hostId);
+    const host = this.tabHandles.get(session.hostId);
     if (!host || host.window.isDestroyed()) {
       throw new Error("The game window is no longer available.");
     }
@@ -2574,7 +2566,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       if (!host.window.isDestroyed()) {
         host.window.contentView.removeChildView(popupView);
       }
-      if (this.hosts.get(host.id) === host) this.emitChange();
+      if (this.tabHandles.get(host.id) === host) this.emitChange();
     });
     return popupView;
   }
@@ -2597,14 +2589,14 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       gap: host.workspaceAppearance.gap,
       hidden: host.hidden,
       roles: [...host.roleIds].flatMap((roleId) => {
-        const session = this.sessions.get(roleId);
+        const session = this.roleHandles.get(roleId);
         return session ? [{ rect: session.rect, roleId }] : [];
       }),
       windowVisible: isWindowVisible(displayHost.window)
     });
     const visible = resolvedLayout.visible;
     host.roleIds.forEach((roleId) => {
-      const session = this.sessions.get(roleId);
+      const session = this.roleHandles.get(roleId);
       if (!session) return;
       session.view.setVisible(visible);
       session.popupViews.forEach((popupView) => popupView.setVisible(visible));
@@ -2616,7 +2608,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       resolvedLayout.roles.map((role) => [role.roleId, role.bounds])
     );
     host.roleIds.forEach((roleId) => {
-      const session = this.sessions.get(roleId);
+      const session = this.roleHandles.get(roleId);
       const bounds = boundsByRole.get(roleId);
       if (!session || !bounds) return;
       session.view.setBounds(bounds);
@@ -2649,7 +2641,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       gap: host.workspaceAppearance.gap,
       hidden: false,
       roles: [...host.roleIds].flatMap((roleId) => {
-        const candidate = this.sessions.get(roleId);
+        const candidate = this.roleHandles.get(roleId);
         return candidate ? [{ rect: candidate.rect, roleId }] : [];
       }),
       windowVisible: true
@@ -2691,13 +2683,13 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       ...(previousPosition === undefined ? {} : { previousPosition }),
       requestedPosition,
       roles: [...host.roleIds].flatMap((roleId) => {
-        const candidate = this.sessions.get(roleId);
+        const candidate = this.roleHandles.get(roleId);
         return candidate ? [{ rect: candidate.rect, roleId }] : [];
       })
     });
     if (result.changed) {
       result.roles.forEach(({ rect, roleId }) => {
-        const session = this.sessions.get(roleId);
+        const session = this.roleHandles.get(roleId);
         if (session) session.rect = rect;
       });
       this.layoutHost(host);
@@ -2720,7 +2712,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     type: WorkspaceResizeIndicatorPayload["type"]
   ): void {
     roleIds.forEach((roleId) => {
-      const session = this.sessions.get(roleId);
+      const session = this.roleHandles.get(roleId);
       if (!session || session.webContents.isDestroyed()) {
         return;
       }
@@ -2903,7 +2895,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       return;
     }
     const activeHost = displayHost.activeTabId
-      ? this.hosts.get(displayHost.activeTabId)
+      ? this.tabHandles.get(displayHost.activeTabId)
       : undefined;
     if (!activeHost || activeHost.hidden || activeHost.closing) {
       return;
@@ -2911,7 +2903,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
     const rememberedView = activeHost.lastFocusedView;
     const fallbackViews = [...activeHost.roleIds].flatMap((roleId) => {
-      const session = this.sessions.get(roleId);
+      const session = this.roleHandles.get(roleId);
       return session ? [...session.popupViews].reverse().concat(session.view) : [];
     });
     const targetView = [rememberedView, ...fallbackViews].find(
@@ -2925,15 +2917,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     targetView.webContents.focus();
   }
 
-  private async focusSession(session: BrowserSession): Promise<void> {
-    const host = this.hosts.get(session.hostId);
-    if (!host || host.window.isDestroyed()) {
-      return;
-    }
-    await this.showRuntimeTab(host.id);
-    await session.target.focus();
-  }
-
   private async installMacroOverlay(role: Role, webContents: WebContents): Promise<void> {
     if (!this.macroOverlayInstaller) {
       return;
@@ -2945,32 +2928,21 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     }
   }
 
-  private async stopHost(hostId: string): Promise<void> {
-    const host = this.hosts.get(hostId);
+  private async destroyTabHandles(
+    hostId: string,
+    nextActiveTabId?: string
+  ): Promise<void> {
+    const host = this.tabHandles.get(hostId);
     if (!host || host.closing) {
       return;
     }
 
     host.closing = true;
+    if (nextActiveTabId) await this.prepareRuntimeTabForeground(nextActiveTabId);
     await this.resourceCoordinator.deactivateWorkspace(host.id);
     const roleIds = [...host.roleIds];
     roleIds.forEach((roleId) => {
-      const session = this.sessions.get(roleId);
-      if (session) {
-        this.invokeBrowserRuntime({
-          type: "roleTransition",
-          roleId,
-          runtime: "embedded",
-          ...(host.workspaceId ? { workspaceId: host.workspaceId } : {}),
-          tabId: host.id,
-          state: "stopping"
-        });
-      }
-    });
-    this.emitChange();
-    await this.runBeforeRolesStop(roleIds);
-    roleIds.forEach((roleId) => {
-      const session = this.sessions.get(roleId);
+      const session = this.roleHandles.get(roleId);
       if (session) {
         this.destroySession(roleId, session);
       }
@@ -2978,20 +2950,29 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await this.closeHostWindow(host);
   }
 
+  private async destroyRoleHandles(roleId: string): Promise<void> {
+    const session = this.roleHandles.get(roleId);
+    if (!session) return;
+    const host = this.tabHandles.get(session.hostId);
+    this.destroySession(roleId, session);
+    if (host && host.roleIds.size === 0 && !host.closing) {
+      await this.closeHostWindow(host);
+    }
+  }
+
   private destroySession(roleId: string, session: BrowserSession): void {
-    if (this.sessions.get(roleId) !== session) {
+    if (this.roleHandles.get(roleId) !== session) {
       return;
     }
 
     session.abortController.abort();
     session.target.dispose();
-    const host = this.hosts.get(session.hostId);
+    const host = this.tabHandles.get(session.hostId);
     if (host?.activeDividerResize?.roleIds.includes(roleId)) {
       this.finishDividerResize(host);
     }
-    this.sessions.delete(roleId);
-    this.invokeBrowserRuntime({ type: "removeRole", roleId });
-    void this.resourceCoordinator.reconcileRuntimeRoleIds("embedded", this.sessions.keys());
+    this.roleHandles.delete(roleId);
+    void this.resourceCoordinator.reconcileRuntimeRoleIds("embedded", this.roleHandles.keys());
     host?.roleIds.delete(roleId);
     if (host && !host.window.isDestroyed()) {
       host.window.contentView.removeChildView(session.view);
@@ -3008,14 +2989,6 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
       session.webContents.close();
     }
     this.emitChange();
-  }
-
-  private async runBeforeRolesStop(roleIds: string[]): Promise<void> {
-    try {
-      await this.beforeRolesStop?.(roleIds);
-    } catch (error) {
-      console.warn("Failed to stop macros before closing a game window.", error);
-    }
   }
 
   private async withRoleOperation<T>(
@@ -3059,12 +3032,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     const displayHostWasFullscreen = displayHost
       ? this.isDisplayHostFullscreen(displayHost)
       : false;
-    const runtime = this.deleteHost(host);
-    const nextActiveTabId = displayHost
-      ? runtime.snapshot.displays.find(({ displayId }) => displayId === displayHost.displayId)
-        ?.activeTabId
-      : undefined;
-    if (nextActiveTabId) await this.prepareRuntimeTabForeground(nextActiveTabId);
+    this.deleteHost(host);
     if (displayHost) {
       this.handleDisplayHostFullscreenTransition(displayHost, displayHostWasFullscreen);
       if (!displayHost.activeTabId) {
@@ -3076,15 +3044,21 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
     await this.reconcileRuntimeTabs();
   }
 
-  private deleteHost(host: GameHostWindow): BrowserRuntimeResult {
+  private deleteHost(host: GameHostWindow): void {
     this.finishDividerResize(host);
-    this.hosts.delete(host.id);
-    const runtime = this.invokeBrowserRuntime({ type: "removeTab", tabId: host.id });
-    if (host.workspaceId && this.workspaceHostIds.get(host.workspaceId) === host.id) {
-      this.workspaceHostIds.delete(host.workspaceId);
-      this.cleanupWorkspaceRuntimeState(host.workspaceId);
+    this.tabHandles.delete(host.id);
+    const displayHost = this.getDisplayHost(host);
+    if (displayHost) {
+      displayHost.tabIds = displayHost.tabIds.filter((tabId) => tabId !== host.id);
+      if (displayHost.activeTabId === host.id) {
+        displayHost.activeTabId = displayHost.tabIds.find(
+          (tabId) => !this.tabHandles.get(tabId)?.hidden
+        );
+      }
     }
-    return runtime;
+    if (host.workspaceId && this.workspaceTabHandleIds.get(host.workspaceId) === host.id) {
+      this.workspaceTabHandleIds.delete(host.workspaceId);
+    }
   }
 
   private cleanupExternalWorkspaceRuntimeState(): void {
@@ -3097,7 +3071,7 @@ export class BrowserManager extends EventEmitter<BrowserManagerEvents> {
 
   private cleanupWorkspaceRuntimeState(workspaceId: string): void {
     if (
-      this.workspaceHostIds.has(workspaceId) ||
+      this.workspaceTabHandleIds.has(workspaceId) ||
       this.options.externalChromeManager?.hasWorkspace?.(workspaceId)
     ) {
       return;
@@ -3173,15 +3147,6 @@ function getWindowBounds(window: BaseWindow): PixelBounds {
 function isWindowVisible(window: BaseWindow): boolean {
   const isVisible = (window as BaseWindow & { isVisible?: () => boolean }).isVisible;
   return isVisible ? isVisible.call(window) : true;
-}
-
-function showWindowWithoutFocus(window: BaseWindow): void {
-  const showInactive = (window as BaseWindow & { showInactive?: () => void }).showInactive;
-  if (showInactive) {
-    showInactive.call(window);
-    return;
-  }
-  window.show();
 }
 
 function clampBoundsToWorkArea(bounds: PixelBounds, workArea: PixelBounds): PixelBounds {

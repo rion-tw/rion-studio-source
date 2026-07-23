@@ -217,6 +217,12 @@ impl BrowserRuntime {
             }
             BrowserRuntimeCommand::RemoveRole { role_id } => {
                 self.roles.remove(&role_id);
+                self.tabs
+                    .values_mut()
+                    .for_each(|tab| tab.role_ids.retain(|candidate| candidate != &role_id));
+                self.workspaces.values_mut().for_each(|workspace| {
+                    workspace.role_ids.retain(|candidate| candidate != &role_id);
+                });
                 self.refresh_workspace_states();
             }
             BrowserRuntimeCommand::SetWorkspaceState {

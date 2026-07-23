@@ -36,6 +36,10 @@ import { RustExternalChromeHealthMonitor } from "./browser/RustExternalChromeHea
 import { createExternalChromeWindowBoundsAdapter } from "./browser/WindowsExternalChromeWindowBoundsAdapter";
 import { AppCoreClient, readBootstrapGraphicsSettings } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
+import {
+  ElectronEffectExecutor,
+  ElectronHandleRegistry
+} from "./core/ElectronEffectExecutor";
 import { RustStateRepository } from "./core/RustStateRepository";
 import { loadMacRuntimeTabsControllerFactory } from "./browser/MacRuntimeTabsController";
 import { createRuntimeTabsPageUrl } from "./browser/runtimeTabsPage";
@@ -150,6 +154,7 @@ let quitCleanupPromise: Promise<void> | null = null;
 let getDiagnosticDataCounts = async () => ({ games: 0, roles: 0, workspaces: 0, macros: 0 });
 let appCoreClient: AppCoreClient | null = null;
 let electronBrowserActionAdapter: ElectronBrowserActionAdapter | null = null;
+let electronEffectUnsubscribe: (() => void) | null = null;
 let performanceTelemetryTimer: ReturnType<typeof setInterval> | undefined;
 const rendererReadyGate = new RendererReadyGate();
 const RENDERER_READY_TIMEOUT_MS = 15_000;
@@ -802,6 +807,48 @@ async function initializeApplication(): Promise<void> {
     },
     prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
   });
+  const effectCore = appCoreClient;
+  const electronEffectExecutor = new ElectronEffectExecutor(
+    new ElectronHandleRegistry(),
+    {
+      clearSessionStorage: async (sessionHandle, storages) => {
+        await electronSession.fromPartition(sessionHandle.partition).clearStorageData({
+          storages: storages as Electron.ClearStorageDataOptions["storages"]
+        });
+      },
+      createView: (optionsJson) =>
+        new WebContentsView(JSON.parse(optionsJson) as Electron.WebContentsViewConstructorOptions),
+      createWindow: (optionsJson) =>
+        new BaseWindow(
+          JSON.parse(optionsJson) as Electron.BaseWindowConstructorOptions
+        ) as unknown as import("./core/ElectronEffectExecutor").ElectronWindowEffectHandle,
+      dispatchResults: (results) => effectCore.dispatchCoreEffectResults(results),
+      executeEmbeddedEffect: ({ action }) => browserManager!.executeEmbeddedEffect(action),
+      sendDebuggerCommand: async (contents, method, params) => {
+        const electronContents = contents as Electron.WebContents;
+        if (!electronContents.debugger.isAttached()) electronContents.debugger.attach("1.3");
+        return await electronContents.debugger.sendCommand(method, params);
+      },
+      setCookie: async (sessionHandle, cookieJson) => {
+        await electronSession
+          .fromPartition(sessionHandle.partition)
+          .cookies.set(JSON.parse(cookieJson) as Electron.CookiesSetDetails);
+      }
+    }
+  );
+  electronEffectUnsubscribe = effectCore.subscribe((events) => {
+    for (const event of events) {
+      if (event.type !== "coreEffects") continue;
+      void electronEffectExecutor.executeAndDispatch(event.effects).catch((error) => {
+        logService.error(
+          "browser",
+          "electron_effect_dispatch_failed",
+          "Failed to dispatch an Electron effect result to the Rust core.",
+          error
+        );
+      });
+    }
+  });
   browserManager.setAlwaysShowToolbarInFullScreen(
     runtimeWindowPreferences.alwaysShowToolbarInFullScreen
   );
@@ -1430,6 +1477,8 @@ app.on("before-quit", (event) => {
         appCoreClient?.shutdown() ?? Promise.resolve(),
         new Promise((resolve) => setTimeout(resolve, 3_000))
       ]);
+      electronEffectUnsubscribe?.();
+      electronEffectUnsubscribe = null;
       appCoreClient = null;
       isApplicationQuitting = true;
       app.quit();

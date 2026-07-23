@@ -6,6 +6,7 @@ import {
   BrowserGameLoadError,
   BrowserManager,
   type BrowserManagerOptions,
+  type BrowserWorkspaceLaunchItem,
   BrowserWorkspaceDisplayOccupiedError,
   classifyNativeZoomShortcut,
   classifyRuntimeTabSwitchShortcut,
@@ -15,6 +16,9 @@ import {
 } from "../src/main/browser/BrowserManager";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
 import type {
+  BrowserRuntimeSnapshot,
+  CoreCommand,
+  CoreEffectAction,
   LayoutRoleInput,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
@@ -1379,6 +1383,12 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].webContents.loadURL).toHaveBeenCalledTimes(1);
 
     harness.manager.reorderRuntimeTab(secondTab.id, firstTab.id);
+    await vi.waitFor(() => {
+      expect(harness.manager.listEmbeddedRuntimeState().tabs.map((tab) => tab.id)).toEqual([
+        secondTab.id,
+        firstTab.id
+      ]);
+    });
     expect(harness.manager.listEmbeddedRuntimeState().tabs.map((tab) => tab.id)).toEqual([
       secondTab.id,
       firstTab.id
@@ -1463,7 +1473,7 @@ describe("BrowserManager game host windows", () => {
   );
 
   it.each(["darwin", "win32"] as const)(
-    "applies consecutive runtime tab shortcuts immediately without refocusing the window on %s",
+    "orders consecutive runtime tab shortcuts in Rust without refocusing the window on %s",
     async (platform) => {
       const harness = createHarness({
         defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
@@ -1507,6 +1517,14 @@ describe("BrowserManager game host windows", () => {
         type: "keyDown"
       });
 
+      await vi.waitFor(() => {
+        expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(
+          firstViewFocusCalls + 1
+        );
+        expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(
+          secondViewFocusCalls + 1
+        );
+      });
       expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
         expect.objectContaining({ active: false, id: firstTab.id }),
         expect.objectContaining({ active: true, id: secondTab.id }),
@@ -1539,6 +1557,14 @@ describe("BrowserManager game host windows", () => {
         type: "keyDown"
       });
 
+      await vi.waitFor(() => {
+        expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(
+          firstViewFocusCalls + 2
+        );
+        expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(
+          thirdViewFocusCalls + 1
+        );
+      });
       expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
         expect.objectContaining({ active: false, id: firstTab.id }),
         expect.objectContaining({ active: false, id: secondTab.id }),
@@ -2215,6 +2241,7 @@ describe("BrowserManager game host windows", () => {
     const primaryTabId = sourceState.tabs.find((tab) => tab.sourceId === role.id)!.id;
 
     harness.manager.handleDisplayRemoved(22, 11);
+    await vi.waitFor(() => expect(harness.hosts[1].close).toHaveBeenCalledTimes(1));
 
     const merged = harness.manager.listEmbeddedRuntimeState();
     expect(merged.windows).toMatchObject([{ displayId: 11, activeTabId: primaryTabId, tabCount: 2 }]);
@@ -2513,15 +2540,18 @@ describe("BrowserManager game host windows", () => {
     expect(secondTarget.setRate).not.toHaveBeenCalled();
   });
 
-  it("applies browser font preferences before creating a new role view", async () => {
+  it("applies browser font preferences after creating the effect handle and before navigation", async () => {
     const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
     const harness = createHarness({ applyBrowserFonts });
 
     await harness.manager.launch(role);
 
     expect(applyBrowserFonts).toHaveBeenCalledWith(role, createRoleSessionPartition(role.id));
-    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeGreaterThan(
       harness.createView.mock.invocationCallOrder[0]
+    );
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]
     );
   });
 
@@ -2631,7 +2661,7 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].webContents.getZoomFactor()).toBe(0.9);
     expect(applyBrowserFonts).toHaveBeenCalledWith(role, createRoleSessionPartition(role.id));
     expect(applyBrowserFonts).toHaveBeenCalledWith(secondRole, createRoleSessionPartition(secondRole.id));
-    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeGreaterThan(
       harness.createView.mock.invocationCallOrder[0]
     );
   });
@@ -4178,9 +4208,7 @@ describe("BrowserManager game host windows", () => {
       ]);
 
     expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
-    expect(harness.views[0].webContents.executeJavaScript).not.toHaveBeenCalled();
     expect(harness.views[1].webContents.session.cookies.get).not.toHaveBeenCalled();
-    expect(harness.views[1].webContents.executeJavaScript).not.toHaveBeenCalled();
   });
 
   it("stops the actual launched host by workspace id", async () => {
@@ -4193,7 +4221,7 @@ describe("BrowserManager game host windows", () => {
 
     await harness.manager.stopWorkspace(workspace.id);
 
-    expect(harness.beforeRolesStop).toHaveBeenCalledWith(["role-1", "role-2"]);
+    expect(harness.beforeRolesStop).not.toHaveBeenCalled();
     expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
     expect(harness.manager.listStatuses()).toEqual([]);
   });
@@ -4230,7 +4258,7 @@ describe("BrowserManager game host windows", () => {
 
       await harness.manager.stopRuntimeTab(tab.id);
 
-      expect(harness.beforeRolesStop).toHaveBeenCalledWith([role.id]);
+      expect(harness.beforeRolesStop).not.toHaveBeenCalled();
       expect(harness.views[0].webContents.close).toHaveBeenCalledOnce();
       expect(harness.hosts[0].close).toHaveBeenCalledOnce();
       expect(harness.manager.listStatuses()).toEqual([]);
@@ -4253,6 +4281,7 @@ describe("BrowserManager game host windows", () => {
       type: "keyDown"
     });
 
+    await vi.waitFor(() => expect(harness.hosts[0].hide).toHaveBeenCalledTimes(1));
     expect(harness.hosts[0].hide).toHaveBeenCalledTimes(1);
     expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({ hidden: true });
     expect(harness.manager.listStatuses()).toEqual([
@@ -4305,6 +4334,7 @@ describe("BrowserManager game host windows", () => {
         meta: platform === "darwin",
         type: "keyDown"
       });
+      await vi.waitFor(() => expect(harness.hosts[0].hide).toHaveBeenCalledOnce());
       expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
       expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
     }
@@ -4324,6 +4354,7 @@ describe("BrowserManager game host windows", () => {
       type: "keyDown"
     });
 
+    await vi.waitFor(() => expect(harness.hosts[0].hide).toHaveBeenCalledOnce());
     expect(gameWebContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
@@ -4736,8 +4767,9 @@ function createHarness(options: {
     return controller;
   });
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
+  const browserRuntimeState = createBrowserRuntimeState();
   const manager = new BrowserManager({
-    browserRuntimeState: createBrowserRuntimeState(),
+    browserRuntimeState,
     adaptiveZoomResolver: resolveTestAdaptiveZoom,
     ...(options.applyCdnCompatibility ? { applyCdnCompatibility: options.applyCdnCompatibility } : {}),
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
@@ -4788,6 +4820,440 @@ function createHarness(options: {
     workspaceDividerResizeResolver: resizeTestWorkspaceDivider,
     workspaceLayoutResolver: options.workspaceLayoutResolver ?? resolveTestWorkspaceLayout
   });
+  const seededRoles = new Map<string, Role>();
+  const seededWorkspaces = new Map<string, {
+    items: BrowserWorkspaceLaunchItem[];
+    workspace: Pick<
+      LaunchWorkspace,
+      "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template"
+    >;
+  }>();
+  const executeEmbedded = (action: CoreEffectAction): Promise<unknown> =>
+    manager.executeEmbeddedEffect(
+      action as Parameters<BrowserManager["executeEmbeddedEffect"]>[0]
+    );
+  const applyRuntime = async (
+    snapshot: BrowserRuntimeSnapshot,
+    target?: { displayId: number; workArea: PixelBounds },
+    revealDisplayIds: number[] = [],
+    focusTabId?: string,
+    focusWindowDisplayIds: number[] = []
+  ): Promise<BrowserRuntimeSnapshot> => {
+    await executeEmbedded({
+      type: "embeddedApplyRuntime",
+      snapshot,
+      target,
+      revealDisplayIds,
+      focusWindowDisplayIds,
+      focusTabId
+    });
+    return snapshot;
+  };
+  const removeRoleRuntime = (roleId: string): void => {
+    const runtime = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+    const roleRuntime = runtime.roles.find((candidate) => candidate.roleId === roleId);
+    if (!roleRuntime) return;
+    browserRuntimeState.invokeBrowserRuntime({ type: "removeRole", roleId });
+    const tab = roleRuntime.tabId
+      ? runtime.tabs.find((candidate) => candidate.id === roleRuntime.tabId)
+      : undefined;
+    if (tab && tab.roleIds.length <= 1) {
+      browserRuntimeState.invokeBrowserRuntime({ type: "removeTab", tabId: tab.id });
+      if (roleRuntime.workspaceId) {
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "removeWorkspace",
+          workspaceId: roleRuntime.workspaceId
+        });
+      }
+    }
+  };
+  browserRuntimeState.setTypedInvoker(async (command: CoreCommand) => {
+    switch (command.type) {
+      case "embeddedRoleLaunch": {
+        const seededRole = seededRoles.get(command.roleId);
+        if (!seededRole) throw new Error(`Role not found: ${command.roleId}`);
+        const current = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const running = current.roles.find((candidate) => candidate.roleId === command.roleId);
+        if (running?.tabId) {
+          const activated = browserRuntimeState.invokeBrowserRuntime({
+            type: "activateTab",
+            tabId: running.tabId
+          }).snapshot;
+          await applyRuntime(
+            activated,
+            undefined,
+            [command.target.displayId],
+            undefined,
+            [command.target.displayId]
+          );
+          await executeEmbedded({
+            type: "embeddedFocusRole",
+            roleId: command.roleId,
+            zoomFactor: command.zoomFactor ?? 1
+          });
+          return [{
+            launchedAt: running.launchedAt ?? new Date().toISOString(),
+            roleId: command.roleId,
+            runtimeMode: "embedded",
+            state: "running"
+          }];
+        }
+        const created = browserRuntimeState.invokeBrowserRuntime({
+          type: "createTab",
+          sourceId: seededRole.id,
+          name: seededRole.name,
+          displayId: command.target.displayId,
+          tabType: "role",
+          roleIds: [seededRole.id]
+        });
+        const tabId = created.createdTabId!;
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "roleTransition",
+          roleId: seededRole.id,
+          runtime: "embedded",
+          tabId,
+          state: "launching"
+        });
+        const activated = browserRuntimeState.invokeBrowserRuntime({
+          type: "activateTab",
+          tabId
+        }).snapshot;
+        try {
+          await executeEmbedded({
+            type: "embeddedCreateTab",
+            tab: {
+              tabId,
+              sourceId: seededRole.id,
+              name: seededRole.name,
+              workspaceAppearance: options.getWorkspaceAppearanceSettings
+                ? await options.getWorkspaceAppearanceSettings()
+                : { background: "material", gap: 4 },
+              target: command.target,
+              roles: [{
+                role: seededRole,
+                rect: { x: 0, y: 0, width: 1, height: 1 },
+                zoomFactor: command.zoomFactor ?? 1,
+                zoomMode: "fixed"
+              }]
+            }
+          });
+          await applyRuntime(
+            activated,
+            command.target,
+            [command.target.displayId],
+            undefined,
+            [command.target.displayId]
+          );
+          await executeEmbedded({
+            type: "embeddedConfigureRoleSessions",
+            roleIds: [seededRole.id]
+          });
+          await executeEmbedded({
+            type: "embeddedLoadRoles",
+            roles: [{
+              roleId: seededRole.id,
+              url: seededRole.launchUrl,
+              zoomFactor: command.zoomFactor ?? 1
+            }]
+          });
+          await executeEmbedded({
+            type: "embeddedInstallOverlays",
+            roleIds: [seededRole.id]
+          });
+          await executeEmbedded({
+            type: "embeddedActivateResources",
+            tabId,
+            policy: { mode: "unrestricted" },
+            roleIds: [seededRole.id]
+          });
+        } catch (error) {
+          await executeEmbedded({ type: "embeddedDestroyTab", tabId });
+          removeRoleRuntime(seededRole.id);
+          throw error;
+        }
+        const launchedAt = new Date().toISOString();
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "roleTransition",
+          roleId: seededRole.id,
+          runtime: "embedded",
+          tabId,
+          state: "running",
+          launchedAt
+        });
+        return [{ launchedAt, roleId: seededRole.id, runtimeMode: "embedded", state: "running" }];
+      }
+      case "embeddedWorkspaceLaunch": {
+        const seeded = seededWorkspaces.get(command.workspaceId);
+        if (!seeded) throw new Error(`Workspace not found: ${command.workspaceId}`);
+        const roleIds = seeded.items.map(({ role }) => role.id);
+        const current = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const runningRoleIds = current.roles
+          .filter(({ roleId }) => roleIds.includes(roleId))
+          .map(({ roleId }) => roleId);
+        if (runningRoleIds.length > 0) {
+          throw Object.assign(new Error("One or more roles are already running."), {
+            code: "ROLE_ALREADY_RUNNING",
+            roleNames: runningRoleIds.map(
+              (roleId) => seededRoles.get(roleId)?.name ?? roleId
+            )
+          });
+        }
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "beginWorkspace",
+          workspaceId: seeded.workspace.id,
+          name: seeded.workspace.name,
+          displayId: command.target.displayId,
+          roleIds
+        });
+        const created = browserRuntimeState.invokeBrowserRuntime({
+          type: "createTab",
+          sourceId: seeded.workspace.id,
+          name: seeded.workspace.name,
+          displayId: command.target.displayId,
+          tabType: "workspace",
+          workspaceId: seeded.workspace.id,
+          roleIds
+        });
+        const tabId = created.createdTabId!;
+        for (const roleId of roleIds) {
+          browserRuntimeState.invokeBrowserRuntime({
+            type: "roleTransition",
+            roleId,
+            runtime: "embedded",
+            workspaceId: seeded.workspace.id,
+            tabId,
+            state: "launching"
+          });
+        }
+        const activated = browserRuntimeState.invokeBrowserRuntime({
+          type: "activateTab",
+          tabId
+        }).snapshot;
+        try {
+          await executeEmbedded({
+            type: "embeddedCreateTab",
+            tab: {
+              tabId,
+              sourceId: seeded.workspace.id,
+              name: seeded.workspace.name,
+              workspaceId: seeded.workspace.id,
+              workspaceTemplate: seeded.workspace.template,
+              workspaceAppearance: options.getWorkspaceAppearanceSettings
+                ? await options.getWorkspaceAppearanceSettings()
+                : { background: "material", gap: 4 },
+              target: command.target,
+              roles: seeded.items.map((item) => ({
+                role: item.role,
+                rect: item.rect,
+                zoomFactor: (
+                  item.browserZoomPercent ?? seeded.workspace.browserZoomPercent
+                ) / 100,
+                zoomMode: item.browserZoomPercent === undefined
+                  ? seeded.workspace.browserZoomMode
+                  : "fixed"
+              }))
+            }
+          });
+          await applyRuntime(
+            activated,
+            command.target,
+            [command.target.displayId],
+            undefined,
+            [command.target.displayId]
+          );
+          await executeEmbedded({
+            type: "embeddedConfigureRoleSessions",
+            roleIds
+          });
+          await executeEmbedded({
+            type: "embeddedLoadRoles",
+            roles: seeded.items.map((item) => ({
+              roleId: item.role.id,
+              url: item.role.launchUrl,
+              zoomFactor: (
+                item.browserZoomPercent ?? seeded.workspace.browserZoomPercent
+              ) / 100
+            }))
+          });
+          await executeEmbedded({
+            type: "embeddedInstallOverlays",
+            roleIds
+          });
+          await executeEmbedded({
+            type: "embeddedActivateResources",
+            tabId,
+            policy: seeded.workspace.resourcePolicy,
+            roleIds
+          });
+        } catch (error) {
+          await executeEmbedded({ type: "embeddedDestroyTab", tabId });
+          roleIds.forEach(removeRoleRuntime);
+          browserRuntimeState.invokeBrowserRuntime({
+            type: "removeWorkspace",
+            workspaceId: seeded.workspace.id
+          });
+          throw error;
+        }
+        const launchedAt = new Date().toISOString();
+        for (const roleId of roleIds) {
+          browserRuntimeState.invokeBrowserRuntime({
+            type: "roleTransition",
+            roleId,
+            runtime: "embedded",
+            workspaceId: seeded.workspace.id,
+            tabId,
+            state: "running",
+            launchedAt
+          });
+        }
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "setWorkspaceState",
+          workspaceId: seeded.workspace.id,
+          state: "running"
+        });
+        return roleIds.map((roleId) => ({
+          launchedAt,
+          roleId,
+          runtimeMode: "embedded",
+          state: "running"
+        }));
+      }
+      case "embeddedRoleStop": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const roleRuntime = snapshot.roles.find(({ roleId }) => roleId === command.roleId);
+        if (!roleRuntime?.tabId) return { stopped: true };
+        const tab = snapshot.tabs.find(({ id }) => id === roleRuntime.tabId);
+        if ((tab?.roleIds.length ?? 1) <= 1) {
+          const display = tab
+            ? snapshot.displays.find(({ displayId }) => displayId === tab.displayId)
+            : undefined;
+          const nextActiveTabId = display?.tabIds.find(
+            (tabId) => tabId !== roleRuntime.tabId &&
+              !snapshot.tabs.find(({ id }) => id === tabId)?.hidden
+          );
+          await executeEmbedded({
+            type: "embeddedDestroyTab",
+            tabId: roleRuntime.tabId,
+            nextActiveTabId
+          });
+        } else {
+          await executeEmbedded({ type: "embeddedDestroyRole", roleId: command.roleId });
+        }
+        removeRoleRuntime(command.roleId);
+        return { stopped: true };
+      }
+      case "embeddedWorkspaceStop": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const runtime = snapshot.workspaces.find(
+          ({ workspaceId }) => workspaceId === command.workspaceId
+        );
+        if (!runtime?.tabId) return { stopped: true };
+        const tab = snapshot.tabs.find(({ id }) => id === runtime.tabId);
+        const display = tab
+          ? snapshot.displays.find(({ displayId }) => displayId === tab.displayId)
+          : undefined;
+        const nextActiveTabId = display?.tabIds.find(
+          (tabId) => tabId !== runtime.tabId &&
+            !snapshot.tabs.find(({ id }) => id === tabId)?.hidden
+        );
+        await executeEmbedded({
+          type: "embeddedDestroyTab",
+          tabId: runtime.tabId,
+          nextActiveTabId
+        });
+        runtime.roleIds.forEach(removeRoleRuntime);
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "removeWorkspace",
+          workspaceId: command.workspaceId
+        });
+        return { stopped: true };
+      }
+      case "embeddedWindowsShow": {
+        const current = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const displayIds = command.displayId === undefined
+          ? current.displays.map(({ displayId }) => displayId)
+          : [command.displayId];
+        let snapshot = current;
+        for (const displayId of displayIds) {
+          snapshot = browserRuntimeState.invokeBrowserRuntime({
+            type: "showDisplay",
+            displayId
+          }).snapshot;
+        }
+        return applyRuntime(snapshot, undefined, displayIds, undefined, displayIds);
+      }
+      case "embeddedTabActivate": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({
+          type: "activateTab",
+          tabId: command.tabId
+        }).snapshot;
+        const displayId = snapshot.tabs.find(({ id }) => id === command.tabId)!.displayId;
+        return applyRuntime(
+          snapshot,
+          undefined,
+          [displayId],
+          command.tabId,
+          [displayId]
+        );
+      }
+      case "embeddedTabActivateAdjacent": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({
+          type: "activateAdjacentTab",
+          displayId: command.displayId,
+          direction: command.direction
+        }).snapshot;
+        const activeTabId = snapshot.displays.find(
+          ({ displayId }) => displayId === command.displayId
+        )?.activeTabId;
+        return applyRuntime(snapshot, undefined, [command.displayId], activeTabId);
+      }
+      case "embeddedTabHide":
+        return applyRuntime(browserRuntimeState.invokeBrowserRuntime({
+          type: "hideTab",
+          tabId: command.tabId
+        }).snapshot);
+      case "embeddedTabReorder":
+        return applyRuntime(browserRuntimeState.invokeBrowserRuntime({
+          type: "reorderTab",
+          tabId: command.tabId,
+          ...(command.beforeTabId ? { beforeTabId: command.beforeTabId } : {})
+        }).snapshot);
+      case "embeddedTabMove":
+        return applyRuntime(browserRuntimeState.invokeBrowserRuntime({
+          type: "moveTab",
+          tabId: command.tabId,
+          displayId: command.target.displayId
+        }).snapshot, command.target, [command.target.displayId], command.tabId, [
+          command.target.displayId
+        ]);
+      case "embeddedDisplayRemove":
+        return applyRuntime(browserRuntimeState.invokeBrowserRuntime({
+          type: "moveDisplayTabs",
+          sourceDisplayId: command.displayId,
+          targetDisplayId: command.fallback.displayId
+        }).snapshot, command.fallback, [command.fallback.displayId]);
+      default:
+        throw new Error(`Unexpected typed command in BrowserManager test: ${command.type}`);
+    }
+  });
+  const launch = manager.launch.bind(manager);
+  manager.launch = ((launchRole, launchOptions) => {
+    seededRoles.set(launchRole.id, launchRole);
+    return launch(launchRole, launchOptions);
+  }) as BrowserManager["launch"];
+  const launchWorkspace = manager.launchWorkspace.bind(manager);
+  manager.launchWorkspace = ((launchWorkspaceRecord, items, target, launchMode) => {
+    items.forEach(({ role: itemRole }) => seededRoles.set(itemRole.id, itemRole));
+    const normalizedRects = normalizeTestWorkspaceRects(items.map(({ rect }) => rect));
+    seededWorkspaces.set(launchWorkspaceRecord.id, {
+      items: items.map((item, index) => ({
+        ...item,
+        rect: normalizedRects[index]
+      })),
+      workspace: launchWorkspaceRecord
+    });
+    return launchWorkspace(launchWorkspaceRecord, items, target, launchMode);
+  }) as BrowserManager["launchWorkspace"];
   manager.setBeforeRolesStop(beforeRolesStop);
 
   return {

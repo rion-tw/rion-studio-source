@@ -346,6 +346,9 @@ fn run_operation(
                 }
             }
             Ok(result) => {
+                if let Some(compensation) = step.compensation {
+                    compensations.push(compensation);
+                }
                 failure = result.error.clone().or_else(|| {
                     Some(CoreErrorPayload {
                         code: "CORE_EFFECT_FAILED".to_owned(),
@@ -356,6 +359,9 @@ fn run_operation(
                 break;
             }
             Err(error) => {
+                if let Some(compensation) = step.compensation {
+                    compensations.push(compensation);
+                }
                 failure = Some(error.payload());
                 break;
             }

@@ -349,6 +349,65 @@ pub enum CoreCommand {
         operation_id: String,
     },
     CoreEffectMetrics,
+    EmbeddedRoleLaunch {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        target: EmbeddedLaunchTargetRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "zoomFactor")]
+        zoom_factor: Option<f64>,
+    },
+    EmbeddedWorkspaceLaunch {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        target: EmbeddedLaunchTargetRecord,
+    },
+    EmbeddedRoleStop {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    EmbeddedWorkspaceStop {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+    },
+    EmbeddedWindowsShow {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "displayId", type = "number")]
+        display_id: Option<i64>,
+    },
+    EmbeddedTabActivate {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+    },
+    EmbeddedTabActivateAdjacent {
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+        #[ts(type = "\"next\" | \"previous\"")]
+        direction: String,
+    },
+    EmbeddedTabHide {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+    },
+    EmbeddedTabReorder {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "beforeTabId")]
+        before_tab_id: Option<String>,
+    },
+    EmbeddedTabMove {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        target: EmbeddedLaunchTargetRecord,
+    },
+    EmbeddedDisplayRemove {
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+        fallback: EmbeddedLaunchTargetRecord,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2693,20 +2752,90 @@ pub struct CoreEffectTarget {
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreEffectAction {
-    CreateWindow { options_json: String },
-    CreateView { options_json: String },
-    AttachView { child_handle_id: String },
-    DetachView { child_handle_id: String },
+    CreateWindow {
+        options_json: String,
+    },
+    CreateView {
+        options_json: String,
+    },
+    AttachView {
+        child_handle_id: String,
+    },
+    DetachView {
+        child_handle_id: String,
+    },
     Destroy,
-    LoadUrl { url: String },
-    SetBounds { bounds: StatePixelBoundsRecord },
-    SetVisible { visible: bool },
+    LoadUrl {
+        url: String,
+    },
+    SetBounds {
+        bounds: StatePixelBoundsRecord,
+    },
+    SetVisible {
+        visible: bool,
+    },
     Focus,
-    Evaluate { source: String },
-    DebuggerCommand { method: String, params_json: String },
-    SessionClearStorage { storages: Vec<String> },
-    CookieSet { cookie_json: String },
-    SetAudioMuted { muted: bool },
+    Evaluate {
+        source: String,
+    },
+    DebuggerCommand {
+        method: String,
+        params_json: String,
+    },
+    SessionClearStorage {
+        storages: Vec<String>,
+    },
+    CookieSet {
+        cookie_json: String,
+    },
+    SetAudioMuted {
+        muted: bool,
+    },
+    EmbeddedCreateTab {
+        tab: Box<EmbeddedTabEffectRecord>,
+    },
+    EmbeddedConfigureRoleSessions {
+        role_ids: Vec<String>,
+    },
+    EmbeddedLoadRoles {
+        roles: Vec<EmbeddedRoleLoadEffectRecord>,
+    },
+    EmbeddedInstallOverlays {
+        role_ids: Vec<String>,
+    },
+    EmbeddedActivateResources {
+        tab_id: String,
+        policy: StateWorkspaceResourcePolicyRecord,
+        role_ids: Vec<String>,
+    },
+    EmbeddedFocusRole {
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        zoom_factor: Option<f64>,
+    },
+    EmbeddedDestroyRole {
+        role_id: String,
+    },
+    EmbeddedDestroyTab {
+        tab_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next_active_tab_id: Option<String>,
+    },
+    EmbeddedApplyRuntime {
+        snapshot: BrowserRuntimeSnapshot,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        target: Option<EmbeddedLaunchTargetRecord>,
+        #[serde(default)]
+        #[ts(rename = "revealDisplayIds", type = "Array<number>")]
+        reveal_display_ids: Vec<i64>,
+        #[serde(default)]
+        #[ts(rename = "focusWindowDisplayIds", type = "Array<number>")]
+        focus_window_display_ids: Vec<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "focusTabId")]
+        focus_tab_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2758,6 +2887,65 @@ pub struct CoreEffectMetricsRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct OperationCancelResultRecord {
     pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedLaunchTargetRecord {
+    #[ts(type = "number")]
+    pub display_id: i64,
+    pub work_area: StatePixelBoundsRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedRoleViewEffectRecord {
+    pub role: StateRoleRecord,
+    pub rect: StateNormalizedRectRecord,
+    pub zoom_factor: f64,
+    #[ts(type = "\"adaptive\" | \"fixed\"")]
+    pub zoom_mode: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedRoleLoadEffectRecord {
+    pub role_id: String,
+    pub url: String,
+    pub zoom_factor: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedTabEffectRecord {
+    pub tab_id: String,
+    pub source_id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_template: Option<String>,
+    pub workspace_appearance: WorkspaceAppearanceSettingsRecord,
+    pub target: EmbeddedLaunchTargetRecord,
+    pub roles: Vec<EmbeddedRoleViewEffectRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedLaunchResultRecord {
+    pub role_id: String,
+    #[ts(type = "\"running\"")]
+    pub state: String,
+    pub launched_at: String,
+    #[ts(type = "\"embedded\"")]
+    pub runtime_mode: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

@@ -1147,10 +1147,13 @@ async function initializeApplication(): Promise<void> {
       workspaceLauncher,
       browserManager: runtimeManager,
       canUseApp: () => legalAcceptanceStore.isAccepted(),
+      getWorkspaceDisplays: getWorkspaceDisplayInfos,
       includeQuit: process.platform === "win32",
       onWorkspaceDisplaySelectionRequired: requestWorkspaceDisplaySelection,
       openApp: showMainWindow,
+      platform: process.platform,
       recordRefresh: () => coreClient.recordMenuRefresh(),
+      ...(process.platform === "darwin" ? { systemVersion: process.getSystemVersion() } : {}),
       ...(process.platform === "win32" ? { quitApp: () => app.quit() } : {}),
       setMenu: setQuickMenu
     });

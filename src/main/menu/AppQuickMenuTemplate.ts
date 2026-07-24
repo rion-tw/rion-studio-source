@@ -4,16 +4,20 @@ import type {
   EmbeddedRuntimeWindowSummary,
   LaunchWorkspace,
   Role,
-  RoleStatus
+  RoleStatus,
+  WorkspaceDisplayInfo
 } from "../../shared/types";
 import type { BrowserWorkspaceRuntimeStatus } from "../browser/ElectronBrowserRuntime";
 
 export interface AppQuickMenuState {
   includeQuit: boolean;
   legalAccepted: boolean;
+  platform: NodeJS.Platform;
   roles: Role[];
   runtimeWindows: EmbeddedRuntimeWindowSummary[];
   statuses: RoleStatus[];
+  systemVersion?: string;
+  workspaceDisplays: WorkspaceDisplayInfo[];
   workspaces: LaunchWorkspace[];
   workspaceStatuses: BrowserWorkspaceRuntimeStatus[];
 }
@@ -38,31 +42,25 @@ export function buildAppQuickMenuTemplate(
   const workspaceStatusById = new Map(
     state.workspaceStatuses.map((status) => [status.workspaceId, status])
   );
+  const displayLabelById = new Map(
+    state.workspaceDisplays.map((display) => [display.id, display.label.trim()])
+  );
+  const gameWindowItems = state.runtimeWindows.length > 0
+    ? [
+        buildGameWindowsHeader(state.platform, state.systemVersion),
+        ...state.runtimeWindows.map((window) => {
+          const displayLabel = displayLabelById.get(window.displayId) || `Display ${window.displayId}`;
+          return {
+            label: `${displayLabel} · ${window.tabCount} tab${window.tabCount === 1 ? "" : "s"}`,
+            sublabel: window.visible ? "Visible" : "Hidden",
+            click: () => actions.showGameWindow(window.displayId)
+          };
+        }),
+        { type: "separator" as const }
+      ]
+    : [];
   const template: MenuItemConstructorOptions[] = [
-    {
-      label: "Open Rion Studio",
-      click: actions.openApp
-    },
-    ...(state.runtimeWindows.length > 0
-      ? [
-          {
-            label: "Game Windows",
-            submenu: [
-              {
-                label: "Show All Game Windows",
-                click: actions.showAllGameWindows
-              },
-              { type: "separator" as const },
-              ...state.runtimeWindows.map((window) => ({
-                label: `Display ${window.displayId} · ${window.tabCount} tab${window.tabCount === 1 ? "" : "s"}`,
-                sublabel: window.visible ? "Visible" : "Hidden",
-                click: () => actions.showGameWindow(window.displayId)
-              }))
-            ]
-          } satisfies MenuItemConstructorOptions
-        ]
-      : []),
-    { type: "separator" },
+    ...gameWindowItems,
     ...(!state.legalAccepted
       ? [
           {
@@ -104,13 +102,21 @@ export function buildAppQuickMenuTemplate(
     }
   ];
 
-  if (state.statuses.length > 0) {
+  if (state.runtimeWindows.length > 0 || state.statuses.length > 0) {
     template.push(
       { type: "separator" },
-      {
-        label: "Stop All Running Roles",
-        click: actions.stopAll
-      }
+      ...(state.runtimeWindows.length > 0
+        ? [{
+            label: "Show All Game Windows",
+            click: actions.showAllGameWindows
+          }]
+        : []),
+      ...(state.statuses.length > 0
+        ? [{
+            label: "Stop All Running Roles",
+            click: actions.stopAll
+          }]
+        : [])
     );
   }
 
@@ -125,6 +131,32 @@ export function buildAppQuickMenuTemplate(
   }
 
   return template;
+}
+
+function buildGameWindowsHeader(
+  platform: NodeJS.Platform,
+  systemVersion: string | undefined
+): MenuItemConstructorOptions {
+  if (supportsNativeMenuHeaders(platform, systemVersion)) {
+    return {
+      label: "Game Windows",
+      type: "header"
+    };
+  }
+
+  return {
+    label: "Game Windows",
+    enabled: false
+  };
+}
+
+function supportsNativeMenuHeaders(
+  platform: NodeJS.Platform,
+  systemVersion: string | undefined
+): boolean {
+  if (platform !== "darwin" || !systemVersion) return false;
+  const majorVersion = Number.parseInt(systemVersion.split(".")[0], 10);
+  return Number.isFinite(majorVersion) && majorVersion >= 14;
 }
 
 function buildWorkspaceMenuItem(

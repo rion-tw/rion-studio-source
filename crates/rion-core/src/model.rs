@@ -1980,6 +1980,9 @@ pub struct CoreStateSnapshotRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub legal_acceptance: Option<LegalAcceptanceRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub log_level: Option<LogLevel>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]

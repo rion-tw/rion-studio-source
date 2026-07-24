@@ -880,7 +880,7 @@
   "settings.logsClearTitle": "要清除應用程式日誌嗎？",
   "settings.logsClearDescription": "現有本機日誌紀錄將被移除，系統會新增一筆日誌記錄這次清除操作。",
   "settings.logsLevel": "記錄等級",
-  "settings.logsLevelDescription": "Debug 僅套用至 Rion Studio 重新啟動。",
+  "settings.logsLevelDescription": "記錄等級會儲存，並在 Rion Studio 重新啟動後還原。",
   "settings.logsViewer": "日誌檢視器",
   "settings.logsRefresh": "重新整理",
   "settings.logsSearch": "搜尋訊息與內容",

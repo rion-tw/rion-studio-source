@@ -26,7 +26,7 @@ use crate::domain::{
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
-    GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
+    GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord, LogLevel,
     MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition, MacroRuntimeSettings,
     MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord, RoleGameAssignmentRecord,
     RoleUpdateInputRecord, RuntimeWindowPreferencesRecord, StateCollection,
@@ -1397,6 +1397,27 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .commit()
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    repair_optional_log_level(connection)?;
+    Ok(())
+}
+
+fn repair_optional_log_level(connection: &Connection) -> CoreResult<()> {
+    let payload = connection
+        .query_row(
+            "SELECT payload_json FROM settings WHERE key='logLevel'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    if payload
+        .as_deref()
+        .is_some_and(|payload| serde_json::from_str::<LogLevel>(payload).is_err())
+    {
+        connection
+            .execute("DELETE FROM settings WHERE key='logLevel'", [])
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     Ok(())
 }
 
@@ -1558,7 +1579,7 @@ fn read_scalar(connection: &Connection, key: &str) -> CoreResult<Option<Value>> 
             .optional()
     } else if matches!(
         key,
-        "gameBrowserSettings" | "macroSettings" | "runtimeWindowPreferences"
+        "gameBrowserSettings" | "macroSettings" | "runtimeWindowPreferences" | "logLevel"
     ) {
         connection
             .query_row(
@@ -1665,7 +1686,11 @@ fn replace_snapshot_if_changed(
 fn replace_scalar(connection: &mut Connection, key: &str, value: Value) -> CoreResult<u64> {
     if !matches!(
         key,
-        "gameBrowserSettings" | "macroSettings" | "runtimeWindowPreferences" | "legalAcceptance"
+        "gameBrowserSettings"
+            | "macroSettings"
+            | "runtimeWindowPreferences"
+            | "legalAcceptance"
+            | "logLevel"
     ) {
         return Err(CoreError::InvalidInput(format!(
             "scalar state key is invalid: {key}"
@@ -1801,6 +1826,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
         "gameBrowserSettings",
         "macroSettings",
         "runtimeWindowPreferences",
+        "logLevel",
     ] {
         if let Some(value) = object.get(key) {
             transaction
@@ -2484,7 +2510,8 @@ mod tests {
           "roles": [{"id":"r1","gameId":"g1","name":"Role"}],
           "launchWorkspaces": [{"id":"w1","name":"Workspace","slots":[{"id":"s1","roleId":"r1"}]}],
           "macros": [{"id":"m1","name":"Macro","roleIds":["r1"],"steps":[]}],
-          "compatibilityReports": []
+          "compatibilityReports": [],
+          "logLevel": "debug"
         });
         replace_snapshot(&mut connection, &snapshot).unwrap();
         assert_eq!(read_snapshot(&connection).unwrap(), snapshot);

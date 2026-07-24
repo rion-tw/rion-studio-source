@@ -58,6 +58,8 @@ const EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE: &str =
 const EXTERNAL_DIAGNOSTICS_BINDING: &str = "rionStudioExternalDiagnostics";
 const EXTERNAL_OVERLAY_BINDING: &str = "rionStudioMacroOverlay";
 const EXTERNAL_OVERLAY_BRIDGE_KEY: &str = "__rionStudioExternalMacroBridge";
+const EXTERNAL_OVERLAY_UNAVAILABLE_NOTICE: &str =
+    "Chrome in-page macro shortcuts are unavailable, but macros can still be run from Rion Studio.";
 const EXTERNAL_PAGE_UNRESPONSIVE_NOTICE: &str =
     "The external Chrome game page stopped responding. Capture diagnostics or restart this role.";
 const EXTERNAL_ZOOM_UNAVAILABLE_NOTICE: &str =
@@ -3239,6 +3241,9 @@ impl AppCore {
                     .await
                 {
                     let _ = self.external_automation.unregister(&role.id);
+                    session_notice = self
+                        .external_session(&role.id)?
+                        .and_then(|session| session.notice);
                     session_notice = append_external_notice(
                         session_notice,
                         EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE,
@@ -3254,6 +3259,9 @@ impl AppCore {
                     })?;
                     let _ = error;
                 } else {
+                    session_notice = self
+                        .external_session(&role.id)?
+                        .and_then(|session| session.notice);
                     if cdn_enabled {
                         session_notice = append_external_notice(
                             session_notice,
@@ -3323,19 +3331,91 @@ impl AppCore {
         session: Arc<crate::ExternalChromeCdpSession>,
     ) -> CoreResult<()> {
         let events = session.take_events()?;
+        let weak = Arc::downgrade(self);
+        let role_id = role_id.to_owned();
+        let event_role_id = role_id.clone();
+        let event_session = Arc::clone(&session);
+        let runtime_handle = tokio::runtime::Handle::current();
+        std::thread::Builder::new()
+            .name(format!("rion-external-events-{role_id}"))
+            .spawn(move || {
+                while let Ok(event) = events.recv() {
+                    let Some(core) = weak.upgrade() else {
+                        break;
+                    };
+                    let role_id = event_role_id.clone();
+                    let session = Arc::clone(&event_session);
+                    let concurrent = matches!(
+                        &event,
+                        crate::external_chrome::CdpEvent::Notification { method, .. }
+                            if method == "Runtime.bindingCalled"
+                    );
+                    if concurrent {
+                        runtime_handle.spawn(async move {
+                            core.handle_external_cdp_event(&role_id, &session, event)
+                                .await;
+                        });
+                    } else {
+                        runtime_handle.block_on(async move {
+                            core.handle_external_cdp_event(&role_id, &session, event)
+                                .await;
+                        });
+                    }
+                }
+            })
+            .map_err(|error| CoreError::Internal(error.to_string()))?;
+
+        self.enable_external_automation_domains(&session).await?;
+        let source = match self
+            .request_core_effect(
+                &role_id,
+                CoreEffectAction::ExternalOverlaySource {
+                    role_id: role_id.clone(),
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .and_then(|result| effect_value::<String>(&result))
+        {
+            Ok(source) => source,
+            Err(_) => {
+                self.set_external_overlay_state(
+                    &role_id,
+                    false,
+                    "source",
+                    Some("EXTERNAL_OVERLAY_SOURCE_UNAVAILABLE"),
+                );
+                return Ok(());
+            }
+        };
+        let expression = format!("{};\n{source}", external_overlay_bridge_source());
+        self.external_automation
+            .set_overlay_source(&role_id, expression.clone())?;
+        if self
+            .register_external_overlay_scripts(&session, &expression)
+            .await
+            .is_err()
+        {
+            self.set_external_overlay_state(
+                &role_id,
+                false,
+                "registration",
+                Some("EXTERNAL_OVERLAY_REGISTRATION_FAILED"),
+            );
+        }
+        self.retry_external_overlay_injection(role_id, session, expression, "injection");
+        Ok(())
+    }
+
+    async fn enable_external_automation_domains(
+        &self,
+        session: &crate::ExternalChromeCdpSession,
+    ) -> CoreResult<()> {
         session
             .send("Page.enable".to_owned(), None, None, None)
             .await?;
         session
             .send("Runtime.enable".to_owned(), None, None, None)
-            .await?;
-        session
-            .send(
-                "Runtime.addBinding".to_owned(),
-                Some(json!({"name":EXTERNAL_OVERLAY_BINDING})),
-                None,
-                None,
-            )
             .await?;
         let _ = session
             .send(
@@ -3368,71 +3448,121 @@ impl AppCore {
                 .send(
                     "Runtime.evaluate".to_owned(),
                     Some(json!({"expression":diagnostics_source})),
-                    None,
+                    Some(Duration::from_millis(500)),
                     None,
                 )
                 .await;
         }
-        self.install_external_overlay(role_id, &session).await;
-
-        let weak = Arc::downgrade(self);
-        let role_id = role_id.to_owned();
-        let runtime_handle = tokio::runtime::Handle::current();
-        std::thread::Builder::new()
-            .name(format!("rion-external-events-{role_id}"))
-            .spawn(move || {
-                while let Ok(event) = events.recv() {
-                    let Some(core) = weak.upgrade() else {
-                        break;
-                    };
-                    let role_id = role_id.clone();
-                    let session = Arc::clone(&session);
-                    runtime_handle.spawn(async move {
-                        core.handle_external_cdp_event(&role_id, &session, event)
-                            .await;
-                    });
-                }
-            })
-            .map_err(|error| CoreError::Internal(error.to_string()))?;
         Ok(())
     }
 
-    async fn install_external_overlay(
-        self: &Arc<Self>,
-        role_id: &str,
+    async fn register_external_overlay_scripts(
+        &self,
         session: &crate::ExternalChromeCdpSession,
-    ) {
-        let Ok(source_result) = self
-            .request_core_effect(
-                role_id,
-                CoreEffectAction::ExternalOverlaySource {
-                    role_id: role_id.to_owned(),
-                },
-                Duration::from_secs(5),
-            )
-            .await
-        else {
-            return;
-        };
-        let Ok(source) = effect_value::<String>(&source_result) else {
-            return;
-        };
-        let bootstrap = external_overlay_bridge_source();
-        let expression = format!("{bootstrap}\n{source}");
-        let _ = session
+        expression: &str,
+    ) -> CoreResult<()> {
+        session
             .send(
-                "Runtime.evaluate".to_owned(),
-                Some(json!({"expression":expression})),
-                Some(Duration::from_secs(5)),
+                "Runtime.addBinding".to_owned(),
+                Some(json!({"name":EXTERNAL_OVERLAY_BINDING})),
+                None,
                 None,
             )
-            .await;
+            .await?;
+        session
+            .send(
+                "Page.addScriptToEvaluateOnNewDocument".to_owned(),
+                Some(json!({"source":expression})),
+                None,
+                None,
+            )
+            .await?;
+        Ok(())
+    }
+
+    fn retry_external_overlay_injection(
+        self: &Arc<Self>,
+        role_id: String,
+        session: Arc<crate::ExternalChromeCdpSession>,
+        expression: String,
+        stage: &'static str,
+    ) {
+        let core = Arc::clone(self);
+        tokio::spawn(async move {
+            let delays = [0_u64, 100, 500, 1_500, 3_000];
+            let mut previous = 0;
+            for delay in delays {
+                if delay > previous {
+                    tokio::time::sleep(Duration::from_millis(delay - previous)).await;
+                }
+                previous = delay;
+                if core.external_session(&role_id).ok().flatten().is_none() {
+                    return;
+                }
+                if external_overlay_evaluate(&session, &expression, None).await {
+                    let context_ids = core
+                        .external_automation
+                        .execution_context_ids(&role_id)
+                        .unwrap_or_default();
+                    join_all(context_ids.into_iter().map(|context_id| {
+                        external_overlay_evaluate(&session, &expression, Some(context_id))
+                    }))
+                    .await;
+                    core.set_external_overlay_state(&role_id, true, stage, None);
+                    return;
+                }
+            }
+            core.set_external_overlay_state(
+                &role_id,
+                false,
+                stage,
+                Some("EXTERNAL_OVERLAY_INJECTION_FAILED"),
+            );
+        });
+    }
+
+    fn set_external_overlay_state(
+        &self,
+        role_id: &str,
+        available: bool,
+        stage: &str,
+        error_code: Option<&str>,
+    ) {
+        let Ok(Some(session)) = self.external_session(role_id) else {
+            return;
+        };
+        let notice = if available {
+            remove_external_notice(session.notice, EXTERNAL_OVERLAY_UNAVAILABLE_NOTICE)
+        } else {
+            append_external_notice(session.notice, EXTERNAL_OVERLAY_UNAVAILABLE_NOTICE)
+        };
+        let _ = self.invoke_external_session(ExternalSessionCommand::SetOverlay {
+            role_id: role_id.to_owned(),
+            available,
+        });
+        let _ = self.invoke_external_session(ExternalSessionCommand::SetNotice {
+            role_id: role_id.to_owned(),
+            notice,
+        });
+        self.emit(vec![
+            CoreEvent::ExternalOverlayStateChanged {
+                role_id: role_id.to_owned(),
+                state: if available { "ready" } else { "unavailable" }.to_owned(),
+                stage: stage.to_owned(),
+                error_code: error_code.map(str::to_owned),
+                error_message: error_code
+                    .map(|_| "External Chrome overlay initialization did not complete.".to_owned()),
+            },
+            CoreEvent::BrowserStatuses {
+                statuses: self.browser_statuses().unwrap_or_default(),
+            },
+        ]);
     }
 
     async fn handle_external_cdp_event(
         self: &Arc<Self>,
         role_id: &str,
-        session: &crate::ExternalChromeCdpSession,
+        session: &Arc<crate::ExternalChromeCdpSession>,
         event: crate::external_chrome::CdpEvent,
     ) {
         if let crate::external_chrome::CdpEvent::Notification { method, params, .. } = &event {
@@ -3454,15 +3584,87 @@ impl AppCore {
                 let _ = self.macro_runtime.stop_role(role_id);
                 self.emit_browser_statuses();
             }
+            crate::external_chrome::CdpEvent::Reconnected => {
+                self.set_external_overlay_state(role_id, false, "reconnect", None);
+                let _ = self.external_automation.reset_execution_contexts(role_id);
+                let current = self.external_session(role_id).ok().flatten();
+                if self
+                    .enable_external_automation_domains(session)
+                    .await
+                    .is_err()
+                {
+                    let _ = self.invoke_external_session(ExternalSessionCommand::SetAutomation {
+                        role_id: role_id.to_owned(),
+                        available: false,
+                        cdn_active: false,
+                    });
+                    self.set_external_overlay_state(
+                        role_id,
+                        false,
+                        "reconnect",
+                        Some("EXTERNAL_AUTOMATION_RECONNECT_FAILED"),
+                    );
+                    return;
+                }
+                let _ = self.invoke_external_session(ExternalSessionCommand::SetAutomation {
+                    role_id: role_id.to_owned(),
+                    available: true,
+                    cdn_active: current.as_ref().is_some_and(|session| session.cdn_active),
+                });
+                let _ = self
+                    .external_health()
+                    .and_then(|health| health.register(role_id.to_owned()));
+                let source = self
+                    .external_automation
+                    .overlay_source(role_id)
+                    .ok()
+                    .flatten();
+                let Some(source) = source else {
+                    self.set_external_overlay_state(
+                        role_id,
+                        false,
+                        "source",
+                        Some("EXTERNAL_OVERLAY_SOURCE_UNAVAILABLE"),
+                    );
+                    return;
+                };
+                if self
+                    .register_external_overlay_scripts(session, &source)
+                    .await
+                    .is_err()
+                {
+                    self.set_external_overlay_state(
+                        role_id,
+                        false,
+                        "registration",
+                        Some("EXTERNAL_OVERLAY_REGISTRATION_FAILED"),
+                    );
+                }
+                self.retry_external_overlay_injection(
+                    role_id.to_owned(),
+                    Arc::clone(session),
+                    source,
+                    "reconnect",
+                );
+            }
             crate::external_chrome::CdpEvent::Notification { method, params, .. }
                 if is_main_frame_navigation(&method, params.as_ref()) =>
             {
                 let _ = self.macro_runtime.release_role(role_id);
-                self.install_external_overlay(role_id, session).await;
+                if let Ok(Some(source)) = self.external_automation.overlay_source(role_id) {
+                    self.retry_external_overlay_injection(
+                        role_id.to_owned(),
+                        Arc::clone(session),
+                        source,
+                        "injection",
+                    );
+                }
             }
-            crate::external_chrome::CdpEvent::Notification { method, params, .. }
-                if method == "Runtime.bindingCalled" =>
-            {
+            crate::external_chrome::CdpEvent::Notification {
+                method,
+                params,
+                session_id,
+            } if method == "Runtime.bindingCalled" => {
                 let binding_name = params
                     .as_ref()
                     .and_then(|value| value.get("name"))
@@ -3494,6 +3696,9 @@ impl AppCore {
                         .and_then(|health| health.heartbeat(role_id.to_owned(), page_hidden));
                     return;
                 }
+                if binding_name != Some(EXTERNAL_OVERLAY_BINDING) {
+                    return;
+                }
                 let Some(payload) = params
                     .as_ref()
                     .and_then(|value| value.get("payload"))
@@ -3504,9 +3709,17 @@ impl AppCore {
                 let Ok(envelope) = serde_json::from_str::<Value>(payload) else {
                     return;
                 };
-                let Some(request_id) = envelope.get("id").and_then(Value::as_str) else {
+                let Some(request_id) = envelope
+                    .get("id")
+                    .filter(|id| id.is_number() || id.is_string())
+                    .cloned()
+                else {
                     return;
                 };
+                let execution_context_id = params
+                    .as_ref()
+                    .and_then(|value| value.get("executionContextId"))
+                    .and_then(Value::as_i64);
                 let request_json = envelope
                     .get("request")
                     .cloned()
@@ -3526,20 +3739,23 @@ impl AppCore {
                             .unwrap_or_else(|_| "\"Overlay request failed.\"".to_owned()),
                     ),
                 };
-                let request_id =
-                    serde_json::to_string(request_id).unwrap_or_else(|_| "\"invalid\"".to_owned());
+                let request_id = request_id.to_string();
                 let expression = format!(
                     "window[{bridge}]?.resolve({request_id},{ok},{value});",
                     bridge = serde_json::to_string(EXTERNAL_OVERLAY_BRIDGE_KEY)
                         .expect("bridge key is valid JSON"),
                     value = value_json
                 );
+                let mut evaluate_params = json!({"expression":expression});
+                if let Some(context_id) = execution_context_id {
+                    evaluate_params["contextId"] = Value::from(context_id);
+                }
                 let _ = session
                     .send(
                         "Runtime.evaluate".to_owned(),
-                        Some(json!({"expression":expression})),
+                        Some(evaluate_params),
                         None,
-                        None,
+                        session_id,
                     )
                     .await;
             }
@@ -5598,6 +5814,7 @@ fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserR
         notice: None,
         runtime_mode: result.runtime_mode,
         automation_state: None,
+        overlay_state: None,
         page_health: None,
         resource_state: None,
         cpu_throttle_rate: None,
@@ -5615,6 +5832,13 @@ fn external_status(session: &ExternalSessionRecord) -> crate::model::BrowserRole
         runtime_mode: "external".to_owned(),
         automation_state: (session.state == "running").then(|| {
             if session.automation_available {
+                "ready".to_owned()
+            } else {
+                "unavailable".to_owned()
+            }
+        }),
+        overlay_state: (session.state == "running").then(|| {
+            if session.overlay_available {
                 "ready".to_owned()
             } else {
                 "unavailable".to_owned()
@@ -5714,6 +5938,37 @@ fn external_overlay_bridge_source() -> String {
             serde_json::to_string(EXTERNAL_OVERLAY_BINDING).expect("overlay binding is valid JSON"),
         bridge = serde_json::to_string(EXTERNAL_OVERLAY_BRIDGE_KEY)
             .expect("overlay bridge key is valid JSON"),
+    )
+}
+
+async fn external_overlay_evaluate(
+    session: &crate::ExternalChromeCdpSession,
+    expression: &str,
+    context_id: Option<i64>,
+) -> bool {
+    let expression =
+        format!("(() => {{\n{expression}\nreturn Boolean(window.__rionStudioMacroOverlay);\n}})()");
+    let mut params = json!({
+        "expression": expression,
+        "returnByValue": true
+    });
+    if let Some(context_id) = context_id {
+        params["contextId"] = Value::from(context_id);
+    }
+    matches!(
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            session.send(
+                "Runtime.evaluate".to_owned(),
+                Some(params),
+                Some(Duration::from_millis(750)),
+                None,
+            ),
+        )
+        .await,
+        Ok(Ok(result))
+            if result.get("exceptionDetails").is_none()
+                && result.pointer("/result/value").and_then(Value::as_bool) == Some(true)
     )
 }
 
@@ -7537,6 +7792,205 @@ mod tests {
             assert!(!installed.contains("style.setProperty(\"zoom\""));
             assert!(!installed.contains("visualViewport?.width"));
         });
+    }
+
+    #[tokio::test]
+    async fn external_overlay_registration_and_evaluation_detect_protocol_exceptions() {
+        let (_directory, core) = core();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let session = Arc::new(crate::ExternalChromeCdpSession::test_session_with_handler(
+            move |method, params| {
+                output
+                    .lock()
+                    .unwrap()
+                    .push((method.to_owned(), params.cloned()));
+                Ok(if method == "Runtime.evaluate" {
+                    json!({
+                        "exceptionDetails":{"text":"ReferenceError"},
+                        "result":{"value":true}
+                    })
+                } else {
+                    json!({})
+                })
+            },
+        ));
+        core.register_external_overlay_scripts(&session, "window.testOverlay = true")
+            .await
+            .unwrap();
+        assert!(!external_overlay_evaluate(&session, "window.testOverlay = true", Some(9)).await);
+        let calls = calls.lock().unwrap();
+        assert!(calls.iter().any(|(method, params)| {
+            method == "Runtime.addBinding"
+                && params.as_ref().and_then(|value| value.get("name"))
+                    == Some(&json!(EXTERNAL_OVERLAY_BINDING))
+        }));
+        assert!(calls.iter().any(|(method, params)| {
+            method == "Page.addScriptToEvaluateOnNewDocument"
+                && params
+                    .as_ref()
+                    .and_then(|value| value.get("source"))
+                    .and_then(Value::as_str)
+                    == Some("window.testOverlay = true")
+        }));
+        assert!(calls.iter().any(|(method, params)| {
+            method == "Runtime.evaluate"
+                && params.as_ref().and_then(|value| value.get("contextId")) == Some(&json!(9))
+        }));
+        drop(calls);
+        core.shutdown();
+    }
+
+    #[tokio::test]
+    async fn external_overlay_binding_replies_in_the_originating_iframe_context() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let session = Arc::new(
+            crate::ExternalChromeCdpSession::test_session_with_full_handler(
+                move |method, params, session_id| {
+                    output.lock().unwrap().push((
+                        method.to_owned(),
+                        params.cloned(),
+                        session_id.map(str::to_owned),
+                    ));
+                    Ok(json!({}))
+                },
+            ),
+        );
+        core.handle_external_cdp_event(
+            &role_id,
+            &session,
+            crate::external_chrome::CdpEvent::Notification {
+                method: "Runtime.bindingCalled".to_owned(),
+                params: Some(json!({
+                    "name":EXTERNAL_OVERLAY_BINDING,
+                    "payload":json!({"id":7,"request":{"type":"list"}}).to_string(),
+                    "executionContextId":42
+                })),
+                session_id: Some("child-session".to_owned()),
+            },
+        )
+        .await;
+        let calls = calls.lock().unwrap();
+        let reply = calls
+            .iter()
+            .find(|(method, _, _)| method == "Runtime.evaluate")
+            .unwrap();
+        assert_eq!(
+            reply.1.as_ref().and_then(|value| value.get("contextId")),
+            Some(&json!(42))
+        );
+        assert_eq!(reply.2.as_deref(), Some("child-session"));
+        assert!(
+            reply
+                .1
+                .as_ref()
+                .and_then(|value| value.get("expression"))
+                .and_then(Value::as_str)
+                .is_some_and(|source| source.contains("resolve(7,true"))
+        );
+        drop(calls);
+        core.shutdown();
+    }
+
+    #[tokio::test]
+    async fn external_reconnect_rebuilds_domains_bindings_scripts_and_current_overlay() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let role = core
+            .invoke(CoreCommand::RolesList)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|role| role["id"] == role_id)
+            .cloned()
+            .map(serde_json::from_value::<StateRoleRecord>)
+            .unwrap()
+            .unwrap();
+        core.invoke_external_session(ExternalSessionCommand::Begin {
+            role,
+            bounds: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+            },
+            physical_bounds: None,
+            workspace_id: None,
+            notice: None,
+            zoom_factor: 1.0,
+        })
+        .unwrap();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let session = Arc::new(crate::ExternalChromeCdpSession::test_session_with_handler(
+            move |method, params| {
+                output
+                    .lock()
+                    .unwrap()
+                    .push((method.to_owned(), params.cloned()));
+                Ok(if method == "Runtime.evaluate" {
+                    json!({"result":{"value":true}})
+                } else {
+                    json!({})
+                })
+            },
+        ));
+        core.external_automation
+            .register(role_id.clone(), Arc::clone(&session))
+            .unwrap();
+        core.external_automation
+            .set_overlay_source(
+                &role_id,
+                "window.__rionStudioMacroOverlay = { refresh() {} };".to_owned(),
+            )
+            .unwrap();
+
+        core.handle_external_cdp_event(
+            &role_id,
+            &session,
+            crate::external_chrome::CdpEvent::Reconnected,
+        )
+        .await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if core
+                    .external_session(&role_id)
+                    .unwrap()
+                    .is_some_and(|session| session.overlay_available)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let calls = calls.lock().unwrap();
+        let methods = calls
+            .iter()
+            .map(|(method, _)| method.as_str())
+            .collect::<Vec<_>>();
+        assert!(methods.contains(&"Page.enable"));
+        assert!(methods.contains(&"Runtime.enable"));
+        assert!(calls.iter().any(|(method, params)| {
+            method == "Runtime.addBinding"
+                && params.as_ref().and_then(|value| value.get("name"))
+                    == Some(&json!(EXTERNAL_OVERLAY_BINDING))
+        }));
+        assert!(calls.iter().any(|(method, params)| {
+            method == "Page.addScriptToEvaluateOnNewDocument"
+                && params
+                    .as_ref()
+                    .and_then(|value| value.get("source"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|source| source.contains("__rionStudioMacroOverlay"))
+        }));
+        drop(calls);
+        core.shutdown();
     }
 
     #[test]

@@ -30,6 +30,7 @@ export function createExternalSessionState() {
             zoomFactor: command.zoomFactor,
             state: "launching",
             automationAvailable: false,
+            overlayAvailable: false,
             cdnActive: false,
             pageHidden: false
           });
@@ -47,7 +48,14 @@ export function createExternalSessionState() {
           const session = get(command.roleId);
           session.automationAvailable = command.available;
           session.cdnActive = command.available && command.cdnActive;
-          if (!command.available) delete session.pageHealth;
+          if (!command.available) {
+            session.overlayAvailable = false;
+            delete session.pageHealth;
+          }
+          break;
+        }
+        case "setOverlay": {
+          get(command.roleId).overlayAvailable = command.available;
           break;
         }
         case "setRunning": {

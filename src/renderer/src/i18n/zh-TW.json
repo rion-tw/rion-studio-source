@@ -832,6 +832,7 @@
   "error.macroUnassignedWorkflow": "請先為此巨集與所有呼叫的巨集指派角色，再執行巨集。",
   "error.macroExternalRuntimeUnsupported": "此相容模式工作階段無法使用巨集控制。請重新啟動角色後再試一次。",
   "notice.externalMacroUnavailable": "巨集控制無法連線至相容模式。請重新啟動此角色後再試一次。",
+  "notice.externalOverlayUnavailable": "Chrome 頁面內的巨集快捷鍵目前無法使用，但仍可從 Rion Studio 執行巨集。",
   "notice.externalZoomUnavailable": "無法在外部 Chrome 套用工作區縮放。請重新啟動此角色後再試一次。",
   "error.workspaceEmpty": "工作區沒有角色。",
   "error.rolesAlreadyRunning": "以下角色已在其他遊戲視窗執行：{names}。請先停止後再啟動。",

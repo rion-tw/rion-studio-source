@@ -835,6 +835,7 @@
   "error.macroUnassignedWorkflow": "Assign a role to this macro and every called macro before running it.",
   "error.macroExternalRuntimeUnsupported": "Macro control is unavailable for this compatibility-mode session. Restart the role and try again.",
   "notice.externalMacroUnavailable": "Macro control could not connect to compatibility mode. Restart this role to try again.",
+  "notice.externalOverlayUnavailable": "Chrome in-page macro shortcuts are unavailable, but macros can still be run from Rion Studio.",
   "notice.externalZoomUnavailable": "Workspace zoom could not be applied in external Chrome. Restart this role to try again.",
   "error.workspaceEmpty": "Workspace has no roles.",
   "error.rolesAlreadyRunning": "Already running in another game window: {names}.",

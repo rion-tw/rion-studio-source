@@ -785,6 +785,7 @@
   "error.macroUnassignedWorkflow": "请先为此宏及所有调用的宏指定角色，再运行宏。",
   "error.macroExternalRuntimeUnsupported": "此兼容模式会话无法使用宏控制。请重新启动角色后再试一次。",
   "notice.externalMacroUnavailable": "宏控制无法连接到兼容模式。请重新启动此角色后再试一次。",
+  "notice.externalOverlayUnavailable": "Chrome 页面内的宏快捷键目前不可用，但仍可从 Rion Studio 运行宏。",
   "notice.externalZoomUnavailable": "无法在外部 Chrome 应用工作区缩放。请重新启动此角色后再试一次。",
   "error.workspaceEmpty": "工作区沒有角色。",
   "error.rolesAlreadyRunning": "以下角色已在其他游戏窗口运行：{names}。请先停止后再启动。",

@@ -1051,6 +1051,9 @@ fn execute_step(
                             code: Some(code.clone()),
                             modifiers: modifiers.to_vec(),
                             owner_id: owner_id_for(role_id),
+                            suppress_overlay_shortcut: should_suppress_overlay_shortcut(
+                                context, role_id, code, modifiers,
+                            ),
                         },
                     )
                 })
@@ -1070,6 +1073,9 @@ fn execute_step(
                                     code: Some(code.clone()),
                                     modifiers: modifiers.to_vec(),
                                     owner_id: owner_id_for(role_id),
+                                    suppress_overlay_shortcut: should_suppress_overlay_shortcut(
+                                        context, role_id, code, modifiers,
+                                    ),
                                 },
                             )
                         })
@@ -1101,6 +1107,9 @@ fn execute_step(
                                     code: Some(code.clone()),
                                     modifiers: modifiers.to_vec(),
                                     owner_id,
+                                    suppress_overlay_shortcut: should_suppress_overlay_shortcut(
+                                        context, role_id, code, modifiers,
+                                    ),
                                 },
                             )],
                             true,
@@ -1128,6 +1137,9 @@ fn execute_step(
                                     code: Some(code.clone()),
                                     modifiers: modifiers.to_vec(),
                                     owner_id: owner_id_for(role_id),
+                                    suppress_overlay_shortcut: should_suppress_overlay_shortcut(
+                                        context, role_id, code, modifiers,
+                                    ),
                                 },
                             )
                         })
@@ -1767,6 +1779,8 @@ fn release_held_keys(
         let Ok(_input_sequence_guard) = input_sequence.lock() else {
             continue;
         };
+        let suppress_overlay_shortcut =
+            should_suppress_overlay_shortcut(context, &held.role_id, &held.code, &held.modifiers);
         let _ = perform_action(
             shared,
             context,
@@ -1777,10 +1791,49 @@ fn release_held_keys(
                 code: Some(held.code),
                 modifiers: held.modifiers,
                 owner_id: held.owner_id,
+                suppress_overlay_shortcut,
             },
             true,
         );
     }
+}
+
+fn should_suppress_overlay_shortcut(
+    context: &ExecutionContext,
+    role_id: &str,
+    code: &str,
+    modifiers: &[String],
+) -> bool {
+    should_suppress_overlay_shortcut_for_macros(&context.macros, role_id, code, modifiers)
+}
+
+fn should_suppress_overlay_shortcut_for_macros(
+    macros: &HashMap<String, MacroDefinition>,
+    role_id: &str,
+    code: &str,
+    modifiers: &[String],
+) -> bool {
+    let ctrl = modifiers.iter().any(|modifier| modifier == "ctrl");
+    let alt = modifiers.iter().any(|modifier| modifier == "alt");
+    let shift = modifiers.iter().any(|modifier| modifier == "shift");
+    let meta = modifiers.iter().any(|modifier| modifier == "meta");
+    let primary = modifiers.iter().any(|modifier| modifier == "primary");
+    macros.values().any(|definition| {
+        if !definition.enabled || !definition.role_ids.iter().any(|id| id == role_id) {
+            return false;
+        }
+        let Some(trigger) = &definition.trigger else {
+            return false;
+        };
+        if trigger.code != code || trigger.alt != alt || trigger.shift != shift {
+            return false;
+        }
+        if primary {
+            (trigger.ctrl == ctrl && trigger.meta) || (trigger.ctrl && trigger.meta == meta)
+        } else {
+            trigger.ctrl == ctrl && trigger.meta == meta
+        }
+    })
 }
 
 fn register_held_key(
@@ -2542,6 +2595,66 @@ mod tests {
             source_role_id: None,
             active_role_ids: vec!["r1".to_owned()],
         }
+    }
+
+    #[test]
+    fn suppresses_only_keys_that_can_match_an_enabled_role_shortcut() {
+        let definitions = [
+            MacroDefinition {
+                id: "matching".to_owned(),
+                enabled: true,
+                activation_mode: Some("toggle".to_owned()),
+                name: "Matching".to_owned(),
+                role_ids: vec!["r1".to_owned()],
+                trigger: Some(crate::model::MacroTrigger {
+                    code: "KeyE".to_owned(),
+                    ctrl: false,
+                    alt: false,
+                    shift: false,
+                    meta: false,
+                }),
+                repeat: MacroRepeat::Once,
+                steps: Vec::new(),
+            },
+            MacroDefinition {
+                id: "other-role".to_owned(),
+                enabled: true,
+                activation_mode: Some("toggle".to_owned()),
+                name: "Other".to_owned(),
+                role_ids: vec!["r2".to_owned()],
+                trigger: Some(crate::model::MacroTrigger {
+                    code: "KeyY".to_owned(),
+                    ctrl: false,
+                    alt: false,
+                    shift: false,
+                    meta: false,
+                }),
+                repeat: MacroRepeat::Once,
+                steps: Vec::new(),
+            },
+        ]
+        .into_iter()
+        .map(|definition| (definition.id.clone(), definition))
+        .collect::<HashMap<_, _>>();
+
+        assert!(should_suppress_overlay_shortcut_for_macros(
+            &definitions,
+            "r1",
+            "KeyE",
+            &[]
+        ));
+        assert!(!should_suppress_overlay_shortcut_for_macros(
+            &definitions,
+            "r1",
+            "KeyY",
+            &[]
+        ));
+        assert!(!should_suppress_overlay_shortcut_for_macros(
+            &definitions,
+            "r1",
+            "Digit1",
+            &[]
+        ));
     }
 
     fn triggered_delay_request() -> MacroStartRequest {

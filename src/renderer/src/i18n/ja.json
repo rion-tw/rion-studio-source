@@ -785,6 +785,7 @@
   "error.macroUnassignedWorkflow": "このマクロと呼び出されるすべてのマクロにロールを割り当ててから実行してください。",
   "error.macroExternalRuntimeUnsupported": "この互換モードセッションではマクロ制御を使用できません。ロールを再起動してもう一度お試しください。",
   "notice.externalMacroUnavailable": "マクロ制御を互換モードに接続できませんでした。このロールを再起動してもう一度お試しください。",
+  "notice.externalOverlayUnavailable": "Chrome ページ内のマクロショートカットは現在利用できませんが、Rion Studio からマクロを実行できます。",
   "notice.externalZoomUnavailable": "外部 Chrome でワークスペースのズームを適用できませんでした。このロールを再起動してもう一度お試しください。",
   "error.workspaceEmpty": "ワークスペースにロールがありません。",
   "error.rolesAlreadyRunning": "次のロールは別のゲームウィンドウで実行中です: {names}。停止してから再度起動してください。",

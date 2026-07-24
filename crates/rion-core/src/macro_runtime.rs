@@ -1024,13 +1024,25 @@ fn execute_step(
                 .lock()
                 .map_err(|_| "macro input sequence lock poisoned".to_owned())?;
             let modifiers = modifiers.as_deref().unwrap_or_default();
-            let holds = roles
+            let hold_until_stop = action.as_deref() == Some("hold_until_stop");
+            let owner_id_for = |role_id: &str| {
+                format!(
+                    "{}:{}:{}:{}",
+                    context.control.id, role_id, definition.id, id
+                )
+            };
+            let roles_to_hold = roles
+                .iter()
+                .filter(|role_id| {
+                    !hold_until_stop
+                        || !held_keys
+                            .iter()
+                            .any(|held| held.owner_id == owner_id_for(role_id))
+                })
+                .collect::<Vec<_>>();
+            let holds = roles_to_hold
                 .iter()
                 .map(|role_id| {
-                    let owner_id = format!(
-                        "{}:{}:{}:{}",
-                        context.control.id, role_id, definition.id, id
-                    );
                     (
                         role_id.as_str(),
                         BrowserAction::Key {
@@ -1038,7 +1050,7 @@ fn execute_step(
                             key: code.clone(),
                             code: Some(code.clone()),
                             modifiers: modifiers.to_vec(),
-                            owner_id,
+                            owner_id: owner_id_for(role_id),
                         },
                     )
                 })
@@ -1047,7 +1059,7 @@ fn execute_step(
                 let _ = perform_actions(
                     shared,
                     context,
-                    roles
+                    roles_to_hold
                         .iter()
                         .map(|role_id| {
                             (
@@ -1057,10 +1069,7 @@ fn execute_step(
                                     key: code.clone(),
                                     code: Some(code.clone()),
                                     modifiers: modifiers.to_vec(),
-                                    owner_id: format!(
-                                        "{}:{}:{}:{}",
-                                        context.control.id, role_id, definition.id, id
-                                    ),
+                                    owner_id: owner_id_for(role_id),
                                 },
                             )
                         })
@@ -1069,17 +1078,14 @@ fn execute_step(
                 );
                 return Err(error);
             }
-            for role_id in roles {
-                let owner_id = format!(
-                    "{}:{}:{}:{}",
-                    context.control.id, role_id, definition.id, id
-                );
-                if action.as_deref() == Some("hold_until_stop") {
+            for role_id in &roles_to_hold {
+                let owner_id = owner_id_for(role_id);
+                if hold_until_stop {
                     let held = HeldKey {
                         code: code.clone(),
                         modifiers: modifiers.to_vec(),
                         owner_id: owner_id.clone(),
-                        role_id: role_id.clone(),
+                        role_id: (*role_id).clone(),
                     };
                     if register_held_key(shared, context, held.clone())? {
                         held_keys.push(held);
@@ -1100,11 +1106,9 @@ fn execute_step(
                             true,
                         )?;
                     }
-                } else {
-                    let _ = owner_id;
                 }
             }
-            if action.as_deref() != Some("hold_until_stop") {
+            if !hold_until_stop {
                 let timing_result = if applies_timing {
                     wait_cancelable_for_role(context, role_id, context.settings.key_hold_ms)
                 } else {
@@ -1123,10 +1127,7 @@ fn execute_step(
                                     key: code.clone(),
                                     code: Some(code.clone()),
                                     modifiers: modifiers.to_vec(),
-                                    owner_id: format!(
-                                        "{}:{}:{}:{}",
-                                        context.control.id, role_id, definition.id, id
-                                    ),
+                                    owner_id: owner_id_for(role_id),
                                 },
                             )
                         })
@@ -3992,7 +3993,9 @@ mod tests {
             let deadline = std::time::Instant::now() + Duration::from_secs(2);
             loop {
                 let statuses = runtime.statuses().unwrap();
-                if statuses[0].iteration.unwrap_or_default() > 0 {
+                // A looped hold remains owned after its first iteration. Advancing
+                // further must not dispatch another hold for the same owner.
+                if statuses[0].iteration.unwrap_or_default() >= 3 {
                     assert_eq!(statuses[0].state, "running");
                     break;
                 }

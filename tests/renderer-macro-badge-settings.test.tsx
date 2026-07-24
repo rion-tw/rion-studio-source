@@ -58,11 +58,16 @@ describe("macro badge interface settings", () => {
             }}
             onLoadSystemFonts={async () => []}
             onMacroSettingsChange={async (settings) => settings}
+            onRuntimeWindowPreferencesChange={async (preferences) => preferences}
             onOpenUpdateDownload={async () => undefined}
             onPreviewPortableImport={async () => null}
             onRestartApplication={async () => undefined}
             onThemeModeChange={() => undefined}
             resolvedTheme="light"
+            runtimeWindowPreferences={{
+              alwaysShowToolbarInFullScreen: false,
+              restoreGameWindowsOnStartup: true
+            }}
             systemFonts={[]}
             t={t}
             themeMode="system"

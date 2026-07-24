@@ -5,6 +5,7 @@ import type {
   WorkspaceDisplayInfo
 } from "../../shared/types";
 import type { ElectronBrowserRuntime } from "../browser/ElectronBrowserRuntime";
+import type { RuntimeSessionManager } from "../browser/RuntimeSessionManager";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import type { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCoordinator";
@@ -25,6 +26,7 @@ interface AppQuickMenuOptions {
   platform: NodeJS.Platform;
   quitApp?: () => void;
   recordRefresh?: () => void;
+  runtimeSessionManager?: Pick<RuntimeSessionManager, "restore" | "showGameWindows">;
   roleStore: Pick<RoleStore, "getRole" | "listRoles">;
   setMenu: (menu: Menu) => void;
   systemVersion?: string;
@@ -98,13 +100,15 @@ export class AppQuickMenu {
 
       if (version !== this.refreshVersion) return;
 
+      const runtimeState = this.options.browserManager.listEmbeddedRuntimeState();
       const template = buildAppQuickMenuTemplate(
         {
           includeQuit: this.options.includeQuit,
           legalAccepted,
           platform: this.options.platform,
           roles,
-          runtimeWindows: this.options.browserManager.listEmbeddedRuntimeState().windows,
+          runtimeWindows: runtimeState.windows,
+          savedWindows: runtimeState.savedWindows ?? [],
           statuses,
           ...(this.options.systemVersion ? { systemVersion: this.options.systemVersion } : {}),
           workspaceDisplays: this.options.getWorkspaceDisplays(),
@@ -113,8 +117,17 @@ export class AppQuickMenu {
         },
         {
           openApp: this.options.openApp,
-          showAllGameWindows: () => this.options.browserManager.showEmbeddedRuntimeWindows(),
+          showAllGameWindows: () => (
+            this.options.runtimeSessionManager?.showGameWindows() ??
+            this.options.browserManager.showEmbeddedRuntimeWindows()
+          ),
           showGameWindow: (displayId) => this.options.browserManager.showEmbeddedRuntimeWindows(displayId),
+          restoreGameWindow: (windowId) => {
+            void this.options.runtimeSessionManager?.restore({
+              scope: "window",
+              windowId
+            });
+          },
           launchRole: (roleId) => void this.launchRole(roleId),
           launchWorkspace: (workspaceId) => void this.launchWorkspace(workspaceId),
           stopWorkspace: (workspaceId) => void this.stopWorkspace(workspaceId),

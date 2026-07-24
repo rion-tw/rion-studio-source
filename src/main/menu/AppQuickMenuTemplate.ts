@@ -5,6 +5,7 @@ import type {
   LaunchWorkspace,
   Role,
   RoleStatus,
+  SavedEmbeddedRuntimeWindowSummary,
   WorkspaceDisplayInfo
 } from "../../shared/types";
 import type { BrowserWorkspaceRuntimeStatus } from "../browser/ElectronBrowserRuntime";
@@ -15,6 +16,7 @@ export interface AppQuickMenuState {
   platform: NodeJS.Platform;
   roles: Role[];
   runtimeWindows: EmbeddedRuntimeWindowSummary[];
+  savedWindows: SavedEmbeddedRuntimeWindowSummary[];
   statuses: RoleStatus[];
   systemVersion?: string;
   workspaceDisplays: WorkspaceDisplayInfo[];
@@ -28,6 +30,7 @@ export interface AppQuickMenuActions {
   openApp: () => void;
   showAllGameWindows: () => void;
   showGameWindow: (displayId: number) => void;
+  restoreGameWindow: (windowId: string) => void;
   quitApp?: () => void;
   stopAll: () => void;
   stopWorkspace: (workspaceId: string) => void;
@@ -45,7 +48,7 @@ export function buildAppQuickMenuTemplate(
   const displayLabelById = new Map(
     state.workspaceDisplays.map((display) => [display.id, display.label.trim()])
   );
-  const gameWindowItems = state.runtimeWindows.length > 0
+  const gameWindowItems = state.runtimeWindows.length > 0 || state.savedWindows.length > 0
     ? [
         buildGameWindowsHeader(state.platform, state.systemVersion),
         ...state.runtimeWindows.map((window) => {
@@ -56,6 +59,21 @@ export function buildAppQuickMenuTemplate(
             click: () => actions.showGameWindow(window.displayId)
           };
         }),
+        ...state.savedWindows.map((window) => ({
+          label: `${window.displayLabel} · ${window.tabCount} tab${window.tabCount === 1 ? "" : "s"}`,
+          sublabel: !state.legalAccepted
+            ? "Review terms in app"
+            : window.state === "restoring"
+              ? "Restoring"
+              : window.state === "failed"
+                ? "Restore failed"
+                : "Saved",
+          enabled: window.state !== "restoring",
+          click: () => {
+            if (state.legalAccepted) actions.restoreGameWindow(window.id);
+            else actions.openApp();
+          }
+        })),
         { type: "separator" as const }
       ]
     : [];
@@ -102,13 +120,17 @@ export function buildAppQuickMenuTemplate(
     }
   ];
 
-  if (state.runtimeWindows.length > 0 || state.statuses.length > 0) {
+  if (
+    state.runtimeWindows.length > 0 ||
+    state.savedWindows.length > 0 ||
+    state.statuses.length > 0
+  ) {
     template.push(
       { type: "separator" },
-      ...(state.runtimeWindows.length > 0
-        ? [{
+      ...(state.runtimeWindows.length > 0 || state.savedWindows.length > 0
+          ? [{
             label: "Show All Game Windows",
-            click: actions.showAllGameWindows
+            click: state.legalAccepted ? actions.showAllGameWindows : actions.openApp
           }]
         : []),
       ...(state.statuses.length > 0

@@ -30,6 +30,7 @@ import type {
   CoreCommand,
   CoreCommandResult,
   CoreStateSnapshotRecord,
+  RuntimeRestoreSessionRecord,
   RuntimeWindowPreferencesRecord
 } from "../../src/shared/generated";
 
@@ -107,7 +108,8 @@ export class MemoryStateRepository {
 
   async getRuntimeWindowPreferences(): Promise<RuntimeWindowPreferencesRecord> {
     return structuredClone(this.state.runtimeWindowPreferences ?? {
-      alwaysShowToolbarInFullScreen: false
+      alwaysShowToolbarInFullScreen: false,
+      restoreGameWindowsOnStartup: true
     });
   }
 
@@ -118,6 +120,24 @@ export class MemoryStateRepository {
       "runtimeWindowPreferences",
       preferences
     ) as Promise<RuntimeWindowPreferencesRecord>;
+  }
+
+  async getRuntimeRestoreSession(): Promise<RuntimeRestoreSessionRecord> {
+    return structuredClone(this.state.runtimeRestoreSession ?? {
+      schemaVersion: 1,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      cleanExit: true,
+      windows: []
+    });
+  }
+
+  replaceRuntimeRestoreSession(
+    session: RuntimeRestoreSessionRecord
+  ): Promise<RuntimeRestoreSessionRecord> {
+    return this.replace(
+      "runtimeRestoreSession",
+      session
+    ) as Promise<RuntimeRestoreSessionRecord>;
   }
 
   async listGames(): Promise<Game[]> {
@@ -572,6 +592,12 @@ export class MemoryStateRepository {
         break;
       case "runtimeWindowPreferencesReplace":
         result = await this.replaceRuntimeWindowPreferences(command.preferences);
+        break;
+      case "runtimeRestoreSessionGet":
+        result = await this.getRuntimeRestoreSession();
+        break;
+      case "runtimeRestoreSessionReplace":
+        result = await this.replaceRuntimeRestoreSession(command.session);
         break;
       default:
         throw new Error(`Unsupported memory core command: ${command.type}`);

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
@@ -10,11 +10,27 @@ import en from "../src/renderer/src/i18n/en.json";
 import type { Translator } from "../src/renderer/src/i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../src/shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../src/shared/macroSettings";
-import type { GameBrowserSettings, GraphicsDiagnostics } from "../src/shared/types";
+import type {
+  GameBrowserSettings,
+  GraphicsDiagnostics,
+  RuntimeWindowPreferences
+} from "../src/shared/types";
 
 const t: Translator = (key) => en[key] ?? key;
 
+beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class ResizeObserver {
+    disconnect(): void {}
+    observe(): void {}
+    unobserve(): void {}
+  });
+});
+
 afterEach(cleanup);
+
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
 
 function createDiagnostics(platform: GraphicsDiagnostics["platform"] = "win32"): GraphicsDiagnostics {
   return {
@@ -36,10 +52,16 @@ function createDiagnostics(platform: GraphicsDiagnostics["platform"] = "win32"):
 function renderGameSettings(
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>,
   platform: GraphicsDiagnostics["platform"] = "win32",
-  gameBrowserSettings: GameBrowserSettings = DEFAULT_GAME_BROWSER_SETTINGS
+  gameBrowserSettings: GameBrowserSettings = DEFAULT_GAME_BROWSER_SETTINGS,
+  options: {
+    initialEntry?: string;
+    onRuntimeWindowPreferencesChange?: (
+      preferences: RuntimeWindowPreferences
+    ) => Promise<RuntimeWindowPreferences>;
+  } = {}
 ): void {
   render(
-    <MemoryRouter initialEntries={["/settings?section=game"]}>
+    <MemoryRouter initialEntries={[options.initialEntry ?? "/settings?section=game"]}>
       <ConfirmationProvider>
         <SettingsView
           gameBrowserSettings={gameBrowserSettings}
@@ -57,12 +79,20 @@ function renderGameSettings(
           onLoadGraphicsDiagnostics={async () => createDiagnostics(platform)}
           onLoadSystemFonts={async () => []}
           onMacroSettingsChange={async (settings) => settings}
+          onRuntimeWindowPreferencesChange={
+            options.onRuntimeWindowPreferencesChange ??
+            (async (preferences) => preferences)
+          }
           onOpenUpdateDownload={async () => undefined}
           onPreviewPortableImport={async () => null}
           onRestartApplication={async () => undefined}
           onThemeModeChange={() => undefined}
           portableDataCounts={{ gameCount: 0, macroCount: 0, roleCount: 0, workspaceCount: 0 }}
           resolvedTheme="light"
+          runtimeWindowPreferences={{
+            alwaysShowToolbarInFullScreen: false,
+            restoreGameWindowsOnStartup: true
+          }}
           systemFonts={[]}
           t={t}
           themeMode="system"
@@ -185,5 +215,31 @@ describe("flattened graphics settings", () => {
       frameRateLimitEnabled: true,
       vsyncEnabled: true
     });
+  });
+
+  it("saves the Game Window startup restore preference from Interface settings", async () => {
+    const onRuntimeWindowPreferencesChange = vi.fn(
+      async (preferences: RuntimeWindowPreferences) => preferences
+    );
+    renderGameSettings(
+      async (settings) => settings,
+      "win32",
+      DEFAULT_GAME_BROWSER_SETTINGS,
+      {
+        initialEntry: "/settings?section=interface",
+        onRuntimeWindowPreferencesChange
+      }
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: "Restore Game Windows on startup"
+    });
+    expect(toggle.getAttribute("data-state")).toBe("checked");
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(onRuntimeWindowPreferencesChange).toHaveBeenCalledWith({
+      alwaysShowToolbarInFullScreen: false,
+      restoreGameWindowsOnStartup: false
+    }));
   });
 });

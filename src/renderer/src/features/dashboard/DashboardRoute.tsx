@@ -9,6 +9,7 @@ import {
   Play,
   Square,
   RotateCcw,
+  Trash2,
   Users
 } from "lucide-react";
 import { type JSX, useMemo } from "react";
@@ -19,15 +20,17 @@ import { IconTile, PageFrame, PageHeader, Surface } from "../../components/ui/pa
 import { CreateItemRow } from "../../components/CreateListItem";
 import { roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import type { SidebarFilter } from "../../app/types";
-import type { Translator } from "../../i18n";
+import type { TranslationKey, Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
   EmbeddedRuntimeState,
+  DiscardSavedGameWindowsInput,
   LaunchWorkspace,
   Macro,
   MacroRunStatus,
   Role,
   RoleStatus,
+  RestoreSavedGameWindowsInput,
   WorkspaceDisplayInfo
 } from "../../../../shared/types";
 import {
@@ -39,6 +42,15 @@ import {
   type DashboardRoleItem,
   type DashboardWorkspaceItem
 } from "./dashboardUtils";
+
+const savedWindowStateLabelKeys: Record<
+  "saved" | "restoring" | "failed",
+  TranslationKey
+> = {
+  saved: "dashboard.gameWindows.saved",
+  restoring: "dashboard.gameWindows.restoring",
+  failed: "dashboard.gameWindows.failed"
+};
 
 interface DashboardRouteProps {
   embeddedRuntime: EmbeddedRuntimeState;
@@ -59,6 +71,9 @@ interface DashboardRouteProps {
   onCreateWorkspace: () => void;
   onCaptureExternalDiagnostics: (roleId: string) => void;
   onShowGameWindows: (displayId?: number) => void;
+  onRestoreSavedGameWindows: (input: RestoreSavedGameWindowsInput) => void;
+  onDiscardSavedGameWindows: (input: DiscardSavedGameWindowsInput) => void;
+  onStopGameWindow: (displayId: number) => void;
   onLaunchRole: (roleId: string) => void;
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
   onNavigateMacros: () => void;
@@ -93,6 +108,9 @@ function DashboardRoute({
   onCreateWorkspace,
   onCaptureExternalDiagnostics,
   onShowGameWindows,
+  onRestoreSavedGameWindows,
+  onDiscardSavedGameWindows,
+  onStopGameWindow,
   onLaunchRole,
   onLaunchWorkspace,
   onNavigateMacros,
@@ -140,23 +158,61 @@ function DashboardRoute({
         description={t("dashboard.description")}
         actions={
           <>
-            {embeddedRuntime.windows.length > 0 ? (
+            {embeddedRuntime.windows.length > 0 || (embeddedRuntime.savedWindows?.length ?? 0) > 0 ? (
               <Button className="w-full gap-1.5 sm:w-auto" type="button" variant="outline" size="sm" onClick={() => onShowGameWindows()}>
                 <MonitorUp aria-hidden="true" size={14} />
                 {t("dashboard.showGameWindows")}
-                <Badge variant="outline">{embeddedRuntime.tabs.length}</Badge>
+                <Badge variant="outline">
+                  {embeddedRuntime.tabs.length +
+                    (embeddedRuntime.savedWindows ?? []).reduce(
+                      (total, window) => total + window.tabCount,
+                      0
+                    )}
+                </Badge>
               </Button>
             ) : null}
           </>
         }
       />
 
-      {embeddedRuntime.windows.length > 0 ? (
+      {embeddedRuntime.recovery ? (
+        <Surface className="flex flex-col gap-3 border-warning/35 bg-warning/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">{t("dashboard.gameWindows.recoveryTitle")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("dashboard.gameWindows.recoveryDescription")
+                .replace("{windows}", String(embeddedRuntime.recovery.windowCount))
+                .replace("{tabs}", String(embeddedRuntime.recovery.tabCount))}
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onDiscardSavedGameWindows({ scope: "all" })}
+            >
+              {t("dashboard.gameWindows.discard")}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => onRestoreSavedGameWindows({ scope: "last-visible" })}
+            >
+              <RotateCcw aria-hidden="true" size={14} />
+              {t("dashboard.gameWindows.restore")}
+            </Button>
+          </div>
+        </Surface>
+      ) : null}
+
+      {embeddedRuntime.windows.length > 0 || (embeddedRuntime.savedWindows?.length ?? 0) > 0 ? (
         <RuntimeWindowsPanel
           runtime={embeddedRuntime}
           displays={workspaceDisplays}
           t={t}
           onShow={onShowGameWindows}
+          onDiscard={onDiscardSavedGameWindows}
+          onRestore={onRestoreSavedGameWindows}
+          onStop={onStopGameWindow}
         />
       ) : null}
 
@@ -293,12 +349,18 @@ function DashboardRoute({
 
 function RuntimeWindowsPanel({
   displays,
+  onDiscard,
+  onRestore,
   onShow,
+  onStop,
   runtime,
   t
 }: {
   displays: WorkspaceDisplayInfo[];
+  onDiscard: (input: DiscardSavedGameWindowsInput) => void;
+  onRestore: (input: RestoreSavedGameWindowsInput) => void;
   onShow: (displayId?: number) => void;
+  onStop: (displayId: number) => void;
   runtime: EmbeddedRuntimeState;
   t: Translator;
 }): JSX.Element {
@@ -321,32 +383,89 @@ function RuntimeWindowsPanel({
           const roleCount = new Set(tabs.flatMap((tab) => tab.roleIds)).size;
           const display = displayById.get(windowSummary.displayId);
           return (
-            <button
+            <div
               key={windowSummary.displayId}
-              className="flex min-w-0 items-center gap-3 rounded-lg border border-border/55 bg-background/35 px-3 py-2 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
-              type="button"
-              onClick={() => onShow(windowSummary.displayId)}
+              className="flex min-w-0 items-center gap-1 rounded-lg border border-border/55 bg-background/35 p-1"
             >
-              <IconTile
-                className={windowSummary.visible ? "border-success-foreground/15 bg-success/75 text-success-foreground" : undefined}
-                size="sm"
+              <button
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                type="button"
+                onClick={() => onShow(windowSummary.displayId)}
               >
-                <MonitorUp aria-hidden="true" size={14} />
+                <IconTile
+                  className={windowSummary.visible ? "border-success-foreground/15 bg-success/75 text-success-foreground" : undefined}
+                  size="sm"
+                >
+                  <MonitorUp aria-hidden="true" size={14} />
+                </IconTile>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">
+                    {display?.label || `${t("dashboard.gameWindows.display")} ${windowSummary.displayId}`}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {windowSummary.tabCount} {t("dashboard.gameWindows.tabs")} · {roleCount} {t("dashboard.gameWindows.roles")}
+                  </span>
+                </span>
+                <Badge variant="outline">
+                  {t(windowSummary.visible ? "dashboard.gameWindows.visible" : "dashboard.gameWindows.hidden")}
+                </Badge>
+              </button>
+              <Button
+                aria-label={t("dashboard.gameWindows.stopWindow")}
+                size="icon"
+                title={t("dashboard.gameWindows.stopWindow")}
+                variant="ghost"
+                onClick={() => onStop(windowSummary.displayId)}
+              >
+                <Square aria-hidden="true" size={13} />
+              </Button>
+            </div>
+          );
+        })}
+        {(runtime.savedWindows ?? []).map((windowSummary) => (
+          <div
+            key={windowSummary.id}
+            className="flex min-w-0 items-center gap-1 rounded-lg border border-border/55 bg-background/35 p-1"
+          >
+            <button
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+              disabled={windowSummary.state === "restoring"}
+              type="button"
+              onClick={() => onRestore({ scope: "window", windowId: windowSummary.id })}
+            >
+              <IconTile size="sm">
+                {windowSummary.state === "restoring" ? (
+                  <Loader2 aria-hidden="true" className="animate-spin" size={14} />
+                ) : (
+                  <RotateCcw aria-hidden="true" size={14} />
+                )}
               </IconTile>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">
-                  {display?.label || `${t("dashboard.gameWindows.display")} ${windowSummary.displayId}`}
+                  {windowSummary.displayLabel}
                 </span>
-                <span className="block text-xs text-muted-foreground">
-                  {windowSummary.tabCount} {t("dashboard.gameWindows.tabs")} · {roleCount} {t("dashboard.gameWindows.roles")}
+                <span
+                  className="block truncate text-xs text-muted-foreground"
+                  title={windowSummary.failureMessage ?? windowSummary.tabNames.join(", ")}
+                >
+                  {windowSummary.tabCount} {t("dashboard.gameWindows.tabs")} · {windowSummary.roleCount} {t("dashboard.gameWindows.roles")}
                 </span>
               </span>
-              <Badge variant="outline">
-                {t(windowSummary.visible ? "dashboard.gameWindows.visible" : "dashboard.gameWindows.hidden")}
+              <Badge variant={windowSummary.state === "failed" ? "destructive" : "outline"}>
+                {t(savedWindowStateLabelKeys[windowSummary.state])}
               </Badge>
             </button>
-          );
-        })}
+            <Button
+              aria-label={t("dashboard.gameWindows.forget")}
+              size="icon"
+              title={t("dashboard.gameWindows.forget")}
+              variant="ghost"
+              onClick={() => onDiscard({ scope: "window", windowId: windowSummary.id })}
+            >
+              <Trash2 aria-hidden="true" size={13} />
+            </Button>
+          </div>
+        ))}
       </div>
     </Surface>
   );

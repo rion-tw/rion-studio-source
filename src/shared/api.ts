@@ -17,6 +17,7 @@ import type {
   GameCompatibilityRunStatus,
   GraphicsDiagnostics,
   DiagnosticExportResult,
+  DiscardSavedGameWindowsInput,
   EmbeddedRuntimeState,
   LaunchWorkspace,
   LogEntry,
@@ -41,9 +42,11 @@ import type {
   ChromeProfileImportProgress,
   ChromeProfileImportResult,
   ReorderItemsInput,
+  RestoreSavedGameWindowsInput,
   Role,
   RolePaths,
   RoleStatus,
+  RuntimeWindowPreferences,
   SystemFontFamily,
   UpdateLaunchWorkspaceInput,
   UpdateGameInput,
@@ -67,6 +70,13 @@ export interface RionStudioApi {
   showEmbeddedRuntimeWindows: (displayId?: number) => Promise<void>;
   showEmbeddedRuntimeTab: (tabId: string) => Promise<void>;
   moveEmbeddedRuntimeTab: (tabId: string, displayId: number) => Promise<void>;
+  restoreSavedGameWindows: (input: RestoreSavedGameWindowsInput) => Promise<void>;
+  discardSavedGameWindows: (input: DiscardSavedGameWindowsInput) => Promise<void>;
+  stopEmbeddedRuntimeWindow: (displayId: number) => Promise<void>;
+  getRuntimeWindowPreferences: () => Promise<RuntimeWindowPreferences>;
+  updateRuntimeWindowPreferences: (
+    preferences: RuntimeWindowPreferences
+  ) => Promise<RuntimeWindowPreferences>;
   listGames: () => Promise<Game[]>;
   createGame: (input: CreateGameInput) => Promise<Game>;
   updateGame: (id: string, input: UpdateGameInput) => Promise<Game>;

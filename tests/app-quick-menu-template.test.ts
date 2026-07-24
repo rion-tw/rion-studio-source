@@ -8,6 +8,7 @@ import {
 } from "../src/main/menu/AppQuickMenuTemplate";
 import type {
   EmbeddedRuntimeWindowSummary,
+  SavedEmbeddedRuntimeWindowSummary,
   WorkspaceDisplayInfo
 } from "../src/shared/types";
 
@@ -102,6 +103,21 @@ describe("buildAppQuickMenuTemplate", () => {
     expect(template.some((item) => item.label === "Show All Game Windows")).toBe(false);
     expect(template.some((item) => item.label === "Open Rion Studio")).toBe(false);
   });
+
+  it("lists saved windows and restores them from the native quick menu", () => {
+    const actions = createActions();
+    const template = buildAppQuickMenuTemplate(
+      createState({ savedWindows: [savedWindow()] }),
+      actions
+    );
+
+    expect(getItem(template, "Studio Display · 2 tabs").sublabel).toBe("Saved");
+    getItem(template, "Studio Display · 2 tabs").click?.({} as never, undefined, {} as never);
+    getItem(template, "Show All Game Windows").click?.({} as never, undefined, {} as never);
+
+    expect(actions.restoreGameWindow).toHaveBeenCalledWith("saved-window");
+    expect(actions.showAllGameWindows).toHaveBeenCalledOnce();
+  });
 });
 
 function createState(overrides: Partial<AppQuickMenuState> = {}): AppQuickMenuState {
@@ -111,6 +127,7 @@ function createState(overrides: Partial<AppQuickMenuState> = {}): AppQuickMenuSt
     platform: "win32",
     roles: [],
     runtimeWindows: [],
+    savedWindows: [],
     statuses: [],
     workspaceDisplays: [],
     workspaces: [],
@@ -124,6 +141,7 @@ function createActions(): AppQuickMenuActions {
     launchRole: vi.fn(),
     launchWorkspace: vi.fn(),
     openApp: vi.fn(),
+    restoreGameWindow: vi.fn(),
     showAllGameWindows: vi.fn(),
     showGameWindow: vi.fn(),
     stopAll: vi.fn(),
@@ -141,6 +159,19 @@ function runtimeWindow(
     bounds: { x: 0, y: 0, width: 1920, height: 1080 },
     tabCount,
     visible
+  };
+}
+
+function savedWindow(): SavedEmbeddedRuntimeWindowSummary {
+  return {
+    id: "saved-window",
+    displayId: 12,
+    displayLabel: "Studio Display",
+    wasVisible: false,
+    tabCount: 2,
+    roleCount: 2,
+    tabNames: ["One", "Two"],
+    state: "saved"
   };
 }
 

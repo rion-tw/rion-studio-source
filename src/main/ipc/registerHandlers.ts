@@ -23,8 +23,11 @@ import type {
   PortableExportInput,
   PortableImportInput,
   ReorderItemsInput,
+  DiscardSavedGameWindowsInput,
+  RestoreSavedGameWindowsInput,
   Role,
   RoleStatus,
+  RuntimeWindowPreferences,
   UpdateLaunchWorkspaceInput,
   UpdateGameInput,
   UpdateMacroInput,
@@ -46,6 +49,7 @@ import {
   type ElectronBrowserRuntime
 } from "../browser/ElectronBrowserRuntime";
 import type { ChromeProfileImportManager } from "../browser/ChromeProfileImportManager";
+import type { RuntimeSessionManager } from "../browser/RuntimeSessionManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { RustSystemFontService } from "../game-browser/RustSystemFontService";
 import type { GameCompatibilityManager } from "../games/GameCompatibilityManager";
@@ -60,6 +64,7 @@ import type { AppUpdateManager } from "../updates/AppUpdateManager";
 import { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
 import { WorkspaceLaunchCoordinator } from "../workspaces/WorkspaceLaunchCoordinator";
 import { getAppWindowState } from "../window/appWindowState";
+import type { RuntimeWindowPreferencesStore } from "../window/RuntimeWindowPreferencesStore";
 
 interface RegisterIpcHandlersOptions {
   legalAcceptanceStore?: Pick<LegalAcceptanceStore, "accept" | "getStatus">;
@@ -88,6 +93,7 @@ interface RegisterIpcHandlersOptions {
   recordIpcCommandLatency?: (channel: string, durationMs: number) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
+  onRuntimeWindowPreferencesChanged?: (preferences: RuntimeWindowPreferences) => void;
   clearRoleBrowserData?: (roleId: string) => Promise<Role>;
   chromeProfileImportManager?: Pick<
     ChromeProfileImportManager,
@@ -115,6 +121,14 @@ interface RegisterIpcHandlersOptions {
   };
   revealLogs?: () => Promise<void>;
   exportDiagnostics?: () => Promise<unknown>;
+  runtimeSessionManager?: Pick<
+    RuntimeSessionManager,
+    "discard" | "restore" | "showGameWindows" | "stopWindow"
+  >;
+  runtimeWindowPreferencesStore?: Pick<
+    RuntimeWindowPreferencesStore,
+    "getPreferences" | "updatePreferences"
+  >;
 }
 
 export function registerIpcHandlers(
@@ -205,7 +219,8 @@ export function registerIpcHandlers(
   handle(IPC_CHANNELS.runtimeState, () => browserManager.listEmbeddedRuntimeState());
   handle(IPC_CHANNELS.runtimeShowWindows, (_event, displayId?: number) => {
     if (displayId !== undefined && !Number.isInteger(displayId)) throw new Error("Display id is invalid.");
-    return browserManager.showEmbeddedRuntimeWindows(displayId);
+    return options.runtimeSessionManager?.showGameWindows(displayId) ??
+      browserManager.showEmbeddedRuntimeWindows(displayId);
   });
   handle(IPC_CHANNELS.runtimeShowTab, (_event, tabId: string) => {
     if (typeof tabId !== "string" || !tabId) throw new Error("Runtime tab id is invalid.");
@@ -217,6 +232,44 @@ export function registerIpcHandlers(
     }
     return browserManager.moveRuntimeTab(tabId, displayId);
   });
+  handle(IPC_CHANNELS.runtimeRestoreSaved, (_event, input: RestoreSavedGameWindowsInput) => {
+    if (!options.runtimeSessionManager || !isRestoreSavedGameWindowsInput(input)) {
+      throw new Error("Saved Game Window restore request is invalid.");
+    }
+    return options.runtimeSessionManager.restore(input);
+  });
+  handle(IPC_CHANNELS.runtimeDiscardSaved, (_event, input: DiscardSavedGameWindowsInput) => {
+    if (!options.runtimeSessionManager || !isDiscardSavedGameWindowsInput(input)) {
+      throw new Error("Saved Game Window discard request is invalid.");
+    }
+    return options.runtimeSessionManager.discard(input);
+  });
+  handle(IPC_CHANNELS.runtimeStopWindow, (_event, displayId: number) => {
+    if (!options.runtimeSessionManager || !Number.isInteger(displayId)) {
+      throw new Error("Game Window stop request is invalid.");
+    }
+    return options.runtimeSessionManager.stopWindow(displayId);
+  });
+  handle(IPC_CHANNELS.runtimeWindowPreferencesGet, () => {
+    if (!options.runtimeWindowPreferencesStore) {
+      throw new Error("Runtime window preferences are unavailable.");
+    }
+    return options.runtimeWindowPreferencesStore.getPreferences();
+  });
+  handle(
+    IPC_CHANNELS.runtimeWindowPreferencesUpdate,
+    async (_event, preferences: RuntimeWindowPreferences) => {
+      if (
+        !options.runtimeWindowPreferencesStore ||
+        !isRuntimeWindowPreferences(preferences)
+      ) {
+        throw new Error("Runtime window preferences are invalid.");
+      }
+      const updated = await options.runtimeWindowPreferencesStore.updatePreferences(preferences);
+      options.onRuntimeWindowPreferencesChanged?.(updated);
+      return updated;
+    }
+  );
 
   handle(IPC_CHANNELS.gamesList, () => requireGameStore(options).listGames());
   handle(IPC_CHANNELS.gamesCreate, (_event, input: CreateGameInput) =>
@@ -883,6 +936,41 @@ function isAcceptLegalDocumentsInput(value: unknown): value is AcceptLegalDocume
     typeof input.termsVersion === "string" &&
     typeof input.fairUseVersion === "string" &&
     typeof input.privacyVersion === "string"
+  );
+}
+
+function isRestoreSavedGameWindowsInput(
+  value: unknown
+): value is RestoreSavedGameWindowsInput {
+  if (!value || typeof value !== "object" || !("scope" in value)) return false;
+  const input = value as Record<string, unknown>;
+  if (input.scope === "last-visible" || input.scope === "all") {
+    return Object.keys(input).length === 1;
+  }
+  return input.scope === "window" &&
+    typeof input.windowId === "string" &&
+    input.windowId.length > 0;
+}
+
+function isDiscardSavedGameWindowsInput(
+  value: unknown
+): value is DiscardSavedGameWindowsInput {
+  if (!value || typeof value !== "object" || !("scope" in value)) return false;
+  const input = value as Record<string, unknown>;
+  if (input.scope === "all") return Object.keys(input).length === 1;
+  return input.scope === "window" &&
+    typeof input.windowId === "string" &&
+    input.windowId.length > 0;
+}
+
+function isRuntimeWindowPreferences(value: unknown): value is RuntimeWindowPreferences {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "alwaysShowToolbarInFullScreen" in value &&
+    typeof value.alwaysShowToolbarInFullScreen === "boolean" &&
+    "restoreGameWindowsOnStartup" in value &&
+    typeof value.restoreGameWindowsOnStartup === "boolean"
   );
 }
 

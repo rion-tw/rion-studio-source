@@ -15,6 +15,7 @@ use crate::{
         MacroBadgePositionRecord, MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord,
         MacroStepDefinition, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
         RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
+        RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
         RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
         StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
         StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord,
@@ -68,7 +69,128 @@ pub fn default_macro_settings() -> MacroSettingsRecord {
 pub fn default_runtime_window_preferences() -> RuntimeWindowPreferencesRecord {
     RuntimeWindowPreferencesRecord {
         always_show_toolbar_in_full_screen: false,
+        restore_game_windows_on_startup: true,
     }
+}
+
+pub fn default_runtime_restore_session() -> RuntimeRestoreSessionRecord {
+    RuntimeRestoreSessionRecord {
+        schema_version: 1,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+        clean_exit: true,
+        last_focused_window_id: None,
+        windows: Vec::new(),
+    }
+}
+
+pub fn normalize_runtime_restore_session(
+    session: RuntimeRestoreSessionRecord,
+) -> CoreResult<RuntimeRestoreSessionRecord> {
+    const MAX_WINDOWS: usize = 32;
+    const MAX_TABS: usize = 256;
+    const MAX_LABEL_LENGTH: usize = 256;
+
+    let mut window_ids = HashSet::new();
+    let mut source_keys = HashSet::new();
+    let mut claimed_role_ids = HashSet::new();
+    let mut tab_count = 0usize;
+    let mut windows = Vec::new();
+
+    for window in session.windows.into_iter().take(MAX_WINDOWS) {
+        let window_id = window.id.trim();
+        if window_id.is_empty() || window_id.len() > 128 || !window_ids.insert(window_id.to_owned())
+        {
+            continue;
+        }
+        let target_display = validate_workspace_target_display(window.target_display)?;
+
+        let mut tabs = Vec::new();
+        for tab in window.tabs {
+            if tab_count >= MAX_TABS {
+                break;
+            }
+            let source_id = tab.source_id.trim();
+            if source_id.is_empty() || source_id.len() > 128 {
+                continue;
+            }
+            if !matches!(tab.tab_type.as_str(), "role" | "workspace") {
+                continue;
+            }
+            let source_key = format!("{}:{source_id}", tab.tab_type);
+            if source_keys.contains(&source_key) {
+                continue;
+            }
+            let mut role_ids = Vec::new();
+            let mut seen_role_ids = HashSet::new();
+            let input_role_ids = if tab.tab_type == "role" {
+                vec![source_id.to_owned()]
+            } else {
+                tab.role_ids
+            };
+            for role_id in input_role_ids {
+                let role_id = role_id.trim();
+                if !role_id.is_empty()
+                    && role_id.len() <= 128
+                    && seen_role_ids.insert(role_id.to_owned())
+                {
+                    role_ids.push(role_id.to_owned());
+                }
+            }
+            if role_ids
+                .iter()
+                .any(|role_id| claimed_role_ids.contains(role_id))
+            {
+                continue;
+            }
+            source_keys.insert(source_key);
+            claimed_role_ids.extend(role_ids.iter().cloned());
+            let name = tab.name.trim();
+            tabs.push(RuntimeRestoreTabRecord {
+                tab_type: tab.tab_type,
+                source_id: source_id.to_owned(),
+                name: if name.is_empty() {
+                    source_id.to_owned()
+                } else {
+                    name.chars().take(MAX_LABEL_LENGTH).collect()
+                },
+                role_ids,
+                hidden: tab.hidden,
+                audio_muted: tab.audio_muted,
+            });
+            tab_count += 1;
+        }
+        if tabs.is_empty() {
+            continue;
+        }
+        let active_source_id = window.active_source_id.and_then(|active| {
+            let active = active.trim().to_owned();
+            tabs.iter()
+                .any(|tab| tab.source_id == active)
+                .then_some(active)
+        });
+        windows.push(RuntimeRestoreWindowRecord {
+            id: window_id.to_owned(),
+            target_display,
+            was_visible: window.was_visible,
+            active_source_id,
+            tabs,
+        });
+    }
+
+    let last_focused_window_id = session.last_focused_window_id.and_then(|window_id| {
+        let window_id = window_id.trim().to_owned();
+        windows
+            .iter()
+            .any(|window| window.id == window_id)
+            .then_some(window_id)
+    });
+    Ok(RuntimeRestoreSessionRecord {
+        schema_version: 1,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+        clean_exit: session.clean_exit,
+        last_focused_window_id,
+        windows,
+    })
 }
 
 pub fn create_game(
@@ -2594,6 +2716,104 @@ mod tests {
             assert_eq!(defaults.post_input_delay_ms, 30);
             assert_eq!(defaults.default_loop_delay_ms, 1_000);
         });
+    }
+
+    #[test]
+    fn normalizes_runtime_restore_sessions_and_keeps_first_conflicting_source() {
+        let session: RuntimeRestoreSessionRecord = serde_json::from_value(json!({
+            "schemaVersion": 9,
+            "updatedAt": "stale",
+            "cleanExit": false,
+            "lastFocusedWindowId": "window-2",
+            "windows": [
+                {
+                    "id": " window-1 ",
+                    "targetDisplay": { "id": 7 },
+                    "wasVisible": true,
+                    "activeSourceId": "missing",
+                    "tabs": [
+                        {
+                            "tabType": "role",
+                            "sourceId": " role-1 ",
+                            "name": " Main ",
+                            "roleIds": ["role-1", "role-1", ""],
+                            "hidden": false,
+                            "audioMuted": true
+                        },
+                        {
+                            "tabType": "invalid",
+                            "sourceId": "ignored",
+                            "name": "Ignored",
+                            "roleIds": [],
+                            "hidden": false,
+                            "audioMuted": false
+                        }
+                    ]
+                },
+                {
+                    "id": "window-2",
+                    "targetDisplay": { "id": 8 },
+                    "wasVisible": false,
+                    "activeSourceId": "role-2",
+                    "tabs": [
+                        {
+                            "tabType": "role",
+                            "sourceId": "role-1",
+                            "name": "Duplicate",
+                            "roleIds": ["role-1"],
+                            "hidden": false,
+                            "audioMuted": false
+                        },
+                        {
+                            "tabType": "workspace",
+                            "sourceId": "workspace-conflict",
+                            "name": "Conflicting Workspace",
+                            "roleIds": ["role-1"],
+                            "hidden": false,
+                            "audioMuted": false
+                        },
+                        {
+                            "tabType": "role",
+                            "sourceId": "role-2",
+                            "name": "",
+                            "roleIds": ["role-2"],
+                            "hidden": true,
+                            "audioMuted": false
+                        }
+                    ]
+                }
+            ]
+        }))
+        .unwrap();
+
+        let normalized = normalize_runtime_restore_session(session).unwrap();
+
+        assert_eq!(normalized.schema_version, 1);
+        assert!(!normalized.clean_exit);
+        assert_eq!(
+            normalized.last_focused_window_id.as_deref(),
+            Some("window-2")
+        );
+        assert_eq!(normalized.windows.len(), 2);
+        assert_eq!(normalized.windows[0].id, "window-1");
+        assert_eq!(normalized.windows[0].active_source_id, None);
+        assert_eq!(normalized.windows[0].tabs[0].name, "Main");
+        assert_eq!(normalized.windows[0].tabs[0].role_ids, ["role-1"]);
+        assert_eq!(normalized.windows[1].tabs.len(), 1);
+        assert_eq!(normalized.windows[1].tabs[0].source_id, "role-2");
+        assert_eq!(normalized.windows[1].tabs[0].name, "role-2");
+    }
+
+    #[test]
+    fn runtime_window_preferences_default_to_startup_restore() {
+        let preferences = default_runtime_window_preferences();
+        assert!(!preferences.always_show_toolbar_in_full_screen);
+        assert!(preferences.restore_game_windows_on_startup);
+        let legacy: RuntimeWindowPreferencesRecord = serde_json::from_value(json!({
+            "alwaysShowToolbarInFullScreen": true
+        }))
+        .unwrap();
+        assert!(legacy.restore_game_windows_on_startup);
     }
 
     #[test]

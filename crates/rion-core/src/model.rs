@@ -194,6 +194,10 @@ pub enum CoreCommand {
     RuntimeWindowPreferencesReplace {
         preferences: RuntimeWindowPreferencesRecord,
     },
+    RuntimeRestoreSessionGet,
+    RuntimeRestoreSessionReplace {
+        session: RuntimeRestoreSessionRecord,
+    },
     LegalAcceptanceStatus {
         versions: LegalDocumentVersionsRecord,
     },
@@ -1979,6 +1983,9 @@ pub struct CoreStateSnapshotRecord {
     pub runtime_window_preferences: Option<RuntimeWindowPreferencesRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub runtime_restore_session: Option<RuntimeRestoreSessionRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub legal_acceptance: Option<LegalAcceptanceRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -2660,6 +2667,51 @@ pub struct MacroSettingsRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct RuntimeWindowPreferencesRecord {
     pub always_show_toolbar_in_full_screen: bool,
+    #[serde(default = "default_true")]
+    pub restore_game_windows_on_startup: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeRestoreTabRecord {
+    #[ts(type = "\"role\" | \"workspace\"")]
+    pub tab_type: String,
+    pub source_id: String,
+    pub name: String,
+    pub role_ids: Vec<String>,
+    pub hidden: bool,
+    pub audio_muted: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeRestoreWindowRecord {
+    pub id: String,
+    pub target_display: StateWorkspaceDisplayTargetRecord,
+    pub was_visible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_source_id: Option<String>,
+    pub tabs: Vec<RuntimeRestoreTabRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeRestoreSessionRecord {
+    pub schema_version: u8,
+    pub updated_at: String,
+    pub clean_exit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub last_focused_window_id: Option<String>,
+    pub windows: Vec<RuntimeRestoreWindowRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

@@ -48,7 +48,7 @@ describe("macOS runtime tabs HTML fallback preload", () => {
     renderState();
 
     document.querySelector<HTMLButtonElement>(
-      'button[aria-label="關閉遊戲視窗"]'
+      'button[aria-label="隱藏遊戲視窗"]'
     )?.click();
 
     expect(ipcRenderer.send).toHaveBeenCalledWith("runtime-tabs:action", {

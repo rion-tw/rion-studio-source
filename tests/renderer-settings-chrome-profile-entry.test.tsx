@@ -55,12 +55,17 @@ describe("Chrome profile import settings entry", () => {
             }}
             onLoadSystemFonts={async () => []}
             onMacroSettingsChange={async (settings) => settings}
+            onRuntimeWindowPreferencesChange={async (preferences) => preferences}
             onOpenChromeProfileImport={onOpenChromeProfileImport}
             onOpenUpdateDownload={async () => undefined}
             onPreviewPortableImport={async () => null}
             onRestartApplication={async () => undefined}
             onThemeModeChange={() => undefined}
             resolvedTheme="light"
+            runtimeWindowPreferences={{
+              alwaysShowToolbarInFullScreen: false,
+              restoreGameWindowsOnStartup: true
+            }}
             systemFonts={[]}
             t={t}
             themeMode="system"

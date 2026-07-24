@@ -72,6 +72,7 @@ import type {
   RoleCreateRequest,
   RolePathsRecord,
   RoleUpdateRequest,
+  RuntimeWindowPreferencesRecord,
   WorkspaceCreateRequest,
   WorkspaceUpdateRequest
 } from "./generated";
@@ -176,17 +177,52 @@ export interface EmbeddedRuntimeTabSummary {
 }
 
 export interface EmbeddedRuntimeWindowSummary {
+  id?: string;
   displayId: number;
   bounds: PixelBounds;
   visible: boolean;
+  focused?: boolean;
   activeTabId?: string;
+  tabCount: number;
+}
+
+export type SavedGameWindowState = "saved" | "restoring" | "failed";
+
+export interface SavedEmbeddedRuntimeWindowSummary {
+  id: string;
+  displayId: number;
+  displayLabel: string;
+  wasVisible: boolean;
+  activeSourceId?: string;
+  tabCount: number;
+  roleCount: number;
+  tabNames: string[];
+  state: SavedGameWindowState;
+  failureMessage?: string;
+}
+
+export interface RuntimeSessionRecoverySummary {
+  reason: "unclean-exit";
+  windowCount: number;
   tabCount: number;
 }
 
 export interface EmbeddedRuntimeState {
   windows: EmbeddedRuntimeWindowSummary[];
   tabs: EmbeddedRuntimeTabSummary[];
+  savedWindows?: SavedEmbeddedRuntimeWindowSummary[];
+  recovery?: RuntimeSessionRecoverySummary;
 }
+
+export type RuntimeWindowPreferences = RuntimeWindowPreferencesRecord;
+
+export type RestoreSavedGameWindowsInput =
+  | { scope: "last-visible" | "all" }
+  | { scope: "window"; windowId: string };
+
+export type DiscardSavedGameWindowsInput =
+  | { scope: "all" }
+  | { scope: "window"; windowId: string };
 
 export type MacroTrigger = RustMacroTrigger;
 

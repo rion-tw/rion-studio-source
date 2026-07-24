@@ -2,4 +2,4 @@
 import type { StatePixelBoundsRecord } from "./StatePixelBoundsRecord";
 import type { StateRoleRecord } from "./StateRoleRecord";
 
-export type ExternalSessionRecord = { role: StateRoleRecord, bounds: StatePixelBoundsRecord, physicalBounds?: StatePixelBoundsRecord, workspaceId?: string, notice?: string, zoomFactor: number, state: "launching" | "running" | "stopping", launchedAt?: string, automationAvailable: boolean, cdnActive: boolean, pageHealth?: "healthy" | "unresponsive", pageHidden: boolean, lastCdpTimeoutAtMs?: number, };
+export type ExternalSessionRecord = { role: StateRoleRecord, bounds: StatePixelBoundsRecord, physicalBounds?: StatePixelBoundsRecord, workspaceId?: string, notice?: string, zoomFactor: number, state: "launching" | "running" | "stopping", launchedAt?: string, automationAvailable: boolean, overlayAvailable: boolean, cdnActive: boolean, pageHealth?: "healthy" | "unresponsive", pageHidden: boolean, lastCdpTimeoutAtMs?: number, };

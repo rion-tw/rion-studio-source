@@ -62,7 +62,8 @@ describe("ElectronBrowserActionAdapter", () => {
       key: "KeyA",
       code: "KeyA",
       modifiers: [],
-      ownerId: "owner-1"
+      ownerId: "owner-1",
+      suppressOverlayShortcut: false
     }));
     await adapter.executeEffect(effect({
       type: "key",
@@ -70,7 +71,8 @@ describe("ElectronBrowserActionAdapter", () => {
       key: "KeyA",
       code: "KeyA",
       modifiers: [],
-      ownerId: "owner-1"
+      ownerId: "owner-1",
+      suppressOverlayShortcut: false
     }));
 
     expect(calls).toEqual(["hold", "release"]);

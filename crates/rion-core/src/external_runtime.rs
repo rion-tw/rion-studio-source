@@ -213,6 +213,7 @@ pub(crate) fn role_statuses(
             notice: None,
             runtime_mode: "embedded".to_owned(),
             automation_state: None,
+            overlay_state: None,
             page_health: None,
             resource_state: None,
             cpu_throttle_rate: None,
@@ -227,6 +228,13 @@ pub(crate) fn role_statuses(
             runtime_mode: "external".to_owned(),
             automation_state: (session.state == "running").then(|| {
                 if session.automation_available {
+                    "ready".to_owned()
+                } else {
+                    "unavailable".to_owned()
+                }
+            }),
+            overlay_state: (session.state == "running").then(|| {
+                if session.overlay_available {
                     "ready".to_owned()
                 } else {
                     "unavailable".to_owned()
@@ -926,6 +934,7 @@ mod tests {
             vec![("embedded-role", "embedded"), ("external-role", "external")]
         );
         assert_eq!(roles[1].automation_state.as_deref(), Some("ready"));
+        assert_eq!(roles[1].overlay_state.as_deref(), Some("unavailable"));
         assert_eq!(roles[1].page_health.as_deref(), Some("healthy"));
         crate::v1_case!("browser-workspace-25ad1cb1ef25", {
             let external_status = roles

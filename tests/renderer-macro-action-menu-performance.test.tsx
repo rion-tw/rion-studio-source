@@ -15,6 +15,50 @@ afterEach(() => {
 });
 
 describe("macro action menu performance", () => {
+  it("keeps the Studio run button enabled when only the Chrome overlay is unavailable", () => {
+    const onStartMacro = vi.fn();
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        macros={[macro]}
+        query=""
+        roleFilterId=""
+        roles={[role]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map([[
+          role.id,
+          {
+            roleId: role.id,
+            state: "running",
+            runtimeMode: "external",
+            automationState: "ready",
+            overlayState: "unavailable"
+          }
+        ]])}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={onStartMacro}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    const run = screen.getByRole("button", { name: "Start" });
+    expect(run.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(run);
+    expect(onStartMacro).toHaveBeenCalledWith(macro.id);
+  });
+
   it("coalesces captured scroll and resize positioning into one passive frame", () => {
     let nextFrameId = 1;
     const frames = new Map<number, FrameRequestCallback>();

@@ -753,6 +753,7 @@ mod tests {
             notice: None,
             runtime_mode: "external".to_owned(),
             automation_state: Some("ready".to_owned()),
+            overlay_state: Some("ready".to_owned()),
             page_health: page_health.map(str::to_owned),
             resource_state: None,
             cpu_throttle_rate: None,

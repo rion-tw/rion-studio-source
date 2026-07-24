@@ -18,6 +18,7 @@ use crate::{
 
 const MAX_PENDING_ACTIONS: usize = 512;
 const DIAGNOSTIC_REQUEST_TIMEOUT: Duration = Duration::from_secs(4);
+const BEST_EFFORT_EVALUATE_TIMEOUT: Duration = Duration::from_millis(250);
 type PartitionedActions = (
     Vec<(BrowserActionRequest, Arc<ExternalTarget>)>,
     Vec<BrowserActionRequest>,
@@ -26,6 +27,7 @@ type PartitionedActions = (
 #[derive(Default)]
 struct InputState {
     held_key_owners: HashMap<String, HashSet<String>>,
+    shortcut_suppression_owners: HashMap<String, HashSet<String>>,
 }
 
 struct ExternalTarget {
@@ -33,6 +35,7 @@ struct ExternalTarget {
     execution_context_ids: RwLock<HashSet<i64>>,
     input: Mutex<InputState>,
     input_sequence: Mutex<()>,
+    overlay_source: RwLock<Option<String>>,
     platform: String,
 }
 
@@ -68,6 +71,7 @@ impl ExternalAutomationRuntime {
                 execution_context_ids: RwLock::new(HashSet::new()),
                 input: Mutex::new(InputState::default()),
                 input_sequence: Mutex::new(()),
+                overlay_source: RwLock::new(None),
                 platform: self.platform.clone(),
             }),
         ) {
@@ -255,13 +259,22 @@ impl ExternalAutomationRuntime {
 
     pub async fn refresh_overlay(&self, role_id: &str) -> CoreResult<()> {
         let target = self.target(role_id)?;
+        let source = target
+            .overlay_source
+            .read()
+            .map_err(|_| CoreError::Internal("external overlay source lock poisoned".to_owned()))?
+            .clone();
+        let expression = match source {
+            Some(source) => format!(
+                "(() => {{ if (window.__rionStudioMacroOverlay?.refresh) return window.__rionStudioMacroOverlay.refresh(); {source} }})()"
+            ),
+            None => "void window.__rionStudioMacroOverlay?.refresh?.()".to_owned(),
+        };
         tokio::time::timeout(
             Duration::from_secs(2),
             target.cdp.send(
                 "Runtime.evaluate".to_owned(),
-                Some(json!({
-                    "expression":"void window.__rionStudioMacroOverlay?.refresh?.()"
-                })),
+                Some(json!({"expression":expression})),
                 None,
                 None,
             ),
@@ -270,6 +283,48 @@ impl ExternalAutomationRuntime {
         .map_err(|_| {
             CoreError::ExternalChrome("external overlay refresh timed out".to_owned())
         })??;
+        Ok(())
+    }
+
+    pub fn set_overlay_source(&self, role_id: &str, source: String) -> CoreResult<()> {
+        *self.target(role_id)?.overlay_source.write().map_err(|_| {
+            CoreError::Internal("external overlay source lock poisoned".to_owned())
+        })? = Some(source);
+        Ok(())
+    }
+
+    pub fn overlay_source(&self, role_id: &str) -> CoreResult<Option<String>> {
+        Ok(self
+            .target(role_id)?
+            .overlay_source
+            .read()
+            .map_err(|_| CoreError::Internal("external overlay source lock poisoned".to_owned()))?
+            .clone())
+    }
+
+    pub fn execution_context_ids(&self, role_id: &str) -> CoreResult<Vec<i64>> {
+        let mut context_ids = self
+            .target(role_id)?
+            .execution_context_ids
+            .read()
+            .map_err(|_| {
+                CoreError::Internal("external execution context lock poisoned".to_owned())
+            })?
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        context_ids.sort_unstable();
+        Ok(context_ids)
+    }
+
+    pub fn reset_execution_contexts(&self, role_id: &str) -> CoreResult<()> {
+        self.target(role_id)?
+            .execution_context_ids
+            .write()
+            .map_err(|_| {
+                CoreError::Internal("external execution context lock poisoned".to_owned())
+            })?
+            .clear();
         Ok(())
     }
 
@@ -390,13 +445,15 @@ impl ExternalTarget {
                 code,
                 modifiers,
                 owner_id,
+                suppress_overlay_shortcut,
             } => {
                 let _sequence = self.input_sequence.lock().await;
-                self.key(
+                self.key_with_suppression(
                     &phase,
                     code.as_deref().unwrap_or(&key),
                     &modifiers,
                     &owner_id,
+                    suppress_overlay_shortcut,
                 )
                 .await
                 .map(|_| None)
@@ -434,31 +491,34 @@ impl ExternalTarget {
         self.cdp
             .send("Page.bringToFront".to_owned(), None, None, None)
             .await?;
-        let _ = self
-            .cdp
-            .send(
+        let _ = tokio::time::timeout(
+            BEST_EFFORT_EVALUATE_TIMEOUT,
+            self.cdp.send(
                 "Runtime.evaluate".to_owned(),
                 Some(json!({"expression":external_focus_source(true)})),
+                Some(BEST_EFFORT_EVALUATE_TIMEOUT),
                 None,
-                None,
-            )
-            .await;
+            ),
+        )
+        .await;
         Ok(())
     }
 
     async fn ensure_input_focus(&self) -> CoreResult<()> {
-        self.cdp
-            .send(
+        let _ = tokio::time::timeout(
+            BEST_EFFORT_EVALUATE_TIMEOUT,
+            self.cdp.send(
                 "Runtime.evaluate".to_owned(),
                 Some(json!({
                     "expression":external_focus_source(false),
                     "awaitPromise":true,
                     "returnByValue":true
                 })),
+                Some(BEST_EFFORT_EVALUATE_TIMEOUT),
                 None,
-                None,
-            )
-            .await?;
+            ),
+        )
+        .await;
         Ok(())
     }
 
@@ -554,12 +614,16 @@ impl ExternalTarget {
             return Ok(());
         }
         for code in input.held_key_owners.keys() {
-            if !is_modifier(code) {
+            let suppress_shortcut = input
+                .shortcut_suppression_owners
+                .get(code)
+                .is_some_and(|owners| !owners.is_empty());
+            if suppress_shortcut {
                 self.set_shortcut_suppression(code, "keydown", true).await;
             }
             let result =
                 send_key(&self.cdp, "rawKeyDown", code, &input.held_key_owners, false).await;
-            if !is_modifier(code) {
+            if suppress_shortcut {
                 self.set_shortcut_suppression(code, "keydown", false).await;
             }
             result?;
@@ -567,12 +631,25 @@ impl ExternalTarget {
         Ok(())
     }
 
+    #[cfg(test)]
     async fn key(
         &self,
         phase: &str,
         code: &str,
         modifiers: &[String],
         owner_id: &str,
+    ) -> CoreResult<()> {
+        self.key_with_suppression(phase, code, modifiers, owner_id, true)
+            .await
+    }
+
+    async fn key_with_suppression(
+        &self,
+        phase: &str,
+        code: &str,
+        modifiers: &[String],
+        owner_id: &str,
+        suppress_overlay_shortcut: bool,
     ) -> CoreResult<()> {
         let mut input = self.input.lock().await;
         let modifier_codes = resolve_modifier_codes(modifiers, &self.platform);
@@ -599,9 +676,16 @@ impl ExternalTarget {
                         .entry(current.clone())
                         .or_default()
                         .insert(owner_id.to_owned());
+                    if current == code && suppress_overlay_shortcut {
+                        input
+                            .shortcut_suppression_owners
+                            .entry(current.clone())
+                            .or_default()
+                            .insert(owner_id.to_owned());
+                    }
                     acquired.push(current.clone());
                     if !existing {
-                        if current == code {
+                        if current == code && suppress_overlay_shortcut {
                             self.set_shortcut_suppression(code, "keydown", true).await;
                         }
                         let result = send_key(
@@ -612,7 +696,7 @@ impl ExternalTarget {
                             false,
                         )
                         .await;
-                        if current == code {
+                        if current == code && suppress_overlay_shortcut {
                             self.set_shortcut_suppression(code, "keydown", false).await;
                         }
                         if let Err(error) = result {
@@ -622,7 +706,7 @@ impl ExternalTarget {
                                         &mut input,
                                         &acquired_code,
                                         owner_id,
-                                        acquired_code == code,
+                                        acquired_code == code && suppress_overlay_shortcut,
                                     )
                                     .await;
                             }
@@ -635,8 +719,13 @@ impl ExternalTarget {
                 for current in
                     std::iter::once(code.to_owned()).chain(modifier_codes.into_iter().rev())
                 {
-                    self.release_owned_key(&mut input, &current, owner_id, current == code)
-                        .await?;
+                    self.release_owned_key(
+                        &mut input,
+                        &current,
+                        owner_id,
+                        current == code && suppress_overlay_shortcut,
+                    )
+                    .await?;
                 }
             }
             "tap" => {
@@ -649,18 +738,30 @@ impl ExternalTarget {
                         send_key(&self.cdp, "rawKeyDown", modifier, &active, false).await?;
                     }
                 }
-                self.set_shortcut_suppression(code, "keydown", true).await;
+                if suppress_overlay_shortcut {
+                    self.set_shortcut_suppression(code, "keydown", true).await;
+                }
                 let code_was_held = active.contains_key(code);
-                send_key(&self.cdp, "rawKeyDown", code, &active, code_was_held).await?;
-                self.set_shortcut_suppression(code, "keydown", false).await;
+                let key_down =
+                    send_key(&self.cdp, "rawKeyDown", code, &active, code_was_held).await;
+                if suppress_overlay_shortcut {
+                    self.set_shortcut_suppression(code, "keydown", false).await;
+                }
+                key_down?;
                 if !code_was_held {
-                    self.set_shortcut_suppression(code, "keyup", true).await;
+                    if suppress_overlay_shortcut {
+                        self.set_shortcut_suppression(code, "keyup", true).await;
+                    }
                     if let Err(error) = send_key(&self.cdp, "keyUp", code, &active, false).await {
                         let _ = send_key(&self.cdp, "keyUp", code, &active, false).await;
-                        self.set_shortcut_suppression(code, "keyup", false).await;
+                        if suppress_overlay_shortcut {
+                            self.set_shortcut_suppression(code, "keyup", false).await;
+                        }
                         return Err(error);
                     }
-                    self.set_shortcut_suppression(code, "keyup", false).await;
+                    if suppress_overlay_shortcut {
+                        self.set_shortcut_suppression(code, "keyup", false).await;
+                    }
                 }
                 for modifier in temporary_modifiers.into_iter().rev() {
                     if !input.held_key_owners.contains_key(&modifier) {
@@ -691,6 +792,12 @@ impl ExternalTarget {
         };
         if !owners.remove(owner_id) {
             return Ok(());
+        }
+        if let Some(suppression_owners) = input.shortcut_suppression_owners.get_mut(code) {
+            suppression_owners.remove(owner_id);
+            if suppression_owners.is_empty() {
+                input.shortcut_suppression_owners.remove(code);
+            }
         }
         if !owners.is_empty() {
             return Ok(());
@@ -733,28 +840,35 @@ impl ExternalTarget {
             .map(|ids| ids.iter().copied().collect::<Vec<_>>())
             .unwrap_or_default();
         if context_ids.is_empty() {
-            let _ = self
-                .cdp
-                .send(
+            let _ = tokio::time::timeout(
+                BEST_EFFORT_EVALUATE_TIMEOUT,
+                self.cdp.send(
                     "Runtime.evaluate".to_owned(),
                     Some(json!({"expression":expression})),
+                    Some(BEST_EFFORT_EVALUATE_TIMEOUT),
                     None,
-                    None,
-                )
-                .await;
+                ),
+            )
+            .await;
             return;
         }
-        for context_id in context_ids {
-            let _ = self
-                .cdp
-                .send(
-                    "Runtime.evaluate".to_owned(),
-                    Some(json!({"expression":expression,"contextId":context_id})),
-                    None,
-                    None,
+        let evaluations = context_ids.into_iter().map(|context_id| {
+            let cdp = Arc::clone(&self.cdp);
+            let expression = expression.clone();
+            async move {
+                let _ = tokio::time::timeout(
+                    BEST_EFFORT_EVALUATE_TIMEOUT,
+                    cdp.send(
+                        "Runtime.evaluate".to_owned(),
+                        Some(json!({"expression":expression,"contextId":context_id})),
+                        Some(BEST_EFFORT_EVALUATE_TIMEOUT),
+                        None,
+                    ),
                 )
                 .await;
-        }
+            }
+        });
+        join_all(evaluations).await;
     }
 
     async fn click(
@@ -1451,6 +1565,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skips_overlay_suppression_without_a_shortcut_collision() {
+        let (target, calls) = recording_target("linux");
+        target
+            .key_with_suppression("tap", "KeyQ", &[], "tap", false)
+            .await
+            .unwrap();
+        assert_eq!(
+            input_types_and_codes(&calls),
+            [
+                ("rawKeyDown".to_owned(), "KeyQ".to_owned()),
+                ("keyUp".to_owned(), "KeyQ".to_owned()),
+            ]
+        );
+        assert!(
+            !methods(&calls)
+                .iter()
+                .any(|method| method == "Runtime.evaluate")
+        );
+    }
+
+    #[tokio::test]
+    async fn focus_evaluate_timeout_does_not_block_later_input_dispatch() {
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let cdp = Arc::new(ExternalChromeCdpSession::test_session_with_handler(
+            move |method, params| {
+                output
+                    .lock()
+                    .unwrap()
+                    .push((method.to_owned(), params.cloned()));
+                if method == "Runtime.evaluate" {
+                    std::thread::sleep(Duration::from_millis(350));
+                }
+                Ok(json!({}))
+            },
+        ));
+        let target = make_target(cdp, "linux");
+        let started = std::time::Instant::now();
+        target.ensure_input_focus().await.unwrap();
+        assert!(started.elapsed() < Duration::from_millis(325));
+        target
+            .key_with_suppression("tap", "KeyQ", &[], "tap", false)
+            .await
+            .unwrap();
+        assert_eq!(
+            input_types_and_codes(&calls),
+            [
+                ("rawKeyDown".to_owned(), "KeyQ".to_owned()),
+                ("keyUp".to_owned(), "KeyQ".to_owned()),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn collects_bounded_redacted_diagnostics_without_page_content() {
         let calls = Arc::new(StdMutex::new(Vec::new()));
         let output = Arc::clone(&calls);
@@ -1856,6 +2024,7 @@ mod tests {
             execution_context_ids: RwLock::new(HashSet::new()),
             input: Mutex::new(InputState::default()),
             input_sequence: Mutex::new(()),
+            overlay_source: RwLock::new(None),
             platform: platform.to_owned(),
         }
     }

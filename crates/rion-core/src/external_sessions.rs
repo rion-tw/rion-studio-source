@@ -64,6 +64,7 @@ impl ExternalSessionRuntime {
                         state: "launching".to_owned(),
                         launched_at: None,
                         automation_available: false,
+                        overlay_available: false,
                         cdn_active: false,
                         page_health: None,
                         page_hidden: false,
@@ -88,7 +89,12 @@ impl ExternalSessionRuntime {
                 session.cdn_active = available && cdn_active;
                 if !available {
                     session.page_health = None;
+                    session.overlay_available = false;
                 }
+            }
+            ExternalSessionCommand::SetOverlay { role_id, available } => {
+                let session = self.get_mut(&role_id)?;
+                session.overlay_available = available;
             }
             ExternalSessionCommand::SetRunning {
                 role_id,
@@ -222,12 +228,18 @@ mod tests {
                 "type":"setHealth","roleId":"r1","health":"healthy","pageHidden":false
             })))
             .unwrap();
+        runtime
+            .invoke(command(json!({
+                "type":"setOverlay","roleId":"r1","available":true
+            })))
+            .unwrap();
         let running = runtime
             .invoke(command(json!({
                 "type":"setRunning","roleId":"r1","launchedAt":"2026-01-01T00:00:01Z"
             })))
             .unwrap();
         assert!(running.sessions[0].automation_available);
+        assert!(running.sessions[0].overlay_available);
         assert!(running.sessions[0].cdn_active);
         assert_eq!(running.sessions[0].page_health.as_deref(), Some("healthy"));
     }

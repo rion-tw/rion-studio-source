@@ -2062,6 +2062,20 @@ pub enum CoreEvent {
         #[ts(rename = "roleIds")]
         role_ids: Vec<String>,
     },
+    ExternalOverlayStateChanged {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "\"ready\" | \"unavailable\"")]
+        state: String,
+        #[ts(type = "\"source\" | \"registration\" | \"injection\" | \"reconnect\"")]
+        stage: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "errorCode")]
+        error_code: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "errorMessage")]
+        error_message: Option<String>,
+    },
     CompatibilityStatuses {
         statuses: Vec<CompatibilityRunStatusRecord>,
     },
@@ -3236,6 +3250,9 @@ pub enum BrowserAction {
         #[serde(rename = "ownerId")]
         #[ts(rename = "ownerId")]
         owner_id: String,
+        #[serde(default, rename = "suppressOverlayShortcut")]
+        #[ts(rename = "suppressOverlayShortcut")]
+        suppress_overlay_shortcut: bool,
     },
     Click {
         #[ts(
@@ -3582,6 +3599,9 @@ pub struct BrowserRoleStatusRecord {
     #[ts(optional, type = "\"ready\" | \"unavailable\"")]
     pub automation_state: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"ready\" | \"unavailable\"")]
+    pub overlay_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
     pub page_health: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3698,6 +3718,11 @@ pub enum ExternalSessionCommand {
         #[ts(rename = "cdnActive")]
         cdn_active: bool,
     },
+    SetOverlay {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        available: bool,
+    },
     SetRunning {
         #[ts(rename = "roleId")]
         role_id: String,
@@ -3754,6 +3779,8 @@ pub struct ExternalSessionRecord {
     #[ts(optional)]
     pub launched_at: Option<String>,
     pub automation_available: bool,
+    #[serde(default)]
+    pub overlay_available: bool,
     pub cdn_active: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]

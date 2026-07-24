@@ -150,6 +150,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
     "error.macroExternalRuntimeUnsupported",
   "Macro control could not connect to compatibility mode. Restart this role to try again.":
     "notice.externalMacroUnavailable",
+  "Chrome in-page macro shortcuts are unavailable, but macros can still be run from Rion Studio.":
+    "notice.externalOverlayUnavailable",
   "Workspace zoom could not be applied in external Chrome. Restart this role to try again.":
     "notice.externalZoomUnavailable",
   "Launch workspace has no roles.": "error.workspaceEmpty",

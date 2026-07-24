@@ -926,15 +926,45 @@ async function initializeApplication(): Promise<void> {
   });
   runtimeManager.on("change", (statuses) => {
     logService.info("browser", "role_status_changed", "Browser role status changed.", {
-      statuses: statuses.map((status) => ({ roleId: status.roleId, state: status.state, runtimeMode: status.runtimeMode }))
+      statuses: statuses.map((status) => ({
+        automationState: status.automationState,
+        overlayState: status.overlayState,
+        roleId: status.roleId,
+        state: status.state,
+        runtimeMode: status.runtimeMode
+      }))
     });
   });
   coreClient.subscribe((events) => {
     for (const event of events) {
-      if (event.type !== "overlayChanged") continue;
-      macroOverlay.refreshInstalledOverlays(
-        event.roleIds.length === 0 ? undefined : event.roleIds
-      );
+      if (event.type === "overlayChanged") {
+        macroOverlay.refreshInstalledOverlays(
+          event.roleIds.length === 0 ? undefined : event.roleIds
+        );
+      } else if (event.type === "externalOverlayStateChanged") {
+        const context = {
+          errorCode: event.errorCode,
+          errorMessage: event.errorMessage,
+          roleId: event.roleId,
+          stage: event.stage,
+          state: event.state
+        };
+        if (event.state === "unavailable") {
+          logService.warn(
+            "browser",
+            "external_overlay_unavailable",
+            "External Chrome macro overlay is unavailable.",
+            context
+          );
+        } else {
+          logService.info(
+            "browser",
+            "external_overlay_ready",
+            "External Chrome macro overlay is ready.",
+            context
+          );
+        }
+      }
     }
   });
   const graphicsDiagnosticsService = new GraphicsDiagnosticsService({

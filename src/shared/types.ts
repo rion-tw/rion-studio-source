@@ -150,6 +150,8 @@ export interface RoleStatus {
   notice?: string;
   runtimeMode?: BrowserRuntimeMode;
   automationState?: "ready" | "unavailable";
+  /** Availability of the external Chrome in-page macro overlay and shortcuts. */
+  overlayState?: "ready" | "unavailable";
   /** Health reported by the external Chrome page diagnostics bridge. */
   pageHealth?: "healthy" | "unresponsive";
   resourceState?: WorkspaceResourceState;

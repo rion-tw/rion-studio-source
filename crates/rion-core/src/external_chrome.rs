@@ -67,6 +67,7 @@ pub enum CdpEvent {
     Disconnected {
         message: String,
     },
+    Reconnected,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -112,6 +113,13 @@ impl ExternalChromeCdpSession {
     pub(crate) fn test_session_with_handler(
         handler: impl Fn(&str, Option<&Value>) -> CoreResult<Value> + Send + 'static,
     ) -> Self {
+        Self::test_session_with_full_handler(move |method, params, _| handler(method, params))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_session_with_full_handler(
+        handler: impl Fn(&str, Option<&Value>, Option<&str>) -> CoreResult<Value> + Send + 'static,
+    ) -> Self {
         let (commands, mut command_receiver) = mpsc::channel(MAX_COMMAND_QUEUE);
         let (_event_sender, events) = bounded(MAX_EVENT_QUEUE);
         std::thread::spawn(move || {
@@ -120,10 +128,12 @@ impl ExternalChromeCdpSession {
                     CdpCommand::Send {
                         method,
                         params,
+                        session_id,
                         response,
                         ..
                     } => {
-                        let _ = response.send(handler(&method, params.as_ref()));
+                        let _ =
+                            response.send(handler(&method, params.as_ref(), session_id.as_deref()));
                     }
                     CdpCommand::Close => break,
                 }
@@ -227,7 +237,15 @@ async fn run_cdp_session(
         };
         let deadline = Instant::now() + RECONNECT_TIMEOUT;
         match connect_devtools_socket(&browser_user_data_dir, &launch_url, deadline).await {
-            Ok(reconnected) => socket = reconnected,
+            Ok(reconnected) => {
+                socket = reconnected;
+                if events
+                    .send_timeout(CdpEvent::Reconnected, Duration::from_secs(1))
+                    .is_err()
+                {
+                    return;
+                }
+            }
             Err(error) => {
                 let _ = events.send_timeout(
                     CdpEvent::Disconnected {
@@ -320,7 +338,9 @@ async fn run_cdp_connection(
                             break error.to_string();
                         }
                     }
-                    handle_cdp_message(&text, &mut pending, events)
+                    if let Err(error) = handle_cdp_message(&text, &mut pending, events) {
+                        break error;
+                    }
                 },
                 Some(Ok(Message::Binary(bytes))) => {
                     if let Ok(text) = std::str::from_utf8(&bytes) {
@@ -340,7 +360,9 @@ async fn run_cdp_connection(
                                 break error.to_string();
                             }
                         }
-                        handle_cdp_message(text, &mut pending, events);
+                        if let Err(error) = handle_cdp_message(text, &mut pending, events) {
+                            break error;
+                        }
                     }
                 }
                 Some(Ok(Message::Ping(payload))) => {
@@ -502,13 +524,13 @@ fn handle_cdp_message(
     text: &str,
     pending: &mut HashMap<u64, PendingRequest>,
     events: &Sender<CdpEvent>,
-) {
+) -> Result<(), String> {
     let Ok(payload) = serde_json::from_str::<Value>(text) else {
-        return;
+        return Ok(());
     };
     if let Some(id) = payload.get("id").and_then(Value::as_u64) {
         let Some(request) = pending.remove(&id) else {
-            return;
+            return Ok(());
         };
         let result = match payload.get("error") {
             Some(error) => Err(CoreError::ExternalChrome(
@@ -521,19 +543,71 @@ fn handle_cdp_message(
             None => Ok(payload.get("result").cloned().unwrap_or(Value::Null)),
         };
         let _ = request.response.send(result);
-        return;
+        return Ok(());
     }
     let Some(method) = payload.get("method").and_then(Value::as_str) else {
-        return;
+        return Ok(());
     };
-    let _ = events.try_send(CdpEvent::Notification {
+    if !should_forward_notification(method) {
+        return Ok(());
+    }
+    let event = CdpEvent::Notification {
         method: method.to_owned(),
         params: payload.get("params").cloned(),
         session_id: payload
             .get("sessionId")
             .and_then(Value::as_str)
             .map(str::to_owned),
-    });
+    };
+    if is_critical_notification(method, payload.get("params")) {
+        events
+            .send_timeout(event, Duration::from_secs(1))
+            .map_err(|_| format!("critical CDP event queue unavailable: {method}"))?;
+    } else {
+        let _ = events.try_send(event);
+    }
+    Ok(())
+}
+
+fn should_forward_notification(method: &str) -> bool {
+    matches!(
+        method,
+        "Page.frameNavigated"
+            | "Page.lifecycleEvent"
+            | "Runtime.bindingCalled"
+            | "Runtime.executionContextCreated"
+            | "Runtime.executionContextDestroyed"
+            | "Runtime.executionContextsCleared"
+    )
+}
+
+fn is_critical_notification(method: &str, params: Option<&Value>) -> bool {
+    match method {
+        "Page.frameNavigated"
+        | "Runtime.executionContextCreated"
+        | "Runtime.executionContextDestroyed"
+        | "Runtime.executionContextsCleared" => true,
+        "Runtime.bindingCalled" => {
+            let binding_name = params
+                .and_then(|value| value.get("name"))
+                .and_then(Value::as_str);
+            if binding_name == Some("rionStudioMacroOverlay") {
+                return true;
+            }
+            params
+                .and_then(|value| value.get("payload"))
+                .and_then(Value::as_str)
+                .and_then(|payload| serde_json::from_str::<Value>(payload).ok())
+                .and_then(|payload| {
+                    payload
+                        .get("event")
+                        .and_then(Value::as_str)
+                        .map(|event| event != "heartbeat")
+                })
+                .unwrap_or(true)
+        }
+        _ => false,
+    }
 }
 
 fn expire_requests(pending: &mut HashMap<u64, PendingRequest>) {
@@ -974,6 +1048,44 @@ mod tests {
         assert_eq!(chunked_body_length(b"4\r\ntes"), None);
     }
 
+    #[test]
+    fn preserves_critical_binding_events_when_lifecycle_events_fill_the_queue() {
+        let (sender, receiver) = bounded(1);
+        let mut pending = HashMap::new();
+        handle_cdp_message(
+            &json!({"method":"Page.lifecycleEvent","params":{"name":"networkIdle"}}).to_string(),
+            &mut pending,
+            &sender,
+        )
+        .unwrap();
+        let sender_for_binding = sender.clone();
+        let worker = std::thread::spawn(move || {
+            let mut pending = HashMap::new();
+            handle_cdp_message(
+                &json!({
+                    "method":"Runtime.bindingCalled",
+                    "params":{
+                        "name":"rionStudioMacroOverlay",
+                        "payload":"{\"id\":1,\"request\":{\"type\":\"list\"}}",
+                        "executionContextId":7
+                    }
+                })
+                .to_string(),
+                &mut pending,
+                &sender_for_binding,
+            )
+        });
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            CdpEvent::Notification { method, .. } if method == "Page.lifecycleEvent"
+        ));
+        assert!(worker.join().unwrap().is_ok());
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            CdpEvent::Notification { method, .. } if method == "Runtime.bindingCalled"
+        ));
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn reconnects_and_keeps_the_bounded_command_session_usable() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
@@ -1070,6 +1182,7 @@ mod tests {
         )
         .await
         .unwrap();
+        let events = session.take_events().unwrap();
         assert_eq!(
             session
                 .send("Runtime.enable".to_owned(), None, None, None)
@@ -1084,6 +1197,10 @@ mod tests {
         })
         .await
         .unwrap();
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            CdpEvent::Reconnected
+        ));
         assert_eq!(
             session
                 .send("Runtime.evaluate".to_owned(), None, None, None)

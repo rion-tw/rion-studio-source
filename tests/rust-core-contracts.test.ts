@@ -126,7 +126,9 @@ describe("Rust addon build verification", () => {
       expect(main).toContain("return MACRO_OVERLAY_SCRIPT;");
       expect(app).toContain('Some(json!({"name":EXTERNAL_OVERLAY_BINDING}))');
       expect(app).toContain("CoreEffectAction::ExternalOverlaySource");
-      expect(app).toContain('let expression = format!("{bootstrap}\\n{source}")');
+      expect(app).toContain("Page.addScriptToEvaluateOnNewDocument");
+      expect(app).toContain("retry_external_overlay_injection");
+      expect(app).toContain('format!("{};\\n{source}", external_overlay_bridge_source())');
     });
   });
 });

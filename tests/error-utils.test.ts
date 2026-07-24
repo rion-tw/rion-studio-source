@@ -141,4 +141,14 @@ describe("renderer error localization", () => {
       "外部 Chrome でワークスペースのズームを適用できませんでした。このロールを再起動してもう一度お試しください。"
     );
   });
+
+  it("explains that an unavailable external overlay does not disable Studio macros", async () => {
+    const message =
+      "Chrome in-page macro shortcuts are unavailable, but macros can still be run from Rion Studio.";
+    await loadTranslations("zh-TW");
+
+    expect(localizeErrorMessage(message, "zh-TW")).toBe(
+      "Chrome 頁面內的巨集快捷鍵目前無法使用，但仍可從 Rion Studio 執行巨集。"
+    );
+  });
 });

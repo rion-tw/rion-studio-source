@@ -70,7 +70,7 @@ window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.platform = process.platform;
   installStyles();
   render();
-});
+}, { once: true });
 
 ipcRenderer.on(RUNTIME_TABS_STATE_CHANNEL, (_event, state: RuntimeTabChromeState) => {
   currentState = state;

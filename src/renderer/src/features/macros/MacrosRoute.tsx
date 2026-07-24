@@ -595,19 +595,39 @@ function MacroActionMenu({
           ? belowTop
           : Math.max(viewportPadding, triggerBounds.top - menuHeight - menuGap);
 
-      setMenuPosition({ left, top });
+      setMenuPosition((current) =>
+        current?.left === left && current.top === top
+          ? current
+          : { left, top }
+      );
+    }
+
+    let frameId: number | undefined;
+    function scheduleMenuPositionUpdate(): void {
+      if (frameId !== undefined) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = undefined;
+        updateMenuPosition();
+      });
     }
 
     updateMenuPosition();
-    const frameId = window.requestAnimationFrame(updateMenuPosition);
+    scheduleMenuPositionUpdate();
 
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
+    window.addEventListener("resize", scheduleMenuPositionUpdate);
+    window.addEventListener("scroll", scheduleMenuPositionUpdate, {
+      capture: true,
+      passive: true
+    });
 
     return () => {
-      window.cancelAnimationFrame(frameId);
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
+      if (frameId !== undefined) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("resize", scheduleMenuPositionUpdate);
+      window.removeEventListener("scroll", scheduleMenuPositionUpdate, true);
     };
   }, [isOpen]);
 

@@ -114,6 +114,12 @@ describe("macro overlay interactions", () => {
   });
 
   it("opens the coordinate action on hover and copies a measured viewport point", async () => {
+    let nextFrame: FrameRequestCallback | undefined;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrame = callback;
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     const { canvas } = createGameSurface(document);
     canvas.tabIndex = -1;
     canvas.focus();
@@ -141,6 +147,7 @@ describe("macro overlay interactions", () => {
     const readout = root.querySelector<HTMLElement>(".coordinate-readout");
     if (!picker || !readout) throw new Error("Expected coordinate picker.");
     expect(picker.hidden).toBe(false);
+    expect(root.querySelector("style")?.textContent).toContain("touch-action:none");
 
     const move = new MouseEvent("mousemove", {
       bubbles: true,
@@ -149,8 +156,20 @@ describe("macro overlay interactions", () => {
       clientY: 192
     });
     expect(picker.dispatchEvent(move)).toBe(false);
-    expect(readout.textContent).toContain("X: 256px");
-    expect(readout.textContent).toContain("Y: 192px");
+    const latestMove = new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 320,
+      clientY: 240
+    });
+    expect(picker.dispatchEvent(latestMove)).toBe(false);
+    expect(requestFrame).toHaveBeenCalledOnce();
+    expect(readout.textContent).not.toContain("X: 320px");
+
+    nextFrame?.(0);
+
+    expect(readout.textContent).toContain("X: 320px");
+    expect(readout.textContent).toContain("Y: 240px");
 
     const click = new MouseEvent("click", {
       bubbles: true,
@@ -236,6 +255,8 @@ describe("macro overlay interactions", () => {
   });
 
   it("blocks macro shortcuts while measuring and lets Escape cancel without copying", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 9);
+    const cancelFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     createGameSurface(document);
     const binding = vi.fn(async (_request: unknown) => ({ macros: [assignedMacro], statuses: [] }));
     installOverlay(window, binding);
@@ -250,6 +271,12 @@ describe("macro overlay interactions", () => {
     );
     const picker = root.querySelector<HTMLElement>(".coordinate-picker");
     if (!picker) throw new Error("Expected coordinate picker.");
+    picker.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 100,
+      clientY: 100
+    }));
 
     const shortcut = new window.KeyboardEvent("keydown", {
       bubbles: true,
@@ -268,6 +295,7 @@ describe("macro overlay interactions", () => {
     });
     expect(document.dispatchEvent(escape)).toBe(false);
     expect(picker.hidden).toBe(true);
+    expect(cancelFrame).toHaveBeenCalledWith(9);
     expect(binding.mock.calls.some(([request]) => isRecord(request) && request.type === "copy-coordinate")).toBe(false);
   });
 

@@ -171,7 +171,9 @@
   let coordinateReadoutElement = null;
   let clickMarkerLayerElement = null;
   let coordinateMeasureHideTimer = undefined;
+  let coordinateMeasureFrameId = undefined;
   let coordinateMeasurement = null;
+  let pendingCoordinateMeasurement = null;
   let gameInputContextActive = false;
   let host = null;
   let isDisposed = false;
@@ -419,6 +421,39 @@
     setCoordinateReadoutStatus("ready");
   }
 
+  function cancelCoordinateMeasurementFrame() {
+    if (coordinateMeasureFrameId !== undefined) {
+      cancelAnimationFrame(coordinateMeasureFrameId);
+      coordinateMeasureFrameId = undefined;
+    }
+    pendingCoordinateMeasurement = null;
+  }
+
+  function flushCoordinateMeasurement() {
+    if (coordinateMeasureFrameId !== undefined) {
+      cancelAnimationFrame(coordinateMeasureFrameId);
+      coordinateMeasureFrameId = undefined;
+    }
+    const measurement = pendingCoordinateMeasurement;
+    pendingCoordinateMeasurement = null;
+    if (measurement && coordinateMeasureActive) {
+      updateCoordinateMeasurement(measurement);
+    }
+  }
+
+  function scheduleCoordinateMeasurement(measurement) {
+    pendingCoordinateMeasurement = measurement;
+    if (coordinateMeasureFrameId !== undefined) return;
+    coordinateMeasureFrameId = requestAnimationFrame(() => {
+      coordinateMeasureFrameId = undefined;
+      const nextMeasurement = pendingCoordinateMeasurement;
+      pendingCoordinateMeasurement = null;
+      if (nextMeasurement && coordinateMeasureActive) {
+        updateCoordinateMeasurement(nextMeasurement);
+      }
+    });
+  }
+
   function updateCoordinateAnchorGuides(viewport = getVisualViewportSize()) {
     if (!coordinateAnchorLayerElement) return;
     const markers = coordinateAnchorLayerElement.querySelectorAll(".coordinate-anchor-marker");
@@ -459,6 +494,7 @@
 
   function startCoordinateMeasurement() {
     cancelCoordinateMeasureHide();
+    cancelCoordinateMeasurementFrame();
     setActionMenuVisible(false);
     if (!coordinateMeasureElement) return;
     coordinateMeasureActive = true;
@@ -481,6 +517,7 @@
   }
 
   function stopCoordinateMeasurement() {
+    cancelCoordinateMeasurementFrame();
     coordinateMeasureActive = false;
     coordinateCopyInFlight = false;
     coordinateMeasurement = null;
@@ -513,7 +550,7 @@
     if (!coordinateMeasureActive) return;
     event.preventDefault();
     event.stopPropagation();
-    updateCoordinateMeasurement(coordinateMeasurementFromEvent(event));
+    scheduleCoordinateMeasurement(coordinateMeasurementFromEvent(event));
   }
 
   function handleCoordinatePointerDown(event) {
@@ -526,7 +563,8 @@
     if (!coordinateMeasureActive) return;
     event.preventDefault();
     event.stopPropagation();
-    updateCoordinateMeasurement(coordinateMeasurementFromEvent(event));
+    pendingCoordinateMeasurement = coordinateMeasurementFromEvent(event);
+    flushCoordinateMeasurement();
     void copyCoordinateMeasurement();
   }
 
@@ -952,6 +990,7 @@
     document.getElementById(id)?.remove();
     if (host?.id === id) {
       cancelCoordinateMeasureHide();
+      cancelCoordinateMeasurementFrame();
       activeBadgesElement = null;
       actionMenuElement = null;
       clickMarkerLayerElement = null;

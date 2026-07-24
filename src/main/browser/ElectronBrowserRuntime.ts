@@ -3019,16 +3019,21 @@ function createDividerDataUrl(axis: DividerAxis): string {
   const coordinate = axis === "vertical" ? "event.screenX" : "event.screenY";
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;cursor:${cursor};user-select:none}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;cursor:${cursor};touch-action:none;user-select:none}
 </style></head><body><script>
 let dragging=false;
 const send=(phase,event)=>window.rionStudioDivider.sendPointer({phase,screenPosition:${coordinate}});
 const end=()=>window.rionStudioDivider.sendPointer({phase:"end"});
-const reset=()=>window.rionStudioDivider.sendPointer({phase:"reset"});
+let moveFrame;
+let pendingScreenPosition;
+const cancelMove=()=>{if(moveFrame!==undefined)cancelAnimationFrame(moveFrame);moveFrame=undefined;pendingScreenPosition=undefined};
+const flushMove=()=>{if(moveFrame!==undefined)cancelAnimationFrame(moveFrame);moveFrame=undefined;if(pendingScreenPosition===undefined)return;const screenPosition=pendingScreenPosition;pendingScreenPosition=undefined;window.rionStudioDivider.sendPointer({phase:"move",screenPosition})};
+const scheduleMove=event=>{pendingScreenPosition=${coordinate};if(moveFrame===undefined)moveFrame=requestAnimationFrame(flushMove)};
+const reset=()=>{cancelMove();window.rionStudioDivider.sendPointer({phase:"reset"})};
 const setDragging=value=>{dragging=value};
-const finish=()=>{if(!dragging)return;setDragging(false);end()};
-addEventListener("pointerdown",event=>{setDragging(true);document.body.setPointerCapture?.(event.pointerId);send("start",event);event.preventDefault()});
-addEventListener("pointermove",event=>{if(dragging)send("move",event)});
+const finish=event=>{if(!dragging)return;if(event?.type==="pointerup")pendingScreenPosition=${coordinate};flushMove();setDragging(false);end()};
+addEventListener("pointerdown",event=>{cancelMove();setDragging(true);document.body.setPointerCapture?.(event.pointerId);send("start",event);event.preventDefault()});
+addEventListener("pointermove",event=>{if(dragging)scheduleMove(event)},{passive:true});
 addEventListener("pointerup",finish);
 addEventListener("pointercancel",finish);
 addEventListener("blur",finish);

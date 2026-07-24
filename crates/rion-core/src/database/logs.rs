@@ -20,13 +20,35 @@ use crate::{
 
 const RETENTION_DAYS: i64 = 14;
 const MAX_BYTES: i64 = 100 * 1024 * 1024;
+const RETENTION_TARGET_BYTES: i64 = 90 * 1024 * 1024;
+const RETENTION_DELETE_BATCH_SIZE: usize = 1_000;
 const BATCH_INTERVAL: Duration = Duration::from_millis(250);
 const BATCH_MAX_ENTRIES: usize = 50;
+
+#[derive(Debug, Clone, Copy)]
+struct RetentionPolicy {
+    retention_days: i64,
+    max_bytes: i64,
+    target_bytes: i64,
+    delete_batch_size: usize,
+}
+
+impl Default for RetentionPolicy {
+    fn default() -> Self {
+        Self {
+            retention_days: RETENTION_DAYS,
+            max_bytes: MAX_BYTES,
+            target_bytes: RETENTION_TARGET_BYTES,
+            delete_batch_size: RETENTION_DELETE_BATCH_SIZE,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogStatus {
     pub entry_count: u64,
+    pub file_count: u64,
     pub total_bytes: u64,
     pub oldest_timestamp: Option<String>,
     pub newest_timestamp: Option<String>,
@@ -107,7 +129,8 @@ impl LogDatabaseWorker {
             .into_owned();
         Ok(LogStorageStatusRecord {
             current_level,
-            file_count: u64::from(status.entry_count > 0),
+            entry_count: status.entry_count,
+            file_count: status.file_count,
             total_bytes: status.total_bytes,
             oldest_timestamp: status.oldest_timestamp,
             newest_timestamp: status.newest_timestamp,
@@ -329,6 +352,14 @@ pub(super) fn import_legacy_logs(connection: &mut Connection, directory: &Path) 
 }
 
 fn append_entries(connection: &mut Connection, entries: &[LogEntry]) -> CoreResult<usize> {
+    append_entries_with_policy(connection, entries, RetentionPolicy::default())
+}
+
+fn append_entries_with_policy(
+    connection: &mut Connection,
+    entries: &[LogEntry],
+    retention: RetentionPolicy,
+) -> CoreResult<usize> {
     if entries.is_empty() {
         return Ok(0);
     }
@@ -343,7 +374,7 @@ fn append_entries(connection: &mut Connection, entries: &[LogEntry]) -> CoreResu
     transaction
         .commit()
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-    enforce_retention(connection)?;
+    enforce_retention_with_policy(connection, retention)?;
     Ok(inserted)
 }
 
@@ -510,10 +541,7 @@ fn clear_entries(connection: &Connection) -> CoreResult<()> {
     connection
         .execute("DELETE FROM log_entries", [])
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-    connection
-        .execute_batch("INSERT INTO log_entries_fts(log_entries_fts) VALUES ('rebuild'); PRAGMA incremental_vacuum;")
-        .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-    Ok(())
+    reclaim_unused_space(connection)
 }
 
 fn read_status(connection: &Connection, path: &Path) -> CoreResult<LogStatus> {
@@ -530,9 +558,11 @@ fn read_status(connection: &Connection, path: &Path) -> CoreResult<LogStatus> {
             },
         )
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+    let (file_count, total_bytes) = sqlite_storage_status(path)?;
     Ok(LogStatus {
         entry_count: entry_count.max(0) as u64,
-        total_bytes: database_size(connection)?.max(0) as u64,
+        file_count,
+        total_bytes,
         oldest_timestamp: oldest,
         newest_timestamp: newest,
         retention_days: RETENTION_DAYS as u32,
@@ -606,33 +636,72 @@ fn write_jsonl(connection: &Connection, output: &mut impl Write) -> CoreResult<(
     Ok(())
 }
 
-fn enforce_retention(connection: &Connection) -> CoreResult<()> {
-    let cutoff = (Utc::now() - ChronoDuration::days(RETENTION_DAYS)).to_rfc3339();
-    connection
+fn enforce_retention_with_policy(
+    connection: &Connection,
+    retention: RetentionPolicy,
+) -> CoreResult<()> {
+    debug_assert!(retention.target_bytes <= retention.max_bytes);
+    debug_assert!(retention.delete_batch_size > 0);
+    let cutoff = (Utc::now() - ChronoDuration::days(retention.retention_days)).to_rfc3339();
+    let expired = connection
         .execute(
             "DELETE FROM log_entries WHERE timestamp < ?1",
             params![cutoff],
         )
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-    let mut rounds = 0;
-    while database_size(connection)? > MAX_BYTES && rounds < 200 {
+    let mut size = database_size(connection)?;
+    if expired > 0 || size > retention.max_bytes {
+        reclaim_unused_space(connection)?;
+        size = database_size(connection)?;
+    }
+    if size <= retention.max_bytes {
+        return Ok(());
+    }
+
+    while size > retention.target_bytes {
         let removed = connection
             .execute(
                 "DELETE FROM log_entries WHERE row_id IN (
-                   SELECT row_id FROM log_entries ORDER BY timestamp, row_id LIMIT 1000
+                   SELECT row_id
+                   FROM log_entries
+                   WHERE row_id != (
+                     SELECT row_id
+                     FROM log_entries
+                     ORDER BY timestamp DESC, row_id DESC
+                     LIMIT 1
+                   )
+                   ORDER BY timestamp, row_id
+                   LIMIT ?1
                  )",
-                [],
+                params![retention.delete_batch_size as i64],
             )
             .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
         if removed == 0 {
             break;
         }
-        rounds += 1;
+        reclaim_unused_space(connection)?;
+        size = database_size(connection)?;
     }
-    connection
-        .execute_batch("PRAGMA wal_checkpoint(PASSIVE); PRAGMA incremental_vacuum(256);")
-        .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
     Ok(())
+}
+
+fn reclaim_unused_space(connection: &Connection) -> CoreResult<()> {
+    connection
+        .execute(
+            "INSERT INTO log_entries_fts(log_entries_fts) VALUES ('rebuild')",
+            [],
+        )
+        .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+    run_pragma(connection, "wal_checkpoint", "TRUNCATE")?;
+    run_pragma(connection, "incremental_vacuum", i32::MAX)?;
+    run_pragma(connection, "wal_checkpoint", "TRUNCATE")?;
+    Ok(())
+}
+
+fn run_pragma(connection: &Connection, name: &str, value: impl rusqlite::ToSql) -> CoreResult<()> {
+    connection
+        .pragma(None, name, value, |_| Ok(()))
+        .map_err(|error| CoreError::LogDatabase(error.to_string()))
 }
 
 fn database_size(connection: &Connection) -> CoreResult<i64> {
@@ -643,6 +712,32 @@ fn database_size(connection: &Connection) -> CoreResult<i64> {
         .query_row("PRAGMA page_size", [], |row| row.get(0))
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
     Ok(pages.saturating_mul(page_size))
+}
+
+fn sqlite_storage_status(path: &Path) -> CoreResult<(u64, u64)> {
+    let mut file_count = 0_u64;
+    let mut total_bytes = 0_u64;
+    for path in sqlite_file_paths(path) {
+        match fs::metadata(path) {
+            Ok(metadata) if metadata.is_file() => {
+                file_count = file_count.saturating_add(1);
+                total_bytes = total_bytes.saturating_add(metadata.len());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(CoreError::LogDatabase(error.to_string())),
+        }
+    }
+    Ok((file_count, total_bytes))
+}
+
+fn sqlite_file_paths(path: &Path) -> [PathBuf; 3] {
+    let sidecar = |suffix: &str| {
+        let mut value = path.as_os_str().to_os_string();
+        value.push(suffix);
+        PathBuf::from(value)
+    };
+    [path.to_path_buf(), sidecar("-wal"), sidecar("-shm")]
 }
 
 fn validate_entry(entry: &LogEntry) -> CoreResult<()> {
@@ -699,6 +794,12 @@ mod tests {
             context: None,
             error: None,
         }
+    }
+
+    fn entry_at(id: &str, message: &str, timestamp: chrono::DateTime<Utc>) -> LogEntry {
+        let mut value = entry(id, message);
+        value.timestamp = timestamp.to_rfc3339();
+        value
     }
 
     #[test]
@@ -764,13 +865,204 @@ mod tests {
             .unwrap();
             assert_eq!(searched.entries.len(), 1);
             assert_eq!(searched.entries[0].id, warning.id);
-            assert!(
-                read_status(&connection, directory.path())
-                    .unwrap()
-                    .total_bytes
-                    > 0
-            );
+            let status = read_status(&connection, &directory.path().join("logs.sqlite3")).unwrap();
+            assert_eq!(status.entry_count, 3);
+            assert_eq!(status.file_count, 1);
+            assert!(status.total_bytes > 0);
         });
+    }
+
+    #[test]
+    fn reclaims_fragmented_empty_database_without_deleting_the_newest_entry() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("logs.sqlite3");
+        let mut connection = Connection::open(&path).unwrap();
+        create_schema(&connection, false).unwrap();
+        let oversized = (0..160)
+            .map(|index| {
+                entry(
+                    &format!("fragment-{index:03}"),
+                    &format!("fragment-{index:03} {}", "x".repeat(8 * 1024)),
+                )
+            })
+            .collect::<Vec<_>>();
+        append_entries(&mut connection, &oversized).unwrap();
+        connection.execute("DELETE FROM log_entries", []).unwrap();
+
+        let policy = RetentionPolicy {
+            retention_days: RETENTION_DAYS,
+            max_bytes: 512 * 1024,
+            target_bytes: 384 * 1024,
+            delete_batch_size: 10,
+        };
+        assert!(database_size(&connection).unwrap() > policy.max_bytes);
+
+        let newest = entry("app-session-started", "Application logging started.");
+        append_entries_with_policy(&mut connection, std::slice::from_ref(&newest), policy).unwrap();
+
+        let page = query_entries(
+            &connection,
+            &LogQuery {
+                search: Some("Application logging started".to_owned()),
+                ..LogQuery::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            ["app-session-started"]
+        );
+        let reclaimed_size = database_size(&connection).unwrap();
+        let reclaimed_free: i64 = connection
+            .query_row("PRAGMA freelist_count", [], |row| row.get(0))
+            .unwrap();
+        let auto_vacuum: i64 = connection
+            .query_row("PRAGMA auto_vacuum", [], |row| row.get(0))
+            .unwrap();
+        assert!(
+            reclaimed_size <= policy.max_bytes,
+            "reclaimed size={reclaimed_size}, freelist={reclaimed_free}, auto_vacuum={auto_vacuum}"
+        );
+
+        let mut exported = Vec::new();
+        write_jsonl(&connection, &mut exported).unwrap();
+        let exported = String::from_utf8(exported).unwrap();
+        assert!(exported.contains("\"id\":\"app-session-started\""));
+        assert!(!exported.contains("\"id\":\"fragment-"));
+    }
+
+    #[test]
+    fn capacity_retention_prunes_oldest_entries_to_target_and_keeps_fts_and_export_valid() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("logs.sqlite3");
+        let mut connection = Connection::open(&path).unwrap();
+        create_schema(&connection, false).unwrap();
+        let now = Utc::now();
+        let entries = (0..96)
+            .map(|index| {
+                entry_at(
+                    &format!("entry-{index:03}"),
+                    &format!("unique-{index:03} {}", "y".repeat(8 * 1024)),
+                    now + ChronoDuration::seconds(index),
+                )
+            })
+            .collect::<Vec<_>>();
+        let policy = RetentionPolicy {
+            retention_days: RETENTION_DAYS,
+            max_bytes: 512 * 1024,
+            target_bytes: 384 * 1024,
+            delete_batch_size: 10,
+        };
+
+        append_entries_with_policy(&mut connection, &entries, policy).unwrap();
+
+        let remaining = query_entries(
+            &connection,
+            &LogQuery {
+                limit: Some(200),
+                ..LogQuery::default()
+            },
+        )
+        .unwrap()
+        .entries;
+        assert!(!remaining.is_empty());
+        assert!(remaining.len() < entries.len());
+        assert_eq!(remaining[0].id, "entry-095");
+        assert!(!remaining.iter().any(|entry| entry.id == "entry-000"));
+        let retained_size = database_size(&connection).unwrap();
+        let retained_free: i64 = connection
+            .query_row("PRAGMA freelist_count", [], |row| row.get(0))
+            .unwrap();
+        assert!(
+            retained_size <= policy.target_bytes,
+            "retained size={retained_size}, freelist={retained_free}, entries={}",
+            remaining.len()
+        );
+
+        let searched = query_entries(
+            &connection,
+            &LogQuery {
+                search: Some("unique-095".to_owned()),
+                limit: Some(1),
+                ..LogQuery::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(searched.entries[0].id, "entry-095");
+
+        let post_rebuild = (0..3)
+            .map(|index| {
+                entry_at(
+                    &format!("post-rebuild-{index}"),
+                    &format!("post rebuild {index}"),
+                    now + ChronoDuration::seconds(200 + index),
+                )
+            })
+            .collect::<Vec<_>>();
+        append_entries_with_policy(&mut connection, &post_rebuild, policy).unwrap();
+        let first_page = query_entries(
+            &connection,
+            &LogQuery {
+                limit: Some(2),
+                ..LogQuery::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(first_page.entries.len(), 2);
+        assert_eq!(first_page.next_cursor.as_deref(), Some("2"));
+        let second_page = query_entries(
+            &connection,
+            &LogQuery {
+                cursor: first_page.next_cursor,
+                limit: Some(2),
+                ..LogQuery::default()
+            },
+        )
+        .unwrap();
+        assert!(!second_page.entries.is_empty());
+
+        let mut exported = Vec::new();
+        write_jsonl(&connection, &mut exported).unwrap();
+        let exported = String::from_utf8(exported).unwrap();
+        assert!(exported.contains("\"id\":\"entry-095\""));
+        assert!(exported.contains("\"id\":\"post-rebuild-2\""));
+        assert!(!exported.contains("\"id\":\"entry-000\""));
+    }
+
+    #[test]
+    fn age_retention_removes_expired_entries_but_preserves_current_entries() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("logs.sqlite3");
+        let mut connection = Connection::open(&path).unwrap();
+        create_schema(&connection, false).unwrap();
+        let entries = [
+            entry_at(
+                "expired",
+                "expired event",
+                Utc::now() - ChronoDuration::days(RETENTION_DAYS + 1),
+            ),
+            entry("current", "current event"),
+        ];
+
+        append_entries_with_policy(
+            &mut connection,
+            &entries,
+            RetentionPolicy {
+                max_bytes: i64::MAX,
+                target_bytes: i64::MAX,
+                ..RetentionPolicy::default()
+            },
+        )
+        .unwrap();
+
+        let remaining = query_entries(&connection, &LogQuery::default())
+            .unwrap()
+            .entries;
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "current");
     }
 
     #[test]
@@ -874,7 +1166,13 @@ mod tests {
         );
 
         worker.append(vec![entry("later", "pending")]).unwrap();
-        assert_eq!(worker.status().unwrap().entry_count, 3);
+        let status = worker.status().unwrap();
+        assert_eq!(status.entry_count, 3);
+        assert!(status.file_count >= 1);
+        assert!(status.total_bytes > 0);
+        let storage = worker.storage_status(LogLevel::Info).unwrap();
+        assert_eq!(storage.entry_count, 3);
+        assert_eq!(storage.file_count, status.file_count);
         worker.shutdown();
     }
 

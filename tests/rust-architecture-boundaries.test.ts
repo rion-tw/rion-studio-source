@@ -218,6 +218,8 @@ describe("Rust production architecture boundaries", () => {
     expect(capture).toContain("sanitize_value");
     expect(persistence).toContain("BATCH_INTERVAL");
     expect(persistence).toContain("BATCH_MAX_ENTRIES");
+    expect(persistence).toContain("RETENTION_TARGET_BYTES");
+    expect(persistence).toContain("wal_checkpoint");
   });
 
   it("keeps external Chrome health scheduling and probes out of TypeScript", async () => {
@@ -399,6 +401,7 @@ describe("Rust production architecture boundaries", () => {
     expect(main).not.toContain("performanceTelemetryTimer");
     expect(main).not.toContain("writeZip");
     expect(main).toContain('type: "diagnosticsExport"');
+    expect(main).toContain("await logService.flush()");
     expect(native).not.toContain("class PerformanceMetrics");
     expect(diagnostics).toContain("atomic_replace_file");
     expect(telemetry).toContain("WRITE_INTERVAL");

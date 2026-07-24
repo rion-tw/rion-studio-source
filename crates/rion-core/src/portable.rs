@@ -2717,6 +2717,64 @@ mod tests {
     }
 
     #[test]
+    fn portable_preferences_do_not_export_or_overwrite_device_log_level() {
+        let mut snapshot = state_fixture();
+        snapshot.log_level = Some(crate::model::LogLevel::Debug);
+        let preferences = PortablePreferencesRecord {
+            game_browser_settings: None,
+            language: Some("en".to_owned()),
+            macro_settings: None,
+            theme_mode: None,
+        };
+        let exported = export(
+            snapshot.clone(),
+            Some(preferences),
+            PortableDataSelectionRecord {
+                games: false,
+                roles: false,
+                launch_workspaces: false,
+                macros: false,
+                preferences: true,
+            },
+            "2.0.0",
+        )
+        .unwrap();
+        assert!(
+            serde_json::to_value(&exported)
+                .unwrap()
+                .get("logLevel")
+                .is_none()
+        );
+
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                &serde_json::to_string(&exported).unwrap(),
+                "/tmp/preferences-with-local-log-level.json".to_owned(),
+                snapshot.clone(),
+            )
+            .unwrap();
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                PortableDataSelectionRecord {
+                    games: false,
+                    roles: false,
+                    launch_workspaces: false,
+                    macros: false,
+                    preferences: true,
+                },
+                Vec::new(),
+                snapshot,
+            )
+            .unwrap();
+        assert_eq!(
+            prepared.snapshot.log_level,
+            Some(crate::model::LogLevel::Debug)
+        );
+    }
+
+    #[test]
     fn portable_validation_boundaries_match_v1() {
         crate::v1_case!("portable-profile-2d3cefe26629", {
             let mut source = fixture_value(2);

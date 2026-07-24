@@ -36,11 +36,12 @@ use crate::{
         ExternalGraphicsDiagnosticsRecord, ExternalPrepareSessionResultRecord,
         ExternalSessionCommand, ExternalSessionRecord, GameBrowserSettingsRecord,
         GraphicsDiagnosticsRecord, GraphicsVersionRecord, LegalAcceptanceRecord, LogCaptureRecord,
-        MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
-        MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
-        OperationCancelResultRecord, RuntimeWindowPreferencesRecord, StateCollection,
-        StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord,
-        StateMacroRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
+        LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
+        MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
+        MacroStartRequest, OperationCancelResultRecord, RuntimeWindowPreferencesRecord,
+        StateCollection, StateCompatibilityReportRecord, StateGameRecord,
+        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
+        StatePixelBoundsRecord, StateRoleRecord,
     },
     scheduler::MonotonicScheduler,
 };
@@ -125,6 +126,10 @@ impl AppCore {
         let state = StateDatabaseWorker::start(database_paths.state.clone())?;
         state.recover_portable_import(user_data_dir.clone())?;
         recover_operation_journals(&state, &user_data_dir)?;
+        let log_level = state
+            .read_scalar("logLevel".to_owned())?
+            .and_then(|value| serde_json::from_value::<LogLevel>(value).ok())
+            .unwrap_or(LogLevel::Info);
         let chrome_profile_import = restore_chrome_profile_import_runtime(&state, &user_data_dir)?;
         let logs = LogDatabaseWorker::start(database_paths.logs.clone())?;
         let subscribers = Arc::new(Mutex::new(Vec::new()));
@@ -333,6 +338,7 @@ impl AppCore {
             external_sessions,
             log_capture: Mutex::new(crate::log_capture::LogCaptureRuntime::new(
                 user_data_dir.clone(),
+                log_level,
             )),
             macro_runtime,
             operation_actor,
@@ -860,6 +866,7 @@ impl AppCore {
                 Ok(json!({ "inserted": inserted }))
             }
             CoreCommand::LogsSetLevel { level } => {
+                self.replace_scalar_state("logLevel", level)?;
                 self.log_capture()?.set_level(level);
                 Ok(json!({ "level": level }))
             }
@@ -6468,6 +6475,139 @@ mod tests {
             "width": 1.0 / columns as f64,
             "height": 1.0 / rows as f64
         })
+    }
+
+    #[test]
+    fn log_level_persists_across_core_restarts_on_supported_platforms() {
+        for platform in ["darwin", "win32"] {
+            let directory = tempfile::tempdir().unwrap();
+            let options = || AppCoreOptions {
+                app_version: "2.1.0-test".to_owned(),
+                platform: platform.to_owned(),
+                user_data_dir: directory.path().to_string_lossy().into_owned(),
+                performance_telemetry_path: None,
+            };
+
+            let first = AppCore::create(options()).unwrap();
+            assert_eq!(
+                first.invoke(CoreCommand::LogsStatus).unwrap()["currentLevel"],
+                "info"
+            );
+            first
+                .invoke(CoreCommand::LogsSetLevel {
+                    level: LogLevel::Debug,
+                })
+                .unwrap();
+            first.shutdown();
+            drop(first);
+
+            let restored = AppCore::create(options()).unwrap();
+            assert_eq!(
+                restored.invoke(CoreCommand::LogsStatus).unwrap()["currentLevel"],
+                "debug"
+            );
+            restored
+                .invoke(command(json!({
+                    "type": "logsCapture",
+                    "entries": [{
+                        "level": "debug",
+                        "source": "main",
+                        "event": "restored_debug_capture",
+                        "message": "Persisted debug logging is active."
+                    }]
+                })))
+                .unwrap();
+            let debug_page = restored
+                .invoke(command(json!({
+                    "type": "logsQuery",
+                    "query": {"levels": ["debug"], "limit": 10}
+                })))
+                .unwrap();
+            assert!(
+                debug_page["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|entry| entry["event"] == "restored_debug_capture")
+            );
+            restored
+                .invoke(CoreCommand::LogsSetLevel {
+                    level: LogLevel::Info,
+                })
+                .unwrap();
+            restored.shutdown();
+            drop(restored);
+
+            let reset = AppCore::create(options()).unwrap();
+            assert_eq!(
+                reset.invoke(CoreCommand::LogsStatus).unwrap()["currentLevel"],
+                "info"
+            );
+            reset.shutdown();
+        }
+    }
+
+    #[test]
+    fn invalid_persisted_log_level_falls_back_to_info() {
+        let (directory, core) = core();
+        core.shutdown();
+        drop(core);
+        let connection =
+            rusqlite::Connection::open(directory.path().join("rion-studio.sqlite3")).unwrap();
+        connection
+            .execute(
+                "INSERT INTO settings(key, payload_json) VALUES ('logLevel', 'not-json')
+                 ON CONFLICT(key) DO UPDATE SET payload_json=excluded.payload_json",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let restored = AppCore::create(AppCoreOptions {
+            app_version: "2.1.0-test".to_owned(),
+            platform: "darwin".to_owned(),
+            user_data_dir: directory.path().to_string_lossy().into_owned(),
+            performance_telemetry_path: None,
+        })
+        .unwrap();
+        assert_eq!(
+            restored.invoke(CoreCommand::LogsStatus).unwrap()["currentLevel"],
+            "info"
+        );
+        restored.shutdown();
+    }
+
+    #[test]
+    fn failed_log_level_persistence_does_not_change_the_runtime_level() {
+        let (_directory, core) = core();
+        let connection = rusqlite::Connection::open(&core.database_paths.state).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER reject_log_level_insert
+                 BEFORE INSERT ON settings
+                 WHEN NEW.key='logLevel'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'fixture rejects log level persistence');
+                 END;",
+            )
+            .unwrap();
+
+        assert!(
+            core.invoke(CoreCommand::LogsSetLevel {
+                level: LogLevel::Debug,
+            })
+            .is_err()
+        );
+        assert_eq!(
+            core.invoke(CoreCommand::LogsStatus).unwrap()["currentLevel"],
+            "info"
+        );
+        assert!(
+            core.with_runtime(|runtime| runtime.state.read_scalar("logLevel".to_owned()))
+                .unwrap()
+                .is_none()
+        );
+        core.shutdown();
     }
 
     #[tokio::test(flavor = "multi_thread")]

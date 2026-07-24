@@ -35,9 +35,9 @@ pub struct LogCaptureRuntime {
 }
 
 impl LogCaptureRuntime {
-    pub fn new(user_data_dir: PathBuf) -> Self {
+    pub fn new(user_data_dir: PathBuf, current_level: LogLevel) -> Self {
         Self {
-            current_level: LogLevel::Info,
+            current_level,
             pending: VecDeque::with_capacity(CAPTURE_QUEUE_CAPACITY),
             sequence: 0,
             session_id: Uuid::new_v4().to_string(),
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn owns_session_sequence_filtering_and_redaction() {
-        let mut runtime = LogCaptureRuntime::new(PathBuf::from("/users/test/Rion"));
+        let mut runtime = LogCaptureRuntime::new(PathBuf::from("/users/test/Rion"), LogLevel::Info);
         let entries = runtime.capture(vec![
             capture(LogLevel::Debug, None),
             capture(
@@ -285,7 +285,7 @@ mod tests {
                 stack: None,
                 cause: None,
             };
-            let mut runtime = LogCaptureRuntime::new(PathBuf::from("/app/data"));
+            let mut runtime = LogCaptureRuntime::new(PathBuf::from("/app/data"), LogLevel::Info);
             let entries = runtime.capture(vec![LogCaptureRecord {
                 level: LogLevel::Error,
                 source: LogSource::Main,
@@ -315,7 +315,7 @@ mod tests {
         });
 
         crate::v1_case!("logging-863617eb2d4b", {
-            let mut runtime = LogCaptureRuntime::new(PathBuf::from("/tmp/rion"));
+            let mut runtime = LogCaptureRuntime::new(PathBuf::from("/tmp/rion"), LogLevel::Info);
             let entries = runtime.capture(vec![capture(
                 LogLevel::Info,
                 Some(r#"{"sourceItemCount":4,"flushFailed":true,"sessionStorage":"opaque-token"}"#),
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn bounds_the_capture_queue_and_preserves_higher_severity_entries() {
-        let mut runtime = LogCaptureRuntime::new(PathBuf::from("/tmp/rion"));
+        let mut runtime = LogCaptureRuntime::new(PathBuf::from("/tmp/rion"), LogLevel::Info);
         let mut captures = (0..CAPTURE_QUEUE_CAPACITY)
             .map(|_| capture(LogLevel::Info, None))
             .collect::<Vec<_>>();

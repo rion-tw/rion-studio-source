@@ -37,7 +37,8 @@ describe("ElectronBrowserActionAdapter", () => {
 
     await adapter.executeEffect(effect({ type: "focus" }));
 
-    expect(calls).toEqual(["focus", "ensure"]);
+    expect(calls).toEqual(["ensure"]);
+    expect(calls).not.toContain("focus");
   });
 
   it("preserves Rust-issued key effect order for one role", async () => {

@@ -129,7 +129,6 @@ export interface ElectronBrowserRuntimeOptions {
   embeddedPreloadPath: string;
   runtimeTabsPageUrl?: string;
   runtimeTabsPreloadPath?: string;
-  getCursorScreenPoint?: () => { x: number; y: number };
   getRoleSession?: (role: Role) => Session | undefined | Promise<Session | undefined>;
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getLaunchWorkArea: () => PixelBounds;
@@ -161,6 +160,8 @@ export interface ElectronBrowserRuntimeOptions {
     input: WorkspaceDividerResizeInput
   ) => MaybePromise<WorkspaceDividerResizeOutput>;
   workspaceLayoutResolver: (input: WorkspaceLayoutInput) => MaybePromise<WorkspaceLayoutOutput>;
+  recordLayoutPass?: (count?: number) => void;
+  recordRuntimePublish?: (count?: number) => void;
   recordTabActivationLatency?: (durationMs: number) => void;
 }
 
@@ -229,6 +230,12 @@ interface GameHostWindow {
   workspaceId?: string;
 }
 
+interface HostLayoutState {
+  generation: number;
+  inFlight?: Promise<void>;
+  trailing: boolean;
+}
+
 interface EmbeddedDisplayHost {
   activeTabId?: string;
   chromeView?: WebContentsView;
@@ -243,7 +250,6 @@ interface EmbeddedDisplayHost {
   macSystemMenuBarHeight: number;
   systemMenuBarTemporarilyRevealed: boolean;
   tabIds: string[];
-  toolbarCursorMonitorTimer?: ReturnType<typeof setTimeout>;
   toolbarRevealLockCount: number;
   toolbarTemporarilyVisible: boolean;
   window: BaseWindow;
@@ -336,11 +342,8 @@ const DEFAULT_BROWSER_ZOOM_FACTOR = 1;
 const WORKSPACE_ROLE_ZOOM_PERSIST_DEBOUNCE_MS = 200;
 const RUNTIME_TAB_CHROME_HEIGHT = 40;
 const RUNTIME_TAB_FULLSCREEN_HOT_ZONE_HEIGHT = 2;
-const RUNTIME_TAB_FULLSCREEN_REVEAL_DETECTION_HEIGHT = 4;
-const RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT = 48;
 const RUNTIME_TAB_MAC_MENU_BAR_FALLBACK_HEIGHT = 30;
 const RUNTIME_TAB_MAC_MENU_BAR_MAX_HEIGHT = 64;
-const RUNTIME_TAB_TOOLBAR_CURSOR_MONITOR_INTERVAL_MS = 50;
 export const EXTERNAL_COMPAT_NOTICE =
   "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 
@@ -464,6 +467,10 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   private readonly tabHandles = new Map<string, GameHostWindow>();
   private readonly roleHandles = new Map<string, BrowserSession>();
   private readonly workspaceTabHandleIds = new Map<string, string>();
+  private readonly hostLayoutStates = new Map<string, HostLayoutState>();
+  private readonly lastRuntimeChromeStateByDisplay = new Map<number, string>();
+  private lastEmittedRuntimeState = "";
+  private lastEmittedStatuses = "";
   private runtimeSnapshot: BrowserRuntimeSnapshot = {
     displays: [],
     roles: [],
@@ -535,7 +542,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
           tab.workspaceTemplate as WorkspaceLayoutTemplate | undefined,
           tab.tabId
         );
-        for (const role of tab.roles) {
+        for (const [index, role] of tab.roles.entries()) {
           await this.createSession(
             role.role,
             host,
@@ -543,8 +550,13 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
             role.zoomFactor,
             role.zoomMode
           );
+          if ((index + 1) % 2 === 0 && index + 1 < tab.roles.length) {
+            await yieldToElectronMainLoop();
+          }
         }
         if (tab.roles.length > 1) await this.createHostDividers(host);
+        await this.layoutHost(host);
+        this.emitChange();
         const firstRole = tab.roles[0]?.role;
         if (firstRole && !tab.workspaceId) {
           void this.resolveRuntimeTabGameIcon(firstRole)
@@ -568,8 +580,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       case "embeddedConfigureRoleSessions": {
         await waitForAllEffects(action.roleIds.map(async (roleId) => {
           const session = this.requireEmbeddedSession(roleId);
-          await this.applyBrowserFonts(session.role);
-          this.assertSessionActive(session);
           await this.applyBrowserProxy(session);
           this.assertSessionActive(session);
           await this.applyCdnCompatibility(session);
@@ -1135,7 +1145,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   }
 
   launchWorkspace(
-    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template">,
+    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "template">,
     items: BrowserWorkspaceLaunchItem[],
     target?: BrowserWorkspaceLaunchTarget,
     _launchMode?: "auto" | "embedded" | "external"
@@ -1145,7 +1155,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   }
 
   private async launchWorkspaceThroughCore(
-    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template">,
+    workspace: Pick<LaunchWorkspace, "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "template">,
     target?: BrowserWorkspaceLaunchTarget
   ): Promise<RoleStatus[]> {
     const resolvedTarget = target ?? this.getDefaultLaunchTarget();
@@ -1456,7 +1466,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       displayHost.chromeWebContents = chromeView.webContents;
       window.contentView.addChildView(chromeView);
       this.displayHostByChromeWebContentsId.set(chromeView.webContents.id, displayHost);
-      chromeView.webContents.once("did-finish-load", () => this.sendRuntimeChromeState(displayHost));
+      chromeView.webContents.once("did-finish-load", () =>
+        this.sendRuntimeChromeState(displayHost, true)
+      );
       this.configureRuntimeWindowAccelerators(displayHost, chromeView.webContents);
       void chromeView.webContents.loadURL(this.options.runtimeTabsPageUrl ?? "about:blank").catch((error) => {
         console.error("Failed to load the runtime tab chrome.", error);
@@ -1464,7 +1476,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     } else if (isBrowserWindow(window)) {
       displayHost.chromeWebContents = window.webContents;
       this.displayHostByChromeWebContentsId.set(window.webContents.id, displayHost);
-      window.webContents.once("did-finish-load", () => this.sendRuntimeChromeState(displayHost));
+      window.webContents.once("did-finish-load", () =>
+        this.sendRuntimeChromeState(displayHost, true)
+      );
       this.configureRuntimeWindowAccelerators(displayHost, window.webContents);
       void window.loadURL(this.options.runtimeTabsPageUrl ?? "about:blank").catch((error) => {
         console.error("Failed to load the runtime tab chrome.", error);
@@ -1604,6 +1618,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   private finalizeDisplayHostDestroy(displayHost: EmbeddedDisplayHost): void {
     displayHost.pendingWindowAction = undefined;
     this.displayHosts.delete(displayHost.displayId);
+    this.lastRuntimeChromeStateByDisplay.delete(displayHost.displayId);
     this.clearMacNativeContentLayoutUpdate(displayHost);
     displayHost.macNativeTabs?.destroy();
     displayHost.macNativeTabs = undefined;
@@ -1613,7 +1628,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     if (!displayHost.window.isDestroyed()) displayHost.window.close();
   }
 
-  private sendRuntimeChromeState(displayHost: EmbeddedDisplayHost): void {
+  private sendRuntimeChromeState(displayHost: EmbeddedDisplayHost, force = false): void {
     const chromeWebContents = displayHost.chromeWebContents;
     if (
       !displayHost.macNativeTabs &&
@@ -1639,6 +1654,15 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       toolbarVisible: this.isRuntimeToolbarVisible(displayHost),
       windowFullscreen: displayHost.windowFullscreen
     };
+    const serializedState = JSON.stringify(state);
+    if (
+      !force &&
+      this.lastRuntimeChromeStateByDisplay.get(displayHost.displayId) === serializedState
+    ) {
+      return;
+    }
+    this.lastRuntimeChromeStateByDisplay.set(displayHost.displayId, serializedState);
+    this.options.recordRuntimePublish?.();
     if (displayHost.macNativeTabs) {
       try {
         displayHost.macNativeTabs.update(state);
@@ -1942,9 +1966,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       displayHost.toolbarRevealLockCount > 0
     ) return;
 
-    const cursor = this.options.getCursorScreenPoint?.();
-    if (cursor && this.isCursorInRuntimeToolbarZone(displayHost, cursor)) return;
-
     let changed = false;
     if (!this.alwaysShowToolbarInFullScreen && displayHost.toolbarTemporarilyVisible) {
       displayHost.toolbarTemporarilyVisible = false;
@@ -1957,70 +1978,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     if (changed) this.applyRuntimeToolbarState(displayHost);
   }
 
-  private syncRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {
-    if (displayHost.macNativeTabs) {
-      this.clearRuntimeToolbarCursorMonitor(displayHost);
-      return;
-    }
-    const shouldMonitor = !displayHost.closing &&
-      this.isDisplayHostFullscreen(displayHost) &&
-      !this.alwaysShowToolbarInFullScreen &&
-      isWindowVisible(displayHost.window) &&
-      Boolean(this.options.getCursorScreenPoint);
-    if (!shouldMonitor) {
-      this.clearRuntimeToolbarCursorMonitor(displayHost);
-      return;
-    }
-    if (displayHost.toolbarCursorMonitorTimer) return;
-    displayHost.toolbarCursorMonitorTimer = setTimeout(
-      () => this.monitorRuntimeToolbarCursor(displayHost),
-      RUNTIME_TAB_TOOLBAR_CURSOR_MONITOR_INTERVAL_MS
-    );
-  }
-
-  private monitorRuntimeToolbarCursor(displayHost: EmbeddedDisplayHost): void {
-    displayHost.toolbarCursorMonitorTimer = undefined;
-    if (
-      displayHost.closing ||
-      !this.isDisplayHostFullscreen(displayHost) ||
-      this.alwaysShowToolbarInFullScreen ||
-      !isWindowVisible(displayHost.window)
-    ) return;
-
-    const cursor = this.options.getCursorScreenPoint?.();
-    if (cursor) {
-      const cursorInRevealBand = this.isCursorInRuntimeToolbarZone(
-        displayHost,
-        cursor,
-        RUNTIME_TAB_FULLSCREEN_REVEAL_DETECTION_HEIGHT
-      );
-      const cursorInToolbarZone = this.isCursorInRuntimeToolbarZone(displayHost, cursor);
-      if (cursorInRevealBand) {
-        this.revealRuntimeToolbar(displayHost);
-      } else if (
-        displayHost.toolbarTemporarilyVisible ||
-        displayHost.systemMenuBarTemporarilyRevealed
-      ) {
-        if (displayHost.toolbarRevealLockCount === 0 && !cursorInToolbarZone) {
-          this.collapseRuntimeToolbarIfCursorLeft(displayHost);
-        }
-      }
-    }
-
-    this.syncRuntimeToolbarCursorMonitor(displayHost);
-  }
-
-  private isCursorInRuntimeToolbarZone(
-    displayHost: EmbeddedDisplayHost,
-    cursor: { x: number; y: number },
-    height?: number
-  ): boolean {
-    const bounds = getWindowBounds(displayHost.window);
-    const zoneHeight = height ?? this.getRuntimeToolbarHoldZoneHeight(displayHost);
-    return cursor.x >= bounds.x &&
-      cursor.x < bounds.x + bounds.width &&
-      cursor.y >= bounds.y &&
-      cursor.y < bounds.y + zoneHeight;
+  private syncRuntimeToolbarCursorMonitor(_displayHost: EmbeddedDisplayHost): void {
+    // Fullscreen chrome is driven by renderer hot-zone pointer enter/leave
+    // events. This intentionally performs no Electron main-thread polling.
   }
 
   private revealRuntimeToolbar(displayHost: EmbeddedDisplayHost): void {
@@ -2098,17 +2058,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       displayHost.windowFullscreen;
   }
 
-  private getRuntimeToolbarHoldZoneHeight(displayHost: EmbeddedDisplayHost): number {
-    return this.getRuntimeToolbarSafeAreaInset(displayHost) +
-      RUNTIME_TAB_FULLSCREEN_REVEAL_ZONE_HEIGHT;
-  }
-
-  private clearRuntimeToolbarCursorMonitor(displayHost: EmbeddedDisplayHost): void {
-    if (displayHost.toolbarCursorMonitorTimer) {
-      clearTimeout(displayHost.toolbarCursorMonitorTimer);
-      displayHost.toolbarCursorMonitorTimer = undefined;
-    }
-  }
+  private clearRuntimeToolbarCursorMonitor(_displayHost: EmbeddedDisplayHost): void {}
 
   private configureHtmlFullscreen(host: GameHostWindow, webContents: WebContents): void {
     webContents.on("enter-html-full-screen", () => this.setHtmlFullscreen(host, webContents.id, true));
@@ -2157,21 +2107,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     zoomFactor: number,
     zoomMode: WorkspaceBrowserZoomMode = "fixed"
   ): Promise<BrowserSession> {
-    const layoutPreview = await this.options.workspaceLayoutResolver({
-      active: true,
-      contentBounds: this.getTabContentBounds(host),
-      dividers: [],
-      gap: 0,
-      hidden: false,
-      roles: [{ rect, roleId: "layout-preview" }],
-      windowVisible: true
-    });
-    const previewWidth = layoutPreview.roles[0]?.bounds.width ??
-      this.getTabContentBounds(host).width;
-    const initialZoomFactor = zoomMode === "adaptive"
-      ? (await this.options.adaptiveZoomResolver(previewWidth)) / 100
-      : zoomFactor;
+    const initialZoomFactor = zoomFactor;
     const partition = createRoleSessionPartition(role.id);
+    await this.applyBrowserFonts(role);
     const roleSession = await this.options.getRoleSession?.(role);
     const view = this.options.createView({
       webPreferences: {
@@ -2230,7 +2168,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       roleId: role.id,
       ...(host.workspaceId ? { workspaceId: host.workspaceId } : {})
     }, webContents);
-    this.layoutDisplayHost(this.getDisplayHost(host));
     this.configureZoomPersistence(session, webContents);
     this.configureAudioState(host, webContents);
     this.configureNativeZoomShortcuts(host, session, webContents);
@@ -2259,7 +2196,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
         });
       }
     });
-    this.emitChange();
     return session;
   }
 
@@ -2308,7 +2244,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       loadPromises.push(view.webContents.loadURL(createDividerDataUrl(divider.axis)).then(() => undefined));
       return divider;
     });
-    void this.layoutHost(host);
     this.bringRuntimeChromeToFront(this.getDisplayHost(host));
     await Promise.all(loadPromises);
   }
@@ -2486,7 +2421,20 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       return Promise.resolve();
     }
 
+    const state = this.hostLayoutStates.get(host.id) ?? {
+      generation: 0,
+      trailing: false
+    };
+    this.hostLayoutStates.set(host.id, state);
+    state.generation += 1;
+    const generation = state.generation;
+    if (state.inFlight) {
+      state.trailing = true;
+      return state.inFlight;
+    }
+
     const contentBounds = this.getTabContentBounds(host);
+    this.options.recordLayoutPass?.();
     const pendingLayout = this.options.workspaceLayoutResolver({
       active: displayHost.activeTabId === host.id,
       contentBounds,
@@ -2504,6 +2452,13 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       windowVisible: isWindowVisible(displayHost.window)
     });
     const applyLayout = (resolvedLayout: WorkspaceLayoutOutput): void => {
+      if (
+        generation !== state.generation ||
+        this.tabHandles.get(host.id) !== host ||
+        host.closing
+      ) {
+        return;
+      }
       const visible = resolvedLayout.visible;
       host.roleIds.forEach((roleId) => {
         const session = this.roleHandles.get(roleId);
@@ -2530,7 +2485,25 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       });
     };
     if (isPromiseLike(pendingLayout)) {
-      return pendingLayout.then((resolvedLayout) => applyLayout(resolvedLayout));
+      const operation = pendingLayout
+        .then((resolvedLayout) => applyLayout(resolvedLayout))
+        .then(async () => {
+          if (
+            !state.trailing ||
+            this.tabHandles.get(host.id) !== host ||
+            host.closing
+          ) {
+            return;
+          }
+          state.trailing = false;
+          state.inFlight = undefined;
+          await this.layoutHost(host);
+        })
+        .finally(() => {
+          if (state.inFlight === operation) state.inFlight = undefined;
+        });
+      state.inFlight = operation;
+      return operation;
     }
     applyLayout(pendingLayout);
     return Promise.resolve();
@@ -2822,12 +2795,12 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
 
     host.closing = true;
     const roleIds = [...host.roleIds];
-    roleIds.forEach((roleId) => {
+    await Promise.all(roleIds.map(async (roleId) => {
       const session = this.roleHandles.get(roleId);
       if (session) {
-        this.destroySession(roleId, session);
+        await this.destroySession(roleId, session);
       }
-    });
+    }));
     await this.closeHostWindow(host);
   }
 
@@ -2835,27 +2808,27 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     const session = this.roleHandles.get(roleId);
     if (!session) return;
     const host = this.tabHandles.get(session.hostId);
-    this.destroySession(roleId, session);
+    await this.destroySession(roleId, session);
     if (host && host.roleIds.size === 0 && !host.closing) {
       await this.closeHostWindow(host);
     }
   }
 
-  private destroySession(roleId: string, session: BrowserSession): void {
+  private async destroySession(roleId: string, session: BrowserSession): Promise<void> {
     if (this.roleHandles.get(roleId) !== session) {
       return;
     }
 
     session.abortController.abort();
-    session.target.dispose();
     session.removeResourceInvalidation();
-    void session.resourceTarget.releaseThrottle().catch(() => undefined);
     const host = this.tabHandles.get(session.hostId);
     if (host?.activeDividerResize?.roleIds.includes(roleId)) {
       this.finishDividerResize(host);
     }
     this.roleHandles.delete(roleId);
     host?.roleIds.delete(roleId);
+    await session.target.dispose().catch(() => undefined);
+    await session.resourceTarget.releaseThrottle().catch(() => undefined);
     if (host && !host.window.isDestroyed()) {
       host.window.contentView.removeChildView(session.view);
       session.popupViews.forEach((popupView) => host.window.contentView.removeChildView(popupView));
@@ -2905,6 +2878,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   private deleteHost(host: GameHostWindow): void {
     this.finishDividerResize(host);
     this.tabHandles.delete(host.id);
+    this.hostLayoutStates.delete(host.id);
     const displayHost = this.getDisplayHost(host);
     if (displayHost) {
       displayHost.tabIds = displayHost.tabIds.filter((tabId) => tabId !== host.id);
@@ -2920,9 +2894,22 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   }
 
   private emitChange(): void {
-    this.emit("change", this.listStatuses());
+    const statuses = this.listStatuses();
+    const serializedStatuses = JSON.stringify(statuses);
+    let published = 0;
+    if (serializedStatuses !== this.lastEmittedStatuses) {
+      this.lastEmittedStatuses = serializedStatuses;
+      this.emit("change", statuses);
+      published += 1;
+    }
     const runtimeState = this.listEmbeddedRuntimeState();
-    this.emit("runtimeChange", runtimeState);
+    const serializedRuntimeState = JSON.stringify(runtimeState);
+    if (serializedRuntimeState !== this.lastEmittedRuntimeState) {
+      this.lastEmittedRuntimeState = serializedRuntimeState;
+      this.emit("runtimeChange", runtimeState);
+      published += 1;
+    }
+    if (published > 0) this.options.recordRuntimePublish?.(published);
     this.displayHosts.forEach((host) => this.sendRuntimeChromeState(host));
   }
 
@@ -3047,4 +3034,8 @@ function isGameDividerPointerPayload(value: unknown): value is GameDividerPointe
 
 function isPromiseLike<T>(value: MaybePromise<T>): value is Promise<T> {
   return typeof (value as Promise<T>)?.then === "function";
+}
+
+function yieldToElectronMainLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }

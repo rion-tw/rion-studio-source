@@ -66,6 +66,7 @@ pub fn ensure_macro_available(
 fn validate_request(request: &MacroOverlayRequestRecord) -> CoreResult<()> {
     match request {
         MacroOverlayRequestRecord::Start { macro_id }
+        | MacroOverlayRequestRecord::Toggle { macro_id }
         | MacroOverlayRequestRecord::Stop { macro_id } => validate_identifier(macro_id, "macroId"),
         MacroOverlayRequestRecord::Press { macro_id, press_id } => {
             validate_identifier(macro_id, "macroId")?;
@@ -286,7 +287,7 @@ impl OverlayProjection {
         for event in events {
             match event {
                 CoreEvent::StateChanged { .. } => change.all = true,
-                CoreEvent::MacroStatuses { statuses } => {
+                CoreEvent::MacroStatuses { statuses, .. } => {
                     change.role_ids.extend(update_grouped_signatures(
                         &mut self.macros,
                         statuses,
@@ -465,9 +466,11 @@ fn domain(code: &'static str, message: &str) -> CoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
     use crate::model::{
-        MacroLastClick, MacroRepeat, MacroRunStatus, MacroStepDefinition,
+        BrowserRoleStatusRecord, MacroLastClick, MacroRepeat, MacroRunStatus, MacroStepDefinition,
         ResourceRuntimeStatusRecord,
     };
 
@@ -497,6 +500,38 @@ mod tests {
             .is_err()
         );
         assert!(parse_request(r#"{"type":"copy-coordinate","xPercent":1,"xPx":10,"viewportHeightPx":10,"viewportWidthPx":10,"yPercent":1,"yPx":1}"#).is_err());
+        crate::v1_case!("overlay-a7ce35e7128c", {
+            assert!(
+                parse_request(
+                    r#"{"type":"copy-coordinate","xPercent":12,"xPx":123,"yPercent":45,"yPx":-1}"#
+                )
+                .is_err()
+            );
+        });
+        crate::v1_case!("overlay-3a84b61de0af", {
+            assert!(parse_request(
+                r#"{"type":"copy-coordinate","viewportWidthPx":500,"viewportHeightPx":500,"xPercent":101,"xPx":123,"yPercent":45,"yPx":456}"#
+            )
+            .is_err());
+        });
+        crate::v1_case!("overlay-b04ef43fac61", {
+            assert!(parse_request(
+                r#"{"type":"copy-coordinate","viewportWidthPx":500,"viewportHeightPx":500,"xPercent":12,"xPx":123.5,"yPercent":45,"yPx":456}"#
+            )
+            .is_err());
+        });
+        crate::v1_case!("overlay-f8625e34b90e", {
+            assert!(parse_request(
+                r#"{"type":"copy-coordinate","viewportWidthPx":100,"viewportHeightPx":100,"xPercent":12,"xPx":100,"yPercent":45,"yPx":45}"#
+            )
+            .is_err());
+        });
+        crate::v1_case!("overlay-9d0896d3a85e", {
+            assert!(parse_request(
+                r#"{"type":"copy-coordinate","viewportWidthPx":0,"viewportHeightPx":100,"xPercent":12,"xPx":0,"yPercent":45,"yPx":45}"#
+            )
+            .is_err());
+        });
 
         let macros = vec![
             definition(
@@ -510,13 +545,17 @@ mod tests {
             ),
             definition("dependency", &[], Vec::new()),
         ];
-        assert!(available_macros(&macros, "role-1").is_empty());
-        assert_eq!(
-            ensure_macro_available(&macros, "role-1", "root")
-                .unwrap_err()
-                .code(),
-            "MACRO_ROLE_INVALID"
-        );
+        crate::v1_case!("overlay-078d30234927", {
+            assert!(available_macros(&macros, "role-1").is_empty());
+        });
+        crate::v1_case!("overlay-54baaea7a3bb", {
+            assert_eq!(
+                ensure_macro_available(&macros, "role-1", "root")
+                    .unwrap_err()
+                    .code(),
+                "MACRO_ROLE_INVALID"
+            );
+        });
     }
 
     #[test]
@@ -533,12 +572,16 @@ mod tests {
             error: None,
         };
         let first = projection.observe(&[CoreEvent::MacroStatuses {
+            reliable: true,
             statuses: vec![status.clone()],
         }]);
-        assert_eq!(first.role_ids, HashSet::from(["role-1".to_owned()]));
+        crate::v1_case!("overlay-51deeca46423", {
+            assert_eq!(first.role_ids, HashSet::from(["role-1".to_owned()]));
+        });
         assert!(
             projection
                 .observe(&[CoreEvent::MacroStatuses {
+                    reliable: true,
                     statuses: vec![status.clone()],
                 }])
                 .role_ids
@@ -549,14 +592,17 @@ mod tests {
             sequence: 1,
             step_id: "click-1".to_owned(),
         });
-        assert_eq!(
-            projection
-                .observe(&[CoreEvent::MacroStatuses {
-                    statuses: vec![clicked],
-                }])
-                .role_ids,
-            HashSet::from(["role-1".to_owned()])
-        );
+        crate::v1_case!("overlay-7f93c2e432e3", {
+            assert_eq!(
+                projection
+                    .observe(&[CoreEvent::MacroStatuses {
+                        reliable: false,
+                        statuses: vec![clicked],
+                    }])
+                    .role_ids,
+                HashSet::from(["role-1".to_owned()])
+            );
+        });
         assert_eq!(
             projection
                 .observe(&[CoreEvent::ResourceStatuses {
@@ -571,5 +617,147 @@ mod tests {
                 .role_ids,
             HashSet::from(["role-2".to_owned()])
         );
+    }
+
+    #[test]
+    fn coalesces_and_rate_limits_external_refresh_bursts() {
+        let (core_sender, core_receiver) = bounded(32);
+        let (output_sender, output_receiver) = std::sync::mpsc::channel();
+        let starts = Arc::new(Mutex::new(Vec::<Instant>::new()));
+        let starts_output = Arc::clone(&starts);
+        let events: EventSink = Arc::new(move |events| {
+            if events
+                .iter()
+                .any(|event| matches!(event, CoreEvent::OverlayChanged { .. }))
+            {
+                starts_output.lock().unwrap().push(Instant::now());
+                let _ = output_sender.send(());
+            }
+        });
+        let refreshes = Arc::new(AtomicUsize::new(0));
+        let refreshes_output = Arc::clone(&refreshes);
+        let external = Arc::new(ExternalAutomationRuntime::new("darwin".to_owned()));
+        external
+            .register(
+                "role-1".to_owned(),
+                Arc::new(crate::ExternalChromeCdpSession::test_session_with_observer(
+                    Duration::from_millis(100),
+                    move || {
+                        refreshes_output.fetch_add(1, Ordering::AcqRel);
+                    },
+                )),
+            )
+            .unwrap();
+        let runtime = OverlayRefreshRuntime::start(core_receiver, events, external).unwrap();
+
+        runtime.invalidate(vec!["role-1".to_owned()]);
+        output_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        for _ in 0..20 {
+            runtime.invalidate(vec!["role-1".to_owned()]);
+        }
+        output_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while refreshes.load(Ordering::Acquire) < 2 {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        thread::sleep(Duration::from_millis(300));
+        crate::v1_case!("overlay-4cc5837ceff2", {
+            assert_eq!(refreshes.load(Ordering::Acquire), 2);
+        });
+        crate::v1_case!("overlay-d253bf812639", {
+            let starts = starts.lock().unwrap();
+            assert_eq!(REFRESH_MIN_INTERVAL, Duration::from_millis(250));
+            assert!(starts[1].duration_since(starts[0]) >= Duration::from_millis(240));
+        });
+        drop(core_sender);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn skips_unresponsive_or_disconnected_external_refresh_targets() {
+        let (core_sender, core_receiver) = bounded(32);
+        let (output_sender, output_receiver) = std::sync::mpsc::channel();
+        let events: EventSink = Arc::new(move |events| {
+            if events
+                .iter()
+                .any(|event| matches!(event, CoreEvent::OverlayChanged { .. }))
+            {
+                let _ = output_sender.send(());
+            }
+        });
+        let refreshes = Arc::new(AtomicUsize::new(0));
+        let refreshes_output = Arc::clone(&refreshes);
+        let external = Arc::new(ExternalAutomationRuntime::new("darwin".to_owned()));
+        external
+            .register(
+                "role-1".to_owned(),
+                Arc::new(crate::ExternalChromeCdpSession::test_session_with_observer(
+                    Duration::from_millis(25),
+                    move || {
+                        refreshes_output.fetch_add(1, Ordering::AcqRel);
+                    },
+                )),
+            )
+            .unwrap();
+        let runtime =
+            OverlayRefreshRuntime::start(core_receiver, events, Arc::clone(&external)).unwrap();
+
+        core_sender
+            .send(vec![CoreEvent::BrowserStatuses {
+                statuses: vec![browser_status("role-1", Some("unresponsive"))],
+            }])
+            .unwrap();
+        output_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        thread::sleep(Duration::from_millis(75));
+        crate::v1_case!("overlay-b4848b618886", {
+            assert_eq!(refreshes.load(Ordering::Acquire), 0);
+        });
+
+        core_sender
+            .send(vec![CoreEvent::BrowserStatuses {
+                statuses: vec![browser_status("role-1", Some("healthy"))],
+            }])
+            .unwrap();
+        output_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while refreshes.load(Ordering::Acquire) < 1 {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        runtime.invalidate(vec!["role-1".to_owned()]);
+        external.unregister("role-1").unwrap();
+        output_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        thread::sleep(Duration::from_millis(75));
+        crate::v1_case!("overlay-832f83a77ef2", {
+            assert_eq!(refreshes.load(Ordering::Acquire), 1);
+        });
+        runtime.shutdown();
+    }
+
+    fn browser_status(role_id: &str, page_health: Option<&str>) -> BrowserRoleStatusRecord {
+        BrowserRoleStatusRecord {
+            role_id: role_id.to_owned(),
+            state: "running".to_owned(),
+            launched_at: Some("2026-01-01T00:00:00Z".to_owned()),
+            notice: None,
+            runtime_mode: "external".to_owned(),
+            automation_state: Some("ready".to_owned()),
+            page_health: page_health.map(str::to_owned),
+            resource_state: None,
+            cpu_throttle_rate: None,
+            resource_pressure_level: None,
+            resource_reason: None,
+        }
     }
 }

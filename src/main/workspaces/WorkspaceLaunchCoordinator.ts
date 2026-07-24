@@ -1,3 +1,5 @@
+import { monitorEventLoopDelay } from "node:perf_hooks";
+
 import type {
   RoleStatus,
   WorkspaceDisplayInfo,
@@ -24,14 +26,43 @@ interface WorkspaceLaunchCoordinatorOptions {
   gameCompatibilityManager?: Pick<GameCompatibilityManager, "recordObservation">;
   getDefaultWorkspaceDisplayId?: () => number;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
+  recordLaunchTelemetry?: (trace: WorkspaceLaunchTrace) => void;
   roleStore: Pick<RoleStore, "getRole">;
   workspaceStore: Pick<LaunchWorkspaceStore, "getWorkspace">;
+}
+
+export interface WorkspaceLaunchTrace {
+  durationMs: number;
+  eventLoopMaxMs: number;
+  eventLoopP95Ms: number;
 }
 
 export class WorkspaceLaunchCoordinator {
   constructor(private readonly options: WorkspaceLaunchCoordinatorOptions) {}
 
   async launch(id: string, input?: WorkspaceLaunchInput): Promise<WorkspaceLaunchResult> {
+    if (!this.options.recordLaunchTelemetry) {
+      return this.launchUntraced(id, input);
+    }
+    const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
+    const startedAt = performance.now();
+    eventLoopDelay.enable();
+    try {
+      return await this.launchUntraced(id, input);
+    } finally {
+      eventLoopDelay.disable();
+      this.options.recordLaunchTelemetry({
+        durationMs: performance.now() - startedAt,
+        eventLoopMaxMs: nanosecondsToMilliseconds(eventLoopDelay.max),
+        eventLoopP95Ms: nanosecondsToMilliseconds(eventLoopDelay.percentile(95))
+      });
+    }
+  }
+
+  private async launchUntraced(
+    id: string,
+    input?: WorkspaceLaunchInput
+  ): Promise<WorkspaceLaunchResult> {
     const workspace = await this.options.workspaceStore.getWorkspace(id);
     const launchSlots = workspace.slots.filter((slot) => slot.roleId);
 
@@ -155,6 +186,11 @@ export class WorkspaceLaunchCoordinator {
   }
 }
 
+function nanosecondsToMilliseconds(value: number): number {
+  const milliseconds = value / 1_000_000;
+  return Number.isFinite(milliseconds) ? milliseconds : 0;
+}
+
 const EMBEDDED_FALLBACK_NOTICE =
   "The embedded browser could not load this game. It opened in external Chrome compatibility mode.";
 
@@ -175,3 +211,4 @@ function readErrorCode(error: unknown): string {
   }
   return "LAUNCH_FAILED";
 }
+import { monitorEventLoopDelay } from "node:perf_hooks";

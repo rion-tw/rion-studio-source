@@ -258,6 +258,20 @@ mod tests {
         }
     }
 
+    fn wait_for_queue_len(coordinator: &BrowserOperationCoordinator, role_id: &str, length: usize) {
+        while coordinator
+            .state
+            .lock()
+            .unwrap()
+            .queues
+            .get(role_id)
+            .map_or(0, VecDeque::len)
+            < length
+        {
+            thread::yield_now();
+        }
+    }
+
     #[test]
     fn orders_overlapping_roles_but_allows_disjoint_roles() {
         let coordinator = Arc::new(BrowserOperationCoordinator::default());
@@ -279,37 +293,19 @@ mod tests {
         let mutating = Arc::clone(&coordinator);
         let mutation =
             thread::spawn(move || mutating.acquire(request(&["r1"], "recoverableMutation")));
-        while coordinator
-            .state
-            .lock()
-            .unwrap()
-            .queues
-            .get("r1")
-            .map_or(0, VecDeque::len)
-            < 2
-        {
-            thread::yield_now();
-        }
+        wait_for_queue_len(&coordinator, "r1", 2);
         let waiting = Arc::clone(&coordinator);
         let stale = thread::spawn(move || waiting.acquire(request(&["r1"], "normal")));
-        while coordinator
-            .state
-            .lock()
-            .unwrap()
-            .queues
-            .get("r1")
-            .map_or(0, VecDeque::len)
-            < 3
-        {
-            thread::yield_now();
-        }
+        wait_for_queue_len(&coordinator, "r1", 3);
         coordinator.complete(&first.id).unwrap();
         let mutation = mutation.join().unwrap().unwrap();
         coordinator.complete(&mutation.id).unwrap();
-        assert_eq!(
-            stale.join().unwrap().unwrap_err().code(),
-            "ROLE_DATA_CHANGED"
-        );
+        let stale_error = stale.join().unwrap().unwrap_err();
+        let fresh = coordinator.acquire(request(&["r1"], "normal")).unwrap();
+        coordinator.complete(&fresh.id).unwrap();
+        crate::v1_case!("browser-workspace-1c12d2a62541", {
+            assert_eq!(stale_error.code(), "ROLE_DATA_CHANGED");
+        });
 
         let destructive = coordinator
             .acquire(request(&["r2"], "destructiveMutation"))
@@ -322,6 +318,30 @@ mod tests {
                 .code(),
             "ROLE_MUTATION_BLOCKED"
         );
+
+        let active = coordinator.acquire(request(&["r4"], "normal")).unwrap();
+        let deleting_coordinator = Arc::clone(&coordinator);
+        let deleting = thread::spawn(move || {
+            deleting_coordinator.acquire(request(&["r4"], "destructiveMutation"))
+        });
+        wait_for_queue_len(&coordinator, "r4", 2);
+        let queued_coordinator = Arc::clone(&coordinator);
+        let queued = thread::spawn(move || queued_coordinator.acquire(request(&["r4"], "normal")));
+        wait_for_queue_len(&coordinator, "r4", 3);
+        coordinator.complete(&active.id).unwrap();
+        let deletion = deleting.join().unwrap().unwrap();
+        coordinator.complete(&deletion.id).unwrap();
+        let queued_error = queued.join().unwrap().unwrap_err();
+        crate::v1_case!("browser-workspace-5070fdd94192", {
+            assert_eq!(queued_error.code(), "ROLE_MUTATION_BLOCKED");
+            assert_eq!(
+                coordinator
+                    .acquire(request(&["r4"], "normal"))
+                    .unwrap_err()
+                    .code(),
+                "ROLE_MUTATION_BLOCKED"
+            );
+        });
     }
 
     #[test]

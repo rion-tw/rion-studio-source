@@ -19,13 +19,17 @@ describe("automatic power saving i18n", () => {
       expect(dictionary).not.toHaveProperty("workspaces.primaryRoleUnassigned");
       expect(dictionary).not.toHaveProperty("workspaces.primaryBadge");
       expect(dictionary).not.toHaveProperty("workspaces.throttleRate");
+      expect(dictionary).not.toHaveProperty("workspaces.resourceMode");
+      expect(dictionary).not.toHaveProperty("workspaces.resourceModeDescription");
+      expect(dictionary).not.toHaveProperty("workspaces.resourceModeAdaptive");
+      expect(dictionary).not.toHaveProperty("workspaces.resourceModeUnrestricted");
       expect(dictionary).not.toHaveProperty("settings.defaultPreset");
       expect(dictionary).not.toHaveProperty("preset.balanced");
       expect(dictionary).not.toHaveProperty("preset.performance");
     }
   });
 
-  it("keeps adaptive and unrestricted labels without role window settings", () => {
+  it("keeps automatic runtime status labels without role window settings", () => {
     for (const dictionary of Object.values(dictionaries)) {
       expect(dictionary).not.toHaveProperty("roleForm.section.launchDescription");
       expect(dictionary).not.toHaveProperty("roleForm.width");
@@ -38,12 +42,11 @@ describe("automatic power saving i18n", () => {
     }
 
     for (const dictionary of Object.values(dictionaries)) {
-      expect(dictionary["workspaces.resourceModeAdaptive"]).toBeTruthy();
-      expect(dictionary["workspaces.resourceModeUnrestricted"]).toBeTruthy();
+      expect(dictionary["workspaces.help.runtimeResource"]).toBeTruthy();
       expect(dictionary["workspaces.resourceReason.runtimeTabBackground"]).toBeTruthy();
     }
 
-    expect(en["workspaces.resourceModeDescription"]).toContain("visible roles");
-    expect(zhTW["workspaces.resourceModeDescription"]).toContain("非作用中分頁");
+    expect(en["workspaces.help.runtimeResource"]).toContain("inactive embedded tabs");
+    expect(zhTW["workspaces.help.runtimeResource"]).toContain("非作用中內嵌分頁");
   });
 });

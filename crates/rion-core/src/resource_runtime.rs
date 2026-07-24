@@ -10,7 +10,6 @@ use crate::{
 
 #[derive(Clone)]
 struct ManagedWorkspace {
-    policy_mode: String,
     targets: BTreeMap<String, ResourceRuntimeTargetRecord>,
     unavailable_role_ids: HashSet<String>,
 }
@@ -42,15 +41,9 @@ impl ResourceRuntime {
             ResourceRuntimeCommand::Snapshot => {}
             ResourceRuntimeCommand::ActivateWorkspace {
                 workspace_id,
-                policy_mode,
                 targets,
             } => {
                 validate_workspace_id(&workspace_id)?;
-                if !matches!(policy_mode.as_str(), "adaptive" | "unrestricted") {
-                    return Err(CoreError::InvalidInput(
-                        "resource policy mode is invalid".to_owned(),
-                    ));
-                }
                 let mut target_map = BTreeMap::new();
                 for target in targets {
                     validate_target(&target)?;
@@ -63,7 +56,6 @@ impl ResourceRuntime {
                 if let Some(previous) = self.workspaces.insert(
                     workspace_id,
                     ManagedWorkspace {
-                        policy_mode,
                         targets: target_map,
                         unavailable_role_ids: HashSet::new(),
                     },
@@ -167,7 +159,7 @@ impl ResourceRuntime {
         let mut effects = Vec::new();
         for (workspace_id, workspace) in &self.workspaces {
             let hidden = self.hidden_workspace_ids.contains(workspace_id);
-            if workspace.policy_mode == "unrestricted" || !hidden {
+            if !hidden {
                 effects.extend(workspace.targets.keys().map(|role_id| {
                     ResourceRuntimeEffectRecord {
                         role_ids: vec![role_id.clone()],
@@ -178,11 +170,24 @@ impl ResourceRuntime {
                 continue;
             }
             for group in create_groups(workspace) {
-                let full_speed = group
+                let (unavailable, available): (Vec<_>, Vec<_>) = group
+                    .into_iter()
+                    .partition(|role_id| workspace.unavailable_role_ids.contains(role_id));
+                effects.extend(unavailable.into_iter().map(|role_id| {
+                    ResourceRuntimeEffectRecord {
+                        role_ids: vec![role_id],
+                        cpu_throttle_rate: 1,
+                        release: true,
+                    }
+                }));
+                if available.is_empty() {
+                    continue;
+                }
+                let full_speed = available
                     .iter()
                     .any(|role_id| self.macro_role_ids.contains(role_id));
                 effects.push(ResourceRuntimeEffectRecord {
-                    role_ids: group,
+                    role_ids: available,
                     cpu_throttle_rate: if full_speed {
                         1
                     } else if self.pressure_level == PressureLevel::Constrained {
@@ -200,9 +205,7 @@ impl ResourceRuntime {
     fn statuses(&self) -> Vec<ResourceRuntimeStatusRecord> {
         let mut statuses = Vec::new();
         for (workspace_id, workspace) in &self.workspaces {
-            if workspace.policy_mode == "unrestricted"
-                || !self.hidden_workspace_ids.contains(workspace_id)
-            {
+            if !self.hidden_workspace_ids.contains(workspace_id) {
                 continue;
             }
             for group in create_groups(workspace) {
@@ -290,6 +293,7 @@ fn status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v1_case;
 
     fn target(role_id: &str, process_id: Option<u32>) -> ResourceRuntimeTargetRecord {
         ResourceRuntimeTargetRecord {
@@ -313,7 +317,6 @@ mod tests {
             &mut runtime,
             ResourceRuntimeCommand::ActivateWorkspace {
                 workspace_id: "w1".to_owned(),
-                policy_mode: "adaptive".to_owned(),
                 targets: vec![target("r1", None)],
             },
         );
@@ -343,7 +346,6 @@ mod tests {
             &mut runtime,
             ResourceRuntimeCommand::ActivateWorkspace {
                 workspace_id: "w1".to_owned(),
-                policy_mode: "adaptive".to_owned(),
                 targets: vec![target("r1", Some(42)), target("r2", Some(42))],
             },
         );
@@ -380,7 +382,6 @@ mod tests {
             &mut runtime,
             ResourceRuntimeCommand::ActivateWorkspace {
                 workspace_id: "w1".to_owned(),
-                policy_mode: "adaptive".to_owned(),
                 targets: vec![target("r1", None)],
             },
         );
@@ -398,5 +399,277 @@ mod tests {
         );
         assert_eq!(result.statuses[0].resource_state, "unavailable");
         assert_eq!(result.statuses[0].cpu_throttle_rate, 1);
+    }
+
+    #[test]
+    fn hidden_single_role_tabs_use_adaptive_throttling() {
+        crate::v1_case!("resource-platform-dafdc0585039", {
+            let mut runtime = ResourceRuntime::default();
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ActivateWorkspace {
+                    workspace_id: "role-tab".to_owned(),
+                    targets: vec![target("r1", None)],
+                },
+            );
+            let result = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                    workspace_ids: vec!["role-tab".to_owned()],
+                },
+            );
+
+            assert_eq!(result.effects[0].cpu_throttle_rate, 2);
+            assert!(!result.effects[0].release);
+            assert_eq!(result.statuses[0].resource_state, "throttled");
+            assert_eq!(
+                result.statuses[0].resource_reason.as_deref(),
+                Some("runtime_tab_background")
+            );
+        });
+    }
+
+    #[test]
+    fn preserves_v1_workspace_resource_coordination_contracts() {
+        {
+            let mut runtime = ResourceRuntime::default();
+            let result = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ActivateWorkspace {
+                    workspace_id: "visible".to_owned(),
+                    targets: vec![target("r1", None), target("r2", None)],
+                },
+            );
+            assert!(result.statuses.is_empty());
+            assert_eq!(result.effects.len(), 2);
+            assert!(
+                result
+                    .effects
+                    .iter()
+                    .all(|effect| { effect.release && effect.cpu_throttle_rate == 1 })
+            );
+            let result = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetPressure {
+                    level: PressureLevel::Constrained,
+                    reason: "cpu".to_owned(),
+                },
+            );
+            assert!(result.statuses.is_empty());
+            assert!(result.effects.iter().all(|effect| effect.release));
+        }
+
+        v1_case!("resource-platform-4de9ca596dee", {
+            let mut runtime = ResourceRuntime::default();
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ActivateWorkspace {
+                    workspace_id: "adaptive".to_owned(),
+                    targets: vec![target("r1", None)],
+                },
+            );
+            let normal = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                    workspace_ids: vec!["adaptive".to_owned()],
+                },
+            );
+            assert_eq!(normal.effects[0].cpu_throttle_rate, 2);
+            assert_eq!(normal.statuses[0].resource_state, "throttled");
+            assert_eq!(
+                normal.statuses[0].resource_reason.as_deref(),
+                Some("runtime_tab_background")
+            );
+            let constrained = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetPressure {
+                    level: PressureLevel::Constrained,
+                    reason: "memory".to_owned(),
+                },
+            );
+            assert_eq!(constrained.effects[0].cpu_throttle_rate, 4);
+            assert_eq!(
+                constrained.statuses[0].resource_pressure_level.as_deref(),
+                Some("constrained")
+            );
+            assert_eq!(
+                constrained.statuses[0].resource_reason.as_deref(),
+                Some("memory")
+            );
+        });
+
+        v1_case!("resource-platform-c06f9afb7ed3", {
+            let mut runtime = ResourceRuntime::default();
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ActivateWorkspace {
+                    workspace_id: "macro".to_owned(),
+                    targets: vec![target("r1", None), target("r2", None)],
+                },
+            );
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                    workspace_ids: vec!["macro".to_owned()],
+                },
+            );
+            let active = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetMacroRoleIds {
+                    role_ids: vec!["r2".to_owned()],
+                },
+            );
+            let active_status = active
+                .statuses
+                .iter()
+                .find(|status| status.role_id == "r2")
+                .unwrap();
+            assert_eq!(active_status.resource_state, "macro_override");
+            assert_eq!(active_status.cpu_throttle_rate, 1);
+            let inactive = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetMacroRoleIds {
+                    role_ids: Vec::new(),
+                },
+            );
+            let inactive_status = inactive
+                .statuses
+                .iter()
+                .find(|status| status.role_id == "r2")
+                .unwrap();
+            assert_eq!(inactive_status.resource_state, "throttled");
+            assert_eq!(inactive_status.cpu_throttle_rate, 2);
+        });
+
+        v1_case!("resource-platform-bbfb276cd2a9", {
+            let mut runtime = ResourceRuntime::default();
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ActivateWorkspace {
+                    workspace_id: "shared".to_owned(),
+                    targets: vec![target("r1", Some(101)), target("r2", Some(101))],
+                },
+            );
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                    workspace_ids: vec!["shared".to_owned()],
+                },
+            );
+            let result = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetMacroRoleIds {
+                    role_ids: vec!["r1".to_owned()],
+                },
+            );
+            let sibling = result
+                .statuses
+                .iter()
+                .find(|status| status.role_id == "r2")
+                .unwrap();
+            assert_eq!(sibling.resource_state, "shared_process");
+            assert_eq!(sibling.cpu_throttle_rate, 1);
+            assert_eq!(sibling.resource_reason.as_deref(), Some("shared_process"));
+        });
+
+        v1_case!("resource-platform-d62f2ca98a7b", {
+            let mut runtime = ResourceRuntime::default();
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ActivateWorkspace {
+                    workspace_id: "refresh".to_owned(),
+                    targets: vec![target("r1", Some(101)), target("r2", Some(101))],
+                },
+            );
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                    workspace_ids: vec!["refresh".to_owned()],
+                },
+            );
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::RefreshTarget {
+                    workspace_id: "refresh".to_owned(),
+                    role_id: "r2".to_owned(),
+                    process_id: Some(202),
+                },
+            );
+            let result = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetUnavailableRoleIds {
+                    role_ids: vec!["r2".to_owned()],
+                },
+            );
+            let unavailable = result
+                .statuses
+                .iter()
+                .find(|status| status.role_id == "r2")
+                .unwrap();
+            assert_eq!(unavailable.resource_state, "unavailable");
+            assert_eq!(unavailable.cpu_throttle_rate, 1);
+            assert_eq!(unavailable.resource_reason.as_deref(), Some("unavailable"));
+            assert!(result.effects.iter().any(|effect| {
+                effect.role_ids == ["r2"] && effect.cpu_throttle_rate == 1 && effect.release
+            }));
+        });
+
+        v1_case!("resource-platform-308caa9fe2ea", {
+            let mut runtime = ResourceRuntime::default();
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ActivateWorkspace {
+                    workspace_id: "foreground".to_owned(),
+                    targets: vec![target("r1", None)],
+                },
+            );
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                    workspace_ids: vec!["foreground".to_owned()],
+                },
+            );
+            let result = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::PrepareWorkspaceForeground {
+                    workspace_id: "foreground".to_owned(),
+                },
+            );
+            assert!(result.statuses.is_empty());
+            assert_eq!(result.effects.len(), 1);
+            assert!(result.effects[0].release);
+        });
+
+        v1_case!("resource-platform-378cb6d68a6d", {
+            let mut runtime = ResourceRuntime::default();
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ActivateWorkspace {
+                    workspace_id: "reconcile".to_owned(),
+                    targets: vec![target("r1", None), target("r2", None)],
+                },
+            );
+            invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::SetHiddenWorkspaceIds {
+                    workspace_ids: vec!["reconcile".to_owned()],
+                },
+            );
+            let result = invoke(
+                &mut runtime,
+                ResourceRuntimeCommand::ReconcileRuntimeRoleIds {
+                    runtime_mode: "embedded".to_owned(),
+                    active_role_ids: vec!["r2".to_owned()],
+                },
+            );
+            assert_eq!(result.statuses.len(), 1);
+            assert_eq!(result.statuses[0].role_id, "r2");
+            assert!(
+                result
+                    .effects
+                    .iter()
+                    .any(|effect| { effect.role_ids == ["r1"] && effect.release })
+            );
+        });
     }
 }

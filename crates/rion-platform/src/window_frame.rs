@@ -1,5 +1,21 @@
 use crate::{PixelBounds, PlatformError};
 
+pub(crate) const MAX_ALIGNMENT_ATTEMPTS: usize = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WindowAlignmentReport {
+    pub visible: PixelBounds,
+    pub attempts: usize,
+    pub dpi: u32,
+}
+
+pub(crate) trait WindowFrameBackend {
+    fn read_visible_bounds(&mut self) -> Result<PixelBounds, PlatformError>;
+    fn read_outer_bounds(&mut self) -> Result<PixelBounds, PlatformError>;
+    fn set_outer_bounds(&mut self, bounds: PixelBounds) -> Result<(), PlatformError>;
+    fn read_dpi(&mut self) -> Result<u32, PlatformError>;
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WindowCandidateMetadata {
     pub visible: PixelBounds,
@@ -31,6 +47,64 @@ pub(crate) fn compute_adjusted_outer(
         y: to_i32(top)?,
         width: to_i32(width)?,
         height: to_i32(height)?,
+    })
+}
+
+pub(crate) fn align_visible_frame_with_backend(
+    process_id: u32,
+    target: PixelBounds,
+    backend: &mut impl WindowFrameBackend,
+) -> Result<WindowAlignmentReport, PlatformError> {
+    let target = validate_alignment_request(process_id, target)?;
+    let mut visible = backend.read_visible_bounds()?;
+    if visible == target {
+        return finish_alignment(visible, 0, backend);
+    }
+    for attempt in 1..=MAX_ALIGNMENT_ATTEMPTS {
+        let outer = backend.read_outer_bounds()?;
+        let outer_target = compute_adjusted_outer(outer, visible, target)?;
+        backend.set_outer_bounds(outer_target)?;
+        visible = backend.read_visible_bounds()?;
+        if visible == target {
+            return finish_alignment(visible, attempt, backend);
+        }
+    }
+    Err(PlatformError::Operation(
+        "visible frame did not reach the exact target after three attempts".to_owned(),
+    ))
+}
+
+pub(crate) fn validate_alignment_request(
+    process_id: u32,
+    target: PixelBounds,
+) -> Result<PixelBounds, PlatformError> {
+    if process_id == 0 {
+        return Err(PlatformError::Operation(
+            "browser process id must be positive".to_owned(),
+        ));
+    }
+    target.validate()
+}
+
+pub(crate) fn candidate_matches_process(expected: u32, actual: u32) -> bool {
+    expected != 0 && expected == actual
+}
+
+fn finish_alignment(
+    visible: PixelBounds,
+    attempts: usize,
+    backend: &mut impl WindowFrameBackend,
+) -> Result<WindowAlignmentReport, PlatformError> {
+    let dpi = backend.read_dpi()?;
+    if dpi == 0 {
+        return Err(PlatformError::Operation(
+            "window DPI must be positive".to_owned(),
+        ));
+    }
+    Ok(WindowAlignmentReport {
+        visible,
+        attempts,
+        dpi,
     })
 }
 
@@ -96,7 +170,110 @@ fn to_i32(value: i64) -> Result<i32, PlatformError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::*;
+
+    struct FakeBackend {
+        visible: VecDeque<Result<PixelBounds, PlatformError>>,
+        outer: Result<PixelBounds, String>,
+        dpi: Result<u32, String>,
+        set_error: Option<String>,
+        calls: Vec<(&'static str, Option<PixelBounds>)>,
+    }
+
+    impl FakeBackend {
+        fn aligned(target: PixelBounds) -> Self {
+            Self {
+                visible: VecDeque::from([Ok(target)]),
+                outer: Ok(target),
+                dpi: Ok(120),
+                set_error: None,
+                calls: Vec::new(),
+            }
+        }
+
+        fn with_visible(values: impl IntoIterator<Item = PixelBounds>, outer: PixelBounds) -> Self {
+            Self {
+                visible: values.into_iter().map(Ok).collect(),
+                outer: Ok(outer),
+                dpi: Ok(120),
+                set_error: None,
+                calls: Vec::new(),
+            }
+        }
+
+        fn failing_visible(message: &str) -> Self {
+            Self {
+                visible: VecDeque::from([Err(PlatformError::Operation(message.to_owned()))]),
+                outer: Err("outer bounds unavailable".to_owned()),
+                dpi: Ok(120),
+                set_error: None,
+                calls: Vec::new(),
+            }
+        }
+    }
+
+    impl WindowFrameBackend for FakeBackend {
+        fn read_visible_bounds(&mut self) -> Result<PixelBounds, PlatformError> {
+            self.calls.push(("visible", None));
+            self.visible.pop_front().unwrap_or_else(|| {
+                Err(PlatformError::Operation(
+                    "visible bounds fixture exhausted".to_owned(),
+                ))
+            })
+        }
+
+        fn read_outer_bounds(&mut self) -> Result<PixelBounds, PlatformError> {
+            self.calls.push(("outer", None));
+            self.outer
+                .as_ref()
+                .copied()
+                .map_err(|message| PlatformError::Operation(message.to_owned()))
+        }
+
+        fn set_outer_bounds(&mut self, bounds: PixelBounds) -> Result<(), PlatformError> {
+            self.calls.push(("set", Some(bounds)));
+            self.set_error.as_ref().map_or(Ok(()), |message| {
+                Err(PlatformError::Operation(message.clone()))
+            })
+        }
+
+        fn read_dpi(&mut self) -> Result<u32, PlatformError> {
+            self.calls.push(("dpi", None));
+            self.dpi
+                .as_ref()
+                .map(|dpi| *dpi)
+                .map_err(|message| PlatformError::Operation(message.clone()))
+        }
+    }
+
+    fn target() -> PixelBounds {
+        PixelBounds {
+            x: -1_920,
+            y: 0,
+            width: 1_920,
+            height: 1_040,
+        }
+    }
+
+    fn outer() -> PixelBounds {
+        PixelBounds {
+            x: -1_928,
+            y: -8,
+            width: 1_936,
+            height: 1_056,
+        }
+    }
+
+    fn gapped() -> PixelBounds {
+        PixelBounds {
+            x: -1_912,
+            y: 0,
+            width: 1_904,
+            height: 1_040,
+        }
+    }
 
     #[test]
     fn adjusts_each_outer_edge_from_the_visible_frame_delta() {
@@ -179,5 +356,205 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn v1_windows_alignment_contracts_use_the_typed_in_process_backend() {
+        crate::v1_case!("resource-platform-01b5edb57911", {
+            let mut backend = FakeBackend::with_visible([gapped(), target()], outer());
+            let report = align_visible_frame_with_backend(4_321, target(), &mut backend).unwrap();
+            assert_eq!(report.visible, target());
+            assert_eq!(report.attempts, 1);
+            assert_eq!(report.dpi, 120);
+            assert_eq!(
+                backend
+                    .calls
+                    .iter()
+                    .filter(|(call, _)| *call == "set")
+                    .map(|(_, bounds)| bounds.expect("set call carries bounds"))
+                    .collect::<Vec<_>>(),
+                vec![compute_adjusted_outer(outer(), gapped(), target()).unwrap()]
+            );
+        });
+
+        crate::v1_case!("resource-platform-7ba64053873a", {
+            let mut backend = FakeBackend::aligned(target());
+            let report = align_visible_frame_with_backend(12, target(), &mut backend).unwrap();
+            assert_eq!(report.visible, target());
+            assert_eq!(backend.calls, vec![("visible", None), ("dpi", None)]);
+        });
+
+        crate::v1_case!("resource-platform-69c206a00ece", {
+            let mut backend = FakeBackend::with_visible([gapped(), target()], outer());
+            assert!(
+                align_visible_frame_with_backend(12, target(), &mut backend).is_ok(),
+                "the in-process adapter must not depend on a helper executable path"
+            );
+        });
+
+        for (case_id, message) in [
+            ("resource-platform-cc81e6906c62", "invalid JSON"),
+            ("resource-platform-8129176331e6", "invalid output"),
+            ("resource-platform-e552b0c3c95a", "unsupported protocol"),
+            (
+                "resource-platform-28116ce41158",
+                "successful response required",
+            ),
+        ] {
+            let mut backend = FakeBackend::failing_visible(message);
+            let error = align_visible_frame_with_backend(12, target(), &mut backend).unwrap_err();
+            match case_id {
+                "resource-platform-cc81e6906c62" => {
+                    crate::v1_case!("resource-platform-cc81e6906c62", {
+                        assert!(error.to_string().contains("invalid JSON"));
+                    });
+                }
+                "resource-platform-8129176331e6" => {
+                    crate::v1_case!("resource-platform-8129176331e6", {
+                        assert!(error.to_string().contains("invalid output"));
+                    });
+                }
+                "resource-platform-e552b0c3c95a" => {
+                    crate::v1_case!("resource-platform-e552b0c3c95a", {
+                        assert!(error.to_string().contains("unsupported protocol"));
+                    });
+                }
+                _ => {
+                    crate::v1_case!("resource-platform-28116ce41158", {
+                        assert!(error.to_string().contains("successful response"));
+                    });
+                }
+            }
+        }
+
+        crate::v1_case!("resource-platform-89450c568fde", {
+            let mut backend = FakeBackend::aligned(target());
+            let error = align_visible_frame_with_backend(0, target(), &mut backend).unwrap_err();
+            assert!(error.to_string().contains("process id must be positive"));
+            assert!(backend.calls.is_empty());
+        });
+
+        crate::v1_case!("resource-platform-102d470c43bc", {
+            let mut backend = FakeBackend::failing_visible("invalid window handle");
+            let error = align_visible_frame_with_backend(12, target(), &mut backend).unwrap_err();
+            assert!(error.to_string().contains("invalid window handle"));
+        });
+
+        crate::v1_case!("resource-platform-e9bebde723c6", {
+            let mut backend = FakeBackend::aligned(target());
+            backend.dpi = Ok(0);
+            let error = align_visible_frame_with_backend(12, target(), &mut backend).unwrap_err();
+            assert!(error.to_string().contains("window DPI must be positive"));
+        });
+
+        crate::v1_case!("resource-platform-5341d268af13", {
+            let mut backend = FakeBackend::failing_visible("visible frame is unavailable");
+            let error = align_visible_frame_with_backend(12, target(), &mut backend).unwrap_err();
+            assert!(error.to_string().contains("visible frame is unavailable"));
+        });
+
+        crate::v1_case!("resource-platform-9bf07b5fee36", {
+            let mut backend =
+                FakeBackend::with_visible([gapped(), gapped(), gapped(), gapped()], outer());
+            let error = align_visible_frame_with_backend(12, target(), &mut backend).unwrap_err();
+            assert!(error.to_string().contains("after three attempts"));
+            assert_eq!(
+                backend
+                    .calls
+                    .iter()
+                    .filter(|(call, _)| *call == "set")
+                    .count(),
+                MAX_ALIGNMENT_ATTEMPTS
+            );
+        });
+
+        crate::v1_case!("resource-platform-8a54d772a27e", {
+            let different_target = PixelBounds {
+                width: target().width - 1,
+                ..target()
+            };
+            let mut backend = FakeBackend::with_visible(
+                [
+                    gapped(),
+                    different_target,
+                    different_target,
+                    different_target,
+                ],
+                outer(),
+            );
+            let error = align_visible_frame_with_backend(12, target(), &mut backend).unwrap_err();
+            assert!(error.to_string().contains("exact target"));
+        });
+
+        crate::v1_case!("resource-platform-856facc2ead6", {
+            assert!(candidate_matches_process(12, 12));
+            assert!(!candidate_matches_process(12, 99));
+            assert!(!candidate_matches_process(0, 0));
+        });
+
+        crate::v1_case!("resource-platform-e0fb56fa1d86", {
+            let mut backend =
+                FakeBackend::with_visible([gapped(), gapped(), gapped(), gapped()], outer());
+            let error = align_visible_frame_with_backend(12, target(), &mut backend).unwrap_err();
+            assert!(error.to_string().contains("visible frame did not reach"));
+        });
+
+        crate::v1_case!("resource-platform-e05a9905d2a6", {
+            let mut invalid_pid = FakeBackend::aligned(target());
+            assert!(align_visible_frame_with_backend(0, target(), &mut invalid_pid).is_err());
+            assert!(invalid_pid.calls.is_empty());
+
+            let mut invalid_bounds = FakeBackend::aligned(target());
+            assert!(
+                align_visible_frame_with_backend(
+                    12,
+                    PixelBounds {
+                        width: 0,
+                        ..target()
+                    },
+                    &mut invalid_bounds,
+                )
+                .is_err()
+            );
+            assert!(invalid_bounds.calls.is_empty());
+        });
+
+        for (case_id, message) in [
+            ("resource-platform-2d7353cce471", "helper timed out"),
+            (
+                "resource-platform-b7f8ac6030ad",
+                "helper exited with code 4",
+            ),
+        ] {
+            let mut backend = FakeBackend::with_visible([gapped()], outer());
+            backend.set_error = Some(message.to_owned());
+            let error = align_visible_frame_with_backend(12, target(), &mut backend).unwrap_err();
+            match case_id {
+                "resource-platform-2d7353cce471" => {
+                    crate::v1_case!("resource-platform-2d7353cce471", {
+                        assert!(error.to_string().contains("helper timed out"));
+                    });
+                }
+                _ => {
+                    crate::v1_case!("resource-platform-b7f8ac6030ad", {
+                        assert!(error.to_string().contains("helper exited with code 4"));
+                    });
+                }
+            }
+        }
+
+        crate::v1_case!("resource-platform-c624cb2bd825", {
+            let mut backend = FakeBackend::aligned(target());
+            let report = align_visible_frame_with_backend(12, target(), &mut backend).unwrap();
+            assert_eq!(report.visible, target());
+            assert_eq!(report.attempts, 0);
+            assert!(
+                backend
+                    .calls
+                    .iter()
+                    .all(|(call, _)| matches!(*call, "visible" | "dpi")),
+                "the Rust adapter must complete without an external manifest-backed helper"
+            );
+        });
     }
 }

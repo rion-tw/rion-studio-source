@@ -19,6 +19,7 @@ interface AppQuickMenuOptions {
   onWorkspaceDisplaySelectionRequired: (request: PendingWorkspaceLaunchRequest) => void;
   openApp: () => void;
   quitApp?: () => void;
+  recordRefresh?: () => void;
   roleStore: Pick<RoleStore, "getRole" | "listRoles">;
   setMenu: (menu: Menu) => void;
   workspaceLauncher: Pick<WorkspaceLaunchCoordinator, "launch">;
@@ -28,6 +29,8 @@ interface AppQuickMenuOptions {
 export class AppQuickMenu {
   private readonly logger: Pick<Console, "error">;
   private refreshQueued = false;
+  private refreshInFlight?: Promise<void>;
+  private refreshTrailing = false;
   private refreshVersion = 0;
 
   constructor(private readonly options: AppQuickMenuOptions) {
@@ -35,16 +38,46 @@ export class AppQuickMenu {
   }
 
   scheduleRefresh(): void {
+    if (this.refreshInFlight) {
+      this.refreshTrailing = true;
+      return;
+    }
     if (this.refreshQueued) return;
 
     this.refreshQueued = true;
     queueMicrotask(() => {
       this.refreshQueued = false;
-      void this.refresh();
+      if (this.refreshInFlight) {
+        this.refreshTrailing = true;
+        return;
+      }
+      void this.runScheduledRefresh();
     });
   }
 
   async refresh(): Promise<void> {
+    if (this.refreshInFlight) {
+      this.refreshTrailing = true;
+      return this.refreshInFlight;
+    }
+    return this.runScheduledRefresh();
+  }
+
+  private runScheduledRefresh(): Promise<void> {
+    const operation = this.refreshOnce();
+    this.refreshInFlight = operation;
+    void operation.finally(() => {
+      if (this.refreshInFlight !== operation) return;
+      this.refreshInFlight = undefined;
+      if (this.refreshTrailing) {
+        this.refreshTrailing = false;
+        this.scheduleRefresh();
+      }
+    });
+    return operation;
+  }
+
+  private async refreshOnce(): Promise<void> {
     const version = ++this.refreshVersion;
 
     try {
@@ -82,6 +115,7 @@ export class AppQuickMenu {
       );
 
       this.options.setMenu(Menu.buildFromTemplate(template));
+      this.options.recordRefresh?.();
     } catch (error) {
       this.logger.error("Failed to refresh the Rion Studio app menu.", error);
     }

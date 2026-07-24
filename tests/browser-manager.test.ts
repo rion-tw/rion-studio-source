@@ -46,6 +46,7 @@ import {
   normalizeTestWorkspaceRects,
   resolveTestAdaptiveZoom
 } from "./helpers/workspaceLayoutState";
+import { v1Case } from "./helpers/v1Parity";
 
 type AnyMock = Mock;
 
@@ -67,7 +68,6 @@ const workspace: LaunchWorkspace = {
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 90,
-  resourcePolicy: { mode: "unrestricted" },
   slots: [
     { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
     { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
@@ -174,6 +174,19 @@ describe("ElectronBrowserRuntime game host windows", () => {
         .toBeLessThan(harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]);
       expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
       expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-68b3526e056a"
+          : "browser-workspace-323a842fef44",
+        () => {
+          expect(applyBrowserProxy).toHaveBeenCalledOnce();
+          expect(applyCdnCompatibility).toHaveBeenCalledOnce();
+          expect(applyCdnCompatibility.mock.invocationCallOrder[0])
+            .toBeLessThan(harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]);
+          expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+          expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
+        }
+      );
     }
   );
 
@@ -216,6 +229,17 @@ describe("ElectronBrowserRuntime game host windows", () => {
       await harness.manager.stopRuntimeTab(runtimeTab.id);
       await expect(launch).resolves.toBeNull();
       expect(harness.manager.listStatuses()).toEqual([]);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-adf3bbaca440"
+          : "browser-workspace-80cad119482f",
+        () => {
+          expect(runtimeTab).toMatchObject({ hidden: false, active: true });
+          expect(harness.hosts[0].show).toHaveBeenCalledOnce();
+          expect(destroyed).toBe(true);
+          expect(harness.manager.listStatuses()).toEqual([]);
+        }
+      );
     }
   );
 
@@ -252,6 +276,17 @@ describe("ElectronBrowserRuntime game host windows", () => {
       expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
         { active: true, hidden: false, sourceId: role.id }
       ]);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-4cb5bcad4a14"
+          : "browser-workspace-98fba36a7d38",
+        () => {
+          expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
+            { active: true, hidden: false, sourceId: role.id }
+          ]);
+          expect(harness.views[0].webContents.loadURL).toHaveBeenCalledOnce();
+        }
+      );
     }
   );
 
@@ -293,6 +328,18 @@ describe("ElectronBrowserRuntime game host windows", () => {
         expect.objectContaining({ roleId: role.id, state: "running" }),
         expect.objectContaining({ roleId: secondRole.id, state: "running" })
       ]);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-7b9e9324691b"
+          : "browser-workspace-1a45b9a5a642",
+        () => {
+          expect(harness.hosts[0].show).toHaveBeenCalledOnce();
+          expect(harness.manager.listStatuses()).toEqual([
+            expect.objectContaining({ roleId: role.id, state: "running" }),
+            expect.objectContaining({ roleId: secondRole.id, state: "running" })
+          ]);
+        }
+      );
     }
   );
 
@@ -422,6 +469,24 @@ describe("ElectronBrowserRuntime game host windows", () => {
         kind: "game",
         roleId: role.id
       }, harness.views[0].webContents);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-0585aa1b7a39"
+          : "browser-workspace-74b6e4ce8055",
+        () => {
+          expect(harness.createHostWindow).toHaveBeenCalledWith(
+            expect.objectContaining({ frame: true, show: false, ...materialOptions })
+          );
+          expect(harness.views[0].setBounds).toHaveBeenCalledWith({
+            x: 0,
+            y: 0,
+            width: 1200,
+            height: 800
+          });
+          expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+          expect(harness.hosts[0].show).toHaveBeenCalledOnce();
+        }
+      );
     }
   );
 
@@ -449,6 +514,17 @@ describe("ElectronBrowserRuntime game host windows", () => {
       expect(firstView.webContents.focus).not.toHaveBeenCalled();
       expect(firstView.webContents.executeJavaScript).not.toHaveBeenCalled();
       expect(secondView.webContents.executeJavaScript).not.toHaveBeenCalled();
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-becd0c0e6603"
+          : "browser-workspace-2476cbdf7ddb",
+        () => {
+          expect(secondView.webContents.focus).toHaveBeenCalledOnce();
+          expect(firstView.webContents.focus).not.toHaveBeenCalled();
+          expect(firstView.webContents.executeJavaScript).not.toHaveBeenCalled();
+          expect(secondView.webContents.executeJavaScript).not.toHaveBeenCalled();
+        }
+      );
     }
   );
 
@@ -515,6 +591,19 @@ describe("ElectronBrowserRuntime game host windows", () => {
         audible: false,
         audioMuted: false
       });
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-1f8900aaa15a"
+          : "browser-workspace-e38d1abb9000",
+        () => {
+          expect(gameWebContents.setAudioMuted).toHaveBeenNthCalledWith(1, true);
+          expect(gameWebContents.setAudioMuted).toHaveBeenLastCalledWith(false);
+          expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+            audible: false,
+            audioMuted: false
+          });
+        }
+      );
     }
   );
 
@@ -547,6 +636,17 @@ describe("ElectronBrowserRuntime game host windows", () => {
 
       const newPopup = createOAuthPopup(harness.views[1], harness.views);
       expect(newPopup.webContents.setAudioMuted).toHaveBeenCalledWith(true);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-d08cac3d3f7d"
+          : "browser-workspace-6b680bb8734e",
+        () => {
+          expect(harness.views[0].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+          expect(harness.views[1].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+          expect(popup.webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+          expect(newPopup.webContents.setAudioMuted).toHaveBeenCalledWith(true);
+        }
+      );
     }
   );
 
@@ -1335,9 +1435,9 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(harness.createTabbedHostWindow).toHaveBeenCalledTimes(1);
     expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(false);
     expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(true);
-    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+    expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
-      expect.anything()
+      { rate: 2 }
     );
 
     await harness.manager.showRuntimeTab(firstTab.id);
@@ -1433,6 +1533,22 @@ describe("ElectronBrowserRuntime game host windows", () => {
         expect.objectContaining({ active: true, id: secondTab.id }),
         expect.objectContaining({ hidden: true, id: firstTab.id })
       ]));
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-3702d1aea9ee"
+          : "browser-workspace-87c65787a1f3",
+        () => {
+          expect(nextEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(previousEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(oneVisibleTabEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ active: true, id: secondTab.id }),
+              expect.objectContaining({ hidden: true, id: firstTab.id })
+            ])
+          );
+        }
+      );
     }
   );
 
@@ -1539,15 +1655,28 @@ describe("ElectronBrowserRuntime game host windows", () => {
       expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(firstViewFocusCalls + 2);
       expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(secondViewFocusCalls + 1);
       expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(thirdViewFocusCalls + 1);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-f1eb2035ac59"
+          : "browser-workspace-2bbe60d17f9d",
+        () => {
+          expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ active: false, id: firstTab.id }),
+              expect.objectContaining({ active: false, id: secondTab.id }),
+              expect.objectContaining({ active: true, id: thirdTab.id })
+            ])
+          );
+          expect(harness.hosts[0].focus).toHaveBeenCalledTimes(windowFocusCalls);
+        }
+      );
     }
   );
 
   it("overlays macOS fullscreen chrome without relaying out or reloading the game", async () => {
     vi.useFakeTimers();
-    let cursor = { x: 100, y: 120 };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      getCursorScreenPoint: () => cursor,
       platform: "darwin",
       useTabbedHostWindow: true,
       workspaceDisplays: runtimeDisplays
@@ -1589,26 +1718,13 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
     expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
 
-    cursor = { x: 100, y: 24 };
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(11, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 0
     }));
 
-    cursor = { x: 100, y: 68 };
     harness.manager.handleRuntimeToolbarPointer(11, false);
-    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 40,
-      y: 0
-    }));
-    cursor = { x: 100, y: 120 };
-    await vi.advanceTimersByTimeAsync(49);
-    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 40,
-      y: 0
-    }));
-    await vi.advanceTimersByTimeAsync(1);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 2,
       y: 0
@@ -1646,6 +1762,20 @@ describe("ElectronBrowserRuntime game host windows", () => {
         height: 40
       });
       expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+      const caseId = {
+        24: "browser-workspace-afd704ddddba",
+        30: "browser-workspace-b839fe3129c1",
+        38: "browser-workspace-4b6fa7f40ee5"
+      }[safeArea]!;
+      v1Case(caseId, () => {
+        expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith({
+          x: 0,
+          y: 0,
+          width: 1200,
+          height: 40
+        });
+        expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+      });
       harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
     }
   );
@@ -1678,6 +1808,20 @@ describe("ElectronBrowserRuntime game host windows", () => {
         height: 40
       });
       expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+      const caseId = {
+        24: "browser-workspace-df82c8ac9176",
+        30: "browser-workspace-8e058324104c",
+        38: "browser-workspace-bec19daf196c"
+      }[safeArea]!;
+      v1Case(caseId, () => {
+        expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith({
+          x: 0,
+          y: safeArea,
+          width: 1200,
+          height: 40
+        });
+        expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+      });
       harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
     }
   );
@@ -1713,7 +1857,6 @@ describe("ElectronBrowserRuntime game host windows", () => {
 
   it("uses a 30 DIP fallback when macOS never reports a menu-bar height", async () => {
     vi.useFakeTimers();
-    let cursor = { x: 100, y: 100 };
     const display: WorkspaceDisplayInfo = {
       ...runtimeDisplays[0],
       bounds: { x: 0, y: 0, width: 1200, height: 800 },
@@ -1721,7 +1864,6 @@ describe("ElectronBrowserRuntime game host windows", () => {
     };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: display.id, workArea: display.workArea },
-      getCursorScreenPoint: () => cursor,
       platform: "darwin",
       useTabbedHostWindow: true,
       workspaceDisplays: [display]
@@ -1741,8 +1883,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
       y: 0
     }));
 
-    cursor = { x: 100, y: 0 };
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(display.id, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 30
@@ -1949,7 +2090,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
     vi.useRealTimers();
   });
 
-  it("monitors fullscreen chrome independently on negative-coordinate displays", async () => {
+  it("handles fullscreen hot-zone events independently on multiple displays", async () => {
     vi.useFakeTimers();
     const displays: WorkspaceDisplayInfo[] = [
       {
@@ -1961,10 +2102,8 @@ describe("ElectronBrowserRuntime game host windows", () => {
       { ...runtimeDisplays[1], id: 44, bounds: { x: 0, y: 0, width: 1200, height: 800 },
         workArea: { x: 0, y: 0, width: 1200, height: 800 } }
     ];
-    let cursor = { x: -600, y: 0 };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 33, workArea: displays[0].workArea },
-      getCursorScreenPoint: () => cursor,
       platform: "darwin",
       useTabbedHostWindow: true,
       workspaceDisplays: displays
@@ -1976,14 +2115,13 @@ describe("ElectronBrowserRuntime game host windows", () => {
     harness.manager.handleRuntimeWindowControl(33, "toggleFullscreen");
     harness.manager.handleRuntimeWindowControl(44, "toggleFullscreen");
 
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(33, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 30
     }));
     expect(harness.chromeViews[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 2 }));
-    cursor = { x: 600, y: 0 };
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(44, true);
     expect(harness.chromeViews[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 30
@@ -1993,9 +2131,8 @@ describe("ElectronBrowserRuntime game host windows", () => {
     vi.useRealTimers();
   });
 
-  it("clears auto-hidden menu-bar monitoring before hiding a native-fullscreen host", async () => {
+  it("ignores fullscreen hot-zone events after hiding a native-fullscreen host", async () => {
     vi.useFakeTimers();
-    let cursor = { x: 100, y: 0 };
     const display: WorkspaceDisplayInfo = {
       ...runtimeDisplays[0],
       bounds: { x: 0, y: 0, width: 1200, height: 800 },
@@ -2003,14 +2140,13 @@ describe("ElectronBrowserRuntime game host windows", () => {
     };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: display.id, workArea: display.workArea },
-      getCursorScreenPoint: () => cursor,
       platform: "darwin",
       useTabbedHostWindow: true,
       workspaceDisplays: [display]
     });
     await harness.manager.launch(role);
     harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(display.id, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 30
@@ -2018,7 +2154,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
 
     harness.manager.handleRuntimeWindowControl(display.id, "close");
     const chromeBoundsCalls = harness.chromeViews[0].setBounds.mock.calls.length;
-    cursor = { x: 100, y: 100 };
+    harness.manager.handleRuntimeToolbarPointer(display.id, true);
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
@@ -2290,19 +2426,28 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
   });
 
-  it("applies browser font preferences after creating the effect handle and before navigation", async () => {
+  it("applies browser font preferences before creating a new role view", async () => {
     const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
     const harness = createHarness({ applyBrowserFonts });
 
     await harness.manager.launch(role);
 
     expect(applyBrowserFonts).toHaveBeenCalledWith(role, createRoleSessionPartition(role.id));
-    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeGreaterThan(
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
       harness.createView.mock.invocationCallOrder[0]
     );
     expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
       harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]
     );
+    v1Case("browser-workspace-074d6b7f91fa", () => {
+      expect(applyBrowserFonts).toHaveBeenCalledWith(
+        role,
+        createRoleSessionPartition(role.id)
+      );
+      expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+        harness.createView.mock.invocationCallOrder[0]
+      );
+    });
   });
 
   it("applies browser proxy settings before loading the game page", async () => {
@@ -2411,7 +2556,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(harness.views[1].webContents.getZoomFactor()).toBe(0.9);
     expect(applyBrowserFonts).toHaveBeenCalledWith(role, createRoleSessionPartition(role.id));
     expect(applyBrowserFonts).toHaveBeenCalledWith(secondRole, createRoleSessionPartition(secondRole.id));
-    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeGreaterThan(
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
       harness.createView.mock.invocationCallOrder[0]
     );
   });
@@ -2437,6 +2582,17 @@ describe("ElectronBrowserRuntime game host windows", () => {
       await harness.views[0].webContents.loadURL("https://accounts.example.net/redirect");
 
       expect(harness.views[0].webContents.getZoomFactor()).toBe(browserZoomPercent / 100);
+      const caseId = {
+        25: "browser-workspace-f288ec9f3e41",
+        90: "browser-workspace-5935bacd1051",
+        125: "browser-workspace-3019794f93b7"
+      }[browserZoomPercent];
+      v1Case(caseId, () => {
+        expect(harness.views[0].webContents.getZoomFactor()).toBe(browserZoomPercent / 100);
+        expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(
+          "https://accounts.example.net/redirect"
+        );
+      });
     }
   );
 
@@ -2496,6 +2652,23 @@ describe("ElectronBrowserRuntime game host windows", () => {
         shift: true
       }, platform)).toBeUndefined();
     }
+    const caseId = ({
+      "darwin:Equal": "browser-workspace-3ba42c388c15",
+      "darwin:NumpadSubtract": "browser-workspace-4bbcc3605a5c",
+      "darwin:Digit0": "browser-workspace-ead7ec740aab",
+      "win32:NumpadAdd": "browser-workspace-19acd98432da",
+      "win32:Minus": "browser-workspace-0ca1210d6eef",
+      "win32:Numpad0": "browser-workspace-f2f0e81d61c8"
+    } as Record<string, string>)[`${platform}:${modifiers.code}`]!;
+    v1Case(caseId, () => {
+      expect(classifyNativeZoomShortcut({
+        alt: false,
+        isComposing: false,
+        key: modifiers.code,
+        type: "keyDown",
+        ...modifiers
+      }, platform)).toBe(expected);
+    });
   });
 
   it.each([
@@ -2518,6 +2691,14 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(classifyRuntimeTabSwitchShortcut({ ...input, control: false })).toBeUndefined();
     expect(classifyRuntimeTabSwitchShortcut({ ...input, meta: true })).toBeUndefined();
     expect(classifyRuntimeTabSwitchShortcut({ ...input, type: "keyUp" })).toBeUndefined();
+    v1Case(
+      shift ? "browser-workspace-7f991a0d8f29" : "browser-workspace-c978143f30b8",
+      () => {
+        expect(classifyRuntimeTabSwitchShortcut(input)).toBe(expected);
+        expect(classifyRuntimeTabSwitchShortcut({ ...input, alt: true })).toBeUndefined();
+        expect(classifyRuntimeTabSwitchShortcut({ ...input, type: "keyUp" })).toBeUndefined();
+      }
+    );
   });
 
   it.each([
@@ -2533,6 +2714,19 @@ describe("ElectronBrowserRuntime game host windows", () => {
     "validates native zoom result %s from %s to %s",
     (action, previousPercent, nextPercent, expected) => {
       expect(isExpectedNativeZoomResult(action, previousPercent, nextPercent)).toBe(expected);
+      const caseId = ({
+        "in:90:100": "browser-workspace-889b5c73962c",
+        "in:90:90": "browser-workspace-0e9f68cb0180",
+        "in:300:300": "browser-workspace-140e8f7adf23",
+        "out:90:80": "browser-workspace-a885357bb42b",
+        "out:90:100": "browser-workspace-18902d65009b",
+        "out:50:50": "browser-workspace-687f83dcb393",
+        "reset:90:100": "browser-workspace-d6db27cb5ba6",
+        "reset:90:90": "browser-workspace-87b82c305dcc"
+      } as Record<string, string>)[`${action}:${previousPercent}:${nextPercent}`]!;
+      v1Case(caseId, () => {
+        expect(isExpectedNativeZoomResult(action, previousPercent, nextPercent)).toBe(expected);
+      });
     }
   );
 
@@ -2624,6 +2818,21 @@ describe("ElectronBrowserRuntime game host windows", () => {
         harness.hosts[0].contentBounds.width = 700;
         harness.hosts[0].emit("resize");
         expect(webContents.getZoomFactor()).toBe(secondZoomFactor);
+        v1Case(
+          platform === "darwin"
+            ? "browser-workspace-7fad93d9b2f7"
+            : "browser-workspace-5ac6e4515a71",
+          () => {
+            expect(performNativeZoom).toHaveBeenCalledTimes(2);
+            expect(persistWorkspaceRoleZoom).toHaveBeenCalledOnce();
+            expect(persistWorkspaceRoleZoom).toHaveBeenCalledWith(
+              workspace.id,
+              role.id,
+              Math.round(secondZoomFactor * 100)
+            );
+            expect(webContents.getZoomFactor()).toBe(secondZoomFactor);
+          }
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -2909,35 +3118,67 @@ describe("ElectronBrowserRuntime game host windows", () => {
   it("keeps every role in the visible adaptive workspace at full speed", async () => {
     const harness = createHarness({ platform: "win32" });
     const secondRole = createRole("role-2", "Alt");
-    const priorityWorkspace: LaunchWorkspace = {
-      ...workspace,
-      resourcePolicy: { mode: "adaptive" }
-    };
+    const priorityWorkspace: LaunchWorkspace = { ...workspace };
 
     const statuses = await harness.manager.launchWorkspace(priorityWorkspace, [
       { role, rect: priorityWorkspace.slots[0].rect },
       { role: secondRole, rect: priorityWorkspace.slots[1].rect }
     ]);
 
-    expect(statuses).toEqual(expect.arrayContaining([
-      expect.objectContaining({ roleId: role.id }),
-      expect.objectContaining({ roleId: secondRole.id })
-    ]));
-    expect(statuses.every((status) => status.resourceState === undefined)).toBe(true);
-    expect(harness.views[0].webContents.focus).toHaveBeenCalledOnce();
-    expect(harness.views[1].webContents.focus).not.toHaveBeenCalled();
-    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
-      "Emulation.setCPUThrottlingRate",
-      expect.anything()
-    );
-    expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
-      "Emulation.setCPUThrottlingRate",
-      expect.anything()
-    );
+    v1Case("resource-platform-46bfa38c2810", () => {
+      expect(statuses).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roleId: role.id }),
+        expect.objectContaining({ roleId: secondRole.id })
+      ]));
+      expect(statuses.every((status) => status.resourceState === undefined)).toBe(true);
+      expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+      expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+    });
+    v1Case("resource-platform-458efe9621a6", () => {
+      expect(harness.views[0].webContents.focus).toHaveBeenCalledOnce();
+      expect(harness.views[1].webContents.focus).not.toHaveBeenCalled();
+    });
 
     harness.views[1].webContents.emit("focus");
     await Promise.resolve();
     expect(harness.manager.listStatuses().every((status) => status.resourceState === undefined)).toBe(true);
+  });
+
+  it("throttles inactive single-role tabs with the global adaptive policy", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      platform: "win32",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    const secondRole = createRole("role-2", "Alt");
+
+    await harness.manager.launch(role);
+    await harness.manager.launch(secondRole);
+
+    v1Case("browser-workspace-8855d2f20327", () => {
+      expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        { rate: 2 }
+      );
+      expect(harness.manager.listStatuses().find((status) => status.roleId === role.id)).toMatchObject({
+        resourceState: "throttled",
+        cpuThrottleRate: 2,
+        resourceReason: "runtime_tab_background"
+      });
+    });
+    expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      expect.anything()
+    );
+    expect(harness.manager.listStatuses().find((status) => status.roleId === secondRole.id)?.resourceState)
+      .toBeUndefined();
   });
 
   it("throttles only inactive adaptive runtime tabs and releases before showing them", async () => {
@@ -2949,14 +3190,12 @@ describe("ElectronBrowserRuntime game host windows", () => {
     });
     const firstWorkspace: LaunchWorkspace = {
       ...workspace,
-      id: "adaptive-tab-1",
-      resourcePolicy: { mode: "adaptive" }
+      id: "adaptive-tab-1"
     };
     const secondRole = createRole("role-2", "Alt");
     const secondWorkspace: LaunchWorkspace = {
       ...workspace,
-      id: "adaptive-tab-2",
-      resourcePolicy: { mode: "adaptive" }
+      id: "adaptive-tab-2"
     };
 
     await harness.manager.launchWorkspace(firstWorkspace, [
@@ -3032,8 +3271,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
     const thirdRole = createRole("role-3", "Third");
     const thirdWorkspace: LaunchWorkspace = {
       ...workspace,
-      id: "adaptive-tab-3",
-      resourcePolicy: { mode: "adaptive" }
+      id: "adaptive-tab-3"
     };
     await harness.manager.launchWorkspace(thirdWorkspace, [
       { role: thirdRole, rect: { x: 0, y: 0, width: 1, height: 1 } }
@@ -3058,16 +3296,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
       .toMatchObject({ active: true, displayId: 11, hidden: false });
   });
 
-  it.each([
-    {
-      name: "an unrestricted workspace",
-      resourcePolicy: { mode: "unrestricted" as const }
-    },
-    {
-      name: "an adaptive workspace under constrained system pressure",
-      resourcePolicy: { mode: "adaptive" as const }
-    }
-  ])("launches every role concurrently for $name", async ({ resourcePolicy }) => {
+  it("launches every role concurrently with automatic resource management", async () => {
     const started: number[] = [];
     const releases: Array<() => void> = [];
     const loadUrlHandlers = Array.from({ length: 4 }, (_, index) => async () => {
@@ -3080,7 +3309,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
     const rects = getDefaultWorkspaceRects("quad");
     const roles = Array.from({ length: 4 }, (_, index) => createRole(`role-${index + 1}`, `Role ${index + 1}`));
     const launch = harness.manager.launchWorkspace(
-      { ...workspace, resourcePolicy },
+      workspace,
       roles.map((item, index) => ({ role: item, rect: rects[index] }))
     );
 
@@ -3088,7 +3317,84 @@ describe("ElectronBrowserRuntime game host windows", () => {
     releases.forEach((release) => release());
 
     await expect(launch).resolves.toHaveLength(4);
+    v1Case("browser-workspace-af651bceaeb9", () => {
+      expect(started).toEqual([0, 1, 2, 3]);
+      expect(harness.manager.listStatuses()).toHaveLength(4);
+    });
   });
+
+  it("waits for every concurrent embedded load before reporting workspace failure", async () => {
+    let releaseFirst!: () => void;
+    let secondStarted = false;
+    const firstLoad = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const harness = createHarness({
+      loadUrlHandlers: [
+        () => firstLoad,
+        async () => {
+          secondStarted = true;
+          throw new Error("second role failed");
+        }
+      ]
+    });
+    const secondRole = createRole("role-2", "Alt");
+    let settled = false;
+    const launch = harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: secondRole, rect: workspace.slots[1].rect }
+    ]).finally(() => {
+      settled = true;
+    });
+
+    await vi.waitFor(() => expect(secondStarted).toBe(true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    releaseFirst();
+    await expect(launch).rejects.toBeInstanceOf(BrowserGameLoadError);
+
+    v1Case("browser-workspace-89d17e35538d", () => {
+      expect(secondStarted).toBe(true);
+      expect(settled).toBe(true);
+      expect(harness.hosts[0].close).toHaveBeenCalledOnce();
+      expect(harness.manager.listStatuses()).toEqual([]);
+    });
+  });
+
+  it.each(["darwin", "win32"] as const)(
+    "hides a %s host closed during a failing workspace launch",
+    async (platform) => {
+      let rejectLoad!: (error: Error) => void;
+      const harness = createHarness({
+        loadUrlHandlers: [
+          () => new Promise<void>((_resolve, reject) => {
+            rejectLoad = reject;
+          })
+        ],
+        platform
+      });
+      const launch = harness.manager.launchWorkspace(workspace, [
+        { role, rect: { x: 0, y: 0, width: 1, height: 1 } }
+      ]);
+      await vi.waitFor(() => expect(rejectLoad).toBeTypeOf("function"));
+      const closeEvent = { preventDefault: vi.fn() };
+
+      harness.hosts[0].emit("close", closeEvent);
+      rejectLoad(new Error("view closed during load"));
+      await expect(launch).rejects.toBeInstanceOf(BrowserGameLoadError);
+
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-682b219b6d10"
+          : "browser-workspace-42a9d8ab83ad",
+        () => {
+          expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(harness.hosts[0].hide).toHaveBeenCalled();
+          expect(harness.manager.listStatuses()).toEqual([]);
+        }
+      );
+    }
+  );
 
   it("draws a four-pixel glass divider that is entirely draggable", async () => {
     const harness = createHarness();
@@ -3384,6 +3690,24 @@ describe("ElectronBrowserRuntime game host windows", () => {
         .map((view) => view.view.getBounds());
       expect(dividerBounds).toHaveLength(expectedDividerBounds.length);
       expect(dividerBounds).toEqual(expect.arrayContaining(expectedDividerBounds));
+      const caseId = ({
+        single: "browser-workspace-930306bbcd8d",
+        two_columns: "browser-workspace-2ace2b258565",
+        three_columns: "browser-workspace-186a683fc2ba",
+        main_left_stack_right: "browser-workspace-356c619b93d1",
+        main_right_stack_left: "browser-workspace-c112ef604a75",
+        main_center_side_stacks: "browser-workspace-aad1d0b35db3",
+        three_top_two_bottom: "browser-workspace-73c9e64971cb",
+        two_top_three_bottom: "browser-workspace-6c0e0d9dd9cc",
+        quad: "browser-workspace-4dcb867cdda3",
+        four_columns: "browser-workspace-465b721df9d6",
+        six_grid: "browser-workspace-0f4355309e0a",
+        eight_grid: "browser-workspace-0cf07f76f758"
+      } as Record<string, string>)[template]!;
+      v1Case(caseId, () => {
+        expect(dividerBounds).toHaveLength(expectedDividerBounds.length);
+        expect(dividerBounds).toEqual(expect.arrayContaining(expectedDividerBounds));
+      });
     }
   );
 
@@ -3427,6 +3751,21 @@ describe("ElectronBrowserRuntime game host windows", () => {
         { x: secondColumnEnd - 2, y: 0, width: 4, height },
         { x: 0, y: firstRowEnd - 2, width, height: 4 }
       ]));
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-d8f506fd5278"
+          : "browser-workspace-0b240ba8ff6f",
+        () => {
+          expect(harness.views.slice(0, 6).map((view) => view.view.getBounds()))
+            .toEqual(expectedSessionBounds);
+          expect(harness.views.slice(6).map((view) => view.view.getBounds()))
+            .toEqual(expect.arrayContaining([
+              { x: firstColumnEnd - 2, y: 0, width: 4, height },
+              { x: secondColumnEnd - 2, y: 0, width: 4, height },
+              { x: 0, y: firstRowEnd - 2, width, height: 4 }
+            ]));
+        }
+      );
     }
   );
 
@@ -3519,6 +3858,24 @@ describe("ElectronBrowserRuntime game host windows", () => {
         template === "three_top_two_bottom"
           ? { x: 898, y: 0, width: 4, height: 480 }
           : { x: 898, y: 480, width: 4, height: 320 }
+      );
+      v1Case(
+        template === "three_top_two_bottom"
+          ? "browser-workspace-dc742dfec033"
+          : "browser-workspace-62d4bfbdd2db",
+        () => {
+          expect(horizontalDivider.view.getBounds()).toEqual({
+            x: 0,
+            y: 478,
+            width: 1200,
+            height: 4
+          });
+          expect(verticalDivider.view.getBounds()).toEqual(
+            template === "three_top_two_bottom"
+              ? { x: 898, y: 0, width: 4, height: 480 }
+              : { x: 898, y: 480, width: 4, height: 320 }
+          );
+        }
       );
     }
   );
@@ -3776,7 +4133,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
     ["macOS native chrome", { platform: "darwin", useMacNativeChrome: true }],
     ["macOS HTML fallback", { platform: "darwin", useTabbedHostWindow: true }],
     ["Windows HTML chrome", { platform: "win32", useTabbedHostWindow: true }]
-  ] as const)("hides a display host on system close without stopping its roles on %s", async (_name, options) => {
+  ] as const)("hides a display host on system close without stopping its roles on %s", async (name, options) => {
     const harness = createHarness(options);
     await harness.manager.launch(role);
     const event = { preventDefault: vi.fn() };
@@ -3789,6 +4146,19 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
     expect(harness.hosts[0].hide).toHaveBeenCalledTimes(1);
     expect(harness.beforeRolesStop).not.toHaveBeenCalled();
+    const caseId = {
+      "macOS native chrome": "browser-workspace-fa75912a292c",
+      "macOS HTML fallback": "browser-workspace-8dcdbe109c2f",
+      "Windows HTML chrome": "browser-workspace-f0a8dbde711c"
+    }[name];
+    v1Case(caseId, () => {
+      expect(harness.manager.listStatuses()).toEqual([
+        expect.objectContaining({ roleId: role.id, state: "running" })
+      ]);
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
+      expect(harness.beforeRolesStop).not.toHaveBeenCalled();
+    });
   });
 
   it.each(["darwin", "win32"] as const)(
@@ -3812,6 +4182,20 @@ describe("ElectronBrowserRuntime game host windows", () => {
         tabs: [],
         windows: []
       });
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-b4596ee467b5"
+          : "browser-workspace-5e94d5625e01",
+        () => {
+          expect(harness.views[0].webContents.close).toHaveBeenCalledOnce();
+          expect(harness.hosts[0].close).toHaveBeenCalledOnce();
+          expect(harness.manager.listStatuses()).toEqual([]);
+          expect(harness.manager.listEmbeddedRuntimeState()).toMatchObject({
+            tabs: [],
+            windows: []
+          });
+        }
+      );
     }
   );
 
@@ -3883,6 +4267,17 @@ describe("ElectronBrowserRuntime game host windows", () => {
       await vi.waitFor(() => expect(harness.hosts[0].hide).toHaveBeenCalledOnce());
       expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
       expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-310227ef70a3"
+          : "browser-workspace-77373ff70243",
+        () => {
+          expect(webContents.setIgnoreMenuShortcuts).toHaveBeenCalledWith(true);
+          expect(webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+          expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
+        }
+      );
     }
   );
 
@@ -4002,11 +4397,24 @@ describe("normalizedRectToPixelBounds", () => {
       { x: 900, y: 400, width: 300, height: 400 }
     ]]
   ] as const)("maps %s without title or control-bar offsets", (template, expected) => {
-    expect(
-      getDefaultWorkspaceRects(template).map((rect) =>
-        normalizedRectToPixelBounds(rect, { x: 0, y: 0, width: 1200, height: 800 })
-      )
-    ).toEqual(expected);
+    const actual = getDefaultWorkspaceRects(template).map((rect) =>
+      normalizedRectToPixelBounds(rect, { x: 0, y: 0, width: 1200, height: 800 })
+    );
+    expect(actual).toEqual(expected);
+    const caseId = {
+      three_columns: "browser-workspace-2cc368780200",
+      main_left_stack_right: "browser-workspace-f500fa56e6a2",
+      main_right_stack_left: "browser-workspace-e303c7cf7ff7",
+      quad: "browser-workspace-e726b29ab04b",
+      four_columns: "browser-workspace-cfa845f242c2",
+      three_top_two_bottom: "browser-workspace-3998a3495cb6",
+      two_top_three_bottom: "browser-workspace-b75a0c498770",
+      six_grid: "browser-workspace-e4d2ccbeb3ce",
+      eight_grid: "browser-workspace-dda21739e52f"
+    }[template];
+    v1Case(caseId, () => {
+      expect(actual).toEqual(expected);
+    });
   });
 });
 
@@ -4362,7 +4770,7 @@ function createHarness(options: {
     items: BrowserWorkspaceLaunchItem[];
     workspace: Pick<
       LaunchWorkspace,
-      "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "resourcePolicy" | "template"
+      "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "template"
     >;
   }>();
   const executeEmbedded = (action: CoreEffectAction): Promise<unknown> =>
@@ -4553,13 +4961,11 @@ function createHarness(options: {
           const targets = await executeEmbedded({
             type: "embeddedActivateResources",
             tabId,
-            policy: { mode: "unrestricted" },
             roleIds: [seededRole.id]
           }) as ResourceRuntimeTargetRecord[];
           await applyResourceCommand({
             type: "activateWorkspace",
             workspaceId: tabId,
-            policyMode: "unrestricted",
             targets
           });
         } catch (error) {
@@ -4684,13 +5090,11 @@ function createHarness(options: {
           const targets = await executeEmbedded({
             type: "embeddedActivateResources",
             tabId,
-            policy: seeded.workspace.resourcePolicy,
             roleIds
           }) as ResourceRuntimeTargetRecord[];
           await applyResourceCommand({
             type: "activateWorkspace",
             workspaceId: tabId,
-            policyMode: seeded.workspace.resourcePolicy.mode,
             targets
           });
         } catch (error) {
@@ -4860,7 +5264,6 @@ function createHarness(options: {
         await applyResourceCommand({
           type: "activateWorkspace",
           workspaceId: command.workspaceId,
-          policyMode: command.policyMode,
           targets: command.targets
         });
         return { activated: true };

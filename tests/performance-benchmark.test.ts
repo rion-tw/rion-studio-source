@@ -129,4 +129,48 @@ describe("performance benchmark release gates", () => {
       napiCallCount: 44
     });
   });
+
+  it("gates workspace launch regression and main event-loop delay when traced", () => {
+    const latency = (p95Ms: number) => ({
+      maxMs: p95Ms,
+      p50Ms: p95Ms,
+      p95Ms,
+      sampleCount: 3
+    });
+    const summary = (workspaceLaunchMs: number, eventLoopMs: number) => ({
+      medianNonRendererCpuPercent: 50,
+      medianNonRendererRssBytes: 500,
+      medianTreeCpuPercent: 50,
+      medianTreeRssBytes: 500,
+      nonRendererRssGrowthPercent: 0,
+      runtimeTelemetry: {
+        ipcCommand: latency(1),
+        macroScheduleToDispatch: latency(1),
+        mainEventLoopDelay: latency(eventLoopMs),
+        tabActivation: latency(1),
+        workspaceLaunch: latency(workspaceLaunchMs)
+      }
+    });
+
+    expect(comparePerformanceSummaries(
+      summary(104, 16),
+      {
+        ...summary(100, 12),
+        medianNonRendererCpuPercent: 100,
+        medianNonRendererRssBytes: 1_000,
+        medianTreeCpuPercent: 100,
+        medianTreeRssBytes: 1_000
+      }
+    ).passed).toBe(true);
+    expect(comparePerformanceSummaries(
+      summary(106, 17),
+      {
+        ...summary(100, 12),
+        medianNonRendererCpuPercent: 100,
+        medianNonRendererRssBytes: 1_000,
+        medianTreeCpuPercent: 100,
+        medianTreeRssBytes: 1_000
+      }
+    ).passed).toBe(false);
+  });
 });

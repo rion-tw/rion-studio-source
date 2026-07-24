@@ -42,7 +42,7 @@ use crate::{
         ResourceRuntimeCommand, ResourceRuntimeStatusRecord, ResourceRuntimeTargetRecord,
         RuntimeWindowPreferencesRecord, StateCollection, StateCompatibilityReportRecord,
         StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
-        StatePixelBoundsRecord, StateRoleRecord, StateWorkspaceResourcePolicyRecord,
+        StatePixelBoundsRecord, StateRoleRecord,
     },
     pressure::PressureMonitor,
     resource::resolve_resource_policy,
@@ -55,7 +55,7 @@ const CDN_COMPATIBILITY_EXTERNAL_NOTICE: &str =
 const CDN_COMPATIBILITY_UNAVAILABLE_NOTICE: &str = "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.";
 const EXTERNAL_AUTOMATION_UNAVAILABLE_NOTICE: &str =
     "Macro control could not connect to compatibility mode. Restart this role to try again.";
-const EXTERNAL_COMPAT_NOTICE: &str = "The embedded browser could not load this game. It opened in external Chrome compatibility mode.";
+const EXTERNAL_DIAGNOSTICS_BINDING: &str = "rionStudioExternalDiagnostics";
 const EXTERNAL_OVERLAY_BINDING: &str = "rionStudioMacroOverlay";
 const EXTERNAL_OVERLAY_BRIDGE_KEY: &str = "__rionStudioExternalMacroBridge";
 const EXTERNAL_PAGE_UNRESPONSIVE_NOTICE: &str =
@@ -129,6 +129,7 @@ impl AppCore {
         let state = StateDatabaseWorker::start(database_paths.state.clone())?;
         state.recover_portable_import(user_data_dir.clone())?;
         recover_operation_journals(&state, &user_data_dir)?;
+        let chrome_profile_import = restore_chrome_profile_import_runtime(&state, &user_data_dir)?;
         let logs = LogDatabaseWorker::start(database_paths.logs.clone())?;
         let subscribers = Arc::new(Mutex::new(Vec::new()));
         let effect_subscribers = Arc::clone(&subscribers);
@@ -352,11 +353,7 @@ impl AppCore {
             browser_runtime,
             cdn: Arc::new(RwLock::new(CdnMatcher::bundled()?)),
             cdn_detection: Mutex::new(crate::cdn_detection::CdnDetectionRuntime::default()),
-            chrome_profile_import: Mutex::new(
-                crate::chrome_profile_import::ChromeProfileImportRuntime::new(
-                    user_data_dir.clone(),
-                ),
-            ),
+            chrome_profile_import: Mutex::new(chrome_profile_import),
             compatibility_runtime: Mutex::new(
                 crate::compatibility_runtime::CompatibilityRuntime::default(),
             ),
@@ -686,8 +683,7 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::LegalAcceptanceStatus { versions } => {
-                let acceptance =
-                    self.read_optional_scalar_state::<LegalAcceptanceRecord>("legalAcceptance")?;
+                let acceptance = self.read_legal_acceptance_fail_closed()?;
                 serde_json::to_value(crate::legal::status(acceptance.as_ref(), versions))
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
@@ -1065,9 +1061,27 @@ impl AppCore {
             CoreCommand::ChromeProfilePreview {
                 source_user_data_dir,
             } => {
-                let preview = self
-                    .chrome_profile_import()?
-                    .preview(&source_user_data_dir)?;
+                let preview = {
+                    self.chrome_profile_import()?
+                        .preview(&source_user_data_dir)?
+                };
+                let journal_id = chrome_profile_preview_journal_id(&preview.import_id);
+                let persist = self.with_runtime(|runtime| {
+                    runtime.state.put_operation_journal(OperationJournalRecord {
+                        id: journal_id,
+                        kind: crate::chrome_profile_import::PREVIEW_JOURNAL_KIND.to_owned(),
+                        phase: "pending".to_owned(),
+                        payload: json!({
+                            "createdAtMs": system_epoch_millis(),
+                            "preview": preview,
+                            "sourceUserDataDir": source_user_data_dir
+                        }),
+                    })
+                });
+                if let Err(error) = persist {
+                    let _ = self.chrome_profile_import()?.discard(&preview.import_id);
+                    return Err(error);
+                }
                 serde_json::to_value(preview)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
@@ -1114,6 +1128,7 @@ impl AppCore {
             }
             CoreCommand::ChromeProfileFinalize { import_id } => {
                 self.chrome_profile_import()?.finalize(&import_id)?;
+                self.delete_chrome_profile_preview_journal(&import_id)?;
                 Ok(json!({ "finalized": true }))
             }
             CoreCommand::ChromeProfileRollback { import_id } => {
@@ -1131,6 +1146,7 @@ impl AppCore {
             }
             CoreCommand::ChromeProfileDiscard { import_id } => {
                 self.chrome_profile_import()?.discard(&import_id)?;
+                self.delete_chrome_profile_preview_journal(&import_id)?;
                 Ok(json!({ "discarded": true }))
             }
             CoreCommand::ChromeProfileReadCookies {
@@ -1484,11 +1500,9 @@ impl AppCore {
             CoreCommand::SystemChromeClose => {
                 let platform = self.platform;
                 tokio::task::spawn_blocking(move || {
-                    rion_platform::request_graceful_chrome_quit(platform)
-                        .map_err(|_| CoreError::Domain {
-                            code: "CHROME_CLOSE_FAILED",
-                            message: "Unable to ask Google Chrome to close. Close Chrome manually and try again.".to_owned(),
-                        })
+                    normalize_chrome_close_result(rion_platform::request_graceful_chrome_quit(
+                        platform,
+                    ))
                 })
                 .await
                 .map_err(|error| CoreError::Internal(error.to_string()))??;
@@ -1537,13 +1551,21 @@ impl AppCore {
                         .map_err(|error| CoreError::Internal(error.to_string()))?
                         {
                             Ok(statuses) => statuses.into_iter().map(embedded_status).collect(),
-                            Err(error) if error.code() == "GAME_PAGE_LOAD_FAILED" => {
+                            Err(error)
+                                if crate::external_runtime::should_fallback_to_external(
+                                    mode,
+                                    error.code(),
+                                ) =>
+                            {
                                 vec![
                                     self.launch_external_role(
                                         role,
                                         target,
                                         zoom_factor,
-                                        Some(EXTERNAL_COMPAT_NOTICE.to_owned()),
+                                        Some(
+                                            crate::external_runtime::EXTERNAL_COMPAT_NOTICE
+                                                .to_owned(),
+                                        ),
                                         settings,
                                     )
                                     .await?,
@@ -1597,11 +1619,18 @@ impl AppCore {
                         .map_err(|error| CoreError::Internal(error.to_string()))?
                         {
                             Ok(statuses) => statuses.into_iter().map(embedded_status).collect(),
-                            Err(error) if error.code() == "GAME_PAGE_LOAD_FAILED" => {
+                            Err(error)
+                                if crate::external_runtime::should_fallback_to_external(
+                                    mode,
+                                    error.code(),
+                                ) =>
+                            {
                                 self.launch_external_workspace(
                                     workspace,
                                     target,
-                                    Some(EXTERNAL_COMPAT_NOTICE.to_owned()),
+                                    Some(
+                                        crate::external_runtime::EXTERNAL_COMPAT_NOTICE.to_owned(),
+                                    ),
                                     settings,
                                 )
                                 .await?
@@ -1673,7 +1702,6 @@ impl AppCore {
             }
             CoreCommand::ResourceActivateWorkspace {
                 workspace_id,
-                policy_mode,
                 targets,
             } => {
                 let core = Arc::clone(self);
@@ -1681,7 +1709,6 @@ impl AppCore {
                     core.resource_controller
                         .invoke(ResourceRuntimeCommand::ActivateWorkspace {
                             workspace_id,
-                            policy_mode,
                             targets,
                         })
                 })
@@ -2361,6 +2388,7 @@ impl AppCore {
             rollback?;
             return Err(error);
         }
+        self.delete_chrome_profile_preview_journal(&import_id)?;
         complete_profile_lease(self, lease.as_ref(), true)?;
         self.emit_chrome_profile_progress(
             &import_id,
@@ -2759,17 +2787,19 @@ impl AppCore {
                 enabled
             }
         };
-        let request_patterns = if enabled {
-            self.cdn
+        let (request_patterns, rewrite_rules) = if enabled {
+            let matcher = self
+                .cdn
                 .read()
-                .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?
-                .request_patterns()
+                .map_err(|_| CoreError::Internal("CDN matcher lock poisoned".to_owned()))?;
+            (matcher.request_patterns(), matcher.rewrite_plan())
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
         Ok(CdnResolutionRecord {
             enabled,
             request_patterns,
+            rewrite_rules,
         })
     }
 
@@ -2799,14 +2829,12 @@ impl AppCore {
                 "game browser settings are missing",
             )?
             .graphics;
-        let sessions = self
-            .external_sessions
-            .lock()
-            .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
-            .snapshot()
-            .into_iter()
-            .filter(|session| session.state == "running")
-            .collect::<Vec<_>>();
+        let sessions = running_external_diagnostic_sessions(
+            self.external_sessions
+                .lock()
+                .map_err(|_| CoreError::Internal("external session lock poisoned".to_owned()))?
+                .snapshot(),
+        );
         let automation = Arc::clone(&self.external_automation);
         let external_roles = join_all(sessions.into_iter().map(|session| {
             let automation = Arc::clone(&automation);
@@ -3050,18 +3078,11 @@ impl AppCore {
                     let workspace_id = workspace.id.clone();
                     let notice = notice.clone();
                     let settings = settings.clone();
-                    let zoom_factor = slot.browser_zoom_percent.map_or_else(
-                        || {
-                            if workspace.browser_zoom_mode == "adaptive" {
-                                f64::from(layout::adaptive_zoom_percent(
-                                    f64::from(bounds.width),
-                                    None,
-                                )) / 100.0
-                            } else {
-                                workspace.browser_zoom_percent / 100.0
-                            }
-                        },
-                        |percent| percent / 100.0,
+                    let zoom_factor = crate::external_runtime::workspace_zoom_factor(
+                        &workspace.browser_zoom_mode,
+                        workspace.browser_zoom_percent,
+                        slot.browser_zoom_percent,
+                        bounds.width,
                     );
                     async move {
                         core.launch_external_session(
@@ -3316,6 +3337,42 @@ impl AppCore {
                 None,
             )
             .await?;
+        let _ = session
+            .send(
+                "Page.setLifecycleEventsEnabled".to_owned(),
+                Some(json!({"enabled":true})),
+                None,
+                None,
+            )
+            .await;
+        let diagnostics_source = external_page_diagnostics_source();
+        if session
+            .send(
+                "Runtime.addBinding".to_owned(),
+                Some(json!({"name":EXTERNAL_DIAGNOSTICS_BINDING})),
+                None,
+                None,
+            )
+            .await
+            .is_ok()
+        {
+            let _ = session
+                .send(
+                    "Page.addScriptToEvaluateOnNewDocument".to_owned(),
+                    Some(json!({"source":diagnostics_source})),
+                    None,
+                    None,
+                )
+                .await;
+            let _ = session
+                .send(
+                    "Runtime.evaluate".to_owned(),
+                    Some(json!({"expression":diagnostics_source})),
+                    None,
+                    None,
+                )
+                .await;
+        }
         self.install_external_overlay(role_id, &session).await;
 
         let weak = Arc::downgrade(self);
@@ -3378,6 +3435,12 @@ impl AppCore {
         session: &crate::ExternalChromeCdpSession,
         event: crate::external_chrome::CdpEvent,
     ) {
+        if let crate::external_chrome::CdpEvent::Notification { method, params, .. } = &event {
+            let _ = self
+                .external_automation
+                .handle_notification(role_id, method, params.as_ref())
+                .await;
+        }
         match event {
             crate::external_chrome::CdpEvent::Disconnected { message: _ } => {
                 let _ = self.invoke_external_session(ExternalSessionCommand::SetAutomation {
@@ -3392,12 +3455,7 @@ impl AppCore {
                 self.emit_browser_statuses();
             }
             crate::external_chrome::CdpEvent::Notification { method, params, .. }
-                if method == "Page.frameNavigated"
-                    && params
-                        .as_ref()
-                        .and_then(|value| value.get("frame"))
-                        .and_then(|value| value.get("parentId"))
-                        .is_none() =>
+                if is_main_frame_navigation(&method, params.as_ref()) =>
             {
                 let _ = self.macro_runtime.release_role(role_id);
                 self.install_external_overlay(role_id, session).await;
@@ -3405,6 +3463,37 @@ impl AppCore {
             crate::external_chrome::CdpEvent::Notification { method, params, .. }
                 if method == "Runtime.bindingCalled" =>
             {
+                let binding_name = params
+                    .as_ref()
+                    .and_then(|value| value.get("name"))
+                    .and_then(Value::as_str);
+                if binding_name == Some(EXTERNAL_DIAGNOSTICS_BINDING) {
+                    let Some(payload) = params
+                        .as_ref()
+                        .and_then(|value| value.get("payload"))
+                        .and_then(Value::as_str)
+                        .and_then(|payload| serde_json::from_str::<Value>(payload).ok())
+                    else {
+                        return;
+                    };
+                    let page_hidden = payload
+                        .get("hidden")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    if let Ok(Some(current)) = self.external_session(role_id) {
+                        let _ = self.invoke_external_session(ExternalSessionCommand::SetHealth {
+                            role_id: role_id.to_owned(),
+                            health: Some(
+                                current.page_health.unwrap_or_else(|| "healthy".to_owned()),
+                            ),
+                            page_hidden,
+                        });
+                    }
+                    let _ = self
+                        .external_health()
+                        .and_then(|health| health.heartbeat(role_id.to_owned(), page_hidden));
+                    return;
+                }
                 let Some(payload) = params
                     .as_ref()
                     .and_then(|value| value.get("payload"))
@@ -3687,6 +3776,26 @@ impl AppCore {
                     .find(|definition| definition.id == macro_id)
                     .map_or(0, |definition| definition.role_ids.len());
                 let statuses = self.macro_runtime.start(MacroStartRequest {
+                    macros,
+                    settings,
+                    macro_id,
+                    source_role_id: Some(role_id.to_owned()),
+                    active_role_ids: self.macro_active_role_ids()?,
+                })?;
+                start_summary = Some(MacroOverlayStartSummaryRecord {
+                    skipped_count: assigned_count.saturating_sub(statuses.len()) as u32,
+                    started_count: statuses.len() as u32,
+                });
+            }
+            MacroOverlayRequestRecord::Toggle { macro_id } => {
+                let (macros, settings) =
+                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
+                let assigned_count = macros
+                    .iter()
+                    .find(|definition| definition.id == macro_id)
+                    .map_or(0, |definition| definition.role_ids.len());
+                let statuses = self.macro_runtime.toggle(MacroStartRequest {
                     macros,
                     settings,
                     macro_id,
@@ -4022,21 +4131,11 @@ impl AppCore {
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let resource_policy = StateWorkspaceResourcePolicyRecord {
-            mode: "unrestricted".to_owned(),
-        };
-        let plan = embedded_launch_effects(
-            &tab_id,
-            tab,
-            std::slice::from_ref(&role),
-            resource_policy.clone(),
-            runtime_snapshot,
-        );
+        let plan =
+            embedded_launch_effects(&tab_id, tab, std::slice::from_ref(&role), runtime_snapshot);
         let launch = self
             .run_effect_plan_for_roles(plan, std::slice::from_ref(&role.id))
-            .and_then(|outcome| {
-                self.activate_embedded_resources(&tab_id, &resource_policy, &outcome)
-            });
+            .and_then(|outcome| self.activate_embedded_resources(&tab_id, &outcome));
         if let Err(error) = launch {
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
                 role_id: role.id.clone(),
@@ -4222,21 +4321,12 @@ impl AppCore {
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let resource_policy = workspace.resource_policy.clone();
         let launch = self
             .run_effect_plan_for_roles(
-                embedded_launch_effects(
-                    &tab_id,
-                    tab,
-                    &roles,
-                    resource_policy.clone(),
-                    runtime_snapshot,
-                ),
+                embedded_launch_effects(&tab_id, tab, &roles, runtime_snapshot),
                 &role_ids,
             )
-            .and_then(|outcome| {
-                self.activate_embedded_resources(&tab_id, &resource_policy, &outcome)
-            });
+            .and_then(|outcome| self.activate_embedded_resources(&tab_id, &outcome));
         if let Err(error) = launch {
             for role_id in &role_ids {
                 let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
@@ -4312,7 +4402,6 @@ impl AppCore {
     fn activate_embedded_resources(
         &self,
         tab_id: &str,
-        policy: &StateWorkspaceResourcePolicyRecord,
         outcome: &crate::operation_actor::OperationOutcome,
     ) -> CoreResult<()> {
         let targets = outcome
@@ -4323,7 +4412,6 @@ impl AppCore {
         self.resource_controller
             .invoke(ResourceRuntimeCommand::ActivateWorkspace {
                 workspace_id: tab_id.to_owned(),
-                policy_mode: policy.mode.clone(),
                 targets,
             })?;
         Ok(())
@@ -4955,6 +5043,14 @@ impl AppCore {
             .transpose()
     }
 
+    fn read_legal_acceptance_fail_closed(&self) -> CoreResult<Option<LegalAcceptanceRecord>> {
+        let value =
+            self.with_runtime(|runtime| runtime.state.read_scalar("legalAcceptance".to_owned()))?;
+        Ok(value
+            .and_then(|value| serde_json::from_value::<LegalAcceptanceRecord>(value).ok())
+            .filter(|acceptance| validate_legal_acceptance(acceptance).is_ok()))
+    }
+
     fn read_scalar_state<T: serde::de::DeserializeOwned>(
         &self,
         key: &str,
@@ -5037,6 +5133,14 @@ impl AppCore {
         self.chrome_profile_import
             .lock()
             .map_err(|_| CoreError::Internal("Chrome profile import lock poisoned".to_owned()))
+    }
+
+    fn delete_chrome_profile_preview_journal(&self, import_id: &str) -> CoreResult<()> {
+        self.with_runtime(|runtime| {
+            runtime
+                .state
+                .delete_operation_journal(chrome_profile_preview_journal_id(import_id))
+        })
     }
 
     fn compatibility_runtime(
@@ -5613,6 +5717,52 @@ fn external_overlay_bridge_source() -> String {
     )
 }
 
+fn is_main_frame_navigation(method: &str, params: Option<&Value>) -> bool {
+    method == "Page.frameNavigated"
+        && params
+            .and_then(|value| value.get("frame"))
+            .is_some_and(|frame| frame.get("parentId").is_none())
+}
+
+fn external_page_diagnostics_source() -> &'static str {
+    r#"(() => {
+  const bindingName = "rionStudioExternalDiagnostics";
+  const stateKey = "__rionStudioExternalDiagnosticsV2";
+  if (window.top !== window || typeof window[bindingName] !== "function") return;
+  if (window[stateKey]?.version === 2) {
+    window[stateKey].report("reinstall");
+    return;
+  }
+  const binding = window[bindingName];
+  let sequence = 0;
+  const report = (event) => {
+    try {
+      binding(JSON.stringify({
+        event,
+        hasFocus: document.hasFocus(),
+        hidden: document.hidden,
+        monotonicMs: performance.now(),
+        sequence: sequence++,
+        visibilityState: document.visibilityState,
+        wasDiscarded: Boolean(document.wasDiscarded)
+      }));
+    } catch {}
+  };
+  window[stateKey] = { report, version: 2 };
+  ["focus", "blur", "pageshow", "pagehide"].forEach((event) => {
+    window.addEventListener(event, () => report(event), true);
+  });
+  ["freeze", "resume"].forEach((event) => {
+    document.addEventListener(event, () => report(event), true);
+  });
+  document.addEventListener("visibilitychange", () => report("visibilitychange"), true);
+  const reportHeartbeat = () => requestAnimationFrame(() => report("heartbeat"));
+  window.setInterval(reportHeartbeat, 5000);
+  report("install");
+  reportHeartbeat();
+})()"#
+}
+
 fn system_epoch_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -5770,6 +5920,9 @@ fn recover_operation_journals(
     user_data_dir: &std::path::Path,
 ) -> CoreResult<()> {
     for journal in state.operation_journals()? {
+        if journal.kind == crate::chrome_profile_import::PREVIEW_JOURNAL_KIND {
+            continue;
+        }
         let role_id = journal
             .payload
             .get("roleId")
@@ -5836,11 +5989,50 @@ fn recover_operation_journals(
     Ok(())
 }
 
+fn restore_chrome_profile_import_runtime(
+    state: &StateDatabaseWorker,
+    user_data_dir: &std::path::Path,
+) -> CoreResult<crate::chrome_profile_import::ChromeProfileImportRuntime> {
+    let mut runtime =
+        crate::chrome_profile_import::ChromeProfileImportRuntime::new(user_data_dir.to_path_buf());
+    let now_ms = system_epoch_millis();
+    for journal in state
+        .operation_journals()?
+        .into_iter()
+        .filter(|journal| journal.kind == crate::chrome_profile_import::PREVIEW_JOURNAL_KIND)
+    {
+        let source = journal
+            .payload
+            .get("sourceUserDataDir")
+            .and_then(Value::as_str)
+            .map(PathBuf::from);
+        let preview = journal.payload.get("preview").cloned().and_then(|value| {
+            serde_json::from_value::<crate::model::ChromeProfileImportPreviewRecord>(value).ok()
+        });
+        let created_at_ms = journal.payload.get("createdAtMs").and_then(Value::as_u64);
+        let restored = match (source, preview, created_at_ms) {
+            (Some(source), Some(preview), Some(created_at_ms)) => runtime.restore_preview(
+                source,
+                preview,
+                Duration::from_millis(now_ms.saturating_sub(created_at_ms)),
+            )?,
+            _ => false,
+        };
+        if !restored {
+            state.delete_operation_journal(journal.id)?;
+        }
+    }
+    Ok(runtime)
+}
+
+fn chrome_profile_preview_journal_id(import_id: &str) -> String {
+    format!("chrome-profile-preview-{import_id}")
+}
+
 fn embedded_launch_effects(
     tab_id: &str,
     tab: EmbeddedTabEffectRecord,
     roles: &[StateRoleRecord],
-    policy: StateWorkspaceResourcePolicyRecord,
     runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
 ) -> Vec<crate::operation_actor::OperationStep> {
     let target = tab.target.clone();
@@ -5908,7 +6100,6 @@ fn embedded_launch_effects(
         tab_id,
         CoreEffectAction::EmbeddedActivateResources {
             tab_id: tab_id.to_owned(),
-            policy,
             role_ids,
         },
         Duration::from_secs(15),
@@ -5924,6 +6115,25 @@ fn full_window_rect() -> StateNormalizedRectRecord {
         width: 1.0,
         height: 1.0,
     }
+}
+
+fn normalize_chrome_close_result(
+    result: Result<(), rion_platform::PlatformError>,
+) -> CoreResult<()> {
+    result.map_err(|_| CoreError::Domain {
+        code: "CHROME_CLOSE_FAILED",
+        message: "Unable to ask Google Chrome to close. Close Chrome manually and try again."
+            .to_owned(),
+    })
+}
+
+fn running_external_diagnostic_sessions(
+    sessions: Vec<ExternalSessionRecord>,
+) -> Vec<ExternalSessionRecord> {
+    sessions
+        .into_iter()
+        .filter(|session| session.state == "running")
+        .collect()
 }
 
 fn embedded_launch_result(role_id: &str, launched_at: String) -> EmbeddedLaunchResultRecord {
@@ -5983,9 +6193,14 @@ fn broadcast_events(subscribers: &Mutex<Vec<Sender<Vec<CoreEvent>>>>, events: Ve
     let Ok(current) = subscribers.lock().map(|subscribers| subscribers.clone()) else {
         return;
     };
-    let critical = events
-        .iter()
-        .any(|event| matches!(event, CoreEvent::CoreEffects { .. } | CoreEvent::Shutdown));
+    let critical = events.iter().any(|event| {
+        matches!(
+            event,
+            CoreEvent::CoreEffects { .. }
+                | CoreEvent::MacroStatuses { reliable: true, .. }
+                | CoreEvent::Shutdown
+        )
+    });
     let mut disconnected = Vec::new();
     for subscriber in current {
         let result = if critical {
@@ -6119,6 +6334,18 @@ mod tests {
         Vec<CoreEffectAction>,
         Vec<ChromeProfileImportProgressRecord>,
     ) {
+        drive_async_command_with(core, command, |effect| effect_result(effect, fail_action))
+    }
+
+    fn drive_async_command_with(
+        core: Arc<AppCore>,
+        command: CoreCommand,
+        mut result_for: impl FnMut(CoreEffectRequest) -> CoreEffectResult,
+    ) -> (
+        CoreResult<Value>,
+        Vec<CoreEffectAction>,
+        Vec<ChromeProfileImportProgressRecord>,
+    ) {
         let receiver = core.subscribe().unwrap();
         let invocation_core = Arc::clone(&core);
         let invocation = thread::spawn(move || {
@@ -6141,7 +6368,7 @@ mod tests {
                             .into_iter()
                             .map(|effect| {
                                 actions.lock().unwrap().push(effect.action.clone());
-                                effect_result(effect, fail_action)
+                                result_for(effect)
                             })
                             .collect();
                         core.dispatch_core_effect_results(results).unwrap();
@@ -6292,19 +6519,107 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!directory.path().join("roles").join(&role_id).exists());
-        assert!(
-            core.invoke(CoreCommand::RolesList)
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
-        assert!(
-            core.with_runtime(|runtime| runtime.state.operation_journals())
-                .unwrap()
-                .is_empty()
-        );
+        crate::v1_case!("state-migration-9848b46489e1", {
+            assert!(!directory.path().join("roles").join(&role_id).exists());
+            assert!(
+                core.invoke(CoreCommand::RolesList)
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                core.with_runtime(|runtime| runtime.state.operation_journals())
+                    .unwrap()
+                    .is_empty()
+            );
+        });
+        core.shutdown();
+    }
+
+    #[test]
+    fn role_creation_and_selected_browser_directory_reset_match_v1() {
+        let (directory, core) = core();
+        let game_id = first_game_id(&core);
+        let first_id = create_role(&core, &game_id, 1);
+        let second_id = create_role(&core, &game_id, 2);
+        let first_browser = directory
+            .path()
+            .join("roles")
+            .join(&first_id)
+            .join("browser");
+        let second_browser = directory
+            .path()
+            .join("roles")
+            .join(&second_id)
+            .join("browser");
+
+        crate::v1_case!("state-migration-2847be74e6ef", {
+            let role: StateRoleRecord = serde_json::from_value(
+                core.invoke(CoreCommand::RoleGet {
+                    id: first_id.clone(),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(role.browser_session_source.as_deref(), Some("embedded"));
+            assert!(first_browser.is_dir());
+            let value = serde_json::to_value(role).unwrap();
+            assert!(value.get("windowWidth").is_none());
+            assert!(value.get("windowHeight").is_none());
+            assert!(value.get("launchPreset").is_none());
+        });
+
+        fs::write(first_browser.join("session"), b"first").unwrap();
+        fs::write(second_browser.join("session"), b"second").unwrap();
+        core.invoke(CoreCommand::RoleBrowserDirectoryReset {
+            id: first_id.clone(),
+        })
+        .unwrap();
+
+        crate::v1_case!("state-migration-022970179dc8", {
+            assert!(first_browser.is_dir());
+            assert!(!first_browser.join("session").exists());
+            assert_eq!(fs::read(second_browser.join("session")).unwrap(), b"second");
+            assert!(
+                core.invoke(CoreCommand::RoleGet {
+                    id: first_id.clone()
+                })
+                .is_ok()
+            );
+        });
+        core.shutdown();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_role_deletions_do_not_restore_either_role() {
+        let (directory, core) = core();
+        let game_id = first_game_id(&core);
+        let first_id = create_role(&core, &game_id, 1);
+        let second_id = create_role(&core, &game_id, 2);
+        let first_core = Arc::clone(&core);
+        let second_core = Arc::clone(&core);
+        let first = first_core.invoke_async(CoreCommand::RoleDelete {
+            id: first_id.clone(),
+        });
+        let second = second_core.invoke_async(CoreCommand::RoleDelete {
+            id: second_id.clone(),
+        });
+        let (first_result, second_result) = tokio::join!(first, second);
+
+        crate::v1_case!("state-migration-badd3d9837fd", {
+            first_result.unwrap();
+            second_result.unwrap();
+            assert!(
+                core.invoke(CoreCommand::RolesList)
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(!directory.path().join("roles").join(first_id).exists());
+            assert!(!directory.path().join("roles").join(second_id).exists());
+        });
         core.shutdown();
     }
 
@@ -6373,6 +6688,7 @@ mod tests {
         let (_directory, core) = core();
         let game_id = first_game_id(&core);
         let role_id = create_role(&core, &game_id, 1);
+        let unassigned_role_id = create_role(&core, &game_id, 2);
         let macro_record = core
             .invoke(command(json!({
                 "type": "macroCreate",
@@ -6384,6 +6700,14 @@ mod tests {
             })))
             .unwrap();
         let macro_id = macro_record["id"].as_str().unwrap().to_owned();
+        let mut settings = core.invoke(CoreCommand::GameBrowserSettingsGet).unwrap();
+        settings["macroBadgePosition"] =
+            json!({"horizontalAlign":"right","horizontalMarginPx":80,"topPx":280});
+        core.invoke(command(json!({
+            "type": "gameBrowserSettingsReplace",
+            "settings": settings
+        })))
+        .unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -6399,6 +6723,13 @@ mod tests {
         assert_eq!(view["language"], "zh-TW");
         assert_eq!(view["macros"][0]["id"], macro_id);
         assert_eq!(view["statuses"], json!([]));
+        crate::v1_case!("overlay-ff7db98ddb5f", {
+            assert_eq!(view["macroBadgePosition"]["horizontalAlign"], "right");
+            assert!(view["macroBadgePosition"]["topPx"].is_number());
+        });
+        crate::v1_case!("overlay-368345bae2c9", {
+            assert_eq!(view["statuses"], json!([]));
+        });
 
         let error = runtime
             .block_on(core.invoke_async(command(json!({
@@ -6408,6 +6739,26 @@ mod tests {
             }))))
             .unwrap_err();
         assert_eq!(error.code(), "MACRO_ROLE_INVALID");
+
+        let start_error = runtime
+            .block_on(core.invoke_async(command(json!({
+                "type": "overlayRequest",
+                "roleId": unassigned_role_id.clone(),
+                "requestJson": json!({"type": "start", "macroId": macro_id.clone()}).to_string()
+            }))))
+            .unwrap_err();
+        let stop_error = runtime
+            .block_on(core.invoke_async(command(json!({
+                "type": "overlayRequest",
+                "roleId": unassigned_role_id,
+                "requestJson": json!({"type": "stop", "macroId": macro_id.clone()}).to_string()
+            }))))
+            .unwrap_err();
+        crate::v1_case!("macro-7f0e0fdc25ad", {
+            assert_eq!(start_error.code(), "MACRO_ROLE_INVALID");
+            assert_eq!(stop_error.code(), "MACRO_ROLE_INVALID");
+            assert!(core.macro_runtime.statuses().unwrap().is_empty());
+        });
 
         let (opened, actions, _) = drive_async_command(
             Arc::clone(&core),
@@ -6419,11 +6770,13 @@ mod tests {
             None,
         );
         assert!(opened.is_ok());
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::OverlayOpenMacroPage { role_id: current }
-                if current == &role_id
-        )));
+        crate::v1_case!("overlay-af98ca2701ca", {
+            assert!(actions.iter().any(|action| matches!(
+                action,
+                CoreEffectAction::OverlayOpenMacroPage { role_id: current }
+                    if current == &role_id
+            )));
+        });
 
         let (copied, actions, _) = drive_async_command(
             Arc::clone(&core),
@@ -6435,11 +6788,13 @@ mod tests {
             None,
         );
         assert!(copied.is_ok());
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::OverlayCopyCoordinate { coordinate }
-                if coordinate.x_px == 10 && coordinate.y_px == 20
-        )));
+        crate::v1_case!("overlay-ff53e3a9a048", {
+            assert!(actions.iter().any(|action| matches!(
+                action,
+                CoreEffectAction::OverlayCopyCoordinate { coordinate }
+                    if coordinate.x_px == 10 && coordinate.y_px == 20
+            )));
+        });
         core.shutdown();
     }
 
@@ -6505,22 +6860,51 @@ mod tests {
             None,
         );
 
-        let role: StateRoleRecord = serde_json::from_value(result.unwrap()).unwrap();
-        assert_eq!(role.browser_session_source.as_deref(), Some("embedded"));
-        assert!(browser.is_dir());
-        assert!(!browser.join("session").exists());
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::RoleBrowserDataClearSession {
-                role_id: effect_role_id,
-                ..
-            } if effect_role_id == &role_id
-        )));
-        assert!(
-            core.with_runtime(|runtime| runtime.state.operation_journals())
-                .unwrap()
-                .is_empty()
-        );
+        crate::v1_case!("portable-profile-d7ae496f0b91", {
+            let role: StateRoleRecord = serde_json::from_value(result.unwrap()).unwrap();
+            assert_eq!(role.browser_session_source.as_deref(), Some("embedded"));
+            assert!(browser.is_dir());
+            assert!(!browser.join("session").exists());
+            assert!(actions.iter().any(|action| matches!(
+                action,
+                CoreEffectAction::RoleBrowserDataClearSession {
+                    role_id: effect_role_id,
+                    session_source,
+                    ..
+                } if effect_role_id == &role_id && session_source == "embedded"
+            )));
+            assert!(
+                core.with_runtime(|runtime| runtime.state.operation_journals())
+                    .unwrap()
+                    .is_empty()
+            );
+        });
+        core.shutdown();
+    }
+
+    #[test]
+    fn role_browser_data_clear_rejects_unknown_roles_before_runtime_or_effect_work() {
+        let (_directory, core) = core();
+        let receiver = core.subscribe().unwrap();
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(core.invoke_async(CoreCommand::RoleBrowserDataClear {
+                role_id: "missing".to_owned(),
+            }));
+
+        crate::v1_case!("portable-profile-57a504e12e6a", {
+            let error = result.unwrap_err();
+            assert_eq!(error.code(), "ROLE_NOT_FOUND");
+            assert_eq!(error.to_string(), "Role not found.");
+            assert!(
+                receiver
+                    .try_iter()
+                    .flatten()
+                    .all(|event| { !matches!(event, CoreEvent::CoreEffects { .. }) })
+            );
+        });
         core.shutdown();
     }
 
@@ -6683,6 +7067,119 @@ mod tests {
     }
 
     #[test]
+    fn chrome_profile_preview_survives_core_recreation_in_sqlite() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = || AppCoreOptions {
+            app_version: "2.1.0-test".to_owned(),
+            platform: "darwin".to_owned(),
+            user_data_dir: directory.path().to_string_lossy().into_owned(),
+            performance_telemetry_path: None,
+        };
+        let first = Arc::new(AppCore::create(options()).unwrap());
+        let source = chrome_profile_source_fixture(directory.path());
+        let preview = first
+            .invoke(CoreCommand::ChromeProfilePreview {
+                source_user_data_dir: source.to_string_lossy().into_owned(),
+            })
+            .unwrap();
+        let import_id = preview["importId"].as_str().unwrap().to_owned();
+        first.shutdown();
+        drop(first);
+
+        let restored = Arc::new(AppCore::create(options()).unwrap());
+        let game_id = first_game_id(&restored);
+        let prepared = restored.invoke(CoreCommand::ChromeProfilePrepare {
+            import_id: import_id.clone(),
+            profile_ids: vec!["Default".to_owned()],
+            game_id,
+            consent_accepted: true,
+        });
+        crate::v1_case!("portable-profile-54a2d1b2c16d", {
+            let prepared = prepared.unwrap();
+            assert_eq!(prepared["profiles"][0]["id"], "Default");
+            assert!(
+                restored
+                    .with_runtime(|runtime| runtime.state.operation_journals())
+                    .unwrap()
+                    .iter()
+                    .any(|journal| {
+                        journal.id == chrome_profile_preview_journal_id(&import_id)
+                            && journal.kind == crate::chrome_profile_import::PREVIEW_JOURNAL_KIND
+                    })
+            );
+        });
+        restored.shutdown();
+    }
+
+    #[test]
+    fn portable_apply_keeps_the_preview_when_an_affected_macro_is_running() {
+        let (_directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let macro_id = core
+            .invoke(command(json!({
+                "type":"macroCreate",
+                "input":{
+                    "name":"Auto heal",
+                    "roleIds":[role_id],
+                    "steps":[{"type":"delay","ms":1}]
+                }
+            })))
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let selection = crate::model::PortableDataSelectionRecord {
+            games: true,
+            roles: true,
+            launch_workspaces: true,
+            macros: true,
+            preferences: false,
+        };
+        let mut portable = core
+            .invoke(CoreCommand::PortableExport {
+                preferences: None,
+                selection: selection.clone(),
+            })
+            .unwrap();
+        portable["macros"][0]["steps"][0]["ms"] = json!(2);
+        let preview = core
+            .invoke(CoreCommand::PortablePreview {
+                raw_json: portable.to_string(),
+                file_path: "/tmp/busy-portable.json".to_owned(),
+            })
+            .unwrap();
+        let import_id = preview["importId"].as_str().unwrap().to_owned();
+        core.macro_runtime
+            .seed_running_status(&macro_id, &role_id)
+            .unwrap();
+
+        let busy = core.invoke(CoreCommand::PortableApply {
+            import_id: import_id.clone(),
+            selection: selection.clone(),
+            resolutions: Vec::new(),
+        });
+        core.macro_runtime.stop_macro(&macro_id).unwrap();
+        let retry = core.invoke(CoreCommand::PortableApply {
+            import_id,
+            selection,
+            resolutions: Vec::new(),
+        });
+
+        crate::v1_case!("portable-profile-f3f377a06988", {
+            assert_eq!(busy.unwrap_err().code(), "PORTABLE_IMPORT_BUSY");
+            assert_eq!(retry.unwrap()["macroCount"], 1);
+            assert_eq!(
+                core.invoke(CoreCommand::MacroGet {
+                    id: macro_id.clone()
+                })
+                .unwrap()["steps"][0]["ms"],
+                2
+            );
+        });
+        core.shutdown();
+    }
+
+    #[test]
     fn chrome_profile_apply_rolls_back_files_and_state_after_session_effect_failure() {
         let (directory, core) = core();
         let game_id = first_game_id(&core);
@@ -6711,31 +7208,33 @@ mod tests {
             Some("chromeProfileApplySession"),
         );
 
-        assert_eq!(result.unwrap_err().code(), "ELECTRON_EFFECT_FAILED");
-        assert_eq!(
-            fs::read(browser.join("session")).unwrap(),
-            b"old-login-state"
-        );
-        assert!(!browser.join("Default/Local Storage/session").exists());
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::ChromeProfileClearSession { role_id, .. }
-                if role_id == &existing.id
-        )));
-        let role: StateRoleRecord = serde_json::from_value(
-            core.invoke(CoreCommand::RoleGet {
-                id: existing.id.clone(),
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(role.browser_session_source, existing.browser_session_source);
-        assert!(
-            !directory
-                .path()
-                .join("chrome-profile-import-transaction.json")
-                .exists()
-        );
+        crate::v1_case!("portable-profile-2cc8b85abe92", {
+            assert_eq!(result.unwrap_err().code(), "ELECTRON_EFFECT_FAILED");
+            assert_eq!(
+                fs::read(browser.join("session")).unwrap(),
+                b"old-login-state"
+            );
+            assert!(!browser.join("Default/Local Storage/session").exists());
+            assert!(actions.iter().any(|action| matches!(
+                action,
+                CoreEffectAction::ChromeProfileClearSession { role_id, .. }
+                    if role_id == &existing.id
+            )));
+            let role: StateRoleRecord = serde_json::from_value(
+                core.invoke(CoreCommand::RoleGet {
+                    id: existing.id.clone(),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(role.browser_session_source, existing.browser_session_source);
+            assert!(
+                !directory
+                    .path()
+                    .join("chrome-profile-import-transaction.json")
+                    .exists()
+            );
+        });
         let lease = core
             .browser_operations
             .acquire(BrowserOperationRequest {
@@ -6789,13 +7288,14 @@ mod tests {
         let game_id = first_game_id(&core);
         let receiver = core.subscribe().unwrap();
         let invocation_core = Arc::clone(&core);
+        let invocation_game_id = game_id.clone();
         let invocation = thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap()
                 .block_on(invocation_core.invoke_async(CoreCommand::CompatibilityRun {
-                    game_id,
+                    game_id: invocation_game_id,
                     versions: CompatibilityVersionRecord {
                         chrome: "140".to_owned(),
                         electron: "40".to_owned(),
@@ -6803,6 +7303,7 @@ mod tests {
                 }))
         });
         let mut saw_cleanup = false;
+        let mut duplicate_error_code = None;
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         while !invocation.is_finished() {
             assert!(
@@ -6819,6 +7320,25 @@ mod tests {
                 let results = effects
                     .into_iter()
                     .filter_map(|effect| {
+                        if matches!(
+                            effect.action,
+                            CoreEffectAction::CompatibilityCreateWindow { .. }
+                        ) && duplicate_error_code.is_none()
+                        {
+                            let duplicate = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .unwrap()
+                                .block_on(core.invoke_async(CoreCommand::CompatibilityRun {
+                                    game_id: game_id.clone(),
+                                    versions: CompatibilityVersionRecord {
+                                        chrome: "140".to_owned(),
+                                        electron: "40".to_owned(),
+                                    },
+                                }))
+                                .unwrap_err();
+                            duplicate_error_code = Some(duplicate.code().to_owned());
+                        }
                         if matches!(effect.action, CoreEffectAction::CompatibilityLoadUrl { .. }) {
                             return None;
                         }
@@ -6840,6 +7360,75 @@ mod tests {
         assert_eq!(report["load"]["state"], "failed");
         assert_eq!(report["load"]["errorCode"], "COMPATIBILITY_LOAD_TIMEOUT");
         assert!(saw_cleanup);
+
+        let cancel_core = Arc::clone(&core);
+        let cancel_game_id = game_id.clone();
+        let cancelled_invocation = thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(cancel_core.invoke_async(CoreCommand::CompatibilityRun {
+                    game_id: cancel_game_id,
+                    versions: CompatibilityVersionRecord {
+                        chrome: "140".to_owned(),
+                        electron: "40".to_owned(),
+                    },
+                }))
+        });
+        let mut cancel_requested = false;
+        let mut saw_cancel_cleanup = false;
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !cancelled_invocation.is_finished() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "compatibility cancellation fixture did not complete"
+            );
+            let Ok(events) = receiver.recv_timeout(Duration::from_millis(50)) else {
+                continue;
+            };
+            for event in events {
+                let CoreEvent::CoreEffects { effects } = event else {
+                    continue;
+                };
+                let mut results = Vec::new();
+                for effect in effects {
+                    if matches!(effect.action, CoreEffectAction::CompatibilityLoadUrl { .. }) {
+                        let requested = core
+                            .invoke(CoreCommand::CompatibilityCancel {
+                                game_id: game_id.clone(),
+                            })
+                            .unwrap();
+                        cancel_requested = requested["requested"] == true;
+                        continue;
+                    }
+                    if matches!(
+                        effect.action,
+                        CoreEffectAction::CompatibilityCleanupWindow { .. }
+                    ) {
+                        saw_cancel_cleanup = true;
+                    }
+                    results.push(effect_result(effect, None));
+                }
+                if !results.is_empty() {
+                    core.dispatch_core_effect_results(results).unwrap();
+                }
+            }
+        }
+        let cancelled_report = cancelled_invocation.join().unwrap().unwrap();
+        crate::v1_case!("browser-workspace-4f62d15e31bf", {
+            assert_eq!(
+                duplicate_error_code.as_deref(),
+                Some("COMPATIBILITY_CHECK_ACTIVE")
+            );
+            assert_eq!(report["load"]["state"], "failed");
+            assert_eq!(report["load"]["errorCode"], "COMPATIBILITY_LOAD_TIMEOUT");
+            assert!(saw_cleanup);
+            assert!(cancel_requested);
+            assert_eq!(cancelled_report["load"]["state"], "cancelled");
+            assert!(saw_cancel_cleanup);
+            assert!(core.compatibility_runtime().unwrap().statuses().is_empty());
+        });
         core.shutdown();
     }
 
@@ -6862,17 +7451,92 @@ mod tests {
             None,
         );
 
-        assert_eq!(first.unwrap()["enabled"], true);
+        let first = first.unwrap();
+        crate::v1_case!("external-chrome-cdn-d32842c6fe1c", {
+            assert_eq!(first["enabled"], true);
+            assert_eq!(first["requestPatterns"].as_array().unwrap().len(), 8);
+            assert_eq!(
+                first_actions
+                    .iter()
+                    .filter(|action| matches!(action, CoreEffectAction::CdnProbeGoogle { .. }))
+                    .count(),
+                1
+            );
+        });
         assert_eq!(second.unwrap()["enabled"], true);
-        assert_eq!(
-            first_actions
-                .iter()
-                .filter(|action| matches!(action, CoreEffectAction::CdnProbeGoogle { .. }))
-                .count(),
-            1
-        );
         assert!(second_actions.is_empty());
         core.shutdown();
+    }
+
+    #[test]
+    fn cdn_auto_detection_remains_disabled_when_google_succeeds() {
+        let (_directory, core) = core();
+        let (result, actions, _) = drive_async_command_with(
+            Arc::clone(&core),
+            CoreCommand::CdnResolveSession {
+                session_handle_id: "session-google-available".to_owned(),
+            },
+            |effect| {
+                let is_google_probe =
+                    matches!(&effect.action, CoreEffectAction::CdnProbeGoogle { .. });
+                let mut result = effect_result(effect, None);
+                if is_google_probe {
+                    result.value_json = Some(json!({ "available": true }).to_string());
+                }
+                result
+            },
+        );
+        let result = result.unwrap();
+
+        crate::v1_case!("external-chrome-cdn-ff23b82d4659", {
+            assert_eq!(result["enabled"], false);
+            assert_eq!(result["requestPatterns"], json!([]));
+            assert_eq!(
+                actions
+                    .iter()
+                    .filter(|action| matches!(action, CoreEffectAction::CdnProbeGoogle { .. }))
+                    .count(),
+                1
+            );
+        });
+        core.shutdown();
+    }
+
+    #[test]
+    fn external_cdp_sources_preserve_navigation_overlay_and_native_zoom_boundaries() {
+        let main = json!({"frame":{"id":"main","url":"https://example.com/next"}});
+        let child = json!({
+            "frame":{"id":"child","parentId":"main","url":"https://example.com/frame"}
+        });
+        crate::v1_case!("external-chrome-cdn-4db02e1872d7", {
+            assert!(is_main_frame_navigation("Page.frameNavigated", Some(&main)));
+            assert!(!is_main_frame_navigation(
+                "Page.frameNavigated",
+                Some(&child)
+            ));
+            assert!(!is_main_frame_navigation(
+                "Runtime.bindingCalled",
+                Some(&main)
+            ));
+        });
+
+        let overlay = external_overlay_bridge_source();
+        crate::v1_case!("external-chrome-cdn-78f5b96cf03f", {
+            assert!(overlay.contains("rionStudioMacroOverlay"));
+            assert!(overlay.contains("__rionStudioExternalMacroBridge"));
+            assert!(overlay.contains("nativeBinding(JSON.stringify({ id, request }))"));
+            assert!(overlay.contains("resolve(id, ok, value)"));
+        });
+
+        let diagnostics = external_page_diagnostics_source();
+        assert!(diagnostics.contains("report(\"heartbeat\")"));
+        assert!(diagnostics.contains("visibilitychange"));
+        crate::v1_case!("external-chrome-cdn-8da0070d51dd", {
+            let installed = format!("{overlay}\n{diagnostics}");
+            assert!(!installed.contains("WorkspaceZoom"));
+            assert!(!installed.contains("style.setProperty(\"zoom\""));
+            assert!(!installed.contains("visualViewport?.width"));
+        });
     }
 
     #[test]
@@ -7078,7 +7742,7 @@ mod tests {
                             results.push(effect_result(effect, None));
                         }
                     }
-                    CoreEvent::MacroStatuses { statuses } => {
+                    CoreEvent::MacroStatuses { statuses, .. } => {
                         failed |= statuses.iter().any(|status| status.state == "failed");
                     }
                     _ => {}
@@ -7089,8 +7753,10 @@ mod tests {
             }
         }
         let start_view = start.join().unwrap().unwrap();
-        assert_eq!(start_view["startSummary"]["startedCount"], 2);
-        assert_eq!(start_view["startSummary"]["skippedCount"], 1);
+        crate::v1_case!("overlay-a35a6eef09de", {
+            assert_eq!(start_view["startSummary"]["startedCount"], 2);
+            assert_eq!(start_view["startSummary"]["skippedCount"], 1);
+        });
         assert!(!failed);
 
         let stop_core = Arc::clone(&core);
@@ -7128,6 +7794,67 @@ mod tests {
             None,
         );
         assert!(sibling_stopped.is_ok());
+        core.shutdown();
+    }
+
+    #[test]
+    fn external_running_session_without_automation_is_not_a_macro_target() {
+        let (_directory, core) = core();
+        let game_id = first_game_id(&core);
+        let role_id = create_role(&core, &game_id, 1);
+        let role: StateRoleRecord =
+            serde_json::from_value(core.invoke(CoreCommand::RolesList).unwrap()[0].clone())
+                .unwrap();
+        core.invoke_external_session(ExternalSessionCommand::Begin {
+            role,
+            bounds: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            },
+            physical_bounds: None,
+            workspace_id: None,
+            notice: None,
+            zoom_factor: 1.0,
+        })
+        .unwrap();
+        core.invoke_external_session(ExternalSessionCommand::SetRunning {
+            role_id: role_id.clone(),
+            launched_at: "2026-01-01T00:00:00Z".to_owned(),
+        })
+        .unwrap();
+        let macro_id = core
+            .invoke(command(json!({
+                "type": "macroCreate",
+                "input": {
+                    "name": "External without target",
+                    "roleIds": [role_id],
+                    "steps": [{"type": "delay", "ms": 10}]
+                }
+            })))
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let error = core
+            .invoke(CoreCommand::MacroStart {
+                request: crate::model::MacroInvocationRequest {
+                    macro_id,
+                    source_role_id: None,
+                },
+            })
+            .unwrap_err();
+        crate::v1_case!("macro-ab2ca63c56bf", {
+            assert_eq!(error.code(), "CORE_INPUT_INVALID");
+            assert!(
+                error
+                    .to_string()
+                    .ends_with("Launch at least one assigned role before running a macro.")
+            );
+            assert!(core.macro_runtime.statuses().unwrap().is_empty());
+            assert!(core.macro_active_role_ids().unwrap().is_empty());
+        });
         core.shutdown();
     }
 
@@ -7377,7 +8104,7 @@ mod tests {
     }
 
     #[test]
-    fn critical_effect_events_wait_for_queue_capacity_instead_of_being_dropped() {
+    fn critical_effect_and_macro_lifecycle_events_wait_for_queue_capacity() {
         let (sender, receiver) = bounded(1);
         let subscribers = Arc::new(Mutex::new(vec![sender]));
         broadcast_events(&subscribers, vec![CoreEvent::Ready { schema_version: 1 }]);
@@ -7402,6 +8129,29 @@ mod tests {
             CoreEvent::CoreEffects { .. }
         ));
         broadcasting.join().unwrap();
+
+        broadcast_events(&subscribers, vec![CoreEvent::Ready { schema_version: 1 }]);
+        let macro_broadcasting = {
+            let subscribers = Arc::clone(&subscribers);
+            thread::spawn(move || {
+                broadcast_events(
+                    &subscribers,
+                    vec![CoreEvent::MacroStatuses {
+                        reliable: true,
+                        statuses: Vec::new(),
+                    }],
+                );
+            })
+        };
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap()[0],
+            CoreEvent::Ready { .. }
+        ));
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap()[0],
+            CoreEvent::MacroStatuses { reliable: true, .. }
+        ));
+        macro_broadcasting.join().unwrap();
     }
 
     #[test]
@@ -7447,5 +8197,165 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, CoreEvent::Ready { .. }))
         );
+    }
+
+    #[test]
+    fn normalizes_graceful_chrome_close_failures() {
+        crate::v1_case!("portable-profile-3d31e6bee6bf", {
+            assert!(normalize_chrome_close_result(Ok(())).is_ok());
+        });
+        crate::v1_case!("resource-platform-f3ee090416c3", {
+            let error = normalize_chrome_close_result(Err(
+                rion_platform::PlatformError::Operation("command failed".to_owned()),
+            ))
+            .unwrap_err();
+            assert_eq!(error.code(), "CHROME_CLOSE_FAILED");
+            assert_eq!(
+                error.to_string(),
+                "Unable to ask Google Chrome to close. Close Chrome manually and try again."
+            );
+        });
+    }
+
+    #[test]
+    fn collects_complete_graphics_diagnostics_from_running_external_sessions_only() {
+        crate::v1_case!("resource-platform-d9818e8ce344", {
+            let (_directory, core) = core();
+            let game_id = first_game_id(&core);
+            let first_id = create_role(&core, &game_id, 1);
+            let second_id = create_role(&core, &game_id, 2);
+            let roles = core
+                .invoke(CoreCommand::RolesList)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .cloned()
+                .map(serde_json::from_value::<StateRoleRecord>)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            let bounds = StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            };
+            for role in roles
+                .iter()
+                .filter(|role| role.id == first_id || role.id == second_id)
+            {
+                core.invoke_external_session(ExternalSessionCommand::Begin {
+                    role: role.clone(),
+                    bounds: bounds.clone(),
+                    physical_bounds: None,
+                    workspace_id: None,
+                    notice: None,
+                    zoom_factor: 1.0,
+                })
+                .unwrap();
+            }
+            core.invoke_external_session(ExternalSessionCommand::SetAutomation {
+                role_id: first_id.clone(),
+                available: true,
+                cdn_active: false,
+            })
+            .unwrap();
+            core.invoke_external_session(ExternalSessionCommand::SetRunning {
+                role_id: first_id.clone(),
+                launched_at: "2026-07-21T10:00:00Z".to_owned(),
+            })
+            .unwrap();
+            let running = running_external_diagnostic_sessions(
+                core.external_sessions.lock().unwrap().snapshot(),
+            );
+            assert_eq!(running.len(), 1);
+            assert_eq!(running[0].role.id, first_id);
+            assert!(running[0].automation_available);
+
+            let applied =
+                crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance");
+            let saved =
+                crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("experimental");
+            let diagnostics = crate::graphics_diagnostics::assemble(
+                crate::graphics_diagnostics::GraphicsDiagnosticsInput {
+                    applied_settings: applied,
+                    embedded_raw_json: json!({
+                        "renderer": "ANGLE Metal Renderer",
+                        "vendor": "Apple",
+                        "webgl": "available",
+                        "webgl2": "available",
+                        "webgpu": "available"
+                    })
+                    .to_string(),
+                    embedded_error: None,
+                    external_roles: vec![ExternalGraphicsDiagnosticsRecord {
+                        error: None,
+                        probe: Some(crate::model::StateWebGraphicsRecord {
+                            error: None,
+                            renderer: Some("ANGLE Metal Renderer".to_owned()),
+                            vendor: Some("Apple".to_owned()),
+                            webgl: "available".to_owned(),
+                            webgl2: "available".to_owned(),
+                            webgpu: "available".to_owned(),
+                        }),
+                        role_id: first_id,
+                        role_name: "Role 1".to_owned(),
+                        state: "ready".to_owned(),
+                    }],
+                    feature_status_raw_json: json!({
+                        "gpu_compositing": "enabled",
+                        "rasterization": "enabled_on",
+                        "webgl": "enabled",
+                        "webgl2": "enabled"
+                    })
+                    .to_string(),
+                    gpu_info_raw_json: Some(
+                        json!({
+                            "auxAttributes": {
+                                "driverVendor": "Apple",
+                                "driverVersion": "1.0"
+                            },
+                            "gpuDevice": [{
+                                "active": true,
+                                "deviceId": 2,
+                                "deviceString": "Apple M GPU",
+                                "vendorId": 1
+                            }]
+                        })
+                        .to_string(),
+                    ),
+                    gpu_info_ready: true,
+                    hardware_acceleration_enabled: Some(true),
+                    platform: rion_platform::Platform::Macos,
+                    saved_settings: saved,
+                    versions: GraphicsVersionRecord {
+                        chromium: "1".to_owned(),
+                        electron: "1".to_owned(),
+                        node: "1".to_owned(),
+                    },
+                },
+            );
+            assert!(diagnostics.restart_required);
+            assert!(diagnostics.gpu_info_ready);
+            assert_eq!(diagnostics.hardware_acceleration_enabled, Some(true));
+            assert_eq!(diagnostics.embedded.webgl2, "available");
+            assert_eq!(diagnostics.external_roles.len(), 1);
+            assert_eq!(diagnostics.external_roles[0].state, "ready");
+            assert_eq!(
+                diagnostics
+                    .gpu_device
+                    .as_ref()
+                    .and_then(|device| device.device_string.as_deref()),
+                Some("Apple M GPU")
+            );
+            assert_eq!(
+                diagnostics
+                    .gpu_device
+                    .as_ref()
+                    .and_then(|device| device.driver_version.as_deref()),
+                Some("1.0")
+            );
+            core.shutdown();
+        });
     }
 }

@@ -18,7 +18,7 @@ Node-API addon; it is not a sidecar and the app does not use Tauri.
 
 - `crates/rion-core`: Authoritative domain models, SQLite repositories,
   migrations, portable/profile transactions, macro scheduling, runtime state,
-  resource policy, logging, and external Chrome CDP transport.
+  adaptive resource management, logging, and external Chrome CDP transport.
 - `crates/rion-platform`: Explicit macOS and Windows process, profile, pressure,
   path, cookie, and native-window adapters.
 - `crates/rion-node`: The only Node-API surface consumed by the Electron main

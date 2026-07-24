@@ -18,6 +18,7 @@ const BASE_SWITCHES: &[&str] = &[
 const BACKGROUND_FEATURES: &str = "MediaRouter,OptimizationHints,Translate";
 const MACOS_SEAM_OVERLAP: i32 = 12;
 const WINDOWS_SEAM_OVERLAP: i32 = 1;
+pub(crate) const EXTERNAL_COMPAT_NOTICE: &str = "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
 
 pub(crate) fn resolve_launch_mode(override_mode: &str, global_mode: &str) -> &'static str {
     match override_mode {
@@ -30,6 +31,10 @@ pub(crate) fn resolve_launch_mode(override_mode: &str, global_mode: &str) -> &'s
             _ => "embedded",
         },
     }
+}
+
+pub(crate) fn should_fallback_to_external(mode: &str, error_code: &str) -> bool {
+    mode == "auto" && error_code == "GAME_PAGE_LOAD_FAILED"
 }
 
 pub(crate) fn build_arguments(
@@ -101,7 +106,18 @@ pub(crate) fn workspace_bounds(
     work_area: &StatePixelBoundsRecord,
     platform: rion_platform::Platform,
 ) -> Vec<StatePixelBoundsRecord> {
-    let bounds = rects
+    let normalized = crate::layout::normalize_rect_edges(
+        &rects
+            .iter()
+            .map(|rect| crate::model::LayoutRect {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+            })
+            .collect::<Vec<_>>(),
+    );
+    let bounds = normalized
         .iter()
         .map(|rect| normalized_bounds(rect, work_area))
         .collect::<Vec<_>>();
@@ -112,8 +128,26 @@ pub(crate) fn workspace_bounds(
     seamless_bounds(bounds, overlap)
 }
 
+pub(crate) fn workspace_zoom_factor(
+    mode: &str,
+    workspace_percent: f64,
+    role_percent: Option<f64>,
+    viewport_width: i32,
+) -> f64 {
+    role_percent.unwrap_or_else(|| {
+        if mode == "adaptive" {
+            f64::from(crate::layout::adaptive_zoom_percent(
+                f64::from(viewport_width),
+                None,
+            ))
+        } else {
+            workspace_percent
+        }
+    }) / 100.0
+}
+
 fn normalized_bounds(
-    rect: &StateNormalizedRectRecord,
+    rect: &crate::model::LayoutRect,
     area: &StatePixelBoundsRecord,
 ) -> StatePixelBoundsRecord {
     let left = (rect.x * f64::from(area.width)).round() as i32;
@@ -290,6 +324,32 @@ mod tests {
                 "{override_mode}/{global_mode}"
             );
         }
+        crate::v1_case!("browser-workspace-c4177d56c920", {
+            assert_eq!(resolve_launch_mode("inherit", "auto"), "auto");
+            assert!(should_fallback_to_external("auto", "GAME_PAGE_LOAD_FAILED"));
+            assert!(!should_fallback_to_external(
+                "auto",
+                "ELECTRON_EFFECT_FAILED"
+            ));
+            assert_eq!(
+                EXTERNAL_COMPAT_NOTICE,
+                "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support."
+            );
+        });
+        crate::v1_case!("browser-workspace-5edde963f133", {
+            assert_eq!(resolve_launch_mode("embedded", "auto"), "embedded");
+            assert!(!should_fallback_to_external(
+                "embedded",
+                "GAME_PAGE_LOAD_FAILED"
+            ));
+        });
+        crate::v1_case!("browser-workspace-0dc6bcf3e5e5", {
+            assert_eq!(resolve_launch_mode("external", "embedded"), "external");
+            assert!(!should_fallback_to_external(
+                "external",
+                "GAME_PAGE_LOAD_FAILED"
+            ));
+        });
     }
 
     #[test]
@@ -324,6 +384,145 @@ mod tests {
         );
         assert!(windows.contains(&"--use-angle=vulkan".to_owned()));
         assert!(windows.contains(&"--use-vulkan=native".to_owned()));
+
+        crate::v1_case!("external-chrome-cdn-1025b47f22b8", {
+            let visible = build_arguments(
+                "https://example.com/play",
+                "/tmp/rion/role-1/browser",
+                &StatePixelBoundsRecord {
+                    x: -1280,
+                    y: -120,
+                    width: 1280,
+                    height: 720,
+                },
+                None,
+                &graphics(),
+                rion_platform::Platform::Macos,
+            );
+            assert_eq!(
+                visible,
+                [
+                    "--user-data-dir=/tmp/rion/role-1/browser",
+                    "--profile-directory=Default",
+                    "--app=https://example.com/play",
+                    "--window-position=-1280,-120",
+                    "--window-size=1280,720",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-default-apps",
+                    "--disable-component-extensions-with-background-pages",
+                    "--metrics-recording-only",
+                    "--no-service-autorun",
+                    "--disable-search-engine-choice-screen",
+                    "--disable-features=MediaRouter,OptimizationHints,Translate",
+                    "--remote-debugging-address=127.0.0.1",
+                    "--remote-debugging-port=0",
+                ]
+                .map(str::to_owned)
+            );
+        });
+
+        let assert_native_foreground = |platform| {
+            let arguments = build_arguments(
+                "https://example.test",
+                "/tmp/profile",
+                &StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                },
+                None,
+                &graphics(),
+                platform,
+            );
+            for forbidden in [
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-backgrounding-occluded-windows",
+            ] {
+                assert!(!arguments.contains(&forbidden.to_owned()));
+            }
+        };
+        crate::v1_case!("external-chrome-cdn-25cf6eecdf9b", {
+            assert_native_foreground(rion_platform::Platform::Windows);
+        });
+        crate::v1_case!("external-chrome-cdn-224f1ddc3afc", {
+            assert_native_foreground(rion_platform::Platform::Macos);
+        });
+        crate::v1_case!("external-chrome-cdn-10f9effd6657", {
+            // Foreground scheduling is intentionally platform-neutral; Linux
+            // used the same switch set in v1 even though 2.x ships macOS/Windows.
+            assert_native_foreground(rion_platform::Platform::Macos);
+        });
+
+        crate::v1_case!("external-chrome-cdn-03a2ed8859e6", {
+            let automatic = build_arguments(
+                "https://example.test",
+                "/tmp/profile",
+                &bounds,
+                None,
+                &BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"),
+                rion_platform::Platform::Macos,
+            );
+            assert!(!automatic.contains(&"--ignore-gpu-blocklist".to_owned()));
+            let high = build_arguments(
+                "https://example.test",
+                "/tmp/profile",
+                &bounds,
+                None,
+                &BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance"),
+                rion_platform::Platform::Macos,
+            );
+            assert!(high.contains(&"--force-high-performance-gpu".to_owned()));
+            let experimental = build_arguments(
+                "https://example.test",
+                "/tmp/profile",
+                &bounds,
+                None,
+                &BrowserGraphicsSettingsRecord::from_legacy_mode("experimental"),
+                rion_platform::Platform::Macos,
+            );
+            for selected in [
+                "--force-high-performance-gpu",
+                "--ignore-gpu-blocklist",
+                "--enable-unsafe-webgpu",
+            ] {
+                assert!(experimental.contains(&selected.to_owned()));
+            }
+        });
+
+        for (case_id, platform, profile) in [
+            (
+                "external-chrome-cdn-729079731e06",
+                rion_platform::Platform::Macos,
+                "/profiles/role-1/browser",
+            ),
+            (
+                "external-chrome-cdn-9495a0b69e1a",
+                rion_platform::Platform::Windows,
+                r"C:\profiles\role-1\browser",
+            ),
+        ] {
+            let arguments = build_arguments(
+                "https://example.com/play",
+                profile,
+                &StatePixelBoundsRecord {
+                    x: 100,
+                    y: 50,
+                    width: 1200,
+                    height: 800,
+                },
+                None,
+                &graphics(),
+                platform,
+            );
+            crate::v1_case!(case_id, {
+                assert!(arguments.contains(&format!("--user-data-dir={profile}")));
+                assert!(arguments.contains(&"--window-position=100,50".to_owned()));
+                assert!(arguments.contains(&"--window-size=1200,800".to_owned()));
+            });
+        }
     }
 
     #[test]
@@ -353,6 +552,298 @@ mod tests {
         assert_eq!(mac[1].x, 700);
         let windows = workspace_bounds(&rects, &area, rion_platform::Platform::Windows);
         assert_eq!(windows[0].width, 601);
+        crate::v1_case!("browser-workspace-441d225256bd", {
+            assert_eq!(mac[0].x, area.x);
+            assert_eq!(mac[0].width, 612);
+            assert_eq!(mac[1].x, 700);
+            assert_eq!(mac[1].width, 600);
+            assert_eq!(windows[0].width, 601);
+            assert_eq!(windows[1].x, 700);
+        });
+
+        let selected = StatePixelBoundsRecord {
+            x: 1200,
+            y: 24,
+            width: 1920,
+            height: 1040,
+        };
+        let full = workspace_bounds(
+            &[StateNormalizedRectRecord {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            }],
+            &selected,
+            rion_platform::Platform::Macos,
+        );
+        crate::v1_case!("browser-workspace-ef59508664f5", {
+            assert_eq!(full[0].x, selected.x);
+            assert_eq!(full[0].y, selected.y);
+            assert_eq!(full[0].width, selected.width);
+            assert_eq!(full[0].height, selected.height);
+        });
+
+        let negative_selected = StatePixelBoundsRecord {
+            x: -984,
+            y: -200,
+            width: 984,
+            height: 1280,
+        };
+        let negative = workspace_bounds(&rects, &negative_selected, rion_platform::Platform::Macos);
+        crate::v1_case!("browser-workspace-f4f8ee648a41", {
+            assert_eq!(negative[0].x, -984);
+            assert_eq!(negative[0].y, -200);
+            assert_eq!(negative[1].x, -492);
+            assert_eq!(negative[0].height, 1280);
+            assert_eq!(negative[1].height, 1280);
+        });
+    }
+
+    #[test]
+    fn preserves_v1_workspace_zoom_normalization_and_platform_bounds() {
+        crate::v1_case!("external-chrome-cdn-41104fe22829", {
+            assert_eq!(workspace_zoom_factor("adaptive", 100.0, None, 1200), 0.9);
+        });
+        crate::v1_case!("external-chrome-cdn-b7dad53e3d01", {
+            assert_eq!(
+                workspace_zoom_factor("adaptive", 100.0, Some(120.0), 640),
+                1.2
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-fe4e3fc66af5", {
+            assert_eq!(
+                (0..8)
+                    .map(|_| workspace_zoom_factor("adaptive", 100.0, None, 640))
+                    .collect::<Vec<_>>(),
+                vec![0.5; 8]
+            );
+        });
+
+        let two = [
+            StateNormalizedRectRecord {
+                x: 0.0,
+                y: 0.0,
+                width: 0.5,
+                height: 1.0,
+            },
+            StateNormalizedRectRecord {
+                x: 0.5,
+                y: 0.0,
+                width: 0.5,
+                height: 1.0,
+            },
+        ];
+        let mac_area = StatePixelBoundsRecord {
+            x: 2000,
+            y: 40,
+            width: 1600,
+            height: 900,
+        };
+        let mac = workspace_bounds(&two, &mac_area, rion_platform::Platform::Macos);
+        crate::v1_case!("external-chrome-cdn-451027e6e4c4", {
+            assert_eq!(
+                bounds_tuples(&seamless_bounds(
+                    two.iter()
+                        .map(|rect| {
+                            normalized_bounds(
+                                &crate::model::LayoutRect {
+                                    x: rect.x,
+                                    y: rect.y,
+                                    width: rect.width,
+                                    height: rect.height,
+                                },
+                                &mac_area,
+                            )
+                        })
+                        .collect(),
+                    0,
+                )),
+                [(2000, 40, 800, 900), (2800, 40, 800, 900),]
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-088c03213669", {
+            assert_eq!(
+                bounds_tuples(&mac),
+                [(2000, 40, 812, 900), (2800, 40, 800, 900),]
+            );
+            let first_args = build_arguments(
+                "https://example.test",
+                "/profiles/role-1/browser",
+                &mac[0],
+                None,
+                &graphics(),
+                rion_platform::Platform::Macos,
+            );
+            assert!(first_args.contains(&"--window-size=812,900".to_owned()));
+        });
+
+        let four = [
+            StateNormalizedRectRecord {
+                x: 0.0,
+                y: 0.0,
+                width: 0.5,
+                height: 0.5,
+            },
+            StateNormalizedRectRecord {
+                x: 0.5,
+                y: 0.0,
+                width: 0.5,
+                height: 0.5,
+            },
+            StateNormalizedRectRecord {
+                x: 0.0,
+                y: 0.5,
+                width: 0.5,
+                height: 0.5,
+            },
+            StateNormalizedRectRecord {
+                x: 0.5,
+                y: 0.5,
+                width: 0.5,
+                height: 0.5,
+            },
+        ];
+        let rounded_area = StatePixelBoundsRecord {
+            x: 2000,
+            y: 40,
+            width: 1601,
+            height: 901,
+        };
+        let base = four
+            .iter()
+            .map(|rect| {
+                normalized_bounds(
+                    &crate::model::LayoutRect {
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height,
+                    },
+                    &rounded_area,
+                )
+            })
+            .collect::<Vec<_>>();
+        crate::v1_case!("external-chrome-cdn-260d1dd5c330", {
+            assert_eq!(
+                bounds_tuples(&base),
+                [
+                    (2000, 40, 801, 451),
+                    (2801, 40, 800, 451),
+                    (2000, 491, 801, 450),
+                    (2801, 491, 800, 450),
+                ]
+            );
+        });
+
+        let physical_area = StatePixelBoundsRecord {
+            x: -1920,
+            y: -80,
+            width: 2001,
+            height: 1127,
+        };
+        let physical = workspace_bounds(&four, &physical_area, rion_platform::Platform::Windows);
+        crate::v1_case!("external-chrome-cdn-63f2448645f3", {
+            assert_eq!(
+                bounds_tuples(&physical),
+                [
+                    (-1920, -80, 1002, 565),
+                    (-919, -80, 1000, 565),
+                    (-1920, 484, 1002, 563),
+                    (-919, 484, 1000, 563),
+                ]
+            );
+        });
+
+        let almost_shared = (0..8)
+            .map(|index| {
+                let column = index % 4;
+                let row = index / 4;
+                let x = if column == 2 {
+                    0.50002
+                } else {
+                    column as f64 / 4.0
+                };
+                let y = if row == 1 { 0.50002 } else { 0.0 };
+                let right = if column == 1 {
+                    0.49998
+                } else {
+                    (column + 1) as f64 / 4.0
+                };
+                let bottom = if row == 0 { 0.49998 } else { 1.0 };
+                StateNormalizedRectRecord {
+                    x,
+                    y,
+                    width: right - x,
+                    height: bottom - y,
+                }
+            })
+            .collect::<Vec<_>>();
+        let normalized = crate::layout::normalize_rect_edges(
+            &almost_shared
+                .iter()
+                .map(|rect| crate::model::LayoutRect {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                })
+                .collect::<Vec<_>>(),
+        );
+        let area = StatePixelBoundsRecord {
+            x: 2000,
+            y: 40,
+            width: 1603,
+            height: 903,
+        };
+        let tiled = normalized
+            .iter()
+            .map(|rect| normalized_bounds(rect, &area))
+            .collect::<Vec<_>>();
+        crate::v1_case!("external-chrome-cdn-61437ef4ad1c", {
+            assert_eq!(
+                bounds_tuples(&tiled),
+                [
+                    (2000, 40, 401, 452),
+                    (2401, 40, 401, 452),
+                    (2802, 40, 400, 452),
+                    (3202, 40, 401, 452),
+                    (2000, 492, 401, 451),
+                    (2401, 492, 401, 451),
+                    (2802, 492, 400, 451),
+                    (3202, 492, 401, 451),
+                ]
+            );
+        });
+
+        let mac_grid = workspace_bounds(
+            &four,
+            &StatePixelBoundsRecord {
+                x: 0,
+                y: 24,
+                width: 1600,
+                height: 900,
+            },
+            rion_platform::Platform::Macos,
+        );
+        crate::v1_case!("external-chrome-cdn-d4ad1ab8a4d7", {
+            assert_eq!(
+                bounds_tuples(&mac_grid),
+                [
+                    (0, 24, 812, 462),
+                    (800, 24, 800, 462),
+                    (0, 474, 812, 450),
+                    (800, 474, 800, 450),
+                ]
+            );
+        });
+    }
+
+    fn bounds_tuples(bounds: &[StatePixelBoundsRecord]) -> Vec<(i32, i32, i32, i32)> {
+        bounds
+            .iter()
+            .map(|bounds| (bounds.x, bounds.y, bounds.width, bounds.height))
+            .collect()
     }
 
     #[test]
@@ -386,10 +877,12 @@ mod tests {
                 "updatedAt": "2026-07-23T00:00:00Z"
             },
             "bounds": { "x": 0, "y": 0, "width": 800, "height": 600 },
+            "physicalBounds": { "x": 0, "y": 0, "width": 1600, "height": 1200 },
             "workspaceId": "external-workspace",
             "zoomFactor": 1.0,
             "state": "running",
             "launchedAt": "2026-07-23T00:00:01Z",
+            "notice": EXTERNAL_COMPAT_NOTICE,
             "automationAvailable": true,
             "cdnActive": false,
             "pageHealth": "healthy",
@@ -410,6 +903,30 @@ mod tests {
         );
         assert_eq!(roles[1].automation_state.as_deref(), Some("ready"));
         assert_eq!(roles[1].page_health.as_deref(), Some("healthy"));
+        crate::v1_case!("browser-workspace-25ad1cb1ef25", {
+            let external_status = roles
+                .iter()
+                .find(|role| role.role_id == "external-role")
+                .unwrap();
+            assert_eq!(external_status.runtime_mode, "external");
+            assert!(external_status.resource_state.is_none());
+            assert!(external_status.cpu_throttle_rate.is_none());
+            assert!(external_status.resource_pressure_level.is_none());
+            assert!(external_status.resource_reason.is_none());
+        });
+        crate::v1_case!("browser-workspace-13aaf9ae3e44", {
+            let external_status = roles
+                .iter()
+                .find(|role| role.role_id == "external-role")
+                .unwrap();
+            assert_eq!(external_status.runtime_mode, "external");
+            assert_eq!(external_status.state, "running");
+            assert_eq!(external_status.page_health.as_deref(), Some("healthy"));
+            assert_eq!(
+                external_status.notice.as_deref(),
+                Some(EXTERNAL_COMPAT_NOTICE)
+            );
+        });
 
         let workspaces = workspace_statuses(
             std::slice::from_ref(&external),
@@ -425,5 +942,34 @@ mod tests {
                 ("external-workspace", "running")
             ]
         );
+
+        let captured = diagnostics(&external, 1, Some(serde_json::json!({"pid": 42})));
+        crate::v1_case!("browser-workspace-d81b9d5accb5", {
+            assert_eq!(captured.role_id, "external-role");
+            assert_eq!(captured.workspace_id.as_deref(), Some("external-workspace"));
+            assert_eq!(captured.runtime_mode, "external");
+            assert_eq!(captured.page_health.as_deref(), Some("healthy"));
+            assert_eq!(captured.chrome_json.as_deref(), Some("{\"pid\":42}"));
+        });
+        crate::v1_case!("external-chrome-cdn-1744c4b8c66b", {
+            let serialized = serde_json::to_string(&captured).unwrap();
+            assert!(!serialized.contains("https://example.test"));
+            assert!(!serialized.contains("/profiles/"));
+            assert_eq!(
+                (
+                    captured.bounds.x,
+                    captured.bounds.y,
+                    captured.bounds.width,
+                    captured.bounds.height,
+                ),
+                (0, 0, 800, 600)
+            );
+            let physical = captured.physical_bounds.as_ref().unwrap();
+            assert_eq!(
+                (physical.x, physical.y, physical.width, physical.height),
+                (0, 0, 1600, 1200)
+            );
+            assert_eq!(captured.zoom_factor, 1.0);
+        });
     }
 }

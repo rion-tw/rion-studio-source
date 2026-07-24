@@ -13,22 +13,38 @@ pub fn collect(
     let since = DateTime::parse_from_rfc3339(since)
         .map_err(|_| CoreError::InvalidInput("Graphics event start time is invalid.".to_owned()))?
         .with_timezone(&Utc);
-    match rion_platform::query_windows_display_driver_events(platform) {
-        Ok(Some(xml)) => Ok(WindowsGraphicsEventCollectionRecord {
+    Ok(collection_from_query(
+        rion_platform::query_windows_display_driver_events(platform),
+        since,
+    ))
+}
+
+fn collection_from_query(
+    result: Result<Option<String>, rion_platform::PlatformError>,
+    since: DateTime<Utc>,
+) -> WindowsGraphicsEventCollectionRecord {
+    match result {
+        Ok(Some(xml)) => WindowsGraphicsEventCollectionRecord {
             available: true,
             events: parse(&xml, since),
             error: None,
-        }),
-        Ok(None) => Ok(WindowsGraphicsEventCollectionRecord {
+        },
+        Ok(None) => WindowsGraphicsEventCollectionRecord {
             available: false,
             events: Vec::new(),
             error: None,
-        }),
-        Err(error) => Ok(WindowsGraphicsEventCollectionRecord {
-            available: false,
-            events: Vec::new(),
-            error: Some(error.to_string().chars().take(256).collect()),
-        }),
+        },
+        Err(error) => {
+            let message = match error {
+                rion_platform::PlatformError::Operation(message) => message,
+                error => error.to_string(),
+            };
+            WindowsGraphicsEventCollectionRecord {
+                available: false,
+                events: Vec::new(),
+                error: Some(message.chars().take(256).collect()),
+            }
+        }
     }
 }
 
@@ -74,20 +90,57 @@ mod tests {
             r#"<Event><System><Provider Name="Display"/><EventID>4101</EventID><TimeCreated SystemTime="2026-07-21T09:59:59.0000000Z"/></System></Event>"#,
             r#"<Event><System><Provider Name="Display"/><EventID>1</EventID><TimeCreated SystemTime="2026-07-21T10:05:00.0000000Z"/></System></Event>"#,
         );
-        assert_eq!(
-            parse(xml, "2026-07-21T10:00:00Z".parse().unwrap()),
-            vec![WindowsGraphicsEventRecord {
-                event_id: 4101,
-                provider: "Display".to_owned(),
-                timestamp: "2026-07-21T10:05:00.000Z".to_owned(),
-            }]
-        );
+        crate::v1_case!("resource-platform-20d15f57b3e7", {
+            assert_eq!(
+                parse(xml, "2026-07-21T10:00:00Z".parse().unwrap()),
+                vec![WindowsGraphicsEventRecord {
+                    event_id: 4101,
+                    provider: "Display".to_owned(),
+                    timestamp: "2026-07-21T10:05:00.000Z".to_owned(),
+                }]
+            );
+        });
     }
 
     #[test]
     fn ignores_empty_and_malformed_events() {
-        let since = "2026-07-21T10:00:00Z".parse().unwrap();
-        assert!(parse("", since).is_empty());
-        assert!(parse("<Event><EventID>4101</EventID></Event>", since).is_empty());
+        crate::v1_case!("resource-platform-5ded26264061", {
+            let since = "2026-07-21T10:00:00Z".parse().unwrap();
+            assert!(parse("", since).is_empty());
+            assert!(
+                parse(
+                    "<Event><System><EventID>4101</EventID></System></Event>",
+                    since
+                )
+                .is_empty()
+            );
+            assert!(
+                parse(
+                    r#"<Event><System><Provider Name="Display"/><EventID>4101</EventID><TimeCreated SystemTime="not-a-date"/></System></Event>"#,
+                    since
+                )
+                .is_empty()
+            );
+        });
+    }
+
+    #[test]
+    fn reports_platform_query_failures_as_safe_unavailable_results() {
+        crate::v1_case!("resource-platform-036dfbda6cb5", {
+            let result = collection_from_query(
+                Err(rion_platform::PlatformError::Operation(
+                    "Access is denied.".to_owned(),
+                )),
+                "2026-07-21T10:00:00Z".parse().unwrap(),
+            );
+            assert_eq!(
+                result,
+                WindowsGraphicsEventCollectionRecord {
+                    available: false,
+                    events: Vec::new(),
+                    error: Some("Access is denied.".to_owned()),
+                }
+            );
+        });
     }
 }

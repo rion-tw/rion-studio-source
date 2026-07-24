@@ -20,9 +20,6 @@ export function toWorkspaceCreateInput(
     ...(input.browserLaunchMode === undefined ? {} : { browserLaunchMode: input.browserLaunchMode }),
     ...(input.browserZoomMode === undefined ? {} : { browserZoomMode: input.browserZoomMode }),
     ...(input.browserZoomPercent === undefined ? {} : { browserZoomPercent: input.browserZoomPercent }),
-    ...(input.resourcePolicy === undefined
-      ? {}
-      : { resourcePolicy: structuredClone(input.resourcePolicy) }),
     ...(input.targetDisplay && { targetDisplay: structuredClone(input.targetDisplay) }),
     ...(input.slots === undefined ? {} : { slots: structuredClone(input.slots) })
   } as WorkspaceCreateInputRecord;
@@ -37,9 +34,6 @@ export function toWorkspaceUpdateInput(
     ...(input.browserLaunchMode === undefined ? {} : { browserLaunchMode: input.browserLaunchMode }),
     ...(input.browserZoomMode === undefined ? {} : { browserZoomMode: input.browserZoomMode }),
     ...(input.browserZoomPercent === undefined ? {} : { browserZoomPercent: input.browserZoomPercent }),
-    ...(input.resourcePolicy === undefined
-      ? {}
-      : { resourcePolicy: structuredClone(input.resourcePolicy) }),
     setTargetDisplay: input.targetDisplay !== undefined,
     ...(input.targetDisplay && { targetDisplay: structuredClone(input.targetDisplay) }),
     ...(input.slots === undefined ? {} : { slots: structuredClone(input.slots) })

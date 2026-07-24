@@ -48,6 +48,15 @@ impl CdnDetectionRuntime {
         mode: &str,
         proxy: &BrowserProxySettingsRecord,
     ) -> CoreResult<DetectionStart> {
+        self.begin_at(mode, proxy, Instant::now())
+    }
+
+    fn begin_at(
+        &mut self,
+        mode: &str,
+        proxy: &BrowserProxySettingsRecord,
+        now: Instant,
+    ) -> CoreResult<DetectionStart> {
         match mode {
             "off" => return Ok(DetectionStart::Immediate(false)),
             "on" => return Ok(DetectionStart::Immediate(true)),
@@ -58,7 +67,6 @@ impl CdnDetectionRuntime {
                 ));
             }
         }
-        let now = Instant::now();
         self.cache.retain(|_, entry| entry.expires_at > now);
         let cache_key = format!("{}:{}", proxy.mode, proxy.server.trim());
         if let Some(cached) = self.cache.get(&cache_key) {
@@ -74,11 +82,15 @@ impl CdnDetectionRuntime {
     }
 
     pub fn complete(&mut self, cache_key: String, enabled: bool) {
+        self.complete_at(cache_key, enabled, Instant::now());
+    }
+
+    fn complete_at(&mut self, cache_key: String, enabled: bool, now: Instant) {
         self.cache.insert(
             cache_key.clone(),
             CacheEntry {
                 enabled,
-                expires_at: Instant::now() + self.cache_ttl,
+                expires_at: now + self.cache_ttl,
             },
         );
         if let Some(waiters) = self.in_flight.remove(&cache_key) {
@@ -132,7 +144,9 @@ mod tests {
 
         runtime.complete(cache_key, true);
 
-        assert!(follower.await.unwrap());
+        crate::v1_case!("external-chrome-cdn-f871ece09751", {
+            assert!(follower.await.unwrap());
+        });
         assert!(matches!(
             runtime.begin("auto", &proxy("127.0.0.1:1")).unwrap(),
             DetectionStart::Immediate(true)
@@ -147,14 +161,16 @@ mod tests {
     fn expires_cached_results_and_forces_explicit_modes_without_probes() {
         let mut runtime =
             CdnDetectionRuntime::with_durations(Duration::ZERO, Duration::from_secs(1));
-        assert!(matches!(
-            runtime.begin("off", &proxy("")).unwrap(),
-            DetectionStart::Immediate(false)
-        ));
-        assert!(matches!(
-            runtime.begin("on", &proxy("")).unwrap(),
-            DetectionStart::Immediate(true)
-        ));
+        crate::v1_case!("external-chrome-cdn-e0ad7eae66df", {
+            assert!(matches!(
+                runtime.begin("off", &proxy("")).unwrap(),
+                DetectionStart::Immediate(false)
+            ));
+            assert!(matches!(
+                runtime.begin("on", &proxy("")).unwrap(),
+                DetectionStart::Immediate(true)
+            ));
+        });
         let DetectionStart::Leader { cache_key } = runtime.begin("auto", &proxy("")).unwrap()
         else {
             panic!("auto should probe");
@@ -164,5 +180,42 @@ mod tests {
             runtime.begin("auto", &proxy("")).unwrap(),
             DetectionStart::Leader { .. }
         ));
+    }
+
+    #[test]
+    fn caches_probe_failures_by_proxy_for_exactly_ten_minutes() {
+        let start = Instant::now();
+        let mut runtime = CdnDetectionRuntime::default();
+        let DetectionStart::Leader { cache_key } = runtime
+            .begin_at("auto", &proxy("127.0.0.1:1"), start)
+            .unwrap()
+        else {
+            panic!("first caller must lead the probe");
+        };
+        runtime.complete_at(cache_key, true, start);
+
+        crate::v1_case!("external-chrome-cdn-6461b23a938b", {
+            assert_eq!(runtime.cache_ttl, Duration::from_secs(10 * 60));
+            assert!(matches!(
+                runtime
+                    .begin_at(
+                        "auto",
+                        &proxy("127.0.0.1:1"),
+                        start + Duration::from_secs(10 * 60) - Duration::from_nanos(1),
+                    )
+                    .unwrap(),
+                DetectionStart::Immediate(true)
+            ));
+            assert!(matches!(
+                runtime
+                    .begin_at(
+                        "auto",
+                        &proxy("127.0.0.1:1"),
+                        start + Duration::from_secs(10 * 60),
+                    )
+                    .unwrap(),
+                DetectionStart::Leader { .. }
+            ));
+        });
     }
 }

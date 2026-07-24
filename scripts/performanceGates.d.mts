@@ -15,9 +15,14 @@ export interface PerformanceSummary {
   medianRootRssBytes?: number;
   sampleCount?: number;
   runtimeTelemetry?: Partial<Record<
-    "ipcCommand" | "macroScheduleToDispatch" | "tabActivation",
+    "ipcCommand" | "macroScheduleToDispatch" | "mainEventLoopDelay" |
+      "tabActivation" | "workspaceLaunch",
     LatencySummary
   >> & {
+    cdnPlanCount?: number;
+    layoutPassCount?: number;
+    menuRefreshCount?: number;
+    runtimePublishCount?: number;
     coreEffects?: {
       acknowledgedEffectCount: number;
       activeOperationCount: number;
@@ -42,8 +47,10 @@ export interface PerformanceComparison {
     treeRssImprovementPercent: number;
     ipcCommandP95RegressionPercent?: number;
     macroScheduleToDispatchP95RegressionPercent?: number;
+    mainEventLoopP95Ms?: number;
     rssGrowthPercent: number;
     tabActivationP95RegressionPercent?: number;
+    workspaceLaunchP95RegressionPercent?: number;
   };
   missingTelemetryMetrics: string[];
   diagnostics: {
@@ -55,6 +62,10 @@ export interface PerformanceComparison {
     effectsPerLaunch: number;
     napiCallCount?: number;
     napiP95Ms?: number;
+    cdnPlanCount?: number;
+    layoutPassCount?: number;
+    menuRefreshCount?: number;
+    runtimePublishCount?: number;
   };
   passed: boolean;
 }

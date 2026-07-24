@@ -238,4 +238,39 @@ mod tests {
             Some("1.0")
         );
     }
+
+    #[test]
+    fn returns_partial_diagnostics_before_gpu_information_is_ready() {
+        crate::v1_case!("resource-platform-a9825af9bf31", {
+            let automatic = BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
+            let diagnostics = assemble(GraphicsDiagnosticsInput {
+                applied_settings: automatic.clone(),
+                embedded_raw_json: json!({
+                    "renderer": "ANGLE Metal Renderer",
+                    "vendor": "Apple",
+                    "webgl": "available",
+                    "webgl2": "available",
+                    "webgpu": "available"
+                })
+                .to_string(),
+                embedded_error: None,
+                external_roles: Vec::new(),
+                feature_status_raw_json: "{}".to_owned(),
+                gpu_info_raw_json: None,
+                gpu_info_ready: false,
+                hardware_acceleration_enabled: None,
+                platform: rion_platform::Platform::Macos,
+                saved_settings: automatic,
+                versions: GraphicsVersionRecord {
+                    chromium: "1".to_owned(),
+                    electron: "1".to_owned(),
+                    node: "1".to_owned(),
+                },
+            });
+            assert!(!diagnostics.gpu_info_ready);
+            assert_eq!(diagnostics.hardware_acceleration_enabled, None);
+            assert!(diagnostics.feature_status.is_empty());
+            assert!(diagnostics.gpu_device.is_none());
+        });
+    }
 }

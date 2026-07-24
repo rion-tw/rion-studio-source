@@ -681,10 +681,11 @@ fn parse_context_json(value: &str) -> CoreResult<BTreeMap<String, Value>> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use tempfile::tempdir;
 
     use super::*;
-    use crate::model::LogSource;
+    use crate::model::{LogCaptureRecord, LogSource};
 
     fn entry(id: &str, message: &str) -> LogEntry {
         LogEntry {
@@ -705,17 +706,150 @@ mod tests {
         let directory = tempdir().unwrap();
         let mut connection = Connection::open(directory.path().join("logs.sqlite3")).unwrap();
         create_schema(&connection, false).unwrap();
-        append_entries(&mut connection, &[entry("1", "alpha"), entry("2", "beta")]).unwrap();
-        let page = query_entries(
-            &connection,
-            &LogQuery {
-                search: Some("beta".to_owned()),
-                ..LogQuery::default()
-            },
+        let mut browser = entry("1", "alpha role");
+        browser.source = LogSource::Browser;
+        browser.context = Some(BTreeMap::from([
+            ("roleId".to_owned(), json!("role-1")),
+            ("token".to_owned(), json!("<REDACTED>")),
+        ]));
+        let mut warning = entry("2", "beta macro");
+        warning.level = LogLevel::Warn;
+        warning.source = LogSource::Macro;
+        append_entries(
+            &mut connection,
+            &[browser.clone(), warning.clone(), entry("3", "gamma role")],
         )
         .unwrap();
-        assert_eq!(page.entries.len(), 1);
-        assert_eq!(page.entries[0].id, "2");
+        crate::v1_case!("logging-9fcfdf8da221", {
+            let filtered = query_entries(
+                &connection,
+                &LogQuery {
+                    sources: Some(vec![LogSource::Browser]),
+                    limit: Some(1),
+                    ..LogQuery::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(filtered.entries.len(), 1);
+            assert_eq!(filtered.entries[0].id, browser.id);
+            assert_eq!(filtered.entries[0].context, browser.context);
+            let first = query_entries(
+                &connection,
+                &LogQuery {
+                    limit: Some(1),
+                    ..LogQuery::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(first.entries.len(), 1);
+            assert_eq!(first.next_cursor.as_deref(), Some("1"));
+            let second = query_entries(
+                &connection,
+                &LogQuery {
+                    cursor: first.next_cursor,
+                    limit: Some(1),
+                    ..LogQuery::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(second.entries.len(), 1);
+            assert_ne!(first.entries[0].id, second.entries[0].id);
+            let searched = query_entries(
+                &connection,
+                &LogQuery {
+                    search: Some("beta".to_owned()),
+                    ..LogQuery::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(searched.entries.len(), 1);
+            assert_eq!(searched.entries[0].id, warning.id);
+            assert!(
+                read_status(&connection, directory.path())
+                    .unwrap()
+                    .total_bytes
+                    > 0
+            );
+        });
+    }
+
+    #[test]
+    fn default_level_clear_and_query_validation_match_v1() {
+        crate::v1_case!("logging-1a70a51d1e39", {
+            let directory = tempdir().unwrap();
+            let path = directory.path().join("logs.sqlite3");
+            let mut connection = Connection::open(&path).unwrap();
+            create_schema(&connection, false).unwrap();
+            let mut capture = crate::log_capture::LogCaptureRuntime::new(directory.path().into());
+            let hidden = capture.capture(vec![LogCaptureRecord {
+                level: LogLevel::Debug,
+                source: LogSource::Main,
+                event: "hidden".to_owned(),
+                message: "Hidden debug message.".to_owned(),
+                context_raw_json: None,
+                error: None,
+            }]);
+            assert!(hidden.is_empty());
+            capture.set_level(LogLevel::Debug);
+            let visible = capture.capture(vec![LogCaptureRecord {
+                level: LogLevel::Debug,
+                source: LogSource::Main,
+                event: "visible".to_owned(),
+                message: "Visible debug message.".to_owned(),
+                context_raw_json: None,
+                error: None,
+            }]);
+            append_entries(&mut connection, &visible).unwrap();
+            assert_eq!(
+                query_entries(&connection, &LogQuery::default())
+                    .unwrap()
+                    .entries[0]
+                    .event,
+                "visible"
+            );
+            clear_entries(&connection).unwrap();
+            assert!(
+                query_entries(&connection, &LogQuery::default())
+                    .unwrap()
+                    .entries
+                    .is_empty()
+            );
+        });
+
+        crate::v1_case!("logging-ab48857b7878", {
+            let connection = Connection::open_in_memory().unwrap();
+            create_schema(&connection, false).unwrap();
+            assert!(
+                query_entries(
+                    &connection,
+                    &LogQuery {
+                        limit: Some(201),
+                        ..LogQuery::default()
+                    }
+                )
+                .is_err()
+            );
+            assert!(
+                query_entries(
+                    &connection,
+                    &LogQuery {
+                        cursor: Some("../file".to_owned()),
+                        ..LogQuery::default()
+                    }
+                )
+                .is_err()
+            );
+            assert!(
+                query_entries(
+                    &connection,
+                    &LogQuery {
+                        search: Some("x".repeat(201)),
+                        ..LogQuery::default()
+                    }
+                )
+                .is_err()
+            );
+        });
     }
 
     #[test]

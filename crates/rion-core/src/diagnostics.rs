@@ -223,14 +223,17 @@ mod tests {
         let logs = LogDatabaseWorker::start(logs_path).unwrap();
         let output = directory.path().join("diagnostics.zip");
         let result = export_bundle(&output, &serde_json::json!({"ok": true}), &logs).unwrap();
-        assert_eq!(result.log_file_count, 1);
-        let bytes = fs::read(output).unwrap();
-        assert_eq!(&bytes[..4], &0x0403_4b50_u32.to_le_bytes());
-        assert!(bytes.windows(16).any(|part| part == b"diagnostics.json"));
-        assert_eq!(
-            &bytes[bytes.len() - 22..bytes.len() - 18],
-            &0x0605_4b50_u32.to_le_bytes()
-        );
+        crate::v1_case!("logging-eb62819bea2f", {
+            assert_eq!(result.log_file_count, 1);
+            let bytes = fs::read(output).unwrap();
+            assert_eq!(&bytes[..4], &0x0403_4b50_u32.to_le_bytes());
+            assert!(bytes.windows(16).any(|part| part == b"diagnostics.json"));
+            assert!(bytes.windows(10).any(|part| part == b"logs.jsonl"));
+            assert_eq!(
+                &bytes[bytes.len() - 22..bytes.len() - 18],
+                &0x0605_4b50_u32.to_le_bytes()
+            );
+        });
     }
 
     #[test]

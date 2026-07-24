@@ -2,7 +2,7 @@
 
 Rion Studio keeps Electron, Chromium, React, preload and native UI integration. The
 required `rion-core.node` addon owns portable application state, SQLite, log storage,
-macro timing, system pressure sampling, resource policy, CDN matching, external Chrome
+macro timing, system pressure sampling, adaptive resource management, CDN matching, external Chrome
 process supervision and its DevTools HTTP/WebSocket transport. Renderer code never
 loads the addon directly.
 
@@ -22,6 +22,18 @@ loads the addon directly.
 Missing or incompatible addons are fatal startup errors. Persistence never silently
 falls back to JSON. Rion Studio has no TypeScript runtime-core fallback: runtime
 decisions and side effects must have exactly one production implementation.
+
+## Global adaptive resources
+
+All embedded Rion runtime tabs use one adaptive policy. Visible tabs and roles running
+macros remain at full speed. Hidden tabs use 2x CPU throttling under normal pressure and
+4x throttling when the system is constrained. This applies equally to workspace tabs
+and standalone role tabs; external Chrome sessions remain outside this mechanism.
+
+The former per-workspace adaptive/unrestricted setting is intentionally removed from
+workspace persistence, command/effect contracts, portable exports, and the editor.
+SQLite migration strips stored values, while legacy JSON, recovery journals, and
+portable schema versions 1–6 continue to load and ignore the obsolete field.
 
 ## 2.1 command and effect boundary
 

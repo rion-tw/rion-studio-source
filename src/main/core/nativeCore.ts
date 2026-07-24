@@ -116,6 +116,10 @@ export class AppCoreClient {
     }
   }
 
+  get performanceTelemetryEnabled(): boolean {
+    return this.telemetryEnabled;
+  }
+
   subscribe(listener: (events: CoreEvent[]) => void): () => void {
     this.eventListeners.add(listener);
     if (this.lastEvents.length > 0) listener(this.lastEvents);
@@ -152,6 +156,27 @@ export class AppCoreClient {
 
   recordTabActivationLatency(durationMs: number): void {
     this.recordTelemetry("tabActivation", durationMs);
+  }
+
+  recordWorkspaceLaunchTelemetry(durationMs: number, eventLoopP95Ms: number): void {
+    this.recordTelemetry("workspaceLaunch", durationMs);
+    this.recordTelemetry("mainEventLoopDelay", eventLoopP95Ms);
+  }
+
+  recordLayoutPass(count = 1): void {
+    this.recordTelemetry("layoutPass", undefined, count);
+  }
+
+  recordRuntimePublish(count = 1): void {
+    this.recordTelemetry("runtimePublish", undefined, count);
+  }
+
+  recordMenuRefresh(count = 1): void {
+    this.recordTelemetry("menuRefresh", undefined, count);
+  }
+
+  recordCdnPlan(count = 1): void {
+    this.recordTelemetry("cdnPlan", undefined, count);
   }
 
   async shutdown(): Promise<void> {

@@ -403,8 +403,6 @@ pub enum CoreCommand {
     ResourceActivateWorkspace {
         #[ts(rename = "workspaceId")]
         workspace_id: String,
-        #[ts(rename = "policyMode", type = "\"unrestricted\" | \"adaptive\"")]
-        policy_mode: String,
         targets: Vec<ResourceRuntimeTargetRecord>,
     },
     ResourceDeactivateWorkspace {
@@ -753,7 +751,6 @@ pub struct PortableLaunchWorkspaceRecord {
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: f64,
-    pub resource_policy: StateWorkspaceResourcePolicyRecord,
     pub slots: Vec<StateWorkspaceSlotRecord>,
 }
 
@@ -1145,9 +1142,6 @@ pub struct WorkspaceCreateRequest {
     #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1180,9 +1174,6 @@ pub struct WorkspaceUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
@@ -1374,9 +1365,6 @@ pub struct WorkspaceCreateInputRecord {
     pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -1402,9 +1390,6 @@ pub struct WorkspaceUpdateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_zoom_percent: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
@@ -1642,20 +1627,12 @@ pub struct StateLaunchWorkspaceRecord {
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: f64,
-    pub resource_policy: StateWorkspaceResourcePolicyRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     pub slots: Vec<StateWorkspaceSlotRecord>,
     pub created_at: String,
     pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct StateWorkspaceResourcePolicyRecord {
-    #[ts(type = "\"unrestricted\" | \"adaptive\"")]
-    pub mode: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1905,6 +1882,7 @@ pub struct BootstrapPlanRecord {
 pub struct CdnResolutionRecord {
     pub enabled: bool,
     pub request_patterns: Vec<String>,
+    pub rewrite_rules: Vec<CdnRule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -2074,6 +2052,7 @@ pub enum CoreEvent {
         statuses: Vec<BrowserRoleStatusRecord>,
     },
     MacroStatuses {
+        reliable: bool,
         statuses: Vec<MacroRunStatus>,
     },
     ResourceStatuses {
@@ -2385,8 +2364,6 @@ pub struct SystemPressureSnapshot {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ResourcePolicyInput {
-    #[ts(type = "\"unrestricted\" | \"adaptive\"")]
-    pub policy_mode: String,
     pub workspace_hidden: bool,
     pub macro_active: bool,
     pub shares_process_with_macro: bool,
@@ -2418,8 +2395,6 @@ pub enum ResourceRuntimeCommand {
     Snapshot,
     ActivateWorkspace {
         workspace_id: String,
-        #[ts(type = "\"unrestricted\" | \"adaptive\"")]
-        policy_mode: String,
         targets: Vec<ResourceRuntimeTargetRecord>,
     },
     DeactivateWorkspace {
@@ -3109,11 +3084,17 @@ pub enum TelemetryMetric {
     IpcCommand,
     MacroScheduleToDispatch,
     TabActivation,
+    WorkspaceLaunch,
+    MainEventLoopDelay,
     Cdp,
     CoreEventBatch,
     BrowserResult,
     ProcessLaunch,
     ScheduledWait,
+    LayoutPass,
+    RuntimePublish,
+    MenuRefresh,
+    CdnPlan,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -3170,11 +3151,18 @@ pub struct NapiLatencySummaryRecord {
 pub struct PerformanceTelemetryRecord {
     #[ts(type = "number")]
     pub browser_result_count: u64,
+    #[ts(type = "number")]
+    pub cdn_plan_count: u64,
     pub cdp: CountedLatencySummaryRecord,
     #[ts(type = "number")]
     pub core_event_batch_count: u64,
     pub ipc_command: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub layout_pass_count: u64,
     pub macro_schedule_to_dispatch: LatencySummaryRecord,
+    pub main_event_loop_delay: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub menu_refresh_count: u64,
     pub napi: NapiLatencySummaryRecord,
     pub core_effects: CoreEffectMetricsRecord,
     #[ts(type = "number")]
@@ -3183,6 +3171,9 @@ pub struct PerformanceTelemetryRecord {
     pub scheduled_wait_count: u64,
     pub started_at: String,
     pub tab_activation: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub runtime_publish_count: u64,
+    pub workspace_launch: LatencySummaryRecord,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -3395,7 +3386,6 @@ pub enum CoreEffectAction {
     },
     EmbeddedActivateResources {
         tab_id: String,
-        policy: StateWorkspaceResourcePolicyRecord,
         role_ids: Vec<String>,
     },
     EmbeddedApplyResourceEffects {
@@ -3995,6 +3985,10 @@ pub enum MacroOverlayRequestRecord {
         #[ts(rename = "macroId")]
         macro_id: String,
     },
+    Toggle {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+    },
     Stop {
         #[ts(rename = "macroId")]
         macro_id: String,
@@ -4106,7 +4100,6 @@ mod command_tests {
             json!({
                 "type": "resourceActivateWorkspace",
                 "workspaceId": "workspace-1",
-                "policyMode": "adaptive",
                 "targets": []
             }),
             json!({

@@ -40,7 +40,7 @@ pub fn read_plan(
 fn load_graphics_settings(user_data_dir: &Path) -> BrowserGraphicsSettingsRecord {
     read_sqlite_settings(&user_data_dir.join("rion-studio.sqlite3"))
         .or_else(|| read_legacy_settings(&user_data_dir.join("game-browser-settings.json")))
-        .unwrap_or_else(BrowserGraphicsSettingsRecord::aggressive_default)
+        .unwrap_or_else(|| BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"))
 }
 
 pub fn formatted_graphics_switches(
@@ -231,6 +231,12 @@ mod tests {
             settings,
             BrowserGraphicsSettingsRecord::from_legacy_mode("experimental")
         );
+        crate::v1_case!("browser-workspace-b4ce96870a1a", {
+            assert_eq!(
+                settings,
+                BrowserGraphicsSettingsRecord::from_legacy_mode("experimental")
+            );
+        });
 
         fs::write(
             directory.path().join("game-browser-settings.json"),
@@ -246,14 +252,86 @@ mod tests {
     }
 
     #[test]
-    fn defaults_new_installations_to_aggressive_graphics_settings() {
+    fn defaults_missing_and_invalid_startup_settings_to_automatic() {
         let directory = tempdir().unwrap();
-        let settings =
+        let missing =
             read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
-        assert_eq!(
-            settings,
-            BrowserGraphicsSettingsRecord::aggressive_default()
+        fs::write(
+            directory.path().join("game-browser-settings.json"),
+            b"{invalid",
+        )
+        .unwrap();
+        let invalid =
+            read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
+
+        crate::v1_case!("browser-workspace-77044f2f1365", {
+            let automatic = BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
+            assert_eq!(missing, automatic);
+            assert_eq!(invalid, automatic);
+        });
+        crate::v1_case!("resource-platform-1c4495725392", {
+            let automatic = BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
+            assert_eq!(
+                BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"),
+                automatic
+            );
+            assert_eq!(
+                BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance"),
+                BrowserGraphicsSettingsRecord {
+                    prefer_high_performance_gpu: true,
+                    ..automatic.clone()
+                }
+            );
+            assert_eq!(
+                BrowserGraphicsSettingsRecord::from_legacy_mode("unsafe"),
+                automatic
+            );
+        });
+    }
+
+    #[test]
+    fn preserves_disabled_features_and_applies_safe_high_performance_switches() {
+        let settings = BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance");
+        let switches = chromium_switches(
+            &settings,
+            Platform::Macos,
+            "",
+            "ExistingFeature,MediaRouter",
         );
+
+        crate::v1_case!("browser-workspace-ec8bf4e43acc", {
+            assert!(switches.contains(&switch("force-high-performance-gpu", None)));
+            assert!(!switches.contains(&switch("ignore-gpu-blocklist", None)));
+            assert!(switches.iter().any(|item| {
+                item.name == "disable-features"
+                    && item.value.as_deref()
+                        == Some("ExistingFeature,MediaRouter,OptimizationHints,Translate")
+            }));
+        });
+    }
+
+    #[test]
+    fn limits_unsafe_switches_to_explicit_experimental_mode() {
+        let automatic = chromium_switches(
+            &BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"),
+            Platform::Macos,
+            "",
+            "",
+        );
+        let experimental = chromium_switches(
+            &BrowserGraphicsSettingsRecord::from_legacy_mode("experimental"),
+            Platform::Macos,
+            "",
+            "",
+        );
+
+        crate::v1_case!("browser-workspace-cc817a22dbcc", {
+            assert!(!automatic.contains(&switch("ignore-gpu-blocklist", None)));
+            assert!(!automatic.contains(&switch("enable-unsafe-webgpu", None)));
+            assert!(experimental.contains(&switch("force-high-performance-gpu", None)));
+            assert!(experimental.contains(&switch("ignore-gpu-blocklist", None)));
+            assert!(experimental.contains(&switch("enable-unsafe-webgpu", None)));
+        });
     }
 
     #[test]

@@ -731,8 +731,17 @@ mod tests {
                 "displayId":2,"exclusiveDisplay":true,"roleIds":["r1"]
             })))
             .unwrap();
-        assert_eq!(external.snapshot.workspaces[0].runtime, "external");
-        assert!(external.snapshot.workspaces[0].exclusive_display);
+        crate::v1_case!("browser-workspace-834d6924d42c", {
+            let workspace = external
+                .snapshot
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.workspace_id == "w1")
+                .unwrap();
+            assert_eq!(workspace.runtime, "external");
+            assert_eq!(workspace.display_id, Some(2));
+            assert!(workspace.exclusive_display);
+        });
 
         runtime
             .invoke(command(json!({
@@ -740,17 +749,38 @@ mod tests {
                 "displayId":2,"roleIds":["r2"]
             })))
             .unwrap();
-        assert_eq!(
-            runtime
-                .invoke(command(json!({
-                    "type":"createExternalWorkspace","workspaceId":"w2","name":"Two",
-                    "displayId":2,"exclusiveDisplay":true,"roleIds":["r2"]
-                })))
-                .unwrap_err()
-                .code(),
-            "WORKSPACE_DISPLAY_OCCUPIED"
-        );
+        let occupied_error = runtime
+            .invoke(command(json!({
+                "type":"createExternalWorkspace","workspaceId":"w2","name":"Two",
+                "displayId":2,"exclusiveDisplay":true,"roleIds":["r2"]
+            })))
+            .unwrap_err();
+        assert_eq!(occupied_error.code(), "WORKSPACE_DISPLAY_OCCUPIED");
         assert_eq!(runtime.snapshot().workspaces[1].runtime, "pending");
+
+        runtime
+            .invoke(command(
+                json!({"type":"removeWorkspace","workspaceId":"w1"}),
+            ))
+            .unwrap();
+        let released = runtime
+            .invoke(command(json!({
+                "type":"createExternalWorkspace","workspaceId":"w2","name":"Two",
+                "displayId":2,"exclusiveDisplay":true,"roleIds":["r2"]
+            })))
+            .unwrap();
+        crate::v1_case!("browser-workspace-fb693eb251e3", {
+            assert_eq!(
+                released
+                    .snapshot
+                    .workspaces
+                    .iter()
+                    .find(|workspace| workspace.workspace_id == "w2")
+                    .unwrap()
+                    .runtime,
+                "external"
+            );
+        });
     }
 
     #[test]

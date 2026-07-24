@@ -21,13 +21,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::BOOL;
 
 use crate::{
-    PixelBounds, PlatformError, WindowCandidateMetadata, compute_adjusted_outer,
-    select_best_candidate,
+    PixelBounds, PlatformError, WindowCandidateMetadata, WindowFrameBackend,
+    align_visible_frame_with_backend, candidate_matches_process, select_best_candidate,
 };
 
 const WINDOW_WAIT_TIMEOUT: Duration = Duration::from_millis(1_500);
 const WINDOW_POLL_INTERVAL: Duration = Duration::from_millis(50);
-const MAX_ALIGNMENT_ATTEMPTS: usize = 3;
 const CHROME_WIDGET_PREFIX: &str = "Chrome_WidgetWin_";
 const WINDOW_CORNER_PREFERENCE_ATTRIBUTE: DWMWINDOWATTRIBUTE = DWMWINDOWATTRIBUTE(33);
 const BORDER_COLOR_ATTRIBUTE: DWMWINDOWATTRIBUTE = DWMWINDOWATTRIBUTE(34);
@@ -51,7 +50,7 @@ unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
     }
     let mut process_id = 0_u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
-    if process_id != context.process_id {
+    if !candidate_matches_process(context.process_id, process_id) {
         return BOOL(1);
     }
     let mut cloaked = 0_u32;
@@ -90,47 +89,55 @@ pub fn align_visible_frame(
     process_id: u32,
     target: PixelBounds,
 ) -> Result<PixelBounds, PlatformError> {
-    let target = target.validate()?;
-    if process_id == 0 {
-        return Err(PlatformError::Operation(
-            "browser process id must be positive".to_owned(),
-        ));
-    }
+    let target = crate::validate_alignment_request(process_id, target)?;
 
     let hwnd = find_window(process_id, target)?;
     restore_window(hwnd)?;
     configure_seamless_frame(hwnd);
+    let mut backend = NativeWindowFrameBackend { hwnd };
+    Ok(align_visible_frame_with_backend(process_id, target, &mut backend)?.visible)
+}
 
-    let mut visible = read_visible_bounds(hwnd)?;
-    if visible == target {
-        return Ok(visible);
+struct NativeWindowFrameBackend {
+    hwnd: HWND,
+}
+
+impl WindowFrameBackend for NativeWindowFrameBackend {
+    fn read_visible_bounds(&mut self) -> Result<PixelBounds, PlatformError> {
+        read_visible_bounds(self.hwnd)
     }
-    for _ in 0..MAX_ALIGNMENT_ATTEMPTS {
-        let outer = read_outer_bounds(hwnd)?;
-        let outer_target = compute_adjusted_outer(outer, visible, target)?;
+
+    fn read_outer_bounds(&mut self) -> Result<PixelBounds, PlatformError> {
+        read_outer_bounds(self.hwnd)
+    }
+
+    fn set_outer_bounds(&mut self, bounds: PixelBounds) -> Result<(), PlatformError> {
         unsafe {
             SetWindowPos(
-                hwnd,
+                self.hwnd,
                 None,
-                outer_target.x,
-                outer_target.y,
-                outer_target.width,
-                outer_target.height,
+                bounds.x,
+                bounds.y,
+                bounds.width,
+                bounds.height,
                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
             )
         }
         .map_err(|error| PlatformError::Operation(error.to_string()))?;
         unsafe { DwmFlush() }
-            .map_err(|error| PlatformError::Operation(format!("DWM flush failed: {error}")))?;
-        visible = read_visible_bounds(hwnd)?;
-        if visible == target {
-            let _dpi = unsafe { GetDpiForWindow(hwnd) };
-            return Ok(visible);
+            .map_err(|error| PlatformError::Operation(format!("DWM flush failed: {error}")))
+    }
+
+    fn read_dpi(&mut self) -> Result<u32, PlatformError> {
+        let dpi = unsafe { GetDpiForWindow(self.hwnd) };
+        if dpi == 0 {
+            Err(PlatformError::Operation(
+                "window DPI must be positive".to_owned(),
+            ))
+        } else {
+            Ok(dpi)
         }
     }
-    Err(PlatformError::Operation(
-        "visible frame did not reach the exact target after three attempts".to_owned(),
-    ))
 }
 
 fn find_window(process_id: u32, target: PixelBounds) -> Result<HWND, PlatformError> {

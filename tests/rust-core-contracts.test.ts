@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
+import { v1Case } from "./helpers/v1Parity";
 
 describe("generated Rust core contracts", () => {
   it("exports a typed browser-action union instead of unvalidated payload JSON", async () => {
@@ -51,11 +52,34 @@ describe("generated Rust core contracts", () => {
       expect(contract).not.toContain("unknown");
     }
   });
+
+  it("omits the removed workspace resource policy from every generated boundary", async () => {
+    const contracts = await Promise.all([
+      readFile("src/shared/generated/WorkspaceCreateInputRecord.ts", "utf8"),
+      readFile("src/shared/generated/WorkspaceUpdateInputRecord.ts", "utf8"),
+      readFile("src/shared/generated/StateLaunchWorkspaceRecord.ts", "utf8"),
+      readFile("src/shared/generated/PortableLaunchWorkspaceRecord.ts", "utf8"),
+      readFile("src/shared/generated/CoreCommand.ts", "utf8"),
+      readFile("src/shared/generated/CoreEffectAction.ts", "utf8"),
+      readFile("src/shared/generated/ResourceRuntimeCommand.ts", "utf8"),
+      readFile("src/shared/generated/index.ts", "utf8")
+    ]);
+
+    for (const contract of contracts) {
+      expect(contract).not.toContain("resourcePolicy");
+      expect(contract).not.toContain("policyMode");
+      expect(contract).not.toContain("StateWorkspaceResourcePolicyRecord");
+    }
+  });
 });
 
 describe("Rust addon build verification", () => {
   it("builds a locked release cdylib into the platform-specific native resource", async () => {
-    const script = await readFile("scripts/buildRustCore.mjs", "utf8");
+    const [script, workflow, packageJsonSource] = await Promise.all([
+      readFile("scripts/buildRustCore.mjs", "utf8"),
+      readFile(".github/workflows/ci.yml", "utf8"),
+      readFile("package.json", "utf8")
+    ]);
 
     expect(script).toContain('"--locked", "--release", "-p", "rion-node"');
     expect(script).toContain('`${process.platform}-${process.arch}`');
@@ -63,6 +87,16 @@ describe("Rust addon build verification", () => {
     expect(script).toContain('process.platform === "darwin"');
     expect(script).toContain('"/usr/bin/codesign"');
     expect(script).toContain('["--force", "--sign", "-", destination]');
+    v1Case("platform-effect-lifecycle-5f80733882ba", () => {
+      const packageJson = JSON.parse(packageJsonSource) as {
+        scripts: Record<string, string>;
+      };
+      expect(packageJson.scripts["build:rust"]).toContain("scripts/buildRustCore.mjs");
+      expect(packageJson.scripts["verify:rust"]).toContain("scripts/verifyRustCore.mjs");
+      expect(workflow).toContain("os: windows-latest");
+      expect(workflow).toContain("pnpm run build:rust && pnpm run verify:rust");
+      expect(script).toContain('`${process.platform}-${process.arch}`');
+    });
   });
 
   it("loads the packaged addon with Electron through the generic command/effect surface", async () => {
@@ -79,5 +113,20 @@ describe("Rust addon build verification", () => {
     expect(core).not.toContain("core.connectExternalChromeCdp(");
     expect(core).not.toContain("core.prepareEmbeddedKeyTransition(");
     expect(core).toContain("dispatchCoreEffectResults");
+  });
+
+  it("routes the same macro overlay runtime through external Chrome", async () => {
+    const [main, app] = await Promise.all([
+      readFile("src/main/index.ts", "utf8"),
+      readFile("crates/rion-core/src/app.rs", "utf8")
+    ]);
+
+    v1Case("overlay-25d22c28fb7e", () => {
+      expect(main).toContain('case "externalOverlaySource":');
+      expect(main).toContain("return MACRO_OVERLAY_SCRIPT;");
+      expect(app).toContain('Some(json!({"name":EXTERNAL_OVERLAY_BINDING}))');
+      expect(app).toContain("CoreEffectAction::ExternalOverlaySource");
+      expect(app).toContain('let expression = format!("{bootstrap}\\n{source}")');
+    });
   });
 });

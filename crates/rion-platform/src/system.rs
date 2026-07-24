@@ -130,15 +130,37 @@ mod tests {
 
     #[test]
     fn builds_explicit_macos_and_windows_graceful_close_commands() {
-        let mac = graceful_chrome_quit_command(Platform::Macos);
-        assert_eq!(mac.0, "/usr/bin/osascript");
-        assert!(mac.1.join(" ").contains("Google Chrome"));
+        crate::v1_case!("resource-platform-1dc28d8f5c8e", {
+            let mac = graceful_chrome_quit_command(Platform::Macos);
+            assert_eq!(mac.0, "/usr/bin/osascript");
+            assert_eq!(
+                mac.1,
+                [
+                    "-e",
+                    r#"if application "Google Chrome" is running then tell application "Google Chrome" to quit"#
+                ]
+            );
+            assert_eq!(CLOSE_TIMEOUT, Duration::from_secs(5));
+        });
 
-        let windows = graceful_chrome_quit_command(Platform::Windows);
-        assert_eq!(windows.0, "powershell.exe");
-        assert!(windows.1.contains(&"-NoProfile"));
-        assert!(windows.1.join(" ").contains("PostMessage"));
-        assert!(windows.1.join(" ").contains("0x0010"));
-        assert!(!windows.1.join(" ").contains("TerminateProcess"));
+        crate::v1_case!("resource-platform-b157b519d22b", {
+            let windows = graceful_chrome_quit_command(Platform::Windows);
+            assert_eq!(windows.0, "powershell.exe");
+            assert_eq!(
+                &windows.1[..5],
+                [
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command"
+                ]
+            );
+            assert!(windows.1.contains(&WINDOWS_CLOSE_SCRIPT));
+            assert!(WINDOWS_CLOSE_SCRIPT.contains("PostMessage"));
+            assert!(WINDOWS_CLOSE_SCRIPT.contains("0x0010"));
+            assert!(!WINDOWS_CLOSE_SCRIPT.contains("/F"));
+            assert!(!WINDOWS_CLOSE_SCRIPT.contains("TerminateProcess"));
+        });
     }
 }

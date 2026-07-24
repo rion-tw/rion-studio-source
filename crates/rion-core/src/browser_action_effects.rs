@@ -317,8 +317,10 @@ mod tests {
             &macros,
             &io,
         );
-        assert!(effect_was_early.load(Ordering::Acquire));
-        assert!(external_responded.load(Ordering::Acquire));
+        crate::v1_case!("macro-33b99c83bf8e", {
+            assert!(effect_was_early.load(Ordering::Acquire));
+            assert!(external_responded.load(Ordering::Acquire));
+        });
         health.lock().unwrap().shutdown();
         external.shutdown();
     }

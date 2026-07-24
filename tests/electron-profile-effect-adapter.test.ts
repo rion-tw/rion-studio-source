@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ElectronProfileEffectAdapter } from "../src/main/browser/ElectronProfileEffectAdapter";
 import type { ProfileCoreEffectAction } from "../src/main/core/ElectronEffectExecutor";
+import { v1Case } from "./helpers/v1Parity";
 
 describe("ElectronProfileEffectAdapter", () => {
   it("applies Rust-decoded cookies and skips only Electron control-character rejections", async () => {
@@ -47,19 +48,21 @@ describe("ElectronProfileEffectAdapter", () => {
       sessionSource: "embedded"
     }))).rejects.toMatchObject({ code: "ROLE_BROWSER_DATA_CLEAR_FAILED" });
 
-    expect(embedded.closeAllConnections).toHaveBeenCalledOnce();
-    expect(embedded.clearData).toHaveBeenCalledWith({
-      dataTypes: [
-        "cache",
-        "cookies",
-        "fileSystems",
-        "indexedDB",
-        "localStorage",
-        "serviceWorkers",
-        "webSQL"
-      ]
+    v1Case("portable-profile-c5d0f3016c42", () => {
+      expect(embedded.closeAllConnections).toHaveBeenCalledOnce();
+      expect(embedded.clearData).toHaveBeenCalledWith({
+        dataTypes: [
+          "cache",
+          "cookies",
+          "fileSystems",
+          "indexedDB",
+          "localStorage",
+          "serviceWorkers",
+          "webSQL"
+        ]
+      });
+      expect(embedded.clearStorageData).toHaveBeenCalledWith({ storages: ["cachestorage"] });
     });
-    expect(embedded.clearStorageData).toHaveBeenCalledWith({ storages: ["cachestorage"] });
   });
 
   it("uses path sessions for imported profile apply, compensation, and clear", async () => {

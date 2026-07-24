@@ -278,7 +278,6 @@ function workspace(): LaunchWorkspace {
     browserLaunchMode: "inherit",
     browserZoomMode: "fixed",
     browserZoomPercent: 90,
-    resourcePolicy: { mode: "unrestricted" },
     slots: [{ id: "slot-1", rect: { x: 0, y: 0, width: 1, height: 1 } }],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z"

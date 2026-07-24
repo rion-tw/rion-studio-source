@@ -1,6 +1,11 @@
 import type { Session } from "electron";
 
-import type { CdnResolutionRecord, CoreEffectRequest, CoreJsonValue } from "../../shared/generated";
+import type {
+  CdnResolutionRecord,
+  CdnRule,
+  CoreEffectRequest,
+  CoreJsonValue
+} from "../../shared/generated";
 import type { AppCoreClient } from "../core/nativeCore";
 import {
   ElectronHandleRegistry,
@@ -20,8 +25,9 @@ export type CdnCoreEffect = CoreEffectRequest & {
 
 export interface CdnCompatibilityManagerOptions {
   core: Pick<AppCoreClient, "invoke">;
+  createDeadlineSignal?: (deadlineMs: number) => AbortSignal;
   handles: ElectronHandleRegistry;
-  matchCdnUrl: (url: string) => string | undefined;
+  recordPlan?: () => void;
 }
 
 /**
@@ -37,13 +43,15 @@ export class CdnCompatibilityManager {
     session.webRequest.onBeforeRequest(null);
     const resolution = await this.resolve(session);
     if (!resolution.enabled) return false;
+    const matchCdnUrl = createLocalCdnMatcher(resolution.rewriteRules);
+    this.options.recordPlan?.();
 
     session.webRequest.onBeforeRequest(
       { urls: resolution.requestPatterns },
       (details, callback) => {
         const redirectURL = details.resourceType === "mainFrame"
           ? undefined
-          : this.options.matchCdnUrl(details.url);
+          : matchCdnUrl(details.url);
         callback(redirectURL ? { redirectURL } : {});
       }
     );
@@ -56,9 +64,12 @@ export class CdnCompatibilityManager {
 
   async executeEffect(effect: CdnCoreEffect): Promise<CoreJsonValue> {
     const session = requireFetchSession(this.options.handles.require(effect.target.handleId));
+    const createDeadlineSignal =
+      this.options.createDeadlineSignal ?? ((deadlineMs) => AbortSignal.timeout(deadlineMs));
     const response = await session.fetch(effect.action.url, {
       cache: "no-store",
-      credentials: "omit"
+      credentials: "omit",
+      signal: createDeadlineSignal(Math.max(1, effect.deadlineMs))
     });
     return { available: response.ok };
   }
@@ -75,6 +86,37 @@ export class CdnCompatibilityManager {
       this.options.handles.unregister(handleId);
     }
   }
+}
+
+interface CompiledCdnRule {
+  matcher: RegExp;
+  sourceHost: string;
+  substitution: string;
+}
+
+function createLocalCdnMatcher(rules: CdnRule[]): (url: string) => string | undefined {
+  const compiledRules: CompiledCdnRule[] = rules.map((rule) => ({
+    matcher: new RegExp(rule.regexFilter),
+    sourceHost: rule.sourceHost.toLowerCase(),
+    substitution: rule.regexSubstitution.replace(
+      /\\([0-9]+)/g,
+      (_match, index: string) => `$${index}`
+    )
+  }));
+  return (url) => {
+    let host: string;
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      return undefined;
+    }
+    for (const rule of compiledRules) {
+      if (host !== rule.sourceHost || !rule.matcher.test(url)) continue;
+      const rewritten = url.replace(rule.matcher, rule.substitution);
+      if (rewritten !== url) return rewritten;
+    }
+    return undefined;
+  };
 }
 
 function requireFetchSession(

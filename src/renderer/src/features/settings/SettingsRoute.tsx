@@ -208,6 +208,7 @@ function SettingsViewBase({
     Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
   const graphicsPlatform = resolveGraphicsPlatform(graphicsDiagnostics?.platform);
   const isMacosGraphics = graphicsPlatform === "darwin";
+  const isWindowsGraphics = graphicsPlatform === "win32";
   const pageTitle = t(settingsSectionTitleKeys[activeSection]);
   const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
   const portableExportAvailability = createPortableExportAvailability(portableDataCounts);
@@ -641,6 +642,23 @@ function SettingsViewBase({
                   }))
                 }
               />
+              {isWindowsGraphics ? (
+                <GraphicsCheckboxRow
+                  checked={
+                    normalizeGameBrowserSettings(gameBrowserSettings).graphics.windowsEcoQosEnabled
+                  }
+                  description={t("settings.graphicsWindowsEcoQosDescription")}
+                  disabled={isGraphicsBusy}
+                  riskLabel={t("settings.graphicsRiskBadge")}
+                  title={t("settings.graphicsWindowsEcoQos")}
+                  onCheckedChange={(checked) =>
+                    void handleGraphicsSettingsChange((graphics) => ({
+                      ...graphics,
+                      windowsEcoQosEnabled: checked
+                    }))
+                  }
+                />
+              ) : null}
             </SettingsSection>
 
             <SettingsSection title={t("settings.graphicsSafetyGroup")}>

@@ -2484,6 +2484,7 @@ pub struct BrowserGraphicsSettingsRecord {
     pub prefer_high_performance_gpu: bool,
     pub unsafe_web_gpu_enabled: bool,
     pub vsync_enabled: bool,
+    pub windows_eco_qos_enabled: bool,
 }
 
 impl BrowserGraphicsSettingsRecord {
@@ -2497,6 +2498,7 @@ impl BrowserGraphicsSettingsRecord {
             prefer_high_performance_gpu: true,
             unsafe_web_gpu_enabled: false,
             vsync_enabled: true,
+            windows_eco_qos_enabled: true,
         }
     }
 
@@ -2510,6 +2512,7 @@ impl BrowserGraphicsSettingsRecord {
             prefer_high_performance_gpu: false,
             unsafe_web_gpu_enabled: false,
             vsync_enabled: true,
+            windows_eco_qos_enabled: true,
         };
         if matches!(mode, "high_performance" | "experimental") {
             settings.prefer_high_performance_gpu = true;
@@ -2539,6 +2542,7 @@ impl<'de> Deserialize<'de> for BrowserGraphicsSettingsRecord {
             prefer_high_performance_gpu: Option<bool>,
             unsafe_web_gpu_enabled: Option<bool>,
             vsync_enabled: Option<bool>,
+            windows_eco_qos_enabled: Option<bool>,
         }
 
         let input = Input::deserialize(deserializer)?;
@@ -2549,7 +2553,8 @@ impl<'de> Deserialize<'de> for BrowserGraphicsSettingsRecord {
             || input.gpu_blocklist_enabled.is_some()
             || input.prefer_high_performance_gpu.is_some()
             || input.unsafe_web_gpu_enabled.is_some()
-            || input.vsync_enabled.is_some();
+            || input.vsync_enabled.is_some()
+            || input.windows_eco_qos_enabled.is_some();
         let mut settings = if has_new_fields {
             Self::recommended_default()
         } else if let Some(mode) = input.mode.as_deref() {
@@ -2581,6 +2586,9 @@ impl<'de> Deserialize<'de> for BrowserGraphicsSettingsRecord {
         }
         if let Some(value) = input.vsync_enabled {
             settings.vsync_enabled = value;
+        }
+        if let Some(value) = input.windows_eco_qos_enabled {
+            settings.windows_eco_qos_enabled = value;
         }
         if !settings.frame_rate_limit_enabled {
             settings.vsync_enabled = false;

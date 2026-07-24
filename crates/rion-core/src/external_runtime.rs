@@ -15,7 +15,6 @@ const BASE_SWITCHES: &[&str] = &[
     "no-service-autorun",
     "disable-search-engine-choice-screen",
 ];
-const BACKGROUND_FEATURES: &str = "MediaRouter,OptimizationHints,Translate";
 const MACOS_SEAM_OVERLAP: i32 = 12;
 const WINDOWS_SEAM_OVERLAP: i32 = 1;
 pub(crate) const EXTERNAL_COMPAT_NOTICE: &str = "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.";
@@ -53,7 +52,10 @@ pub(crate) fn build_arguments(
         format!("--window-size={},{}", bounds.width, bounds.height),
     ];
     arguments.extend(BASE_SWITCHES.iter().map(|switch| format!("--{switch}")));
-    arguments.push(format!("--disable-features={BACKGROUND_FEATURES}"));
+    arguments.push(format!(
+        "--disable-features={}",
+        crate::bootstrap_settings::background_features_to_disable(graphics, platform).join(",")
+    ));
     if graphics.prefer_high_performance_gpu {
         arguments.push("--force-high-performance-gpu".to_owned());
     }
@@ -384,6 +386,10 @@ mod tests {
         );
         assert!(windows.contains(&"--use-angle=vulkan".to_owned()));
         assert!(windows.contains(&"--use-vulkan=native".to_owned()));
+        assert!(
+            windows
+                .contains(&"--disable-features=MediaRouter,OptimizationHints,Translate".to_owned())
+        );
 
         let mut unlimited_graphics = graphics();
         unlimited_graphics.frame_rate_limit_enabled = false;
@@ -408,6 +414,38 @@ mod tests {
         );
         assert!(windows_unlimited.contains(&"--disable-frame-rate-limit".to_owned()));
         assert!(windows_unlimited.contains(&"--disable-gpu-vsync".to_owned()));
+
+        let mut eco_qos_disabled = graphics();
+        eco_qos_disabled.windows_eco_qos_enabled = false;
+        let windows_eco_qos_disabled = build_arguments(
+            "https://example.test",
+            r"C:\profile",
+            &bounds,
+            None,
+            &eco_qos_disabled,
+            rion_platform::Platform::Windows,
+        );
+        assert!(windows_eco_qos_disabled.contains(
+            &"--disable-features=MediaRouter,OptimizationHints,Translate,UseEcoQoSForBackgroundProcess"
+                .to_owned()
+        ));
+        let macos_eco_qos_ignored = build_arguments(
+            "https://example.test",
+            "/tmp/profile",
+            &bounds,
+            None,
+            &eco_qos_disabled,
+            rion_platform::Platform::Macos,
+        );
+        assert!(
+            macos_eco_qos_ignored
+                .contains(&"--disable-features=MediaRouter,OptimizationHints,Translate".to_owned())
+        );
+        assert!(
+            !macos_eco_qos_ignored
+                .iter()
+                .any(|argument| argument.contains("UseEcoQoSForBackgroundProcess"))
+        );
 
         crate::v1_case!("external-chrome-cdn-1025b47f22b8", {
             let visible = build_arguments(

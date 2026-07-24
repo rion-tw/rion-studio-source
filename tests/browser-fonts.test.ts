@@ -127,6 +127,19 @@ describe("browser font settings normalization", () => {
     expect(normalizeGameBrowserSettings({ graphics: { mode: "unsafe" } }).graphics).toEqual(
       LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS
     );
+    expect(
+      normalizeGameBrowserSettings({
+        graphics: { preferHighPerformanceGpu: false }
+      }).graphics.windowsEcoQosEnabled
+    ).toBe(true);
+    expect(
+      normalizeGameBrowserSettings({
+        graphics: {
+          ...DEFAULT_GAME_BROWSER_SETTINGS.graphics,
+          windowsEcoQosEnabled: false
+        }
+      }).graphics.windowsEcoQosEnabled
+    ).toBe(false);
   });
 
   it("normalizes backends and forces VSync off when the frame-rate limiter is disabled", () => {

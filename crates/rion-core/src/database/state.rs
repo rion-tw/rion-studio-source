@@ -2442,9 +2442,34 @@ mod tests {
             crate::model::BrowserGraphicsSettingsRecord::recommended_default()
         );
 
+        let mut settings_without_eco_qos = recommended.clone();
+        settings_without_eco_qos["graphics"]
+            .as_object_mut()
+            .unwrap()
+            .remove("windowsEcoQosEnabled");
+        {
+            let worker = StateDatabaseWorker::start(database_path.clone()).unwrap();
+            worker
+                .replace_scalar("gameBrowserSettings".to_owned(), settings_without_eco_qos)
+                .unwrap();
+        }
+        let migrated_plan = crate::bootstrap_settings::read_plan(
+            directory.path(),
+            rion_platform::Platform::Windows,
+            "",
+            "",
+        );
+        assert!(
+            migrated_plan
+                .applied_graphics_settings
+                .windows_eco_qos_enabled
+        );
+
         let mut explicit = default_game_browser_settings();
         explicit.graphics =
             crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
+        explicit.graphics.windows_eco_qos_enabled = false;
+        let expected_graphics = explicit.graphics.clone();
         let explicit = serde_json::to_value(explicit).unwrap();
         {
             let worker = StateDatabaseWorker::start(database_path.clone()).unwrap();
@@ -2468,10 +2493,7 @@ mod tests {
             "",
             "",
         );
-        assert_eq!(
-            preserved_plan.applied_graphics_settings,
-            crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("automatic")
-        );
+        assert_eq!(preserved_plan.applied_graphics_settings, expected_graphics);
     }
 
     #[test]

@@ -59,7 +59,8 @@ export const DEFAULT_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {
   gpuBlocklistEnabled: true,
   preferHighPerformanceGpu: true,
   unsafeWebGpuEnabled: false,
-  vsyncEnabled: true
+  vsyncEnabled: true,
+  windowsEcoQosEnabled: true
 };
 
 export const LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {
@@ -73,7 +74,8 @@ export const LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings
   gpuBlocklistEnabled: true,
   preferHighPerformanceGpu: false,
   unsafeWebGpuEnabled: false,
-  vsyncEnabled: true
+  vsyncEnabled: true,
+  windowsEcoQosEnabled: true
 };
 
 export const workspaceGapSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceGapSize[];
@@ -135,7 +137,8 @@ export function normalizeBrowserGraphicsSettings(
     "gpuBlocklistEnabled",
     "preferHighPerformanceGpu",
     "unsafeWebGpuEnabled",
-    "vsyncEnabled"
+    "vsyncEnabled",
+    "windowsEcoQosEnabled"
   ].some((key) => key in input);
 
   if (!hasFlattenedSettings && "mode" in input) {
@@ -165,7 +168,11 @@ export function normalizeBrowserGraphicsSettings(
     unsafeWebGpuEnabled: normalizeBoolean(input.unsafeWebGpuEnabled, fallback.unsafeWebGpuEnabled),
     vsyncEnabled: frameRateLimitEnabled
       ? normalizeBoolean(input.vsyncEnabled, fallback.vsyncEnabled)
-      : false
+      : false,
+    windowsEcoQosEnabled: normalizeBoolean(
+      input.windowsEcoQosEnabled,
+      fallback.windowsEcoQosEnabled
+    )
   };
 }
 

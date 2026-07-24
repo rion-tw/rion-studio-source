@@ -43,6 +43,15 @@ jobs:
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
 
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        continue-on-error: true
+        with:
+          cache-bin: "false"
+          cache-on-failure: "false"
+          save-if: ${{ github.event_name == 'push' }}
+          shared-key: checks-${{ runner.os }}-${{ runner.arch }}
+
       - name: Check Rust formatting and lints
         run: pnpm run lint:rust
 
@@ -136,6 +145,62 @@ jobs:
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
 
+      - name: Configure macOS compiler cache
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "ELECTRON_CACHE=${GITHUB_WORKSPACE}/.electron-cache" >> "${GITHUB_ENV}"
+          echo "ELECTRON_BUILDER_CACHE=${GITHUB_WORKSPACE}/.electron-builder-cache" >> "${GITHUB_ENV}"
+
+          if ! command -v ccache >/dev/null 2>&1; then
+            if ! command -v brew >/dev/null 2>&1 || ! brew install ccache; then
+              echo "ccache unavailable; falling back to the native clang compiler."
+              echo "CC=clang" >> "${GITHUB_ENV}"
+              echo "CXX=clang++" >> "${GITHUB_ENV}"
+              exit 0
+            fi
+          fi
+
+          echo "CCACHE_DIR=${GITHUB_WORKSPACE}/.ccache" >> "${GITHUB_ENV}"
+          echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CCACHE_COMPILERCHECK=content" >> "${GITHUB_ENV}"
+          echo "CC=ccache clang" >> "${GITHUB_ENV}"
+          echo "CXX=ccache clang++" >> "${GITHUB_ENV}"
+
+      - name: Restore macOS build caches
+        if: runner.os == 'macOS'
+        id: macos-build-cache
+        uses: actions/cache/restore@v5
+        continue-on-error: true
+        with:
+          path: |
+            .ccache
+            .electron-cache
+            .electron-builder-cache
+            ~/Library/Caches/node-gyp
+          key: macos-ccache-v1-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'package.json', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            macos-ccache-v1-${{ runner.arch }}-
+
+      - name: Reset macOS compiler cache statistics
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            ccache --zero-stats
+          fi
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        continue-on-error: true
+        with:
+          cache-bin: "false"
+          cache-on-failure: "false"
+          save-if: ${{ github.event_name == 'push' }}
+          shared-key: platform-release-${{ runner.os }}-${{ runner.arch }}
+
       - name: Test Rust workspace
         run: pnpm run test:rust
 
@@ -156,3 +221,27 @@ jobs:
 
       - name: Verify packaged Rust Node-API core
         run: node scripts/verifyPackagedRustCore.mjs "${{ matrix.packaged_executable }}" "${{ matrix.packaged_core }}"
+
+      - name: Report macOS compiler cache statistics
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            ccache --show-stats || true
+          fi
+
+      - name: Save macOS build caches
+        if: >-
+          success() &&
+          runner.os == 'macOS' &&
+          github.event_name == 'push' &&
+          steps.macos-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        continue-on-error: true
+        with:
+          path: |
+            .ccache
+            .electron-cache
+            .electron-builder-cache
+            ~/Library/Caches/node-gyp
+          key: macos-ccache-v1-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'package.json', 'pnpm-lock.yaml') }}

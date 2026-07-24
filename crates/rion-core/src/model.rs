@@ -3086,6 +3086,7 @@ pub enum TelemetryMetric {
     TabActivation,
     WorkspaceLaunch,
     MainEventLoopDelay,
+    RendererRaf,
     Cdp,
     CoreEventBatch,
     BrowserResult,
@@ -3167,6 +3168,7 @@ pub struct PerformanceTelemetryRecord {
     pub core_effects: CoreEffectMetricsRecord,
     #[ts(type = "number")]
     pub process_launch_count: u64,
+    pub renderer_raf: LatencySummaryRecord,
     #[ts(type = "number")]
     pub scheduled_wait_count: u64,
     pub started_at: String,

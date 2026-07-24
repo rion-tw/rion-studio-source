@@ -163,6 +163,10 @@ export class AppCoreClient {
     this.recordTelemetry("mainEventLoopDelay", eventLoopP95Ms);
   }
 
+  recordRendererRafLatency(durationMs: number): void {
+    this.recordTelemetry("rendererRaf", durationMs);
+  }
+
   recordLayoutPass(count = 1): void {
     this.recordTelemetry("layoutPass", undefined, count);
   }

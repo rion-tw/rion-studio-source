@@ -592,6 +592,12 @@ async function initializeApplication(): Promise<void> {
       coreClient.recordTabActivationLatency(durationMs),
     recordLayoutPass: (count) => coreClient.recordLayoutPass(count),
     recordRuntimePublish: (count) => coreClient.recordRuntimePublish(count),
+    ...(coreClient.performanceTelemetryEnabled
+      ? {
+          recordRendererRafLatency: (durationMs: number) =>
+            coreClient.recordRendererRafLatency(durationMs)
+        }
+      : {}),
     adaptiveZoomResolver: (viewportWidth, currentPercent) =>
       coreClient.invoke({
         type: "layoutAdaptiveZoom",

@@ -1860,7 +1860,7 @@ fn wait_cancelable_for_role(
 
 fn default_wait(
     control: &Arc<InvocationControl>,
-    _role_id: &str,
+    role_id: &str,
     duration_ms: u32,
 ) -> Result<(), String> {
     if duration_ms == 0 {
@@ -1875,7 +1875,9 @@ fn default_wait(
     let _ = control
         .wake
         .1
-        .wait_timeout(guard, Duration::from_millis(u64::from(duration_ms)))
+        .wait_timeout_while(guard, Duration::from_millis(u64::from(duration_ms)), |_| {
+            !control.cancelled.load(Ordering::Acquire) && !is_role_cancelled(control, role_id)
+        })
         .map_err(|_| "macro wait lock poisoned".to_owned())?;
     Ok(())
 }
@@ -1893,7 +1895,10 @@ fn wait_until_role_cancelled(context: &ExecutionContext, role_id: &str) -> Resul
                 .control
                 .wake
                 .1
-                .wait_timeout(guard, Duration::from_secs(1))
+                .wait_timeout_while(guard, Duration::from_secs(1), |_| {
+                    !context.control.cancelled.load(Ordering::Acquire)
+                        && !is_role_cancelled(&context.control, role_id)
+                })
                 .map_err(|_| "macro wait lock poisoned".to_owned())?,
         );
     }
@@ -2220,8 +2225,10 @@ fn emit_presentation_statuses(shared: &Arc<Shared>) {
 }
 
 fn cancel_control(control: &InvocationControl) {
+    let _wake = control.wake.0.lock().ok();
     control.cancelled.store(true, Ordering::Release);
     control.wake.1.notify_all();
+    drop(_wake);
     control.start_ready.1.notify_all();
     control.first_iteration_roles.1.notify_all();
     if let Ok(barriers) = control.barriers.lock() {
@@ -4382,11 +4389,7 @@ mod tests {
             drop(action_role_locks(&runtime.shared, &[role_id]).unwrap());
         }
         drop(input_sequence_role_lock(&runtime.shared, "role-final").unwrap());
-        drop(action_role_locks(
-            &runtime.shared,
-            &["role-final".to_owned()],
-        )
-        .unwrap());
+        drop(action_role_locks(&runtime.shared, &["role-final".to_owned()]).unwrap());
 
         assert!(
             runtime

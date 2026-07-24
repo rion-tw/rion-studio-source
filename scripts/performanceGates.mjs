@@ -33,6 +33,7 @@ export function comparePerformanceSummaries(current, baseline) {
     macroScheduleToDispatchP95RegressionPercent: latencyRegression("macroScheduleToDispatch"),
     mainEventLoopP95Ms: current.runtimeTelemetry?.mainEventLoopDelay?.p95Ms,
     rssGrowthPercent: current.nonRendererRssGrowthPercent,
+    rendererRafP95RegressionPercent: latencyRegression("rendererRaf"),
     tabActivationP95RegressionPercent: latencyRegression("tabActivation"),
     workspaceLaunchP95RegressionPercent: latencyRegression("workspaceLaunch")
   };
@@ -73,6 +74,8 @@ export function comparePerformanceSummaries(current, baseline) {
       latencyGates.every((regression) => Number.isFinite(regression) && regression <= 5) &&
       (!Number.isFinite(gates.workspaceLaunchP95RegressionPercent) ||
         gates.workspaceLaunchP95RegressionPercent <= 5) &&
+      (!Number.isFinite(gates.rendererRafP95RegressionPercent) ||
+        gates.rendererRafP95RegressionPercent <= 5) &&
       (!Number.isFinite(gates.mainEventLoopP95Ms) || gates.mainEventLoopP95Ms <= 16.7) &&
       gates.rssGrowthPercent <= 5
   };
@@ -97,7 +100,7 @@ export function aggregatePerformanceSummaries(summaries) {
       }];
     })
   );
-  for (const metric of ["workspaceLaunch", "mainEventLoopDelay"]) {
+  for (const metric of ["workspaceLaunch", "mainEventLoopDelay", "rendererRaf"]) {
     const samples = summaries.map((summary) => summary.runtimeTelemetry?.[metric]);
     if (samples.every(hasSamples)) {
       runtimeTelemetry[metric] = aggregateLatency(samples);

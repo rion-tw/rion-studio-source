@@ -93,7 +93,7 @@ describe("Rust production architecture boundaries", () => {
     expect(manager).not.toContain("DetectionCacheEntry");
     expect(manager).not.toContain("setTimeout");
     expect(manager).toContain('type: "cdnResolveSession"');
-    expect(manager).toContain("compileRewritePlan(resolution.rewriteRules)");
+    expect(manager).toContain("createLocalCdnMatcher(resolution.rewriteRules)");
     expect(manager).toContain("matchCdnUrl(details.url)");
     expect(manager).not.toContain("this.options.matchCdnUrl");
     expect(matcher).toContain("pub fn bundled()");

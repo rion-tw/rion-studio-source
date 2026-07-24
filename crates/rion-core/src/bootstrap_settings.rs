@@ -102,7 +102,7 @@ fn graphics_switches(
     if settings.unsafe_web_gpu_enabled {
         switches.push(switch("enable-unsafe-webgpu", None));
     }
-    if !settings.frame_rate_limit_enabled {
+    if !settings.frame_rate_limit_enabled && matches!(platform, Platform::Windows) {
         switches.push(switch("disable-frame-rate-limit", None));
     }
     if !settings.vsync_enabled {
@@ -375,5 +375,20 @@ mod tests {
             item.name == "enable-features"
                 && item.value.as_deref() == Some("ExistingFeature,Vulkan")
         }));
+    }
+
+    #[test]
+    fn skips_the_unstable_unlimited_frame_rate_switch_on_macos() {
+        let mut settings = BrowserGraphicsSettingsRecord::recommended_default();
+        settings.frame_rate_limit_enabled = false;
+        settings.vsync_enabled = false;
+
+        let macos = graphics_switches(&settings, Platform::Macos);
+        assert!(!macos.contains(&switch("disable-frame-rate-limit", None)));
+        assert!(macos.contains(&switch("disable-gpu-vsync", None)));
+
+        let windows = graphics_switches(&settings, Platform::Windows);
+        assert!(windows.contains(&switch("disable-frame-rate-limit", None)));
+        assert!(windows.contains(&switch("disable-gpu-vsync", None)));
     }
 }

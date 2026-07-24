@@ -66,7 +66,7 @@ pub(crate) fn build_arguments(
     if graphics.unsafe_web_gpu_enabled {
         arguments.push("--enable-unsafe-webgpu".to_owned());
     }
-    if !graphics.frame_rate_limit_enabled {
+    if !graphics.frame_rate_limit_enabled && matches!(platform, rion_platform::Platform::Windows) {
         arguments.push("--disable-frame-rate-limit".to_owned());
     }
     if !graphics.vsync_enabled {
@@ -384,6 +384,30 @@ mod tests {
         );
         assert!(windows.contains(&"--use-angle=vulkan".to_owned()));
         assert!(windows.contains(&"--use-vulkan=native".to_owned()));
+
+        let mut unlimited_graphics = graphics();
+        unlimited_graphics.frame_rate_limit_enabled = false;
+        unlimited_graphics.vsync_enabled = false;
+        let mac_unlimited = build_arguments(
+            "https://example.test",
+            "/tmp/profile",
+            &bounds,
+            None,
+            &unlimited_graphics,
+            rion_platform::Platform::Macos,
+        );
+        assert!(!mac_unlimited.contains(&"--disable-frame-rate-limit".to_owned()));
+        assert!(mac_unlimited.contains(&"--disable-gpu-vsync".to_owned()));
+        let windows_unlimited = build_arguments(
+            "https://example.test",
+            r"C:\profile",
+            &bounds,
+            None,
+            &unlimited_graphics,
+            rion_platform::Platform::Windows,
+        );
+        assert!(windows_unlimited.contains(&"--disable-frame-rate-limit".to_owned()));
+        assert!(windows_unlimited.contains(&"--disable-gpu-vsync".to_owned()));
 
         crate::v1_case!("external-chrome-cdn-1025b47f22b8", {
             let visible = build_arguments(

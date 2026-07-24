@@ -8,6 +8,7 @@ export function configureChromiumCommandLine(
   commandLine: ChromiumCommandLine,
   switches: ChromiumSwitchRecord[]
 ): void {
+  // Rust filters platform-incompatible switches before Electron starts.
   for (const chromiumSwitch of switches) {
     if (chromiumSwitch.value === undefined) {
       commandLine.appendSwitch(chromiumSwitch.name);

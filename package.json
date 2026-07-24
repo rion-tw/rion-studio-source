@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm run build:rust && pnpm run build:native:macos && electron-vite dev",
+    "dev:release": "pnpm run build:rust:release && pnpm run build:native:macos && electron-vite dev",
     "build": "pnpm run typecheck && electron-vite build",
     "build:rust": "node scripts/buildRustCore.mjs",
+    "build:rust:release": "node scripts/buildRustCore.mjs --release",
     "verify:rust": "node scripts/verifyRustCore.mjs",
     "verify:v1-parity": "node scripts/verifyV1Parity.mjs",
     "verify:v1-parity:write": "node scripts/verifyV1Parity.mjs --write-report",
@@ -24,8 +26,8 @@
     "build:native:macos": "node scripts/buildMacRuntimeTabs.mjs",
     "verify:native:macos": "node scripts/verifyMacRuntimeTabs.mjs",
     "test:native:macos": "node scripts/verifyMacRuntimeTabs.mjs --tests",
-    "package": "pnpm run build && pnpm run build:rust && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && electron-builder --config electron-builder.config.mjs --dir",
-    "dist": "pnpm run build && pnpm run build:rust && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && electron-builder --config electron-builder.config.mjs",
+    "package": "pnpm run build && pnpm run build:rust:release && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && electron-builder --config electron-builder.config.mjs --dir",
+    "dist": "pnpm run build && pnpm run build:rust:release && pnpm run verify:rust && pnpm run build:native:macos && pnpm run verify:native:macos && electron-builder --config electron-builder.config.mjs",
     "release": "semantic-release"
   },
   "keywords": [

@@ -108,16 +108,19 @@ describe("electron-builder release configuration", () => {
 
     for (const scriptName of ["package", "dist"]) {
       const script = packageJson.scripts[scriptName];
-      const buildIndex = script.indexOf("pnpm run build:rust");
+      const buildIndex = script.indexOf("pnpm run build:rust:release");
       const verifyIndex = script.indexOf("pnpm run verify:rust");
       const builderIndex = script.indexOf("electron-builder");
 
       expect(buildIndex).toBeGreaterThan(-1);
       expect(verifyIndex).toBeGreaterThan(buildIndex);
       expect(builderIndex).toBeGreaterThan(verifyIndex);
+      expect(script).not.toContain("pnpm run build:rust &&");
     }
 
-    expect(releaseWorkflow.match(/run: pnpm run build:rust && pnpm run verify:rust/gu)).toHaveLength(1);
+    expect(
+      releaseWorkflow.match(/run: pnpm run build:rust:release && pnpm run verify:rust/gu)
+    ).toHaveLength(1);
     expect(releaseWorkflow.match(/- os: macos-latest/gu)).toHaveLength(1);
     expect(releaseWorkflow.match(/- os: windows-latest/gu)).toHaveLength(1);
   });

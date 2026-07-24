@@ -62,13 +62,21 @@ toolchain and the Visual Studio 2022 MSVC/Windows SDK components required by the
 ```bash
 pnpm run lint:rust
 pnpm run test:rust
-pnpm run build:rust
+pnpm run build:rust:release
 pnpm run verify:rust
 ```
 
 The generated addon lives under `build/native/win32-x64/rion-core.node` and is
 packaged under `resources/native`. Release CI loads it from the unpacked application
 before accepting a Windows artifact.
+
+`pnpm run build:rust` builds the fast dev-profile addon used by `pnpm run dev`.
+Use `pnpm run build:rust:release` for packaging and production-like verification,
+or `pnpm run dev:release` when measuring performance from the development shell.
+`pnpm run verify:rust` verifies whichever profile was built most recently.
+Both profiles replace the same platform-specific addon, so manual packaging must
+run the release build immediately before electron-builder; `package` and `dist`
+already enforce that order.
 
 macOS runtime game windows use an Objective-C++ Node-API addon to host the tab
 strip in `NSTitlebarAccessoryViewController`. `pnpm run dev`, `package`, and

@@ -14,7 +14,8 @@ The following checks passed on macOS arm64 with Node 24.15.0:
 - `pnpm run test`: 107 files and 725 tests.
 - `pnpm run lint`.
 - `pnpm run generate:rust-types`.
-- `pnpm run build:rust`.
+- `pnpm run build:rust` (the release-building command at verification time; now
+  named `pnpm run build:rust:release`).
 - `pnpm run verify:rust`.
 - `pnpm run lint:rust`.
 - `pnpm run build`.

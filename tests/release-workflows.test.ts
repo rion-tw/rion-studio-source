@@ -48,7 +48,8 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain("os: macos-latest");
     expect(workflow).toContain("os: windows-latest");
     expect(workflow).toContain("pnpm run test:rust");
-    expect(workflow).toContain("pnpm run build:rust && pnpm run verify:rust");
+    expect(workflow).toContain("pnpm run build:rust:release && pnpm run verify:rust");
+    expect(workflow).not.toContain("pnpm run build:rust && pnpm run verify:rust");
     expect(workflow).toContain("pnpm run build:native:macos && pnpm run test:native:macos");
     expect(workflow).toContain("rust-concurrency-sanitizer:");
     expect(workflow).toContain("RUSTFLAGS: -Zsanitizer=address");

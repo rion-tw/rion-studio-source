@@ -61,7 +61,7 @@ jobs:
         run: git diff --exit-code -- src/shared/generated
 
       - name: Build and verify Rust Node-API core
-        run: pnpm run build:rust && pnpm run verify:rust
+        run: pnpm run build:rust:release && pnpm run verify:rust
 
       - name: Typecheck
         run: pnpm run typecheck
@@ -204,7 +204,7 @@ jobs:
         run: pnpm run test:rust
 
       - name: Build and verify Rust Node-API core
-        run: pnpm run build:rust && pnpm run verify:rust
+        run: pnpm run build:rust:release && pnpm run verify:rust
 
       - name: Build app
         run: pnpm run build

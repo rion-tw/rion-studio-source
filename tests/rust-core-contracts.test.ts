@@ -80,14 +80,16 @@ describe("generated Rust core contracts", () => {
 });
 
 describe("Rust addon build verification", () => {
-  it("builds a locked release cdylib into the platform-specific native resource", async () => {
+  it("builds locked dev and release cdylibs into the platform-specific native resource", async () => {
     const [script, workflow, packageJsonSource] = await Promise.all([
       readFile("scripts/buildRustCore.mjs", "utf8"),
       readFile(".github/workflows/ci.yml", "utf8"),
       readFile("package.json", "utf8")
     ]);
 
-    expect(script).toContain('"--locked", "--release", "-p", "rion-node"');
+    expect(script).toContain('cliArguments[0] !== "--release"');
+    expect(script).toContain('const cargoProfileDirectory = release ? "release" : "debug"');
+    expect(script).toContain('...(release ? ["--release"] : [])');
     expect(script).toContain('`${process.platform}-${process.arch}`');
     expect(script).toContain('"rion-core.node"');
     expect(script).toContain('process.platform === "darwin"');
@@ -97,10 +99,16 @@ describe("Rust addon build verification", () => {
       const packageJson = JSON.parse(packageJsonSource) as {
         scripts: Record<string, string>;
       };
-      expect(packageJson.scripts["build:rust"]).toContain("scripts/buildRustCore.mjs");
+      expect(packageJson.scripts["build:rust"]).toBe("node scripts/buildRustCore.mjs");
+      expect(packageJson.scripts["build:rust:release"]).toBe(
+        "node scripts/buildRustCore.mjs --release"
+      );
+      expect(packageJson.scripts.dev).toContain("pnpm run build:rust &&");
+      expect(packageJson.scripts["dev:release"]).toContain("pnpm run build:rust:release &&");
       expect(packageJson.scripts["verify:rust"]).toContain("scripts/verifyRustCore.mjs");
       expect(workflow).toContain("os: windows-latest");
-      expect(workflow).toContain("pnpm run build:rust && pnpm run verify:rust");
+      expect(workflow).toContain("pnpm run build:rust:release && pnpm run verify:rust");
+      expect(workflow).not.toContain("pnpm run build:rust && pnpm run verify:rust");
       expect(script).toContain('`${process.platform}-${process.arch}`');
     });
   });

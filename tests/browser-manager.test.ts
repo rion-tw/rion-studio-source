@@ -3161,6 +3161,68 @@ describe("ElectronBrowserRuntime game host windows", () => {
     );
   });
 
+  it.each(["darwin", "win32"] as const)(
+    "keeps two single-role tabs responsive through switch, hide, system close, stop, and runtime end on %s",
+    async (platform) => {
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        platform,
+        ...(platform === "darwin"
+          ? { useMacNativeChrome: true }
+          : { useTabbedHostWindow: true }),
+        workspaceDisplays: runtimeDisplays
+      });
+      const secondRole = createRole("role-2", "Alt");
+
+      await harness.manager.launch(role);
+      await harness.manager.launch(secondRole);
+      const [firstTab, secondTab] = harness.manager.listEmbeddedRuntimeState().tabs;
+
+      for (let index = 0; index < 4; index += 1) {
+        await harness.manager.showRuntimeTab(index % 2 === 0 ? firstTab.id : secondTab.id);
+      }
+      await harness.manager.hideRuntimeTab(firstTab.id);
+
+      const closeEvent = { preventDefault: vi.fn() };
+      harness.hosts[0].emit("close", closeEvent);
+      expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+      expect(harness.hosts[0].hide).toHaveBeenCalled();
+      expect(harness.manager.listStatuses()).toEqual([
+        expect.objectContaining({ roleId: role.id, state: "running" }),
+        expect.objectContaining({ roleId: secondRole.id, state: "running" })
+      ]);
+
+      await harness.manager.stopRuntimeTab(secondTab.id);
+      expect(harness.manager.listStatuses()).toEqual([
+        expect.objectContaining({ roleId: role.id, state: "running" })
+      ]);
+      await harness.manager.stopAll();
+      expect(harness.manager.listStatuses()).toEqual([]);
+      expect(harness.manager.listEmbeddedRuntimeState()).toMatchObject({
+        tabs: [],
+        windows: []
+      });
+
+      for (const view of harness.views) {
+        expect(view.debuggerApi.attach).not.toHaveBeenCalled();
+        expect(view.debuggerApi.isAttached()).toBe(false);
+        expect(view.debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+          "Target.setAutoAttach",
+          expect.anything()
+        );
+        expect(view.debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+          "Emulation.setCPUThrottlingRate",
+          expect.anything()
+        );
+      }
+      for (const [viewOptions] of harness.createView.mock.calls) {
+        expect(viewOptions).toEqual(expect.objectContaining({
+          webPreferences: expect.objectContaining({ backgroundThrottling: true })
+        }));
+      }
+    }
+  );
+
   it("leaves inactive single-role tabs to native background throttling", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },

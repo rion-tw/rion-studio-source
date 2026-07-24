@@ -30,7 +30,7 @@
 .click-marker.is-click-flash{animation:click-marker-flash var(--click-flash-duration,120ms) ease-in-out 1 both;}
 .active-badges{align-items:center;display:flex;flex-wrap:nowrap;gap:5px;justify-content:center;left:0;max-width:none;pointer-events:none;position:fixed;right:0;top:128px;transform:none;width:100vw;z-index:2147483647;}
 .active-badge{-webkit-backdrop-filter:blur(30px) saturate(140%);-webkit-font-smoothing:antialiased;align-items:center;backdrop-filter:blur(30px) saturate(140%);background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,0) 46%),rgba(20,23,31,.5);border:1px solid rgba(255,255,255,.14);border-radius:999px;color:rgba(255,255,255,.92);display:flex;font-size:10px;gap:5px;letter-spacing:0;line-height:1.15;max-width:176px;min-height:16px;padding:4px 8px 4px 4px;pointer-events:none;white-space:nowrap;}
-.active-badge-shortcut{align-items:center;background:rgba(0,0,0,.22);border:1px solid rgba(0,0,0,.12);border-radius:50%;color:#fff;display:inline-flex;flex:0 0 auto;font-size:8px;font-weight:600;height:16px;justify-content:center;line-height:1;min-height:16px;min-width:16px;padding:0;}
+.active-badge-shortcut{align-items:center;background:rgba(0,0,0,.22);border:1px solid rgba(0,0,0,.12);border-radius:999px;color:#fff;display:inline-flex;flex:0 0 auto;font-size:8px;font-weight:600;height:16px;justify-content:center;line-height:1;min-height:16px;min-width:16px;padding:0;}
 .active-badge-name{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .active-badge-behavior{display:block;flex:0 0 auto;font-size:inherit;}
 @keyframes active-badge-border-flash{0%,100%{border-color:rgba(255,255,255,.14);}35%{border-color:rgba(255,255,255,.62);}}

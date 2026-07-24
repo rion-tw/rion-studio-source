@@ -156,6 +156,11 @@
   const clickMarkerEvents = new Map();
   const clickMarkerFlashStates = new Map();
   const clickMarkerFlashDurationMs = 120;
+  const clickStatusRetentionMs = 180;
+  const retainedClickStatuses = new Map();
+  const seenClickStatusEvents = new Map();
+  let clickStatusRetentionTimer = undefined;
+  let latestCoreStatuses = [];
   const macroIterationTimings = new Map();
   let renderedActiveBadgesMarkup = null;
   let renderedClickMarkersMarkup = null;
@@ -166,14 +171,15 @@
   let coordinateReadoutElement = null;
   let clickMarkerLayerElement = null;
   let coordinateMeasureHideTimer = undefined;
+  let coordinateMeasureFrameId = undefined;
   let coordinateMeasurement = null;
+  let pendingCoordinateMeasurement = null;
   let gameInputContextActive = false;
   let host = null;
   let isDisposed = false;
   let isInstalled = false;
   let isOpenRequestPending = false;
   let refreshInFlight = null;
-  let reconciliationTimer = undefined;
   let refreshQueued = false;
   let resourceElement = null;
   let root = null;
@@ -415,6 +421,39 @@
     setCoordinateReadoutStatus("ready");
   }
 
+  function cancelCoordinateMeasurementFrame() {
+    if (coordinateMeasureFrameId !== undefined) {
+      cancelAnimationFrame(coordinateMeasureFrameId);
+      coordinateMeasureFrameId = undefined;
+    }
+    pendingCoordinateMeasurement = null;
+  }
+
+  function flushCoordinateMeasurement() {
+    if (coordinateMeasureFrameId !== undefined) {
+      cancelAnimationFrame(coordinateMeasureFrameId);
+      coordinateMeasureFrameId = undefined;
+    }
+    const measurement = pendingCoordinateMeasurement;
+    pendingCoordinateMeasurement = null;
+    if (measurement && coordinateMeasureActive) {
+      updateCoordinateMeasurement(measurement);
+    }
+  }
+
+  function scheduleCoordinateMeasurement(measurement) {
+    pendingCoordinateMeasurement = measurement;
+    if (coordinateMeasureFrameId !== undefined) return;
+    coordinateMeasureFrameId = requestAnimationFrame(() => {
+      coordinateMeasureFrameId = undefined;
+      const nextMeasurement = pendingCoordinateMeasurement;
+      pendingCoordinateMeasurement = null;
+      if (nextMeasurement && coordinateMeasureActive) {
+        updateCoordinateMeasurement(nextMeasurement);
+      }
+    });
+  }
+
   function updateCoordinateAnchorGuides(viewport = getVisualViewportSize()) {
     if (!coordinateAnchorLayerElement) return;
     const markers = coordinateAnchorLayerElement.querySelectorAll(".coordinate-anchor-marker");
@@ -455,6 +494,7 @@
 
   function startCoordinateMeasurement() {
     cancelCoordinateMeasureHide();
+    cancelCoordinateMeasurementFrame();
     setActionMenuVisible(false);
     if (!coordinateMeasureElement) return;
     coordinateMeasureActive = true;
@@ -477,6 +517,7 @@
   }
 
   function stopCoordinateMeasurement() {
+    cancelCoordinateMeasurementFrame();
     coordinateMeasureActive = false;
     coordinateCopyInFlight = false;
     coordinateMeasurement = null;
@@ -509,7 +550,7 @@
     if (!coordinateMeasureActive) return;
     event.preventDefault();
     event.stopPropagation();
-    updateCoordinateMeasurement(coordinateMeasurementFromEvent(event));
+    scheduleCoordinateMeasurement(coordinateMeasurementFromEvent(event));
   }
 
   function handleCoordinatePointerDown(event) {
@@ -522,7 +563,8 @@
     if (!coordinateMeasureActive) return;
     event.preventDefault();
     event.stopPropagation();
-    updateCoordinateMeasurement(coordinateMeasurementFromEvent(event));
+    pendingCoordinateMeasurement = coordinateMeasurementFromEvent(event);
+    flushCoordinateMeasurement();
     void copyCoordinateMeasurement();
   }
 
@@ -591,18 +633,91 @@
     state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
     state.macroBadgePosition = normalizeMacroBadgePosition(nextState?.macroBadgePosition);
     state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
+    const activeMacroIds = new Set(state.macros.map((macro) => String(macro.id)));
+    macroIterationTimings.forEach((_value, macroId) => {
+      if (!activeMacroIds.has(macroId)) macroIterationTimings.delete(macroId);
+    });
+    seenClickStatusEvents.forEach((_value, key) => {
+      const macroId = String(key).slice(String(key).indexOf(":") + 1);
+      if (!activeMacroIds.has(macroId)) seenClickStatusEvents.delete(key);
+    });
+    retainedClickStatuses.forEach((_value, key) => {
+      const macroId = String(key).slice(String(key).indexOf(":") + 1);
+      if (!activeMacroIds.has(macroId)) retainedClickStatuses.delete(key);
+    });
     state.resourceState = nextState?.resourceState;
     state.cpuThrottleRate = nextState?.cpuThrottleRate || 1;
-    state.statuses = Array.isArray(nextState?.statuses) ? nextState.statuses : state.statuses;
+    if (Array.isArray(nextState?.statuses)) {
+      latestCoreStatuses = nextState.statuses;
+      retainAndApplyClickStatuses();
+    }
     state.lastRefreshAt = Date.now();
+  }
+
+  function retainAndApplyClickStatuses() {
+    const now = Date.now();
+    const statuses = latestCoreStatuses.map((status) => ({ ...status }));
+    statuses.forEach((status) => {
+      if (!status?.lastClick) return;
+      const key = String(status.roleId) + ":" + String(status.macroId);
+      const eventKey = [
+        status.startedAt,
+        status.lastClick.stepId,
+        status.lastClick.sequence
+      ].join(":");
+      if (seenClickStatusEvents.get(key) !== eventKey) {
+        seenClickStatusEvents.set(key, eventKey);
+        retainedClickStatuses.set(key, {
+          eventKey,
+          expiresAt: now + clickStatusRetentionMs,
+          status: { ...status, clickFlash: true }
+        });
+      }
+    });
+
+    retainedClickStatuses.forEach((retained, key) => {
+      if (retained.expiresAt <= now) {
+        retainedClickStatuses.delete(key);
+        return;
+      }
+      const index = statuses.findIndex(
+        (status) => String(status.roleId) + ":" + String(status.macroId) === key
+      );
+      if (index >= 0) {
+        const status = statuses[index];
+        const eventKey = status.lastClick
+          ? [status.startedAt, status.lastClick.stepId, status.lastClick.sequence].join(":")
+          : "";
+        if (eventKey === retained.eventKey) {
+          statuses[index] = { ...status, clickFlash: true };
+        }
+      } else {
+        statuses.push({ ...retained.status });
+      }
+    });
+    state.statuses = statuses;
+    scheduleClickStatusRetention();
+  }
+
+  function scheduleClickStatusRetention() {
+    if (clickStatusRetentionTimer !== undefined) {
+      clearTimeout(clickStatusRetentionTimer);
+      clickStatusRetentionTimer = undefined;
+    }
+    if (retainedClickStatuses.size === 0 || isDisposed) return;
+    const now = Date.now();
+    const nextExpiry = Math.min(
+      ...[...retainedClickStatuses.values()].map((retained) => retained.expiresAt)
+    );
+    clickStatusRetentionTimer = setTimeout(() => {
+      clickStatusRetentionTimer = undefined;
+      retainAndApplyClickStatuses();
+      updatePresentation();
+    }, Math.max(0, nextExpiry - now));
   }
 
   function isRunning(macroId) {
     return state.statuses.some((status) => status.macroId === macroId && status.state === "running");
-  }
-
-  function isStopping(macroId) {
-    return state.statuses.some((status) => status.macroId === macroId && status.state === "stopping");
   }
 
   function getRunningBadgeMacros() {
@@ -708,6 +823,13 @@
       });
 
     const markers = [...markersByPosition.values()];
+    const activeMarkerKeys = new Set(markers.map((marker) => marker.key));
+    clickMarkerEvents.forEach((_value, key) => {
+      if (!activeMarkerKeys.has(key)) clickMarkerEvents.delete(key);
+    });
+    clickMarkerFlashStates.forEach((_value, key) => {
+      if (!activeMarkerKeys.has(key)) clickMarkerFlashStates.delete(key);
+    });
     const nextMarkup = markers.map((marker) => {
       const eventKey = marker.sources
         .map((source) => source.eventKey)
@@ -868,6 +990,7 @@
     document.getElementById(id)?.remove();
     if (host?.id === id) {
       cancelCoordinateMeasureHide();
+      cancelCoordinateMeasurementFrame();
       activeBadgesElement = null;
       actionMenuElement = null;
       clickMarkerLayerElement = null;
@@ -1290,7 +1413,7 @@
       runAction("press", macro.id, { pressId }, true);
       return;
     }
-    runAction(isRunning(macro.id) || isStopping(macro.id) ? "stop" : "start", macro.id);
+    runAction("toggle", macro.id, undefined, true);
   }
 
   function handleKeyUp(event) {
@@ -1342,32 +1465,10 @@
       reportGameInputContext(false);
       releaseActiveHeldShortcuts();
       stopCoordinateMeasurement();
-      cancelReconciliation();
       return;
     }
     scheduleGameInputContextRefresh();
     void refresh();
-    scheduleReconciliation();
-  }
-
-  function cancelReconciliation() {
-    if (reconciliationTimer !== undefined) {
-      clearTimeout(reconciliationTimer);
-      reconciliationTimer = undefined;
-    }
-  }
-
-  function scheduleReconciliation() {
-    cancelReconciliation();
-    if (isDisposed || document.visibilityState === "hidden") return;
-    reconciliationTimer = setTimeout(() => {
-      reconciliationTimer = undefined;
-      removeLegacyHosts();
-      if (!shouldRenderUi()) {
-        removeHost(hostId);
-      }
-      void refresh().finally(scheduleReconciliation);
-    }, 30000);
   }
 
   function dispose() {
@@ -1392,7 +1493,22 @@
     document.removeEventListener("pointerlockchange", refreshGameInputContext, true);
     document.removeEventListener("visibilitychange", handleVisibilityChange, true);
 
-    cancelReconciliation();
+    if (clickStatusRetentionTimer !== undefined) {
+      clearTimeout(clickStatusRetentionTimer);
+      clickStatusRetentionTimer = undefined;
+    }
+    retainedClickStatuses.clear();
+    seenClickStatusEvents.clear();
+    activeHeldShortcuts.clear();
+    clickMarkerEvents.clear();
+    clickMarkerFlashStates.clear();
+    macroIterationTimings.clear();
+    pendingMacroActions.clear();
+    macroActionTails.clear();
+    latestCoreStatuses = [];
+    state.macros = [];
+    state.statuses = [];
+    suppressedShortcutEvents = [];
 
     removeHost(hostId);
     if (window[controllerKey]?.version === scriptVersion) {
@@ -1421,8 +1537,6 @@
     document.addEventListener("focusout", handleGameSurfaceFocusOut, true);
     document.addEventListener("pointerlockchange", refreshGameInputContext, true);
     document.addEventListener("visibilitychange", handleVisibilityChange, true);
-    scheduleReconciliation();
-
     window[controllerKey] = {
       clearSuppressedShortcut,
       dispose,

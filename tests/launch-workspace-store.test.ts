@@ -19,8 +19,7 @@ describe("LaunchWorkspaceStore Rust adapter", () => {
     const workspace = await store.createWorkspace({ name: "Party" });
     expect(workspace).toMatchObject({
       name: "Party",
-      template: "two_columns",
-      resourcePolicy: { mode: "adaptive" }
+      template: "two_columns"
     });
     await expect(store.updateWorkspace(workspace.id, { browserZoomPercent: 90 })).resolves.toMatchObject({
       browserZoomPercent: 90

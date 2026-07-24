@@ -37,7 +37,11 @@ afterEach(() => {
 
 describe("list selection", () => {
   it("starts a marquee only after the drag threshold and selects intersecting items", () => {
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    let nextFrame: FrameRequestCallback | undefined;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrame = callback;
+      return 1;
+    });
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     render(<SelectionHarness ids={["one", "two"]} />);
     setBounds(screen.getByTestId("one"), 10, 10, 40, 40);
@@ -49,8 +53,34 @@ describe("list selection", () => {
     expect(screen.getByTestId("selected").textContent).toBe("");
 
     fireEvent.pointerMove(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 1 });
+    expect(screen.getByTestId("selected").textContent).toBe("");
+    act(() => nextFrame?.(0));
     expect(screen.getByTestId("selected").textContent).toBe("one");
+
+    fireEvent.pointerMove(collection, { clientX: 65, clientY: 55, isPrimary: true, pointerId: 1 });
+    fireEvent.pointerMove(collection, { clientX: 125, clientY: 55, isPrimary: true, pointerId: 1 });
+    expect(screen.getByTestId("selected").textContent).toBe("one");
+    act(() => nextFrame?.(16));
+    expect(screen.getByTestId("selected").textContent).toBe("one,two");
     fireEvent.pointerUp(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 1 });
+  });
+
+  it("flushes the latest marquee position when the pointer ends before the next frame", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 7);
+    const cancelFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    render(<SelectionHarness ids={["one", "two"]} />);
+    setBounds(screen.getByTestId("one"), 10, 10, 40, 40);
+    setBounds(screen.getByTestId("two"), 80, 10, 40, 40);
+    const collection = screen.getByTestId("collection");
+
+    fireEvent.pointerDown(collection, { button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 3 });
+    fireEvent.pointerMove(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 3 });
+    expect(screen.getByTestId("selected").textContent).toBe("");
+
+    fireEvent.pointerUp(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 3 });
+
+    expect(screen.getByTestId("selected").textContent).toBe("one");
+    expect(cancelFrame).toHaveBeenCalledWith(7);
   });
 
   it("supports macOS Meta, Windows Ctrl, Shift ranges, select-all, and Escape", () => {
@@ -108,20 +138,18 @@ describe("list selection", () => {
 
     fireEvent.pointerDown(collection, { button: 0, clientX: 110, clientY: 70, isPrimary: true, pointerId: 2 });
     fireEvent.pointerMove(collection, { clientX: 150, clientY: 148, isPrimary: true, pointerId: 2 });
-    expect(screen.getByTestId("selected").textContent).toBe("one");
+    expect(screen.getByTestId("selected").textContent).toBe("");
+    expect(document.querySelector("[data-selection-marquee]")).toBeNull();
+
+    act(() => nextFrame?.(0));
 
     const marquee = document.querySelector<HTMLElement>("[data-selection-marquee]");
     expect(marquee?.parentElement).toBe(scrollContainer);
     expect(marquee?.className).toContain("absolute");
     expect(marquee?.className).not.toContain("fixed");
     expect(marquee?.style.top).toBe("20px");
-    expect(marquee?.style.height).toBe("78px");
-
-    act(() => nextFrame?.(0));
-
     expect(scrollContainer.scrollTop).toBeGreaterThan(0);
     expect(screen.getByTestId("selected").textContent).toBe("one,two");
-    expect(marquee?.style.top).toBe("20px");
     expect(Number.parseFloat(marquee?.style.height ?? "0")).toBeGreaterThan(78);
     fireEvent.pointerUp(collection, { clientX: 150, clientY: 148, isPrimary: true, pointerId: 2 });
   });

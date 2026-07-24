@@ -1,6 +1,10 @@
 import type {
   BrowserOperationLease,
   BrowserOperationRequest,
+  BrowserRoleStatusRecord,
+  CoreCommand,
+  CoreCommandResult,
+  CoreEvent,
   BrowserRuntimeCommand,
   BrowserRuntimeDisplayRecord,
   BrowserRuntimeRoleRecord,
@@ -22,6 +26,9 @@ export function createBrowserRuntimeState() {
   const operationQueues = new Map<string, string[]>();
   const roleVersions = new Map<string, number>();
   const blockedRoleIds = new Set<string>();
+  const listeners = new Set<(events: CoreEvent[]) => void>();
+  let typedInvoker: ((command: CoreCommand) => Promise<unknown>) | undefined;
+  let typedTail: Promise<void> = Promise.resolve();
   const operationTickets = new Map<string, {
     active: boolean;
     kind: BrowserOperationRequest["kind"];
@@ -122,7 +129,74 @@ export function createBrowserRuntimeState() {
   };
 
   return {
-    ...resourceRuntime,
+    subscribe(listener: (events: CoreEvent[]) => void): () => void {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    publishStatuses(): void {
+      const statuses = this.listBrowserStatuses();
+      listeners.forEach((listener) => listener([{ type: "browserStatuses", statuses }]));
+    },
+    invokeResourceRuntimeForTest: resourceRuntime.invokeResourceRuntime,
+    evaluateExternalChrome<T>(): Promise<T> {
+      return Promise.reject(new Error("External Chrome is not configured in this test harness."));
+    },
+    listBrowserStatuses(): BrowserRoleStatusRecord[] {
+      const resourceStatuses = resourceRuntime.invokeResourceRuntime({ type: "snapshot" }).statuses;
+      return snapshot().roles.map((role) => {
+        const resource = resourceStatuses.find((status) => status.roleId === role.roleId);
+        return {
+          roleId: role.roleId,
+          state: role.state,
+          ...(role.launchedAt ? { launchedAt: role.launchedAt } : {}),
+          runtimeMode: role.runtime,
+          ...(role.runtime === "external"
+            ? { automationState: "ready" as const, pageHealth: "healthy" as const }
+            : {}),
+          ...(resource ? {
+            resourceState: resource.resourceState,
+            cpuThrottleRate: resource.cpuThrottleRate,
+            ...(resource.resourcePressureLevel
+              ? { resourcePressureLevel: resource.resourcePressureLevel }
+              : {}),
+            ...(resource.resourceReason && resource.resourceReason !== "baseline"
+              ? { resourceReason: resource.resourceReason }
+              : {})
+          } : {})
+        };
+      });
+    },
+    listBrowserWorkspaceStatuses() {
+      return snapshot().workspaces.map(({ state, workspaceId }) => ({ state, workspaceId }));
+    },
+    invoke<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
+      if (command.type === "browserStatuses") {
+        return Promise.resolve(this.listBrowserStatuses()) as Promise<CoreCommandResult<C>>;
+      }
+      if (command.type === "browserWorkspaceStatuses") {
+        return Promise.resolve(this.listBrowserWorkspaceStatuses()) as Promise<CoreCommandResult<C>>;
+      }
+      if (command.type === "browserRuntimeSnapshot") {
+        return Promise.resolve(snapshot()) as Promise<CoreCommandResult<C>>;
+      }
+      if (!typedInvoker) {
+        return Promise.reject(new Error("The test Rust intent executor is not configured."));
+      }
+      if (
+        command.type === "browserRoleStop" ||
+        command.type === "browserWorkspaceStop" ||
+        command.type === "embeddedRoleStop" ||
+        command.type === "embeddedWorkspaceStop"
+      ) {
+        return typedInvoker(command) as Promise<CoreCommandResult<C>>;
+      }
+      const result = typedTail.then(() => typedInvoker!(command));
+      typedTail = result.then(() => undefined, () => undefined);
+      return result as Promise<CoreCommandResult<C>>;
+    },
+    setTypedInvoker(invoker: (command: CoreCommand) => Promise<unknown>): void {
+      typedInvoker = invoker;
+    },
     acquireBrowserOperation(request: BrowserOperationRequest): Promise<BrowserOperationLease> {
       const roleIds = [...new Set(request.roleIds)].sort();
       const id = `browser-operation-${++nextOperationId}`;
@@ -348,7 +422,9 @@ export function createBrowserRuntimeState() {
           workspaces.delete(command.workspaceId);
           break;
       }
-      return { ...(createdTabId ? { createdTabId } : {}), snapshot: snapshot() };
+      const runtimeSnapshot = snapshot();
+      this.publishStatuses();
+      return { ...(createdTabId ? { createdTabId } : {}), snapshot: runtimeSnapshot };
     }
   };
 }

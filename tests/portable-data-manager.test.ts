@@ -50,45 +50,46 @@ const preview: PortableImportPreview = {
 
 describe("PortableDataManager", () => {
   it("delegates export construction to Rust and only writes the selected file", async () => {
-    const invoke = vi.fn(async () => portableData);
-    const writeTextFile = vi.fn(async () => undefined);
+    const exportResult = {
+      filePath: "/tmp/output.json",
+      gameCount: 0,
+      roleCount: 0,
+      workspaceCount: 0,
+      macroCount: 0,
+      preferencesIncluded: true,
+      selection
+    };
+    const invoke = vi.fn(async () => exportResult);
     const manager = new PortableDataManager({
       core: { invoke } as never,
       now: () => new Date(2026, 6, 22),
       showOpenDialog: vi.fn(),
-      showSaveDialog: async () => ({ canceled: false, filePath: "/tmp/output.json" }),
-      writeTextFile
+      showSaveDialog: async () => ({ canceled: false, filePath: "/tmp/output.json" })
     });
 
     const result = await manager.exportData({ preferences: portableData.preferences, selection });
 
     expect(invoke).toHaveBeenCalledWith({
-      type: "portableExport",
+      type: "portableExportTo",
+      path: "/tmp/output.json",
       preferences: portableData.preferences,
       selection
     });
-    expect(writeTextFile).toHaveBeenCalledWith(
-      "/tmp/output.json",
-      `${JSON.stringify(portableData, null, 2)}\n`,
-      "utf8"
-    );
-    expect(result).toMatchObject({ filePath: "/tmp/output.json", preferencesIncluded: true });
+    expect(result).toEqual(exportResult);
   });
 
-  it("passes file contents and path to the Rust preview session", async () => {
+  it("passes only the selected path to the Rust preview session", async () => {
     const invoke = vi.fn(async () => preview);
     const manager = new PortableDataManager({
       core: { invoke } as never,
-      readTextFile: async () => "raw portable JSON",
       showOpenDialog: async () => ({ canceled: false, filePaths: ["/tmp/input.json"] }),
       showSaveDialog: vi.fn()
     });
 
     await expect(manager.previewImport()).resolves.toEqual(preview);
     expect(invoke).toHaveBeenCalledWith({
-      type: "portablePreview",
-      rawJson: "raw portable JSON",
-      filePath: "/tmp/input.json"
+      type: "portablePreviewFile",
+      path: "/tmp/input.json"
     });
   });
 
@@ -142,7 +143,6 @@ describe("PortableDataManager", () => {
 
     await expect(manager.previewImport()).resolves.toBeNull();
     await expect(manager.exportData({ selection })).resolves.toBeNull();
-    expect(invoke).toHaveBeenCalledOnce();
-    expect(invoke).toHaveBeenCalledWith({ type: "portableExport", selection });
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

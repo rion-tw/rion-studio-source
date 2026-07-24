@@ -24,7 +24,7 @@ import {
 import type { EmbeddedKeyRuntimeClient } from "../core/nativeCore";
 
 export interface BrowserAutomationTarget {
-  dispose: () => void;
+  dispose: () => Promise<void>;
   dispatchClick: (
     xPercent: number,
     yPercent: number,
@@ -64,37 +64,49 @@ export interface BrowserInputDispatchOptions {
 
 export class ElectronAutomationTarget implements BrowserAutomationTarget {
   private readonly debuggerSession: ElectronDebuggerSession;
+  private readonly lifecycleAbortController = new AbortController();
+  private readonly removeDebuggerDetachListener: () => void;
+  private readonly activeCodes = new Set<string>();
   private inputLease?: ElectronDebuggerLease;
-  private inputDispatchTail: Promise<void> = Promise.resolve();
+  private inputLane: Promise<void> = Promise.resolve();
+  private disposePromise?: Promise<void>;
+  private disposed = false;
+  private reassertInFlight = false;
+  private reassertTrailing = false;
   private transientOwnerSequence = 0;
+  private readonly handleBlur = (): void => this.scheduleHeldKeyReassertion();
+  private readonly handleFocus = (): void => this.scheduleHeldKeyReassertion();
 
   constructor(
     private readonly view: Pick<WebContentsView, "getBounds">,
     private readonly webContents: Pick<
       WebContents,
-      "debugger" | "executeJavaScript" | "focus" | "isDestroyed" | "mainFrame" | "on"
+      "debugger" | "executeJavaScript" | "focus" | "isDestroyed" | "mainFrame" | "on" | "removeListener"
     >,
     private readonly keyRuntime: EmbeddedKeyRuntimeClient,
     private readonly roleId: string,
     private readonly platform: NodeJS.Platform = "linux"
   ) {
     this.debuggerSession = getElectronDebuggerSession(webContents);
-    this.debuggerSession.onDetach(() => this.scheduleHeldKeyReassertion());
-    this.webContents.on("blur", () => this.scheduleHeldKeyReassertion());
-    this.webContents.on("focus", () => this.scheduleHeldKeyReassertion());
+    this.removeDebuggerDetachListener =
+      this.debuggerSession.onDetach(() => this.scheduleHeldKeyReassertion());
+    this.webContents.on("blur", this.handleBlur);
+    this.webContents.on("focus", this.handleFocus);
   }
 
   async focus(): Promise<void> {
-    if (this.webContents.isDestroyed()) {
-      return;
-    }
-
-    this.webContents.focus();
-    await this.focusPageTarget(true);
+    await this.enqueueInput(async () => {
+      this.lifecycleAbortController.signal.throwIfAborted();
+      if (this.webContents.isDestroyed()) return;
+      this.webContents.focus();
+      await this.focusPageTarget(true, this.lifecycleAbortController.signal);
+    });
   }
 
   async ensureInputFocus(): Promise<boolean> {
-    return this.focusPageTarget(false);
+    return this.enqueueInput(() =>
+      this.focusPageTarget(false, this.lifecycleAbortController.signal)
+    );
   }
 
   private async focusPageTarget(allowBodyFallback: boolean, signal?: AbortSignal): Promise<boolean> {
@@ -129,13 +141,38 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
   }
 
   dispatchKey(input: MacroKeyInput | string, options: BrowserInputDispatchOptions = {}): Promise<void> {
-    return this.enqueueInput(() => this.dispatchKeyUnlocked(toMacroKeyInput(input), options));
+    return this.enqueueInput(() =>
+      this.dispatchKeyUnlocked(toMacroKeyInput(input), this.withLifecycleSignal(options))
+    );
   }
 
-  dispose(): void {
-    this.keyRuntime.clearEmbeddedKeys(this.roleId);
-    this.inputLease?.release();
-    this.inputLease = undefined;
+  dispose(): Promise<void> {
+    if (this.disposePromise) return this.disposePromise;
+    this.disposed = true;
+    this.reassertTrailing = false;
+    this.lifecycleAbortController.abort(new Error("Browser automation target disposed."));
+    this.removeDebuggerDetachListener();
+    this.webContents.removeListener("blur", this.handleBlur);
+    this.webContents.removeListener("focus", this.handleFocus);
+    const cleanup = this.inputLane.catch(() => undefined).then(async () => {
+      if (!this.webContents.isDestroyed() && this.debuggerSession.isAttached()) {
+        const remaining = new Set(this.activeCodes);
+        const releaseOrder = [...remaining].sort(
+          (left, right) => Number(isModifierCode(left)) - Number(isModifierCode(right))
+        );
+        for (const code of releaseOrder) {
+          remaining.delete(code);
+          await this.sendKeyUp(code, remaining).catch(() => undefined);
+        }
+      }
+      this.activeCodes.clear();
+      await this.keyRuntime.invoke({ type: "embeddedKeysClear", roleId: this.roleId });
+      this.inputLease?.release();
+      this.inputLease = undefined;
+    });
+    this.inputLane = cleanup.catch(() => undefined);
+    this.disposePromise = cleanup;
+    return cleanup;
   }
 
   holdKey(
@@ -143,11 +180,19 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     ownerId: string,
     options: BrowserInputDispatchOptions = {}
   ): Promise<void> {
-    return this.enqueueInput(() => this.holdKeyUnlocked(toMacroKeyInput(input), ownerId, options));
+    return this.enqueueInput(() =>
+      this.holdKeyUnlocked(
+        toMacroKeyInput(input),
+        ownerId,
+        this.withLifecycleSignal(options)
+      )
+    );
   }
 
   releaseKey(input: MacroKeyInput | string, ownerId: string): Promise<void> {
-    return this.enqueueInput(() => this.releaseKeyUnlocked(toMacroKeyInput(input), ownerId));
+    return this.enqueueInput(() =>
+      this.releaseKeyUnlocked(toMacroKeyInput(input), ownerId)
+    );
   }
 
   private async dispatchKeyUnlocked(input: MacroKeyInput, options: BrowserInputDispatchOptions): Promise<void> {
@@ -180,8 +225,11 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       }
       await waitForDelay(postDelayMs, signal);
     } finally {
-      if (!hadInputLease && !this.keyRuntime.hasEmbeddedHeldKeys(this.roleId)) {
-        this.releaseInputLeaseIfIdle();
+      if (
+        !hadInputLease &&
+        !await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })
+      ) {
+        await this.releaseInputLeaseIfIdle();
       }
     }
   }
@@ -199,7 +247,10 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     await this.ensureInputLease();
     let held = false;
     try {
-      if (!hadInputLease && this.keyRuntime.hasEmbeddedHeldKeys(this.roleId)) {
+      if (
+        !hadInputLease &&
+        await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })
+      ) {
         await this.reassertHeldKeysUnlocked(signal);
       }
       await this.executePreparedKeyTransition("hold", code, modifierCodes, ownerId, signal);
@@ -214,18 +265,18 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           ownerId
         ).catch(() => undefined);
       }
-      this.releaseInputLeaseIfIdle();
+      await this.releaseInputLeaseIfIdle();
       throw error;
     }
   }
 
   private async releaseKeyUnlocked(input: MacroKeyInput, ownerId: string): Promise<void> {
-    if (this.keyRuntime.hasEmbeddedHeldKeys(this.roleId)) {
+    if (await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })) {
       await this.ensureInputLease();
     }
     const { code, modifierCodes } = resolveMacroKeyInput(input, this.platform);
     await this.executePreparedKeyTransition("release", code, modifierCodes, ownerId);
-    this.releaseInputLeaseIfIdle();
+    await this.releaseInputLeaseIfIdle();
   }
 
   private async executePreparedKeyTransition(
@@ -235,13 +286,15 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     ownerId: string,
     signal?: AbortSignal
   ): Promise<void> {
-    const transition = this.keyRuntime.prepareEmbeddedKeyTransition(
-      this.roleId,
+    const activeCodesBefore = new Set(this.activeCodes);
+    const transition = await this.keyRuntime.invoke({
+      type: "embeddedKeyPrepare",
+      roleId: this.roleId,
       phase,
       code,
       modifierCodes,
       ownerId
-    );
+    });
     const executed: EmbeddedKeyEffectRecord[] = [];
     try {
       for (const effect of transition.effects) {
@@ -249,8 +302,17 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
         executed.push(effect);
         await this.executeKeyEffect(effect);
       }
-      this.completeKeyTransition(transition, true);
+      await this.completeKeyTransition(transition, true);
+      const finalCodes = transition.effects.at(-1)?.activeCodes;
+      if (finalCodes) {
+        this.activeCodes.clear();
+        finalCodes.forEach((code) => this.activeCodes.add(code));
+      } else if (!transition.hasHeldKeys) {
+        this.activeCodes.clear();
+      }
     } catch (error) {
+      this.activeCodes.clear();
+      activeCodesBefore.forEach((code) => this.activeCodes.add(code));
       if (!this.webContents.isDestroyed() && this.debuggerSession.isAttached()) {
         for (const effect of executed.reverse()) {
           await this.executeKeyEffect({
@@ -262,17 +324,21 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
           }).catch(() => undefined);
         }
       }
-      this.completeKeyTransition(transition, false);
+      await this.completeKeyTransition(transition, false);
       throw error;
     }
   }
 
-  private completeKeyTransition(
+  private async completeKeyTransition(
     transition: EmbeddedKeyTransitionRecord,
     succeeded: boolean
-  ): void {
+  ): Promise<void> {
     if (transition.transitionId) {
-      this.keyRuntime.completeEmbeddedKeyTransition(transition.transitionId, succeeded);
+      await this.keyRuntime.invoke({
+        type: "embeddedKeyComplete",
+        transitionId: transition.transitionId,
+        succeeded
+      });
     }
   }
 
@@ -338,11 +404,15 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     yPercent: number,
     options: BrowserInputDispatchOptions = {}
   ): Promise<void> {
-    return this.enqueueInput(() => this.dispatchClickUnlocked(xPercent, yPercent, options));
+    return this.enqueueInput(() =>
+      this.dispatchClickUnlocked(xPercent, yPercent, this.withLifecycleSignal(options))
+    );
   }
 
   dispatchClickPixels(xPx: number, yPx: number, options: BrowserInputDispatchOptions = {}): Promise<void> {
-    return this.enqueueInput(() => this.dispatchClickPixelsUnlocked(xPx, yPx, options));
+    return this.enqueueInput(() =>
+      this.dispatchClickPixelsUnlocked(xPx, yPx, this.withLifecycleSignal(options))
+    );
   }
 
   dispatchClickAnchored(
@@ -352,7 +422,15 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     y: number,
     options: BrowserInputDispatchOptions = {}
   ): Promise<void> {
-    return this.enqueueInput(() => this.dispatchClickAnchoredUnlocked(anchor, unit, x, y, options));
+    return this.enqueueInput(() =>
+      this.dispatchClickAnchoredUnlocked(
+        anchor,
+        unit,
+        x,
+        y,
+        this.withLifecycleSignal(options)
+      )
+    );
   }
 
   private async dispatchClickUnlocked(
@@ -395,7 +473,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       if (didRelease) options.onClick?.();
       await waitForDelay(postDelayMs, signal);
     } finally {
-      this.releaseInputLeaseIfIdle();
+      await this.releaseInputLeaseIfIdle();
     }
   }
 
@@ -431,7 +509,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       if (didRelease) options.onClick?.();
       await waitForDelay(postDelayMs, signal);
     } finally {
-      this.releaseInputLeaseIfIdle();
+      await this.releaseInputLeaseIfIdle();
     }
   }
 
@@ -479,7 +557,7 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
       if (didRelease) options.onClick?.();
       await waitForDelay(postDelayMs, signal);
     } finally {
-      this.releaseInputLeaseIfIdle();
+      await this.releaseInputLeaseIfIdle();
     }
   }
 
@@ -492,21 +570,45 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     this.inputLease = await this.debuggerSession.acquire();
   }
 
-  private releaseInputLeaseIfIdle(): void {
-    if (this.keyRuntime.hasEmbeddedHeldKeys(this.roleId)) return;
+  private async releaseInputLeaseIfIdle(): Promise<void> {
+    if (await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })) return;
     this.inputLease?.release();
     this.inputLease = undefined;
   }
 
   private scheduleHeldKeyReassertion(): void {
-    if (!this.keyRuntime.hasEmbeddedHeldKeys(this.roleId) || this.webContents.isDestroyed()) return;
-    void this.enqueueInput(() => this.reassertHeldKeysUnlocked()).catch(() => undefined);
+    if (this.disposed || this.webContents.isDestroyed()) return;
+    if (this.reassertInFlight) {
+      this.reassertTrailing = true;
+      return;
+    }
+    this.reassertInFlight = true;
+    void this.enqueueInput(async () => {
+      if (
+        !this.disposed &&
+        await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })
+      ) {
+        await this.reassertHeldKeysUnlocked(this.lifecycleAbortController.signal);
+      }
+    }).catch(() => undefined).finally(() => {
+      this.reassertInFlight = false;
+      if (this.reassertTrailing && !this.disposed) {
+        this.reassertTrailing = false;
+        this.scheduleHeldKeyReassertion();
+      }
+    });
   }
 
   private async reassertHeldKeysUnlocked(signal?: AbortSignal): Promise<void> {
-    if (!this.keyRuntime.hasEmbeddedHeldKeys(this.roleId) || this.webContents.isDestroyed()) return;
+    if (
+      this.webContents.isDestroyed() ||
+      !await this.keyRuntime.invoke({ type: "embeddedKeysHeld", roleId: this.roleId })
+    ) return;
     await this.ensureInputLease();
-    const transition = this.keyRuntime.reassertEmbeddedKeys(this.roleId);
+    const transition = await this.keyRuntime.invoke({
+      type: "embeddedKeysReassert",
+      roleId: this.roleId
+    });
     for (const effect of transition.effects) {
       signal?.throwIfAborted();
       await this.executeKeyEffect(effect);
@@ -530,15 +632,39 @@ export class ElectronAutomationTarget implements BrowserAutomationTarget {
     };
   }
 
-  private enqueueInput(operation: () => Promise<void>): Promise<void> {
-    const result = this.inputDispatchTail.then(operation);
-    this.inputDispatchTail = result.catch(() => undefined);
+  async evaluate<T = unknown>(source: string): Promise<T> {
+    return this.enqueueInput(async () => {
+      this.lifecycleAbortController.signal.throwIfAborted();
+      return (await this.webContents.executeJavaScript(source)) as T;
+    });
+  }
+
+  private enqueueInput<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.disposed) {
+      return Promise.reject(new Error("Browser automation target disposed."));
+    }
+    const result = this.inputLane.catch(() => undefined).then(operation);
+    this.inputLane = result.then(
+      () => undefined,
+      () => undefined
+    );
     return result;
   }
 
-  async evaluate<T = unknown>(source: string): Promise<T> {
-    return (await this.webContents.executeJavaScript(source)) as T;
+  private withLifecycleSignal(
+    options: BrowserInputDispatchOptions
+  ): BrowserInputDispatchOptions {
+    return {
+      ...options,
+      signal: options.signal
+        ? AbortSignal.any([options.signal, this.lifecycleAbortController.signal])
+        : this.lifecycleAbortController.signal
+    };
   }
+}
+
+function isModifierCode(code: string): boolean {
+  return /^(Alt|Control|Meta|Shift)(Left|Right)$/.test(code);
 }
 
 export function waitForInputDelay(ms: number, signal?: AbortSignal): Promise<void> {

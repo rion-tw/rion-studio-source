@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MACRO_OVERLAY_SCRIPT } from "../src/main/macros/MacroOverlayInjector";
 import type { Macro, MacroRunStatus } from "../src/shared/types";
+import { v1Case } from "./helpers/v1Parity";
 
 interface OverlayController {
   clearSuppressedShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
@@ -113,6 +114,12 @@ describe("macro overlay interactions", () => {
   });
 
   it("opens the coordinate action on hover and copies a measured viewport point", async () => {
+    let nextFrame: FrameRequestCallback | undefined;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrame = callback;
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     const { canvas } = createGameSurface(document);
     canvas.tabIndex = -1;
     canvas.focus();
@@ -140,6 +147,7 @@ describe("macro overlay interactions", () => {
     const readout = root.querySelector<HTMLElement>(".coordinate-readout");
     if (!picker || !readout) throw new Error("Expected coordinate picker.");
     expect(picker.hidden).toBe(false);
+    expect(root.querySelector("style")?.textContent).toContain("touch-action:none");
 
     const move = new MouseEvent("mousemove", {
       bubbles: true,
@@ -148,8 +156,20 @@ describe("macro overlay interactions", () => {
       clientY: 192
     });
     expect(picker.dispatchEvent(move)).toBe(false);
-    expect(readout.textContent).toContain("X: 256px");
-    expect(readout.textContent).toContain("Y: 192px");
+    const latestMove = new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 320,
+      clientY: 240
+    });
+    expect(picker.dispatchEvent(latestMove)).toBe(false);
+    expect(requestFrame).toHaveBeenCalledOnce();
+    expect(readout.textContent).not.toContain("X: 320px");
+
+    nextFrame?.(0);
+
+    expect(readout.textContent).toContain("X: 320px");
+    expect(readout.textContent).toContain("Y: 240px");
 
     const click = new MouseEvent("click", {
       bubbles: true,
@@ -235,6 +255,8 @@ describe("macro overlay interactions", () => {
   });
 
   it("blocks macro shortcuts while measuring and lets Escape cancel without copying", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 9);
+    const cancelFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     createGameSurface(document);
     const binding = vi.fn(async (_request: unknown) => ({ macros: [assignedMacro], statuses: [] }));
     installOverlay(window, binding);
@@ -249,6 +271,12 @@ describe("macro overlay interactions", () => {
     );
     const picker = root.querySelector<HTMLElement>(".coordinate-picker");
     if (!picker) throw new Error("Expected coordinate picker.");
+    picker.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 100,
+      clientY: 100
+    }));
 
     const shortcut = new window.KeyboardEvent("keydown", {
       bubbles: true,
@@ -267,6 +295,7 @@ describe("macro overlay interactions", () => {
     });
     expect(document.dispatchEvent(escape)).toBe(false);
     expect(picker.hidden).toBe(true);
+    expect(cancelFrame).toHaveBeenCalledWith(9);
     expect(binding.mock.calls.some(([request]) => isRecord(request) && request.type === "copy-coordinate")).toBe(false);
   });
 
@@ -448,6 +477,9 @@ describe("macro overlay interactions", () => {
 
       statuses = [];
       await controller.refresh();
+      expect(layer.hidden).toBe(false);
+      expect(layer.querySelectorAll(".click-marker")).toHaveLength(2);
+      await new Promise((resolve) => setTimeout(resolve, 190));
       expect(layer.hidden).toBe(true);
       expect(layer.querySelectorAll(".click-marker")).toHaveLength(0);
     } finally {
@@ -528,7 +560,7 @@ describe("macro overlay interactions", () => {
     expect(getOverlayRoot(document).querySelector(".active-badge")).toBe(nextBadge);
   });
 
-  it("coalesces low-frequency reconciliation and runs only one trailing request", async () => {
+  it("does not poll for reconciliation while an event-driven refresh is pending", async () => {
     vi.useFakeTimers();
     createGameSurface(document);
     const firstResponse = createDeferred<unknown>();
@@ -543,29 +575,65 @@ describe("macro overlay interactions", () => {
 
     firstResponse.resolve({ macros: [assignedMacro], statuses: [] });
     await vi.advanceTimersByTimeAsync(0);
-    expect(binding).toHaveBeenCalledTimes(2);
+    v1Case("overlay-ebc04483a160", () => {
+      expect(binding).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("starts and stops macros from their in-game shortcuts while updating the badge", async () => {
     createGameSurface(document);
     let statuses: Array<Record<string, unknown>> = [];
     const binding = vi.fn(async (request: unknown) => {
-      if (isRecord(request) && request.type === "start") statuses = [runningStatus()];
-      if (isRecord(request) && request.type === "stop") statuses = [];
+      if (isRecord(request) && request.type === "toggle") {
+        statuses = statuses.length === 0 ? [runningStatus()] : [];
+      }
       return { macros: [assignedMacro], statuses };
     });
     const controller = installOverlay(window, binding);
     await controller.refresh();
 
     dispatchShortcut(window, "F2", "F2");
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "start", macroId: assignedMacro.id }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
     await vi.waitFor(() => {
       expect(getOverlayRoot(document).querySelector(".active-badge-name")?.textContent).toBe(assignedMacro.name);
     });
 
     dispatchShortcut(window, "F2", "F2");
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "stop", macroId: assignedMacro.id }));
-    await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull());
+    await vi.waitFor(() =>
+      expect(binding.mock.calls.filter(([request]) =>
+        isRecord(request) && request.type === "toggle"
+      )).toHaveLength(2)
+    );
+    await v1Case("overlay-26bea50b5338", async () => {
+      await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull());
+      expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
+    });
+  });
+
+  it("queues dense toggle intents instead of dropping a shortcut while the prior toggle is pending", async () => {
+    createGameSurface(document);
+    const firstToggle = createDeferred<unknown>();
+    let toggleCount = 0;
+    const binding = vi.fn(async (request: unknown) => {
+      if (isRecord(request) && request.type === "toggle") {
+        toggleCount += 1;
+        if (toggleCount === 1) return firstToggle.promise;
+        return { macros: [assignedMacro], statuses: [] };
+      }
+      return { macros: [assignedMacro], statuses: [] };
+    });
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    dispatchShortcut(window, "F2", "F2");
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(toggleCount).toBe(1));
+
+    firstToggle.resolve({ macros: [assignedMacro], statuses: [runningStatus()] });
+    await vi.waitFor(() => expect(toggleCount).toBe(2));
+    expect(binding.mock.calls.filter(([request]) =>
+      isRecord(request) && request.type === "toggle"
+    )).toHaveLength(2);
   });
 
   it("lets unmatched physical key events pass through without macro actions", async () => {
@@ -812,7 +880,7 @@ describe("macro overlay interactions", () => {
 
     expect(canvas.dispatchEvent(event)).toBe(true);
     expect(event.defaultPrevented).toBe(false);
-    expect(binding).not.toHaveBeenCalledWith({ type: "start", macroId: legacyZoomMacro.id });
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: legacyZoomMacro.id });
   });
 
   it("leaves reserved runtime tab switching shortcuts to the browser", async () => {
@@ -837,7 +905,7 @@ describe("macro overlay interactions", () => {
 
     expect(canvas.dispatchEvent(event)).toBe(true);
     expect(event.defaultPrevented).toBe(false);
-    expect(binding).not.toHaveBeenCalledWith({ type: "start", macroId: legacyTabMacro.id });
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: legacyTabMacro.id });
   });
 
   it("preserves Flyff text input focus and ignores keyboard events forwarded to the canvas", async () => {
@@ -898,7 +966,7 @@ describe("macro overlay interactions", () => {
     expect(forwardedEvents).toHaveLength(inputs.length);
     expect(forwardedEvents.every((event) => !event.defaultPrevented)).toBe(true);
     expect(canvasKeyDown).toHaveBeenCalledTimes(inputs.length);
-    expect(binding).not.toHaveBeenCalledWith({ type: "start", macroId: assignedMacro.id });
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
   });
 
   it("pairs while-held shortcuts with one press and release while consuming auto-repeat", async () => {
@@ -1091,7 +1159,7 @@ describe("macro overlay interactions", () => {
 
     document.dispatchEvent(event);
 
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "start", macroId: assignedMacro.id }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
   });
 
   it("captures macro shortcuts before game document handlers", async () => {
@@ -1111,7 +1179,7 @@ describe("macro overlay interactions", () => {
     dispatchShortcut(window, "F2", "F2");
 
     document.removeEventListener("keydown", gameKeyDown, true);
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "start", macroId: assignedMacro.id }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
     expect(gameKeyDown).not.toHaveBeenCalled();
   });
 
@@ -1137,7 +1205,7 @@ describe("macro overlay interactions", () => {
     expect(document.activeElement).toBe(staleInput);
     canvas.dispatchEvent(event);
 
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "start", macroId: assignedMacro.id }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
   });
 
   it("lets disabled macro shortcuts reach the game", async () => {
@@ -1160,7 +1228,7 @@ describe("macro overlay interactions", () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(pageKeyDown).toHaveBeenCalledOnce();
-    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "start" }));
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "toggle" }));
   });
 
   it("disposes a detached overlay and stops its polling intervals", async () => {

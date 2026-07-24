@@ -3,16 +3,150 @@ use std::{fs, path::Path};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
 
-use crate::model::BrowserGraphicsSettingsRecord;
+use rion_platform::Platform;
 
-pub fn read_graphics_settings(user_data_dir: &Path) -> String {
-    let settings = read_sqlite_settings(&user_data_dir.join("rion-studio.sqlite3"))
+use crate::model::{BootstrapPlanRecord, BrowserGraphicsSettingsRecord, ChromiumSwitchRecord};
+
+const BASE_SWITCHES: &[&str] = &[
+    "no-first-run",
+    "no-default-browser-check",
+    "disable-default-apps",
+    "disable-component-extensions-with-background-pages",
+    "metrics-recording-only",
+    "no-service-autorun",
+    "disable-search-engine-choice-screen",
+];
+const BACKGROUND_FEATURES_TO_DISABLE: &[&str] = &["MediaRouter", "OptimizationHints", "Translate"];
+
+pub fn read_plan(
+    user_data_dir: &Path,
+    platform: Platform,
+    current_enable_features: &str,
+    current_disable_features: &str,
+) -> BootstrapPlanRecord {
+    let settings = load_graphics_settings(user_data_dir);
+    let switches = chromium_switches(
+        &settings,
+        platform,
+        current_enable_features,
+        current_disable_features,
+    );
+    BootstrapPlanRecord {
+        applied_graphics_settings: settings,
+        switches,
+    }
+}
+
+fn load_graphics_settings(user_data_dir: &Path) -> BrowserGraphicsSettingsRecord {
+    read_sqlite_settings(&user_data_dir.join("rion-studio.sqlite3"))
         .or_else(|| read_legacy_settings(&user_data_dir.join("game-browser-settings.json")))
-        .unwrap_or_else(BrowserGraphicsSettingsRecord::aggressive_default);
-    serde_json::to_string(&settings).unwrap_or_else(|_| {
-        serde_json::to_string(&BrowserGraphicsSettingsRecord::aggressive_default())
-            .expect("graphics settings must serialize")
-    })
+        .unwrap_or_else(|| BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"))
+}
+
+pub fn formatted_graphics_switches(
+    settings: &BrowserGraphicsSettingsRecord,
+    platform: Platform,
+) -> Vec<String> {
+    graphics_switches(settings, platform)
+        .into_iter()
+        .map(|item| match item.value {
+            Some(value) => format!("--{}={value}", item.name),
+            None => format!("--{}", item.name),
+        })
+        .collect()
+}
+
+fn chromium_switches(
+    settings: &BrowserGraphicsSettingsRecord,
+    platform: Platform,
+    current_enable_features: &str,
+    current_disable_features: &str,
+) -> Vec<ChromiumSwitchRecord> {
+    let mut switches = BASE_SWITCHES
+        .iter()
+        .map(|name| switch(name, None))
+        .collect::<Vec<_>>();
+    for mut item in graphics_switches(settings, platform) {
+        if item.name == "enable-features" {
+            item.value = Some(merge_comma_separated(
+                current_enable_features,
+                item.value.as_deref(),
+            ));
+        }
+        switches.push(item);
+    }
+    switches.push(switch(
+        "disable-features",
+        Some(merge_comma_separated(
+            current_disable_features,
+            BACKGROUND_FEATURES_TO_DISABLE.iter().copied(),
+        )),
+    ));
+    switches
+}
+
+fn graphics_switches(
+    settings: &BrowserGraphicsSettingsRecord,
+    platform: Platform,
+) -> Vec<ChromiumSwitchRecord> {
+    let mut switches = Vec::new();
+    if settings.prefer_high_performance_gpu {
+        switches.push(switch("force-high-performance-gpu", None));
+    }
+    if settings.force_gpu_rasterization {
+        switches.push(switch("enable-gpu-rasterization", None));
+    }
+    if !settings.gpu_blocklist_enabled {
+        switches.push(switch("ignore-gpu-blocklist", None));
+    }
+    if settings.unsafe_web_gpu_enabled {
+        switches.push(switch("enable-unsafe-webgpu", None));
+    }
+    if !settings.frame_rate_limit_enabled {
+        switches.push(switch("disable-frame-rate-limit", None));
+    }
+    if !settings.vsync_enabled {
+        switches.push(switch("disable-gpu-vsync", None));
+    }
+    if !settings.driver_bug_workarounds_enabled {
+        switches.push(switch("disable-gpu-driver-bug-workarounds", None));
+    }
+    match platform {
+        Platform::Macos if settings.backend.macos == "metal" => {
+            switches.push(switch("use-angle", Some("metal".to_owned())));
+        }
+        Platform::Windows if settings.backend.windows == "vulkan" => {
+            switches.push(switch("use-angle", Some("vulkan".to_owned())));
+            switches.push(switch("use-vulkan", Some("native".to_owned())));
+            switches.push(switch("enable-features", Some("Vulkan".to_owned())));
+        }
+        Platform::Windows if settings.backend.windows != "automatic" => {
+            switches.push(switch("use-angle", Some(settings.backend.windows.clone())));
+        }
+        _ => {}
+    }
+    switches
+}
+
+fn switch(name: &str, value: Option<String>) -> ChromiumSwitchRecord {
+    ChromiumSwitchRecord {
+        name: name.to_owned(),
+        value,
+    }
+}
+
+fn merge_comma_separated<'a>(
+    current: &'a str,
+    additions: impl IntoIterator<Item = &'a str>,
+) -> String {
+    let mut output = Vec::<String>::new();
+    for value in current.split(',').chain(additions) {
+        let value = value.trim();
+        if !value.is_empty() && !output.iter().any(|candidate| candidate == value) {
+            output.push(value.to_owned());
+        }
+    }
+    output.join(",")
 }
 
 fn read_sqlite_settings(path: &Path) -> Option<BrowserGraphicsSettingsRecord> {
@@ -75,8 +209,8 @@ mod tests {
             )
             .unwrap();
 
-        let settings: BrowserGraphicsSettingsRecord =
-            serde_json::from_str(&read_graphics_settings(directory.path())).unwrap();
+        let settings =
+            read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
         assert_eq!(
             settings,
             BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance")
@@ -91,20 +225,26 @@ mod tests {
             r#"{"graphics":{"mode":"experimental"}}"#,
         )
         .unwrap();
-        let settings: BrowserGraphicsSettingsRecord =
-            serde_json::from_str(&read_graphics_settings(directory.path())).unwrap();
+        let settings =
+            read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
         assert_eq!(
             settings,
             BrowserGraphicsSettingsRecord::from_legacy_mode("experimental")
         );
+        crate::v1_case!("browser-workspace-b4ce96870a1a", {
+            assert_eq!(
+                settings,
+                BrowserGraphicsSettingsRecord::from_legacy_mode("experimental")
+            );
+        });
 
         fs::write(
             directory.path().join("game-browser-settings.json"),
             r#"{"graphics":{"mode":"unsafe"}}"#,
         )
         .unwrap();
-        let settings: BrowserGraphicsSettingsRecord =
-            serde_json::from_str(&read_graphics_settings(directory.path())).unwrap();
+        let settings =
+            read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
         assert_eq!(
             settings,
             BrowserGraphicsSettingsRecord::from_legacy_mode("automatic")
@@ -112,13 +252,112 @@ mod tests {
     }
 
     #[test]
-    fn defaults_new_installations_to_aggressive_graphics_settings() {
+    fn defaults_missing_and_invalid_startup_settings_to_automatic() {
         let directory = tempdir().unwrap();
-        let settings: BrowserGraphicsSettingsRecord =
-            serde_json::from_str(&read_graphics_settings(directory.path())).unwrap();
-        assert_eq!(
-            settings,
-            BrowserGraphicsSettingsRecord::aggressive_default()
+        let missing =
+            read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
+        fs::write(
+            directory.path().join("game-browser-settings.json"),
+            b"{invalid",
+        )
+        .unwrap();
+        let invalid =
+            read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
+
+        crate::v1_case!("browser-workspace-77044f2f1365", {
+            let automatic = BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
+            assert_eq!(missing, automatic);
+            assert_eq!(invalid, automatic);
+        });
+        crate::v1_case!("resource-platform-1c4495725392", {
+            let automatic = BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
+            assert_eq!(
+                BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"),
+                automatic
+            );
+            assert_eq!(
+                BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance"),
+                BrowserGraphicsSettingsRecord {
+                    prefer_high_performance_gpu: true,
+                    ..automatic.clone()
+                }
+            );
+            assert_eq!(
+                BrowserGraphicsSettingsRecord::from_legacy_mode("unsafe"),
+                automatic
+            );
+        });
+    }
+
+    #[test]
+    fn preserves_disabled_features_and_applies_safe_high_performance_switches() {
+        let settings = BrowserGraphicsSettingsRecord::from_legacy_mode("high_performance");
+        let switches = chromium_switches(
+            &settings,
+            Platform::Macos,
+            "",
+            "ExistingFeature,MediaRouter",
         );
+
+        crate::v1_case!("browser-workspace-ec8bf4e43acc", {
+            assert!(switches.contains(&switch("force-high-performance-gpu", None)));
+            assert!(!switches.contains(&switch("ignore-gpu-blocklist", None)));
+            assert!(switches.iter().any(|item| {
+                item.name == "disable-features"
+                    && item.value.as_deref()
+                        == Some("ExistingFeature,MediaRouter,OptimizationHints,Translate")
+            }));
+        });
+    }
+
+    #[test]
+    fn limits_unsafe_switches_to_explicit_experimental_mode() {
+        let automatic = chromium_switches(
+            &BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"),
+            Platform::Macos,
+            "",
+            "",
+        );
+        let experimental = chromium_switches(
+            &BrowserGraphicsSettingsRecord::from_legacy_mode("experimental"),
+            Platform::Macos,
+            "",
+            "",
+        );
+
+        crate::v1_case!("browser-workspace-cc817a22dbcc", {
+            assert!(!automatic.contains(&switch("ignore-gpu-blocklist", None)));
+            assert!(!automatic.contains(&switch("enable-unsafe-webgpu", None)));
+            assert!(experimental.contains(&switch("force-high-performance-gpu", None)));
+            assert!(experimental.contains(&switch("ignore-gpu-blocklist", None)));
+            assert!(experimental.contains(&switch("enable-unsafe-webgpu", None)));
+        });
+    }
+
+    #[test]
+    fn builds_explicit_cross_platform_switch_plans_and_merges_feature_values() {
+        let mut settings = BrowserGraphicsSettingsRecord::aggressive_default();
+        settings.backend.macos = "metal".to_owned();
+        let macos = chromium_switches(
+            &settings,
+            Platform::Macos,
+            "ExistingFeature",
+            "ExistingDisabled",
+        );
+        assert!(macos.contains(&switch("use-angle", Some("metal".to_owned()))));
+        assert!(macos.iter().any(|item| {
+            item.name == "disable-features"
+                && item.value.as_deref()
+                    == Some("ExistingDisabled,MediaRouter,OptimizationHints,Translate")
+        }));
+
+        settings.backend.windows = "vulkan".to_owned();
+        let windows = chromium_switches(&settings, Platform::Windows, "ExistingFeature", "");
+        assert!(windows.contains(&switch("use-angle", Some("vulkan".to_owned()))));
+        assert!(windows.contains(&switch("use-vulkan", Some("native".to_owned()))));
+        assert!(windows.iter().any(|item| {
+            item.name == "enable-features"
+                && item.value.as_deref() == Some("ExistingFeature,Vulkan")
+        }));
     }
 }

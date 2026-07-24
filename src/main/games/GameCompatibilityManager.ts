@@ -2,23 +2,19 @@ import { EventEmitter } from "node:events";
 
 import type { BrowserWindow, BrowserWindowConstructorOptions, Session } from "electron";
 
+import type { CompatibilityCoreEffectAction } from "../core/ElectronEffectExecutor";
 import type {
-  CompatibilityCheckOutcome,
-  CompatibilityCheckPlanRecord,
-  CompatibilityRunStatusRecord,
-  CompatibilityVersionRecord
+  CompatibilityVersionRecord,
+  CoreEffectRequest,
+  CoreJsonValue
 } from "../../shared/generated";
 import type {
   GameCompatibilityObservations,
   GameCompatibilityReport,
-  GameCompatibilityRunPhase,
   GameCompatibilityRunStatus,
   PixelBounds
 } from "../../shared/types";
 import type { AppCoreClient } from "../core/nativeCore";
-import { probeWebGraphics } from "../game-browser/GraphicsDiagnosticsService";
-
-const LOAD_TIMEOUT_MS = 20_000;
 
 export interface GameCompatibilityManagerEvents {
   change: [];
@@ -30,14 +26,22 @@ interface GameCompatibilityManagerOptions {
   core: Pick<AppCoreClient, "invoke" | "subscribe">;
   createWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   getLaunchWorkArea: () => PixelBounds;
-  isSystemChromeAvailable: () => boolean;
-  loadTimeoutMs?: number;
   versions?: NodeJS.ProcessVersions;
 }
 
-/** Electron effect executor for the Rust-owned compatibility runtime. */
+interface CompatibilityWindowHandle {
+  closedListener: () => void;
+  session: Session;
+  window: BrowserWindow;
+}
+
+export type CompatibilityCoreEffect = CoreEffectRequest & {
+  action: CompatibilityCoreEffectAction;
+};
+
+/** Executes only BrowserWindow/session effects for the Rust compatibility actor. */
 export class GameCompatibilityManager extends EventEmitter<GameCompatibilityManagerEvents> {
-  private readonly windows = new Map<string, BrowserWindow>();
+  private readonly windows = new Map<string, CompatibilityWindowHandle>();
   private statusProjection: GameCompatibilityRunStatus[] = [];
 
   constructor(private readonly options: GameCompatibilityManagerOptions) {
@@ -50,7 +54,7 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
       this.statusProjection = structuredClone(event.statuses);
       this.emit("change");
     });
-    void options.core.invoke<CompatibilityRunStatusRecord[]>({ type: "compatibilityStatuses" })
+    void options.core.invoke({ type: "compatibilityStatuses" })
       .then((statuses) => {
         this.statusProjection = structuredClone(statuses);
       })
@@ -62,111 +66,51 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
   }
 
   listReports(): Promise<GameCompatibilityReport[]> {
-    return this.options.core.invoke<GameCompatibilityReport[]>({
+    return this.options.core.invoke({
       type: "compatibilityReportsCurrent",
       versions: this.versions()
     });
   }
 
-  async runCheck(gameId: string): Promise<GameCompatibilityReport> {
-    const plan = await this.options.core.invoke<CompatibilityCheckPlanRecord>({
-      type: "compatibilityPrepare",
+  runCheck(gameId: string): Promise<GameCompatibilityReport> {
+    return this.options.core.invoke({
+      type: "compatibilityRun",
       gameId,
-      systemChromeAvailable: this.options.isSystemChromeAvailable(),
       versions: this.versions()
-    });
-    const startedAtMs = Date.now();
-    let window: BrowserWindow | undefined;
-    let closed = false;
-    let outcome: CompatibilityCheckOutcome;
-
-    try {
-      window = this.createTestWindow(plan);
-      this.windows.set(gameId, window);
-      window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-      const closedPromise = new Promise<"closed">((resolve) => window!.once("closed", () => {
-        closed = true;
-        resolve("closed");
-      }));
-      await Promise.all([
-        this.options.applyProxy(window.webContents.session),
-        this.options.applyCdnCompatibility(window.webContents.session)
-      ]);
-
-      if (closed) {
-        await this.requestCancel(gameId);
-        outcome = { kind: "cancelled", durationMs: Date.now() - startedAtMs };
-      } else {
-        window.show();
-        await this.transition(gameId, "loading");
-        const timeout = createTimeout(this.options.loadTimeoutMs ?? LOAD_TIMEOUT_MS);
-        let loadResult: "loaded" | "closed" | "timeout";
-        try {
-          loadResult = await Promise.race([
-            window.webContents.loadURL(plan.launchUrl).then(() => "loaded" as const),
-            closedPromise,
-            timeout.promise
-          ]);
-        } finally {
-          timeout.cancel();
-        }
-
-        if (loadResult === "closed" || closed) {
-          await this.requestCancel(gameId);
-          outcome = { kind: "cancelled", durationMs: Date.now() - startedAtMs };
-        } else if (loadResult === "timeout") {
-          outcome = {
-            kind: "failed",
-            durationMs: Date.now() - startedAtMs,
-            errorCode: "COMPATIBILITY_LOAD_TIMEOUT"
-          };
-        } else {
-          const finalOrigin = readOrigin(window.webContents.getURL());
-          await this.transition(gameId, "probing");
-          const graphics = await probeWebGraphics(
-            (source) => window!.webContents.executeJavaScript(source)
-          );
-          if (closed) {
-            await this.requestCancel(gameId);
-            outcome = { kind: "cancelled", durationMs: Date.now() - startedAtMs };
-          } else {
-            outcome = {
-              kind: "loaded",
-              durationMs: Date.now() - startedAtMs,
-              ...(finalOrigin ? { finalOrigin } : {}),
-              graphics
-            };
-          }
-        }
-      }
-    } catch (error) {
-      if (closed) {
-        await this.requestCancel(gameId);
-        outcome = { kind: "cancelled", durationMs: Date.now() - startedAtMs };
-      } else {
-        outcome = {
-          kind: "failed",
-          durationMs: Date.now() - startedAtMs,
-          errorCode: toErrorCode(error)
-        };
-      }
-    } finally {
-      await this.transition(gameId, "cleaning_up").catch(() => undefined);
-      await cleanupWindow(window);
-      this.windows.delete(gameId);
-    }
-
-    return this.options.core.invoke<GameCompatibilityReport>({
-      type: "compatibilityComplete",
-      gameId,
-      outcome
     });
   }
 
   async cancelCheck(gameId: string): Promise<void> {
-    await this.requestCancel(gameId);
-    const window = this.windows.get(gameId);
-    if (window && !window.isDestroyed()) window.close();
+    await this.options.core.invoke({ type: "compatibilityCancel", gameId });
+  }
+
+  async executeEffect(effect: CompatibilityCoreEffect): Promise<CoreJsonValue | undefined> {
+    switch (effect.action.type) {
+      case "compatibilityCreateWindow":
+        this.createTestWindow(effect.action.plan);
+        return undefined;
+      case "compatibilityConfigureSession": {
+        const window = this.requireWindow(effect.action.gameId);
+        await Promise.all([
+          this.options.applyProxy(window.webContents.session),
+          this.options.applyCdnCompatibility(window.webContents.session)
+        ]);
+        if (window.isDestroyed()) throw effectError("COMPATIBILITY_WINDOW_CLOSED");
+        window.show();
+        return undefined;
+      }
+      case "compatibilityLoadUrl": {
+        const window = this.requireWindow(effect.action.gameId);
+        await window.webContents.loadURL(effect.action.url);
+        return { finalUrl: window.webContents.getURL() };
+      }
+      case "compatibilityProbeGraphics":
+        return await this.requireWindow(effect.action.gameId)
+          .webContents.executeJavaScript(effect.action.source) as CoreJsonValue;
+      case "compatibilityCleanupWindow":
+        await this.cleanupWindow(effect.action.gameId);
+        return undefined;
+    }
   }
 
   async recordObservation(
@@ -187,10 +131,14 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
     this.emit("change");
   }
 
-  private createTestWindow(plan: CompatibilityCheckPlanRecord): BrowserWindow {
+  private createTestWindow(plan: {
+    gameId: string;
+    gameName: string;
+    startedAt: string;
+  }): void {
     const workArea = this.options.getLaunchWorkArea();
     const partitionSuffix = plan.startedAt.replace(/[^0-9A-Za-z]/g, "");
-    return this.options.createWindow({
+    const window = this.options.createWindow({
       x: workArea.x,
       y: workArea.y,
       width: workArea.width,
@@ -208,14 +156,36 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
         webgl: true
       }
     });
+    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    const closedListener = (): void => {
+      void this.options.core.invoke({ type: "compatibilityCancel", gameId: plan.gameId });
+    };
+    window.once("closed", closedListener);
+    this.windows.set(plan.gameId, {
+      closedListener,
+      session: window.webContents.session,
+      window
+    });
   }
 
-  private transition(gameId: string, phase: GameCompatibilityRunPhase): Promise<unknown> {
-    return this.options.core.invoke({ type: "compatibilityTransition", gameId, phase });
+  private requireWindow(gameId: string): BrowserWindow {
+    const window = this.windows.get(gameId)?.window;
+    if (!window || window.isDestroyed()) throw effectError("COMPATIBILITY_WINDOW_CLOSED");
+    return window;
   }
 
-  private requestCancel(gameId: string): Promise<unknown> {
-    return this.options.core.invoke({ type: "compatibilityCancel", gameId });
+  private async cleanupWindow(gameId: string): Promise<void> {
+    const handle = this.windows.get(gameId);
+    if (!handle) return;
+    this.windows.delete(gameId);
+    const { closedListener, session, window } = handle;
+    window.removeListener("closed", closedListener);
+    if (!window.isDestroyed()) window.destroy();
+    await Promise.allSettled([
+      session.clearStorageData(),
+      session.clearCache(),
+      session.closeAllConnections()
+    ]);
   }
 
   private versions(): CompatibilityVersionRecord {
@@ -226,40 +196,6 @@ export class GameCompatibilityManager extends EventEmitter<GameCompatibilityMana
   }
 }
 
-async function cleanupWindow(window: BrowserWindow | undefined): Promise<void> {
-  if (!window) return;
-  const session = window.webContents.session;
-  if (!window.isDestroyed()) window.destroy();
-  await Promise.allSettled([
-    session.clearStorageData(),
-    session.clearCache(),
-    session.closeAllConnections()
-  ]);
-}
-
-function createTimeout(timeoutMs: number): { cancel: () => void; promise: Promise<"timeout"> } {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const promise = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), timeoutMs);
-  });
-  return {
-    cancel: () => {
-      if (timer) clearTimeout(timer);
-      timer = undefined;
-    },
-    promise
-  };
-}
-
-function readOrigin(value: string): string | undefined {
-  try {
-    return new URL(value).origin;
-  } catch {
-    return undefined;
-  }
-}
-
-function toErrorCode(error: unknown): string {
-  if (error && typeof error === "object" && "code" in error) return String(error.code);
-  return "COMPATIBILITY_LOAD_FAILED";
+function effectError(code: string): Error & { code: string } {
+  return Object.assign(new Error("The compatibility test window was closed."), { code });
 }

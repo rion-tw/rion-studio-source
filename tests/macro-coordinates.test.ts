@@ -7,15 +7,18 @@ import {
   parseMacroCoordinateClipboard,
   resolveMacroClickOffset
 } from "../src/shared/macroCoordinates";
+import { v1Case } from "./helpers/v1Parity";
 
 describe("macro coordinate clipboard format", () => {
   it("formats px and percent values with two decimal percent precision", () => {
-    expect(formatMacroCoordinateClipboard({
-      xPercent: 12.345,
-      xPx: 123,
-      yPercent: 56.789,
-      yPx: 456
-    })).toBe("X: 123px (12.35%), Y: 456px (56.79%)");
+    v1Case("overlay-cf546fd8cd7b", () => {
+      expect(formatMacroCoordinateClipboard({
+        xPercent: 12.345,
+        xPx: 123,
+        yPercent: 56.789,
+        yPx: 456
+      })).toBe("X: 123px (12.35%), Y: 456px (56.79%)");
+    });
   });
 
   it("includes viewport metadata when available", () => {

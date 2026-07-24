@@ -254,6 +254,20 @@ mod tests {
         }
     }
 
+    fn assert_zoom_level(zoom_factor: f64) {
+        let mut value = serde_json::json!({});
+        apply_zoom(&mut value, zoom_factor).unwrap();
+        if zoom_factor == 1.0 {
+            assert!(value.pointer("/partition/default_zoom_level/x").is_none());
+        } else {
+            let actual = value
+                .pointer("/partition/default_zoom_level/x")
+                .and_then(Value::as_f64)
+                .unwrap();
+            assert!((actual - zoom_factor.ln() / 1.2_f64.ln()).abs() < 1e-12);
+        }
+    }
+
     #[test]
     fn applies_fonts_to_chrome_and_electron_preferences() {
         let directory = tempdir().unwrap();
@@ -282,6 +296,25 @@ mod tests {
 
     #[test]
     fn combines_zoom_with_fonts_and_preserves_unrelated_preferences() {
+        crate::v1_case!("browser-workspace-634067b0e9e1", {
+            assert_zoom_level(0.25);
+        });
+        crate::v1_case!("browser-workspace-48a4a8debeae", {
+            assert_zoom_level(0.33);
+        });
+        crate::v1_case!("browser-workspace-8b81ac2d81ae", {
+            assert_zoom_level(0.5);
+        });
+        crate::v1_case!("browser-workspace-e82a46509a74", {
+            assert_zoom_level(0.9);
+        });
+        crate::v1_case!("browser-workspace-3f959230081a", {
+            assert_zoom_level(1.0);
+        });
+        crate::v1_case!("browser-workspace-5a70d4247957", {
+            assert_zoom_level(1.25);
+        });
+
         let directory = tempdir().unwrap();
         let browser = directory.path().join("browser");
         let path = browser.join("Default/Preferences");
@@ -312,6 +345,27 @@ mod tests {
                 .pointer("/partition/per_host_zoom_levels/other")
                 .is_some()
         );
+        crate::v1_case!("browser-workspace-d5842155e369", {
+            assert_eq!(
+                value.pointer("/partition/default_zoom_level/other"),
+                Some(&Value::from(2))
+            );
+            let actual = value
+                .pointer("/partition/default_zoom_level/x")
+                .and_then(Value::as_f64)
+                .unwrap();
+            assert!((actual - 0.5_f64.ln() / 1.2_f64.ln()).abs() < 1e-12);
+            assert!(value.pointer("/partition/per_host_zoom_levels/x").is_none());
+            assert!(
+                value
+                    .pointer("/partition/per_host_zoom_levels/other")
+                    .is_some()
+            );
+            assert_eq!(
+                value.pointer("/profile/name"),
+                Some(&Value::String("Role".to_owned()))
+            );
+        });
     }
 
     #[test]
@@ -352,6 +406,25 @@ mod tests {
         );
         assert!(value.pointer("/webkit/webprefs/fonts").is_none());
         assert!(value.pointer("/partition/default_zoom_level").is_none());
+        crate::v1_case!("browser-workspace-85e80a6734ef", {
+            assert!(value.pointer("/partition/default_zoom_level/x").is_none());
+            assert!(value.pointer("/partition/per_host_zoom_levels/x").is_none());
+        });
+        crate::v1_case!("browser-workspace-92ff089cf29a", {
+            let missing_browser = directory.path().join("missing-browser");
+            assert!(
+                apply(
+                    directory.path(),
+                    &missing_browser,
+                    None,
+                    &fonts("default"),
+                    Some(1.0)
+                )
+                .unwrap()
+                .is_empty()
+            );
+            assert!(!missing_browser.join("Default/Preferences").exists());
+        });
     }
 
     #[test]
@@ -388,5 +461,184 @@ mod tests {
             )
             .is_err()
         );
+        crate::v1_case!("browser-workspace-6fbd9280eaae", {
+            let error = apply(
+                directory.path(),
+                &browser,
+                None,
+                &fonts("custom"),
+                Some(0.0),
+            )
+            .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "Chrome zoom factor must be greater than zero."
+            );
+        });
+    }
+
+    #[test]
+    fn writes_preferences_atomically_and_recovers_invalid_json() {
+        let directory = tempdir().unwrap();
+        let browser = directory.path().join("browser");
+        let path = browser.join("Default/Preferences");
+
+        apply(
+            directory.path(),
+            &browser,
+            None,
+            &fonts("default"),
+            Some(0.75),
+        )
+        .unwrap();
+        crate::v1_case!("browser-workspace-61348ba870d1", {
+            let value: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            assert!(value.pointer("/partition/default_zoom_level/x").is_some());
+            let leftovers = fs::read_dir(path.parent().unwrap())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .filter(|name| name.to_string_lossy().starts_with(".rion-preferences-"))
+                .collect::<Vec<_>>();
+            assert!(leftovers.is_empty());
+        });
+
+        fs::write(&path, "[invalid").unwrap();
+        apply(
+            directory.path(),
+            &browser,
+            None,
+            &fonts("default"),
+            Some(1.25),
+        )
+        .unwrap();
+        crate::v1_case!("browser-workspace-4fdf2c9c9b28", {
+            let value: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            let actual = value
+                .pointer("/partition/default_zoom_level/x")
+                .and_then(Value::as_f64)
+                .unwrap();
+            assert!((actual - 1.25_f64.ln() / 1.2_f64.ln()).abs() < 1e-12);
+        });
+    }
+
+    #[test]
+    fn preserves_v1_browser_font_preference_contracts() {
+        let custom_fonts = BrowserFontSettingsRecord {
+            mode: "custom".to_owned(),
+            families: HashMap::from([
+                ("fixed".to_owned(), "Courier New".to_owned()),
+                ("math".to_owned(), "Noto Sans Math".to_owned()),
+                ("sansserif".to_owned(), "Helvetica".to_owned()),
+                ("serif".to_owned(), "Times New Roman".to_owned()),
+                ("standard".to_owned(), "Arial".to_owned()),
+            ]),
+        };
+
+        crate::v1_case!("resource-platform-2127fbe08a0d", {
+            let mut preferences = serde_json::json!({
+                "profile": {"name": "Default"},
+                "webkit": {"webprefs": {"fonts": {
+                    "fixed": {"Zyyy": "Old Mono"},
+                    "standard": {"Zyyy": "Old Standard"}
+                }}}
+            });
+            apply_fonts(&mut preferences, &custom_fonts);
+            assert_eq!(
+                preferences,
+                serde_json::json!({
+                    "profile": {"name": "Default"},
+                    "webkit": {"webprefs": {"fonts": {
+                        "fixed": {"Zyyy": "Courier New"},
+                        "math": {"Zyyy": "Noto Sans Math"},
+                        "sansserif": {"Zyyy": "Helvetica"},
+                        "serif": {"Zyyy": "Times New Roman"},
+                        "standard": {"Zyyy": "Arial"}
+                    }}}
+                })
+            );
+        });
+
+        crate::v1_case!("resource-platform-d756357b69f9", {
+            let mut preferences = serde_json::json!({
+                "profile": {"name": "Default"},
+                "webkit": {"webprefs": {
+                    "default_font_size": 16,
+                    "fonts": {
+                        "fixed": {"Zyyy": "Courier New"},
+                        "standard": {"Zyyy": "Arial"}
+                    }
+                }}
+            });
+            apply_fonts(&mut preferences, &fonts("default"));
+            prune_empty_objects(&mut preferences);
+            assert_eq!(
+                preferences,
+                serde_json::json!({
+                    "profile": {"name": "Default"},
+                    "webkit": {"webprefs": {"default_font_size": 16}}
+                })
+            );
+        });
+
+        crate::v1_case!("resource-platform-8967986cd0c9", {
+            let directory = tempdir().unwrap();
+            let browser = directory.path().join("role-browser");
+            let updated = apply(
+                directory.path(),
+                &browser,
+                Some("persist:rion-role-role-1"),
+                &custom_fonts,
+                None,
+            )
+            .unwrap();
+            let chrome = browser.join("Default/Preferences");
+            let electron = directory
+                .path()
+                .join("Partitions/rion-role-role-1/Preferences");
+            assert_eq!(updated, vec![chrome.clone(), electron.clone()]);
+            let chrome_value: Value =
+                serde_json::from_str(&fs::read_to_string(chrome).unwrap()).unwrap();
+            let electron_value: Value =
+                serde_json::from_str(&fs::read_to_string(electron).unwrap()).unwrap();
+            assert_eq!(
+                chrome_value.pointer("/webkit/webprefs/fonts/standard/Zyyy"),
+                Some(&Value::String("Arial".to_owned()))
+            );
+            assert_eq!(
+                electron_value.pointer("/webkit/webprefs/fonts/fixed/Zyyy"),
+                Some(&Value::String("Courier New".to_owned()))
+            );
+        });
+
+        crate::v1_case!("resource-platform-bfd28041b3ec", {
+            let directory = tempdir().unwrap();
+            let path = directory.path().join("Default/Preferences");
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(
+                &path,
+                r#"{"webkit":{"webprefs":{"default_font_size":18,"fonts":{"standard":{"Zyyy":"Arial"}}}}}"#,
+            )
+            .unwrap();
+            assert!(apply_to_file(&path, &fonts("default"), None).unwrap());
+            let value: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+            assert_eq!(
+                value,
+                serde_json::json!({
+                    "webkit": {"webprefs": {"default_font_size": 18}}
+                })
+            );
+        });
+
+        crate::v1_case!("resource-platform-9ab761322de0", {
+            let directory = tempdir().unwrap();
+            let path = directory.path().join("Default/Preferences");
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let mut current = serde_json::json!({});
+            apply_fonts(&mut current, &custom_fonts);
+            let original = serde_json::to_vec_pretty(&current).unwrap();
+            fs::write(&path, &original).unwrap();
+            assert!(!apply_to_file(&path, &custom_fonts, None).unwrap());
+            assert_eq!(fs::read(&path).unwrap(), original);
+        });
     }
 }

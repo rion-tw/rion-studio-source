@@ -115,7 +115,7 @@ pub(super) fn load(user_data_dir: &Path) -> CoreResult<Option<RecoveryPlan>> {
             snapshot_fields.insert(snapshot_key.to_owned(), value.clone());
         }
     }
-    normalize_workspace_policies(&mut snapshot_fields)?;
+    strip_workspace_policies(&mut snapshot_fields)?;
     Ok(Some(RecoveryPlan {
         storage_kind,
         snapshot_fields,
@@ -195,7 +195,7 @@ fn required_string_array(object: &Map<String, Value>, key: &str) -> CoreResult<V
         .collect()
 }
 
-fn normalize_workspace_policies(fields: &mut Map<String, Value>) -> CoreResult<()> {
+fn strip_workspace_policies(fields: &mut Map<String, Value>) -> CoreResult<()> {
     let workspaces = fields
         .get_mut("launchWorkspaces")
         .and_then(Value::as_array_mut)
@@ -206,16 +206,7 @@ fn normalize_workspace_policies(fields: &mut Map<String, Value>) -> CoreResult<(
         let object = workspace.as_object_mut().ok_or_else(|| {
             CoreError::Migration("portable recovery workspace must be an object".to_owned())
         })?;
-        let mode = object
-            .get("resourcePolicy")
-            .and_then(Value::as_object)
-            .and_then(|policy| policy.get("mode"))
-            .and_then(Value::as_str)
-            .unwrap_or("adaptive");
-        object.insert(
-            "resourcePolicy".to_owned(),
-            json!({ "mode": if mode == "unrestricted" { "unrestricted" } else { "adaptive" } }),
-        );
+        object.remove("resourcePolicy");
     }
     Ok(())
 }
@@ -296,16 +287,51 @@ mod tests {
         )
         .unwrap();
 
-        assert!(recover_legacy_json(directory.path()).unwrap());
+        crate::v1_case!("portable-profile-2dc1ea344713", {
+            assert!(recover_legacy_json(directory.path()).unwrap());
+            assert!(!directory.path().join(JOURNAL_FILE).exists());
+            assert!(!directory.path().join("roles").join(role_id).exists());
+            assert_eq!(
+                serde_json::from_str::<Value>(
+                    &fs::read_to_string(directory.path().join("launch-workspaces.json")).unwrap()
+                )
+                .unwrap()["schemaVersion"],
+                WORKSPACE_SCHEMA_VERSION
+            );
+            assert_eq!(
+                serde_json::from_str::<Value>(
+                    &fs::read_to_string(directory.path().join("roles.json")).unwrap()
+                )
+                .unwrap()["roles"],
+                json!([])
+            );
+        });
+    }
 
-        assert!(!directory.path().join(JOURNAL_FILE).exists());
-        assert!(!directory.path().join("roles").join(role_id).exists());
-        assert_eq!(
-            serde_json::from_str::<Value>(
-                &fs::read_to_string(directory.path().join("launch-workspaces.json")).unwrap()
-            )
-            .unwrap()["schemaVersion"],
-            WORKSPACE_SCHEMA_VERSION
+    #[test]
+    fn recovery_journals_drop_legacy_workspace_resource_policies() {
+        let directory = tempdir().unwrap();
+        fs::write(
+            directory.path().join(JOURNAL_FILE),
+            r#"{
+              "createdRoleIds":[],
+              "games":[],
+              "roles":[],
+              "workspaces":[{
+                "id":"workspace-1",
+                "name":"Legacy",
+                "resourcePolicy":{"mode":"unrestricted"}
+              }],
+              "macros":[]
+            }"#,
+        )
+        .unwrap();
+
+        let plan = load(directory.path()).unwrap().unwrap();
+        assert!(
+            plan.snapshot_fields["launchWorkspaces"][0]
+                .get("resourcePolicy")
+                .is_none()
         );
     }
 

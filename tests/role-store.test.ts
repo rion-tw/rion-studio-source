@@ -10,32 +10,32 @@ import { MemoryStateRepository } from "./helpers/memoryStateRepository";
 describe("RoleStore Rust adapter", () => {
   let store: RoleStore;
   let invoke: ReturnType<typeof vi.fn>;
-  let resolveRolePaths: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "rion-role-adapter-"));
-    invoke = vi.fn(async (command: { id?: string; type: string }) => ({
-      browserUserDataDir: join(baseDir, "roles", command.id ?? "unknown", "browser")
-    }));
-    resolveRolePaths = vi.fn((id: string) => ({
-      browserUserDataDir: join(baseDir, "roles", id, "browser")
-    }));
+    const memoryCore = new MemoryStateRepository();
+    invoke = vi.fn(async (command: { id?: string; type: string }) =>
+      command.type === "rolePathsResolve" ||
+      command.type === "roleBrowserDirectoryEnsure" ||
+      command.type === "roleBrowserDirectoryReset"
+        ? { browserUserDataDir: join(baseDir, "roles", command.id ?? "unknown", "browser") }
+        : memoryCore.invoke(command as never)
+    );
     store = new RoleStore(
       baseDir,
-      new MemoryStateRepository(),
-      { invoke, resolveRolePaths } as never
+      { invoke } as never
     );
   });
 
   it("delegates metadata CRUD and requests browser-directory effects from Rust", async () => {
     const role = await store.createRole({ gameId: "builtin-flyff-universe", name: "Main" });
-    expect(invoke).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ type: "roleCreate" }));
     await expect(store.updateRole(role.id, { name: "Updated" })).resolves.toMatchObject({ name: "Updated" });
     await expect(store.updateBrowserSessionSource(role.id, "chrome-profile")).resolves.toMatchObject({
       browserSessionSource: "chrome-profile"
     });
     await store.deleteRole(role.id);
-    expect(invoke).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith({ type: "roleDelete", id: role.id });
     await expect(store.getRole(role.id)).rejects.toMatchObject({ code: "ROLE_NOT_FOUND" });
   });
 
@@ -47,8 +47,9 @@ describe("RoleStore Rust adapter", () => {
     await expect(store.resetBrowserUserDataDir(role.id)).resolves.toContain(role.id);
 
     expect(invoke).toHaveBeenCalledWith({ type: "roleBrowserDirectoryReset", id: role.id });
-    expect(store.getRolePaths(role.id).browserUserDataDir).toContain(role.id);
-    expect(resolveRolePaths).toHaveBeenCalledWith(role.id);
+    await expect(store.getRolePaths(role.id)).resolves.toMatchObject({
+      browserUserDataDir: expect.stringContaining(role.id)
+    });
   });
 
   it("reorders roles through the repository", async () => {

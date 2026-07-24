@@ -2,4 +2,4 @@
 import type { MacroDefinition } from "./MacroDefinition";
 import type { MacroRuntimeSettings } from "./MacroRuntimeSettings";
 
-export type MacroStartRequest = { macros: Array<MacroDefinition>, settings: MacroRuntimeSettings, macroId: string, roleId: string | null, activeRoleIds: Array<string>, };
+export type MacroStartRequest = { macros: Array<MacroDefinition>, settings: MacroRuntimeSettings, macroId: string, sourceRoleId: string | null, activeRoleIds: Array<string>, };

@@ -1,7 +1,7 @@
 use crate::model::{PressureLevel, ResourcePolicyDecision, ResourcePolicyInput};
 
 pub fn resolve_resource_policy(input: &ResourcePolicyInput) -> ResourcePolicyDecision {
-    if input.policy_mode == "unrestricted" || !input.workspace_hidden {
+    if !input.workspace_hidden {
         return ResourcePolicyDecision {
             cpu_throttle_rate: 1,
             resource_state: "full_speed".to_owned(),
@@ -41,7 +41,6 @@ mod tests {
     #[test]
     fn never_throttles_visible_roles() {
         let decision = resolve_resource_policy(&ResourcePolicyInput {
-            policy_mode: "adaptive".to_owned(),
             workspace_hidden: false,
             macro_active: false,
             shares_process_with_macro: false,
@@ -53,7 +52,6 @@ mod tests {
     #[test]
     fn protects_macro_roles_in_hidden_workspaces() {
         let decision = resolve_resource_policy(&ResourcePolicyInput {
-            policy_mode: "adaptive".to_owned(),
             workspace_hidden: true,
             macro_active: true,
             shares_process_with_macro: false,

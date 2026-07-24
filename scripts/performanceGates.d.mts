@@ -15,9 +15,28 @@ export interface PerformanceSummary {
   medianRootRssBytes?: number;
   sampleCount?: number;
   runtimeTelemetry?: Partial<Record<
-    "ipcCommand" | "macroScheduleToDispatch" | "tabActivation",
+    "ipcCommand" | "macroScheduleToDispatch" | "mainEventLoopDelay" | "rendererRaf" |
+      "tabActivation" | "workspaceLaunch",
     LatencySummary
-  >>;
+  >> & {
+    cdnPlanCount?: number;
+    layoutPassCount?: number;
+    menuRefreshCount?: number;
+    runtimePublishCount?: number;
+    coreEffects?: {
+      acknowledgedEffectCount: number;
+      activeOperationCount: number;
+      effectAckLatency: LatencySummary;
+      emittedEffectCount: number;
+      launchEffectCount: number;
+      launchOperationCount: number;
+      operationCapacity: number;
+      peakPendingEffectCount: number;
+      pendingEffectCapacity: number;
+      pendingEffectCount: number;
+    };
+    napi?: LatencySummary & { callCount: number };
+  };
 }
 
 export interface PerformanceComparison {
@@ -28,10 +47,27 @@ export interface PerformanceComparison {
     treeRssImprovementPercent: number;
     ipcCommandP95RegressionPercent?: number;
     macroScheduleToDispatchP95RegressionPercent?: number;
+    mainEventLoopP95Ms?: number;
     rssGrowthPercent: number;
+    rendererRafP95RegressionPercent?: number;
     tabActivationP95RegressionPercent?: number;
+    workspaceLaunchP95RegressionPercent?: number;
   };
   missingTelemetryMetrics: string[];
+  diagnostics: {
+    effectQueuePeak?: number;
+    effectQueueCapacity?: number;
+    effectAckP95Ms?: number;
+    launchEffectCount?: number;
+    launchOperationCount?: number;
+    effectsPerLaunch: number;
+    napiCallCount?: number;
+    napiP95Ms?: number;
+    cdnPlanCount?: number;
+    layoutPassCount?: number;
+    menuRefreshCount?: number;
+    runtimePublishCount?: number;
+  };
   passed: boolean;
 }
 

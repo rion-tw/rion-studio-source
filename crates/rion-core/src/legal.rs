@@ -52,6 +52,8 @@ pub(crate) fn accept(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     fn versions() -> LegalDocumentVersionsRecord {
@@ -73,9 +75,56 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(acceptance.schema_version, 1);
-        assert!(chrono::DateTime::parse_from_rfc3339(&acceptance.accepted_at).is_ok());
-        assert!(status(Some(&acceptance), versions()).is_accepted);
+        crate::v1_case!("state-migration-7c41c609c666", {
+            assert_eq!(acceptance.schema_version, 1);
+            assert!(chrono::DateTime::parse_from_rfc3339(&acceptance.accepted_at).is_ok());
+            assert_eq!(acceptance.accepted_fair_use_version, "f1");
+            assert_eq!(acceptance.accepted_terms_version, "t1");
+            assert_eq!(acceptance.acknowledged_privacy_version, "p1");
+            assert!(status(Some(&acceptance), versions()).is_accepted);
+        });
+
+        crate::v1_case!("state-migration-1368a806b190", {
+            let current = status(None, versions());
+            assert!(!current.is_accepted);
+            assert!(current.accepted_at.is_none());
+        });
+    }
+
+    #[test]
+    fn corrupt_incomplete_and_superseded_acceptance_fails_closed() {
+        crate::v1_case!("state-migration-9a5e58e76965", {
+            for raw in [
+                json!({"schemaVersion":1}),
+                json!({
+                    "schemaVersion":2,
+                    "acceptedAt":"2026-01-01T00:00:00Z",
+                    "acceptedFairUseVersion":"f1",
+                    "acceptedTermsVersion":"t1",
+                    "acknowledgedPrivacyVersion":"p1"
+                }),
+                json!({
+                    "schemaVersion":1,
+                    "acceptedAt":"not-a-date",
+                    "acceptedFairUseVersion":"f1",
+                    "acceptedTermsVersion":"t1",
+                    "acknowledgedPrivacyVersion":"p1"
+                }),
+            ] {
+                let accepted = serde_json::from_value::<LegalAcceptanceRecord>(raw)
+                    .ok()
+                    .filter(|record| crate::domain::validate_legal_acceptance(record).is_ok());
+                assert!(!status(accepted.as_ref(), versions()).is_accepted);
+            }
+            let superseded = LegalAcceptanceRecord {
+                accepted_at: "2026-01-01T00:00:00Z".to_owned(),
+                accepted_fair_use_version: "f0".to_owned(),
+                accepted_terms_version: "t0".to_owned(),
+                acknowledged_privacy_version: "p0".to_owned(),
+                schema_version: 1,
+            };
+            assert!(!status(Some(&superseded), versions()).is_accepted);
+        });
     }
 
     #[test]
@@ -89,6 +138,12 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert_eq!(error.code(), "LEGAL_VERSIONS_OUTDATED");
+        crate::v1_case!("state-migration-5f69dae5fe23", {
+            assert_eq!(error.code(), "LEGAL_VERSIONS_OUTDATED");
+            assert_eq!(
+                error.to_string(),
+                "Legal document versions are out of date."
+            );
+        });
     }
 }

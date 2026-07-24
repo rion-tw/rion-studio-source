@@ -163,7 +163,7 @@ impl ExternalSessionRuntime {
         })
     }
 
-    fn snapshot(&self) -> Vec<ExternalSessionRecord> {
+    pub fn snapshot(&self) -> Vec<ExternalSessionRecord> {
         let mut sessions = self.sessions.values().cloned().collect::<Vec<_>>();
         sessions.sort_by(|left, right| left.role.id.cmp(&right.role.id));
         sessions
@@ -261,5 +261,221 @@ mod tests {
             "EXTERNAL_TRANSITION_INVALID"
         );
         assert_eq!(runtime.get("r1").unwrap().state, "stopping");
+    }
+
+    #[test]
+    fn preserves_v1_external_launch_capability_and_cleanup_outcomes() {
+        let begin = |role_id: &str, zoom_factor: f64, workspace_id: Option<&str>| {
+            command(json!({
+                "type":"begin",
+                "role":{
+                    "id":role_id,"gameId":"g1","name":role_id,
+                    "launchUrl":"https://example.com/play",
+                    "notes":"","createdAt":"2026-01-01T00:00:00Z",
+                    "updatedAt":"2026-01-01T00:00:00Z"
+                },
+                "bounds":{"x":100,"y":50,"width":1200,"height":800},
+                "physicalBounds":{"x":200,"y":100,"width":2400,"height":1600},
+                "workspaceId":workspace_id,
+                "zoomFactor":zoom_factor
+            }))
+        };
+
+        for case_id in [
+            "external-chrome-cdn-8fb0671d3b15",
+            "external-chrome-cdn-30096739b7ad",
+        ] {
+            let mut runtime = ExternalSessionRuntime::default();
+            runtime.invoke(begin("role-1", 1.0, None)).unwrap();
+            runtime
+                .invoke(command(json!({
+                    "type":"setRunning","roleId":"role-1",
+                    "launchedAt":"2026-01-01T00:00:01Z"
+                })))
+                .unwrap();
+            crate::v1_case!(case_id, {
+                let session = runtime.get("role-1").unwrap();
+                assert_eq!(session.state, "running");
+                assert_eq!(session.role.launch_url, "https://example.com/play");
+                assert!(!session.automation_available);
+            });
+        }
+
+        let mut runtime = ExternalSessionRuntime::default();
+        runtime.invoke(begin("role-cdn", 1.0, None)).unwrap();
+        runtime
+            .invoke(command(json!({
+                "type":"setAutomation","roleId":"role-cdn",
+                "available":true,"cdnActive":true
+            })))
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-914e7c03cda2", {
+            let session = runtime.get("role-cdn").unwrap();
+            assert!(session.automation_available);
+            assert!(session.cdn_active);
+        });
+        runtime
+            .invoke(command(json!({
+                "type":"setAutomation","roleId":"role-cdn",
+                "available":false,"cdnActive":true
+            })))
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-12059d12639f", {
+            let session = runtime.get("role-cdn").unwrap();
+            assert!(!session.automation_available);
+            assert!(!session.cdn_active);
+            assert!(session.page_health.is_none());
+        });
+
+        let mut unavailable = ExternalSessionRuntime::default();
+        unavailable
+            .invoke(begin("role-unavailable", 1.25, None))
+            .unwrap();
+        unavailable
+            .invoke(command(json!({
+                "type":"setNotice","roleId":"role-unavailable",
+                "notice":"China CDN compatibility mode could not be prepared. The game opened with its original resource URLs."
+            })))
+            .unwrap();
+        unavailable
+            .invoke(command(json!({
+                "type":"setAutomation","roleId":"role-unavailable",
+                "available":false,"cdnActive":false
+            })))
+            .unwrap();
+        unavailable
+            .invoke(command(json!({
+                "type":"setRunning","roleId":"role-unavailable",
+                "launchedAt":"2026-01-01T00:00:01Z"
+            })))
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-928dc1a3f7f6", {
+            let session = unavailable.get("role-unavailable").unwrap();
+            assert!(
+                session
+                    .notice
+                    .as_deref()
+                    .unwrap()
+                    .contains("original resource URLs")
+            );
+            assert!(!session.cdn_active);
+        });
+        crate::v1_case!("external-chrome-cdn-67b254580629", {
+            let session = unavailable.get("role-unavailable").unwrap();
+            assert_eq!(session.role.launch_url, "https://example.com/play");
+            assert!(!session.automation_available);
+            assert!(!session.cdn_active);
+        });
+        crate::v1_case!("external-chrome-cdn-4379a03b784f", {
+            assert_eq!(
+                unavailable.get("role-unavailable").unwrap().state,
+                "running"
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-2e491bd3c980", {
+            assert_eq!(
+                unavailable.get("role-unavailable").unwrap().zoom_factor,
+                1.25
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-9e2b7abf251d", {
+            let session = unavailable.get("role-unavailable").unwrap();
+            assert!(session.physical_bounds.is_some());
+            assert_eq!(session.state, "running");
+        });
+
+        let mut zoom_warning = ExternalSessionRuntime::default();
+        zoom_warning.invoke(begin("role-zoom", 1.2, None)).unwrap();
+        zoom_warning
+            .invoke(command(json!({
+                "type":"setNotice","roleId":"role-zoom",
+                "notice":"Workspace zoom could not be applied in external Chrome. Restart this role to try again."
+            })))
+            .unwrap();
+        zoom_warning
+            .invoke(command(json!({
+                "type":"setAutomation","roleId":"role-zoom",
+                "available":true,"cdnActive":false
+            })))
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-33221a50f594", {
+            let session = zoom_warning.get("role-zoom").unwrap();
+            assert!(session.automation_available);
+            assert!(session.notice.as_deref().unwrap().contains("zoom"));
+        });
+        crate::v1_case!("external-chrome-cdn-0bd26d0489a6", {
+            assert!(zoom_warning.get("role-zoom").unwrap().automation_available);
+        });
+        crate::v1_case!("external-chrome-cdn-c65da5ee84e7", {
+            assert!(zoom_warning.get("role-zoom").unwrap().automation_available);
+        });
+
+        zoom_warning
+            .invoke(command(json!({
+                "type":"updateRole",
+                "role":{
+                    "id":"role-zoom","gameId":"g1","name":"Updated",
+                    "launchUrl":"https://example.com/play",
+                    "notes":"","createdAt":"2026-01-01T00:00:00Z",
+                    "updatedAt":"2026-01-01T00:00:02Z"
+                }
+            })))
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-830b77a25c33", {
+            let session = zoom_warning.get("role-zoom").unwrap();
+            assert_eq!(session.role.name, "Updated");
+            assert_eq!(session.zoom_factor, 1.2);
+        });
+        crate::v1_case!("external-chrome-cdn-21e01bc8d5b4", {
+            // Focus restoration is best effort and does not transition the
+            // authoritative session out of running.
+            zoom_warning
+                .invoke(command(json!({
+                    "type":"setRunning","roleId":"role-zoom",
+                    "launchedAt":"2026-01-01T00:00:03Z"
+                })))
+                .unwrap();
+            assert_eq!(zoom_warning.get("role-zoom").unwrap().state, "running");
+        });
+
+        let mut removed = ExternalSessionRuntime::default();
+        removed.invoke(begin("role-removed", 1.0, None)).unwrap();
+        removed
+            .invoke(command(json!({
+                "type":"remove","roleId":"role-removed","preserveWorkspace":false
+            })))
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-0a8d9e460d9d", {
+            assert_eq!(
+                removed
+                    .invoke(command(json!({
+                        "type":"setRunning","roleId":"role-removed",
+                        "launchedAt":"2026-01-01T00:00:01Z"
+                    })))
+                    .unwrap_err()
+                    .code(),
+                "EXTERNAL_SESSION_NOT_FOUND"
+            );
+            assert!(removed.snapshot().is_empty());
+        });
+
+        let mut workspace = ExternalSessionRuntime::default();
+        workspace
+            .invoke(begin("workspace-role-1", 1.0, Some("workspace-1")))
+            .unwrap();
+        workspace
+            .invoke(begin("workspace-role-2", 1.0, Some("workspace-1")))
+            .unwrap();
+        for role_id in ["workspace-role-1", "workspace-role-2"] {
+            workspace
+                .invoke(command(json!({
+                    "type":"remove","roleId":role_id,"preserveWorkspace":true
+                })))
+                .unwrap();
+        }
+        crate::v1_case!("external-chrome-cdn-184dbd234da4", {
+            assert!(workspace.snapshot().is_empty());
+            assert!(!workspace.workspace_has_sessions("workspace-1"));
+        });
     }
 }

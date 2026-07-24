@@ -31,8 +31,7 @@ import type {
   RoleStatus,
   WorkspaceDisplayInfo,
   WorkspaceBrowserZoomPercent,
-  WorkspaceLayoutTemplate,
-  WorkspaceResourceMode
+  WorkspaceLayoutTemplate
 } from "../../../../shared/types";
 import {
   workspaceBrowserZoomPercents,
@@ -351,18 +350,16 @@ function WorkspaceLayoutFormEditor({
     resizeAbortRef.current = controller;
     const affectedSlotIndexes = getWorkspaceResizeAffectedSlotIndexes(form.template, slots, axis, splitIndex);
     let nextSlots = slots;
+    let pendingPointerPosition: { clientX: number; clientY: number } | undefined;
+    let resizeFrameId: number | undefined;
     let previousPosition = initialPosition;
     setActiveResize({ affectedSlotIndexes, axis, splitIndex });
 
-    const handlePointerMove = (pointerEvent: PointerEvent): void => {
-      if (pointerEvent.pointerId !== event.pointerId) {
-        return;
-      }
-
+    const applyPointerPosition = ({ clientX, clientY }: { clientX: number; clientY: number }): void => {
       const pointerPosition =
         axis === "vertical"
-          ? (pointerEvent.clientX - previewBounds.left) / previewBounds.width
-          : (pointerEvent.clientY - previewBounds.top) / previewBounds.height;
+          ? (clientX - previewBounds.left) / previewBounds.width
+          : (clientY - previewBounds.top) / previewBounds.height;
       const nextSplits = {
         horizontal: [...initialSplits.horizontal],
         vertical: [...initialSplits.vertical]
@@ -384,11 +381,53 @@ function WorkspaceLayoutFormEditor({
       setDragSlots(nextSlots);
     };
 
+    const cancelScheduledResize = (): void => {
+      if (resizeFrameId !== undefined) {
+        window.cancelAnimationFrame(resizeFrameId);
+        resizeFrameId = undefined;
+      }
+      pendingPointerPosition = undefined;
+    };
+
+    const flushScheduledResize = (): void => {
+      if (resizeFrameId !== undefined) {
+        window.cancelAnimationFrame(resizeFrameId);
+        resizeFrameId = undefined;
+      }
+      const pointerPosition = pendingPointerPosition;
+      pendingPointerPosition = undefined;
+      if (pointerPosition) {
+        applyPointerPosition(pointerPosition);
+      }
+    };
+
+    const handlePointerMove = (pointerEvent: PointerEvent): void => {
+      if (pointerEvent.pointerId !== event.pointerId) {
+        return;
+      }
+
+      pendingPointerPosition = {
+        clientX: pointerEvent.clientX,
+        clientY: pointerEvent.clientY
+      };
+      if (resizeFrameId === undefined) {
+        resizeFrameId = window.requestAnimationFrame(() => {
+          resizeFrameId = undefined;
+          const pointerPosition = pendingPointerPosition;
+          pendingPointerPosition = undefined;
+          if (pointerPosition) {
+            applyPointerPosition(pointerPosition);
+          }
+        });
+      }
+    };
+
     const finishResize = (): void => {
       if (controller.signal.aborted) {
         return;
       }
 
+      flushScheduledResize();
       controller.abort();
       if (resizeAbortRef.current === controller) {
         resizeAbortRef.current = null;
@@ -407,8 +446,12 @@ function WorkspaceLayoutFormEditor({
       }
     };
 
+    controller.signal.addEventListener("abort", cancelScheduledResize, { once: true });
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    window.addEventListener("pointermove", handlePointerMove, { signal: controller.signal });
+    window.addEventListener("pointermove", handlePointerMove, {
+      passive: true,
+      signal: controller.signal
+    });
     window.addEventListener("pointerup", handlePointerEnd, { signal: controller.signal });
     window.addEventListener("pointercancel", handlePointerEnd, { signal: controller.signal });
     window.addEventListener("blur", finishResize, { signal: controller.signal });
@@ -534,28 +577,6 @@ function WorkspaceLayoutFormEditor({
           </FormField>
         </Surface>
 
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField
-            htmlFor="workspace-resource-mode"
-            label={t("workspaces.resourceMode")}
-            description={t("workspaces.resourceModeDescription")}
-          >
-            <Select
-              value={form.resourcePolicy.mode}
-              disabled={isSaving}
-              onValueChange={(value) => onChange({
-                ...form,
-                resourcePolicy: { mode: value as WorkspaceResourceMode }
-              })}
-            >
-              <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="adaptive">{t("workspaces.resourceModeAdaptive")}</SelectItem>
-                <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
       </div>
 
       <Surface
@@ -566,6 +587,7 @@ function WorkspaceLayoutFormEditor({
         <div className="grid gap-3 p-4">
           <div
             ref={previewRef}
+            data-workspace-layout-preview
             className="relative aspect-[16/9] min-h-[280px] overflow-hidden"
           >
             {slots.map((slot, index) => {
@@ -891,7 +913,7 @@ function WorkspaceResizeHandles({
         return (
           <button
             key={`vertical-${handle.splitIndex}`}
-            className="group/resize absolute z-20 grid h-12 w-[30px] -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
+            className="group/resize absolute z-20 grid h-12 w-[30px] touch-none -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center bg-transparent focus-visible:outline-none"
             type="button"
             aria-label={t("workspaces.resizeColumns").replace("{index}", String(handle.splitIndex + 1))}
             style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%` }}
@@ -915,7 +937,7 @@ function WorkspaceResizeHandles({
         return (
           <button
             key={`horizontal-${handle.splitIndex}-${handleIndex}`}
-            className="group/resize absolute z-20 grid h-[30px] w-12 -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
+            className="group/resize absolute z-20 grid h-[30px] w-12 touch-none -translate-x-1/2 -translate-y-1/2 cursor-row-resize place-items-center bg-transparent focus-visible:outline-none"
             type="button"
             aria-label={t("workspaces.resizeRows").replace("{index}", String(handle.splitIndex + 1))}
             style={{

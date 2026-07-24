@@ -6,6 +6,8 @@ import {
 } from "../../shared/embeddedRuntimeDiagnostics";
 import type { LogService } from "../logging/LogService";
 
+export const EMBEDDED_HEARTBEAT_TIMEOUT_MS = 45_000;
+
 export interface EmbeddedRuntimeDiagnosticContext {
   hostId: string;
   kind: "game" | "popup";
@@ -16,15 +18,38 @@ export interface EmbeddedRuntimeDiagnosticContext {
 interface TrackedContents {
   context: EmbeddedRuntimeDiagnosticContext;
   contents: WebContents;
+  heartbeatTimer?: ReturnType<typeof setTimeout>;
+  lastHeartbeatAt: number;
   lastOsProcessId?: number;
+  stalled: boolean;
+}
+
+interface EmbeddedRuntimeDiagnosticsOptions {
+  cancelTimeout?: typeof clearTimeout;
+  now?: () => number;
+  scheduleTimeout?: typeof setTimeout;
+  stallTimeoutMs?: number;
 }
 
 type DiagnosticLogger = Pick<LogService, "error" | "info" | "warn">;
 
 export class EmbeddedRuntimeDiagnostics {
   private readonly records = new Map<number, TrackedContents>();
+  private readonly cancelTimeout: typeof clearTimeout;
+  private readonly now: () => number;
+  private readonly scheduleTimeout: typeof setTimeout;
+  private readonly stallTimeoutMs: number;
+  private suspended = false;
 
-  constructor(private readonly logService: DiagnosticLogger) {}
+  constructor(
+    private readonly logService: DiagnosticLogger,
+    options: EmbeddedRuntimeDiagnosticsOptions = {}
+  ) {
+    this.cancelTimeout = options.cancelTimeout ?? clearTimeout;
+    this.now = options.now ?? Date.now;
+    this.scheduleTimeout = options.scheduleTimeout ?? setTimeout;
+    this.stallTimeoutMs = options.stallTimeoutMs ?? EMBEDDED_HEARTBEAT_TIMEOUT_MS;
+  }
 
   attach(context: EmbeddedRuntimeDiagnosticContext, contents: WebContents): void {
     if (contents.isDestroyed() || this.records.has(contents.id)) {
@@ -34,9 +59,12 @@ export class EmbeddedRuntimeDiagnostics {
     const record: TrackedContents = {
       context: { ...context },
       contents,
-      lastOsProcessId: this.readProcessId(contents)
+      lastHeartbeatAt: this.now(),
+      lastOsProcessId: this.readProcessId(contents),
+      stalled: false
     };
     this.records.set(contents.id, record);
+    this.armHeartbeatWatchdog(record);
 
     contents.on("did-finish-load", () => {
       record.lastOsProcessId = this.readProcessId(contents) ?? record.lastOsProcessId;
@@ -67,6 +95,7 @@ export class EmbeddedRuntimeDiagnostics {
       );
     });
     contents.once("destroyed", () => {
+      this.cancelHeartbeatWatchdog(record);
       this.records.delete(contents.id);
     });
   }
@@ -86,7 +115,19 @@ export class EmbeddedRuntimeDiagnostics {
       return;
     }
 
+    const recovered = record.stalled;
+    record.lastHeartbeatAt = this.now();
     record.lastOsProcessId = this.readProcessId(contents) ?? record.lastOsProcessId;
+    record.stalled = false;
+    this.armHeartbeatWatchdog(record);
+    if (recovered) {
+      this.logService.info(
+        "browser",
+        "embedded_renderer_heartbeat_recovered",
+        "Embedded game renderer diagnostics resumed.",
+        this.createLogContext(record, value)
+      );
+    }
 
     if (value.type === "heartbeat") {
       return;
@@ -113,11 +154,18 @@ export class EmbeddedRuntimeDiagnostics {
   }
 
   handleSuspend(): void {
-    // Electron owns suspend/resume; no diagnostic polling remains to pause.
+    this.suspended = true;
+    this.records.forEach((record) => this.cancelHeartbeatWatchdog(record));
   }
 
   handleResume(): void {
-    // Lifecycle and WebContents responsive/unresponsive events are event-driven.
+    const resumedAt = this.now();
+    this.suspended = false;
+    this.records.forEach((record) => {
+      record.lastHeartbeatAt = resumedAt;
+      record.stalled = false;
+      this.armHeartbeatWatchdog(record);
+    });
   }
 
   getRenderProcessGoneContext(contents: WebContents): Record<string, unknown> | undefined {
@@ -138,7 +186,42 @@ export class EmbeddedRuntimeDiagnostics {
   }
 
   stop(): void {
+    this.records.forEach((record) => this.cancelHeartbeatWatchdog(record));
     this.records.clear();
+  }
+
+  private armHeartbeatWatchdog(record: TrackedContents): void {
+    this.cancelHeartbeatWatchdog(record);
+    if (this.suspended || record.stalled || record.contents.isDestroyed()) {
+      return;
+    }
+    record.heartbeatTimer = this.scheduleTimeout(() => {
+      record.heartbeatTimer = undefined;
+      if (this.suspended || record.stalled || record.contents.isDestroyed()) {
+        return;
+      }
+      record.stalled = true;
+      const now = this.now();
+      this.logService.warn(
+        "browser",
+        "embedded_renderer_heartbeat_stalled",
+        "Embedded game renderer diagnostics stopped responding.",
+        {
+          ...this.createLogContext(record),
+          lastHeartbeatAt: new Date(record.lastHeartbeatAt).toISOString(),
+          stalledForMs: now - record.lastHeartbeatAt
+        }
+      );
+    }, this.stallTimeoutMs);
+    record.heartbeatTimer.unref?.();
+  }
+
+  private cancelHeartbeatWatchdog(record: TrackedContents): void {
+    if (record.heartbeatTimer === undefined) {
+      return;
+    }
+    this.cancelTimeout(record.heartbeatTimer);
+    record.heartbeatTimer = undefined;
   }
 
   private createLogContext(

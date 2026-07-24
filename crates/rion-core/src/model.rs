@@ -2877,6 +2877,8 @@ pub struct LogPageRecord {
 pub struct LogStorageStatusRecord {
     pub current_level: LogLevel,
     #[ts(type = "number")]
+    pub entry_count: u64,
+    #[ts(type = "number")]
     pub file_count: u64,
     #[ts(type = "number")]
     pub total_bytes: u64,

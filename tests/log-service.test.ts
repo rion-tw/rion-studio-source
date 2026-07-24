@@ -9,6 +9,7 @@ function createCore() {
     if (command.type === "logsStatus") {
       return {
         currentLevel: "info",
+        entryCount: 0,
         fileCount: 1,
         totalBytes: 10,
         oldestTimestamp: null,

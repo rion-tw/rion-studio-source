@@ -221,6 +221,7 @@ async function exportDiagnostics() {
   if (result.canceled || !result.filePath) return null;
   const filePath = result.filePath.toLowerCase().endsWith(".zip") ? result.filePath : `${result.filePath}.zip`;
   if (!appCoreClient) throw new Error("Rust diagnostics are not initialized.");
+  await logService.flush();
   const displays = screen.getAllDisplays();
   const gpuInfo = gpuInfoReady
     ? await app.getGPUInfo("basic").catch(() => undefined)

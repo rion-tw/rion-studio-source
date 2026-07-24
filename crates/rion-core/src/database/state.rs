@@ -2405,6 +2405,76 @@ mod tests {
     use super::*;
 
     #[test]
+    fn seeds_recommended_graphics_defaults_and_preserves_explicit_settings_on_restart() {
+        let directory = tempdir().unwrap();
+        let database_path = directory.path().join("rion-studio.sqlite3");
+        let recommended = serde_json::to_value(default_game_browser_settings()).unwrap();
+
+        let first_plan = crate::bootstrap_settings::read_plan(
+            directory.path(),
+            rion_platform::Platform::Macos,
+            "",
+            "",
+        );
+        assert_eq!(
+            first_plan.applied_graphics_settings,
+            crate::model::BrowserGraphicsSettingsRecord::recommended_default()
+        );
+
+        {
+            let worker = StateDatabaseWorker::start(database_path.clone()).unwrap();
+            assert_eq!(
+                worker
+                    .read_scalar("gameBrowserSettings".to_owned())
+                    .unwrap(),
+                Some(recommended.clone())
+            );
+        }
+
+        let second_plan = crate::bootstrap_settings::read_plan(
+            directory.path(),
+            rion_platform::Platform::Macos,
+            "",
+            "",
+        );
+        assert_eq!(
+            second_plan.applied_graphics_settings,
+            crate::model::BrowserGraphicsSettingsRecord::recommended_default()
+        );
+
+        let mut explicit = default_game_browser_settings();
+        explicit.graphics =
+            crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
+        let explicit = serde_json::to_value(explicit).unwrap();
+        {
+            let worker = StateDatabaseWorker::start(database_path.clone()).unwrap();
+            worker
+                .replace_scalar("gameBrowserSettings".to_owned(), explicit.clone())
+                .unwrap();
+        }
+        {
+            let worker = StateDatabaseWorker::start(database_path).unwrap();
+            assert_eq!(
+                worker
+                    .read_scalar("gameBrowserSettings".to_owned())
+                    .unwrap(),
+                Some(explicit)
+            );
+        }
+
+        let preserved_plan = crate::bootstrap_settings::read_plan(
+            directory.path(),
+            rion_platform::Platform::Windows,
+            "",
+            "",
+        );
+        assert_eq!(
+            preserved_plan.applied_graphics_settings,
+            crate::model::BrowserGraphicsSettingsRecord::from_legacy_mode("automatic")
+        );
+    }
+
+    #[test]
     fn snapshot_round_trips_in_one_transaction() {
         let directory = tempdir().unwrap();
         let mut connection = Connection::open(directory.path().join("state.sqlite3")).unwrap();

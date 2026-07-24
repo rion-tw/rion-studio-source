@@ -54,12 +54,12 @@ export const DEFAULT_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {
     windows: "automatic"
   },
   driverBugWorkaroundsEnabled: true,
-  forceGpuRasterization: true,
-  frameRateLimitEnabled: false,
-  gpuBlocklistEnabled: false,
+  forceGpuRasterization: false,
+  frameRateLimitEnabled: true,
+  gpuBlocklistEnabled: true,
   preferHighPerformanceGpu: true,
-  unsafeWebGpuEnabled: true,
-  vsyncEnabled: false
+  unsafeWebGpuEnabled: false,
+  vsyncEnabled: true
 };
 
 export const LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS: BrowserGraphicsSettings = {

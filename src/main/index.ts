@@ -19,6 +19,7 @@ import {
 } from "electron";
 
 import { ChromeProfileImportManager } from "./browser/ChromeProfileImportManager";
+import { restartApplication } from "./applicationRestart";
 import { ElectronProfileEffectAdapter } from "./browser/ElectronProfileEffectAdapter";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { resolveExternalPhysicalBounds } from "./browser/externalPhysicalBounds";
@@ -1080,10 +1081,7 @@ async function initializeApplication(): Promise<void> {
       });
     },
     quitApplication: () => app.quit(),
-    restartApplication: () => {
-      app.relaunch();
-      app.exit(0);
-    },
+    restartApplication: () => restartApplication(app, process.env.ELECTRON_RENDERER_URL),
     recordIpcCommandLatency: (_channel, durationMs) =>
       coreClient.recordIpcCommandLatency(durationMs),
     workspaceLauncher

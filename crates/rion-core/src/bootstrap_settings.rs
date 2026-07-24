@@ -40,7 +40,7 @@ pub fn read_plan(
 fn load_graphics_settings(user_data_dir: &Path) -> BrowserGraphicsSettingsRecord {
     read_sqlite_settings(&user_data_dir.join("rion-studio.sqlite3"))
         .or_else(|| read_legacy_settings(&user_data_dir.join("game-browser-settings.json")))
-        .unwrap_or_else(|| BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"))
+        .unwrap_or_else(BrowserGraphicsSettingsRecord::recommended_default)
 }
 
 pub fn formatted_graphics_switches(
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_missing_and_invalid_startup_settings_to_automatic() {
+    fn defaults_missing_and_invalid_startup_settings_to_recommended_profile() {
         let directory = tempdir().unwrap();
         let missing =
             read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
@@ -265,9 +265,9 @@ mod tests {
             read_plan(directory.path(), Platform::Macos, "", "").applied_graphics_settings;
 
         crate::v1_case!("browser-workspace-77044f2f1365", {
-            let automatic = BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
-            assert_eq!(missing, automatic);
-            assert_eq!(invalid, automatic);
+            let recommended = BrowserGraphicsSettingsRecord::recommended_default();
+            assert_eq!(missing, recommended);
+            assert_eq!(invalid, recommended);
         });
         crate::v1_case!("resource-platform-1c4495725392", {
             let automatic = BrowserGraphicsSettingsRecord::from_legacy_mode("automatic");
@@ -287,6 +287,22 @@ mod tests {
                 automatic
             );
         });
+    }
+
+    #[test]
+    fn applies_only_recommended_graphics_switches_on_macos_and_windows() {
+        let directory = tempdir().unwrap();
+        let recommended = BrowserGraphicsSettingsRecord::recommended_default();
+        let expected = vec![switch("force-high-performance-gpu", None)];
+
+        for platform in [Platform::Macos, Platform::Windows] {
+            let plan = read_plan(directory.path(), platform, "", "");
+            assert_eq!(plan.applied_graphics_settings, recommended);
+            assert_eq!(
+                graphics_switches(&plan.applied_graphics_settings, platform),
+                expected
+            );
+        }
     }
 
     #[test]
@@ -336,7 +352,7 @@ mod tests {
 
     #[test]
     fn builds_explicit_cross_platform_switch_plans_and_merges_feature_values() {
-        let mut settings = BrowserGraphicsSettingsRecord::aggressive_default();
+        let mut settings = BrowserGraphicsSettingsRecord::recommended_default();
         settings.backend.macos = "metal".to_owned();
         let macos = chromium_switches(
             &settings,

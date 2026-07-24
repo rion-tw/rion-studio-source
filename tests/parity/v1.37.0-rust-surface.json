@@ -500,7 +500,7 @@
       "current": [
         {
           "file": "crates/rion-core/src/bootstrap_settings.rs",
-          "test": "defaults_missing_and_invalid_startup_settings_to_automatic",
+          "test": "defaults_missing_and_invalid_startup_settings_to_recommended_profile",
           "caseId": "resource-platform-1c4495725392"
         }
       ]
@@ -577,11 +577,13 @@
         "file": "tests/browser-launch-configuration.test.ts",
         "test": "uses automatic mode for missing or invalid startup settings"
       },
-      "classification": "assertion-case",
+      "classification": "intentional-change",
+      "decision": "docs/release-notes-2.1.md",
+      "reason": "Fresh installations now use one balanced game graphics profile before and after SQLite initialization instead of applying legacy automatic settings only on the first launch.",
       "current": [
         {
           "file": "crates/rion-core/src/bootstrap_settings.rs",
-          "test": "defaults_missing_and_invalid_startup_settings_to_automatic",
+          "test": "defaults_missing_and_invalid_startup_settings_to_recommended_profile",
           "caseId": "browser-workspace-77044f2f1365"
         }
       ]

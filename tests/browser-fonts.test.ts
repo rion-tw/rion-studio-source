@@ -109,7 +109,7 @@ describe("browser font settings normalization", () => {
     });
   });
 
-  it("uses aggressive defaults for new installs and preserves legacy graphics mode behavior", () => {
+  it("uses recommended defaults for new installs and preserves legacy graphics mode behavior", () => {
     expect(normalizeGameBrowserSettings({}).graphics).toEqual(DEFAULT_GAME_BROWSER_SETTINGS.graphics);
     expect(normalizeGameBrowserSettings({ graphics: { mode: "automatic" } }).graphics).toEqual(
       LEGACY_AUTOMATIC_BROWSER_GRAPHICS_SETTINGS

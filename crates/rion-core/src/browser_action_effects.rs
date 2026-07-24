@@ -71,14 +71,34 @@ impl BrowserActionEffectRuntime {
                         recv(control_receiver) -> _ => break,
                         recv(actions) -> batch => {
                             let Ok(batch) = batch else { break };
-                            dispatch_batch(
-                                batch,
-                                &events,
-                                &external,
-                                &health,
-                                &macros,
-                                &io_runtime,
-                            );
+                            let (health_actions, foreground_actions): (Vec<_>, Vec<_>) = batch
+                                .into_iter()
+                                .partition(|action| action.origin == "external_health");
+                            if !foreground_actions.is_empty() {
+                                dispatch_batch(
+                                    foreground_actions,
+                                    &events,
+                                    &external,
+                                    &health,
+                                    &macros,
+                                    &io_runtime,
+                                );
+                            }
+                            if !health_actions.is_empty() {
+                                let events = Arc::clone(&events);
+                                let external = Arc::clone(&external);
+                                let health = Arc::clone(&health);
+                                let macros = Arc::clone(&macros);
+                                io_runtime.spawn(async move {
+                                    dispatch_batch_async(
+                                        health_actions,
+                                        &events,
+                                        &external,
+                                        &health,
+                                        &macros,
+                                    ).await;
+                                });
+                            }
                         }
                     }
                 }
@@ -150,6 +170,18 @@ fn dispatch_batch(
     macros: &Arc<MacroRuntime>,
     io: &tokio::runtime::Runtime,
 ) {
+    io.block_on(dispatch_batch_async(
+        batch, events, external, health, macros,
+    ));
+}
+
+async fn dispatch_batch_async(
+    batch: Vec<BrowserActionRequest>,
+    events: &EventSink,
+    external: &Arc<ExternalAutomationRuntime>,
+    health: &Arc<Mutex<ExternalHealthRuntime>>,
+    macros: &Arc<MacroRuntime>,
+) {
     let (external_actions, unhandled) = match external.split_actions(batch.clone()) {
         Ok(partitioned) => partitioned,
         Err(_) => (Vec::new(), batch),
@@ -162,7 +194,7 @@ fn dispatch_batch(
     if external_actions.is_empty() {
         return;
     }
-    let dispatch = io.block_on(external.dispatch(external_actions.clone()));
+    let dispatch = external.dispatch(external_actions.clone()).await;
     let (results, unhandled) = match dispatch {
         Ok(dispatch) => (dispatch.results, dispatch.unhandled),
         Err(_) => (Vec::new(), external_actions),
@@ -321,6 +353,74 @@ mod tests {
             assert!(effect_was_early.load(Ordering::Acquire));
             assert!(external_responded.load(Ordering::Acquire));
         });
+        health.lock().unwrap().shutdown();
+        external.shutdown();
+    }
+
+    #[test]
+    fn external_health_lane_does_not_block_a_later_deadline_macro_effect() {
+        let external_responded = Arc::new(AtomicBool::new(false));
+        let external = Arc::new(ExternalAutomationRuntime::new("darwin".to_owned()));
+        external
+            .register(
+                "external-role".to_owned(),
+                Arc::new(crate::ExternalChromeCdpSession::test_session(
+                    Duration::from_millis(100),
+                    Arc::clone(&external_responded),
+                )),
+            )
+            .unwrap();
+        let health = Arc::new(Mutex::new(
+            ExternalHealthRuntime::new(Arc::new(|_| {})).unwrap(),
+        ));
+        let macros = Arc::new(MacroRuntime::new(Arc::new(|_| {})));
+        let (event_sender, event_receiver) = std::sync::mpsc::channel();
+        let (action_sender, action_receiver) = action_queue();
+        let runtime = BrowserActionEffectRuntime::start(
+            action_receiver,
+            Arc::new(move |events| {
+                let _ = event_sender.send(events);
+            }),
+            Arc::clone(&external),
+            Arc::clone(&health),
+            Arc::clone(&macros),
+        )
+        .unwrap();
+
+        action_sender
+            .send(vec![BrowserActionRequest {
+                request_id: "health".to_owned(),
+                role_id: "external-role".to_owned(),
+                origin: "external_health".to_owned(),
+                scheduled_at_ms: 0,
+                deadline_ms: u64::MAX,
+                action: BrowserAction::Evaluate {
+                    source: "void 0".to_owned(),
+                },
+            }])
+            .unwrap();
+        action_sender
+            .send(vec![BrowserActionRequest {
+                request_id: "macro".to_owned(),
+                role_id: "embedded-role".to_owned(),
+                origin: "macro".to_owned(),
+                scheduled_at_ms: 0,
+                deadline_ms: u64::MAX,
+                action: BrowserAction::Focus,
+            }])
+            .unwrap();
+
+        let events = event_receiver
+            .recv_timeout(Duration::from_millis(50))
+            .unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            CoreEvent::CoreEffects { effects }
+                if effects.iter().any(|effect| effect.effect_id == "macro")
+        )));
+        assert!(!external_responded.load(Ordering::Acquire));
+
+        runtime.shutdown();
         health.lock().unwrap().shutdown();
         external.shutdown();
     }

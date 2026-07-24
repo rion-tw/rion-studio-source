@@ -54,6 +54,44 @@ acknowledged effect counts, acknowledgement p50/p95/max, and embedded-launch
 operation/effect counts. `telemetrySnapshot` separately reports NAPI call count
 and bridge latency.
 
+## Background macro focus decision
+
+Macro `Focus` actions are input preflight, not operating-system focus requests.
+For embedded roles Electron verifies the page/iframe input target through the
+role's serialized automation lane without calling `webContents.focus()`.
+External Chrome follows the equivalent CDP-only path. Explicit user actions
+such as selecting a runtime tab or reopening an existing role retain their
+native focus behavior.
+
+This is an intentional v1 behavior correction: a macro remains bound to the
+role IDs captured by Rust at invocation start while the user clicks or switches
+other game windows. Key, click, held-key recovery and debugger-detach recovery
+share one per-role lane; different roles remain concurrent. Focus/blur/detach
+reassertions are single-flight with one trailing pass, and disposal aborts and
+drains the lane before releasing input and debugger leases.
+
+The alternative evidence is covered by the Electron automation-target tests
+(background preflight, key/click ordering, focus recovery and async disposal),
+the Rust cancellation/late-result tests, and the overlay atomic-toggle tests.
+Regular runtime-tab focus parity remains covered separately for macOS and
+Windows.
+
+## Launch and presentation backpressure
+
+Workspace creation keeps page loading concurrent, but yields between short
+Electron view-creation batches. Layout is one single-flight, generation-checked
+pass per host; role/runtime events, runtime chrome, quick menus and overlays use
+dedupe or one trailing refresh. Rust returns a normalized CDN rewrite plan once
+per session and Electron compiles it locally, so `webRequest` does not cross
+Node-API per request.
+
+Macro lifecycle status batches are reliable across both the Rust subscriber
+queue and Node-API bridge. Iteration and click presentation batches are
+latest-wins and limited to four per second; they are not written to the normal
+lifecycle log. Synchronous child barriers are removed after every participating
+role leaves the iteration, role lock registries hold weak references, and stop
+or shutdown joins invocation workers after cancellation.
+
 ## 2.0 migration and downgrade boundary
 
 On first 2.0 startup, Rion Studio recovers any interrupted portable/profile journal,
@@ -97,7 +135,9 @@ pnpm run package
 `verify:rust` loads the release addon, creates and queries both databases, supervises
 a child process and exercises a loopback DevTools HTTP/WebSocket fixture. CI repeats
 the addon and unpacked-package smoke tests on macOS arm64 and Windows x64. macOS CI
-also runs the AppKit runtime-tabs native tests.
+also runs the AppKit runtime-tabs native tests. Linux CI runs the macro runtime under
+AddressSanitizer and repeats the 1,000-cycle start/stop, atomic-toggle and external
+health priority tests twenty times.
 
 ## Performance protocol
 
@@ -150,5 +190,12 @@ CPU throttling, and macro roles always remain unthrottled.
 
 Required gates are: host CPU -30%, host RSS -20%, nine-role process-tree CPU -10%,
 process-tree RSS -5%, relevant p95 command/tab/macro dispatch regression no worse than
-5%, and steady-state host RSS growth no more than 5%. A subsystem that misses its gate
-must be optimized and revalidated before release.
+5%, nine-role workspace launch and fixture rAF p95 regression no worse than 5%,
+workspace-launch main event-loop p95 no more than 16.7 ms, and steady-state host
+RSS growth no more than 5%. Launch telemetry also records layout passes, runtime
+publishes, quick-menu refreshes and CDN plans so per-role fanout regressions are
+visible. The deterministic fixture exposes
+`globalThis.__rionPerformanceSnapshot()` for renderer rAF attribution. A
+subsystem that misses its gate must be optimized and revalidated before release;
+when main event-loop timing passes but rAF does not, the report must attribute
+the remaining regression to renderer/GPU concurrent-load pressure.

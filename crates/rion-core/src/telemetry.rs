@@ -138,6 +138,7 @@ struct Metrics {
     napi: LatencySampler,
     napi_count: u64,
     process_launch_count: u64,
+    renderer_raf: LatencySampler,
     scheduled_wait_count: u64,
     started_at: String,
     tab_activation: LatencySampler,
@@ -162,6 +163,7 @@ impl Metrics {
             napi: LatencySampler::default(),
             napi_count: 0,
             process_launch_count: 0,
+            renderer_raf: LatencySampler::default(),
             scheduled_wait_count: 0,
             started_at: Utc::now().to_rfc3339(),
             tab_activation: LatencySampler::default(),
@@ -196,6 +198,11 @@ impl Metrics {
             TelemetryMetric::MainEventLoopDelay => {
                 if let Some(duration) = sample.duration_ms {
                     self.main_event_loop_delay.record(duration);
+                }
+            }
+            TelemetryMetric::RendererRaf => {
+                if let Some(duration) = sample.duration_ms {
+                    self.renderer_raf.record(duration);
                 }
             }
             TelemetryMetric::Cdp => {
@@ -251,6 +258,7 @@ impl Metrics {
                 latency: self.napi.summary(),
             },
             process_launch_count: self.process_launch_count,
+            renderer_raf: self.renderer_raf.summary(),
             scheduled_wait_count: self.scheduled_wait_count,
             started_at: self.started_at.clone(),
             tab_activation: self.tab_activation.summary(),
@@ -345,6 +353,11 @@ mod tests {
             duration_ms: None,
             count: 2,
         });
+        worker.record(TelemetrySampleRecord {
+            metric: TelemetryMetric::RendererRaf,
+            duration_ms: Some(16.0),
+            count: 1,
+        });
         worker.record_napi(2.0);
         worker.record_core_effects(CoreEffectMetricsRecord {
             peak_pending_effect_count: 3,
@@ -357,6 +370,7 @@ mod tests {
         assert_eq!(snapshot.workspace_launch.p95_ms, 125.0);
         assert_eq!(snapshot.main_event_loop_delay.p95_ms, 12.0);
         assert_eq!(snapshot.layout_pass_count, 2);
+        assert_eq!(snapshot.renderer_raf.p95_ms, 16.0);
         assert_eq!(snapshot.napi.call_count, 1);
         assert_eq!(snapshot.core_effects.peak_pending_effect_count, 3);
         assert_eq!(snapshot.core_effects.launch_effect_count, 7);

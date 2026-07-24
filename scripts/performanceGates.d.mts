@@ -15,7 +15,7 @@ export interface PerformanceSummary {
   medianRootRssBytes?: number;
   sampleCount?: number;
   runtimeTelemetry?: Partial<Record<
-    "ipcCommand" | "macroScheduleToDispatch" | "mainEventLoopDelay" |
+    "ipcCommand" | "macroScheduleToDispatch" | "mainEventLoopDelay" | "rendererRaf" |
       "tabActivation" | "workspaceLaunch",
     LatencySummary
   >> & {
@@ -49,6 +49,7 @@ export interface PerformanceComparison {
     macroScheduleToDispatchP95RegressionPercent?: number;
     mainEventLoopP95Ms?: number;
     rssGrowthPercent: number;
+    rendererRafP95RegressionPercent?: number;
     tabActivationP95RegressionPercent?: number;
     workspaceLaunchP95RegressionPercent?: number;
   };

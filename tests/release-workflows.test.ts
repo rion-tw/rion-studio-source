@@ -51,6 +51,10 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain("pnpm run test:rust");
     expect(workflow).toContain("pnpm run build:rust && pnpm run verify:rust");
     expect(workflow).toContain("pnpm run build:native:macos && pnpm run test:native:macos");
+    expect(workflow).toContain("rust-concurrency-sanitizer:");
+    expect(workflow).toContain("RUSTFLAGS: -Zsanitizer=address");
+    expect(workflow).toContain("one_thousand_start_stop_cycles");
+    expect(workflow).toContain("external_health_lane_does_not_block");
     expect(workflow).toContain("Build unpacked application");
     expect(workflow).toContain("Verify packaged Rust Node-API core");
     expect(workflow).toContain("verifyPackagedRustCore.mjs");

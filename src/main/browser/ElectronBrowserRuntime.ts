@@ -161,6 +161,7 @@ export interface ElectronBrowserRuntimeOptions {
   ) => MaybePromise<WorkspaceDividerResizeOutput>;
   workspaceLayoutResolver: (input: WorkspaceLayoutInput) => MaybePromise<WorkspaceLayoutOutput>;
   recordLayoutPass?: (count?: number) => void;
+  recordRendererRafLatency?: (durationMs: number) => void;
   recordRuntimePublish?: (count?: number) => void;
   recordTabActivationLatency?: (durationMs: number) => void;
 }
@@ -1160,7 +1161,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   ): Promise<RoleStatus[]> {
     const resolvedTarget = target ?? this.getDefaultLaunchTarget();
     try {
-      return await this.options.browserRuntimeState.invoke({
+      const statuses = await this.options.browserRuntimeState.invoke({
         type: "browserWorkspaceLaunch",
         workspaceId: workspace.id,
         target: {
@@ -1168,6 +1169,10 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
           workArea: resolvedTarget.workArea
         }
       });
+      if (this.options.recordRendererRafLatency) {
+        void this.collectRendererRafTelemetry(statuses.map((status) => status.roleId));
+      }
+      return statuses;
     } catch (error) {
       if (getErrorCode(error) === "LAUNCH_CANCELLED") return [];
       if (getErrorCode(error) === "WORKSPACE_DISPLAY_OCCUPIED") {
@@ -1182,6 +1187,22 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       }
       throw error;
     }
+  }
+
+  private async collectRendererRafTelemetry(roleIds: string[]): Promise<void> {
+    const samples = await Promise.all(roleIds.map(async (roleId) => {
+      const session = this.roleHandles.get(roleId);
+      if (!session || session.webContents.isDestroyed()) return undefined;
+      const snapshot = await session.webContents.executeJavaScript(
+        "globalThis.__rionPerformanceSnapshot?.()"
+      ).catch(() => undefined) as { raf?: { p95Ms?: unknown } } | undefined;
+      return typeof snapshot?.raf?.p95Ms === "number"
+        ? snapshot.raf.p95Ms
+        : undefined;
+    }));
+    samples.forEach((sample) => {
+      if (sample !== undefined) this.options.recordRendererRafLatency?.(sample);
+    });
   }
 
   async stop(roleId: string): Promise<void> {

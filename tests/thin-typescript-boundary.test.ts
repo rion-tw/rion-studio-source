@@ -26,6 +26,10 @@ const allowedMapProperties = new Set([
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHostByChromeWebContentsId",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.displayHosts",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.dividerByWebContentsId",
+  // Electron-only single-flight generation state; Rust still owns layout decisions.
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.hostLayoutStates",
+  // Serialized presentation dedupe for native/runtime chrome sends, not domain state.
+  "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.lastRuntimeChromeStateByDisplay",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.roleHandles",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.tabHandles",
   "src/main/browser/ElectronBrowserRuntime.ts:ElectronBrowserRuntime.workspaceTabHandleIds",

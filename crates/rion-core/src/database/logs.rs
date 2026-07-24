@@ -780,7 +780,8 @@ mod tests {
             let path = directory.path().join("logs.sqlite3");
             let mut connection = Connection::open(&path).unwrap();
             create_schema(&connection, false).unwrap();
-            let mut capture = crate::log_capture::LogCaptureRuntime::new(directory.path().into());
+            let mut capture =
+                crate::log_capture::LogCaptureRuntime::new(directory.path().into(), LogLevel::Info);
             let hidden = capture.capture(vec![LogCaptureRecord {
                 level: LogLevel::Debug,
                 source: LogSource::Main,

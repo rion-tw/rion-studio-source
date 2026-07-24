@@ -1,10 +1,9 @@
-name: Ubuntu CI
+name: CI
 
 on:
   push:
     branches:
       - main
-  pull_request:
   workflow_call:
     inputs:
       ref:

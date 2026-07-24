@@ -12,7 +12,7 @@ describe("private and public release workflows", () => {
 
     expect(workflow).toContain("name: Private Release Candidate");
     expect(workflow).toContain("workflow_run:");
-    expect(workflow).toContain("- Ubuntu CI");
+    expect(workflow).toContain("- CI");
     expect(workflow).toContain("- completed");
     expect(workflow).toContain("github.event.workflow_run.conclusion == 'success'");
     expect(workflow).toContain("github.event.workflow_run.event == 'push'");

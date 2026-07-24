@@ -20,7 +20,7 @@ type LabelKey = "add" | "close" | "enterFullScreen" | "exitFullScreen" |
 const translations: Record<AppLanguage, Record<LabelKey, string>> = {
   en: {
     add: "Open role or workspace",
-    close: "Close game window",
+    close: "Hide game window",
     enterFullScreen: "Enter full screen",
     exitFullScreen: "Exit full screen",
     minimize: "Minimize game window",
@@ -31,7 +31,7 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
   },
   "zh-TW": {
     add: "開啟角色或工作區",
-    close: "關閉遊戲視窗",
+    close: "隱藏遊戲視窗",
     enterFullScreen: "進入全螢幕",
     exitFullScreen: "離開全螢幕",
     minimize: "最小化遊戲視窗",
@@ -42,7 +42,7 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
   },
   "zh-CN": {
     add: "打开角色或工作区",
-    close: "关闭游戏窗口",
+    close: "隐藏游戏窗口",
     enterFullScreen: "进入全屏",
     exitFullScreen: "退出全屏",
     minimize: "最小化游戏窗口",
@@ -53,7 +53,7 @@ const translations: Record<AppLanguage, Record<LabelKey, string>> = {
   },
   ja: {
     add: "ロールまたはワークスペースを開く",
-    close: "ゲームウインドウを閉じる",
+    close: "ゲームウインドウを隠す",
     enterFullScreen: "フルスクリーンにする",
     exitFullScreen: "フルスクリーンを解除",
     minimize: "ゲームウインドウを最小化",

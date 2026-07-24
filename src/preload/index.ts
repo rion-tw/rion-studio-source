@@ -34,6 +34,12 @@ const api: RionStudioApi = {
   showEmbeddedRuntimeWindows: (displayId) => ipcRenderer.invoke(IPC_CHANNELS.runtimeShowWindows, displayId),
   showEmbeddedRuntimeTab: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.runtimeShowTab, tabId),
   moveEmbeddedRuntimeTab: (tabId, displayId) => ipcRenderer.invoke(IPC_CHANNELS.runtimeMoveTab, tabId, displayId),
+  restoreSavedGameWindows: (input) => ipcRenderer.invoke(IPC_CHANNELS.runtimeRestoreSaved, input),
+  discardSavedGameWindows: (input) => ipcRenderer.invoke(IPC_CHANNELS.runtimeDiscardSaved, input),
+  stopEmbeddedRuntimeWindow: (displayId) => ipcRenderer.invoke(IPC_CHANNELS.runtimeStopWindow, displayId),
+  getRuntimeWindowPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeWindowPreferencesGet),
+  updateRuntimeWindowPreferences: (preferences) =>
+    ipcRenderer.invoke(IPC_CHANNELS.runtimeWindowPreferencesUpdate, preferences),
   listGames: () => ipcRenderer.invoke(IPC_CHANNELS.gamesList),
   createGame: (input) => ipcRenderer.invoke(IPC_CHANNELS.gamesCreate, input),
   updateGame: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.gamesUpdate, id, input),

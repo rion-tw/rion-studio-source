@@ -83,6 +83,13 @@ export interface BrowserWorkspaceLaunchTarget {
   workArea: PixelBounds;
 }
 
+export interface EmbeddedRestoreTabInput {
+  type: "role" | "workspace";
+  sourceId: string;
+  hidden: boolean;
+  audioMuted: boolean;
+}
+
 export type BrowserWorkspaceRuntimeState = "launching" | "running" | "stopping";
 
 export interface BrowserWorkspaceRuntimeStatus {
@@ -452,8 +459,11 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   private readonly workspaceTabHandleIds = new Map<string, string>();
   private readonly hostLayoutStates = new Map<string, HostLayoutState>();
   private readonly lastRuntimeChromeStateByDisplay = new Map<number, string>();
+  private readonly preferredWindowIdsByDisplay: Record<number, string> = {};
+  private readonly restoringDisplayIds = new Set<number>();
   private lastEmittedRuntimeState = "";
   private lastEmittedStatuses = "";
+  private lastFocusedWindowId?: string;
   private runtimeSnapshot: BrowserRuntimeSnapshot = {
     displays: [],
     roles: [],
@@ -465,6 +475,10 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   private runtimeTabsLanguage: AppLanguage = "en";
   private alwaysShowToolbarInFullScreen = false;
   private macroOverlayInstaller?: BrowserMacroOverlayInstaller;
+  private runtimeSessionProjection?: () => Pick<
+    EmbeddedRuntimeState,
+    "savedWindows" | "recovery"
+  >;
 
   constructor(
     private readonly options: ElectronBrowserRuntimeOptions
@@ -490,6 +504,17 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
 
   setBeforeRolesStop(handler: BeforeRolesStop): void {
     void handler;
+  }
+
+  setRuntimeSessionProjectionProvider(
+    provider: () => Pick<EmbeddedRuntimeState, "savedWindows" | "recovery">
+  ): void {
+    this.runtimeSessionProjection = provider;
+    this.emitChange();
+  }
+
+  publishRuntimeSessionChange(): void {
+    this.emitChange();
   }
 
   setWorkspaceAppearanceSettings(settings: WorkspaceAppearanceSettings): void {
@@ -694,7 +719,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     const displaysFocusedByShow = new Set<number>();
     this.displayHosts.forEach((displayHost, displayId) => {
       const runtimeDisplay = runtimeDisplays.get(displayId);
-      if (!runtimeDisplay?.activeTabId) {
+      if (this.restoringDisplayIds.has(displayId)) {
+        this.hideDisplayHost(displayHost);
+      } else if (!runtimeDisplay?.activeTabId) {
         this.hideDisplayHost(displayHost);
       } else if (revealDisplayIds.includes(displayId)) {
         if (!isWindowVisible(displayHost.window) || displayHost.window.isMinimized()) {
@@ -733,9 +760,11 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       const host = this.displayHosts.get(display.displayId);
       return host
         ? [{
+            id: host.id,
             displayId: display.displayId,
             bounds: getWindowBounds(host.window),
             visible: !host.window.isDestroyed() && isWindowVisible(host.window),
+            focused: this.lastFocusedWindowId === host.id,
             ...(display.activeTabId ? { activeTabId: display.activeTabId } : {}),
             tabCount: display.tabIds.length
           }]
@@ -770,7 +799,11 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
           : [];
       })
     );
-    return { windows, tabs };
+    return {
+      windows,
+      tabs,
+      ...(this.runtimeSessionProjection?.() ?? {})
+    };
   }
 
   setRuntimeTabAudioMuted(tabId: string, muted: boolean): void {
@@ -914,6 +947,55 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       type: "embeddedWindowsShow",
       ...(displayId === undefined ? {} : { displayId })
     });
+  }
+
+  prepareRestoredWindow(displayId: number, windowId: string): void {
+    if (!this.displayHosts.has(displayId)) {
+      this.preferredWindowIdsByDisplay[displayId] = windowId;
+    }
+    this.restoringDisplayIds.add(displayId);
+  }
+
+  finishRestoredWindow(displayId: number): void {
+    this.restoringDisplayIds.delete(displayId);
+    delete this.preferredWindowIdsByDisplay[displayId];
+  }
+
+  async launchEmbeddedRestoreTab(
+    tab: EmbeddedRestoreTabInput,
+    target: BrowserWorkspaceLaunchTarget
+  ): Promise<EmbeddedRuntimeTabSummary | undefined> {
+    if (tab.type === "workspace") {
+      await this.options.browserRuntimeState.invoke({
+        type: "embeddedWorkspaceLaunch",
+        workspaceId: tab.sourceId,
+        target
+      });
+    } else {
+      await this.options.browserRuntimeState.invoke({
+        type: "embeddedRoleLaunch",
+        roleId: tab.sourceId,
+        target
+      });
+    }
+    const restored = this.listEmbeddedRuntimeState().tabs.find(
+      (candidate) =>
+        candidate.sourceId === tab.sourceId && candidate.displayId === target.displayId
+    );
+    if (!restored) return undefined;
+    if (tab.audioMuted) this.setRuntimeTabAudioMuted(restored.id, true);
+    if (tab.hidden) await this.hideRuntimeTab(restored.id);
+    return this.listEmbeddedRuntimeState().tabs.find(
+      (candidate) => candidate.id === restored.id
+    );
+  }
+
+  async stopRuntimeWindow(displayId: number): Promise<void> {
+    const tabIds = this.runtimeSnapshot.displays
+      .find((display) => display.displayId === displayId)?.tabIds ?? [];
+    for (const tabId of [...tabIds]) {
+      await this.stopRuntimeTab(tabId);
+    }
   }
 
   async showRuntimeTab(tabId: string): Promise<void> {
@@ -1399,7 +1481,7 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     const displayHost: EmbeddedDisplayHost = {
       closing: false,
       displayId: target.displayId,
-      id: randomUUID(),
+      id: this.preferredWindowIdsByDisplay[target.displayId] ?? randomUUID(),
       ...(initialMacNativeContentLayout
         ? { macNativeContentLayout: initialMacNativeContentLayout }
         : {}),
@@ -1452,7 +1534,11 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     }
     window.on("resize", () => this.layoutDisplayHost(displayHost));
     window.on("restore", () => this.layoutDisplayHost(displayHost));
-    window.on("focus", () => this.restoreActiveGameViewFocus(displayHost));
+    window.on("focus", () => {
+      this.lastFocusedWindowId = displayHost.id;
+      this.restoreActiveGameViewFocus(displayHost);
+      this.emitChange();
+    });
     window.on("show", () => {
       this.syncRuntimeToolbarCursorMonitor(displayHost);
       void this.reconcileRuntimeTabs();
@@ -1479,6 +1565,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       }
       if (this.displayHosts.get(displayHost.displayId) === displayHost) {
         this.displayHosts.delete(displayHost.displayId);
+      }
+      if (this.lastFocusedWindowId === displayHost.id) {
+        this.lastFocusedWindowId = undefined;
       }
     });
     return displayHost;
@@ -1584,6 +1673,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
   private finalizeDisplayHostDestroy(displayHost: EmbeddedDisplayHost): void {
     displayHost.pendingWindowAction = undefined;
     this.displayHosts.delete(displayHost.displayId);
+    if (this.lastFocusedWindowId === displayHost.id) {
+      this.lastFocusedWindowId = undefined;
+    }
     this.lastRuntimeChromeStateByDisplay.delete(displayHost.displayId);
     this.clearMacNativeContentLayoutUpdate(displayHost);
     displayHost.macNativeTabs?.destroy();

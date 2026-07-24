@@ -1579,7 +1579,11 @@ fn read_scalar(connection: &Connection, key: &str) -> CoreResult<Option<Value>> 
             .optional()
     } else if matches!(
         key,
-        "gameBrowserSettings" | "macroSettings" | "runtimeWindowPreferences" | "logLevel"
+        "gameBrowserSettings"
+            | "macroSettings"
+            | "runtimeWindowPreferences"
+            | "runtimeRestoreSession"
+            | "logLevel"
     ) {
         connection
             .query_row(
@@ -1689,6 +1693,7 @@ fn replace_scalar(connection: &mut Connection, key: &str, value: Value) -> CoreR
         "gameBrowserSettings"
             | "macroSettings"
             | "runtimeWindowPreferences"
+            | "runtimeRestoreSession"
             | "legalAcceptance"
             | "logLevel"
     ) {
@@ -1826,6 +1831,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
         "gameBrowserSettings",
         "macroSettings",
         "runtimeWindowPreferences",
+        "runtimeRestoreSession",
         "logLevel",
     ] {
         if let Some(value) = object.get(key) {
@@ -2766,7 +2772,41 @@ mod tests {
             )
             .unwrap();
             assert!(reloaded.always_show_toolbar_in_full_screen);
+            assert!(reloaded.restore_game_windows_on_startup);
         });
+
+        let restore_session = json!({
+            "schemaVersion": 1,
+            "updatedAt": "2026-07-25T00:00:00Z",
+            "cleanExit": true,
+            "lastFocusedWindowId": "window-1",
+            "windows": [{
+                "id": "window-1",
+                "targetDisplay": {"id": 7},
+                "wasVisible": true,
+                "activeSourceId": "role-1",
+                "tabs": [{
+                    "tabType": "role",
+                    "sourceId": "role-1",
+                    "name": "Main",
+                    "roleIds": ["role-1"],
+                    "hidden": false,
+                    "audioMuted": true
+                }]
+            }]
+        });
+        replace_scalar(
+            &mut connection,
+            "runtimeRestoreSession",
+            restore_session.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            read_scalar(&connection, "runtimeRestoreSession")
+                .unwrap()
+                .unwrap(),
+            restore_session
+        );
     }
 
     #[test]

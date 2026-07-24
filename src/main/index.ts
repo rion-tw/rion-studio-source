@@ -19,6 +19,8 @@ import {
 } from "electron";
 
 import { ChromeProfileImportManager } from "./browser/ChromeProfileImportManager";
+import { RuntimeSessionManager } from "./browser/RuntimeSessionManager";
+import { saveRuntimeSessionThenStopAll } from "./browser/runtimeShutdown";
 import { restartApplication } from "./applicationRestart";
 import { ElectronProfileEffectAdapter } from "./browser/ElectronProfileEffectAdapter";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
@@ -123,6 +125,8 @@ app.on("gpu-info-update", () => {
 let mainWindow: BrowserWindow | null = null;
 let startupWindow: BrowserWindow | null = null;
 let browserManager: ElectronBrowserRuntime | null = null;
+let runtimeSessionManager: RuntimeSessionManager | null = null;
+let attemptRuntimeSessionAutoRestore: (() => Promise<void>) | null = null;
 let embeddedRuntimeDiagnostics: EmbeddedRuntimeDiagnostics | null = null;
 let latestExternalFreezeReportedAt: Date | undefined;
 let appQuickMenu: AppQuickMenu | null = null;
@@ -496,7 +500,7 @@ async function initializeApplication(): Promise<void> {
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir, { core: coreClient });
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir, coreClient);
   const runtimeWindowPreferencesStore = new RuntimeWindowPreferencesStore(userDataDir, coreClient);
-  const runtimeWindowPreferences = await runtimeWindowPreferencesStore.getPreferences();
+  let runtimeWindowPreferences = await runtimeWindowPreferencesStore.getPreferences();
   const browserProxyApplier = new BrowserProxyApplier({
     getSettings: () => gameBrowserSettingsStore.getSettings()
   });
@@ -647,6 +651,29 @@ async function initializeApplication(): Promise<void> {
     prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
   });
   browserManager = runtimeManager;
+  const sessionManager = new RuntimeSessionManager({
+    browserManager: runtimeManager,
+    canRestoreSavedWindows: () => legalAcceptanceStore.isAccepted(),
+    core: coreClient,
+    gameBrowserSettingsStore,
+    gameStore,
+    getDefaultLaunchTarget: () => {
+      const display = getMainWindowDisplay();
+      return { displayId: display.id, workArea: display.workArea };
+    },
+    getPreferences: () => runtimeWindowPreferences,
+    getWorkspaceDisplays: getWorkspaceDisplayInfos,
+    logger: console,
+    roleStore,
+    workspaceStore
+  });
+  runtimeSessionManager = sessionManager;
+  await sessionManager.initialize();
+  attemptRuntimeSessionAutoRestore = async () => {
+    await sessionManager.restoreOnStartupIfEligible(
+      await legalAcceptanceStore.isAccepted()
+    );
+  };
   const browserActionAdapter = new ElectronBrowserActionAdapter({
     getTarget: (roleId) => runtimeManager.getEmbeddedAutomationSession(roleId)?.target,
     recordMacroScheduleToDispatchLatency: (durationMs) =>
@@ -1006,7 +1033,8 @@ async function initializeApplication(): Promise<void> {
       runtimeManager.setAlwaysShowToolbarInFullScreen(value);
     },
     saveAlwaysShowToolbarInFullScreen: async (value) => {
-      await runtimeWindowPreferencesStore.updatePreferences({
+      runtimeWindowPreferences = await runtimeWindowPreferencesStore.updatePreferences({
+        ...runtimeWindowPreferences,
         alwaysShowToolbarInFullScreen: value
       });
     },
@@ -1074,6 +1102,14 @@ async function initializeApplication(): Promise<void> {
     onLegalAccepted: () => {
       startUpdateCheck();
       appQuickMenu?.scheduleRefresh();
+      void attemptRuntimeSessionAutoRestore?.().catch((error) => {
+        logService.error(
+          "browser",
+          "runtime_session_auto_restore_failed",
+          "Failed to restore saved Game Windows.",
+          error
+        );
+      });
     },
     onMacroOverlayRequest: async (webContents, request) => {
       const activeRoleId = runtimeManager.getRoleIdForWebContents(webContents.id);
@@ -1093,16 +1129,30 @@ async function initializeApplication(): Promise<void> {
     },
     onRolesChanged: () => {
       appQuickMenu?.scheduleRefresh();
+      void sessionManager.refreshSavedSources().catch((error) => {
+        console.error("Failed to refresh saved Game Window roles.", error);
+      });
     },
     onWorkspacesChanged: () => {
       void notifyWorkspacesChanged().catch((error) => {
         console.error("Failed to broadcast launch workspace changes.", error);
       });
+      void sessionManager.refreshSavedSources().catch((error) => {
+        console.error("Failed to refresh saved Game Window workspaces.", error);
+      });
+    },
+    onRuntimeWindowPreferencesChanged: (preferences) => {
+      runtimeWindowPreferences = preferences;
+      runtimeManager.setAlwaysShowToolbarInFullScreen(
+        preferences.alwaysShowToolbarInFullScreen
+      );
     },
     quitApplication: () => app.quit(),
     restartApplication: () => restartApplication(app, process.env.ELECTRON_RENDERER_URL),
     recordIpcCommandLatency: (_channel, durationMs) =>
       coreClient.recordIpcCommandLatency(durationMs),
+    runtimeSessionManager: sessionManager,
+    runtimeWindowPreferencesStore,
     workspaceLauncher
   });
   const notifyWorkspaceDisplaysChanged = (): void => {
@@ -1153,6 +1203,7 @@ async function initializeApplication(): Promise<void> {
       openApp: showMainWindow,
       platform: process.platform,
       recordRefresh: () => coreClient.recordMenuRefresh(),
+      runtimeSessionManager: sessionManager,
       ...(process.platform === "darwin" ? { systemVersion: process.getSystemVersion() } : {}),
       ...(process.platform === "win32" ? { quitApp: () => app.quit() } : {}),
       setMenu: setQuickMenu
@@ -1254,6 +1305,14 @@ async function startApplication(): Promise<void> {
     }
 
     await prepareRendererWindow(loadingWindow);
+    await attemptRuntimeSessionAutoRestore?.().catch((error) => {
+      logService.error(
+        "browser",
+        "runtime_session_auto_restore_failed",
+        "Failed to restore saved Game Windows.",
+        error
+      );
+    });
   } catch (error) {
     logService.error("main", "startup_failed", "Rion Studio startup failed.", error);
 
@@ -1451,9 +1510,26 @@ app.on("before-quit", (event) => {
     const macroOverlay = macroOverlayInjector;
 
     try {
-      await manager?.stopAll();
-    } catch (error) {
-      logService.error("browser", "quit_stop_sessions_failed", "Failed to stop all browser sessions while quitting.", error);
+      await saveRuntimeSessionThenStopAll({
+        browserManager: manager,
+        sessionManager: runtimeSessionManager,
+        onSaveError: (error) => {
+          logService.error(
+            "browser",
+            "quit_save_runtime_session_failed",
+            "Failed to save the Game Window session while quitting.",
+            error
+          );
+        },
+        onStopError: (error) => {
+          logService.error(
+            "browser",
+            "quit_stop_sessions_failed",
+            "Failed to stop all browser sessions while quitting.",
+            error
+          );
+        }
+      });
     } finally {
       embeddedRuntimeDiagnostics?.stop();
       embeddedRuntimeDiagnostics = null;
@@ -1497,6 +1573,8 @@ app.on("before-quit", (event) => {
       if (electronBrowserActionAdapter === actionAdapter) electronBrowserActionAdapter = null;
       if (macroOverlayInjector === macroOverlay) macroOverlayInjector = null;
       if (appCoreClient === coreClient) appCoreClient = null;
+      if (runtimeSessionManager) runtimeSessionManager = null;
+      attemptRuntimeSessionAutoRestore = null;
       app.quit();
     }
   })();

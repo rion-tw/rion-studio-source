@@ -39,6 +39,7 @@ import type {
   PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
+  RuntimeWindowPreferences,
   SystemFontFamily
 } from "../../shared/types";
 
@@ -63,6 +64,11 @@ export function App(): JSX.Element {
   const legal = useLegalAcceptance(hasBridge);
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
   const [macroSettings, setMacroSettings] = useState<MacroSettings>(DEFAULT_MACRO_SETTINGS);
+  const [runtimeWindowPreferences, setRuntimeWindowPreferences] =
+    useState<RuntimeWindowPreferences>({
+      alwaysShowToolbarInFullScreen: false,
+      restoreGameWindowsOnStartup: true
+    });
   const [notice, setNotice] = useState<string | null>(null);
   const [busyExternalRoleIds, setBusyExternalRoleIds] = useState<ReadonlySet<string>>(() => new Set());
   const [isChromeProfileImportOpen, setIsChromeProfileImportOpen] = useState(false);
@@ -128,6 +134,17 @@ export function App(): JSX.Element {
     setMacroSettings(nextSettings);
     return nextSettings;
   }, []);
+  const updateRuntimeWindowPreferences = useCallback(
+    async (next: RuntimeWindowPreferences): Promise<RuntimeWindowPreferences> => {
+      if (!window.rionStudio) {
+        throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
+      }
+      const updated = await window.rionStudio.updateRuntimeWindowPreferences(next);
+      setRuntimeWindowPreferences(updated);
+      return updated;
+    },
+    []
+  );
   const loadSystemFonts = useCallback(async (): Promise<SystemFontFamily[]> => {
     if (!window.rionStudio) {
       throw new Error("Rion Studio preload bridge is unavailable. Restart the app after rebuilding.");
@@ -244,12 +261,14 @@ export function App(): JSX.Element {
     let isDisposed = false;
     void Promise.all([
       window.rionStudio.getGameBrowserSettings(),
-      window.rionStudio.getMacroSettings()
+      window.rionStudio.getMacroSettings(),
+      window.rionStudio.getRuntimeWindowPreferences()
     ])
-      .then(([nextGameBrowserSettings, nextMacroSettings]) => {
+      .then(([nextGameBrowserSettings, nextMacroSettings, nextRuntimeWindowPreferences]) => {
         if (!isDisposed) {
           setGameBrowserSettings(nextGameBrowserSettings);
           setMacroSettings(nextMacroSettings);
+          setRuntimeWindowPreferences(nextRuntimeWindowPreferences);
         }
       })
       .catch(data.setError);
@@ -628,6 +647,15 @@ export function App(): JSX.Element {
                     onCreateWorkspace={navigateToNewWorkspace}
                     onCaptureExternalDiagnostics={handleCaptureExternalDiagnostics}
                     onShowGameWindows={(displayId) => void window.rionStudio.showEmbeddedRuntimeWindows(displayId)}
+                    onRestoreSavedGameWindows={(input) =>
+                      void window.rionStudio.restoreSavedGameWindows(input)
+                    }
+                    onDiscardSavedGameWindows={(input) =>
+                      void window.rionStudio.discardSavedGameWindows(input)
+                    }
+                    onStopGameWindow={(displayId) =>
+                      void window.rionStudio.stopEmbeddedRuntimeWindow(displayId)
+                    }
                     onLaunchRole={(roleId) => void roleWorkflow.handleLaunch(roleId)}
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
                     onNavigateMacros={navigateToMacros}
@@ -770,6 +798,7 @@ export function App(): JSX.Element {
                   )}
                   language={preferences.language}
                   macroSettings={macroSettings}
+                  runtimeWindowPreferences={runtimeWindowPreferences}
                   portableDataCounts={{
                     gameCount: data.games.length,
                     macroCount: data.macros.length,
@@ -787,6 +816,7 @@ export function App(): JSX.Element {
                   onExportPortableData={exportPortableData}
                   onGameBrowserSettingsChange={updateGameBrowserSettings}
                   onMacroSettingsChange={updateMacroSettings}
+                  onRuntimeWindowPreferencesChange={updateRuntimeWindowPreferences}
                   onLoadGraphicsDiagnostics={loadGraphicsDiagnostics}
                   onLoadSystemFonts={loadSystemFonts}
                   onPreviewPortableImport={previewPortableImport}

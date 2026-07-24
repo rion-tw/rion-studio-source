@@ -56,6 +56,7 @@ import type {
   PortableImportResult,
   PortableImportWarning,
   PortableMacroConflictResolution,
+  RuntimeWindowPreferences,
   SystemFontFamily,
   WorkspaceAppearanceSettings,
   WorkspaceBackgroundStyle,
@@ -93,6 +94,7 @@ interface SettingsViewProps {
   hasRunningRoles: boolean;
   language: Language;
   macroSettings: MacroSettings;
+  runtimeWindowPreferences: RuntimeWindowPreferences;
   portableDataCounts: PortableDataCounts;
   resolvedTheme: ResolvedTheme;
   t: Translator;
@@ -105,6 +107,9 @@ interface SettingsViewProps {
   onExportPortableData: (input: PortableExportInput) => Promise<PortableExportResult | null>;
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   onMacroSettingsChange: (settings: MacroSettings) => Promise<MacroSettings>;
+  onRuntimeWindowPreferencesChange: (
+    preferences: RuntimeWindowPreferences
+  ) => Promise<RuntimeWindowPreferences>;
   onLoadGraphicsDiagnostics: () => Promise<GraphicsDiagnostics>;
   onLoadSystemFonts: () => Promise<SystemFontFamily[]>;
   onPreviewPortableImport: () => Promise<PortableImportPreview | null>;
@@ -158,6 +163,7 @@ function SettingsViewBase({
   hasRunningRoles,
   language,
   macroSettings,
+  runtimeWindowPreferences,
   portableDataCounts,
   resolvedTheme,
   t,
@@ -170,6 +176,7 @@ function SettingsViewBase({
   onExportPortableData,
   onGameBrowserSettingsChange,
   onMacroSettingsChange,
+  onRuntimeWindowPreferencesChange,
   onLoadGraphicsDiagnostics,
   onLoadSystemFonts,
   onPreviewPortableImport,
@@ -199,6 +206,8 @@ function SettingsViewBase({
   const [graphicsDiagnostics, setGraphicsDiagnostics] = useState<GraphicsDiagnostics | null>(null);
   const [isGraphicsBusy, setIsGraphicsBusy] = useState(false);
   const [isWorkspaceAppearanceSaving, setIsWorkspaceAppearanceSaving] = useState(false);
+  const [isRuntimeWindowPreferencesSaving, setIsRuntimeWindowPreferencesSaving] =
+    useState(false);
   const canCheckForUpdates = Boolean(updateStatus?.isPackaged) && !isUpdateBusy;
   const isManualUpdate = updateStatus?.installMode === "manual";
   const canInstallUpdate = updateStatus?.state === "downloaded";
@@ -460,6 +469,30 @@ function SettingsViewBase({
                 onError={onError}
                 onLoadSystemFonts={onLoadSystemFonts}
                 onSave={onGameBrowserSettingsChange}
+              />
+            </SettingsSection>
+
+            <SettingsSection title={t("settings.gameWindows")}>
+              <SettingsRow
+                showDivider={false}
+                title={t("settings.restoreGameWindowsOnStartup")}
+                description={t("settings.restoreGameWindowsOnStartupDescription")}
+                control={
+                  <Switch
+                    aria-label={t("settings.restoreGameWindowsOnStartup")}
+                    checked={runtimeWindowPreferences.restoreGameWindowsOnStartup}
+                    disabled={isRuntimeWindowPreferencesSaving}
+                    onCheckedChange={(restoreGameWindowsOnStartup) => {
+                      setIsRuntimeWindowPreferencesSaving(true);
+                      void onRuntimeWindowPreferencesChange({
+                        ...runtimeWindowPreferences,
+                        restoreGameWindowsOnStartup
+                      })
+                        .catch(onError)
+                        .finally(() => setIsRuntimeWindowPreferencesSaving(false));
+                    }}
+                  />
+                }
               />
             </SettingsSection>
 

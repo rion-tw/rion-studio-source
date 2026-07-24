@@ -18,7 +18,8 @@ use crate::{
         StateDatabaseWorker, StateMutation, bootstrap_databases,
     },
     domain::{
-        normalize_game_browser_settings, normalize_macro_settings, validate_game_browser_settings,
+        default_runtime_restore_session, normalize_game_browser_settings, normalize_macro_settings,
+        normalize_runtime_restore_session, validate_game_browser_settings,
         validate_legal_acceptance, validate_macro_settings,
     },
     error::{CoreError, CoreResult},
@@ -38,9 +39,9 @@ use crate::{
         GraphicsDiagnosticsRecord, GraphicsVersionRecord, LegalAcceptanceRecord, LogCaptureRecord,
         LogLevel, MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord,
         MacroOverlayViewModelRecord, MacroPressRequest, MacroReleaseRequest, MacroSettingsRecord,
-        MacroStartRequest, OperationCancelResultRecord, RuntimeWindowPreferencesRecord,
-        StateCollection, StateCompatibilityReportRecord, StateGameRecord,
-        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
+        MacroStartRequest, OperationCancelResultRecord, RuntimeRestoreSessionRecord,
+        RuntimeWindowPreferencesRecord, StateCollection, StateCompatibilityReportRecord,
+        StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
         StatePixelBoundsRecord, StateRoleRecord,
     },
     scheduler::MonotonicScheduler,
@@ -651,6 +652,23 @@ impl AppCore {
             CoreCommand::RuntimeWindowPreferencesReplace { preferences } => {
                 self.replace_scalar_state("runtimeWindowPreferences", preferences.clone())?;
                 serde_json::to_value(preferences)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::RuntimeRestoreSessionGet => {
+                let session = self
+                    .read_optional_scalar_state::<RuntimeRestoreSessionRecord>(
+                        "runtimeRestoreSession",
+                    )?
+                    .map(normalize_runtime_restore_session)
+                    .transpose()?
+                    .unwrap_or_else(default_runtime_restore_session);
+                serde_json::to_value(session)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::RuntimeRestoreSessionReplace { session } => {
+                let session = normalize_runtime_restore_session(session)?;
+                self.replace_scalar_state("runtimeRestoreSession", session.clone())?;
+                serde_json::to_value(session)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::LegalAcceptanceStatus { versions } => {

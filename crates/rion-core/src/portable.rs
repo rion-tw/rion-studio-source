@@ -2717,6 +2717,50 @@ mod tests {
     }
 
     #[test]
+    fn portable_export_never_contains_device_local_runtime_restore_state() {
+        let mut snapshot = state_fixture();
+        snapshot.runtime_restore_session = Some(
+            serde_json::from_value(json!({
+                "schemaVersion": 1,
+                "updatedAt": "2026-07-25T00:00:00Z",
+                "cleanExit": true,
+                "windows": [{
+                    "id": "window-1",
+                    "targetDisplay": {"id": 7},
+                    "wasVisible": true,
+                    "tabs": [{
+                        "tabType": "role",
+                        "sourceId": "r",
+                        "name": "Role",
+                        "roleIds": ["r"],
+                        "hidden": false,
+                        "audioMuted": false
+                    }]
+                }]
+            }))
+            .unwrap(),
+        );
+
+        let exported = export(
+            snapshot,
+            None,
+            PortableDataSelectionRecord {
+                games: true,
+                roles: true,
+                launch_workspaces: false,
+                macros: true,
+                preferences: false,
+            },
+            "2.0.0",
+        )
+        .unwrap();
+        let exported = serde_json::to_value(exported).unwrap();
+
+        assert!(exported.get("runtimeRestoreSession").is_none());
+        assert!(exported.get("runtimeWindowPreferences").is_none());
+    }
+
+    #[test]
     fn portable_preferences_do_not_export_or_overwrite_device_log_level() {
         let mut snapshot = state_fixture();
         snapshot.log_level = Some(crate::model::LogLevel::Debug);

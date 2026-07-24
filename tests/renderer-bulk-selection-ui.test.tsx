@@ -109,10 +109,11 @@ describe("bulk selection UI", () => {
       pointerId: 7
     });
     fireEvent.pointerMove(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
+    expect(screen.queryByText("1 selected")).toBeNull();
+    fireEvent.pointerUp(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
 
     expect(screen.getByText("1 selected")).toBeTruthy();
     expectSelectedCardOverlay(item);
-    fireEvent.pointerUp(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
   });
 
   it("adds a selectable state to role cards", async () => {

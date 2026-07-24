@@ -50,6 +50,13 @@ import { v1Case } from "./helpers/v1Parity";
 
 type AnyMock = Mock;
 
+interface DividerTestEvent {
+  pointerId: number;
+  preventDefault: () => void;
+  screenX: number;
+  type: string;
+}
+
 const role: Role = {
   id: "role-1",
   gameId: "game-1",
@@ -3422,8 +3429,14 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(dividerHtml).toContain("background:transparent");
     expect(dividerHtml).not.toContain("class=\"line\"");
     expect(dividerHtml).toContain("cursor:col-resize");
+    expect(dividerHtml).toContain("touch-action:none");
     expect(dividerHtml).not.toContain("body.dragging");
     expect(dividerHtml).toContain("setDragging(true)");
+    expect(dividerHtml).toContain('addEventListener("pointermove"');
+    expect(dividerHtml).toContain("{passive:true}");
+    expect(dividerHtml).toContain("requestAnimationFrame(flushMove)");
+    expect(dividerHtml).toContain("flushMove();setDragging(false);end()");
+    expect(dividerHtml).toContain("const reset=()=>{cancelMove()");
     expect(dividerHtml).toContain('addEventListener("dblclick"');
     expect(dividerHtml).toContain('phase:"reset"');
   });
@@ -3438,6 +3451,87 @@ describe("ElectronBrowserRuntime game host windows", () => {
 
     expect(harness.views[2].view.setBackgroundColor).toHaveBeenCalledWith("#00000000");
     expect(harness.views[2].view.setBackgroundBlur).not.toHaveBeenCalled();
+  });
+
+  it("coalesces divider moves, flushes pointerup, and cancels reset work", async () => {
+    const harness = createHarness();
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+    const dividerUrl = vi.mocked(harness.views[2].webContents.loadURL).mock.calls[0][0];
+    const dividerHtml = decodeURIComponent(dividerUrl.split(",", 2)[1]);
+    const frames = new Map<number, FrameRequestCallback>();
+    const sendPointer = vi.fn();
+    const cancelFrame = vi.fn((frameId: number) => frames.delete(frameId));
+    const listeners = new Map<string, {
+      listener: (event: DividerTestEvent) => void;
+      options?: AddEventListenerOptions | boolean;
+    }>();
+    let nextFrameId = 1;
+    const script = dividerHtml.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    if (!script) throw new Error("Expected generated divider script.");
+    const installDivider = new Function(
+      "window",
+      "document",
+      "addEventListener",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      script
+    ) as (
+      dividerWindow: { rionStudioDivider: { sendPointer: (payload: unknown) => void } },
+      dividerDocument: { body: { setPointerCapture: (pointerId: number) => void } },
+      addListener: (
+        type: string,
+        listener: (event: DividerTestEvent) => void,
+        options?: AddEventListenerOptions | boolean
+      ) => void,
+      requestFrame: (callback: FrameRequestCallback) => number,
+      cancelScheduledFrame: (frameId: number) => void
+    ) => void;
+    installDivider(
+      { rionStudioDivider: { sendPointer } },
+      { body: { setPointerCapture: vi.fn() } },
+      (type, listener, options) => listeners.set(type, { listener, options }),
+      (callback) => {
+        const frameId = nextFrameId++;
+        frames.set(frameId, callback);
+        return frameId;
+      },
+      cancelFrame
+    );
+    const dispatch = (type: string, screenX: number): boolean => {
+      const preventDefault = vi.fn();
+      listeners.get(type)?.listener({ preventDefault, screenX, type, pointerId: 1 });
+      return !preventDefault.mock.calls.length;
+    };
+
+    expect(listeners.get("pointermove")?.options).toEqual({ passive: true });
+    expect(dispatch("pointerdown", 100)).toBe(false);
+    dispatch("pointermove", 120);
+    dispatch("pointermove", 140);
+    expect(frames.size).toBe(1);
+    expect(sendPointer).toHaveBeenCalledTimes(1);
+
+    runAnimationFrame(frames, 1);
+    expect(sendPointer).toHaveBeenLastCalledWith({ phase: "move", screenPosition: 140 });
+
+    dispatch("pointermove", 160);
+    dispatch("pointerup", 180);
+    expect(cancelFrame).toHaveBeenCalledWith(2);
+    expect(frames.size).toBe(0);
+    expect(sendPointer.mock.calls.slice(-2)).toEqual([
+      [{ phase: "move", screenPosition: 180 }],
+      [{ phase: "end" }]
+    ]);
+
+    dispatch("pointerdown", 200);
+    dispatch("pointermove", 230);
+    expect(frames.has(3)).toBe(true);
+    expect(dispatch("dblclick", 230)).toBe(false);
+    expect(cancelFrame).toHaveBeenCalledWith(3);
+    expect(frames.size).toBe(0);
+    expect(sendPointer).toHaveBeenLastCalledWith({ phase: "reset" });
   });
 
   it("uses a one-pixel gap with a solid black workspace background", async () => {
@@ -5503,4 +5597,13 @@ function createOAuthPopup(
   const response = handler();
   response.createWindow({ webPreferences: { javascript: true } });
   return views[popupIndex];
+}
+
+function runAnimationFrame(
+  frames: Map<number, FrameRequestCallback>,
+  frameId: number
+): void {
+  const callback = frames.get(frameId);
+  frames.delete(frameId);
+  callback?.(frameId * 16);
 }

@@ -27,6 +27,7 @@ interface MarqueeState {
   currentX: number;
   currentY: number;
   hasStarted: boolean;
+  needsSelectionUpdate: boolean;
   pointerId: number;
   startContentX: number;
   startContentY: number;
@@ -149,6 +150,7 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
   }, [clearSelection, commitSelection, selectRange, toggleSelection]);
 
   const updateMarqueeSelection = useCallback((state: MarqueeState): void => {
+    state.needsSelectionUpdate = false;
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
       return;
@@ -179,6 +181,9 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     if (cancelled && state.hasStarted) {
       commitSelection(state.baseSelection);
     } else if (state.hasStarted) {
+      if (state.needsSelectionUpdate) {
+        updateMarqueeSelection(state);
+      }
       const selectedInOrder = orderedIdsRef.current.filter((id) => selectedIdsRef.current.has(id));
       anchorIdRef.current = selectedInOrder.at(-1) ?? anchorIdRef.current;
       suppressClickUntilRef.current = Date.now() + 250;
@@ -187,7 +192,7 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     setSelectionRect(null);
     document.body.classList.remove("list-marquee-active");
     stopAutoScroll();
-  }, [commitSelection, stopAutoScroll]);
+  }, [commitSelection, stopAutoScroll, updateMarqueeSelection]);
 
   const runAutoScroll = useCallback((): void => {
     stopAutoScroll();
@@ -209,12 +214,14 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
         delta = AUTO_SCROLL_MAX_PX * (1 - Math.max(0, bottomDistance) / AUTO_SCROLL_EDGE_PX);
       }
 
+      let didScroll = false;
       if (delta !== 0) {
         const previousScrollTop = scrollContainer.scrollTop;
         scrollContainer.scrollTop += delta;
-        if (scrollContainer.scrollTop !== previousScrollTop) {
-          updateMarqueeSelection(state);
-        }
+        didScroll = scrollContainer.scrollTop !== previousScrollTop;
+      }
+      if (didScroll || state.needsSelectionUpdate) {
+        updateMarqueeSelection(state);
       }
       autoScrollFrameRef.current = window.requestAnimationFrame(tick);
     };
@@ -235,6 +242,7 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
       currentX: event.clientX,
       currentY: event.clientY,
       hasStarted: false,
+      needsSelectionUpdate: false,
       pointerId: event.pointerId,
       startContentX: startPoint.x,
       startContentY: startPoint.y,
@@ -260,9 +268,9 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
       document.body.classList.add("list-marquee-active");
       runAutoScroll();
     }
+    state.needsSelectionUpdate = true;
     event.preventDefault();
-    updateMarqueeSelection(state);
-  }, [runAutoScroll, updateMarqueeSelection]);
+  }, [runAutoScroll]);
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLElement>): void => {
     const state = marqueeRef.current;

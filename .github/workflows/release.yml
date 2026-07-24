@@ -223,7 +223,7 @@ jobs:
         run: pnpm exec electron-vite build
 
       - name: Build and verify Rust application core
-        run: pnpm run build:rust && pnpm run verify:rust
+        run: pnpm run build:rust:release && pnpm run verify:rust
 
       - name: Build macOS native runtime tabs
         if: runner.os == 'macOS'

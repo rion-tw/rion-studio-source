@@ -121,7 +121,7 @@ pnpm run lint:rust
 pnpm run test:rust
 pnpm run generate:rust-types
 git diff --exit-code -- src/shared/generated
-pnpm run build:rust
+pnpm run build:rust:release
 pnpm run verify:rust
 pnpm run typecheck
 pnpm run test
@@ -132,12 +132,17 @@ pnpm run test:native:macos
 pnpm run package
 ```
 
-`verify:rust` loads the release addon, creates and queries both databases, supervises
-a child process and exercises a loopback DevTools HTTP/WebSocket fixture. CI repeats
-the addon and unpacked-package smoke tests on macOS arm64 and Windows x64. macOS CI
-also runs the AppKit runtime-tabs native tests. Linux CI runs the macro runtime under
-AddressSanitizer and repeats the 1,000-cycle start/stop, atomic-toggle and external
-health priority tests twenty times.
+`build:rust` creates the fast dev-profile addon used by the normal development
+command. `build:rust:release` preserves the production Thin LTO profile, and
+`verify:rust` loads whichever profile was built most recently, creates and queries
+both databases, supervises a child process and exercises a loopback DevTools
+HTTP/WebSocket fixture. CI repeats the release addon and unpacked-package smoke tests
+on macOS arm64 and Windows x64. macOS CI also runs the AppKit runtime-tabs native
+tests. Linux CI runs the macro runtime under AddressSanitizer and repeats the
+1,000-cycle start/stop, atomic-toggle and external health priority tests twenty times.
+Both build commands replace the same platform-specific addon; the automated package,
+distribution and CI commands always rebuild release immediately before verification
+and packaging.
 
 ## Performance protocol
 
@@ -151,7 +156,7 @@ settings. Warm each scenario for 10 minutes, measure for 30 minutes, run it thre
 and compare the median. Enable bridge telemetry before starting the app:
 
 ```bash
-RION_PERFORMANCE_TELEMETRY_PATH=/tmp/rion-telemetry.json pnpm run dev
+RION_PERFORMANCE_TELEMETRY_PATH=/tmp/rion-telemetry.json pnpm run dev:release
 ```
 
 While the app is running, measure its root PID:

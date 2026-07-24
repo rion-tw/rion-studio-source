@@ -7,6 +7,15 @@ import { fileURLToPath } from "node:url";
 import { resolveCargoExecutable } from "./cargoExecutable.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const cliArguments = process.argv.slice(2);
+if (
+  cliArguments.length > 1
+  || (cliArguments.length === 1 && cliArguments[0] !== "--release")
+) {
+  throw new Error("Usage: buildRustCore.mjs [--release]");
+}
+const release = cliArguments.length === 1;
+const cargoProfileDirectory = release ? "release" : "debug";
 const platformDirectory = `${process.platform}-${process.arch}`;
 const outputDirectory = join(repositoryRoot, "build", "native", platformDirectory);
 const libraryName = process.platform === "win32"
@@ -14,7 +23,7 @@ const libraryName = process.platform === "win32"
   : process.platform === "darwin"
     ? "librion_node.dylib"
     : "librion_node.so";
-const source = join(repositoryRoot, "target", "release", libraryName);
+const source = join(repositoryRoot, "target", cargoProfileDirectory, libraryName);
 const destination = join(outputDirectory, "rion-core.node");
 
 async function run(command, args) {
@@ -38,7 +47,13 @@ async function run(command, args) {
 }
 
 const cargo = await resolveCargoExecutable();
-await run(cargo, ["build", "--locked", "--release", "-p", "rion-node"]);
+await run(cargo, [
+  "build",
+  "--locked",
+  ...(release ? ["--release"] : []),
+  "-p",
+  "rion-node"
+]);
 await mkdir(outputDirectory, { recursive: true });
 await copyFile(source, destination);
 if (process.platform === "darwin") {
@@ -47,4 +62,4 @@ if (process.platform === "darwin") {
   // not kill the host process when it validates the first executable page.
   await run("/usr/bin/codesign", ["--force", "--sign", "-", destination]);
 }
-console.log(`Built Rust application core: ${destination}`);
+console.log(`Built Rust application core (${release ? "release" : "dev"}): ${destination}`);

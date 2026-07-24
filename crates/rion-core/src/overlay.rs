@@ -246,7 +246,6 @@ impl Drop for OverlayRefreshRuntime {
 struct OverlayProjection {
     browser: HashMap<String, String>,
     macros: HashMap<String, String>,
-    resources: HashMap<String, String>,
     unresponsive: HashSet<String>,
 }
 
@@ -302,13 +301,6 @@ impl OverlayProjection {
                         .collect();
                     change.role_ids.extend(update_grouped_signatures(
                         &mut self.browser,
-                        statuses,
-                        |status| &status.role_id,
-                    ));
-                }
-                CoreEvent::ResourceStatuses { statuses } => {
-                    change.role_ids.extend(update_grouped_signatures(
-                        &mut self.resources,
                         statuses,
                         |status| &status.role_id,
                     ));
@@ -471,7 +463,6 @@ mod tests {
     use super::*;
     use crate::model::{
         BrowserRoleStatusRecord, MacroLastClick, MacroRepeat, MacroRunStatus, MacroStepDefinition,
-        ResourceRuntimeStatusRecord,
     };
 
     fn definition(id: &str, role_ids: &[&str], steps: Vec<MacroStepDefinition>) -> MacroDefinition {
@@ -559,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn projects_only_roles_with_changed_macro_or_resource_presentation() {
+    fn projects_only_roles_with_changed_macro_presentation() {
         let mut projection = OverlayProjection::default();
         let status = MacroRunStatus {
             role_id: "role-1".to_owned(),
@@ -603,20 +594,6 @@ mod tests {
                 HashSet::from(["role-1".to_owned()])
             );
         });
-        assert_eq!(
-            projection
-                .observe(&[CoreEvent::ResourceStatuses {
-                    statuses: vec![ResourceRuntimeStatusRecord {
-                        role_id: "role-2".to_owned(),
-                        cpu_throttle_rate: 2,
-                        resource_state: "throttled".to_owned(),
-                        resource_pressure_level: Some("normal".to_owned()),
-                        resource_reason: Some("runtime_tab_background".to_owned()),
-                    }],
-                }])
-                .role_ids,
-            HashSet::from(["role-2".to_owned()])
-        );
     }
 
     #[test]
@@ -755,10 +732,6 @@ mod tests {
             automation_state: Some("ready".to_owned()),
             overlay_state: Some("ready".to_owned()),
             page_health: page_health.map(str::to_owned),
-            resource_state: None,
-            cpu_throttle_rate: None,
-            resource_pressure_level: None,
-            resource_reason: None,
         }
     }
 }

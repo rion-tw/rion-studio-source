@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
+import { v1Case } from "./helpers/v1Parity";
 
 const readSource = (path: string): Promise<string> =>
   readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -245,21 +246,44 @@ describe("Rust production architecture boundaries", () => {
     expect(diagnostics).toContain('contents.on("responsive"');
   });
 
-  it("keeps adaptive resource state and pressure sampling in Rust", async () => {
-    const [controller, runtime, browser, pressure] = await Promise.all([
-      readSource("crates/rion-core/src/resource_controller.rs"),
-      readSource("crates/rion-core/src/resource_runtime.rs"),
+  it("uses native background throttling without a custom CPU resource runtime", async () => {
+    const [app, model, coreLibrary, browser, executor] = await Promise.all([
+      readSource("crates/rion-core/src/app.rs"),
+      readSource("crates/rion-core/src/model.rs"),
+      readSource("crates/rion-core/src/lib.rs"),
       readSource("src/main/browser/ElectronBrowserRuntime.ts"),
-      readSource("src/main/browser/RustSystemPressureMonitor.ts")
+      readSource("src/main/core/ElectronEffectExecutor.ts")
     ]);
 
-    expect(browser).not.toContain("WorkspaceResourceCoordinator");
-    expect(browser).not.toContain("resourcePressureMonitor");
-    expect(controller).toContain("struct ResourceController");
-    expect(controller).toContain("EmbeddedApplyResourceEffects");
-    expect(controller).toContain("ResourceRuntimeCommand");
-    expect(runtime).toContain("struct ResourceRuntime");
-    expect(pressure).not.toContain("setInterval");
+    for (const source of [app, model, coreLibrary, browser, executor]) {
+      expect(source).not.toContain("ResourceRuntime");
+      expect(source).not.toContain("EmbeddedApplyResourceEffects");
+      expect(source).not.toContain("cpuThrottleRate");
+      expect(source).not.toContain("Emulation.setCPUThrottlingRate");
+    }
+    expect(app).not.toContain("resource_controller");
+    expect(app).not.toContain("SystemPressure");
+    expect(browser).toContain("backgroundThrottling: true");
+    v1Case("resource-platform-778b4474a64f", () => {
+      expect(browser).not.toContain("Target.setAutoAttach");
+      expect(browser).not.toContain("Emulation.setCPUThrottlingRate");
+    });
+    v1Case("resource-platform-352a23429e77", () => {
+      expect(browser).not.toContain("ElectronWorkspaceResourceTarget");
+    });
+    v1Case("resource-platform-44932c30115a", () => {
+      expect(browser).not.toContain("resourceTarget");
+    });
+    v1Case("resource-platform-e65c2a683baa", () => {
+      expect(browser).not.toContain("resourceTargetInvalidated");
+    });
+    v1Case("resource-platform-d0472c874e98", () => {
+      expect(app).not.toContain("SystemPressure");
+      expect(coreLibrary).not.toContain("pressure");
+    });
+    v1Case("resource-platform-9256c88b0721", () => {
+      expect(coreLibrary).not.toContain("SystemPressureSnapshot");
+    });
   });
 
   it("keeps external Chrome process, CDP, and session authority in Rust", async () => {

@@ -61,7 +61,8 @@ describe("generated Rust core contracts", () => {
       readFile("src/shared/generated/PortableLaunchWorkspaceRecord.ts", "utf8"),
       readFile("src/shared/generated/CoreCommand.ts", "utf8"),
       readFile("src/shared/generated/CoreEffectAction.ts", "utf8"),
-      readFile("src/shared/generated/ResourceRuntimeCommand.ts", "utf8"),
+      readFile("src/shared/generated/BrowserRoleStatusRecord.ts", "utf8"),
+      readFile("src/shared/generated/MacroOverlayViewModelRecord.ts", "utf8"),
       readFile("src/shared/generated/index.ts", "utf8")
     ]);
 
@@ -69,6 +70,11 @@ describe("generated Rust core contracts", () => {
       expect(contract).not.toContain("resourcePolicy");
       expect(contract).not.toContain("policyMode");
       expect(contract).not.toContain("StateWorkspaceResourcePolicyRecord");
+      expect(contract).not.toContain("ResourceRuntime");
+      expect(contract).not.toContain("resourceState");
+      expect(contract).not.toContain("cpuThrottleRate");
+      expect(contract).not.toContain("resourcePressureLevel");
+      expect(contract).not.toContain("resourceReason");
     }
   });
 });

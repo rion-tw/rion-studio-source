@@ -278,9 +278,6 @@ pub enum CoreCommand {
         platform: String,
         versions: GraphicsVersionRecord,
     },
-    ResourceResolve {
-        input: ResourcePolicyInput,
-    },
     LayoutResolve {
         input: WorkspaceLayoutInput,
     },
@@ -327,14 +324,6 @@ pub enum CoreCommand {
     EmbeddedKeysClear {
         #[ts(rename = "roleId")]
         role_id: String,
-    },
-    SystemPressureUpdate {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "speedLimit")]
-        speed_limit: Option<f64>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "thermalState")]
-        thermal_state: Option<String>,
     },
     LogsCapture {
         entries: Vec<LogCaptureRecord>,
@@ -400,24 +389,6 @@ pub enum CoreCommand {
         role_id: String,
     },
     MacroStatuses,
-    ResourceActivateWorkspace {
-        #[ts(rename = "workspaceId")]
-        workspace_id: String,
-        targets: Vec<ResourceRuntimeTargetRecord>,
-    },
-    ResourceDeactivateWorkspace {
-        #[ts(rename = "workspaceId")]
-        workspace_id: String,
-    },
-    ResourceRefreshTarget {
-        #[ts(rename = "workspaceId")]
-        workspace_id: String,
-        #[ts(rename = "roleId")]
-        role_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "processId")]
-        process_id: Option<u32>,
-    },
     ExternalHealthRegister {
         #[ts(rename = "roleId")]
         role_id: String,
@@ -624,9 +595,6 @@ impl CoreCommand {
                 | Self::BrowserWorkspaceStop { .. }
                 | Self::BrowserExternalRecover { .. }
                 | Self::ExternalDiagnosticsCapture { .. }
-                | Self::ResourceActivateWorkspace { .. }
-                | Self::ResourceDeactivateWorkspace { .. }
-                | Self::ResourceRefreshTarget { .. }
         )
     }
 }
@@ -2036,9 +2004,6 @@ pub enum CoreEvent {
     LogEntriesCaptured {
         entries: Vec<LogEntry>,
     },
-    PressureChanged {
-        snapshot: SystemPressureSnapshot,
-    },
     BrowserActions {
         actions: Vec<BrowserActionRequest>,
     },
@@ -2054,9 +2019,6 @@ pub enum CoreEvent {
     MacroStatuses {
         reliable: bool,
         statuses: Vec<MacroRunStatus>,
-    },
-    ResourceStatuses {
-        statuses: Vec<ResourceRuntimeStatusRecord>,
     },
     OverlayChanged {
         #[ts(rename = "roleIds")]
@@ -2355,143 +2317,6 @@ pub struct CdnRule {
     pub regex_filter: String,
     pub regex_substitution: String,
     pub source_host: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum PressureLevel {
-    Normal,
-    Constrained,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct SystemPressureSnapshot {
-    pub level: PressureLevel,
-    #[ts(type = "\"baseline\" | \"cpu\" | \"memory\" | \"thermal\"")]
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct ResourcePolicyInput {
-    pub workspace_hidden: bool,
-    pub macro_active: bool,
-    pub shares_process_with_macro: bool,
-    pub pressure_level: PressureLevel,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct ResourcePolicyDecision {
-    #[ts(type = "1 | 2 | 4")]
-    pub cpu_throttle_rate: u8,
-    #[ts(type = "\"full_speed\" | \"throttled\" | \"macro_override\" | \"shared_process\"")]
-    pub resource_state: String,
-    #[ts(
-        type = "\"macro\" | \"shared_process\" | \"system_pressure\" | \"runtime_tab_background\" | null"
-    )]
-    pub resource_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(
-    tag = "type",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum ResourceRuntimeCommand {
-    Snapshot,
-    ActivateWorkspace {
-        workspace_id: String,
-        targets: Vec<ResourceRuntimeTargetRecord>,
-    },
-    DeactivateWorkspace {
-        workspace_id: String,
-    },
-    SetMacroRoleIds {
-        role_ids: Vec<String>,
-    },
-    SetHiddenWorkspaceIds {
-        workspace_ids: Vec<String>,
-    },
-    PrepareWorkspaceForeground {
-        workspace_id: String,
-    },
-    ReconcileRuntimeRoleIds {
-        #[ts(type = "\"embedded\" | \"external\"")]
-        runtime_mode: String,
-        active_role_ids: Vec<String>,
-    },
-    RefreshTarget {
-        workspace_id: String,
-        role_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
-        process_id: Option<u32>,
-    },
-    SetPressure {
-        level: PressureLevel,
-        reason: String,
-    },
-    SetUnavailableRoleIds {
-        role_ids: Vec<String>,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct ResourceRuntimeTargetRecord {
-    pub role_id: String,
-    #[ts(type = "\"embedded\" | \"external\"")]
-    pub runtime_mode: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "number")]
-    pub process_id: Option<u32>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct ResourceRuntimeEffectRecord {
-    pub role_ids: Vec<String>,
-    #[ts(type = "1 | 2 | 4")]
-    pub cpu_throttle_rate: u8,
-    pub release: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct ResourceRuntimeStatusRecord {
-    pub role_id: String,
-    #[ts(type = "\"throttled\" | \"macro_override\" | \"shared_process\" | \"unavailable\"")]
-    pub resource_state: String,
-    #[ts(type = "1 | 2 | 4")]
-    pub cpu_throttle_rate: u8,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"normal\" | \"constrained\"")]
-    pub resource_pressure_level: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(
-        optional,
-        type = "\"baseline\" | \"cpu\" | \"memory\" | \"thermal\" | \"macro\" | \"shared_process\" | \"runtime_tab_background\" | \"unavailable\""
-    )]
-    pub resource_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct ResourceRuntimeResult {
-    pub effects: Vec<ResourceRuntimeEffectRecord>,
-    pub statuses: Vec<ResourceRuntimeStatusRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -3403,13 +3228,6 @@ pub enum CoreEffectAction {
     EmbeddedInstallOverlays {
         role_ids: Vec<String>,
     },
-    EmbeddedActivateResources {
-        tab_id: String,
-        role_ids: Vec<String>,
-    },
-    EmbeddedApplyResourceEffects {
-        effects: Vec<ResourceRuntimeEffectRecord>,
-    },
     EmbeddedFocusRole {
         role_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3604,24 +3422,6 @@ pub struct BrowserRoleStatusRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
     pub page_health: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(
-        optional,
-        type = "\"throttled\" | \"macro_override\" | \"shared_process\" | \"unavailable\""
-    )]
-    pub resource_state: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "1 | 2 | 4")]
-    pub cpu_throttle_rate: Option<u8>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"normal\" | \"constrained\"")]
-    pub resource_pressure_level: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(
-        optional,
-        type = "\"runtime_tab_background\" | \"cpu\" | \"memory\" | \"thermal\" | \"macro\" | \"shared_process\" | \"unavailable\""
-    )]
-    pub resource_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -4067,9 +3867,6 @@ pub struct MacroOverlayStartSummaryRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroOverlayViewModelRecord {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "1 | 2 | 4")]
-    pub cpu_throttle_rate: Option<u8>,
     #[serde(default)]
     pub detached: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4077,12 +3874,6 @@ pub struct MacroOverlayViewModelRecord {
     pub language: Option<String>,
     pub macro_badge_position: MacroBadgePositionRecord,
     pub macros: Vec<MacroDefinition>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(
-        optional,
-        type = "\"throttled\" | \"macro_override\" | \"shared_process\" | \"unavailable\""
-    )]
-    pub resource_state: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub start_summary: Option<MacroOverlayStartSummaryRecord>,
@@ -4121,33 +3912,5 @@ mod command_tests {
             state_changed["changedCollections"],
             json!(["roles", "launchWorkspaces"])
         );
-    }
-
-    #[test]
-    fn resource_effect_commands_use_the_async_dispatcher() {
-        for command in [
-            json!({
-                "type": "resourceActivateWorkspace",
-                "workspaceId": "workspace-1",
-                "targets": []
-            }),
-            json!({
-                "type": "resourceDeactivateWorkspace",
-                "workspaceId": "workspace-1"
-            }),
-            json!({
-                "type": "resourceRefreshTarget",
-                "workspaceId": "workspace-1",
-                "roleId": "role-1",
-                "processId": 42
-            }),
-        ] {
-            assert!(
-                serde_json::from_value::<CoreCommand>(command)
-                    .unwrap()
-                    .requires_async_dispatch()
-            );
-        }
-        assert!(!CoreCommand::BrowserStatuses.requires_async_dispatch());
     }
 }

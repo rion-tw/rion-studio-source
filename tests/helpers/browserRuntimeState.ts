@@ -13,10 +13,8 @@ import type {
   BrowserRuntimeTabRecord,
   BrowserRuntimeWorkspaceRecord
 } from "../../src/shared/generated";
-import { createResourceRuntimeState } from "./resourceRuntimeState";
 
 export function createBrowserRuntimeState() {
-  const resourceRuntime = createResourceRuntimeState();
   let nextTabId = 0;
   let nextOperationId = 0;
   const displays = new Map<number, BrowserRuntimeDisplayRecord>();
@@ -137,14 +135,11 @@ export function createBrowserRuntimeState() {
       const statuses = this.listBrowserStatuses();
       listeners.forEach((listener) => listener([{ type: "browserStatuses", statuses }]));
     },
-    invokeResourceRuntimeForTest: resourceRuntime.invokeResourceRuntime,
     evaluateExternalChrome<T>(): Promise<T> {
       return Promise.reject(new Error("External Chrome is not configured in this test harness."));
     },
     listBrowserStatuses(): BrowserRoleStatusRecord[] {
-      const resourceStatuses = resourceRuntime.invokeResourceRuntime({ type: "snapshot" }).statuses;
       return snapshot().roles.map((role) => {
-        const resource = resourceStatuses.find((status) => status.roleId === role.roleId);
         return {
           roleId: role.roleId,
           state: role.state,
@@ -152,17 +147,7 @@ export function createBrowserRuntimeState() {
           runtimeMode: role.runtime,
           ...(role.runtime === "external"
             ? { automationState: "ready" as const, pageHealth: "healthy" as const }
-            : {}),
-          ...(resource ? {
-            resourceState: resource.resourceState,
-            cpuThrottleRate: resource.cpuThrottleRate,
-            ...(resource.resourcePressureLevel
-              ? { resourcePressureLevel: resource.resourcePressureLevel }
-              : {}),
-            ...(resource.resourceReason && resource.resourceReason !== "baseline"
-              ? { resourceReason: resource.resourceReason }
-              : {})
-          } : {})
+            : {})
         };
       });
     },

@@ -4,4 +4,4 @@ import type { MacroDefinition } from "./MacroDefinition";
 import type { MacroOverlayStartSummaryRecord } from "./MacroOverlayStartSummaryRecord";
 import type { MacroRunStatus } from "./MacroRunStatus";
 
-export type MacroOverlayViewModelRecord = { cpuThrottleRate?: 1 | 2 | 4, detached: boolean, language?: "en" | "zh-TW" | "zh-CN" | "ja", macroBadgePosition: MacroBadgePositionRecord, macros: Array<MacroDefinition>, resourceState?: "throttled" | "macro_override" | "shared_process" | "unavailable", startSummary?: MacroOverlayStartSummaryRecord, statuses: Array<MacroRunStatus>, };
+export type MacroOverlayViewModelRecord = { detached: boolean, language?: "en" | "zh-TW" | "zh-CN" | "ja", macroBadgePosition: MacroBadgePositionRecord, macros: Array<MacroDefinition>, startSummary?: MacroOverlayStartSummaryRecord, statuses: Array<MacroRunStatus>, };

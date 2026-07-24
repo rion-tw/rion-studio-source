@@ -30,10 +30,6 @@ mod model;
 pub mod operation_actor;
 mod overlay;
 mod portable;
-mod pressure;
-mod resource;
-mod resource_controller;
-mod resource_runtime;
 mod role_browser_data;
 mod runtime_sequence;
 mod scheduler;
@@ -101,18 +97,15 @@ pub use model::{
     PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
     PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
     PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
-    PortablePreferencesRecord, PortableRoleRecord, PressureLevel, ResourcePolicyDecision,
-    ResourcePolicyInput, ResourceRuntimeCommand, ResourceRuntimeEffectRecord,
-    ResourceRuntimeResult, ResourceRuntimeStatusRecord, ResourceRuntimeTargetRecord,
-    RoleCreateInputRecord, RoleCreateRequest, RoleGameAssignmentRecord, RolePathsRecord,
-    RoleUpdateInputRecord, RoleUpdateRequest, RuntimeWindowPreferencesRecord, StateCollection,
-    StateCompatibilityChromeRecord, StateCompatibilityLoadRecord,
-    StateCompatibilityObservationsRecord, StateCompatibilityRecommendationRecord,
-    StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
-    StateNormalizedRectRecord, StatePixelBoundsRecord, StateResolutionRecord, StateRoleRecord,
-    StateWebGraphicsRecord, StateWorkspaceDisplayFingerprintRecord,
-    StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord, SystemFontFamilyRecord,
-    SystemPressureSnapshot, TelemetryMetric, TelemetrySampleRecord,
+    PortablePreferencesRecord, PortableRoleRecord, RoleCreateInputRecord, RoleCreateRequest,
+    RoleGameAssignmentRecord, RolePathsRecord, RoleUpdateInputRecord, RoleUpdateRequest,
+    RuntimeWindowPreferencesRecord, StateCollection, StateCompatibilityChromeRecord,
+    StateCompatibilityLoadRecord, StateCompatibilityObservationsRecord,
+    StateCompatibilityRecommendationRecord, StateCompatibilityReportRecord, StateGameRecord,
+    StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord,
+    StatePixelBoundsRecord, StateResolutionRecord, StateRoleRecord, StateWebGraphicsRecord,
+    StateWorkspaceDisplayFingerprintRecord, StateWorkspaceDisplayTargetRecord,
+    StateWorkspaceSlotRecord, SystemFontFamilyRecord, TelemetryMetric, TelemetrySampleRecord,
     WindowsGraphicsEventCollectionRecord, WindowsGraphicsEventRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceCreateRequest,
     WorkspaceDisplayInfoRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
@@ -255,7 +248,6 @@ mod generated_contract_tests {
                 "export type { MacroUpdateInputRecord } from \"./MacroUpdateInputRecord\";\n",
                 "export type { MacroUpdateRequest } from \"./MacroUpdateRequest\";\n",
                 "export type { OperationCancelResultRecord } from \"./OperationCancelResultRecord\";\n",
-                "export type { PressureLevel } from \"./PressureLevel\";\n",
                 "export type { PortableDataRecord } from \"./PortableDataRecord\";\n",
                 "export type { PortableDataSelectionRecord } from \"./PortableDataSelectionRecord\";\n",
                 "export type { PortableExportResultRecord } from \"./PortableExportResultRecord\";\n",
@@ -273,13 +265,6 @@ mod generated_contract_tests {
                 "export type { PortablePreferencesRecord } from \"./PortablePreferencesRecord\";\n",
                 "export type { PortableRoleRecord } from \"./PortableRoleRecord\";\n",
                 "export type { PerformanceTelemetryRecord } from \"./PerformanceTelemetryRecord\";\n",
-                "export type { ResourcePolicyDecision } from \"./ResourcePolicyDecision\";\n",
-                "export type { ResourcePolicyInput } from \"./ResourcePolicyInput\";\n",
-                "export type { ResourceRuntimeCommand } from \"./ResourceRuntimeCommand\";\n",
-                "export type { ResourceRuntimeEffectRecord } from \"./ResourceRuntimeEffectRecord\";\n",
-                "export type { ResourceRuntimeResult } from \"./ResourceRuntimeResult\";\n",
-                "export type { ResourceRuntimeStatusRecord } from \"./ResourceRuntimeStatusRecord\";\n",
-                "export type { ResourceRuntimeTargetRecord } from \"./ResourceRuntimeTargetRecord\";\n",
                 "export type { RoleCreateInputRecord } from \"./RoleCreateInputRecord\";\n",
                 "export type { RoleCreateRequest } from \"./RoleCreateRequest\";\n",
                 "export type { RoleGameAssignmentRecord } from \"./RoleGameAssignmentRecord\";\n",
@@ -304,7 +289,6 @@ mod generated_contract_tests {
                 "export type { StateWorkspaceDisplayFingerprintRecord } from \"./StateWorkspaceDisplayFingerprintRecord\";\n",
                 "export type { StateWorkspaceDisplayTargetRecord } from \"./StateWorkspaceDisplayTargetRecord\";\n",
                 "export type { StateWorkspaceSlotRecord } from \"./StateWorkspaceSlotRecord\";\n",
-                "export type { SystemPressureSnapshot } from \"./SystemPressureSnapshot\";\n",
                 "export type { SystemFontFamilyRecord } from \"./SystemFontFamilyRecord\";\n",
                 "export type { TelemetryMetric } from \"./TelemetryMetric\";\n",
                 "export type { TelemetrySampleRecord } from \"./TelemetrySampleRecord\";\n",

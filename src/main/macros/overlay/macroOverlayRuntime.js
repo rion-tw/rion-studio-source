@@ -31,9 +31,6 @@
     en: {
       holdUntilStop: "Hold",
       noShortcut: "No shortcut",
-      resourceMacroOverride: "Temporarily full speed",
-      resourceSharedProcess: "Shared process / full speed",
-      resourceUnavailable: "Throttling unavailable",
       coordinateCopied: "Copied",
       coordinateCopyFailed: "Unable to copy coordinates. Try again.",
       coordinateCopying: "Copying…",
@@ -47,9 +44,6 @@
     "zh-TW": {
       holdUntilStop: "保持",
       noShortcut: "無快捷鍵",
-      resourceMacroOverride: "暫時全速",
-      resourceSharedProcess: "共用程序／全速",
-      resourceUnavailable: "無法節流",
       coordinateCopied: "已複製",
       coordinateCopyFailed: "無法複製座標，請再試一次。",
       coordinateCopying: "複製中…",
@@ -63,9 +57,6 @@
     "zh-CN": {
       holdUntilStop: "保持",
       noShortcut: "无快捷键",
-      resourceMacroOverride: "暂时全速",
-      resourceSharedProcess: "共享进程／全速",
-      resourceUnavailable: "无法限速",
       coordinateCopied: "已复制",
       coordinateCopyFailed: "无法复制坐标，请重试。",
       coordinateCopying: "复制中…",
@@ -79,9 +70,6 @@
     ja: {
       holdUntilStop: "保持",
       noShortcut: "ショートカットなし",
-      resourceMacroOverride: "一時的にフル速度",
-      resourceSharedProcess: "共有プロセス／フル速度",
-      resourceUnavailable: "速度制限不可",
       coordinateCopied: "コピーしました",
       coordinateCopyFailed: "座標をコピーできません。もう一度お試しください。",
       coordinateCopying: "コピー中…",
@@ -181,7 +169,6 @@
   let isOpenRequestPending = false;
   let refreshInFlight = null;
   let refreshQueued = false;
-  let resourceElement = null;
   let root = null;
   let suppressedShortcutEvents = [];
   let triggerElement = null;
@@ -202,7 +189,6 @@
   delete window[controllerKey];
 
   const state = {
-    cpuThrottleRate: 1,
     language: detectOverlayLanguage(),
     lastRefreshAt: 0,
     macroBadgePosition: {
@@ -212,7 +198,6 @@
     },
     macros: [],
     requestVersion: 0,
-    resourceState: undefined,
     statuses: []
   };
   const pendingMacroActions = new Set();
@@ -584,17 +569,6 @@
     event.stopPropagation();
   }
 
-  function getResourceLabel() {
-    const text = getText();
-    switch (state.resourceState) {
-      case "throttled": return String(state.cpuThrottleRate || 1) + "x";
-      case "macro_override": return text.resourceMacroOverride;
-      case "shared_process": return text.resourceSharedProcess;
-      case "unavailable": return text.resourceUnavailable;
-      default: return "";
-    }
-  }
-
   function normalizeOverlayLanguage(language) {
     return language === "en" || language === "zh-TW" || language === "zh-CN" || language === "ja"
       ? language
@@ -645,8 +619,6 @@
       const macroId = String(key).slice(String(key).indexOf(":") + 1);
       if (!activeMacroIds.has(macroId)) retainedClickStatuses.delete(key);
     });
-    state.resourceState = nextState?.resourceState;
-    state.cpuThrottleRate = nextState?.cpuThrottleRate || 1;
     if (Array.isArray(nextState?.statuses)) {
       latestCoreStatuses = nextState.statuses;
       retainAndApplyClickStatuses();
@@ -997,7 +969,6 @@
       host = null;
       renderedActiveBadgesMarkup = null;
       renderedClickMarkersMarkup = null;
-      resourceElement = null;
       root = null;
       triggerElement = null;
       coordinateMeasureElement = null;
@@ -1050,7 +1021,6 @@
       '<div class="click-marker-layer" hidden aria-hidden="true"></div>',
       '<div class="active-badges" aria-hidden="true"></div>',
       '<div class="toolbar">',
-      '<div class="resource-state" hidden></div>',
       '<button class="trigger" type="button" tabindex="-1">',
       triggerIconMarkup,
       "</button>",
@@ -1072,7 +1042,6 @@
       "</div>"
     ].join("");
     activeBadgesElement = root.querySelector(".active-badges");
-    resourceElement = root.querySelector(".resource-state");
     clickMarkerLayerElement = root.querySelector(".click-marker-layer");
     triggerElement = root.querySelector(".trigger");
     actionMenuElement = root.querySelector(".action-menu");
@@ -1161,7 +1130,7 @@
   }
 
   function updatePresentation() {
-    if (!ensureHost() || !triggerElement || !activeBadgesElement || !resourceElement) {
+    if (!ensureHost() || !triggerElement || !activeBadgesElement) {
       return;
     }
 
@@ -1182,11 +1151,6 @@
     if (coordinateMeasureActive && coordinateMeasurement && coordinateReadoutElement?.dataset.status === "ready") {
       setCoordinateReadoutStatus("ready");
     }
-
-    const resourceLabel = getResourceLabel();
-    resourceElement.hidden = !resourceLabel;
-    resourceElement.textContent = resourceLabel;
-    resourceElement.title = resourceLabel;
 
     const nextMarkup = getRunningBadgeMacros()
       .map((macro) => {

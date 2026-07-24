@@ -18,8 +18,6 @@ macro_rules! v1_case {
 #[cfg(test)]
 pub(crate) use v1_case;
 
-mod pressure;
-pub use pressure::{SystemPressureSample, SystemPressureSampler};
 mod process;
 pub use process::{ExternalProcessExit, ExternalProcessSupervisor};
 mod filesystem;

@@ -23,7 +23,6 @@ import { restartApplication } from "./applicationRestart";
 import { ElectronProfileEffectAdapter } from "./browser/ElectronProfileEffectAdapter";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
 import { resolveExternalPhysicalBounds } from "./browser/externalPhysicalBounds";
-import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
 import { AppCoreClient, readBootstrapPlan } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
 import {
@@ -539,12 +538,6 @@ async function initializeApplication(): Promise<void> {
     updateCheckStarted = true;
     void updateManager.checkForUpdates();
   };
-  const resourcePressureMonitor = new RustSystemPressureMonitor(coreClient);
-  powerMonitor.on("speed-limit-change", ({ limit }) => resourcePressureMonitor.setSpeedLimit(limit));
-  if (process.platform === "darwin") {
-    powerMonitor.on("thermal-state-change", ({ state }) => resourcePressureMonitor.setThermalState(state));
-  }
-  resourcePressureMonitor.start();
   const macRuntimeTabsControllerFactory = process.platform === "darwin"
     ? loadMacRuntimeTabsControllerFactory(getMacRuntimeTabsAddonPath())
     : undefined;
@@ -653,11 +646,6 @@ async function initializeApplication(): Promise<void> {
     prefersReducedTransparency: () => nativeTheme.prefersReducedTransparency
   });
   browserManager = runtimeManager;
-  coreClient.subscribe((events) => {
-    if (events.some((event) => event.type === "resourceStatuses")) {
-      runtimeManager.notifyResourceStatusesChanged();
-    }
-  });
   const browserActionAdapter = new ElectronBrowserActionAdapter({
     getTarget: (roleId) => runtimeManager.getEmbeddedAutomationSession(roleId)?.target,
     recordMacroScheduleToDispatchLatency: (durationMs) =>

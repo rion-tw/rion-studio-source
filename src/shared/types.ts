@@ -154,10 +154,6 @@ export interface RoleStatus {
   overlayState?: "ready" | "unavailable";
   /** Health reported by the external Chrome page diagnostics bridge. */
   pageHealth?: "healthy" | "unresponsive";
-  resourceState?: WorkspaceResourceState;
-  cpuThrottleRate?: WorkspaceCpuThrottleRate | 1;
-  resourcePressureLevel?: WorkspacePressureLevel;
-  resourceReason?: WorkspaceResourceReason;
 }
 
 export type EmbeddedRuntimeTabType = "role" | "workspace";
@@ -251,23 +247,6 @@ export type RolePaths = RolePathsRecord;
 export type NormalizedRect = StateNormalizedRectRecord;
 
 export type LaunchWorkspaceSlot = StateWorkspaceSlotRecord;
-
-export type WorkspaceCpuThrottleRate = 2 | 4;
-export type WorkspacePressureLevel = "normal" | "constrained";
-export type WorkspaceResourceReason =
-  | "baseline"
-  | "cpu"
-  | "memory"
-  | "thermal"
-  | "macro"
-  | "shared_process"
-  | "runtime_tab_background"
-  | "unavailable";
-export type WorkspaceResourceState =
-  | "throttled"
-  | "macro_override"
-  | "shared_process"
-  | "unavailable";
 
 export type PixelBounds = StatePixelBoundsRecord;
 

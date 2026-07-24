@@ -2,17 +2,15 @@
 
 Rion Studio keeps Electron, Chromium, React, preload and native UI integration. The
 required `rion-core.node` addon owns portable application state, SQLite, log storage,
-macro timing, system pressure sampling, adaptive resource management, CDN matching, external Chrome
-process supervision and its DevTools HTTP/WebSocket transport. Renderer code never
-loads the addon directly.
+macro timing, CDN matching, external Chrome process supervision and its DevTools
+HTTP/WebSocket transport. Renderer code never loads the addon directly.
 
 ## Runtime boundaries
 
 - `rion-core` owns domain validation, the state and log database workers, migration,
-  monotonic scheduling, bounded event queues, CDN rules, resource decisions and CDP.
-- `rion-platform` owns macOS/Windows discovery, process and system-pressure adapters,
-  Chrome profile discovery/copy/cookie decryption, plus the `windows-rs` visible-frame
-  implementation.
+  monotonic scheduling, bounded event queues, CDN rules and external Chrome CDP.
+- `rion-platform` owns macOS/Windows discovery, process, Chrome profile
+  discovery/copy/cookie decryption, plus the `windows-rs` visible-frame implementation.
 - `rion-node` is the only Node-API boundary.
 - Electron objects, windows, sessions, cookies, dialogs, menus and updates remain in
   TypeScript adapters. AppKit runtime tabs remain Objective-C++.
@@ -23,17 +21,19 @@ Missing or incompatible addons are fatal startup errors. Persistence never silen
 falls back to JSON. Rion Studio has no TypeScript runtime-core fallback: runtime
 decisions and side effects must have exactly one production implementation.
 
-## Global adaptive resources
+## Native background throttling
 
-All embedded Rion runtime tabs use one adaptive policy. Visible tabs and roles running
-macros remain at full speed. Hidden tabs use 2x CPU throttling under normal pressure and
-4x throttling when the system is constrained. This applies equally to workspace tabs
-and standalone role tabs; external Chrome sessions remain outside this mechanism.
+Rion does not apply a custom CPU throttling rate to embedded game content. Every game
+view, popup and related runtime window keeps Electron's
+`backgroundThrottling: true`, so Chromium/Electron owns background-content behavior.
+Focus changes, hidden workspaces, system load and macro activity do not send
+`Emulation.setCPUThrottlingRate`. External Chrome behavior remains unchanged and no
+flags are added to disable Chromium's native background throttling.
 
-The former per-workspace adaptive/unrestricted setting is intentionally removed from
-workspace persistence, command/effect contracts, portable exports, and the editor.
-SQLite migration strips stored values, while legacy JSON, recovery journals, and
-portable schema versions 1–6 continue to load and ignore the obsolete field.
+The former per-workspace adaptive/unrestricted setting remains intentionally absent
+from workspace persistence, command/effect contracts, portable exports, and the
+editor. No data migration is required because no resource-policy field remains active
+in persisted application state.
 
 ## 2.1 command and effect boundary
 
@@ -184,9 +184,9 @@ pnpm run performance:aggregate -- \
 Aggregation rejects mismatched hardware/fixture/scenario metadata, shortened warmup or
 measurement windows, and missing IPC/tab/macro p95 samples. A release decision still
 requires all launcher idle, 1/4/9 visible roles, hidden workspace, macro on/off,
-embedded and external Chrome scenarios. Visible
-roles must remain at full speed; only a wholly hidden workspace may use adaptive 2x/4x
-CPU throttling, and macro roles always remain unthrottled.
+embedded and external Chrome scenarios. Embedded scenarios must not receive a custom
+CDP CPU throttling rate; native Chromium/Electron background throttling remains enabled
+for game views, popups and related runtime windows.
 
 Required gates are: host CPU -30%, host RSS -20%, nine-role process-tree CPU -10%,
 process-tree RSS -5%, relevant p95 command/tab/macro dispatch regression no worse than

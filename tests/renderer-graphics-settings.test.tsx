@@ -104,6 +104,11 @@ describe("flattened graphics settings", () => {
       screen.getByRole("switch", { name: "GPU driver bug workarounds" }).getAttribute("data-state")
     ).toBe("checked");
     expect(
+      screen.getByRole("switch", { name: "Windows background-process EcoQoS" }).getAttribute(
+        "data-state"
+      )
+    ).toBe("checked");
+    expect(
       screen.getByText("Fixed on: occluded windows and hidden tabs continue using Chromium/Electron resource throttling.")
     ).toBeTruthy();
     expect(await screen.findByRole("combobox", { name: "Graphics API backend" })).toBeTruthy();
@@ -128,6 +133,20 @@ describe("flattened graphics settings", () => {
     expect(screen.queryByText("Restart required")).toBeNull();
   });
 
+  it("saves the Windows EcoQoS preference as an opt-out", async () => {
+    const onGameBrowserSettingsChange = vi.fn(async (settings: GameBrowserSettings) => settings);
+    renderGameSettings(onGameBrowserSettingsChange);
+
+    const toggle = (await screen.findByRole("switch", {
+      name: "Windows background-process EcoQoS"
+    })) as HTMLButtonElement;
+    await waitFor(() => expect(toggle.disabled).toBe(false));
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(onGameBrowserSettingsChange).toHaveBeenCalledOnce());
+    expect(onGameBrowserSettingsChange.mock.calls[0][0].graphics.windowsEcoQosEnabled).toBe(false);
+  });
+
   it("keeps the frame-rate limiter on while allowing VSync changes on macOS", async () => {
     const onGameBrowserSettingsChange = vi.fn(async (settings: GameBrowserSettings) => settings);
     renderGameSettings(onGameBrowserSettingsChange, "darwin", {
@@ -150,6 +169,9 @@ describe("flattened graphics settings", () => {
       expect(vsync.disabled).toBe(false);
       expect(vsync.getAttribute("data-state")).toBe("unchecked");
     });
+    expect(
+      screen.queryByRole("switch", { name: "Windows background-process EcoQoS" })
+    ).toBeNull();
     expect(
       screen.getByText(
         "Always enabled on macOS because Chromium's unlimited-frame-rate flag can crash the GPU process."

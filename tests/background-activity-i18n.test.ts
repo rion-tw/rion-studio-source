@@ -51,4 +51,20 @@ describe("native background throttling i18n", () => {
     expect(zhTW["workspaces.help.runtimeResource"]).toContain("不會額外限制 CPU 速度");
     expect(zhTW["workspaces.help.runtimeResource"]).toContain("原生節流機制");
   });
+
+  it("documents the Windows EcoQoS opt-out in every language", () => {
+    for (const dictionary of Object.values(dictionaries)) {
+      expect(dictionary["settings.graphicsWindowsEcoQos"]).toBeTruthy();
+      expect(dictionary["settings.graphicsWindowsEcoQosDescription"]).toContain(
+        "--disable-features=UseEcoQoSForBackgroundProcess"
+      );
+    }
+
+    expect(en["settings.graphicsWindowsEcoQosDescription"]).toContain(
+      "other native background throttling remains active"
+    );
+    expect(zhTW["settings.graphicsWindowsEcoQosDescription"]).toContain(
+      "其他原生背景節流仍維持啟用"
+    );
+  });
 });

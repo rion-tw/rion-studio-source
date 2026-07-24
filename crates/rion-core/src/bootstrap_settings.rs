@@ -17,6 +17,7 @@ const BASE_SWITCHES: &[&str] = &[
     "disable-search-engine-choice-screen",
 ];
 const BACKGROUND_FEATURES_TO_DISABLE: &[&str] = &["MediaRouter", "OptimizationHints", "Translate"];
+const WINDOWS_ECO_QOS_FEATURE: &str = "UseEcoQoSForBackgroundProcess";
 
 pub fn read_plan(
     user_data_dir: &Path,
@@ -47,13 +48,28 @@ pub fn formatted_graphics_switches(
     settings: &BrowserGraphicsSettingsRecord,
     platform: Platform,
 ) -> Vec<String> {
-    graphics_switches(settings, platform)
+    let mut switches = graphics_switches(settings, platform)
         .into_iter()
         .map(|item| match item.value {
             Some(value) => format!("--{}={value}", item.name),
             None => format!("--{}", item.name),
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if matches!(platform, Platform::Windows) && !settings.windows_eco_qos_enabled {
+        switches.push(format!("--disable-features={WINDOWS_ECO_QOS_FEATURE}"));
+    }
+    switches
+}
+
+pub(crate) fn background_features_to_disable(
+    settings: &BrowserGraphicsSettingsRecord,
+    platform: Platform,
+) -> Vec<&'static str> {
+    let mut features = BACKGROUND_FEATURES_TO_DISABLE.to_vec();
+    if matches!(platform, Platform::Windows) && !settings.windows_eco_qos_enabled {
+        features.push(WINDOWS_ECO_QOS_FEATURE);
+    }
+    features
 }
 
 fn chromium_switches(
@@ -79,7 +95,7 @@ fn chromium_switches(
         "disable-features",
         Some(merge_comma_separated(
             current_disable_features,
-            BACKGROUND_FEATURES_TO_DISABLE.iter().copied(),
+            background_features_to_disable(settings, platform),
         )),
     ));
     switches
@@ -375,6 +391,73 @@ mod tests {
             item.name == "enable-features"
                 && item.value.as_deref() == Some("ExistingFeature,Vulkan")
         }));
+        assert!(windows.iter().any(|item| {
+            item.name == "disable-features"
+                && item.value.as_deref() == Some("MediaRouter,OptimizationHints,Translate")
+        }));
+    }
+
+    #[test]
+    fn disables_windows_eco_qos_only_when_explicitly_requested() {
+        let mut settings = BrowserGraphicsSettingsRecord::recommended_default();
+        settings.windows_eco_qos_enabled = false;
+
+        let windows = chromium_switches(
+            &settings,
+            Platform::Windows,
+            "",
+            "ExistingDisabled,UseEcoQoSForBackgroundProcess",
+        );
+        let disabled = windows
+            .iter()
+            .find(|item| item.name == "disable-features")
+            .and_then(|item| item.value.as_deref())
+            .unwrap();
+        assert_eq!(
+            disabled,
+            "ExistingDisabled,UseEcoQoSForBackgroundProcess,MediaRouter,OptimizationHints,Translate"
+        );
+        assert_eq!(
+            disabled
+                .split(',')
+                .filter(|feature| *feature == WINDOWS_ECO_QOS_FEATURE)
+                .count(),
+            1
+        );
+        assert!(
+            formatted_graphics_switches(&settings, Platform::Windows)
+                .contains(&"--disable-features=UseEcoQoSForBackgroundProcess".to_owned())
+        );
+
+        let macos = chromium_switches(&settings, Platform::Macos, "", "");
+        assert!(macos.iter().any(|item| {
+            item.name == "disable-features"
+                && item.value.as_deref() == Some("MediaRouter,OptimizationHints,Translate")
+        }));
+        assert!(
+            !formatted_graphics_switches(&settings, Platform::Macos)
+                .iter()
+                .any(|item| item.contains(WINDOWS_ECO_QOS_FEATURE))
+        );
+    }
+
+    #[test]
+    fn defaults_missing_and_legacy_eco_qos_settings_to_enabled() {
+        let flattened: BrowserGraphicsSettingsRecord = serde_json::from_value(serde_json::json!({
+            "preferHighPerformanceGpu": false
+        }))
+        .unwrap();
+        let legacy: BrowserGraphicsSettingsRecord =
+            serde_json::from_value(serde_json::json!({"mode":"automatic"})).unwrap();
+        let explicit: BrowserGraphicsSettingsRecord = serde_json::from_value(serde_json::json!({
+            "preferHighPerformanceGpu": false,
+            "windowsEcoQosEnabled": false
+        }))
+        .unwrap();
+
+        assert!(flattened.windows_eco_qos_enabled);
+        assert!(legacy.windows_eco_qos_enabled);
+        assert!(!explicit.windows_eco_qos_enabled);
     }
 
     #[test]

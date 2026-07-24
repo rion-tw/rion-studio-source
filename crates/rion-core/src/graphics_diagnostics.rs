@@ -194,6 +194,9 @@ mod tests {
     fn assembles_cross_platform_switches_and_restart_comparison_in_rust() {
         let mut applied = BrowserGraphicsSettingsRecord::recommended_default();
         applied.backend.windows = "vulkan".to_owned();
+        applied.windows_eco_qos_enabled = false;
+        let mut saved = applied.clone();
+        saved.windows_eco_qos_enabled = true;
         let diagnostics = assemble(GraphicsDiagnosticsInput {
             applied_settings: applied.clone(),
             embedded_raw_json: json!({
@@ -213,7 +216,7 @@ mod tests {
             gpu_info_ready: true,
             hardware_acceleration_enabled: Some(true),
             platform: rion_platform::Platform::Windows,
-            saved_settings: BrowserGraphicsSettingsRecord::from_legacy_mode("automatic"),
+            saved_settings: saved,
             versions: GraphicsVersionRecord {
                 chromium: "140".to_owned(),
                 electron: "40".to_owned(),
@@ -225,6 +228,11 @@ mod tests {
             diagnostics
                 .applied_switches
                 .contains(&"--use-angle=vulkan".to_owned())
+        );
+        assert!(
+            diagnostics
+                .applied_switches
+                .contains(&"--disable-features=UseEcoQoSForBackgroundProcess".to_owned())
         );
         assert_eq!(
             diagnostics.feature_status.get("webgl"),
@@ -268,6 +276,7 @@ mod tests {
                 },
             });
             assert!(!diagnostics.gpu_info_ready);
+            assert!(!diagnostics.restart_required);
             assert_eq!(diagnostics.hardware_acceleration_enabled, None);
             assert!(diagnostics.feature_status.is_empty());
             assert!(diagnostics.gpu_device.is_none());

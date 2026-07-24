@@ -3005,6 +3005,10 @@ mod tests {
             let mut source = fixture_value(6);
             let mut settings =
                 serde_json::to_value(crate::domain::default_game_browser_settings()).unwrap();
+            settings["graphics"]
+                .as_object_mut()
+                .unwrap()
+                .remove("windowsEcoQosEnabled");
             settings["fonts"]["mode"] = json!("custom");
             settings["fonts"]["families"] = json!({
                 "fixed":"Bad\u{0000}Font",
@@ -3020,12 +3024,9 @@ mod tests {
                     empty_snapshot(),
                 )
                 .unwrap();
-            let fonts = &preview
-                .preferences
-                .unwrap()
-                .game_browser_settings
-                .unwrap()
-                .fonts;
+            let browser_settings = preview.preferences.unwrap().game_browser_settings.unwrap();
+            assert!(browser_settings.graphics.windows_eco_qos_enabled);
+            let fonts = &browser_settings.fonts;
             assert_eq!(
                 fonts.families.get("standard").map(String::as_str),
                 Some("Missing But Valid Font")
@@ -3036,6 +3037,48 @@ mod tests {
             );
             assert!(!fonts.families.contains_key("fixed"));
         });
+    }
+
+    #[test]
+    fn portable_browser_preferences_preserve_explicit_eco_qos_opt_out() {
+        let mut browser_settings = crate::domain::default_game_browser_settings();
+        browser_settings.graphics.windows_eco_qos_enabled = false;
+        let exported = export(
+            state_fixture(),
+            Some(PortablePreferencesRecord {
+                game_browser_settings: Some(browser_settings),
+                language: None,
+                macro_settings: None,
+                theme_mode: None,
+            }),
+            PortableDataSelectionRecord {
+                games: false,
+                roles: false,
+                launch_workspaces: false,
+                macros: false,
+                preferences: true,
+            },
+            "2.0.0",
+        )
+        .unwrap();
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                &serde_json::to_string(&exported).unwrap(),
+                "/tmp/eco-qos-opt-out.json".to_owned(),
+                empty_snapshot(),
+            )
+            .unwrap();
+
+        assert!(
+            !preview
+                .preferences
+                .unwrap()
+                .game_browser_settings
+                .unwrap()
+                .graphics
+                .windows_eco_qos_enabled
+        );
     }
 
     #[test]

@@ -21,7 +21,6 @@ const role: Role = {
 };
 
 const viewModel: MacroOverlayViewModelRecord = {
-  cpuThrottleRate: 2,
   detached: false,
   language: "zh-TW",
   macroBadgePosition: {
@@ -30,7 +29,6 @@ const viewModel: MacroOverlayViewModelRecord = {
     topPx: 128
   },
   macros: [],
-  resourceState: "throttled",
   statuses: []
 };
 
@@ -43,6 +41,8 @@ describe("MacroOverlayInjector", () => {
     expect(MACRO_OVERLAY_SCRIPT).toContain("clickStatusRetentionTimer");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("30000");
     expect(MACRO_OVERLAY_SCRIPT).not.toContain("setInterval");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("resource-state");
+    expect(MACRO_OVERLAY_SCRIPT).not.toContain("cpuThrottleRate");
     expect(MACRO_SHORTCUT_GUARD_SOURCE).toContain("shouldIgnoreMacroShortcutEvent");
     v1Case("overlay-cd72ac236bea", () => {
       expect(() => new Function(MACRO_OVERLAY_SCRIPT)).not.toThrow();

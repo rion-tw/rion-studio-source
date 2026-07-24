@@ -353,7 +353,6 @@ function WorkspaceCard({
           gameNameById={gameNameById}
           roleById={roleById}
           slots={workspace.slots}
-          statusByRole={statusByRole}
           t={t}
           template={workspace.template}
         />
@@ -443,7 +442,6 @@ interface WorkspaceLayoutPreviewProps {
   gameNameById: Map<string, string>;
   roleById: Map<string, Role>;
   slots: LaunchWorkspaceSlot[];
-  statusByRole: Map<string, RoleStatus>;
   t: Translator;
   template: WorkspaceLayoutTemplate;
 }
@@ -453,7 +451,6 @@ function WorkspaceLayoutPreview({
   gameNameById,
   roleById,
   slots,
-  statusByRole,
   t,
   template
 }: WorkspaceLayoutPreviewProps): JSX.Element {
@@ -476,7 +473,6 @@ function WorkspaceLayoutPreview({
         index={index}
         launchGameName={role ? gameNameById.get(role.gameId) : undefined}
         role={role}
-        status={role ? statusByRole.get(role.id) : undefined}
         t={t}
       />
     );
@@ -657,7 +653,6 @@ interface WorkspaceLayoutPreviewSlotProps {
   index: number;
   launchGameName?: string;
   role: Role | undefined;
-  status?: RoleStatus;
   t: Translator;
 }
 
@@ -665,7 +660,6 @@ function WorkspaceLayoutPreviewSlot({
   index,
   launchGameName,
   role,
-  status,
   t
 }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
   const resolvedLaunchGameName = launchGameName ?? role?.launchUrl ?? "";
@@ -707,50 +701,8 @@ function WorkspaceLayoutPreviewSlot({
           {index + 1}
         </div>
       ) : null}
-      {status?.resourceState ? (
-        <div
-          className="absolute right-1.5 top-1.5 rounded-full border border-white/20 bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold leading-3 text-white shadow-sm backdrop-blur-md"
-          title={getResourceStateTitle(status, t)}
-        >
-          {getResourceStateLabel(status, t)}
-        </div>
-      ) : null}
     </div>
   );
-}
-
-function getResourceStateTitle(status: RoleStatus, t: Translator): string {
-  const label = getResourceStateLabel(status, t);
-  if (status.resourceState !== "throttled" || !status.resourcePressureLevel) return label;
-  switch (status.resourceReason) {
-    case "cpu":
-      return `${label} — ${t("workspaces.resourceReason.cpu")}`;
-    case "memory":
-      return `${label} — ${t("workspaces.resourceReason.memory")}`;
-    case "thermal":
-      return `${label} — ${t("workspaces.resourceReason.thermal")}`;
-    case "runtime_tab_background":
-      return `${label} — ${t("workspaces.resourceReason.runtimeTabBackground")}`;
-    default:
-      return `${label} — ${t("workspaces.resourceReason.baseline")}`;
-  }
-}
-
-function getResourceStateLabel(status: RoleStatus, t: Translator): string {
-  switch (status.resourceState) {
-    case "throttled":
-      return status.resourcePressureLevel
-        ? `${t("workspaces.resourceState.auto")} ${status.cpuThrottleRate ?? 1}x`
-        : `${status.cpuThrottleRate ?? 1}x`;
-    case "macro_override":
-      return t("workspaces.resourceState.macroOverride");
-    case "shared_process":
-      return t("workspaces.resourceState.sharedProcess");
-    case "unavailable":
-      return t("workspaces.resourceState.unavailable");
-    default:
-      return "";
-  }
 }
 
 function createPreviewFlexStyle(weight: number): CSSProperties {

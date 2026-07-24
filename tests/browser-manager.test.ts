@@ -19,8 +19,6 @@ import type {
   CoreCommand,
   CoreEffectAction,
   LayoutRoleInput,
-  ResourceRuntimeCommand,
-  ResourceRuntimeTargetRecord,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
   WorkspaceDividerResizeOutput,
@@ -469,6 +467,10 @@ describe("ElectronBrowserRuntime game host windows", () => {
         height: 800
       });
       expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+      expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
       expect(harness.hosts[0].show).toHaveBeenCalledTimes(1);
       expect(overlayInstaller).toHaveBeenCalledWith(role, harness.views[0].webContents);
       expect(onEmbeddedWebContentsCreated).toHaveBeenCalledWith({
@@ -1442,9 +1444,9 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(harness.createTabbedHostWindow).toHaveBeenCalledTimes(1);
     expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(false);
     expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(true);
-    expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
+    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
-      { rate: 2 }
+      expect.anything()
     );
 
     await harness.manager.showRuntimeTab(firstTab.id);
@@ -3122,7 +3124,7 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(harness.views[1].setBounds).toHaveBeenLastCalledWith({ x: 602, y: 0, width: 598, height: 800 });
   });
 
-  it("keeps every role in the visible adaptive workspace at full speed", async () => {
+  it("focuses the first workspace role without attaching a CPU throttle debugger", async () => {
     const harness = createHarness({ platform: "win32" });
     const secondRole = createRole("role-2", "Alt");
     const priorityWorkspace: LaunchWorkspace = { ...workspace };
@@ -3137,7 +3139,6 @@ describe("ElectronBrowserRuntime game host windows", () => {
         expect.objectContaining({ roleId: role.id }),
         expect.objectContaining({ roleId: secondRole.id })
       ]));
-      expect(statuses.every((status) => status.resourceState === undefined)).toBe(true);
       expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
         "Emulation.setCPUThrottlingRate",
         expect.anything()
@@ -3154,10 +3155,13 @@ describe("ElectronBrowserRuntime game host windows", () => {
 
     harness.views[1].webContents.emit("focus");
     await Promise.resolve();
-    expect(harness.manager.listStatuses().every((status) => status.resourceState === undefined)).toBe(true);
+    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      expect.anything()
+    );
   });
 
-  it("throttles inactive single-role tabs with the global adaptive policy", async () => {
+  it("leaves inactive single-role tabs to native background throttling", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       platform: "win32",
@@ -3170,25 +3174,22 @@ describe("ElectronBrowserRuntime game host windows", () => {
     await harness.manager.launch(secondRole);
 
     v1Case("browser-workspace-8855d2f20327", () => {
-      expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
+      expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
         "Emulation.setCPUThrottlingRate",
-        { rate: 2 }
+        expect.anything()
       );
-      expect(harness.manager.listStatuses().find((status) => status.roleId === role.id)).toMatchObject({
-        resourceState: "throttled",
-        cpuThrottleRate: 2,
-        resourceReason: "runtime_tab_background"
-      });
+      expect(harness.manager.listStatuses().find((status) => status.roleId === role.id))
+        .toMatchObject({ roleId: role.id, state: "running" });
     });
     expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
       expect.anything()
     );
-    expect(harness.manager.listStatuses().find((status) => status.roleId === secondRole.id)?.resourceState)
-      .toBeUndefined();
+    expect(harness.manager.listStatuses().find((status) => status.roleId === secondRole.id))
+      .toMatchObject({ roleId: secondRole.id, state: "running" });
   });
 
-  it("throttles only inactive adaptive runtime tabs and releases before showing them", async () => {
+  it("switches, hides, moves, and closes tabs without custom CPU throttling", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
       platform: "win32",
@@ -3213,67 +3214,69 @@ describe("ElectronBrowserRuntime game host windows", () => {
       { role: secondRole, rect: { x: 0, y: 0, width: 1, height: 1 } }
     ]);
 
-    expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
+    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
-      { rate: 2 }
+      expect.anything()
     );
     expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
       expect.anything()
     );
-    expect(harness.manager.listStatuses().find((status) => status.roleId === role.id)).toMatchObject({
-      resourceState: "throttled",
-      cpuThrottleRate: 2
+    v1Case("resource-platform-4de9ca596dee", () => {
+      expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+      expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
     });
-    expect(harness.manager.listStatuses().find((status) => status.roleId === secondRole.id)?.resourceState)
-      .toBeUndefined();
+    v1Case("resource-platform-dafdc0585039", () => {
+      expect(harness.views[0].debuggerApi.attach).not.toHaveBeenCalled();
+      expect(harness.views[1].debuggerApi.attach).not.toHaveBeenCalled();
+    });
+    v1Case("resource-platform-bbfb276cd2a9", () => {
+      expect(harness.views.every(
+        (view) => !view.debuggerApi.sendCommand.mock.calls.some(
+          ([method]) => method === "Emulation.setCPUThrottlingRate"
+        )
+      )).toBe(true);
+    });
 
     harness.hosts[0].emit("hide");
     await Promise.resolve();
+    v1Case("resource-platform-d62f2ca98a7b", () => {
+      expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+    });
+
+    await harness.manager.showRuntimeTab(firstTabId);
+
+    expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(true);
+    v1Case("resource-platform-308caa9fe2ea", () => {
+      expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+    });
+
+    await harness.manager.hideRuntimeTab(firstTabId);
+    expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(true);
     expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
       expect.anything()
     );
 
-    harness.views[0].debuggerApi.sendCommand.mockRejectedValueOnce(new Error("CDP release failed"));
-    await harness.manager.showRuntimeTab(firstTabId);
-
-    const releaseCallIndex = harness.views[0].debuggerApi.sendCommand.mock.calls.findIndex(
-      ([method, params]) => method === "Emulation.setCPUThrottlingRate" && params?.rate === 1
-    );
-    const releaseOrder = harness.views[0].debuggerApi.sendCommand.mock.invocationCallOrder[releaseCallIndex];
-    const visibleOrder = harness.views[0].view.setVisible.mock.invocationCallOrder.at(-1);
-    expect(releaseCallIndex).toBeGreaterThanOrEqual(0);
-    expect(releaseOrder).toBeLessThan(visibleOrder!);
-    expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(true);
-    expect(harness.manager.listStatuses().find((status) => status.roleId === role.id)?.resourceState)
-      .toBeUndefined();
-    expect(harness.manager.listStatuses().find((status) => status.roleId === secondRole.id)).toMatchObject({
-      resourceState: "throttled",
-      cpuThrottleRate: 2
-    });
-
-    await harness.manager.hideRuntimeTab(firstTabId);
-    const secondReleaseCallIndex = harness.views[1].debuggerApi.sendCommand.mock.calls.findIndex(
-      ([method, params]) => method === "Emulation.setCPUThrottlingRate" && params?.rate === 1
-    );
-    expect(harness.views[1].debuggerApi.sendCommand.mock.invocationCallOrder[secondReleaseCallIndex])
-      .toBeLessThan(harness.views[1].view.setVisible.mock.invocationCallOrder.at(-1)!);
-    expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(true);
-
-    const firstRateOneCallCount = harness.views[0].debuggerApi.sendCommand.mock.calls.filter(
-      ([method, params]) => method === "Emulation.setCPUThrottlingRate" && params?.rate === 1
-    ).length;
     await harness.manager.moveRuntimeTab(firstTabId, 22);
-    const firstRateOneCalls = harness.views[0].debuggerApi.sendCommand.mock.calls
-      .map(([method, params], index) => ({ index, method, rate: params?.rate }))
-      .filter((call) => call.method === "Emulation.setCPUThrottlingRate" && call.rate === 1);
-    expect(firstRateOneCalls).toHaveLength(firstRateOneCallCount + 1);
-    const moveReleaseCall = firstRateOneCalls.at(-1)!;
-    expect(harness.views[0].debuggerApi.sendCommand.mock.invocationCallOrder[moveReleaseCall.index])
-      .toBeLessThan(harness.views[0].view.setVisible.mock.invocationCallOrder.at(-1)!);
     expect(harness.manager.listEmbeddedRuntimeState().tabs.find((tab) => tab.id === firstTabId))
       .toMatchObject({ active: true, displayId: 22, hidden: false });
+    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      expect.anything()
+    );
 
     const thirdRole = createRole("role-3", "Third");
     const thirdWorkspace: LaunchWorkspace = {
@@ -3286,24 +3289,23 @@ describe("ElectronBrowserRuntime game host windows", () => {
     const thirdTabId = harness.manager.listEmbeddedRuntimeState().tabs.find(
       (tab) => tab.sourceId === thirdWorkspace.id
     )!.id;
-    const secondRateOneCallCount = harness.views[1].debuggerApi.sendCommand.mock.calls.filter(
-      ([method, params]) => method === "Emulation.setCPUThrottlingRate" && params?.rate === 1
-    ).length;
-
     await harness.manager.stopRuntimeTab(thirdTabId);
 
-    const secondRateOneCalls = harness.views[1].debuggerApi.sendCommand.mock.calls
-      .map(([method, params], index) => ({ index, method, rate: params?.rate }))
-      .filter((call) => call.method === "Emulation.setCPUThrottlingRate" && call.rate === 1);
-    expect(secondRateOneCalls).toHaveLength(secondRateOneCallCount + 1);
-    const automaticReleaseCall = secondRateOneCalls.at(-1)!;
-    expect(harness.views[1].debuggerApi.sendCommand.mock.invocationCallOrder[automaticReleaseCall.index])
-      .toBeLessThan(harness.views[1].view.setVisible.mock.invocationCallOrder.at(-1)!);
     expect(harness.manager.listEmbeddedRuntimeState().tabs.find((tab) => tab.sourceId === secondWorkspace.id))
       .toMatchObject({ active: true, displayId: 11, hidden: false });
+    v1Case("resource-platform-378cb6d68a6d", () => {
+      expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+      expect(harness.views[2].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+    });
   });
 
-  it("launches every role concurrently with automatic resource management", async () => {
+  it("launches every role concurrently", async () => {
     const started: number[] = [];
     const releases: Array<() => void> = [];
     const loadUrlHandlers = Array.from({ length: 4 }, (_, index) => async () => {
@@ -4395,30 +4397,37 @@ describe("ElectronBrowserRuntime game host windows", () => {
     expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
   });
 
-  it("hosts OAuth popups over the matching role cell", async () => {
-    const onEmbeddedWebContentsCreated = vi.fn();
-    const harness = createHarness({ onEmbeddedWebContentsCreated });
-    await harness.manager.launch(role);
+  it.each(["darwin", "win32"] as const)(
+    "hosts OAuth popups over the matching role cell with native background throttling on %s",
+    async (platform) => {
+      const onEmbeddedWebContentsCreated = vi.fn();
+      const harness = createHarness({ onEmbeddedWebContentsCreated, platform });
+      await harness.manager.launch(role);
 
-    const popup = createOAuthPopup(harness.views[0], harness.views);
+      const popup = createOAuthPopup(harness.views[0], harness.views);
 
-    expect(popup.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1200, height: 800 });
-    expect(harness.createView).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        webPreferences: expect.objectContaining({
-          backgroundThrottling: true,
-          spellcheck: false,
-          webgl: true
+      expect(popup.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1200, height: 800 });
+      expect(harness.createView).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          webPreferences: expect.objectContaining({
+            backgroundThrottling: true,
+            spellcheck: false,
+            webgl: true
+          })
         })
-      })
-    );
-    expect(harness.hosts[0].contentView.addChildView).toHaveBeenLastCalledWith(popup.view);
-    expect(onEmbeddedWebContentsCreated).toHaveBeenLastCalledWith({
-      hostId: expect.any(String),
-      kind: "popup",
-      roleId: role.id
-    }, popup.webContents);
-  });
+      );
+      expect(harness.hosts[0].contentView.addChildView).toHaveBeenLastCalledWith(popup.view);
+      expect(onEmbeddedWebContentsCreated).toHaveBeenLastCalledWith({
+        hostId: expect.any(String),
+        kind: "popup",
+        roleId: role.id
+      }, popup.webContents);
+      expect(popup.debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+    }
+  );
 
 });
 
@@ -4871,32 +4880,6 @@ function createHarness(options: {
     manager.executeEmbeddedEffect(
       action as Parameters<ElectronBrowserRuntime["executeEmbeddedEffect"]>[0]
     );
-  const applyResourceCommand = async (command: ResourceRuntimeCommand): Promise<void> => {
-    let result = browserRuntimeState.invokeResourceRuntimeForTest(command);
-    if (result.effects.length === 0) {
-      browserRuntimeState.publishStatuses();
-      return;
-    }
-    const effectResult = await executeEmbedded({
-      type: "embeddedApplyResourceEffects",
-      effects: result.effects
-    }) as { unavailableRoleIds?: string[] };
-    if ((effectResult.unavailableRoleIds?.length ?? 0) === 0) {
-      browserRuntimeState.publishStatuses();
-      return;
-    }
-    result = browserRuntimeState.invokeResourceRuntimeForTest({
-      type: "setUnavailableRoleIds",
-      roleIds: effectResult.unavailableRoleIds ?? []
-    });
-    if (result.effects.length > 0) {
-      await executeEmbedded({
-        type: "embeddedApplyResourceEffects",
-        effects: result.effects
-      });
-    }
-    browserRuntimeState.publishStatuses();
-  };
   const applyRuntime = async (
     snapshot: BrowserRuntimeSnapshot,
     target?: { displayId: number; workArea: PixelBounds },
@@ -4904,15 +4887,6 @@ function createHarness(options: {
     focusTabId?: string,
     focusWindowDisplayIds: number[] = []
   ): Promise<BrowserRuntimeSnapshot> => {
-    const activeTabIds = new Set(snapshot.displays.flatMap((display) =>
-      display.activeTabId ? [display.activeTabId] : []
-    ));
-    await applyResourceCommand({
-      type: "setHiddenWorkspaceIds",
-      workspaceIds: snapshot.tabs
-        .filter((tab) => tab.hidden || !activeTabIds.has(tab.id))
-        .map((tab) => tab.id)
-    });
     await executeEmbedded({
       type: "embeddedApplyRuntime",
       snapshot,
@@ -5052,15 +5026,9 @@ function createHarness(options: {
             type: "embeddedInstallOverlays",
             roleIds: [seededRole.id]
           });
-          const targets = await executeEmbedded({
-            type: "embeddedActivateResources",
-            tabId,
-            roleIds: [seededRole.id]
-          }) as ResourceRuntimeTargetRecord[];
-          await applyResourceCommand({
-            type: "activateWorkspace",
-            workspaceId: tabId,
-            targets
+          await executeEmbedded({
+            type: "embeddedFocusRole",
+            roleId: seededRole.id
           });
         } catch (error) {
           await executeEmbedded({ type: "embeddedDestroyTab", tabId });
@@ -5181,15 +5149,9 @@ function createHarness(options: {
             type: "embeddedInstallOverlays",
             roleIds
           });
-          const targets = await executeEmbedded({
-            type: "embeddedActivateResources",
-            tabId,
-            roleIds
-          }) as ResourceRuntimeTargetRecord[];
-          await applyResourceCommand({
-            type: "activateWorkspace",
-            workspaceId: tabId,
-            targets
+          await executeEmbedded({
+            type: "embeddedFocusRole",
+            roleId: roleIds[0]
           });
         } catch (error) {
           await executeEmbedded({ type: "embeddedDestroyTab", tabId });
@@ -5271,12 +5233,6 @@ function createHarness(options: {
           (tabId) => tabId !== runtime.tabId &&
             !snapshot.tabs.find(({ id }) => id === tabId)?.hidden
         );
-        if (nextActiveTabId) {
-          await applyResourceCommand({
-            type: "prepareWorkspaceForeground",
-            workspaceId: nextActiveTabId
-          });
-        }
         await executeEmbedded({
           type: "embeddedDestroyTab",
           tabId: runtime.tabId,
@@ -5354,27 +5310,6 @@ function createHarness(options: {
           sourceDisplayId: command.displayId,
           targetDisplayId: command.fallback.displayId
         }).snapshot, command.fallback, [command.fallback.displayId]);
-      case "resourceActivateWorkspace":
-        await applyResourceCommand({
-          type: "activateWorkspace",
-          workspaceId: command.workspaceId,
-          targets: command.targets
-        });
-        return { activated: true };
-      case "resourceDeactivateWorkspace":
-        await applyResourceCommand({
-          type: "deactivateWorkspace",
-          workspaceId: command.workspaceId
-        });
-        return { deactivated: true };
-      case "resourceRefreshTarget":
-        await applyResourceCommand({
-          type: "refreshTarget",
-          workspaceId: command.workspaceId,
-          roleId: command.roleId,
-          processId: command.processId
-        });
-        return { refreshed: true };
       default:
         throw new Error(`Unexpected typed command in ElectronBrowserRuntime test: ${command.type}`);
     }

@@ -215,10 +215,6 @@ pub(crate) fn role_statuses(
             automation_state: None,
             overlay_state: None,
             page_health: None,
-            resource_state: None,
-            cpu_throttle_rate: None,
-            resource_pressure_level: None,
-            resource_reason: None,
         })
         .chain(external.iter().map(|session| BrowserRoleStatusRecord {
             role_id: session.role.id.clone(),
@@ -241,10 +237,6 @@ pub(crate) fn role_statuses(
                 }
             }),
             page_health: session.page_health.clone(),
-            resource_state: None,
-            cpu_throttle_rate: None,
-            resource_pressure_level: None,
-            resource_reason: None,
         }))
         .collect::<Vec<_>>();
     statuses.sort_by(|left, right| left.role_id.cmp(&right.role_id));
@@ -942,10 +934,6 @@ mod tests {
                 .find(|role| role.role_id == "external-role")
                 .unwrap();
             assert_eq!(external_status.runtime_mode, "external");
-            assert!(external_status.resource_state.is_none());
-            assert!(external_status.cpu_throttle_rate.is_none());
-            assert!(external_status.resource_pressure_level.is_none());
-            assert!(external_status.resource_reason.is_none());
         });
         crate::v1_case!("browser-workspace-13aaf9ae3e44", {
             let external_status = roles

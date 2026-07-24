@@ -31,7 +31,6 @@ const DISABLED_MACRO_MESSAGE: &str = "Enable this macro before running it.";
 const UNAVAILABLE_ROLE_MESSAGE: &str = "Launch at least one assigned role before running a macro.";
 
 type EventSink = Arc<dyn Fn(Vec<CoreEvent>) + Send + Sync>;
-type RoleSync = Arc<dyn Fn(Vec<String>) -> CoreResult<()> + Send + Sync>;
 type Waiter = Arc<dyn Fn(&Arc<InvocationControl>, &str, u32) -> Result<(), String> + Send + Sync>;
 
 #[derive(Clone)]
@@ -47,7 +46,6 @@ struct Shared {
     next_id: AtomicU64,
     pending: Mutex<HashMap<String, mpsc::SyncSender<BrowserActionResult>>>,
     last_presentation_status_emit: Mutex<Option<Instant>>,
-    role_sync: RoleSync,
     shutting_down: AtomicBool,
     input_sequence_role_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     toggle_serial: Mutex<()>,
@@ -62,7 +60,6 @@ struct Inner {
     early_releases: HashMap<String, String>,
     mutation_leases: HashMap<String, HashSet<String>>,
     mutating_macro_ids: HashSet<String>,
-    preparing_role_ids: HashMap<String, Vec<String>>,
     statuses: HashMap<String, MacroRunStatus>,
 }
 
@@ -129,26 +126,16 @@ struct HeldKey {
 }
 
 impl MacroRuntime {
-    #[cfg(test)]
     pub fn new(events: EventSink) -> Self {
-        Self::new_with_role_sync(events, Arc::new(|_| Ok(())))
+        Self::new_with_waiter(events, Arc::new(default_wait))
     }
 
-    pub fn new_with_role_sync(events: EventSink, role_sync: RoleSync) -> Self {
-        Self::new_with_role_sync_and_waiter(events, role_sync, Arc::new(default_wait))
+    fn new_with_waiter(events: EventSink, waiter: Waiter) -> Self {
+        Self::new_with_waiter_and_timeout(events, waiter, ACTION_TIMEOUT)
     }
 
-    fn new_with_role_sync_and_waiter(
+    fn new_with_waiter_and_timeout(
         events: EventSink,
-        role_sync: RoleSync,
-        waiter: Waiter,
-    ) -> Self {
-        Self::new_with_role_sync_waiter_and_timeout(events, role_sync, waiter, ACTION_TIMEOUT)
-    }
-
-    fn new_with_role_sync_waiter_and_timeout(
-        events: EventSink,
-        role_sync: RoleSync,
         waiter: Waiter,
         action_timeout: Duration,
     ) -> Self {
@@ -161,7 +148,6 @@ impl MacroRuntime {
                 next_id: AtomicU64::new(1),
                 pending: Mutex::new(HashMap::new()),
                 last_presentation_status_emit: Mutex::new(None),
-                role_sync,
                 shutting_down: AtomicBool::new(false),
                 input_sequence_role_locks: Mutex::new(HashMap::new()),
                 toggle_serial: Mutex::new(()),
@@ -558,7 +544,6 @@ impl MacroRuntime {
             inner.early_releases.clear();
             inner.mutation_leases.clear();
             inner.mutating_macro_ids.clear();
-            inner.preparing_role_ids.clear();
             inner.statuses.clear();
         }
         if let Ok(mut pending) = self.shared.pending.lock() {
@@ -658,21 +643,6 @@ impl MacroRuntime {
             inner
                 .invocations
                 .insert(invocation_id.clone(), Arc::clone(&control));
-            inner
-                .preparing_role_ids
-                .insert(invocation_id.clone(), roles.clone());
-        }
-        let prospective_role_ids = {
-            let inner = self
-                .shared
-                .inner
-                .lock()
-                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
-            active_macro_role_ids(&inner, Vec::new())
-        };
-        if let Err(error) = (self.shared.role_sync)(prospective_role_ids) {
-            discard_unstarted_invocation(&self.shared, &control);
-            return Err(error);
         }
         let focus_actions = roles
             .iter()
@@ -682,7 +652,6 @@ impl MacroRuntime {
             perform_actions_with_control(&self.shared, &control, focus_actions, false)
         {
             discard_unstarted_invocation(&self.shared, &control);
-            let _ = sync_active_macro_roles(&self.shared);
             return Err(CoreError::Domain {
                 code: "MACRO_INPUT_FAILED",
                 message: error,
@@ -697,10 +666,8 @@ impl MacroRuntime {
             if control.cancelled.load(Ordering::Acquire) {
                 drop(inner);
                 discard_unstarted_invocation(&self.shared, &control);
-                let _ = sync_active_macro_roles(&self.shared);
                 return Err(CoreError::InvalidInput("macro run cancelled".to_owned()));
             }
-            inner.preparing_role_ids.remove(&invocation_id);
             for status in &statuses {
                 inner.statuses.insert(
                     status_key(&invocation_id, &status.role_id, &status.macro_id),
@@ -737,7 +704,6 @@ impl MacroRuntime {
             })
             .map_err(|error| {
                 discard_unstarted_invocation(&self.shared, &control);
-                let _ = sync_active_macro_roles(&self.shared);
                 CoreError::Internal(error.to_string())
             })?;
         *control
@@ -1469,13 +1435,9 @@ fn start_child_invocation(
         inner
             .invocations
             .insert(invocation_id.clone(), Arc::clone(&child));
-        inner
-            .preparing_role_ids
-            .insert(invocation_id.clone(), roles.clone());
     }
     register_owned_child(owner, &child);
     let start_result = (|| {
-        sync_active_macro_roles(shared).map_err(|error| error.to_string())?;
         perform_actions_with_control(
             shared,
             &child,
@@ -1491,7 +1453,6 @@ fn start_child_invocation(
                 .inner
                 .lock()
                 .map_err(|_| "macro runtime lock poisoned".to_owned())?;
-            inner.preparing_role_ids.remove(&invocation_id);
             for role_id in &roles {
                 inner.statuses.insert(
                     status_key(&invocation_id, role_id, macro_id),
@@ -1544,7 +1505,6 @@ fn start_child_invocation(
     if let Err(error) = start_result {
         remove_owned_child(owner, &child.id);
         discard_unstarted_invocation(shared, &child);
-        let _ = sync_active_macro_roles(shared);
         return Err(error);
     }
     Ok(Some(child))
@@ -2035,7 +1995,6 @@ fn finish_invocation(
             inner.statuses.retain(|key, _| !key.starts_with(&prefix));
         }
         inner.invocations.remove(&control.id);
-        inner.preparing_role_ids.remove(&control.id);
         inner
             .held_keys
             .retain(|owner_id, _| !owner_id.starts_with(&format!("{}:", control.id)));
@@ -2043,7 +2002,6 @@ fn finish_invocation(
             .leases
             .retain(|_, lease| lease.invocation_id != control.id);
     }
-    let _ = sync_active_macro_roles(shared);
     emit_statuses(shared, true);
     if let Ok(mut outcome) = control.outcome.lock() {
         *outcome = Some(result);
@@ -2080,7 +2038,6 @@ fn new_invocation_control(id: String, macro_id: String) -> Arc<InvocationControl
 fn discard_unstarted_invocation(shared: &Arc<Shared>, control: &Arc<InvocationControl>) {
     if let Ok(mut inner) = shared.inner.lock() {
         inner.invocations.remove(&control.id);
-        inner.preparing_role_ids.remove(&control.id);
         let prefix = format!("{}|", control.id);
         inner.statuses.retain(|key, _| !key.starts_with(&prefix));
         inner
@@ -2125,39 +2082,6 @@ fn cancel_owned_children(shared: &Arc<Shared>, control: &Arc<InvocationControl>)
             .collect::<Vec<_>>()
     };
     cancel_and_wait_all(&child_controls);
-}
-
-fn active_macro_role_ids(
-    inner: &Inner,
-    additional: impl IntoIterator<Item = String>,
-) -> Vec<String> {
-    let mut role_ids = inner
-        .statuses
-        .values()
-        .filter(|status| matches!(status.state.as_str(), "running" | "stopping"))
-        .map(|status| status.role_id.clone())
-        .chain(
-            inner
-                .preparing_role_ids
-                .values()
-                .flat_map(|role_ids| role_ids.iter().cloned()),
-        )
-        .chain(additional)
-        .collect::<Vec<_>>();
-    role_ids.sort();
-    role_ids.dedup();
-    role_ids
-}
-
-fn sync_active_macro_roles(shared: &Arc<Shared>) -> CoreResult<()> {
-    let role_ids = {
-        let inner = shared
-            .inner
-            .lock()
-            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
-        active_macro_role_ids(&inner, Vec::new())
-    };
-    (shared.role_sync)(role_ids)
 }
 
 fn add_running_statuses(
@@ -2563,10 +2487,7 @@ mod tests {
                 }
             }
         });
-        (
-            MacroRuntime::new_with_role_sync_and_waiter(events, Arc::new(|_| Ok(())), waiter),
-            receiver,
-        )
+        (MacroRuntime::new_with_waiter(events, waiter), receiver)
     }
 
     fn next_wait(receiver: &mpsc::Receiver<ManualWait>) -> ManualWait {
@@ -3193,19 +3114,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_transitively_unassigned_children_before_resource_or_focus_preflight() {
+    fn rejects_transitively_unassigned_children_before_focus_preflight() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
-        let synced = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
-        let synced_output = Arc::clone(&synced);
-        let runtime = MacroRuntime::new_with_role_sync(
-            Arc::new(move |batch| {
-                let _ = events.send(batch);
-            }),
-            Arc::new(move |role_ids| {
-                synced_output.lock().unwrap().push(role_ids);
-                Ok(())
-            }),
-        );
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
         let mut start = request(vec![MacroStepDefinition::Macro {
             id: "call-child".to_owned(),
             macro_id: "child".to_owned(),
@@ -3227,7 +3140,6 @@ mod tests {
                 error,
                 CoreError::InvalidInput(message) if message == UNASSIGNED_WORKFLOW_MESSAGE
             ));
-            assert!(synced.lock().unwrap().is_empty());
             assert!(receiver.try_recv().is_err());
         });
     }
@@ -3587,11 +3499,10 @@ mod tests {
     #[test]
     fn v1_fails_an_unacknowledged_input_with_the_original_timeout_error() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
-        let runtime = MacroRuntime::new_with_role_sync_waiter_and_timeout(
+        let runtime = MacroRuntime::new_with_waiter_and_timeout(
             Arc::new(move |batch| {
                 let _ = events.send(batch);
             }),
-            Arc::new(|_| Ok(())),
             Arc::new(default_wait),
             Duration::from_millis(1),
         );
@@ -4540,7 +4451,6 @@ mod tests {
         assert!(inner.statuses.is_empty());
         assert!(inner.held_keys.is_empty());
         assert!(inner.leases.is_empty());
-        assert!(inner.preparing_role_ids.is_empty());
         drop(inner);
         assert!(runtime.shared.pending.lock().unwrap().is_empty());
         assert!(runtime.shared.action_role_locks.lock().unwrap().len() <= 1);
@@ -5768,44 +5678,26 @@ mod tests {
     }
 
     #[test]
-    fn resource_preflight_and_focus_finish_before_running_status_is_published() {
+    fn focus_preflight_finishes_before_running_status_is_published() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
-        let synced = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
-        let synced_output = Arc::clone(&synced);
-        let runtime = MacroRuntime::new_with_role_sync(
-            Arc::new(move |batch| {
-                let _ = events.send(batch);
-            }),
-            Arc::new(move |role_ids| {
-                synced_output.lock().unwrap().push(role_ids);
-                Ok(())
-            }),
-        );
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
         let starting_runtime = runtime.clone();
         let start = thread::spawn(move || starting_runtime.start(request(Vec::new())).unwrap());
         let focus = next_browser_actions(&receiver);
-        let preflight_roles = synced.lock().unwrap().clone();
         let status_was_hidden_during_preflight = runtime.statuses().unwrap().is_empty();
+        let focused_role_ids = focus
+            .iter()
+            .filter(|request| matches!(request.action, BrowserAction::Focus))
+            .map(|request| request.role_id.clone())
+            .collect::<Vec<_>>();
         runtime.dispatch_results(success_results(focus)).unwrap();
         let statuses = start.join().unwrap();
         assert_eq!(statuses.len(), 1);
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while synced
-            .lock()
-            .unwrap()
-            .last()
-            .is_none_or(|role_ids| !role_ids.is_empty())
-        {
-            assert!(std::time::Instant::now() < deadline);
-            thread::yield_now();
-        }
         crate::v1_case!("macro-61139813b60e", {
-            assert_eq!(preflight_roles, [vec!["r1".to_owned()]]);
+            assert_eq!(focused_role_ids, ["r1".to_owned()]);
             assert!(status_was_hidden_during_preflight);
-            assert_eq!(
-                synced.lock().unwrap().last().unwrap(),
-                &Vec::<String>::new()
-            );
         });
     }
 

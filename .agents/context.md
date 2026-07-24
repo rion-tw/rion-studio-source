@@ -18,9 +18,9 @@ Node-API addon; it is not a sidecar and the app does not use Tauri.
 
 - `crates/rion-core`: Authoritative domain models, SQLite repositories,
   migrations, portable/profile transactions, macro scheduling, runtime state,
-  adaptive resource management, logging, and external Chrome CDP transport.
-- `crates/rion-platform`: Explicit macOS and Windows process, profile, pressure,
-  path, cookie, and native-window adapters.
+  logging, and external Chrome CDP transport.
+- `crates/rion-platform`: Explicit macOS and Windows process, profile, path,
+  cookie, and native-window adapters.
 - `crates/rion-node`: The only Node-API surface consumed by the Electron main
   process.
 - `src/main`: Thin Electron main-process adapters. Owns app startup,
@@ -87,9 +87,11 @@ authentication status to settle.
 Important runtime pieces:
 
 - Rust owns browser runtime role/workspace/tab state, launch transitions,
-  operation ordering, display reservations, resource decisions, and macro
-  action queues. `ElectronBrowserRuntime` owns only embedded Electron object
-  handles and applies window/view/focus/layout effects selected by Rust.
+  operation ordering, display reservations, and macro action queues.
+  `ElectronBrowserRuntime` owns only embedded Electron object handles and
+  applies window/view/focus/layout effects selected by Rust. Rion does not set
+  custom CDP CPU throttling rates; embedded game content keeps Electron native
+  background throttling enabled.
 - `ChromeProfileSessionImporter` reads Chrome Cookies using macOS Keychain or
   Windows DPAPI and injects them into the imported Electron session. Copied
   Local Storage, IndexedDB, and Service Worker data remain in the role profile.

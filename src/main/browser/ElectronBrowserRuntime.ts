@@ -19,8 +19,6 @@ import type {
   CoreEffectAction,
   CoreJsonValue,
   LayoutRoleInput,
-  ResourceRuntimeEffectRecord,
-  ResourceRuntimeTargetRecord,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
   WorkspaceDividerResizeOutput,
@@ -58,7 +56,6 @@ import {
 import type { EmbeddedRuntimeDiagnosticContext } from "./EmbeddedRuntimeDiagnostics";
 import { ElectronAutomationTarget, type BrowserAutomationTarget } from "./ElectronAutomationTarget";
 import type { AppCoreClient, EmbeddedKeyRuntimeClient } from "../core/nativeCore";
-import { ElectronWorkspaceResourceTarget } from "./ElectronWorkspaceResourceTarget";
 import type {
   MacRuntimeTabsContentLayout,
   MacRuntimeTabsController,
@@ -298,8 +295,6 @@ interface BrowserSession {
   hostId: string;
   popupViews: Set<WebContentsView>;
   rect: NormalizedRect;
-  removeResourceInvalidation: () => void;
-  resourceTarget: ElectronWorkspaceResourceTarget;
   role: Role;
   target: BrowserAutomationTarget;
   view: WebContentsView;
@@ -326,8 +321,6 @@ type EmbeddedCoreEffectAction = Extract<
   CoreEffectAction,
   {
     type:
-      | "embeddedActivateResources"
-      | "embeddedApplyResourceEffects"
       | "embeddedApplyRuntime"
       | "embeddedConfigureRoleSessions"
       | "embeddedCreateTab"
@@ -356,17 +349,6 @@ function getErrorCode(error: unknown): string | undefined {
 
 function effectError(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code });
-}
-
-function asCpuThrottleRate(effect: ResourceRuntimeEffectRecord): 1 | 2 | 4 {
-  if (effect.cpuThrottleRate === 1 || effect.cpuThrottleRate === 2 ||
-    effect.cpuThrottleRate === 4) {
-    return effect.cpuThrottleRate;
-  }
-  throw effectError(
-    "RESOURCE_THROTTLE_RATE_INVALID",
-    `Unsupported CPU throttle rate: ${effect.cpuThrottleRate}`
-  );
 }
 
 async function waitForAllEffects(effects: Promise<void>[]): Promise<void> {
@@ -620,42 +602,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
         }));
         return undefined;
       }
-      case "embeddedActivateResources": {
-        const targets = action.roleIds.map((roleId): ResourceRuntimeTargetRecord => {
-          const target = this.requireEmbeddedSession(roleId).resourceTarget;
-          return {
-            roleId,
-            runtimeMode: "embedded",
-            ...(target.getProcessId() ? { processId: target.getProcessId() } : {})
-          };
-        });
-        await this.requireEmbeddedSession(action.roleIds[0] ?? "").resourceTarget.focus();
-        return targets;
-      }
-      case "embeddedApplyResourceEffects": {
-        const unavailableRoleIds = new Set<string>();
-        await Promise.all(action.effects.flatMap((effect) =>
-          effect.roleIds.map(async (roleId) => {
-            const target = this.roleHandles.get(roleId)?.resourceTarget;
-            if (!target) {
-              unavailableRoleIds.add(roleId);
-              return;
-            }
-            try {
-              if (effect.release) {
-                await target.releaseThrottle();
-              } else {
-                await target.setCpuThrottleRate(asCpuThrottleRate(effect));
-              }
-            } catch (error) {
-              unavailableRoleIds.add(roleId);
-              await target.releaseThrottle().catch(() => undefined);
-              console.warn(`Workspace CPU throttling is unavailable for role ${roleId}.`, error);
-            }
-          })
-        ));
-        return { unavailableRoleIds: [...unavailableRoleIds] };
-      }
       case "embeddedFocusRole": {
         const session = this.requireEmbeddedSession(action.roleId);
         if (typeof action.zoomFactor === "number") {
@@ -779,10 +725,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
 
   listStatuses(): RoleStatus[] {
     return this.roleStatuses.map((status) => ({ ...status }));
-  }
-
-  notifyResourceStatusesChanged(): void {
-    this.emitChange();
   }
 
   listEmbeddedRuntimeState(): EmbeddedRuntimeState {
@@ -2146,15 +2088,12 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
       }
     });
     const webContents = view.webContents;
-    const resourceTarget = new ElectronWorkspaceResourceTarget(role.id, webContents);
     const session: BrowserSession = {
       abortController: new AbortController(),
       gameInputContextActive: false,
       hostId: host.id,
       popupViews: new Set(),
       rect,
-      removeResourceInvalidation: () => undefined,
-      resourceTarget,
       role,
       target: new ElectronAutomationTarget(
         view,
@@ -2170,17 +2109,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     };
 
     this.roleHandles.set(role.id, session);
-    session.removeResourceInvalidation = resourceTarget.onInvalidated(() => {
-      if (this.roleHandles.get(role.id) !== session) return;
-      void this.options.browserRuntimeState.invoke({
-        type: "resourceRefreshTarget",
-        workspaceId: host.id,
-        roleId: role.id,
-        ...(resourceTarget.getProcessId() ? { processId: resourceTarget.getProcessId() } : {})
-      }).catch((error) => {
-        console.warn(`Failed to refresh resource target for role ${role.id}.`, error);
-      });
-    });
     host.roleIds.add(role.id);
     host.window.contentView.addChildView(view);
     this.options.onEmbeddedWebContentsCreated?.({
@@ -2841,7 +2769,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     }
 
     session.abortController.abort();
-    session.removeResourceInvalidation();
     const host = this.tabHandles.get(session.hostId);
     if (host?.activeDividerResize?.roleIds.includes(roleId)) {
       this.finishDividerResize(host);
@@ -2849,7 +2776,6 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     this.roleHandles.delete(roleId);
     host?.roleIds.delete(roleId);
     await session.target.dispose().catch(() => undefined);
-    await session.resourceTarget.releaseThrottle().catch(() => undefined);
     if (host && !host.window.isDestroyed()) {
       host.window.contentView.removeChildView(session.view);
       session.popupViews.forEach((popupView) => host.window.contentView.removeChildView(popupView));

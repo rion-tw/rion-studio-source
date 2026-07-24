@@ -7,8 +7,8 @@ import zhTW from "../src/renderer/src/i18n/zh-TW.json";
 
 const dictionaries = { en, ja, "zh-CN": zhCN, "zh-TW": zhTW };
 
-describe("automatic power saving i18n", () => {
-  it("removes background activity and fixed resource controls from every language", () => {
+describe("native background throttling i18n", () => {
+  it("removes background activity controls and custom resource statuses from every language", () => {
     for (const dictionary of Object.values(dictionaries)) {
       expect(dictionary).not.toHaveProperty("roleForm.launchPreset");
       expect(dictionary).not.toHaveProperty("roleForm.backgroundActivityDescription");
@@ -29,7 +29,7 @@ describe("automatic power saving i18n", () => {
     }
   });
 
-  it("keeps automatic runtime status labels without role window settings", () => {
+  it("explains that native Chromium and Electron throttling remains enabled", () => {
     for (const dictionary of Object.values(dictionaries)) {
       expect(dictionary).not.toHaveProperty("roleForm.section.launchDescription");
       expect(dictionary).not.toHaveProperty("roleForm.width");
@@ -43,10 +43,12 @@ describe("automatic power saving i18n", () => {
 
     for (const dictionary of Object.values(dictionaries)) {
       expect(dictionary["workspaces.help.runtimeResource"]).toBeTruthy();
-      expect(dictionary["workspaces.resourceReason.runtimeTabBackground"]).toBeTruthy();
+      expect(dictionary).not.toHaveProperty("workspaces.resourceReason.runtimeTabBackground");
     }
 
-    expect(en["workspaces.help.runtimeResource"]).toContain("inactive embedded tabs");
-    expect(zhTW["workspaces.help.runtimeResource"]).toContain("非作用中內嵌分頁");
+    expect(en["workspaces.help.runtimeResource"]).toContain("does not apply an additional CPU speed limit");
+    expect(en["workspaces.help.runtimeResource"]).toContain("native throttling");
+    expect(zhTW["workspaces.help.runtimeResource"]).toContain("不會額外限制 CPU 速度");
+    expect(zhTW["workspaces.help.runtimeResource"]).toContain("原生節流機制");
   });
 });

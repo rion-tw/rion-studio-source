@@ -35,7 +35,7 @@ use crate::model::{
     WorkspaceDisplayInfoRecord, WorkspaceUpdateInputRecord,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 4;
+pub(crate) const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OperationJournalRecord {
@@ -1382,6 +1382,52 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     }
+    if newest_version < 5 {
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        strip_workspace_resource_policies(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (5, ?1)",
+                params![chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+        transaction
+            .commit()
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn strip_workspace_resource_policies(connection: &Connection) -> CoreResult<()> {
+    let mut statement = connection
+        .prepare("SELECT id, payload_json FROM workspaces")
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    drop(statement);
+
+    for (id, payload) in rows {
+        let mut value = parse_payload(&payload)?;
+        let object = value.as_object_mut().ok_or_else(|| {
+            CoreError::Migration(format!("stored workspace {id} must be an object"))
+        })?;
+        if object.remove("resourcePolicy").is_none() {
+            continue;
+        }
+        connection
+            .execute(
+                "UPDATE workspaces SET payload_json=?1 WHERE id=?2",
+                params![serialize_payload(&value)?, id],
+            )
+            .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    }
     Ok(())
 }
 
@@ -2404,8 +2450,13 @@ mod tests {
         let valid = json!({"games":[{"id":"g1","name":"Game"}]});
         replace_snapshot(&mut connection, &valid).unwrap();
         let invalid = json!({"games":[{"name":"Missing id"}]});
-        assert!(replace_snapshot(&mut connection, &invalid).is_err());
-        assert_eq!(read_snapshot(&connection).unwrap()["games"][0]["id"], "g1");
+        crate::v1_case!("portable-profile-6ce7f4b873a7", {
+            assert!(replace_snapshot(&mut connection, &invalid).is_err());
+            assert_eq!(read_snapshot(&connection).unwrap()["games"][0]["id"], "g1");
+            let retry = json!({"games":[{"id":"g2","name":"Retry"}]});
+            replace_snapshot(&mut connection, &retry).unwrap();
+            assert_eq!(read_snapshot(&connection).unwrap()["games"][0]["id"], "g2");
+        });
     }
 
     #[test]
@@ -2509,6 +2560,94 @@ mod tests {
             json!({"launchMode":"external"})
         );
         assert!(replace_scalar(&mut connection, "games", json!([])).is_err());
+
+        crate::v1_case!("state-migration-d7ddbd1f976f", {
+            let settings: GameBrowserSettingsRecord = serde_json::from_value(json!({
+                "fonts":{
+                    "mode":"custom",
+                    "families":{"fixed":"  Courier   New  ","bad":"Ignored"}
+                },
+                "graphics":{"mode":"automatic"},
+                "launchMode":"auto",
+                "macroBadgePosition":{
+                    "horizontalAlign":"center","horizontalMarginPx":8,"topPx":128
+                },
+                "network":{
+                    "cdnCompatibility":{"mode":"auto"},
+                    "proxy":{"mode":"system","server":""}
+                },
+                "workspace":{"background":"material","gap":4}
+            }))
+            .unwrap();
+            let settings = normalize_game_browser_settings(settings);
+            replace_scalar(
+                &mut connection,
+                "gameBrowserSettings",
+                serde_json::to_value(&settings).unwrap(),
+            )
+            .unwrap();
+            let stored: GameBrowserSettingsRecord = serde_json::from_value(
+                read_scalar(&connection, "gameBrowserSettings")
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(stored.fonts.families["fixed"], "Courier New");
+            assert!(!stored.fonts.families.contains_key("bad"));
+            let mut changed_copy = stored.clone();
+            changed_copy
+                .fonts
+                .families
+                .insert("standard".to_owned(), "Changed".to_owned());
+            let reloaded: GameBrowserSettingsRecord = serde_json::from_value(
+                read_scalar(&connection, "gameBrowserSettings")
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(!reloaded.fonts.families.contains_key("standard"));
+        });
+
+        crate::v1_case!("state-migration-b46be2776736", {
+            let settings = normalize_macro_settings(MacroSettingsRecord {
+                startup_delay_ms: 10_001,
+                key_hold_ms: 1,
+                post_input_delay_ms: 1,
+                default_loop_delay_ms: 86_400_001,
+            });
+            replace_scalar(
+                &mut connection,
+                "macroSettings",
+                serde_json::to_value(&settings).unwrap(),
+            )
+            .unwrap();
+            let mut first: MacroSettingsRecord =
+                serde_json::from_value(read_scalar(&connection, "macroSettings").unwrap().unwrap())
+                    .unwrap();
+            assert_eq!(first.key_hold_ms, 30);
+            first.key_hold_ms = 999;
+            assert_eq!(first.key_hold_ms, 999);
+            let second: MacroSettingsRecord =
+                serde_json::from_value(read_scalar(&connection, "macroSettings").unwrap().unwrap())
+                    .unwrap();
+            assert_eq!(second.key_hold_ms, 30);
+        });
+
+        crate::v1_case!("state-migration-961da508a5ff", {
+            replace_scalar(
+                &mut connection,
+                "runtimeWindowPreferences",
+                json!({"alwaysShowToolbarInFullScreen":true}),
+            )
+            .unwrap();
+            let reloaded: RuntimeWindowPreferencesRecord = serde_json::from_value(
+                read_scalar(&connection, "runtimeWindowPreferences")
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(reloaded.always_show_toolbar_in_full_screen);
+        });
     }
 
     #[test]
@@ -2540,8 +2679,26 @@ mod tests {
         )
         .unwrap();
         let game_id = created_game["value"]["id"].as_str().unwrap().to_owned();
-        assert_eq!(created_game["value"]["name"], "Custom");
-        assert_eq!(created_game["value"]["browserLaunchMode"], "inherit");
+        crate::v1_case!("state-migration-edad5901a646", {
+            assert_eq!(created_game["value"]["name"], "Custom");
+            assert_eq!(created_game["value"]["browserLaunchMode"], "inherit");
+            assert_eq!(
+                read_record(&connection, "games", &game_id)
+                    .unwrap()
+                    .unwrap()["name"],
+                "Custom"
+            );
+            assert_eq!(
+                connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM games WHERE id=?1",
+                        params![&game_id],
+                        |row| row.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                1
+            );
+        });
 
         let created_role = apply_domain_mutation(
             &mut connection,
@@ -2820,7 +2977,7 @@ mod tests {
                     row.get::<_, u32>(0)
                 })
                 .unwrap(),
-            4
+            SCHEMA_VERSION
         );
         assert_eq!(
             connection
@@ -2832,6 +2989,55 @@ mod tests {
                 )
                 .unwrap(),
             1
+        );
+    }
+
+    #[test]
+    fn version_five_removes_persisted_workspace_resource_policies() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (1, 'legacy');
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (2, 'legacy');
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (3, 'legacy');
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (4, 'legacy');
+                 CREATE TABLE workspaces(
+                   id TEXT PRIMARY KEY,
+                   ordinal INTEGER NOT NULL,
+                   name TEXT NOT NULL,
+                   payload_json TEXT NOT NULL
+                 );
+                 INSERT INTO workspaces(id, ordinal, name, payload_json)
+                 VALUES (
+                   'workspace-1',
+                   0,
+                   'Legacy',
+                   '{\"id\":\"workspace-1\",\"name\":\"Legacy\",\"resourcePolicy\":{\"mode\":\"unrestricted\"}}'
+                 );",
+            )
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let payload: Value = serde_json::from_str(
+            &connection
+                .query_row(
+                    "SELECT payload_json FROM workspaces WHERE id='workspace-1'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(payload.get("resourcePolicy").is_none());
+        assert_eq!(
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get::<_, u32>(0)
+                })
+                .unwrap(),
+            SCHEMA_VERSION
         );
     }
 
@@ -3068,23 +3274,25 @@ mod tests {
         .unwrap();
         let worker = StateDatabaseWorker::start(database_path).unwrap();
 
-        assert!(
-            worker
-                .recover_portable_import(directory.path().to_path_buf())
-                .unwrap()
-        );
-        assert_eq!(worker.snapshot().unwrap()["games"][0]["id"], "g2");
-        assert!(
-            !directory
-                .path()
-                .join("portable-import-transaction.json")
-                .exists()
-        );
-        assert!(
-            !directory
-                .path()
-                .join("portable-import-transaction.stage")
-                .exists()
-        );
+        crate::v1_case!("portable-profile-08b90063a73f", {
+            assert!(
+                worker
+                    .recover_portable_import(directory.path().to_path_buf())
+                    .unwrap()
+            );
+            assert_eq!(worker.snapshot().unwrap()["games"][0]["id"], "g2");
+            assert!(
+                !directory
+                    .path()
+                    .join("portable-import-transaction.json")
+                    .exists()
+            );
+            assert!(
+                !directory
+                    .path()
+                    .join("portable-import-transaction.stage")
+                    .exists()
+            );
+        });
     }
 }

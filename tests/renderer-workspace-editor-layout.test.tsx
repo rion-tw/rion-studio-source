@@ -86,6 +86,8 @@ describe("workspace editor role picker layout", () => {
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();
     expect(screen.queryByText("96%")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Resource mode" })).toBeNull();
+    expect(screen.queryByText("Unrestricted")).toBeNull();
     expect(workspaceHelps).toHaveLength(3);
     expect(workspaceHelps[0].getAttribute("data-workspace-help")).toBe("editing");
     expect(workspaceHelps[1].getAttribute("data-workspace-help")).toBe("launch");
@@ -101,6 +103,7 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[2].textContent).toContain("Ctrl +/−/0 on Windows");
     expect(workspaceHelps[2].textContent).toContain("saved to this workspace automatically");
     expect(workspaceHelps[2].textContent).toContain("restored the next time the role launches");
+    expect(workspaceHelps[2].textContent).toContain("inactive embedded tabs");
     expect(workspaceHelps[2].textContent).toContain("roles running a macro stay at full speed");
     workspaceHelps.forEach((workspaceHelp) => {
       expect(workspaceHelp.querySelector("svg")).toBeNull();
@@ -212,7 +215,6 @@ function workspace(): LaunchWorkspace {
     browserLaunchMode: "inherit",
     browserZoomMode: "adaptive",
     browserZoomPercent: 100,
-    resourcePolicy: { mode: "adaptive" },
     slots: [
       { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
       { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }

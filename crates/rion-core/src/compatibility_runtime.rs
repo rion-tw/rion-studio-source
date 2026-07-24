@@ -332,10 +332,8 @@ mod tests {
         let mut runtime = CompatibilityRuntime::default();
         let state = snapshot();
         prepare(&mut runtime, &state, true).unwrap();
-        assert_eq!(
-            prepare(&mut runtime, &state, true).unwrap_err().code(),
-            "COMPATIBILITY_CHECK_ACTIVE"
-        );
+        let duplicate_error = prepare(&mut runtime, &state, true).unwrap_err();
+        assert_eq!(duplicate_error.code(), "COMPATIBILITY_CHECK_ACTIVE");
         runtime
             .transition("game-1", CompatibilityRunPhase::Loading)
             .unwrap();
@@ -348,13 +346,53 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(report.load.unwrap().state, "failed");
-        assert_eq!(
-            report.recommendation.unwrap().reason,
-            "external_recommended"
-        );
+        crate::v1_case!("browser-workspace-bc07c25dd07c", {
+            assert_eq!(report.load.as_ref().unwrap().state, "failed");
+            assert_eq!(
+                report.load.as_ref().unwrap().error_code.as_deref(),
+                Some("ERR_CONNECTION_REFUSED")
+            );
+            assert_eq!(
+                report.recommendation.as_ref().unwrap().mode.as_deref(),
+                Some("external")
+            );
+            assert_eq!(
+                report.recommendation.as_ref().unwrap().reason,
+                "external_recommended"
+            );
+        });
         runtime.finish("game-1");
         assert!(runtime.statuses().is_empty());
+
+        prepare(&mut runtime, &state, false).unwrap();
+        let no_chrome_report = runtime
+            .build_report(
+                "game-1",
+                CompatibilityCheckOutcome::Failed {
+                    duration_ms: 42,
+                    error_code: "ERR_CONNECTION_REFUSED".to_owned(),
+                },
+            )
+            .unwrap();
+        crate::v1_case!("browser-workspace-63d8d3912912", {
+            assert_eq!(
+                no_chrome_report.system_chrome.as_ref().unwrap().state,
+                "unavailable"
+            );
+            assert_eq!(
+                no_chrome_report.recommendation.as_ref().unwrap().reason,
+                "chrome_required"
+            );
+            assert!(
+                no_chrome_report
+                    .recommendation
+                    .as_ref()
+                    .unwrap()
+                    .mode
+                    .is_none()
+            );
+        });
+        runtime.finish("game-1");
     }
 
     #[test]
@@ -412,15 +450,15 @@ mod tests {
             .unwrap()
             .graphics
             .unsafe_web_gpu_enabled = true;
-        assert!(
-            CompatibilityRuntime::current_reports(
-                &state.games,
-                &state.compatibility_reports,
-                state.game_browser_settings.as_ref().unwrap(),
-                &versions(),
-            )
-            .unwrap()[0]
-                .is_stale
-        );
+        let changed = CompatibilityRuntime::current_reports(
+            &state.games,
+            &state.compatibility_reports,
+            state.game_browser_settings.as_ref().unwrap(),
+            &versions(),
+        )
+        .unwrap();
+        crate::v1_case!("browser-workspace-f1d3460084ea", {
+            assert!(changed[0].is_stale);
+        });
     }
 }

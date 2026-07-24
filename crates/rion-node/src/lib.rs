@@ -74,9 +74,13 @@ impl NativeAppCore {
                         .iter()
                         .any(|event| matches!(event, CoreEvent::Shutdown));
                     let is_critical = is_shutdown
-                        || events
-                            .iter()
-                            .any(|event| matches!(event, CoreEvent::CoreEffects { .. }));
+                        || events.iter().any(|event| {
+                            matches!(
+                                event,
+                                CoreEvent::CoreEffects { .. }
+                                    | CoreEvent::MacroStatuses { reliable: true, .. }
+                            )
+                        });
                     let Ok(serialized) = serde_json::to_string(&events) else {
                         continue;
                     };

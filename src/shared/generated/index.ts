@@ -167,7 +167,6 @@ export type { StateRoleRecord } from "./StateRoleRecord";
 export type { StateWebGraphicsRecord } from "./StateWebGraphicsRecord";
 export type { StateWorkspaceDisplayFingerprintRecord } from "./StateWorkspaceDisplayFingerprintRecord";
 export type { StateWorkspaceDisplayTargetRecord } from "./StateWorkspaceDisplayTargetRecord";
-export type { StateWorkspaceResourcePolicyRecord } from "./StateWorkspaceResourcePolicyRecord";
 export type { StateWorkspaceSlotRecord } from "./StateWorkspaceSlotRecord";
 export type { SystemPressureSnapshot } from "./SystemPressureSnapshot";
 export type { SystemFontFamilyRecord } from "./SystemFontFamilyRecord";

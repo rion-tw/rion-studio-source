@@ -9,8 +9,7 @@ import type {
   WorkspaceBrowserZoomPercent,
   WorkspaceBrowserZoomMode,
   WorkspaceDisplayTarget,
-  WorkspaceLayoutTemplate,
-  WorkspaceResourcePolicy
+  WorkspaceLayoutTemplate
 } from "../../../shared/types";
 
 export interface RoleFormState {
@@ -30,7 +29,6 @@ export interface WorkspaceFormState {
   browserLaunchMode: InheritableBrowserLaunchMode;
   browserZoomMode: WorkspaceBrowserZoomMode;
   browserZoomPercent: WorkspaceBrowserZoomPercent;
-  resourcePolicy: WorkspaceResourcePolicy;
   targetDisplay?: WorkspaceDisplayTarget;
   slots: LaunchWorkspaceSlot[];
 }

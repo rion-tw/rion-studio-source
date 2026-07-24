@@ -16,7 +16,8 @@ struct CompiledRule {
 
 #[derive(Debug, Default)]
 pub struct CdnMatcher {
-    rules: Vec<CompiledRule>,
+    rules: Vec<CdnRule>,
+    compiled_rules: Vec<CompiledRule>,
 }
 
 #[derive(Deserialize)]
@@ -37,7 +38,7 @@ impl CdnMatcher {
 
     pub fn replace_rules(&mut self, rules: Vec<CdnRule>) -> CoreResult<()> {
         let mut compiled = Vec::with_capacity(rules.len());
-        for rule in rules {
+        for rule in &rules {
             if rule.id.trim().is_empty() || rule.source_host.trim().is_empty() {
                 return Err(CoreError::InvalidInput(
                     "CDN rules require an id and source host".to_owned(),
@@ -52,13 +53,14 @@ impl CdnMatcher {
                 source_host: rule.source_host.to_ascii_lowercase(),
             });
         }
-        self.rules = compiled;
+        self.rules = rules;
+        self.compiled_rules = compiled;
         Ok(())
     }
 
     pub fn rewrite(&self, input: &str) -> Option<String> {
         let host = Url::parse(input).ok()?.host_str()?.to_ascii_lowercase();
-        self.rules.iter().find_map(|rule| {
+        self.compiled_rules.iter().find_map(|rule| {
             if host != rule.source_host || !rule.matcher.is_match(input) {
                 return None;
             }
@@ -73,12 +75,16 @@ impl CdnMatcher {
     }
 
     pub fn request_patterns(&self) -> Vec<String> {
-        self.rules
+        self.compiled_rules
             .iter()
             .map(|rule| format!("https://{}/*", rule.source_host))
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect()
+    }
+
+    pub fn rewrite_plan(&self) -> Vec<CdnRule> {
+        self.rules.clone()
     }
 }
 
@@ -148,5 +154,82 @@ mod tests {
                 .request_patterns()
                 .contains(&"https://www.google.com/*".to_owned())
         );
+    }
+
+    #[test]
+    fn bundled_rules_preserve_v1_rewrite_contracts() {
+        let matcher = CdnMatcher::bundled().unwrap();
+
+        crate::v1_case!("external-chrome-cdn-f35ce90636be", {
+            assert_rewrite(
+                &matcher,
+                "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js?cache=1",
+                "https://ajax.loli.net/ajax/libs/jquery/3.7.1/jquery.min.js?cache=1",
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-b4beffd2d396", {
+            assert_rewrite(
+                &matcher,
+                "https://fonts.googleapis.com/css2?family=Roboto:wght@400&display=swap",
+                "https://fonts.googleapis.cn/css2?family=Roboto:wght@400&display=swap",
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-1d7f4564c425", {
+            assert_rewrite(
+                &matcher,
+                "https://themes.googleusercontent.com/static/fonts/example.woff2",
+                "https://themes.loli.net/static/fonts/example.woff2",
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-c76d9b99d65b", {
+            assert_rewrite(
+                &matcher,
+                "https://fonts.gstatic.com/s/roboto/v1/font.woff2",
+                "https://fonts.gstatic.cn/s/roboto/v1/font.woff2",
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-5b3424542316", {
+            assert_rewrite(
+                &matcher,
+                "https://www.google.com/recaptcha/api.js?render=explicit",
+                "https://www.recaptcha.net/recaptcha/api.js?render=explicit",
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-28cdbb687629", {
+            assert_rewrite(
+                &matcher,
+                "https://secure.gravatar.com/avatar/hash?s=64",
+                "https://gravatar.loli.net/avatar/hash?s=64",
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-9277c2dfcb99", {
+            assert_rewrite(
+                &matcher,
+                "https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css",
+                "https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/3.4.1/css/bootstrap.min.css",
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-6c43bf16ec2a", {
+            assert_rewrite(
+                &matcher,
+                "https://code.jquery.com/jquery-3.7.1.min.js?cache=1",
+                "https://fastly.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js?cache=1",
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-d0695c6eb42b", {
+            for input in [
+                "https://www.google.com/search?q=flyff",
+                "https://www.googletagmanager.com/gtm.js?id=GTM-1",
+                "http://fonts.googleapis.com/css2?family=Roboto",
+                "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js",
+            ] {
+                assert_eq!(matcher.rewrite(input), None, "{input}");
+            }
+        });
+    }
+
+    fn assert_rewrite(matcher: &CdnMatcher, source: &str, target: &str) {
+        assert_eq!(matcher.rewrite(source).as_deref(), Some(target));
+        assert_eq!(matcher.rewrite(target), None);
     }
 }

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ElectronAutomationTarget } from "../src/main/browser/ElectronAutomationTarget";
 import { createEmbeddedKeyRuntimeState } from "./helpers/embeddedKeyRuntimeState";
+import { v1Case } from "./helpers/v1Parity";
 
 describe("ElectronAutomationTarget", () => {
   afterEach(() => {
@@ -66,10 +67,21 @@ describe("ElectronAutomationTarget", () => {
 
     await target.dispatchKey({ code: "KeyA", modifiers: ["primary"] });
 
-    expect(keyEvents(harness)[0]).toEqual(expect.objectContaining({
-      type: "rawKeyDown",
-      code: keyCode === "Meta" ? "MetaLeft" : "ControlLeft"
-    }));
+    if (platform === "darwin") {
+      v1Case("effect-lifecycle-a4b4e3eb818f", () => {
+        expect(keyEvents(harness)[0]).toEqual(expect.objectContaining({
+          type: "rawKeyDown",
+          code: `${keyCode}Left`
+        }));
+      });
+    } else {
+      v1Case("effect-lifecycle-baf88f109a05", () => {
+        expect(keyEvents(harness)[0]).toEqual(expect.objectContaining({
+          type: "rawKeyDown",
+          code: `${keyCode}Left`
+        }));
+      });
+    }
   });
 
   it("reference-counts modifiers shared by held combinations", async () => {
@@ -391,6 +403,65 @@ describe("ElectronAutomationTarget", () => {
     expect(harness.frame.executeJavaScript).not.toHaveBeenCalled();
     expect(harness.webContents.focus).not.toHaveBeenCalled();
     expect(inputEvents(harness)).toHaveLength(0);
+  });
+
+  it("serializes key and pointer input in one per-role lane", async () => {
+    const harness = createHarness();
+    const target = createTarget(harness);
+
+    await Promise.all([
+      target.dispatchKey("Digit1"),
+      target.dispatchClick(25, 75)
+    ]);
+
+    expect(inputEvents(harness).map(([method, params]) => [method, params.type])).toEqual([
+      ["Input.dispatchKeyEvent", "rawKeyDown"],
+      ["Input.dispatchKeyEvent", "keyUp"],
+      ["Input.dispatchMouseEvent", "mousePressed"],
+      ["Input.dispatchMouseEvent", "mouseReleased"]
+    ]);
+  });
+
+  it("coalesces rapid focus recovery into one in-flight and one trailing reassertion", async () => {
+    const harness = createHarness();
+    const target = createTarget(harness);
+    await target.holdKey("Digit1", "owner");
+    harness.debugger.sendCommand.mockClear();
+    let activeInputCalls = 0;
+    let maxActiveInputCalls = 0;
+    harness.debugger.sendCommand.mockImplementation(async (method: string) => {
+      if (method.startsWith("Input.")) {
+        activeInputCalls += 1;
+        maxActiveInputCalls = Math.max(maxActiveInputCalls, activeInputCalls);
+        await Promise.resolve();
+        activeInputCalls -= 1;
+      }
+      return {};
+    });
+
+    for (let index = 0; index < 10; index += 1) {
+      harness.emitWebContents(index % 2 === 0 ? "blur" : "focus");
+    }
+
+    await vi.waitFor(() => expect(keyEvents(harness)).toHaveLength(2));
+    expect(maxActiveInputCalls).toBe(1);
+    await target.releaseKey("Digit1", "owner");
+  });
+
+  it("drains its input lane and removes recovery listeners before disposal completes", async () => {
+    const harness = createHarness();
+    const target = createTarget(harness);
+    await target.holdKey("Digit1", "owner");
+
+    await target.dispose();
+    harness.debugger.sendCommand.mockClear();
+    harness.emitWebContents("blur");
+    harness.emitWebContents("focus");
+    await Promise.resolve();
+
+    expect(inputEvents(harness)).toHaveLength(0);
+    expect(harness.webContents.removeListener).toHaveBeenCalledWith("blur", expect.any(Function));
+    expect(harness.webContents.removeListener).toHaveBeenCalledWith("focus", expect.any(Function));
   });
 });
 

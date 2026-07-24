@@ -31,8 +31,7 @@ import type {
   RoleStatus,
   WorkspaceDisplayInfo,
   WorkspaceBrowserZoomPercent,
-  WorkspaceLayoutTemplate,
-  WorkspaceResourceMode
+  WorkspaceLayoutTemplate
 } from "../../../../shared/types";
 import {
   workspaceBrowserZoomPercents,
@@ -534,28 +533,6 @@ function WorkspaceLayoutFormEditor({
           </FormField>
         </Surface>
 
-        <Surface className="p-4" padding="none" variant="inset">
-          <FormField
-            htmlFor="workspace-resource-mode"
-            label={t("workspaces.resourceMode")}
-            description={t("workspaces.resourceModeDescription")}
-          >
-            <Select
-              value={form.resourcePolicy.mode}
-              disabled={isSaving}
-              onValueChange={(value) => onChange({
-                ...form,
-                resourcePolicy: { mode: value as WorkspaceResourceMode }
-              })}
-            >
-              <SelectTrigger id="workspace-resource-mode"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="adaptive">{t("workspaces.resourceModeAdaptive")}</SelectItem>
-                <SelectItem value="unrestricted">{t("workspaces.resourceModeUnrestricted")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-        </Surface>
       </div>
 
       <Surface

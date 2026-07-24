@@ -15,15 +15,27 @@ const COPY_PATHS: &[&str] = &[
 ];
 
 pub fn default_chrome_user_data_directory(platform: Platform) -> Option<std::path::PathBuf> {
+    default_chrome_user_data_directory_from(
+        platform,
+        std::env::var_os("HOME").as_deref(),
+        std::env::var_os("LOCALAPPDATA").as_deref(),
+    )
+}
+
+fn default_chrome_user_data_directory_from(
+    platform: Platform,
+    home: Option<&std::ffi::OsStr>,
+    local_app_data: Option<&std::ffi::OsStr>,
+) -> Option<std::path::PathBuf> {
     match platform {
-        Platform::Macos => std::env::var_os("HOME").map(|home| {
+        Platform::Macos => home.map(|home| {
             std::path::PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
                 .join("Google")
                 .join("Chrome")
         }),
-        Platform::Windows => std::env::var_os("LOCALAPPDATA").map(|local_app_data| {
+        Platform::Windows => local_app_data.map(|local_app_data| {
             std::path::PathBuf::from(local_app_data)
                 .join("Google")
                 .join("Chrome")
@@ -241,16 +253,90 @@ mod tests {
         let source = tempdir().unwrap();
         let destination = tempdir().unwrap().keep().join("copy");
         fs::create_dir_all(source.path().join("Default/Network")).unwrap();
+        fs::create_dir_all(source.path().join("Default/Local Storage")).unwrap();
+        fs::create_dir_all(source.path().join("Default/Session Storage")).unwrap();
+        fs::create_dir_all(source.path().join("Default/IndexedDB")).unwrap();
+        fs::create_dir_all(source.path().join("Default/Service Worker/CacheStorage")).unwrap();
         fs::write(source.path().join("Default/Network/Cookies"), b"cookies").unwrap();
+        fs::write(
+            source.path().join("Default/Local Storage/leveldb.log"),
+            b"local",
+        )
+        .unwrap();
+        fs::write(
+            source.path().join("Default/Session Storage/session.log"),
+            b"session",
+        )
+        .unwrap();
+        fs::write(source.path().join("Default/IndexedDB/auth.log"), b"indexed").unwrap();
+        fs::write(
+            source
+                .path()
+                .join("Default/Service Worker/CacheStorage/cache.log"),
+            b"cache",
+        )
+        .unwrap();
         fs::write(source.path().join("Default/History"), b"history").unwrap();
+        fs::write(source.path().join("Default/Login Data"), b"passwords").unwrap();
+        fs::write(source.path().join("Default/Web Data"), b"autofill").unwrap();
+        fs::write(source.path().join("Default/Bookmarks"), b"bookmarks").unwrap();
+        fs::write(source.path().join("Default/Preferences"), b"preferences").unwrap();
 
         copy_chrome_profile(source.path(), "Default", &destination).unwrap();
 
-        assert_eq!(
-            fs::read(destination.join("Default/Network/Cookies")).unwrap(),
-            b"cookies"
-        );
-        assert!(!destination.join("Default/History").exists());
+        crate::v1_case!("portable-profile-9f7a0ac7cef6", {
+            for (relative, expected) in [
+                ("Network/Cookies", b"cookies".as_slice()),
+                ("Local Storage/leveldb.log", b"local".as_slice()),
+                ("Session Storage/session.log", b"session".as_slice()),
+                ("IndexedDB/auth.log", b"indexed".as_slice()),
+                ("Service Worker/CacheStorage/cache.log", b"cache".as_slice()),
+            ] {
+                assert_eq!(
+                    fs::read(destination.join("Default").join(relative)).unwrap(),
+                    expected
+                );
+            }
+            for relative in [
+                "Bookmarks",
+                "History",
+                "Login Data",
+                "Preferences",
+                "Web Data",
+            ] {
+                assert!(!destination.join("Default").join(relative).exists());
+            }
+        });
+    }
+
+    #[test]
+    fn resolves_explicit_cross_platform_default_profile_paths() {
+        crate::v1_case!("portable-profile-aad628b05d99", {
+            assert_eq!(
+                default_chrome_user_data_directory_from(
+                    Platform::Macos,
+                    Some(std::ffi::OsStr::new("/Users/test")),
+                    None,
+                ),
+                Some(
+                    std::path::PathBuf::from("/Users/test")
+                        .join("Library/Application Support/Google/Chrome")
+                )
+            );
+        });
+        crate::v1_case!("portable-profile-c11abfcf2af2", {
+            assert_eq!(
+                default_chrome_user_data_directory_from(
+                    Platform::Windows,
+                    Some(std::ffi::OsStr::new("C:/Users/test")),
+                    Some(std::ffi::OsStr::new("C:/Users/test/AppData/Local")),
+                ),
+                Some(
+                    std::path::PathBuf::from("C:/Users/test/AppData/Local")
+                        .join("Google/Chrome/User Data")
+                )
+            );
+        });
     }
 
     #[cfg(unix)]
@@ -267,6 +353,10 @@ mod tests {
         )
         .unwrap();
 
-        assert!(copy_chrome_profile(source.path(), "Default", &destination).is_err());
+        crate::v1_case!("portable-profile-5754b66f2010", {
+            let error = copy_chrome_profile(source.path(), "Default", &destination).unwrap_err();
+            assert!(error.to_string().contains("unsupported symbolic link"));
+            assert!(!destination.join("Default/Local Storage/escape").exists());
+        });
     }
 }

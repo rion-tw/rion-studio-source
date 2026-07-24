@@ -7,6 +7,7 @@ import type { CoreEvent } from "../src/shared/generated";
 import type { CompatibilityCoreEffectAction } from "../src/main/core/ElectronEffectExecutor";
 import type { GameCompatibilityReport } from "../src/shared/types";
 import { GameCompatibilityManager } from "../src/main/games/GameCompatibilityManager";
+import { v1Case } from "./helpers/v1Parity";
 
 const report: GameCompatibilityReport = {
   gameId: "game-1",
@@ -59,6 +60,7 @@ describe("GameCompatibilityManager", () => {
         startedAt: "2026-07-15T00:00:00.000Z"
       }
     }));
+    const created = windows[0]!;
     await manager.executeEffect(effect({
       type: "compatibilityConfigureSession",
       gameId: "game-1"
@@ -73,12 +75,12 @@ describe("GameCompatibilityManager", () => {
       gameId: "game-1",
       source: "raw-probe"
     }))).resolves.toMatchObject({ webgl: "available" });
-    await manager.executeEffect(effect({
+    created.clearCache.mockRejectedValueOnce(new Error("cleanup failed"));
+    await expect(manager.executeEffect(effect({
       type: "compatibilityCleanupWindow",
       gameId: "game-1"
-    }));
+    }))).resolves.toBeUndefined();
 
-    const created = windows[0]!;
     expect(created.options).toMatchObject({
       x: 100,
       y: 50,
@@ -99,6 +101,41 @@ describe("GameCompatibilityManager", () => {
     expect(invoke).not.toHaveBeenCalledWith({
       type: "compatibilityCancel",
       gameId: "game-1"
+    });
+    await expect(manager.runCheck("game-1")).resolves.toMatchObject({
+      gameId: "game-1",
+      load: { state: "available", finalOrigin: "https://example.test" },
+      graphics: { webgl: "available", webgl2: "available", webgpu: "unavailable" },
+      recommendation: { reason: "embedded_available" },
+      systemChrome: { state: "available" }
+    });
+    v1Case("browser-workspace-b36d189c65c3", () => {
+      expect(created.options).toMatchObject({
+        x: 100,
+        y: 50,
+        width: 1000,
+        height: 700,
+        show: false,
+        webPreferences: {
+          backgroundThrottling: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true
+        }
+      });
+      expect(created.options.webPreferences?.partition).toMatch(/^rion-compatibility-/);
+      expect(created.options.webPreferences?.partition).not.toContain("persist:");
+      expect(created.options.webPreferences).not.toHaveProperty("preload");
+      expect(created.show).toHaveBeenCalledOnce();
+      expect(created.destroy).toHaveBeenCalledOnce();
+      expect(created.clearStorageData).toHaveBeenCalledOnce();
+      expect(created.clearCache).toHaveBeenCalledOnce();
+      expect(created.closeAllConnections).toHaveBeenCalledOnce();
+    });
+    v1Case("browser-workspace-94557ef32ede", () => {
+      expect(created.destroy).toHaveBeenCalledOnce();
+      expect(created.clearStorageData).toHaveBeenCalledOnce();
+      expect(created.closeAllConnections).toHaveBeenCalledOnce();
     });
   });
 

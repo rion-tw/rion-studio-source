@@ -267,7 +267,8 @@ function SettingsViewBase({
           });
         },
         loadDiagnostics: onLoadGraphicsDiagnostics,
-        onDiagnostics: setGraphicsDiagnostics
+        onDiagnostics: setGraphicsDiagnostics,
+        onRestartRequired: () => showGraphicsRestartDialog(true)
       });
     } catch (error) {
       onError(error);

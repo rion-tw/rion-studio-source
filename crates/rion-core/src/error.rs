@@ -4,7 +4,7 @@ use ts_rs::TS;
 
 #[derive(Debug, Error)]
 pub enum CoreError {
-    #[error("invalid core input: {0}")]
+    #[error("{0}")]
     InvalidInput(String),
     #[error("{message}")]
     Domain { code: &'static str, message: String },

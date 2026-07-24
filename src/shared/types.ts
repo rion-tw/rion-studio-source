@@ -65,7 +65,6 @@ import type {
   StateRoleRecord,
   StateWorkspaceDisplayFingerprintRecord,
   StateWorkspaceDisplayTargetRecord,
-  StateWorkspaceResourcePolicyRecord,
   StateWorkspaceSlotRecord,
   StateWebGraphicsRecord,
   SystemFontFamilyRecord,
@@ -251,7 +250,6 @@ export type NormalizedRect = StateNormalizedRectRecord;
 
 export type LaunchWorkspaceSlot = StateWorkspaceSlotRecord;
 
-export type WorkspaceResourceMode = "unrestricted" | "adaptive";
 export type WorkspaceCpuThrottleRate = 2 | 4;
 export type WorkspacePressureLevel = "normal" | "constrained";
 export type WorkspaceResourceReason =
@@ -268,8 +266,6 @@ export type WorkspaceResourceState =
   | "macro_override"
   | "shared_process"
   | "unavailable";
-
-export type WorkspaceResourcePolicy = StateWorkspaceResourcePolicyRecord;
 
 export type PixelBounds = StatePixelBoundsRecord;
 

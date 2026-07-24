@@ -192,9 +192,10 @@ fn contains_disallowed_cookie_character(value: &str) -> bool {
 fn remove_and_verify_domain_hash(value: &mut Vec<u8>, host_key: &str) -> CoreResult<()> {
     let expected = Sha256::digest(host_key.as_bytes());
     if value.len() < SHA256_LENGTH || value[..SHA256_LENGTH] != expected[..] {
-        return Err(CoreError::Platform(
-            "Chrome cookie domain integrity check failed".to_owned(),
-        ));
+        return Err(CoreError::Domain {
+            code: "CHROME_COOKIE_DOMAIN_INTEGRITY_FAILED",
+            message: "Chrome cookie domain integrity check failed.".to_owned(),
+        });
     }
     value.drain(..SHA256_LENGTH);
     Ok(())
@@ -215,6 +216,110 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    fn create_plain_cookie_database(
+        relative_path: &str,
+        value: &str,
+    ) -> (tempfile::TempDir, PathBuf) {
+        let directory = tempdir().unwrap();
+        let profile = directory.path().join("profile");
+        let path = profile.join(relative_path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let database = Connection::open(&path).unwrap();
+        database
+            .execute_batch(
+                "CREATE TABLE meta(key TEXT PRIMARY KEY, value INTEGER);\
+                 INSERT INTO meta VALUES ('version', 23);\
+                 CREATE TABLE cookies(host_key TEXT, name TEXT, value TEXT, path TEXT,\
+                   expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER,\
+                   samesite INTEGER, encrypted_value BLOB);",
+            )
+            .unwrap();
+        let future =
+            ((chrono::Utc::now().timestamp() as f64 + CHROME_EPOCH_OFFSET_SECONDS + 3_600.0)
+                * 1_000_000.0) as i64;
+        database
+            .execute(
+                "INSERT INTO cookies VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![
+                    ".example.test",
+                    "session",
+                    value,
+                    "/game",
+                    future,
+                    1,
+                    1,
+                    2,
+                    Vec::<u8>::new()
+                ],
+            )
+            .unwrap();
+        drop(database);
+        (directory, profile)
+    }
+
+    fn assert_cookie_database_path(relative_path: &str, platform: Platform, value: &str) {
+        let (_directory, profile) = create_plain_cookie_database(relative_path, value);
+        let cookies = read_imported_cookies(&profile, platform).unwrap();
+        assert_eq!(
+            cookies,
+            vec![ImportedChromeCookie {
+                url: "https://example.test/game".to_owned(),
+                name: "session".to_owned(),
+                value: value.to_owned(),
+                domain: Some(".example.test".to_owned()),
+                path: "/game".to_owned(),
+                secure: true,
+                http_only: true,
+                same_site: "strict".to_owned(),
+                expiration_date: cookies[0].expiration_date,
+            }]
+        );
+        assert!(cookies[0].expiration_date.is_some());
+    }
+
+    fn assert_host_only_cookie_semantics(platform: Platform) {
+        let host_only = normalize_cookie(
+            CookieRow {
+                host_key: "host.example.test".to_owned(),
+                name: "__Host-session".to_owned(),
+                value: "host-value".to_owned(),
+                path: "/".to_owned(),
+                expires_utc: 0,
+                is_secure: true,
+                is_http_only: true,
+                same_site: 2,
+                encrypted_value: Vec::new(),
+            },
+            0,
+            platform,
+            0.0,
+        )
+        .unwrap()
+        .unwrap();
+        let domain_cookie = normalize_cookie(
+            CookieRow {
+                host_key: ".example.test".to_owned(),
+                name: "__Secure-session".to_owned(),
+                value: "secure-value".to_owned(),
+                path: "/game".to_owned(),
+                expires_utc: 0,
+                is_secure: true,
+                is_http_only: true,
+                same_site: 2,
+                encrypted_value: Vec::new(),
+            },
+            0,
+            platform,
+            0.0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(host_only.domain, None);
+        assert_eq!(host_only.url, "https://host.example.test/");
+        assert_eq!(domain_cookie.domain.as_deref(), Some(".example.test"));
+        assert_eq!(domain_cookie.url, "https://example.test/game");
+    }
 
     #[test]
     fn reads_plain_unexpired_cookies_and_skips_expired_rows() {
@@ -267,7 +372,14 @@ mod tests {
         value.extend(b"verified");
         remove_and_verify_domain_hash(&mut value, host).unwrap();
         assert_eq!(value, b"verified");
-        assert!(remove_and_verify_domain_hash(&mut b"invalid".to_vec(), host).is_err());
+        crate::v1_case!("portable-profile-88c91ee0d873", {
+            let error = remove_and_verify_domain_hash(&mut b"invalid".to_vec(), host).unwrap_err();
+            assert_eq!(error.code(), "CHROME_COOKIE_DOMAIN_INTEGRITY_FAILED");
+            assert_eq!(
+                error.to_string(),
+                "Chrome cookie domain integrity check failed."
+            );
+        });
     }
 
     #[test]
@@ -302,5 +414,46 @@ mod tests {
         assert!(contains_disallowed_cookie_character("bad\npath"));
         assert!(contains_disallowed_cookie_character("bad\u{7f}name"));
         assert!(!contains_disallowed_cookie_character(".example.test/path"));
+    }
+
+    #[test]
+    fn preserves_v1_cross_platform_cookie_paths_and_host_semantics() {
+        crate::v1_case!("portable-profile-f2b1a510a2be", {
+            assert_cookie_database_path("Default/Cookies", Platform::Macos, "mac:encrypted");
+        });
+        crate::v1_case!("portable-profile-e53154d6631c", {
+            assert_cookie_database_path(
+                "Default/Network/Cookies",
+                Platform::Macos,
+                "mac:encrypted",
+            );
+        });
+        crate::v1_case!("portable-profile-6e4ccd64737e", {
+            assert_cookie_database_path("Default/Cookies", Platform::Windows, "windows:encrypted");
+        });
+        crate::v1_case!("portable-profile-b22c56d83b6d", {
+            assert_cookie_database_path(
+                "Default/Network/Cookies",
+                Platform::Windows,
+                "windows:encrypted",
+            );
+        });
+        crate::v1_case!("portable-profile-f5316c0e2080", {
+            let directory = tempdir().unwrap();
+            let profile = directory.path().join("profile");
+            std::fs::create_dir_all(profile.join("Default/Local Storage")).unwrap();
+            assert!(
+                read_imported_cookies(&profile, Platform::Macos)
+                    .unwrap()
+                    .is_empty()
+            );
+        });
+
+        crate::v1_case!("portable-profile-dcee9ec25f3d", {
+            assert_host_only_cookie_semantics(Platform::Macos);
+        });
+        crate::v1_case!("portable-profile-39438ef833d3", {
+            assert_host_only_cookie_semantics(Platform::Windows);
+        });
     }
 }

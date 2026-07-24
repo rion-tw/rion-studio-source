@@ -17,9 +17,9 @@ use crate::{
         RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
         RuntimeWindowPreferencesRecord, StateCompatibilityReportRecord, StateGameRecord,
         StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
-        StateWorkspaceDisplayTargetRecord, StateWorkspaceResourcePolicyRecord,
-        StateWorkspaceSlotRecord, WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord,
-        WorkspaceDisplayInfoRecord, WorkspaceSlotInputRecord, WorkspaceUpdateInputRecord,
+        StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord,
+        WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceDisplayInfoRecord,
+        WorkspaceSlotInputRecord, WorkspaceUpdateInputRecord,
     },
 };
 
@@ -427,7 +427,6 @@ pub fn create_workspace(
             input.browser_zoom_percent,
             default_workspace_zoom_percent(&template),
         )?,
-        resource_policy: normalize_workspace_resource_policy(input.resource_policy)?,
         target_display,
         slots,
         created_at: now.clone(),
@@ -504,11 +503,6 @@ pub fn update_workspace(
             input.browser_zoom_percent,
             current.browser_zoom_percent,
         )?,
-        resource_policy: input
-            .resource_policy
-            .map(|policy| normalize_workspace_resource_policy(Some(policy)))
-            .transpose()?
-            .unwrap_or_else(|| current.resource_policy.clone()),
         target_display,
         slots,
         created_at: current.created_at,
@@ -606,7 +600,6 @@ pub fn reconcile_workspace_displays(
     for display in displays {
         validate_workspace_target_display(workspace_display_target(display))?;
     }
-    let now = chrono::Utc::now().to_rfc3339();
     for workspace in workspaces {
         let Some(target) = &workspace.target_display else {
             continue;
@@ -623,7 +616,6 @@ pub fn reconcile_workspace_displays(
         let Some(resolved) = resolved else { continue };
         if target.id != resolved.id || target.fingerprint.is_none() {
             workspace.target_display = Some(workspace_display_target(resolved));
-            workspace.updated_at = now.clone();
         }
     }
     Ok(())
@@ -913,22 +905,6 @@ fn normalize_workspace_zoom_percent(value: Option<f64>, fallback: f64) -> CoreRe
             "WORKSPACE_BROWSER_ZOOM_INVALID",
             "Launch workspace browser zoom is invalid.",
         ))
-    }
-}
-
-fn normalize_workspace_resource_policy(
-    policy: Option<StateWorkspaceResourcePolicyRecord>,
-) -> CoreResult<StateWorkspaceResourcePolicyRecord> {
-    let mode = policy.map_or_else(|| "adaptive".to_owned(), |policy| policy.mode);
-    match mode.as_str() {
-        "unrestricted" => Ok(StateWorkspaceResourcePolicyRecord { mode }),
-        "adaptive" | "primary_priority" => Ok(StateWorkspaceResourcePolicyRecord {
-            mode: "adaptive".to_owned(),
-        }),
-        _ => Err(domain(
-            "WORKSPACE_RESOURCE_POLICY_INVALID",
-            "Launch workspace resource policy is invalid.",
-        )),
     }
 }
 
@@ -2072,15 +2048,9 @@ struct WorkspaceRecord {
     browser_launch_mode: String,
     browser_zoom_mode: String,
     browser_zoom_percent: f64,
-    resource_policy: ResourcePolicy,
     slots: Vec<WorkspaceSlot>,
     created_at: String,
     updated_at: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ResourcePolicy {
-    mode: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2253,11 +2223,6 @@ fn validate_workspace(workspace: WorkspaceRecord) -> CoreResult<()> {
             "workspace browser zoom is out of range".to_owned(),
         ));
     }
-    one_of(
-        &workspace.resource_policy.mode,
-        &["unrestricted", "adaptive"],
-        "workspace resource mode",
-    )?;
     if workspace.slots.len() > 9 {
         return Err(CoreError::InvalidInput(
             "workspace cannot contain more than nine slots".to_owned(),
@@ -2514,6 +2479,43 @@ mod tests {
 
     use super::*;
 
+    fn macro_input(value: Value) -> MacroCreateInputRecord {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn macro_update(value: Value) -> MacroUpdateInputRecord {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn workspace_input(value: Value) -> WorkspaceCreateInputRecord {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn game_record(value: Value) -> StateGameRecord {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn role_record(value: Value) -> StateRoleRecord {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn assert_workspace_template(template: &str, expected_zoom: f64, expected_rects: &[[f64; 4]]) {
+        let mut workspaces = Vec::new();
+        let workspace = create_workspace(
+            &mut workspaces,
+            workspace_input(json!({"name":"Layout","template":template})),
+        )
+        .unwrap();
+        assert_eq!(workspace.browser_zoom_percent, expected_zoom);
+        assert_eq!(workspace.slots.len(), expected_rects.len());
+        for (slot, expected) in workspace.slots.iter().zip(expected_rects) {
+            assert_eq!(
+                [slot.rect.x, slot.rect.y, slot.rect.width, slot.rect.height],
+                *expected
+            );
+        }
+    }
+
     #[test]
     fn validates_typed_domain_records() {
         let game = json!({
@@ -2559,19 +2561,39 @@ mod tests {
         invalid_proxy.network.proxy.mode = "custom".to_owned();
         invalid_proxy.network.proxy.server = "ftp://127.0.0.1:7890".to_owned();
         let invalid_proxy = normalize_game_browser_settings(invalid_proxy);
-        assert_eq!(invalid_proxy.network.proxy.mode, "system");
-        assert!(invalid_proxy.network.proxy.server.is_empty());
-
-        let macros = normalize_macro_settings(MacroSettingsRecord {
-            startup_delay_ms: 10_001,
-            key_hold_ms: 0,
-            post_input_delay_ms: 0,
-            default_loop_delay_ms: 86_400_001,
+        crate::v1_case!("browser-workspace-3d56093ad88c", {
+            assert_eq!(invalid_proxy.network.proxy.mode, "system");
+            assert!(invalid_proxy.network.proxy.server.is_empty());
         });
-        assert_eq!(macros.startup_delay_ms, 100);
-        assert_eq!(macros.key_hold_ms, 30);
-        assert_eq!(macros.post_input_delay_ms, 30);
-        assert_eq!(macros.default_loop_delay_ms, 1_000);
+
+        crate::v1_case!("state-migration-40f54d27f418", {
+            let macros = normalize_macro_settings(MacroSettingsRecord {
+                startup_delay_ms: 10_001,
+                key_hold_ms: 0,
+                post_input_delay_ms: 0,
+                default_loop_delay_ms: 86_400_001,
+            });
+            assert_eq!(macros.startup_delay_ms, 100);
+            assert_eq!(macros.key_hold_ms, 30);
+            assert_eq!(macros.post_input_delay_ms, 30);
+            assert_eq!(macros.default_loop_delay_ms, 1_000);
+        });
+
+        crate::v1_case!("state-migration-16455f5cd61d", {
+            let defaults = default_game_browser_settings();
+            validate_game_browser_settings(&defaults).unwrap();
+            assert_eq!(defaults.launch_mode, "auto");
+            assert_eq!(defaults.workspace.background, "material");
+            assert_eq!(defaults.workspace.gap, 4);
+        });
+        crate::v1_case!("state-migration-53ba1094014a", {
+            let defaults = default_macro_settings();
+            validate_macro_settings(&defaults).unwrap();
+            assert_eq!(defaults.startup_delay_ms, 100);
+            assert_eq!(defaults.key_hold_ms, 30);
+            assert_eq!(defaults.post_input_delay_ms, 30);
+            assert_eq!(defaults.default_loop_delay_ms, 1_000);
+        });
     }
 
     #[test]
@@ -2602,5 +2624,1713 @@ mod tests {
                 assert!(games.is_empty());
             }
         }
+    }
+
+    #[test]
+    fn macro_store_domain_contracts_match_v1() {
+        crate::v1_case!("state-migration-24fee99df77d", {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Copy","roleIds":["r1"],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            let mut isolated = macros.clone();
+            isolated[0].name = "Changed".to_owned();
+            assert_eq!(macros[0].name, "Copy");
+            assert_eq!(created.name, "Copy");
+        });
+
+        crate::v1_case!("state-migration-a59f6e22aea7", {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Party","roleIds":["r1","r2"],
+                    "steps":[{"type":"key","code":"F1"}]
+                })),
+            )
+            .unwrap();
+            assert_eq!(created.role_ids, vec!["r1", "r2"]);
+            let updated = update_macro(
+                &mut macros,
+                &created.id,
+                macro_update(json!({"name":"Party updated"})),
+            )
+            .unwrap();
+            assert_eq!(updated.name, "Party updated");
+            delete_macro(&mut macros, &created.id).unwrap();
+            assert!(macros.is_empty());
+        });
+
+        crate::v1_case!("state-migration-7dd0a543761c", {
+            let mut macros = Vec::new();
+            let disabled = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "enabled":false,"name":"Disabled","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            let enabled = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Legacy default","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            assert!(!disabled.enabled);
+            assert!(enabled.enabled);
+        });
+
+        crate::v1_case!("state-migration-18973c29ec15", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Target","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            let parent = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Parent","roleIds":[],
+                    "steps":[
+                        {"type":"macro","macroId":target.id},
+                        {"type":"macro","macroId":target.id,"callMode":"trigger"}
+                    ]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                &parent.steps[0],
+                MacroStepDefinition::Macro { call_mode: Some(mode), .. } if mode == "wait"
+            ));
+            assert!(matches!(
+                &parent.steps[1],
+                MacroStepDefinition::Macro { call_mode: Some(mode), .. } if mode == "trigger"
+            ));
+        });
+
+        crate::v1_case!("state-migration-f5d8acae045e", {
+            let mut macros = Vec::new();
+            let held = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "activationMode":"while_held",
+                    "name":"Held","roleIds":["r1"],
+                    "trigger":{"code":"F6","ctrl":false,"alt":false,"shift":false,"meta":false},
+                    "steps":[{"type":"key","code":"KeyW","action":"hold_until_stop"}]
+                })),
+            )
+            .unwrap();
+            assert_eq!(held.activation_mode.as_deref(), Some("while_held"));
+            assert!(matches!(
+                &held.steps[0],
+                MacroStepDefinition::Key { action: Some(action), .. } if action == "hold_until_stop"
+            ));
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "activationMode":"while_held","name":"Invalid","roleIds":["r2"],
+                        "steps":[{"type":"delay","ms":1}]
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-25770bd4824c", {
+            let mut macros = Vec::new();
+            let normalized = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Modifiers","roleIds":[],
+                    "steps":[{
+                        "type":"key","code":"KeyK",
+                        "modifiers":["shift","primary","shift","alt"]
+                    }]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                &normalized.steps[0],
+                MacroStepDefinition::Key { modifiers: Some(values), .. }
+                    if values == &vec!["primary".to_owned(), "alt".to_owned(), "shift".to_owned()]
+            ));
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Ambiguous","roleIds":[],
+                        "steps":[{"type":"key","code":"KeyK","modifiers":["primary","ctrl"]}]
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-44163e85a900", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Held target","roleIds":[],
+                    "steps":[{"type":"key","code":"KeyW","action":"hold_until_stop"}]
+                })),
+            )
+            .unwrap();
+            let parent = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Nested","roleIds":[],
+                    "steps":[{"type":"macro","macroId":target.id}]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                &target.steps[0],
+                MacroStepDefinition::Key { action: Some(action), .. }
+                    if action == "hold_until_stop"
+            ));
+            assert!(matches!(
+                &parent.steps[0],
+                MacroStepDefinition::Macro { macro_id, .. } if macro_id == &target.id
+            ));
+        });
+
+        crate::v1_case!("state-migration-905d5e9f3e52", {
+            let mut macros = Vec::new();
+            for name in ["Duplicate", "Duplicate"] {
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":name,"roleIds":[],
+                        "repeat":{"type":"loop","intervalMs":86_400_000_u64},
+                        "steps":[{"type":"delay","ms":86_400_000_u64}]
+                    })),
+                )
+                .unwrap();
+            }
+            assert_eq!(macros.len(), 2);
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Too long","roleIds":[],
+                        "repeat":{"type":"loop","intervalMs":86_400_001_u64},
+                        "steps":[{"type":"delay","ms":1}]
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-4c9648c9e15d", {
+            let invalid = serde_json::from_value::<MacroCreateInputRecord>(json!({
+                "name":"Missing roles","steps":[{"type":"delay","ms":1}]
+            }));
+            assert!(invalid.is_err());
+            let mut macros = Vec::new();
+            let unassigned = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Unassigned","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            assert!(unassigned.role_ids.is_empty());
+        });
+
+        crate::v1_case!("state-migration-f03e9cfce6a3", {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Roles","roleIds":[" r1 ","r1"," r2 "],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            assert_eq!(created.role_ids, vec!["r1", "r2"]);
+        });
+
+        crate::v1_case!("state-migration-a4407a2e1282", {
+            let mut macros = Vec::new();
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Empty","roleIds":[],"steps":[]
+                    }))
+                )
+                .is_err()
+            );
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Click","roleIds":[],
+                        "steps":[{"type":"click","xPercent":101,"yPercent":0}]
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-238ae0807744", {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Pixels","roleIds":[],
+                    "steps":[{"type":"click","unit":"px","xPx":12.4,"yPx":34.6}]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                &created.steps[0],
+                MacroStepDefinition::Click {
+                    position: crate::model::MacroClickDefinition::Pixels {
+                        x_px, y_px, ..
+                    },
+                    ..
+                } if *x_px == 12.0 && *y_px == 35.0
+            ));
+        });
+
+        crate::v1_case!("state-migration-e8dafd40d2f5", {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Anchored","roleIds":[],
+                    "steps":[{
+                        "type":"click","unit":"px","anchor":"bottom-right",
+                        "xPx":-24,"yPx":-32
+                    }]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                &created.steps[0],
+                MacroStepDefinition::Click {
+                    anchor: Some(anchor),
+                    position: crate::model::MacroClickDefinition::Pixels {
+                        x_px, y_px, ..
+                    },
+                    ..
+                } if anchor == "bottom-right" && *x_px == -24.0 && *y_px == -32.0
+            ));
+        });
+
+        crate::v1_case!("state-migration-f7980c6af8d2", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Target","roleIds":["r1","r2"],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Parent","roleIds":["r1"],
+                    "steps":[{"type":"macro","macroId":target.id}]
+                })),
+            )
+            .unwrap();
+            clear_macro_role(&mut macros, "r1");
+            assert_eq!(macros.len(), 2);
+            assert_eq!(macros[0].role_ids, vec!["r2"]);
+            assert!(macros[1].role_ids.is_empty());
+            assert!(matches!(
+                &macros[1].steps[0],
+                MacroStepDefinition::Macro { macro_id, .. } if macro_id == &target.id
+            ));
+        });
+
+        crate::v1_case!("state-migration-a3755087145d", {
+            let mut macros = Vec::new();
+            create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Concurrent cleanup","roleIds":["r1","r2","r3"],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            clear_macro_role(&mut macros, "r1");
+            clear_macro_role(&mut macros, "r2");
+            assert_eq!(macros[0].role_ids, vec!["r3"]);
+        });
+
+        crate::v1_case!("state-migration-ee5e6e6e550a", {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Zero wait","roleIds":[],
+                    "repeat":{"type":"loop","intervalMs":0},
+                    "steps":[{"type":"delay","ms":0}]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                created.repeat,
+                MacroRepeat::Loop { interval_ms: 0 }
+            ));
+            assert!(matches!(
+                created.steps[0],
+                MacroStepDefinition::Delay { ms: 0, .. }
+            ));
+        });
+
+        crate::v1_case!("state-migration-11854785813c", {
+            let trigger = json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
+            let mut macros = Vec::new();
+            create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"First","roleIds":["r1"],"trigger":trigger,
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Overlap","roleIds":["r1"],"trigger":trigger,
+                        "steps":[{"type":"delay","ms":1}]
+                    }))
+                )
+                .is_err()
+            );
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Separate","roleIds":["r2"],"trigger":trigger,
+                        "steps":[{"type":"delay","ms":1}]
+                    }))
+                )
+                .is_ok()
+            );
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Reserved","roleIds":["r3"],
+                        "trigger":{"code":"KeyM","ctrl":true,"alt":false,"shift":true,"meta":false},
+                        "steps":[{"type":"delay","ms":1}]
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-08dee212a406", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Target","roleIds":[],
+                    "steps":[{"id":"target-step","type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            let parent = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Parent","roleIds":[],
+                    "steps":[{"id":"call-step","type":"macro","macroId":target.id}]
+                })),
+            )
+            .unwrap();
+            update_macro(
+                &mut macros,
+                &target.id,
+                macro_update(json!({"name":"Renamed target"})),
+            )
+            .unwrap();
+            assert!(matches!(
+                &macros.iter().find(|item| item.id == parent.id).unwrap().steps[0],
+                MacroStepDefinition::Macro { id, macro_id, .. }
+                    if id == "call-step" && macro_id == &target.id
+            ));
+        });
+
+        crate::v1_case!("state-migration-5ec8118b2de8", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Loop","roleIds":[],
+                    "repeat":{"type":"loop","intervalMs":1000},
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Caller","roleIds":[],
+                        "steps":[{"type":"macro","macroId":target.id}]
+                    }))
+                )
+                .is_ok()
+            );
+        });
+
+        crate::v1_case!("state-migration-e1b19c8acafb", {
+            let mut macros = Vec::new();
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Missing","roleIds":[],
+                        "steps":[{"type":"macro","macroId":"missing"}]
+                    }))
+                )
+                .is_err()
+            );
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Target","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            assert!(
+                update_macro(
+                    &mut macros,
+                    &target.id,
+                    macro_update(json!({
+                        "steps":[{"type":"macro","macroId":target.id}]
+                    }))
+                )
+                .is_err()
+            );
+            let parent = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Parent","roleIds":[],
+                    "steps":[{"type":"macro","macroId":target.id}]
+                })),
+            )
+            .unwrap();
+            assert!(
+                update_macro(
+                    &mut macros,
+                    &target.id,
+                    macro_update(json!({
+                        "steps":[{"type":"macro","macroId":parent.id}]
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-eaeea61f42ff", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Target","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Parent","roleIds":[],
+                    "steps":[{"type":"macro","macroId":target.id}]
+                })),
+            )
+            .unwrap();
+            let updated = update_macro(
+                &mut macros,
+                &target.id,
+                macro_update(json!({"repeat":{"type":"loop","intervalMs":500}})),
+            )
+            .unwrap();
+            assert!(matches!(
+                updated.repeat,
+                MacroRepeat::Loop { interval_ms: 500 }
+            ));
+        });
+
+        crate::v1_case!("state-migration-a995f2021932", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Target","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Parent","roleIds":[],
+                    "steps":[{"type":"macro","macroId":target.id}]
+                })),
+            )
+            .unwrap();
+            let updated = update_macro(
+                &mut macros,
+                &target.id,
+                macro_update(json!({
+                    "steps":[{"type":"key","code":"KeyW","action":"hold_until_stop"}]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                updated.steps[0],
+                MacroStepDefinition::Key { action: Some(ref action), .. }
+                    if action == "hold_until_stop"
+            ));
+        });
+
+        crate::v1_case!("state-migration-b436d48eb42a", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Target","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            for name in ["First referrer", "Second referrer"] {
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":name,"roleIds":[],
+                        "steps":[{"type":"macro","macroId":target.id}]
+                    })),
+                )
+                .unwrap();
+            }
+            let error = delete_macro(&mut macros, &target.id).unwrap_err();
+            assert_eq!(error.code(), "MACRO_IN_USE");
+            assert!(error.to_string().contains("First referrer"));
+            assert!(error.to_string().contains("Second referrer"));
+        });
+
+        crate::v1_case!("state-migration-eb10d0654aa7", {
+            let mut macros = Vec::new();
+            let target = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Target","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            let parent = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Parent","roleIds":[],
+                    "steps":[{"type":"macro","macroId":target.id}]
+                })),
+            )
+            .unwrap();
+            let unrelated = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Unrelated","roleIds":[],
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            let (deleted, skipped) =
+                delete_macros(&mut macros, &[target.id.clone(), parent.id.clone()]);
+            assert_eq!(deleted.len(), 2);
+            assert!(skipped.is_empty());
+            let (deleted, skipped) =
+                delete_macros(&mut macros, &[unrelated.id.clone(), "missing".to_owned()]);
+            assert_eq!(deleted, vec![unrelated.id]);
+            assert_eq!(skipped[0].1, "not_found");
+            assert!(macros.is_empty());
+        });
+    }
+
+    #[test]
+    fn workspace_store_domain_contracts_match_v1() {
+        crate::v1_case!("state-migration-1d14f6cf4383", {
+            let mut workspaces = Vec::new();
+            create_workspace(&mut workspaces, workspace_input(json!({"name":"Copy"}))).unwrap();
+            let mut copy = workspaces.clone();
+            copy[0].slots[0].role_id = Some("changed".to_owned());
+            assert!(workspaces[0].slots[0].role_id.is_none());
+        });
+
+        crate::v1_case!("state-migration-16b79eaa516a", {
+            let mut workspaces = Vec::new();
+            let created =
+                create_workspace(&mut workspaces, workspace_input(json!({"name":"Default"})))
+                    .unwrap();
+            assert_eq!(created.template, "two_columns");
+            assert_eq!(created.browser_zoom_percent, 100.0);
+            assert_eq!(created.slots.len(), 2);
+            assert_eq!(created.slots[0].id, "slot-1");
+            assert_eq!(created.slots[1].id, "slot-2");
+        });
+
+        crate::v1_case!("state-migration-75ebe8c3c038", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Zoom","slots":[
+                        {"roleId":"r1","browserZoomPercent":125},
+                        {"roleId":"r2"}
+                    ]
+                })),
+            )
+            .unwrap();
+            assert_eq!(created.slots[0].browser_zoom_percent, Some(125.0));
+            assert!(created.slots[1].browser_zoom_percent.is_none());
+            assert!(
+                create_workspace(
+                    &mut workspaces,
+                    workspace_input(json!({
+                        "name":"Invalid zoom",
+                        "slots":[{"roleId":"r3","browserZoomPercent":301}]
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-40b550e6e02f", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Assigned","slots":[{"roleId":"r1"},{"roleId":"r2"}]
+                })),
+            )
+            .unwrap();
+            update_workspace(
+                &mut workspaces,
+                &created.id,
+                serde_json::from_value(json!({
+                    "slots":[{"roleId":"r1"},{}]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert!(
+                set_workspace_role_browser_zoom(&mut workspaces, &created.id, "r2", 125.0)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                set_workspace_role_browser_zoom(&mut workspaces, &created.id, "r1", 125.0)
+                    .unwrap()
+                    .unwrap()
+                    .slots[0]
+                    .browser_zoom_percent,
+                Some(125.0)
+            );
+        });
+
+        crate::v1_case!("state-migration-4ac7d2da52d7", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Serialized zoom",
+                    "slots":[{"roleId":"r1"},{"roleId":"r2"}]
+                })),
+            )
+            .unwrap();
+            set_workspace_role_browser_zoom(&mut workspaces, &created.id, "r1", 110.0).unwrap();
+            set_workspace_role_browser_zoom(&mut workspaces, &created.id, "r2", 125.0).unwrap();
+            assert_eq!(workspaces[0].slots[0].browser_zoom_percent, Some(110.0));
+            assert_eq!(workspaces[0].slots[1].browser_zoom_percent, Some(125.0));
+        });
+
+        crate::v1_case!("state-migration-b94ebf809cc1", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Adaptive",
+                    "resourcePolicy":{"mode":"adaptive"}
+                })),
+            )
+            .unwrap();
+            assert!(
+                serde_json::to_value(created)
+                    .unwrap()
+                    .get("resourcePolicy")
+                    .is_none()
+            );
+        });
+
+        crate::v1_case!("state-migration-a26b7bfb3502", {
+            let mut workspaces = Vec::new();
+            create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Cleanup",
+                    "slots":[{"roleId":"r1"},{"roleId":"r2"}]
+                })),
+            )
+            .unwrap();
+            clear_workspace_role(&mut workspaces, "r1");
+            clear_workspace_role(&mut workspaces, "r2");
+            assert!(
+                workspaces[0]
+                    .slots
+                    .iter()
+                    .all(|slot| slot.role_id.is_none())
+            );
+        });
+
+        crate::v1_case!("state-migration-456c08bd8759", {
+            let mut workspaces = Vec::new();
+            let first = create_workspace(&mut workspaces, workspace_input(json!({"name":"First"})))
+                .unwrap();
+            let second =
+                create_workspace(&mut workspaces, workspace_input(json!({"name":"Second"})))
+                    .unwrap();
+            let timestamps = [first.updated_at.clone(), second.updated_at.clone()];
+            reorder_workspaces(&mut workspaces, &[second.id.clone(), first.id.clone()]).unwrap();
+            assert_eq!(
+                workspaces
+                    .iter()
+                    .map(|item| item.id.as_str())
+                    .collect::<Vec<_>>(),
+                vec![second.id.as_str(), first.id.as_str()]
+            );
+            assert_eq!(workspaces[0].updated_at, timestamps[1]);
+            assert_eq!(workspaces[1].updated_at, timestamps[0]);
+            let third = create_workspace(&mut workspaces, workspace_input(json!({"name":"Third"})))
+                .unwrap();
+            assert_eq!(workspaces.last().unwrap().id, third.id);
+        });
+
+        crate::v1_case!("state-migration-4b4f49acea6a", {
+            let mut workspaces = Vec::new();
+            let created =
+                create_workspace(&mut workspaces, workspace_input(json!({"name":"Layout"})))
+                    .unwrap();
+            let updated = update_workspace(
+                &mut workspaces,
+                &created.id,
+                serde_json::from_value(json!({
+                    "template":"three_columns",
+                    "slots":[{"roleId":"r1"},{"roleId":"r2"},{}]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(updated.template, "three_columns");
+            assert_eq!(updated.slots.len(), 3);
+            assert!(
+                update_workspace(
+                    &mut workspaces,
+                    &created.id,
+                    serde_json::from_value(json!({
+                        "slots":[{"roleId":"r1"},{"roleId":"r1"},{}]
+                    }))
+                    .unwrap(),
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-42919f758e6e", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Resizable thirds","template":"three_columns",
+                    "slots":[
+                        {"rect":{"x":0,"y":0,"width":0.25,"height":1}},
+                        {"rect":{"x":0.25,"y":0,"width":0.5,"height":1}},
+                        {"rect":{"x":0.75,"y":0,"width":0.25,"height":1}}
+                    ]
+                })),
+            )
+            .unwrap();
+            assert_eq!(created.slots[1].rect.width, 0.5);
+        });
+
+        crate::v1_case!("state-migration-b57b56106912", {
+            assert_workspace_template(
+                "three_columns",
+                90.0,
+                &[
+                    [0.0, 0.0, 0.3333, 1.0],
+                    [0.3333, 0.0, 0.3334, 1.0],
+                    [0.6667, 0.0, 0.3333, 1.0],
+                ],
+            );
+        });
+
+        crate::v1_case!("state-migration-0350a4c0ff11", {
+            let rects = normalize_workspace_rect_edges(vec![
+                StateNormalizedRectRecord {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 0.3333,
+                    height: 1.0,
+                },
+                StateNormalizedRectRecord {
+                    x: 0.3333,
+                    y: 0.0,
+                    width: 0.3333,
+                    height: 1.0,
+                },
+                StateNormalizedRectRecord {
+                    x: 0.6667,
+                    y: 0.0,
+                    width: 0.3333,
+                    height: 1.0,
+                },
+            ]);
+            assert_eq!(rects[1].width, 0.3334);
+            assert_eq!(rects[0].width, 0.3333);
+            assert_eq!(rects[2].width, 0.3333);
+        });
+
+        crate::v1_case!("state-migration-323cefb9afae", {
+            assert_workspace_template(
+                "main_right_stack_left",
+                100.0,
+                &[
+                    [0.5, 0.0, 0.5, 1.0],
+                    [0.0, 0.0, 0.5, 0.5],
+                    [0.0, 0.5, 0.5, 0.5],
+                ],
+            );
+        });
+
+        crate::v1_case!("state-migration-1588b59a839e", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Resizable right","template":"main_right_stack_left",
+                    "slots":[
+                        {"rect":{"x":0.6,"y":0,"width":0.4,"height":1}},
+                        {"rect":{"x":0,"y":0,"width":0.6,"height":0.4}},
+                        {"rect":{"x":0,"y":0.4,"width":0.6,"height":0.6}}
+                    ]
+                })),
+            )
+            .unwrap();
+            assert_eq!(created.slots[0].rect.x, 0.6);
+            assert_eq!(created.slots[2].rect.height, 0.6);
+        });
+
+        crate::v1_case!("state-migration-37306492d6a9", {
+            assert_workspace_template(
+                "main_center_side_stacks",
+                80.0,
+                &[
+                    [0.3, 0.0, 0.4, 1.0],
+                    [0.0, 0.0, 0.3, 0.5],
+                    [0.0, 0.5, 0.3, 0.5],
+                    [0.7, 0.0, 0.3, 0.5],
+                    [0.7, 0.5, 0.3, 0.5],
+                ],
+            );
+        });
+
+        crate::v1_case!("state-migration-abb686727e4e", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Resizable four","template":"four_columns",
+                    "slots":[
+                        {"rect":{"x":0,"y":0,"width":0.2,"height":1}},
+                        {"rect":{"x":0.2,"y":0,"width":0.3,"height":1}},
+                        {"rect":{"x":0.5,"y":0,"width":0.3,"height":1}},
+                        {"rect":{"x":0.8,"y":0,"width":0.2,"height":1}}
+                    ]
+                })),
+            )
+            .unwrap();
+            assert_eq!(created.slots[1].rect.width, 0.3);
+            assert_eq!(created.slots[3].rect.x, 0.8);
+        });
+
+        crate::v1_case!("state-migration-8e8c9045207a", {
+            assert_workspace_template(
+                "three_columns",
+                90.0,
+                &[
+                    [0.0, 0.0, 0.3333, 1.0],
+                    [0.3333, 0.0, 0.3334, 1.0],
+                    [0.6667, 0.0, 0.3333, 1.0],
+                ],
+            );
+        });
+        crate::v1_case!("state-migration-7e275803fcea", {
+            let mut workspaces = Vec::new();
+            let workspace = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({"name":"Quad","template":"quad"})),
+            )
+            .unwrap();
+            assert_eq!(workspace.browser_zoom_percent, 90.0);
+            assert_eq!(workspace.slots.len(), 4);
+        });
+        crate::v1_case!("state-migration-426c9c61f12c", {
+            let mut workspaces = Vec::new();
+            let workspace = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({"name":"Four","template":"four_columns"})),
+            )
+            .unwrap();
+            assert_eq!(workspace.browser_zoom_percent, 90.0);
+            assert_eq!(workspace.slots.len(), 4);
+        });
+
+        crate::v1_case!("state-migration-781fa7614848", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Custom zoom","browserZoomPercent":125
+                })),
+            )
+            .unwrap();
+            assert_eq!(created.browser_zoom_percent, 125.0);
+            let updated = update_workspace(
+                &mut workspaces,
+                &created.id,
+                serde_json::from_value(json!({"browserZoomPercent":90})).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(updated.browser_zoom_percent, 90.0);
+            assert!(
+                update_workspace(
+                    &mut workspaces,
+                    &created.id,
+                    serde_json::from_value(json!({"browserZoomPercent":91})).unwrap(),
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-82e2254438d6", {
+            let mut workspaces = Vec::new();
+            let target = json!({
+                "id":42,
+                "fingerprint":{
+                    "label":"Display",
+                    "bounds":{"x":0,"y":0,"width":1920,"height":1080},
+                    "resolution":{"width":1920,"height":1080},
+                    "scaleFactor":1,
+                    "isPrimary":true,
+                    "isInternal":false
+                }
+            });
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({"name":"Display","targetDisplay":target})),
+            )
+            .unwrap();
+            assert_eq!(created.target_display.as_ref().unwrap().id, 42);
+            let cleared = update_workspace(
+                &mut workspaces,
+                &created.id,
+                serde_json::from_value(json!({
+                    "setTargetDisplay":true,"targetDisplay":null
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            assert!(cleared.target_display.is_none());
+            assert!(
+                create_workspace(
+                    &mut workspaces,
+                    workspace_input(json!({
+                        "name":"Invalid display","targetDisplay":{"id":-1}
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-b1ac59de22ad", {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Legacy target","targetDisplay":{"id":7}
+                })),
+            )
+            .unwrap();
+            let original_updated_at = created.updated_at.clone();
+            let displays: Vec<WorkspaceDisplayInfoRecord> = serde_json::from_value(json!([{
+                "id":7,"label":"Display",
+                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
+                "resolution":{"width":1920,"height":1080},
+                "scaleFactor":1,"isPrimary":true,"isInternal":false
+            }]))
+            .unwrap();
+            reconcile_workspace_displays(&mut workspaces, &displays).unwrap();
+            let fingerprint = workspaces[0]
+                .target_display
+                .as_ref()
+                .unwrap()
+                .fingerprint
+                .clone()
+                .unwrap();
+            assert_eq!(fingerprint.label, "Display");
+            let stable_updated_at = workspaces[0].updated_at.clone();
+            reconcile_workspace_displays(&mut workspaces, &displays).unwrap();
+            assert_eq!(workspaces[0].updated_at, stable_updated_at);
+            assert_eq!(workspaces[0].updated_at, original_updated_at);
+            let changed: Vec<WorkspaceDisplayInfoRecord> = serde_json::from_value(json!([{
+                "id":99,"label":"Display",
+                "bounds":{"x":0,"y":0,"width":1920,"height":1080},
+                "resolution":{"width":1920,"height":1080},
+                "scaleFactor":1,"isPrimary":true,"isInternal":false
+            }]))
+            .unwrap();
+            reconcile_workspace_displays(&mut workspaces, &changed).unwrap();
+            assert_eq!(workspaces[0].target_display.as_ref().unwrap().id, 99);
+            assert_eq!(workspaces[0].updated_at, original_updated_at);
+        });
+
+        crate::v1_case!("state-migration-ebaa1c20914a", {
+            assert_workspace_template(
+                "four_columns",
+                90.0,
+                &[
+                    [0.0, 0.0, 0.25, 1.0],
+                    [0.25, 0.0, 0.25, 1.0],
+                    [0.5, 0.0, 0.25, 1.0],
+                    [0.75, 0.0, 0.25, 1.0],
+                ],
+            );
+        });
+
+        crate::v1_case!("state-migration-764ee3055e09", {
+            assert_workspace_template(
+                "three_top_two_bottom",
+                80.0,
+                &[
+                    [0.0, 0.0, 0.3333, 0.5],
+                    [0.3333, 0.0, 0.3334, 0.5],
+                    [0.6667, 0.0, 0.3333, 0.5],
+                    [0.0, 0.5, 0.5, 0.5],
+                    [0.5, 0.5, 0.5, 0.5],
+                ],
+            );
+        });
+        crate::v1_case!("state-migration-fbdf387e5729", {
+            assert_workspace_template(
+                "two_top_three_bottom",
+                80.0,
+                &[
+                    [0.0, 0.0, 0.5, 0.5],
+                    [0.5, 0.0, 0.5, 0.5],
+                    [0.0, 0.5, 0.3333, 0.5],
+                    [0.3333, 0.5, 0.3334, 0.5],
+                    [0.6667, 0.5, 0.3333, 0.5],
+                ],
+            );
+        });
+        crate::v1_case!("state-migration-e0ba5057971f", {
+            let mut workspaces = Vec::new();
+            let workspace = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({"name":"Six","template":"six_grid"})),
+            )
+            .unwrap();
+            assert_eq!(workspace.browser_zoom_percent, 80.0);
+            assert_eq!(workspace.slots.len(), 6);
+            assert_eq!(workspace.slots[3].rect.y, 0.5);
+        });
+        crate::v1_case!("state-migration-12fbf3f5504d", {
+            let mut workspaces = Vec::new();
+            let workspace = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({"name":"Eight","template":"eight_grid"})),
+            )
+            .unwrap();
+            assert_eq!(workspace.browser_zoom_percent, 75.0);
+            assert_eq!(workspace.slots.len(), 8);
+            assert_eq!(workspace.slots[4].rect.y, 0.5);
+        });
+
+        crate::v1_case!("state-migration-219a4ed72571", {
+            let mut workspaces = Vec::new();
+            create_workspace(&mut workspaces, workspace_input(json!({"name":"Party"}))).unwrap();
+            assert!(
+                create_workspace(&mut workspaces, workspace_input(json!({"name":" party "})))
+                    .is_err()
+            );
+            assert!(
+                create_workspace(
+                    &mut workspaces,
+                    workspace_input(json!({
+                        "name":"Outside","template":"single",
+                        "slots":[{},{"roleId":"r1"}]
+                    }))
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-997864952f1b", {
+            let mut workspaces = Vec::new();
+            let workspace =
+                create_workspace(&mut workspaces, workspace_input(json!({"name":"Order"})))
+                    .unwrap();
+            for order in [
+                vec![],
+                vec![workspace.id.clone(), workspace.id.clone()],
+                vec!["missing".to_owned()],
+            ] {
+                let mut attempt = workspaces.clone();
+                assert!(reorder_workspaces(&mut attempt, &order).is_err());
+                assert_eq!(attempt[0].id, workspace.id);
+            }
+        });
+
+        crate::v1_case!("state-migration-6bb1641c8896", {
+            let mut workspaces = Vec::new();
+            create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Keep","slots":[{"roleId":"r1"},{"roleId":"r2"}]
+                })),
+            )
+            .unwrap();
+            clear_workspace_role(&mut workspaces, "r1");
+            assert_eq!(workspaces.len(), 1);
+            assert!(workspaces[0].slots[0].role_id.is_none());
+            assert_eq!(workspaces[0].slots[1].role_id.as_deref(), Some("r2"));
+        });
+
+        crate::v1_case!("state-migration-002e4a037a07", {
+            let mut workspaces = Vec::new();
+            create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Adaptive cleanup",
+                    "resourcePolicy":{"mode":"adaptive"},
+                    "slots":[{"roleId":"r1"},{}]
+                })),
+            )
+            .unwrap();
+            clear_workspace_role(&mut workspaces, "r1");
+            assert!(workspaces[0].slots[0].role_id.is_none());
+            assert!(
+                serde_json::to_value(&workspaces[0])
+                    .unwrap()
+                    .get("resourcePolicy")
+                    .is_none()
+            );
+        });
+    }
+
+    #[test]
+    fn game_and_role_store_domain_contracts_match_v1() {
+        crate::v1_case!("state-migration-ece15253f5ea", {
+            let mut games = Vec::new();
+            create_game(
+                &mut games,
+                GameCreateInputRecord {
+                    name: "Game".to_owned(),
+                    default_launch_url: "https://example.test/play".to_owned(),
+                    icon_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
+                    cover_image_data_url: Some("data:image/png;base64,Ag==".to_owned()),
+                    browser_launch_mode: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                create_game(
+                    &mut games,
+                    GameCreateInputRecord {
+                        name: " game ".to_owned(),
+                        default_launch_url: "https://other.test/play".to_owned(),
+                        icon_image_data_url: None,
+                        cover_image_data_url: None,
+                        browser_launch_mode: None,
+                    }
+                )
+                .unwrap_err()
+                .code(),
+                "GAME_NAME_DUPLICATE"
+            );
+            assert!(
+                create_game(
+                    &mut games,
+                    GameCreateInputRecord {
+                        name: "Bad URL".to_owned(),
+                        default_launch_url: "file:///tmp/game".to_owned(),
+                        icon_image_data_url: None,
+                        cover_image_data_url: None,
+                        browser_launch_mode: None,
+                    }
+                )
+                .is_err()
+            );
+            assert!(
+                create_game(
+                    &mut games,
+                    GameCreateInputRecord {
+                        name: "Bad image".to_owned(),
+                        default_launch_url: "https://image.test/play".to_owned(),
+                        icon_image_data_url: Some("https://image.test/icon.png".to_owned()),
+                        cover_image_data_url: None,
+                        browser_launch_mode: None,
+                    }
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-d0148c9da12a", {
+            let mut games = vec![game_record(json!({
+                "id":"builtin-flyff-universe","source":"builtin",
+                "builtinKey":"flyff-universe","name":"Flyff Universe",
+                "defaultLaunchUrl":"https://override.test/play",
+                "browserLaunchMode":"external",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }))];
+            let protected = update_game(
+                &mut games,
+                "builtin-flyff-universe",
+                GameUpdateInputRecord {
+                    name: Some("Renamed".to_owned()),
+                    ..GameUpdateInputRecord::default()
+                },
+            )
+            .unwrap_err();
+            assert_eq!(protected.code(), "GAME_BUILTIN_FIELD_PROTECTED");
+            let reset = reset_builtin_game(&mut games, "builtin-flyff-universe").unwrap();
+            assert_eq!(reset.name, "Flyff Universe");
+            assert_eq!(reset.default_launch_url, "https://universe.flyff.com/play");
+            assert_eq!(reset.browser_launch_mode, "inherit");
+            assert!(delete_game(&mut games, &[], "builtin-flyff-universe").is_err());
+        });
+
+        crate::v1_case!("state-migration-12eeac5ebdd5", {
+            let game = game_record(json!({
+                "id":"g1","source":"custom","name":"Game",
+                "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }));
+            let role = role_record(json!({
+                "id":"r1","gameId":"g1","name":"Role",
+                "launchUrl":"https://example.test/play","notes":"",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }));
+            let mut games = vec![game];
+            let error = delete_game(&mut games, &[role], "g1").unwrap_err();
+            assert_eq!(error.code(), "GAME_IN_USE");
+            assert_eq!(games.len(), 1);
+        });
+
+        let games = vec![
+            game_record(json!({
+                "id":"g1","source":"custom","name":"One",
+                "defaultLaunchUrl":"https://one.test/play","browserLaunchMode":"inherit",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            })),
+            game_record(json!({
+                "id":"g2","source":"custom","name":"Two",
+                "defaultLaunchUrl":"https://two.test/play","browserLaunchMode":"inherit",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            })),
+        ];
+
+        crate::v1_case!("state-migration-a22e317b5201", {
+            let mut roles = Vec::new();
+            create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "Role".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            let mut copy = roles.clone();
+            copy[0].name = "Changed".to_owned();
+            assert_eq!(roles[0].name, "Role");
+        });
+
+        crate::v1_case!("state-migration-dd656a1ce95e", {
+            let mut roles = Vec::new();
+            let first = create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "First".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            let second = create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "Second".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            reorder_roles(&mut roles, &[second.id.clone(), first.id.clone()]).unwrap();
+            assert_eq!(roles[0].id, second.id);
+            assert_eq!(roles[1].id, first.id);
+            assert_eq!(roles[0].updated_at, second.updated_at);
+            let third = create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "Third".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(roles.last().unwrap().id, third.id);
+        });
+
+        crate::v1_case!("state-migration-ebab678949df", {
+            let role = role_record(json!({
+                "id":"r1","gameId":"g1","name":"Role",
+                "launchUrl":"https://one.test/play","notes":"",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }));
+            for order in [
+                vec![],
+                vec!["r1".to_owned(), "r1".to_owned()],
+                vec!["missing".to_owned()],
+            ] {
+                let mut roles = vec![role.clone()];
+                assert!(reorder_roles(&mut roles, &order).is_err());
+                assert_eq!(roles[0].id, "r1");
+            }
+        });
+
+        crate::v1_case!("state-migration-d4a525975422", {
+            let mut roles = Vec::new();
+            let role = create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "URL".to_owned(),
+                    launch_url: Some("https://one.test/custom".to_owned()),
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(role.launch_url, "https://one.test/custom");
+            let updated = update_role(
+                &games,
+                &mut roles,
+                &role.id,
+                RoleUpdateInputRecord {
+                    launch_url: Some("https://one.test/updated".to_owned()),
+                    ..RoleUpdateInputRecord::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(updated.launch_url, "https://one.test/updated");
+        });
+
+        crate::v1_case!("state-migration-8436b92a9a3c", {
+            let mut roles = Vec::new();
+            create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "Main".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            assert!(
+                create_role(
+                    &games,
+                    &mut roles,
+                    RoleCreateInputRecord {
+                        game_id: "g1".to_owned(),
+                        name: " main ".to_owned(),
+                        launch_url: None,
+                        notes: None,
+                        cover_image_data_url: None,
+                        cover_image_dominant_color: None,
+                    }
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-fcc108ce785b", {
+            let mut roles = Vec::new();
+            for game_id in ["g1", "g2"] {
+                create_role(
+                    &games,
+                    &mut roles,
+                    RoleCreateInputRecord {
+                        game_id: game_id.to_owned(),
+                        name: "Main".to_owned(),
+                        launch_url: None,
+                        notes: None,
+                        cover_image_data_url: None,
+                        cover_image_dominant_color: None,
+                    },
+                )
+                .unwrap();
+            }
+            assert_eq!(roles.len(), 2);
+        });
+
+        crate::v1_case!("state-migration-b3cbb430c785", {
+            let mut roles = Vec::new();
+            let role = create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "Before".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            let created_at = role.created_at.clone();
+            let updated = update_role(
+                &games,
+                &mut roles,
+                &role.id,
+                RoleUpdateInputRecord {
+                    name: Some("After".to_owned()),
+                    ..RoleUpdateInputRecord::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(updated.name, "After");
+            assert_eq!(updated.created_at, created_at);
+        });
+
+        crate::v1_case!("state-migration-91c76a57ca59", {
+            let mut roles = Vec::new();
+            let role = create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "Covered".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
+                    cover_image_dominant_color: Some("#123456".to_owned()),
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                role.cover_image_data_url.as_deref(),
+                Some("data:image/png;base64,AQ==")
+            );
+            assert_eq!(role.cover_image_dominant_color.as_deref(), Some("#123456"));
+        });
+
+        crate::v1_case!("state-migration-18c6d70a1950", {
+            let mut roles = Vec::new();
+            let role = create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "Cover update".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            let updated = update_role(
+                &games,
+                &mut roles,
+                &role.id,
+                RoleUpdateInputRecord {
+                    cover_image_data_url: Some("data:image/png;base64,Ag==".to_owned()),
+                    set_cover_image_data_url: true,
+                    cover_image_dominant_color: Some("#abcdef".to_owned()),
+                    set_cover_image_dominant_color: true,
+                    ..RoleUpdateInputRecord::default()
+                },
+            )
+            .unwrap();
+            assert!(updated.cover_image_data_url.is_some());
+            let cleared = update_role(
+                &games,
+                &mut roles,
+                &role.id,
+                RoleUpdateInputRecord {
+                    set_cover_image_data_url: true,
+                    set_cover_image_dominant_color: true,
+                    ..RoleUpdateInputRecord::default()
+                },
+            )
+            .unwrap();
+            assert!(cleared.cover_image_data_url.is_none());
+            assert!(cleared.cover_image_dominant_color.is_none());
+        });
+
+        crate::v1_case!("state-migration-32f9dd5be142", {
+            let mut roles = Vec::new();
+            let role = create_role(
+                &games,
+                &mut roles,
+                RoleCreateInputRecord {
+                    game_id: "g1".to_owned(),
+                    name: "No cover".to_owned(),
+                    launch_url: None,
+                    notes: None,
+                    cover_image_data_url: None,
+                    cover_image_dominant_color: None,
+                },
+            )
+            .unwrap();
+            assert!(role.cover_image_data_url.is_none());
+            assert!(role.cover_image_dominant_color.is_none());
+        });
+
+        crate::v1_case!("state-migration-a25bac4e9534", {
+            let mut roles = Vec::new();
+            assert!(
+                create_role(
+                    &games,
+                    &mut roles,
+                    RoleCreateInputRecord {
+                        game_id: "g1".to_owned(),
+                        name: "Invalid cover".to_owned(),
+                        launch_url: None,
+                        notes: None,
+                        cover_image_data_url: Some("https://example.test/cover.png".to_owned()),
+                        cover_image_dominant_color: None,
+                    }
+                )
+                .is_err()
+            );
+            assert!(
+                create_role(
+                    &games,
+                    &mut roles,
+                    RoleCreateInputRecord {
+                        game_id: "g1".to_owned(),
+                        name: "Oversized cover".to_owned(),
+                        launch_url: None,
+                        notes: None,
+                        cover_image_data_url: Some(format!(
+                            "data:image/png;base64,{}",
+                            "A".repeat(MAX_ROLE_COVER_DATA_URL_LENGTH)
+                        )),
+                        cover_image_dominant_color: None,
+                    }
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-bf976dd9efa1", {
+            let mut roles = Vec::new();
+            assert!(
+                create_role(
+                    &games,
+                    &mut roles,
+                    RoleCreateInputRecord {
+                        game_id: "g1".to_owned(),
+                        name: "Bad URL".to_owned(),
+                        launch_url: Some("file:///tmp/game".to_owned()),
+                        notes: None,
+                        cover_image_data_url: None,
+                        cover_image_dominant_color: None,
+                    }
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-6f61d05c2101", {
+            let mut roles = Vec::new();
+            assert!(
+                create_role(
+                    &games,
+                    &mut roles,
+                    RoleCreateInputRecord {
+                        game_id: "g1".to_owned(),
+                        name: "Bad color".to_owned(),
+                        launch_url: None,
+                        notes: None,
+                        cover_image_data_url: Some("data:image/png;base64,AQ==".to_owned()),
+                        cover_image_dominant_color: Some("red".to_owned()),
+                    }
+                )
+                .is_err()
+            );
+        });
+
+        crate::v1_case!("state-migration-c78fcecd60d3", {
+            let legacy = role_record(json!({
+                "id":"legacy","gameId":"g1","name":"Legacy",
+                "launchUrl":"https://one.test/play","notes":"",
+                "coverImageDataUrl":"data:image/png;base64,AQ==",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+            }));
+            assert!(legacy.cover_image_data_url.is_some());
+            assert!(legacy.cover_image_dominant_color.is_none());
+        });
     }
 }

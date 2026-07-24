@@ -40,16 +40,16 @@ describe("editor form state", () => {
     expect(newForm).toMatchObject({
       template: "two_columns",
       browserZoomMode: "adaptive",
-      browserZoomPercent: 100,
-      resourcePolicy: { mode: "adaptive" }
+      browserZoomPercent: 100
     });
+    expect(newForm).not.toHaveProperty("resourcePolicy");
     expect(newForm).not.toHaveProperty("targetDisplay");
     expect(newForm.slots).toHaveLength(2);
 
     const savedForm = createWorkspaceFormState(workspace());
     expect(savedForm.id).toBe("workspace-1");
     expect(savedForm.targetDisplay).toEqual({ id: 22 });
-    expect(savedForm.resourcePolicy).toEqual({ mode: "adaptive" });
+    expect(savedForm).not.toHaveProperty("resourcePolicy");
     expect(savedForm.slots[0].roleId).toBe("role-1");
   });
 
@@ -118,7 +118,6 @@ function workspace(): LaunchWorkspace {
     name: "Party",
     template: "two_columns",
     browserZoomPercent: 100,
-    resourcePolicy: { mode: "adaptive" },
     targetDisplay: { id: 22 },
     slots: [
       { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },

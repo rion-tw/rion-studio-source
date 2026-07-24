@@ -82,22 +82,23 @@ describe("Rust production architecture boundaries", () => {
     expect(layout).toContain("pub fn resize_divider");
   });
 
-  it("keeps CDN URL matching in Rust and the Electron webRequest layer primitive-only", async () => {
+  it("resolves the CDN rewrite plan in Rust and keeps request matching local to Electron", async () => {
     const [manager, matcher] = await Promise.all([
       readSource("src/main/game-browser/CdnCompatibilityManager.ts"),
       readSource("crates/rion-core/src/cdn.rs")
     ]);
 
-    expect(manager).not.toContain("new RegExp");
     expect(manager).not.toContain("rewriteCdnCompatibilityUrl");
-    expect(manager).not.toContain("compiledRules");
     expect(manager).not.toContain("inFlightDetections");
     expect(manager).not.toContain("DetectionCacheEntry");
     expect(manager).not.toContain("setTimeout");
     expect(manager).toContain('type: "cdnResolveSession"');
-    expect(manager).toContain("this.options.matchCdnUrl(details.url)");
+    expect(manager).toContain("compileRewritePlan(resolution.rewriteRules)");
+    expect(manager).toContain("matchCdnUrl(details.url)");
+    expect(manager).not.toContain("this.options.matchCdnUrl");
     expect(matcher).toContain("pub fn bundled()");
     expect(matcher).toContain("pub fn rewrite(&self");
+    expect(matcher).toContain("pub fn rewrite_plan(&self)");
   });
 
   it("routes external macro actions through the Rust CDP executor", async () => {
@@ -244,7 +245,7 @@ describe("Rust production architecture boundaries", () => {
     expect(diagnostics).toContain('contents.on("responsive"');
   });
 
-  it("keeps resource policy state and pressure sampling in Rust", async () => {
+  it("keeps adaptive resource state and pressure sampling in Rust", async () => {
     const [controller, runtime, browser, pressure] = await Promise.all([
       readSource("crates/rion-core/src/resource_controller.rs"),
       readSource("crates/rion-core/src/resource_runtime.rs"),
@@ -378,6 +379,22 @@ describe("Rust production architecture boundaries", () => {
     expect(diagnostics).toContain("atomic_replace_file");
     expect(telemetry).toContain("WRITE_INTERVAL");
     expect(platform).toContain("request_graceful_chrome_quit");
+  });
+
+  it("keeps macro lifecycle delivery reliable while presentation events stay bounded", async () => {
+    const [main, native, core, runtime] = await Promise.all([
+      readSource("src/main/index.ts"),
+      readSource("crates/rion-node/src/lib.rs"),
+      readSource("crates/rion-core/src/app.rs"),
+      readSource("crates/rion-core/src/macro_runtime.rs")
+    ]);
+
+    expect(main).not.toContain("iteration: status.iteration");
+    expect(main).toContain("macro_lifecycle_stopped");
+    expect(native).toContain("CoreEvent::MacroStatuses { reliable: true, .. }");
+    expect(core).toContain("CoreEvent::MacroStatuses { reliable: true, .. }");
+    expect(runtime).toContain("PRESENTATION_STATUS_MIN_INTERVAL");
+    expect(runtime).toContain("emit_statuses(shared, false)");
   });
 
   it("keeps scalar production metadata stores free of filesystem persistence", async () => {

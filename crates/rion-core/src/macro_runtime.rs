@@ -1,12 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, RecvTimeoutError},
     },
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use chrono::Utc;
@@ -23,12 +23,16 @@ use crate::{
 const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_ACTIVE_INVOCATIONS: usize = 64;
 const MAX_PENDING_ACTIONS: usize = 512;
+const PRESENTATION_STATUS_MIN_INTERVAL: Duration = Duration::from_millis(250);
 const SIBLING_FAILURE_MESSAGE: &str = "Cancelled because another assigned role failed.";
 const UNASSIGNED_WORKFLOW_MESSAGE: &str =
     "Assign a role to this macro and every called macro before running it.";
+const DISABLED_MACRO_MESSAGE: &str = "Enable this macro before running it.";
+const UNAVAILABLE_ROLE_MESSAGE: &str = "Launch at least one assigned role before running a macro.";
 
 type EventSink = Arc<dyn Fn(Vec<CoreEvent>) + Send + Sync>;
 type RoleSync = Arc<dyn Fn(Vec<String>) -> CoreResult<()> + Send + Sync>;
+type Waiter = Arc<dyn Fn(&Arc<InvocationControl>, &str, u32) -> Result<(), String> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct MacroRuntime {
@@ -36,13 +40,18 @@ pub struct MacroRuntime {
 }
 
 struct Shared {
-    action_role_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    action_timeout: Duration,
+    action_role_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     events: EventSink,
     inner: Mutex<Inner>,
     next_id: AtomicU64,
     pending: Mutex<HashMap<String, mpsc::SyncSender<BrowserActionResult>>>,
+    last_presentation_status_emit: Mutex<Option<Instant>>,
     role_sync: RoleSync,
     shutting_down: AtomicBool,
+    input_sequence_role_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
+    toggle_serial: Mutex<()>,
+    waiter: Waiter,
 }
 
 #[derive(Default)]
@@ -80,6 +89,7 @@ struct InvocationControl {
     stop_after_first_iteration: AtomicBool,
     terminating: AtomicBool,
     wake: (Mutex<()>, Condvar),
+    worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 struct InvocationBarrier {
@@ -90,6 +100,7 @@ struct InvocationBarrier {
 #[derive(Default)]
 struct InvocationBarrierState {
     arrived_role_ids: HashSet<String>,
+    departed_role_ids: HashSet<String>,
     outcome: Option<Result<(), String>>,
     started: bool,
 }
@@ -106,6 +117,7 @@ struct ExecutionContext {
     control: Arc<InvocationControl>,
     macros: Arc<HashMap<String, MacroDefinition>>,
     settings: MacroRuntimeSettings,
+    waiter: Waiter,
 }
 
 #[derive(Clone)]
@@ -123,20 +135,89 @@ impl MacroRuntime {
     }
 
     pub fn new_with_role_sync(events: EventSink, role_sync: RoleSync) -> Self {
+        Self::new_with_role_sync_and_waiter(events, role_sync, Arc::new(default_wait))
+    }
+
+    fn new_with_role_sync_and_waiter(
+        events: EventSink,
+        role_sync: RoleSync,
+        waiter: Waiter,
+    ) -> Self {
+        Self::new_with_role_sync_waiter_and_timeout(events, role_sync, waiter, ACTION_TIMEOUT)
+    }
+
+    fn new_with_role_sync_waiter_and_timeout(
+        events: EventSink,
+        role_sync: RoleSync,
+        waiter: Waiter,
+        action_timeout: Duration,
+    ) -> Self {
         Self {
             shared: Arc::new(Shared {
+                action_timeout,
                 action_role_locks: Mutex::new(HashMap::new()),
                 events,
                 inner: Mutex::new(Inner::default()),
                 next_id: AtomicU64::new(1),
                 pending: Mutex::new(HashMap::new()),
+                last_presentation_status_emit: Mutex::new(None),
                 role_sync,
                 shutting_down: AtomicBool::new(false),
+                input_sequence_role_locks: Mutex::new(HashMap::new()),
+                toggle_serial: Mutex::new(()),
+                waiter,
             }),
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn seed_running_status(&self, macro_id: &str, role_id: &str) -> CoreResult<()> {
+        let now = Utc::now().to_rfc3339();
+        self.shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
+            .statuses
+            .insert(
+                format!("test-invocation|{role_id}|{macro_id}"),
+                MacroRunStatus {
+                    role_id: role_id.to_owned(),
+                    macro_id: macro_id.to_owned(),
+                    state: "running".to_owned(),
+                    iteration: Some(1),
+                    last_click: None,
+                    started_at: now.clone(),
+                    updated_at: now,
+                    error: None,
+                },
+            );
+        Ok(())
+    }
+
     pub fn start(&self, request: MacroStartRequest) -> CoreResult<Vec<MacroRunStatus>> {
+        self.start_internal(request, false)
+            .map(|(statuses, _)| statuses)
+    }
+
+    pub fn toggle(&self, request: MacroStartRequest) -> CoreResult<Vec<MacroRunStatus>> {
+        let _toggle = self
+            .shared
+            .toggle_serial
+            .lock()
+            .map_err(|_| CoreError::Internal("macro toggle lock poisoned".to_owned()))?;
+        let macro_id = request.macro_id.clone();
+        let running = !self
+            .controls_matching(|control| {
+                control
+                    .macro_ids
+                    .lock()
+                    .is_ok_and(|ids| ids.contains(&macro_id))
+            })?
+            .is_empty();
+        if running {
+            self.stop_macro(&macro_id)?;
+            return Ok(Vec::new());
+        }
         self.start_internal(request, false)
             .map(|(statuses, _)| statuses)
     }
@@ -504,9 +585,7 @@ impl MacroRuntime {
             .ok_or_else(|| CoreError::InvalidInput("macro was not found".to_owned()))?;
         let invocation_macro_ids = collect_invocation_macro_ids(&request.macro_id, &macros);
         if !root.enabled {
-            return Err(CoreError::InvalidInput(
-                "enable the macro before running it".to_owned(),
-            ));
+            return Err(CoreError::InvalidInput(DISABLED_MACRO_MESSAGE.to_owned()));
         }
         if invocation_macro_ids.iter().any(|macro_id| {
             macros
@@ -527,9 +606,7 @@ impl MacroRuntime {
         let active_role_ids = request.active_role_ids.into_iter().collect::<HashSet<_>>();
         let roles = assigned_active_roles(root, &active_role_ids);
         if roles.is_empty() {
-            return Err(CoreError::InvalidInput(
-                "launch at least one assigned role before running a macro".to_owned(),
-            ));
+            return Err(CoreError::InvalidInput(UNAVAILABLE_ROLE_MESSAGE.to_owned()));
         }
         let invocation_number = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
         let invocation_id = format!("macro-invocation-{invocation_number}");
@@ -639,9 +716,10 @@ impl MacroRuntime {
             control: Arc::clone(&control),
             macros: Arc::new(macros),
             settings: request.settings,
+            waiter: Arc::clone(&self.shared.waiter),
         };
         let control_for_run = Arc::clone(&control);
-        thread::Builder::new()
+        let worker = thread::Builder::new()
             .name(format!("rion-macro-{invocation_number}"))
             .spawn(move || {
                 let result = wait_for_invocation_ready(&control_for_run).and_then(|_| {
@@ -662,6 +740,11 @@ impl MacroRuntime {
                 let _ = sync_active_macro_roles(&self.shared);
                 CoreError::Internal(error.to_string())
             })?;
+        *control
+            .worker
+            .lock()
+            .map_err(|_| CoreError::Internal("macro worker lock poisoned".to_owned()))? =
+            Some(worker);
         if !defer_execution {
             mark_invocation_ready(&control);
         }
@@ -721,7 +804,7 @@ impl MacroRuntime {
     }
 
     fn emit_statuses(&self) {
-        emit_statuses(&self.shared);
+        emit_statuses(&self.shared, true);
     }
 }
 
@@ -746,7 +829,7 @@ fn execute_macro(
         .get(macro_id)
         .ok_or_else(|| format!("called macro was not found: {macro_id}"))?;
     if !definition.enabled {
-        return Err(format!("called macro is disabled: {}", definition.name));
+        return Err(DISABLED_MACRO_MESSAGE.to_owned());
     }
     let assigned_roles = if root {
         roles.to_vec()
@@ -754,10 +837,7 @@ fn execute_macro(
         assigned_active_roles(definition, &context.active_role_ids)
     };
     if assigned_roles.is_empty() {
-        return Err(format!(
-            "called macro has no running assigned role: {}",
-            definition.name
-        ));
+        return Err(UNAVAILABLE_ROLE_MESSAGE.to_owned());
     }
     let roles = active_execution_roles(context, &assigned_roles);
     if roles.is_empty() {
@@ -939,6 +1019,10 @@ fn execute_step(
             action,
             ..
         } => {
+            let input_sequence = input_sequence_role_lock(shared, role_id)?;
+            let _input_sequence_guard = input_sequence
+                .lock()
+                .map_err(|_| "macro input sequence lock poisoned".to_owned())?;
             let modifiers = modifiers.as_deref().unwrap_or_default();
             let holds = roles
                 .iter()
@@ -1021,10 +1105,12 @@ fn execute_step(
                 }
             }
             if action.as_deref() != Some("hold_until_stop") {
-                if applies_timing {
-                    wait_cancelable_for_role(context, role_id, context.settings.key_hold_ms)?;
-                }
-                perform_actions(
+                let timing_result = if applies_timing {
+                    wait_cancelable_for_role(context, role_id, context.settings.key_hold_ms)
+                } else {
+                    Ok(())
+                };
+                let release_result = perform_actions(
                     shared,
                     context,
                     roles
@@ -1046,7 +1132,9 @@ fn execute_step(
                         })
                         .collect(),
                     true,
-                )?;
+                );
+                timing_result?;
+                release_result?;
             }
             if applies_timing {
                 wait_cancelable_for_role(context, role_id, context.settings.post_input_delay_ms)
@@ -1059,6 +1147,10 @@ fn execute_step(
             anchor,
             position,
         } => {
+            let input_sequence = input_sequence_role_lock(shared, role_id)?;
+            let _input_sequence_guard = input_sequence
+                .lock()
+                .map_err(|_| "macro input sequence lock poisoned".to_owned())?;
             let (unit, x, y) = match position {
                 crate::model::MacroClickDefinition::Percent {
                     x_percent,
@@ -1165,19 +1257,31 @@ fn run_synchronous_child_at_barrier(
         .state
         .lock()
         .map_err(|_| "macro barrier lock poisoned".to_owned())?;
-    loop {
+    let outcome = loop {
         if let Some(outcome) = &state.outcome {
-            return outcome.clone();
+            break outcome.clone();
         }
         if context.control.cancelled.load(Ordering::Acquire) {
-            return Err("macro run cancelled".to_owned());
+            break Err("macro run cancelled".to_owned());
         }
         let (next, _) = barrier
             .ready
             .wait_timeout(state, Duration::from_millis(25))
             .map_err(|_| "macro barrier lock poisoned".to_owned())?;
         state = next;
+    };
+    state.departed_role_ids.insert(role_id.to_owned());
+    let should_remove = state.departed_role_ids.len() >= invocation_role_ids.len();
+    drop(state);
+    if should_remove
+        && let Ok(mut barriers) = context.control.barriers.lock()
+        && barriers
+            .get(barrier_key)
+            .is_some_and(|candidate| Arc::ptr_eq(candidate, &barrier))
+    {
+        barriers.remove(barrier_key);
     }
+    outcome
 }
 
 fn run_synchronous_child(
@@ -1195,7 +1299,14 @@ fn run_synchronous_child(
         &context.control,
         false,
     )?
-    .ok_or_else(|| format!("called macro is already running: {macro_id}"))?;
+    .ok_or_else(|| {
+        let name = context
+            .macros
+            .get(macro_id)
+            .map(|definition| definition.name.as_str())
+            .unwrap_or(macro_id);
+        format!("Called macro \"{name}\" is already running.")
+    })?;
     loop {
         if context.control.cancelled.load(Ordering::Acquire) {
             cancel_control(&child);
@@ -1229,7 +1340,13 @@ fn run_synchronous_child(
         .unwrap_or_else(|| Err("child macro outcome is unavailable".to_owned()))
     {
         Ok(()) => Ok(()),
-        Err(_error) if child.cancelled.load(Ordering::Acquire) => {
+        Err(_error)
+            if child.cancelled.load(Ordering::Acquire)
+                && child
+                    .failed_role_id
+                    .lock()
+                    .is_ok_and(|failed_role_id| failed_role_id.is_none()) =>
+        {
             let message = "Cancelled because a called macro was stopped.".to_owned();
             if let Ok(mut cancellation_error) = context.control.cancellation_error.lock() {
                 *cancellation_error = Some(message.clone());
@@ -1300,14 +1417,11 @@ fn start_child_invocation(
         .get(macro_id)
         .ok_or_else(|| format!("called macro was not found: {macro_id}"))?;
     if !definition.enabled {
-        return Err(format!("called macro is disabled: {}", definition.name));
+        return Err(DISABLED_MACRO_MESSAGE.to_owned());
     }
     let roles = assigned_active_roles(definition, &parent_context.active_role_ids);
     if roles.is_empty() {
-        return Err(format!(
-            "called macro has no running assigned role: {}",
-            definition.name
-        ));
+        return Err(UNAVAILABLE_ROLE_MESSAGE.to_owned());
     }
     let invocation_number = shared.next_id.fetch_add(1, Ordering::Relaxed);
     let invocation_id = format!("macro-invocation-{invocation_number}");
@@ -1328,7 +1442,7 @@ fn start_child_invocation(
                 Ok(None)
             } else {
                 Err(format!(
-                    "called macro is already running: {}",
+                    "Called macro \"{}\" is already running.",
                     definition.name
                 ))
             };
@@ -1381,7 +1495,7 @@ fn start_child_invocation(
                 );
             }
         }
-        emit_statuses(shared);
+        emit_statuses(shared, true);
         let shared_for_run = Arc::clone(shared);
         let child_for_run = Arc::clone(&child);
         let mut child_ancestry = ancestry;
@@ -1391,8 +1505,9 @@ fn start_child_invocation(
             control: Arc::clone(&child),
             macros: Arc::clone(&parent_context.macros),
             settings: parent_context.settings.clone(),
+            waiter: Arc::clone(&parent_context.waiter),
         };
-        thread::Builder::new()
+        let worker = thread::Builder::new()
             .name(format!("rion-macro-child-{invocation_number}"))
             .spawn(move || {
                 let result = execute_macro(
@@ -1407,6 +1522,10 @@ fn start_child_invocation(
                 finish_invocation(&shared_for_run, &child_for_run, result);
             })
             .map_err(|error| error.to_string())?;
+        *child
+            .worker
+            .lock()
+            .map_err(|_| "macro worker lock poisoned".to_owned())? = Some(worker);
         Ok(())
     })();
     if let Err(error) = start_result {
@@ -1433,6 +1552,42 @@ fn remove_owned_child(owner: &Arc<InvocationControl>, child_id: &str) {
         children.ids.remove(child_id);
         owner.children.1.notify_all();
     }
+}
+
+fn input_sequence_role_lock(shared: &Arc<Shared>, role_id: &str) -> Result<Arc<Mutex<()>>, String> {
+    let mut locks = shared
+        .input_sequence_role_locks
+        .lock()
+        .map_err(|_| "macro input sequence registry lock poisoned".to_owned())?;
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(role_id).and_then(Weak::upgrade) {
+        return Ok(lock);
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(role_id.to_owned(), Arc::downgrade(&lock));
+    Ok(lock)
+}
+
+fn action_role_locks(
+    shared: &Arc<Shared>,
+    role_ids: &[String],
+) -> Result<Vec<Arc<Mutex<()>>>, String> {
+    let mut locks = shared
+        .action_role_locks
+        .lock()
+        .map_err(|_| "macro role action registry lock poisoned".to_owned())?;
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    Ok(role_ids
+        .iter()
+        .map(|role_id| {
+            if let Some(lock) = locks.get(role_id).and_then(Weak::upgrade) {
+                return lock;
+            }
+            let lock = Arc::new(Mutex::new(()));
+            locks.insert(role_id.clone(), Arc::downgrade(&lock));
+            lock
+        })
+        .collect())
 }
 
 fn perform_action(
@@ -1469,28 +1624,16 @@ fn perform_actions_with_control(
     if actions.is_empty() {
         return Ok(());
     }
+    let cancel_pending_wait = actions
+        .iter()
+        .all(|(_, action)| matches!(action, BrowserAction::Focus));
     let mut role_ids = actions
         .iter()
         .map(|(role_id, _)| (*role_id).to_owned())
         .collect::<Vec<_>>();
     role_ids.sort();
     role_ids.dedup();
-    let role_locks = {
-        let mut locks = shared
-            .action_role_locks
-            .lock()
-            .map_err(|_| "macro role action registry lock poisoned".to_owned())?;
-        role_ids
-            .iter()
-            .map(|role_id| {
-                Arc::clone(
-                    locks
-                        .entry(role_id.clone())
-                        .or_insert_with(|| Arc::new(Mutex::new(()))),
-                )
-            })
-            .collect::<Vec<_>>()
-    };
+    let role_locks = action_role_locks(shared, &role_ids)?;
     let _role_guards = role_locks
         .iter()
         .map(|lock| {
@@ -1520,7 +1663,8 @@ fn perform_actions_with_control(
                     role_id: role_id.to_owned(),
                     origin: "macro".to_owned(),
                     scheduled_at_ms: epoch_millis(),
-                    deadline_ms: epoch_millis().saturating_add(ACTION_TIMEOUT.as_millis() as u64),
+                    deadline_ms: epoch_millis()
+                        .saturating_add(shared.action_timeout.as_millis() as u64),
                     action,
                 }
             })
@@ -1531,6 +1675,11 @@ fn perform_actions_with_control(
     let mut outcome = Ok(());
     for (_, role_id, receiver) in &pending_actions {
         loop {
+            if cancel_pending_wait && !allow_cancelled && control.cancelled.load(Ordering::Acquire)
+            {
+                outcome = Err("macro run cancelled".to_owned());
+                break;
+            }
             match receiver.recv_timeout(Duration::from_millis(25)) {
                 Ok(result) if result.ok => break,
                 Ok(result) => {
@@ -1544,12 +1693,15 @@ fn perform_actions_with_control(
                     );
                     break;
                 }
-                Err(RecvTimeoutError::Timeout) if started.elapsed() < ACTION_TIMEOUT => {}
+                Err(RecvTimeoutError::Timeout) if started.elapsed() < shared.action_timeout => {}
                 Err(RecvTimeoutError::Timeout) => {
                     record_action_failure(
                         control,
                         role_id,
-                        "macro browser action timed out".to_owned(),
+                        format!(
+                            "Macro input timed out after {} ms.",
+                            ACTION_TIMEOUT.as_millis()
+                        ),
                         &mut outcome,
                     );
                     break;
@@ -1608,6 +1760,12 @@ fn release_held_keys(
         if !registered {
             continue;
         }
+        let Ok(input_sequence) = input_sequence_role_lock(shared, &held.role_id) else {
+            continue;
+        };
+        let Ok(_input_sequence_guard) = input_sequence.lock() else {
+            continue;
+        };
         let _ = perform_action(
             shared,
             context,
@@ -1696,23 +1854,30 @@ fn wait_cancelable_for_role(
     duration_ms: u32,
 ) -> Result<(), String> {
     check_role_cancelled(context, role_id)?;
+    (context.waiter)(&context.control, role_id, duration_ms)?;
+    check_role_cancelled(context, role_id)
+}
+
+fn default_wait(
+    control: &Arc<InvocationControl>,
+    _role_id: &str,
+    duration_ms: u32,
+) -> Result<(), String> {
     if duration_ms == 0 {
         thread::yield_now();
-        return check_role_cancelled(context, role_id);
+        return Ok(());
     }
-    let guard = context
-        .control
+    let guard = control
         .wake
         .0
         .lock()
         .map_err(|_| "macro wait lock poisoned".to_owned())?;
-    let _ = context
-        .control
+    let _ = control
         .wake
         .1
         .wait_timeout(guard, Duration::from_millis(u64::from(duration_ms)))
         .map_err(|_| "macro wait lock poisoned".to_owned())?;
-    check_role_cancelled(context, role_id)
+    Ok(())
 }
 
 fn wait_until_role_cancelled(context: &ExecutionContext, role_id: &str) -> Result<(), String> {
@@ -1820,7 +1985,7 @@ fn finish_invocation(
             .retain(|_, lease| lease.invocation_id != control.id);
     }
     let _ = sync_active_macro_roles(shared);
-    emit_statuses(shared);
+    emit_statuses(shared, true);
     if let Ok(mut outcome) = control.outcome.lock() {
         *outcome = Some(result);
     }
@@ -1849,6 +2014,7 @@ fn new_invocation_control(id: String, macro_id: String) -> Arc<InvocationControl
         stop_after_first_iteration: AtomicBool::new(false),
         terminating: AtomicBool::new(false),
         wake: (Mutex::new(()), Condvar::new()),
+        worker: Mutex::new(None),
     })
 }
 
@@ -1959,7 +2125,7 @@ fn add_running_statuses(
             );
         }
     }
-    emit_statuses(shared);
+    emit_statuses(shared, true);
 }
 
 fn update_iteration(
@@ -1982,7 +2148,7 @@ fn update_iteration(
             }
         }
     }
-    emit_statuses(shared);
+    emit_presentation_statuses(shared);
 }
 
 fn mark_click(
@@ -2007,7 +2173,7 @@ fn mark_click(
         });
         status.updated_at = Utc::now().to_rfc3339();
     }
-    emit_statuses(shared);
+    emit_presentation_statuses(shared);
 }
 
 fn remove_macro_statuses(shared: &Arc<Shared>, invocation_id: &str, macro_id: &str) {
@@ -2017,10 +2183,10 @@ fn remove_macro_statuses(shared: &Arc<Shared>, invocation_id: &str, macro_id: &s
             .statuses
             .retain(|key, status| !(key.starts_with(&prefix) && status.macro_id == macro_id));
     }
-    emit_statuses(shared);
+    emit_statuses(shared, true);
 }
 
-fn emit_statuses(shared: &Arc<Shared>) {
+fn emit_statuses(shared: &Arc<Shared>, reliable: bool) {
     let mut statuses = shared
         .inner
         .lock()
@@ -2031,7 +2197,26 @@ fn emit_statuses(shared: &Arc<Shared>) {
             .cmp(&right.started_at)
             .then_with(|| left.role_id.cmp(&right.role_id))
     });
-    (shared.events)(vec![CoreEvent::MacroStatuses { statuses }]);
+    (shared.events)(vec![CoreEvent::MacroStatuses { reliable, statuses }]);
+}
+
+fn emit_presentation_statuses(shared: &Arc<Shared>) {
+    let now = Instant::now();
+    let should_emit = shared
+        .last_presentation_status_emit
+        .lock()
+        .map(|mut last| {
+            if last.is_some_and(|last| now.duration_since(last) < PRESENTATION_STATUS_MIN_INTERVAL)
+            {
+                return false;
+            }
+            *last = Some(now);
+            true
+        })
+        .unwrap_or(false);
+    if should_emit {
+        emit_statuses(shared, false);
+    }
 }
 
 fn cancel_control(control: &InvocationControl) {
@@ -2086,10 +2271,28 @@ fn wait_finished(control: &InvocationControl) {
     let Ok(finished) = control.finished.0.lock() else {
         return;
     };
-    let _ = control
-        .finished
-        .1
-        .wait_timeout_while(finished, Duration::from_secs(12), |finished| !*finished);
+    let Ok((finished, _)) =
+        control
+            .finished
+            .1
+            .wait_timeout_while(finished, Duration::from_secs(12), |finished| !*finished)
+    else {
+        return;
+    };
+    if !*finished {
+        return;
+    }
+    drop(finished);
+    let worker = control
+        .worker
+        .lock()
+        .ok()
+        .and_then(|mut worker| worker.take());
+    if let Some(worker) = worker
+        && worker.thread().id() != thread::current().id()
+    {
+        let _ = worker.join();
+    }
 }
 
 fn assigned_active_roles(
@@ -2266,6 +2469,49 @@ mod tests {
     use super::*;
     use crate::model::{MacroRepeat, MacroStepDefinition};
 
+    struct ManualWait {
+        duration_ms: u32,
+        release: mpsc::SyncSender<()>,
+        role_id: String,
+    }
+
+    fn runtime_with_manual_wait(events: EventSink) -> (MacroRuntime, mpsc::Receiver<ManualWait>) {
+        let (waits, receiver) = mpsc::channel();
+        let waiter: Waiter = Arc::new(move |control, role_id, duration_ms| {
+            let (release, released) = mpsc::sync_channel(0);
+            waits
+                .send(ManualWait {
+                    duration_ms,
+                    release,
+                    role_id: role_id.to_owned(),
+                })
+                .map_err(|_| "manual wait receiver closed".to_owned())?;
+            loop {
+                match released.recv_timeout(Duration::from_millis(10)) {
+                    Ok(()) => return Ok(()),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if control.cancelled.load(Ordering::Acquire)
+                            || is_role_cancelled(control, role_id)
+                        {
+                            return Err("macro run cancelled".to_owned());
+                        }
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("manual wait release closed".to_owned());
+                    }
+                }
+            }
+        });
+        (
+            MacroRuntime::new_with_role_sync_and_waiter(events, Arc::new(|_| Ok(())), waiter),
+            receiver,
+        )
+    }
+
+    fn next_wait(receiver: &mpsc::Receiver<ManualWait>) -> ManualWait {
+        receiver.recv_timeout(Duration::from_secs(2)).unwrap()
+    }
+
     fn request(steps: Vec<MacroStepDefinition>) -> MacroStartRequest {
         MacroStartRequest {
             macros: vec![MacroDefinition {
@@ -2288,6 +2534,35 @@ mod tests {
             source_role_id: None,
             active_role_ids: vec!["r1".to_owned()],
         }
+    }
+
+    fn triggered_delay_request() -> MacroStartRequest {
+        let mut start = request(vec![
+            MacroStepDefinition::Macro {
+                id: "trigger-child".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("trigger".to_owned()),
+            },
+            MacroStepDefinition::Delay {
+                id: "parent-wait".to_owned(),
+                ms: 60_000,
+            },
+        ]);
+        start.macros.push(MacroDefinition {
+            id: "child".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Child".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Delay {
+                id: "child-wait".to_owned(),
+                ms: 60_000,
+            }],
+        });
+        start.active_role_ids.push("r2".to_owned());
+        start
     }
 
     #[test]
@@ -2365,21 +2640,29 @@ mod tests {
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
         let _ = start_and_ack_focus(&runtime, &receiver, start);
         let percent = next_browser_actions(&receiver);
-        assert!(matches!(
-            percent[0].action,
-            BrowserAction::Click {
-                ref anchor,
-                ref unit,
-                x,
-                y,
-                ..
-            } if anchor.as_deref() == Some("bottom-right")
-                && unit == "percent"
-                && x == -10.0
-                && y == -20.0
-        ));
+        crate::v1_case!("macro-c39036338d41", {
+            assert!(matches!(
+                percent[0].action,
+                BrowserAction::Click {
+                    ref anchor,
+                    ref unit,
+                    x,
+                    y,
+                    ..
+                } if anchor.as_deref() == Some("bottom-right")
+                    && unit == "percent"
+                    && x == -10.0
+                    && y == -20.0
+            ));
+        });
         runtime.dispatch_results(success_results(percent)).unwrap();
-        wait_for_last_click(&runtime, "r1", 1, "percent-click");
+        let first_click = wait_for_last_click(&runtime, "r1", 1, "percent-click");
+        crate::v1_case!("external-chrome-cdn-09beabfa3d19", {
+            assert_eq!(
+                (first_click.sequence, first_click.step_id.as_str()),
+                (1, "percent-click")
+            );
+        });
 
         let pixels = next_browser_actions(&receiver);
         assert!(matches!(
@@ -2396,14 +2679,24 @@ mod tests {
                 && y == -8.0
         ));
         runtime.dispatch_results(success_results(pixels)).unwrap();
-        wait_for_last_click(&runtime, "r1", 2, "pixel-click");
+        let second_click = wait_for_last_click(&runtime, "r1", 2, "pixel-click");
+        crate::v1_case!("macro-baf3548b5c3b", {
+            assert_eq!(
+                (first_click.sequence, first_click.step_id.as_str()),
+                (1, "percent-click")
+            );
+            assert_eq!(
+                (second_click.sequence, second_click.step_id.as_str()),
+                (2, "pixel-click")
+            );
+        });
         runtime.stop_macro("m1").unwrap();
     }
 
     #[test]
     fn one_second_digit_one_loop_completes_three_iterations_without_failing() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
-        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
             let _ = events.send(batch);
         }));
         let mut start = request(vec![MacroStepDefinition::Key {
@@ -2420,47 +2713,350 @@ mod tests {
             shift: false,
             meta: false,
         });
+        start.macros[0].role_ids.push("r2".to_owned());
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
-        let (_, focus) = start_and_ack_focus(&runtime, &receiver, start);
+        let (started, focus) = start_and_ack_focus(&runtime, &receiver, start);
+        crate::v1_case!("macro-23762f0194b5", {
+            assert_eq!(
+                started
+                    .iter()
+                    .map(|status| status.role_id.as_str())
+                    .collect::<Vec<_>>(),
+                ["r1"]
+            );
+        });
         let mut phases = focus.iter().map(|_| "focus".to_owned()).collect::<Vec<_>>();
-        let mut iteration_started = Vec::new();
-        let mut completed_iterations = 0;
-        while completed_iterations < 3 {
-            for event in receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
-                if let CoreEvent::BrowserActions { actions } = event {
-                    for action in &actions {
-                        match &action.action {
-                            BrowserAction::Focus => phases.push("focus".to_owned()),
-                            BrowserAction::Key { code, phase, .. } => {
-                                assert_eq!(code.as_deref(), Some("Digit1"));
-                                if phase == "hold" {
-                                    iteration_started.push(std::time::Instant::now());
-                                } else if phase == "release" {
-                                    completed_iterations += 1;
-                                }
-                                phases.push(phase.clone());
-                            }
-                            _ => phases.push("other".to_owned()),
-                        }
-                    }
-                    runtime.dispatch_results(success_results(actions)).unwrap();
+        let startup = next_wait(&waits);
+        assert_eq!(startup.duration_ms, 0);
+        startup.release.send(()).unwrap();
+
+        let mut loop_waits = Vec::new();
+        let mut pending_loop_wait = None;
+        for _ in 0..3 {
+            for expected_phase in ["hold", "release"] {
+                let actions = next_browser_actions(&receiver);
+                assert!(actions.iter().all(|action| matches!(
+                    action.action,
+                    BrowserAction::Key {
+                        ref code,
+                        ref phase,
+                        ..
+                    } if code.as_deref() == Some("Digit1") && phase == expected_phase
+                )));
+                phases.push(expected_phase.to_owned());
+                runtime.dispatch_results(success_results(actions)).unwrap();
+                if expected_phase == "hold" {
+                    let key_hold = next_wait(&waits);
+                    assert_eq!(key_hold.duration_ms, 1);
+                    key_hold.release.send(()).unwrap();
+                } else {
+                    let post_input = next_wait(&waits);
+                    assert_eq!(post_input.duration_ms, 0);
+                    post_input.release.send(()).unwrap();
                 }
+            }
+            let loop_wait = next_wait(&waits);
+            loop_waits.push(loop_wait.duration_ms);
+            if loop_waits.len() < 3 {
+                loop_wait.release.send(()).unwrap();
+            } else {
+                pending_loop_wait = Some(loop_wait);
             }
         }
 
         runtime.stop_macro("m1").unwrap();
-        assert_eq!(
-            phases,
-            [
-                "focus", "hold", "release", "hold", "release", "hold", "release"
-            ]
-        );
-        for interval in iteration_started.windows(2) {
-            let elapsed = interval[1].duration_since(interval[0]);
-            assert!(elapsed >= Duration::from_millis(850), "{elapsed:?}");
-            assert!(elapsed < Duration::from_millis(1_500), "{elapsed:?}");
+        drop(pending_loop_wait);
+        crate::v1_case!("macro-87360f7f466d", {
+            assert_eq!(loop_waits, [1_000, 1_000, 1_000]);
+            assert_eq!(
+                phases,
+                [
+                    "focus", "hold", "release", "hold", "release", "hold", "release"
+                ]
+            );
+            assert!(runtime.statuses().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn v1_applies_startup_timing_once_and_captures_settings_per_start() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut first = request(vec![MacroStepDefinition::Key {
+            id: "key".to_owned(),
+            code: "KeyA".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }]);
+        first.macros[0].trigger = Some(crate::model::MacroTrigger {
+            code: "KeyQ".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        first.settings = MacroRuntimeSettings {
+            startup_delay_ms: 100,
+            key_hold_ms: 30,
+            post_input_delay_ms: 30,
+            default_loop_delay_ms: 0,
+        };
+        let first_waits = drive_timed_tap(&runtime, &receiver, &waits, first);
+
+        let mut second = request(vec![MacroStepDefinition::Key {
+            id: "key".to_owned(),
+            code: "KeyA".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }]);
+        second.macros[0].trigger = Some(crate::model::MacroTrigger {
+            code: "KeyQ".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        second.settings = MacroRuntimeSettings {
+            startup_delay_ms: 0,
+            key_hold_ms: 80,
+            post_input_delay_ms: 30,
+            default_loop_delay_ms: 0,
+        };
+        let second_waits = drive_timed_tap(&runtime, &receiver, &waits, second);
+
+        crate::v1_case!("macro-89c4b8841d73", {
+            assert_eq!(first_waits, [100, 30, 30]);
+        });
+        crate::v1_case!("macro-02f53b92e12c", {
+            assert_eq!(second_waits, [0, 80, 30]);
+            assert_eq!(first_waits[1], 30);
+        });
+    }
+
+    #[test]
+    fn v1_omits_implicit_timing_but_keeps_explicit_delays_without_a_shortcut() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![
+            MacroStepDefinition::Key {
+                id: "before".to_owned(),
+                code: "KeyA".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            },
+            MacroStepDefinition::Delay {
+                id: "delay".to_owned(),
+                ms: 100,
+            },
+            MacroStepDefinition::Key {
+                id: "after".to_owned(),
+                code: "KeyB".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            },
+        ]);
+        start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 50 };
+        start.settings = MacroRuntimeSettings {
+            startup_delay_ms: 500,
+            key_hold_ms: 400,
+            post_input_delay_ms: 300,
+            default_loop_delay_ms: 200,
+        };
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+
+        for expected in [("KeyA", "hold"), ("KeyA", "release")] {
+            let action = next_browser_actions(&receiver);
+            assert!(matches!(
+                action[0].action,
+                BrowserAction::Key {
+                    ref code,
+                    ref phase,
+                    ..
+                } if code.as_deref() == Some(expected.0) && phase == expected.1
+            ));
+            runtime.dispatch_results(success_results(action)).unwrap();
         }
-        assert!(runtime.statuses().unwrap().is_empty());
+        let explicit = next_wait(&waits);
+        assert_eq!(explicit.role_id, "r1");
+        assert_eq!(explicit.duration_ms, 100);
+        explicit.release.send(()).unwrap();
+        for expected in [("KeyB", "hold"), ("KeyB", "release")] {
+            let action = next_browser_actions(&receiver);
+            assert!(matches!(
+                action[0].action,
+                BrowserAction::Key {
+                    ref code,
+                    ref phase,
+                    ..
+                } if code.as_deref() == Some(expected.0) && phase == expected.1
+            ));
+            runtime.dispatch_results(success_results(action)).unwrap();
+        }
+        let loop_wait = next_wait(&waits);
+        crate::v1_case!("macro-3446dd16a6af", {
+            assert_eq!(loop_wait.duration_ms, 50);
+            assert!(waits.try_recv().is_err());
+        });
+        crate::v1_case!("macro-3c7a66fa8062", {
+            assert_eq!((explicit.duration_ms, loop_wait.duration_ms), (100, 50));
+        });
+        runtime.stop_macro("m1").unwrap();
+    }
+
+    #[test]
+    fn v1_called_macro_timing_depends_on_each_definition_shortcut() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![
+            MacroStepDefinition::Key {
+                id: "parent-key".to_owned(),
+                code: "KeyA".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            },
+            MacroStepDefinition::Macro {
+                id: "call-child".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("wait".to_owned()),
+            },
+        ]);
+        start.macros[0].trigger = Some(crate::model::MacroTrigger {
+            code: "KeyQ".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        start.settings = MacroRuntimeSettings {
+            startup_delay_ms: 100,
+            key_hold_ms: 30,
+            post_input_delay_ms: 30,
+            default_loop_delay_ms: 0,
+        };
+        start.macros.push(MacroDefinition {
+            id: "child".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Child".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![
+                MacroStepDefinition::Key {
+                    id: "child-key".to_owned(),
+                    code: "KeyB".to_owned(),
+                    modifiers: None,
+                    action: Some("tap".to_owned()),
+                    label: None,
+                },
+                MacroStepDefinition::Macro {
+                    id: "call-grandchild".to_owned(),
+                    macro_id: "grandchild".to_owned(),
+                    call_mode: Some("wait".to_owned()),
+                },
+            ],
+        });
+        start.macros.push(MacroDefinition {
+            id: "grandchild".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Grandchild".to_owned(),
+            role_ids: vec!["r3".to_owned()],
+            trigger: Some(crate::model::MacroTrigger {
+                code: "KeyG".to_owned(),
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            }),
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Key {
+                id: "grandchild-key".to_owned(),
+                code: "KeyC".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            }],
+        });
+        start
+            .active_role_ids
+            .extend(["r2".to_owned(), "r3".to_owned()]);
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+
+        let mut timed_waits = Vec::new();
+        let parent_startup = next_wait(&waits);
+        timed_waits.push(parent_startup.duration_ms);
+        parent_startup.release.send(()).unwrap();
+        for expected_phase in ["hold", "release"] {
+            let action = next_browser_actions(&receiver);
+            assert!(matches!(
+                action[0].action,
+                BrowserAction::Key {
+                    ref code,
+                    ref phase,
+                    ..
+                } if code.as_deref() == Some("KeyA") && phase == expected_phase
+            ));
+            runtime.dispatch_results(success_results(action)).unwrap();
+            let wait = next_wait(&waits);
+            timed_waits.push(wait.duration_ms);
+            wait.release.send(()).unwrap();
+        }
+
+        let child_focus = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(child_focus))
+            .unwrap();
+        for expected_phase in ["hold", "release"] {
+            let action = next_browser_actions(&receiver);
+            assert!(matches!(
+                action[0].action,
+                BrowserAction::Key {
+                    ref code,
+                    ref phase,
+                    ..
+                } if code.as_deref() == Some("KeyB") && phase == expected_phase
+            ));
+            runtime.dispatch_results(success_results(action)).unwrap();
+            assert!(waits.try_recv().is_err(), "untimed child introduced a wait");
+        }
+
+        let grandchild_focus = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(grandchild_focus))
+            .unwrap();
+        let grandchild_startup = next_wait(&waits);
+        timed_waits.push(grandchild_startup.duration_ms);
+        grandchild_startup.release.send(()).unwrap();
+        for expected_phase in ["hold", "release"] {
+            let action = next_browser_actions(&receiver);
+            assert!(matches!(
+                action[0].action,
+                BrowserAction::Key {
+                    ref code,
+                    ref phase,
+                    ..
+                } if code.as_deref() == Some("KeyC") && phase == expected_phase
+            ));
+            runtime.dispatch_results(success_results(action)).unwrap();
+            let wait = next_wait(&waits);
+            timed_waits.push(wait.duration_ms);
+            wait.release.send(()).unwrap();
+        }
+        crate::v1_case!("macro-b0cc1d61fb76", {
+            assert_eq!(timed_waits, [100, 30, 30, 100, 30, 30]);
+        });
     }
 
     #[test]
@@ -2505,12 +3101,157 @@ mod tests {
             steps: Vec::new(),
         });
         let error = runtime.start(start).unwrap_err();
-        assert!(matches!(
-            error,
-            CoreError::InvalidInput(message) if message == UNASSIGNED_WORKFLOW_MESSAGE
-        ));
-        assert!(synced.lock().unwrap().is_empty());
-        assert!(receiver.try_recv().is_err());
+        crate::v1_case!("macro-9e169962dea5", {
+            assert!(matches!(
+                error,
+                CoreError::InvalidInput(message) if message == UNASSIGNED_WORKFLOW_MESSAGE
+            ));
+            assert!(synced.lock().unwrap().is_empty());
+            assert!(receiver.try_recv().is_err());
+        });
+    }
+
+    #[test]
+    fn v1_rejects_disabled_unassigned_and_unavailable_starts() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+
+        let mut unavailable = request(Vec::new());
+        unavailable.active_role_ids.clear();
+        crate::v1_case!("macro-2e985330d84a", {
+            let error = runtime.start(unavailable).unwrap_err();
+            assert!(matches!(
+                error,
+                CoreError::InvalidInput(message)
+                    if message == UNAVAILABLE_ROLE_MESSAGE
+            ));
+            assert!(runtime.statuses().unwrap().is_empty());
+        });
+
+        let mut unassigned = request(Vec::new());
+        unassigned.macros[0].role_ids.clear();
+        crate::v1_case!("macro-f7e4fa9e23ea", {
+            let error = runtime.start(unassigned).unwrap_err();
+            assert!(matches!(
+                error,
+                CoreError::InvalidInput(message) if message == UNASSIGNED_WORKFLOW_MESSAGE
+            ));
+            assert!(receiver.try_recv().is_err());
+        });
+
+        let mut disabled = request(Vec::new());
+        disabled.macros[0].enabled = false;
+        crate::v1_case!("macro-0b5213817444", {
+            let error = runtime.start(disabled).unwrap_err();
+            assert!(matches!(
+                error,
+                CoreError::InvalidInput(message)
+                    if message == DISABLED_MACRO_MESSAGE
+            ));
+            assert!(runtime.statuses().unwrap().is_empty());
+            assert!(receiver.try_recv().is_err());
+        });
+    }
+
+    #[test]
+    fn v1_waits_for_all_focus_results_before_running_or_dispatching_input() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![MacroStepDefinition::Key {
+            id: "key".to_owned(),
+            code: "KeyA".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }]);
+        start.macros[0].role_ids.push("r2".to_owned());
+        start.active_role_ids.push("r2".to_owned());
+        let starting_runtime = runtime.clone();
+        let starting = thread::spawn(move || starting_runtime.start(start));
+        let focus = next_browser_action_count(&receiver, 2);
+        let r1 = focus
+            .iter()
+            .find(|action| action.role_id == "r1")
+            .cloned()
+            .unwrap();
+        runtime.dispatch_results(success_results(vec![r1])).unwrap();
+
+        crate::v1_case!("macro-78c7a107997d", {
+            thread::sleep(Duration::from_millis(25));
+            assert!(!starting.is_finished());
+            assert!(runtime.statuses().unwrap().is_empty());
+            assert!(receiver.try_recv().is_err());
+        });
+
+        runtime
+            .dispatch_results(success_results(
+                focus
+                    .into_iter()
+                    .filter(|action| action.role_id == "r2")
+                    .collect(),
+            ))
+            .unwrap();
+        assert_eq!(starting.join().unwrap().unwrap().len(), 2);
+        let holds = next_browser_action_count(&receiver, 2);
+        runtime.dispatch_results(success_results(holds)).unwrap();
+        let releases = next_browser_action_count(&receiver, 2);
+        runtime.dispatch_results(success_results(releases)).unwrap();
+    }
+
+    #[test]
+    fn v1_rejects_duplicate_runs_and_stops_only_the_requested_macro() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let steps = vec![MacroStepDefinition::Delay {
+            id: "wait".to_owned(),
+            ms: 60_000,
+        }];
+        let mut first = request(steps.clone());
+        first.macros.push(MacroDefinition {
+            id: "m2".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Second".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: steps.clone(),
+        });
+        first.active_role_ids.push("r2".to_owned());
+        let (_, _) = start_and_ack_focus(&runtime, &receiver, first.clone());
+
+        crate::v1_case!("macro-677fecf721f6", {
+            let error = runtime.start(first.clone()).unwrap_err();
+            assert!(matches!(
+                error,
+                CoreError::InvalidInput(message)
+                    if message == "macro is already running for this role"
+            ));
+        });
+
+        let mut second = first;
+        second.macro_id = "m2".to_owned();
+        let (_, _) = start_and_ack_focus(&runtime, &receiver, second);
+        crate::v1_case!("macro-96f1664fe14f", {
+            runtime.stop_macro("m1").unwrap();
+            assert_eq!(
+                runtime
+                    .statuses()
+                    .unwrap()
+                    .iter()
+                    .map(|status| (status.macro_id.as_str(), status.role_id.as_str()))
+                    .collect::<Vec<_>>(),
+                [("m2", "r2")]
+            );
+        });
+        runtime.stop_macro("m2").unwrap();
+        assert!(runtime.statuses().unwrap().is_empty());
     }
 
     #[test]
@@ -2524,7 +3265,9 @@ mod tests {
             .unwrap();
 
         let error = runtime.start(request(Vec::new())).unwrap_err();
-        assert_eq!(error.code(), "MACRO_MUTATION_BUSY");
+        crate::v1_case!("macro-34e3112bbe5b", {
+            assert_eq!(error.code(), "MACRO_MUTATION_BUSY");
+        });
 
         runtime.release_mutation(&lease).unwrap();
         let (statuses, _) = start_and_ack_focus(&runtime, &receiver, request(Vec::new()));
@@ -2538,13 +3281,24 @@ mod tests {
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
         }));
-        let mut request = request(vec![MacroStepDefinition::Key {
-            id: "s1".to_owned(),
-            code: "KeyA".to_owned(),
-            modifiers: None,
-            action: Some("tap".to_owned()),
-            label: None,
-        }]);
+        let mut request = request(vec![
+            MacroStepDefinition::Key {
+                id: "s1".to_owned(),
+                code: "KeyA".to_owned(),
+                modifiers: Some(vec!["primary".to_owned(), "shift".to_owned()]),
+                action: Some("tap".to_owned()),
+                label: None,
+            },
+            MacroStepDefinition::Click {
+                id: "s2".to_owned(),
+                anchor: Some("center".to_owned()),
+                position: crate::model::MacroClickDefinition::Percent {
+                    unit: Some("percent".to_owned()),
+                    x_percent: 50.0,
+                    y_percent: 50.0,
+                },
+            },
+        ]);
         request.macros[0].role_ids.push("r2".to_owned());
         request.active_role_ids.push("r2".to_owned());
         let (_, focus) = start_and_ack_focus(&runtime, &receiver, request);
@@ -2552,21 +3306,26 @@ mod tests {
             .iter()
             .map(|action| (action.role_id.clone(), "focus".to_owned()))
             .collect::<Vec<_>>();
-        while actions.len() < 6 {
+        let mut key_operation_modifiers = Vec::new();
+        while actions.len() < 8 {
             for event in receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
                 if let CoreEvent::BrowserActions {
                     actions: action_requests,
                 } = event
                 {
                     actions.extend(action_requests.iter().map(|action| {
-                        (
-                            action.role_id.clone(),
-                            match &action.action {
-                                BrowserAction::Focus => "focus".to_owned(),
-                                BrowserAction::Key { phase, .. } => phase.clone(),
-                                _ => "other".to_owned(),
-                            },
-                        )
+                        let phase = match &action.action {
+                            BrowserAction::Focus => "focus".to_owned(),
+                            BrowserAction::Key {
+                                phase, modifiers, ..
+                            } => {
+                                key_operation_modifiers.push(modifiers.clone());
+                                phase.clone()
+                            }
+                            BrowserAction::Click { .. } => "click".to_owned(),
+                            _ => "other".to_owned(),
+                        };
+                        (action.role_id.clone(), phase)
                     }));
                     runtime
                         .dispatch_results(
@@ -2585,16 +3344,29 @@ mod tests {
                 }
             }
         }
-        for role_id in ["r1", "r2"] {
+        crate::v1_case!("macro-23c30b4fba31", {
+            for role_id in ["r1", "r2"] {
+                assert_eq!(
+                    actions
+                        .iter()
+                        .filter(|(role, _)| role == role_id)
+                        .map(|(_, phase)| phase.as_str())
+                        .collect::<Vec<_>>(),
+                    ["focus", "hold", "release", "click"]
+                );
+            }
+        });
+        crate::v1_case!("macro-7ef873c48bd8", {
             assert_eq!(
-                actions
-                    .iter()
-                    .filter(|(role, _)| role == role_id)
-                    .map(|(_, phase)| phase.as_str())
-                    .collect::<Vec<_>>(),
-                ["focus", "hold", "release"]
+                key_operation_modifiers,
+                [
+                    vec!["primary".to_owned(), "shift".to_owned()],
+                    vec!["primary".to_owned(), "shift".to_owned()],
+                    vec!["primary".to_owned(), "shift".to_owned()],
+                    vec!["primary".to_owned(), "shift".to_owned()],
+                ]
             );
-        }
+        });
     }
 
     #[test]
@@ -2678,7 +3450,9 @@ mod tests {
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         thread::sleep(Duration::from_millis(50));
-        assert!(!stop.is_finished());
+        crate::v1_case!("macro-8a8d01d649bb", {
+            assert!(!stop.is_finished());
+        });
 
         runtime.dispatch_results(success_results(holds)).unwrap();
         let releases = next_browser_action_count(&receiver, 2);
@@ -2687,6 +3461,62 @@ mod tests {
         runtime.dispatch_results(success_results(releases)).unwrap();
         stop.join().unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
+    }
+
+    #[test]
+    fn v1_fails_an_unacknowledged_input_with_the_original_timeout_error() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new_with_role_sync_waiter_and_timeout(
+            Arc::new(move |batch| {
+                let _ = events.send(batch);
+            }),
+            Arc::new(|_| Ok(())),
+            Arc::new(default_wait),
+            Duration::from_millis(1),
+        );
+        let _ = start_and_ack_focus(
+            &runtime,
+            &receiver,
+            request(vec![MacroStepDefinition::Key {
+                id: "hung".to_owned(),
+                code: "KeyA".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            }]),
+        );
+        let hung_hold = next_browser_actions(&receiver);
+        assert!(matches!(
+            hung_hold[0].action,
+            BrowserAction::Key { ref phase, .. } if phase == "hold"
+        ));
+
+        let compensating_release = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(compensating_release))
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let failed = loop {
+            if let Some(status) = runtime
+                .statuses()
+                .unwrap()
+                .into_iter()
+                .find(|status| status.state == "failed")
+            {
+                break status;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        };
+        crate::v1_case!("macro-2f12cec90976", {
+            assert_eq!(
+                failed.error.as_deref(),
+                Some("Macro input timed out after 10000 ms.")
+            );
+            runtime
+                .dispatch_results(success_results(hung_hold))
+                .unwrap();
+        });
     }
 
     #[test]
@@ -2712,19 +3542,21 @@ mod tests {
         let second_runtime = runtime.clone();
         let second_start = thread::spawn(move || second_runtime.start(second_request).unwrap());
 
-        let wait_started = std::time::Instant::now();
-        while wait_started.elapsed() < Duration::from_millis(100) {
-            let remaining = Duration::from_millis(100).saturating_sub(wait_started.elapsed());
-            let Ok(batch) = receiver.recv_timeout(remaining) else {
-                break;
-            };
-            assert!(
-                batch
-                    .iter()
-                    .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
-                "a second same-role action escaped before the first result was acknowledged"
-            );
-        }
+        crate::v1_case!("macro-900c71b89cc0", {
+            let wait_started = std::time::Instant::now();
+            while wait_started.elapsed() < Duration::from_millis(100) {
+                let remaining = Duration::from_millis(100).saturating_sub(wait_started.elapsed());
+                let Ok(batch) = receiver.recv_timeout(remaining) else {
+                    break;
+                };
+                assert!(
+                    batch
+                        .iter()
+                        .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
+                    "a second same-role action escaped before the first result was acknowledged"
+                );
+            }
+        });
         runtime.dispatch_results(success_results(first)).unwrap();
         first_start.join().unwrap();
         let second = next_browser_actions(&receiver);
@@ -2733,6 +3565,265 @@ mod tests {
         runtime.dispatch_results(success_results(second)).unwrap();
         second_start.join().unwrap();
         runtime.shutdown();
+    }
+
+    #[test]
+    fn v1_serializes_complete_key_and_click_sequences_across_same_role_invocations() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut first = request(vec![MacroStepDefinition::Key {
+            id: "first-key".to_owned(),
+            code: "F2".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }]);
+        first.macros[0].trigger = Some(crate::model::MacroTrigger {
+            code: "KeyQ".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        first.settings = MacroRuntimeSettings {
+            startup_delay_ms: 0,
+            key_hold_ms: 0,
+            post_input_delay_ms: 100,
+            default_loop_delay_ms: 0,
+        };
+        let _ = start_and_ack_focus(&runtime, &receiver, first);
+        let startup = next_wait(&waits);
+        assert_eq!(startup.duration_ms, 0);
+        startup.release.send(()).unwrap();
+        let key_hold = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(key_hold)).unwrap();
+        let hold_wait = next_wait(&waits);
+        assert_eq!(hold_wait.duration_ms, 0);
+        hold_wait.release.send(()).unwrap();
+        let key_release = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(key_release))
+            .unwrap();
+        let post_input = next_wait(&waits);
+        assert_eq!(post_input.duration_ms, 100);
+
+        let mut second = request(vec![MacroStepDefinition::Click {
+            id: "second-click".to_owned(),
+            anchor: None,
+            position: crate::model::MacroClickDefinition::Percent {
+                unit: Some("percent".to_owned()),
+                x_percent: 20.0,
+                y_percent: 30.0,
+            },
+        }]);
+        second.macro_id = "m2".to_owned();
+        second.macros[0].id = "m2".to_owned();
+        let second_runtime = runtime.clone();
+        let second_start = thread::spawn(move || second_runtime.start(second).unwrap());
+        let second_focus = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(second_focus))
+            .unwrap();
+        second_start.join().unwrap();
+        crate::v1_case!("effect-lifecycle-9fd32f9d9a46", {
+            assert_no_browser_actions(&receiver, Duration::from_millis(25));
+        });
+        crate::v1_case!("effect-lifecycle-3ea8a4d777a6", {
+            assert_no_browser_actions(&receiver, Duration::from_millis(25));
+        });
+
+        post_input.release.send(()).unwrap();
+        let click = next_browser_actions(&receiver);
+        assert!(matches!(click[0].action, BrowserAction::Click { .. }));
+        runtime.dispatch_results(success_results(click)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !runtime.statuses().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn v1_serializes_concurrent_key_sequences_for_the_same_role() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut first = request(vec![MacroStepDefinition::Key {
+            id: "first-key".to_owned(),
+            code: "F2".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }]);
+        first.macros[0].trigger = Some(crate::model::MacroTrigger {
+            code: "KeyQ".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        first.settings = MacroRuntimeSettings {
+            startup_delay_ms: 0,
+            key_hold_ms: 100,
+            post_input_delay_ms: 0,
+            default_loop_delay_ms: 0,
+        };
+        let _ = start_and_ack_focus(&runtime, &receiver, first);
+        let startup = next_wait(&waits);
+        startup.release.send(()).unwrap();
+        let first_hold = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(first_hold))
+            .unwrap();
+        let key_hold = next_wait(&waits);
+        assert_eq!(key_hold.duration_ms, 100);
+
+        let mut second = request(vec![MacroStepDefinition::Key {
+            id: "second-key".to_owned(),
+            code: "F3".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }]);
+        second.macro_id = "m2".to_owned();
+        second.macros[0].id = "m2".to_owned();
+        let second_runtime = runtime.clone();
+        let second_start = thread::spawn(move || second_runtime.start(second).unwrap());
+        let second_focus = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(second_focus))
+            .unwrap();
+        second_start.join().unwrap();
+        crate::v1_case!("effect-lifecycle-58de3b545b87", {
+            assert_no_browser_actions(&receiver, Duration::from_millis(25));
+        });
+
+        key_hold.release.send(()).unwrap();
+        let first_release = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(first_release))
+            .unwrap();
+        let first_post = next_wait(&waits);
+        first_post.release.send(()).unwrap();
+        let second_hold = next_browser_actions(&receiver);
+        assert!(matches!(
+            second_hold[0].action,
+            BrowserAction::Key {
+                ref code,
+                ref phase,
+                ..
+            } if code.as_deref() == Some("F3") && phase == "hold"
+        ));
+        runtime
+            .dispatch_results(success_results(second_hold))
+            .unwrap();
+        let second_release = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(second_release))
+            .unwrap();
+    }
+
+    #[test]
+    fn v1_keeps_held_key_cleanup_inside_the_same_role_input_sequence() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let _ = start_and_ack_focus(
+            &runtime,
+            &receiver,
+            request(vec![MacroStepDefinition::Key {
+                id: "held".to_owned(),
+                code: "KeyW".to_owned(),
+                modifiers: None,
+                action: Some("hold_until_stop".to_owned()),
+                label: None,
+            }]),
+        );
+        let held = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(held)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while runtime.statuses().unwrap()[0].iteration.unwrap_or_default() == 0 {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+
+        let mut second = request(vec![MacroStepDefinition::Key {
+            id: "queued-key".to_owned(),
+            code: "F2".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }]);
+        second.macro_id = "m2".to_owned();
+        second.macros[0].id = "m2".to_owned();
+        second.macros[0].trigger = Some(crate::model::MacroTrigger {
+            code: "KeyQ".to_owned(),
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+        });
+        second.settings = MacroRuntimeSettings {
+            startup_delay_ms: 0,
+            key_hold_ms: 100,
+            post_input_delay_ms: 0,
+            default_loop_delay_ms: 0,
+        };
+        let _ = start_and_ack_focus(&runtime, &receiver, second);
+        let startup = next_wait(&waits);
+        startup.release.send(()).unwrap();
+        let queued_hold = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(queued_hold))
+            .unwrap();
+        let key_hold = next_wait(&waits);
+
+        let stopping_runtime = runtime.clone();
+        let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
+        crate::v1_case!("effect-lifecycle-71c3f4375db4", {
+            assert_no_browser_actions(&receiver, Duration::from_millis(25));
+            assert!(!stop.is_finished());
+        });
+        crate::v1_case!("external-chrome-cdn-046554940f1f", {
+            assert_no_browser_actions(&receiver, Duration::from_millis(25));
+            assert!(!stop.is_finished());
+        });
+        crate::v1_case!("external-chrome-cdn-5f44c60fd7a4", {
+            assert_no_browser_actions(&receiver, Duration::from_millis(25));
+            assert!(!stop.is_finished());
+        });
+        key_hold.release.send(()).unwrap();
+        let queued_release = next_browser_actions(&receiver);
+        assert!(matches!(
+            queued_release[0].action,
+            BrowserAction::Key {
+                ref code,
+                ref phase,
+                ..
+            } if code.as_deref() == Some("F2") && phase == "release"
+        ));
+        runtime
+            .dispatch_results(success_results(queued_release))
+            .unwrap();
+        let post_input = next_wait(&waits);
+        post_input.release.send(()).unwrap();
+        let held_release = next_browser_actions(&receiver);
+        assert!(matches!(
+            held_release[0].action,
+            BrowserAction::Key {
+                ref code,
+                ref phase,
+                ..
+            } if code.as_deref() == Some("KeyW") && phase == "release"
+        ));
+        runtime
+            .dispatch_results(success_results(held_release))
+            .unwrap();
+        stop.join().unwrap();
     }
 
     #[test]
@@ -2799,7 +3890,9 @@ mod tests {
             .map(|action| action.role_id.as_str())
             .collect::<Vec<_>>();
         released_roles.sort_unstable();
-        assert_eq!(released_roles, ["r1", "r2"]);
+        crate::v1_case!("macro-70847388785a", {
+            assert_eq!(released_roles, ["r1", "r2"]);
+        });
         runtime.dispatch_results(success_results(releases)).unwrap();
         stop.join().unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
@@ -2813,9 +3906,11 @@ mod tests {
         }));
         let mut request = request(vec![MacroStepDefinition::Delay {
             id: "wait".to_owned(),
-            ms: 0,
+            ms: 60_000,
         }]);
-        request.macros[0].role_ids.push("r2".to_owned());
+        request.macros[0]
+            .role_ids
+            .extend(["r2".to_owned(), "r3".to_owned()]);
         request.active_role_ids.push("r2".to_owned());
         request.source_role_id = Some("r2".to_owned());
         let starting_runtime = runtime.clone();
@@ -2826,21 +3921,30 @@ mod tests {
             .dispatch_results(success_results(focus.clone()))
             .unwrap();
         let statuses = start.join().unwrap();
-        assert_eq!(
-            statuses
-                .iter()
-                .map(|status| status.role_id.as_str())
-                .collect::<Vec<_>>(),
-            ["r1", "r2"]
-        );
-        assert_eq!(focus.len(), 2);
-        assert_eq!(
-            focus
-                .iter()
-                .map(|action| action.role_id.as_str())
-                .collect::<Vec<_>>(),
-            ["r1", "r2"]
-        );
+        crate::v1_case!("macro-7f1350a27644", {
+            assert_eq!(
+                statuses
+                    .iter()
+                    .map(|status| status.role_id.as_str())
+                    .collect::<Vec<_>>(),
+                ["r1", "r2"]
+            );
+            assert!(statuses.iter().all(|status| status.role_id != "r3"));
+        });
+        crate::v1_case!("macro-55aadc285c62", {
+            assert_eq!(focus.len(), 2);
+            assert_eq!(
+                focus
+                    .iter()
+                    .map(|action| action.role_id.as_str())
+                    .collect::<Vec<_>>(),
+                ["r1", "r2"]
+            );
+        });
+        crate::v1_case!("macro-5c368d9c8ecd", {
+            runtime.stop_macro("m1").unwrap();
+            assert!(runtime.statuses().unwrap().is_empty());
+        });
     }
 
     #[test]
@@ -2849,17 +3953,15 @@ mod tests {
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
         }));
-        let (_, focus) = start_and_ack_focus(
-            &runtime,
-            &receiver,
-            request(vec![MacroStepDefinition::Key {
-                id: "held".to_owned(),
-                code: "KeyW".to_owned(),
-                modifiers: None,
-                action: Some("hold_until_stop".to_owned()),
-                label: None,
-            }]),
-        );
+        let mut start = request(vec![MacroStepDefinition::Key {
+            id: "held".to_owned(),
+            code: "KeyW".to_owned(),
+            modifiers: None,
+            action: Some("hold_until_stop".to_owned()),
+            label: None,
+        }]);
+        start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1 };
+        let (_, focus) = start_and_ack_focus(&runtime, &receiver, start);
         let mut phases = focus.iter().map(|_| "focus".to_owned()).collect::<Vec<_>>();
         while phases.len() < 2 {
             for event in receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
@@ -2875,6 +3977,28 @@ mod tests {
                 }
             }
         }
+        crate::v1_case!("macro-39621b53863b", {
+            assert_eq!(runtime.statuses().unwrap().len(), 1);
+            assert_eq!(phases, ["focus", "hold"]);
+        });
+        crate::v1_case!("macro-b40211c87ff3", {
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                let statuses = runtime.statuses().unwrap();
+                if statuses[0].iteration.unwrap_or_default() > 0 {
+                    assert_eq!(statuses[0].state, "running");
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline);
+                thread::yield_now();
+            }
+        });
+        crate::v1_case!("macro-67ee29e0f60e", {
+            let error = runtime
+                .acquire_mutation(vec!["m2".to_owned(), "m1".to_owned()], false)
+                .unwrap_err();
+            assert_eq!(error.code(), "MACRO_MUTATION_BUSY");
+        });
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         while phases.last().map(String::as_str) != Some("release") {
@@ -2891,6 +4015,57 @@ mod tests {
         }
         stop.join().unwrap();
         assert_eq!(phases, ["focus", "hold", "release"]);
+        assert!(runtime.statuses().unwrap().is_empty());
+        crate::v1_case!("external-chrome-cdn-8dff14f03246", {
+            assert_eq!(phases.last().map(String::as_str), Some("release"));
+            assert!(runtime.statuses().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn cancellation_releases_a_hold_that_is_acknowledged_after_stop_begins() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let _ = start_and_ack_focus(
+            &runtime,
+            &receiver,
+            request(vec![MacroStepDefinition::Key {
+                id: "late-hold".to_owned(),
+                code: "KeyW".to_owned(),
+                modifiers: None,
+                action: Some("hold_until_stop".to_owned()),
+                label: None,
+            }]),
+        );
+        let hold = next_browser_actions(&receiver);
+        let owner_id = match &hold[0].action {
+            BrowserAction::Key {
+                phase, owner_id, ..
+            } if phase == "hold" => owner_id.clone(),
+            action => panic!("expected pending hold, got {action:?}"),
+        };
+        let stopping_runtime = runtime.clone();
+        let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
+        assert_no_browser_actions(&receiver, Duration::from_millis(25));
+        assert!(!stop.is_finished());
+
+        runtime.dispatch_results(success_results(hold)).unwrap();
+        let release = next_browser_actions(&receiver);
+        crate::v1_case!("external-chrome-cdn-10c50f77180d", {
+            assert!(matches!(
+                release[0].action,
+                BrowserAction::Key {
+                    ref phase,
+                    owner_id: ref release_owner,
+                    ..
+                } if phase == "release" && release_owner == &owner_id
+            ));
+            assert!(!stop.is_finished());
+        });
+        runtime.dispatch_results(success_results(release)).unwrap();
+        stop.join().unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
     }
 
@@ -2935,6 +4110,7 @@ mod tests {
 
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
+        let mut released_codes = Vec::new();
         for expected_code in ["KeyB", "KeyA"] {
             let release = next_browser_actions(&receiver);
             assert!(matches!(
@@ -2945,9 +4121,99 @@ mod tests {
                     ..
                 } if code.as_deref() == Some(expected_code) && phase == "release"
             ));
+            released_codes.push(expected_code);
             runtime.dispatch_results(success_results(release)).unwrap();
         }
         stop.join().unwrap();
+        crate::v1_case!("macro-03c6ea334e84", {
+            assert_eq!(released_codes, ["KeyB", "KeyA"]);
+        });
+    }
+
+    #[test]
+    fn v1_uses_distinct_owners_for_two_macros_holding_the_same_role_key() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut first = request(vec![MacroStepDefinition::Key {
+            id: "m1-hold".to_owned(),
+            code: "KeyW".to_owned(),
+            modifiers: None,
+            action: Some("hold_until_stop".to_owned()),
+            label: None,
+        }]);
+        let mut second_macro = first.macros[0].clone();
+        second_macro.id = "m2".to_owned();
+        second_macro.name = "Second".to_owned();
+        second_macro.steps = vec![MacroStepDefinition::Key {
+            id: "m2-hold".to_owned(),
+            code: "KeyW".to_owned(),
+            modifiers: None,
+            action: Some("hold_until_stop".to_owned()),
+            label: None,
+        }];
+        first.macros.push(second_macro);
+        let second = MacroStartRequest {
+            macro_id: "m2".to_owned(),
+            ..first.clone()
+        };
+
+        let _ = start_and_ack_focus(&runtime, &receiver, first);
+        let first_hold = next_browser_actions(&receiver);
+        let first_owner = match &first_hold[0].action {
+            BrowserAction::Key {
+                phase, owner_id, ..
+            } if phase == "hold" => owner_id.clone(),
+            action => panic!("expected first held key, got {action:?}"),
+        };
+        runtime
+            .dispatch_results(success_results(first_hold))
+            .unwrap();
+
+        let _ = start_and_ack_focus(&runtime, &receiver, second);
+        let second_hold = next_browser_actions(&receiver);
+        let second_owner = match &second_hold[0].action {
+            BrowserAction::Key {
+                phase, owner_id, ..
+            } if phase == "hold" => owner_id.clone(),
+            action => panic!("expected second held key, got {action:?}"),
+        };
+        runtime
+            .dispatch_results(success_results(second_hold))
+            .unwrap();
+
+        crate::v1_case!("macro-dda7b6b3249d", {
+            assert_ne!(first_owner, second_owner);
+            assert!(first_owner.contains(":r1:m1:m1-hold"));
+            assert!(second_owner.contains(":r1:m2:m2-hold"));
+        });
+
+        let stopping_first = runtime.clone();
+        let first_stop = thread::spawn(move || stopping_first.stop_macro("m1").unwrap());
+        let first_release = next_browser_actions(&receiver);
+        assert!(matches!(
+            first_release[0].action,
+            BrowserAction::Key {
+                ref owner_id,
+                ref phase,
+                ..
+            } if phase == "release" && owner_id == &first_owner
+        ));
+        runtime
+            .dispatch_results(success_results(first_release))
+            .unwrap();
+        first_stop.join().unwrap();
+        assert_eq!(runtime.statuses().unwrap()[0].macro_id, "m2");
+
+        let stopping_second = runtime.clone();
+        let second_stop = thread::spawn(move || stopping_second.stop_macro("m2").unwrap());
+        let second_release = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(second_release))
+            .unwrap();
+        second_stop.join().unwrap();
+        assert!(runtime.statuses().unwrap().is_empty());
     }
 
     #[test]
@@ -2982,12 +4248,22 @@ mod tests {
                 id: "child-key".to_owned(),
                 code: "KeyB".to_owned(),
                 modifiers: None,
-                action: Some("tap".to_owned()),
+                action: Some("hold_until_stop".to_owned()),
                 label: None,
             }],
         });
         start.active_role_ids.push("r2".to_owned());
         let _ = start_and_ack_focus(&runtime, &receiver, start);
+        let control = runtime
+            .shared
+            .inner
+            .lock()
+            .unwrap()
+            .invocations
+            .values()
+            .find(|control| control.macro_ids.lock().is_ok_and(|ids| ids.contains("m1")))
+            .cloned()
+            .unwrap();
 
         let mut actions = Vec::new();
         while actions.len() < 5 {
@@ -3006,16 +4282,293 @@ mod tests {
             }));
             runtime.dispatch_results(success_results(batch)).unwrap();
         }
-        assert_eq!(
-            actions,
-            [
-                ("r2".to_owned(), "focus".to_owned()),
-                ("r2".to_owned(), "KeyB:hold".to_owned()),
-                ("r2".to_owned(), "KeyB:release".to_owned()),
-                ("r1".to_owned(), "KeyC:hold".to_owned()),
-                ("r1".to_owned(), "KeyC:release".to_owned()),
-            ]
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !control.barriers.lock().unwrap().is_empty() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        assert!(control.barriers.lock().unwrap().is_empty());
+        crate::v1_case!("macro-a51f31bc94a0", {
+            assert_eq!(
+                actions,
+                [
+                    ("r2".to_owned(), "focus".to_owned()),
+                    ("r2".to_owned(), "KeyB:hold".to_owned()),
+                    ("r2".to_owned(), "KeyB:release".to_owned()),
+                    ("r1".to_owned(), "KeyC:hold".to_owned()),
+                    ("r1".to_owned(), "KeyC:release".to_owned()),
+                ]
+            );
+        });
+        crate::v1_case!("macro-04f2c3221ed9", {
+            assert_eq!(
+                actions
+                    .iter()
+                    .filter(|(_, phase)| phase.starts_with("KeyB:"))
+                    .count(),
+                2
+            );
+        });
+        crate::v1_case!("macro-ce3652f5d1c7", {
+            let child_release = actions
+                .iter()
+                .position(|(_, phase)| phase == "KeyB:release")
+                .unwrap();
+            let parent_after = actions
+                .iter()
+                .position(|(_, phase)| phase == "KeyC:hold")
+                .unwrap();
+            assert!(child_release < parent_after);
+        });
+    }
+
+    #[test]
+    fn atomic_toggle_converges_without_a_phantom_invocation() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let toggle_request = request(vec![MacroStepDefinition::Delay {
+            id: "wait".to_owned(),
+            ms: 60_000,
+        }]);
+        let stop_request = toggle_request.clone();
+        let starting_runtime = runtime.clone();
+        let starting = thread::spawn(move || starting_runtime.toggle(toggle_request));
+        let focus = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(focus)).unwrap();
+        assert_eq!(starting.join().unwrap().unwrap().len(), 1);
+
+        assert!(runtime.toggle(stop_request).unwrap().is_empty());
+        assert!(runtime.statuses().unwrap().is_empty());
+        assert!(runtime.shared.inner.lock().unwrap().invocations.is_empty());
+    }
+
+    #[test]
+    fn presentation_updates_are_rate_limited_but_terminal_delivery_is_immediate() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        runtime.seed_running_status("m1", "r1").unwrap();
+
+        for _ in 0..1_000 {
+            emit_presentation_statuses(&runtime.shared);
+        }
+        emit_statuses(&runtime.shared, true);
+
+        let batches = receiver.try_iter().collect::<Vec<_>>();
+        assert_eq!(batches.len(), 2);
+        assert!(batches[0].iter().any(|event| matches!(
+            event,
+            CoreEvent::MacroStatuses {
+                reliable: false,
+                ..
+            }
+        )));
+        assert!(
+            batches[1]
+                .iter()
+                .any(|event| matches!(event, CoreEvent::MacroStatuses { reliable: true, .. }))
         );
+    }
+
+    #[test]
+    fn role_lock_registries_stay_bounded_across_five_hundred_role_lifecycles() {
+        let runtime = MacroRuntime::new(Arc::new(|_| {}));
+        for index in 0..500 {
+            let role_id = format!("role-{index}");
+            drop(input_sequence_role_lock(&runtime.shared, &role_id).unwrap());
+            drop(action_role_locks(&runtime.shared, &[role_id]).unwrap());
+        }
+        drop(input_sequence_role_lock(&runtime.shared, "role-final").unwrap());
+        drop(action_role_locks(
+            &runtime.shared,
+            &["role-final".to_owned()],
+        )
+        .unwrap());
+
+        assert!(
+            runtime
+                .shared
+                .input_sequence_role_locks
+                .lock()
+                .unwrap()
+                .len()
+                <= 1
+        );
+        assert!(runtime.shared.action_role_locks.lock().unwrap().len() <= 1);
+    }
+
+    #[test]
+    fn one_thousand_start_stop_cycles_drain_authoritative_runtime_state() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let start = request(vec![MacroStepDefinition::Delay {
+            id: "wait".to_owned(),
+            ms: 60_000,
+        }]);
+
+        for _ in 0..1_000 {
+            let _ = start_and_ack_focus(&runtime, &receiver, start.clone());
+            runtime.stop_macro("m1").unwrap();
+        }
+
+        let inner = runtime.shared.inner.lock().unwrap();
+        assert!(inner.invocations.is_empty());
+        assert!(inner.statuses.is_empty());
+        assert!(inner.held_keys.is_empty());
+        assert!(inner.leases.is_empty());
+        assert!(inner.preparing_role_ids.is_empty());
+        drop(inner);
+        assert!(runtime.shared.pending.lock().unwrap().is_empty());
+        assert!(runtime.shared.action_role_locks.lock().unwrap().len() <= 1);
+    }
+
+    #[test]
+    fn v1_propagates_disabled_and_unavailable_synchronous_child_start_errors() {
+        for (child_enabled, child_active, expected_error, case_id) in [
+            (false, true, DISABLED_MACRO_MESSAGE, "macro-1b1528b03ec8"),
+            (true, false, UNAVAILABLE_ROLE_MESSAGE, "macro-242ee2cae449"),
+        ] {
+            let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+            let runtime = MacroRuntime::new(Arc::new(move |batch| {
+                let _ = events.send(batch);
+            }));
+            let mut start = request(vec![MacroStepDefinition::Macro {
+                id: "call-child".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("wait".to_owned()),
+            }]);
+            start.macros.push(MacroDefinition {
+                id: "child".to_owned(),
+                enabled: child_enabled,
+                activation_mode: Some("toggle".to_owned()),
+                name: "Child".to_owned(),
+                role_ids: vec!["r2".to_owned()],
+                trigger: None,
+                repeat: MacroRepeat::Once,
+                steps: vec![],
+            });
+            if child_active {
+                start.active_role_ids.push("r2".to_owned());
+            }
+            let _ = start_and_ack_focus(&runtime, &receiver, start);
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            let failed = loop {
+                if let Some(status) = runtime
+                    .statuses()
+                    .unwrap()
+                    .into_iter()
+                    .find(|status| status.macro_id == "m1" && status.state == "failed")
+                {
+                    break status;
+                }
+                assert!(std::time::Instant::now() < deadline);
+                thread::yield_now();
+            };
+            match case_id {
+                "macro-1b1528b03ec8" => {
+                    crate::v1_case!("macro-1b1528b03ec8", {
+                        assert_eq!(failed.error.as_deref(), Some(expected_error));
+                    });
+                }
+                "macro-242ee2cae449" => {
+                    crate::v1_case!("macro-242ee2cae449", {
+                        assert_eq!(failed.error.as_deref(), Some(expected_error));
+                    });
+                }
+                _ => unreachable!(),
+            }
+            runtime.stop_macro("m1").unwrap();
+        }
+    }
+
+    #[test]
+    fn v1_fails_a_parent_when_its_synchronous_child_is_already_active() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let parent = MacroDefinition {
+            id: "parent".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Parent".to_owned(),
+            role_ids: vec!["r1".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Macro {
+                id: "call-child".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("wait".to_owned()),
+            }],
+        };
+        let child = MacroDefinition {
+            id: "child".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Child".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Delay {
+                id: "wait".to_owned(),
+                ms: 60_000,
+            }],
+        };
+        let definitions = vec![parent, child];
+        let base = MacroStartRequest {
+            macros: definitions.clone(),
+            settings: MacroRuntimeSettings {
+                startup_delay_ms: 0,
+                key_hold_ms: 0,
+                post_input_delay_ms: 0,
+                default_loop_delay_ms: 0,
+            },
+            macro_id: "child".to_owned(),
+            source_role_id: None,
+            active_role_ids: vec!["r1".to_owned(), "r2".to_owned()],
+        };
+        let _ = start_and_ack_focus(&runtime, &receiver, base.clone());
+        let _ = start_and_ack_focus(
+            &runtime,
+            &receiver,
+            MacroStartRequest {
+                macro_id: "parent".to_owned(),
+                ..base
+            },
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let parent_status = loop {
+            if let Some(status) = runtime
+                .statuses()
+                .unwrap()
+                .into_iter()
+                .find(|status| status.macro_id == "parent" && status.state == "failed")
+            {
+                break status;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        };
+        crate::v1_case!("macro-dade3184393d", {
+            assert_eq!(
+                parent_status.error.as_deref(),
+                Some("Called macro \"Child\" is already running.")
+            );
+            assert!(
+                runtime
+                    .statuses()
+                    .unwrap()
+                    .iter()
+                    .any(|status| { status.macro_id == "child" && status.state == "running" })
+            );
+        });
+        runtime.stop_macro("child").unwrap();
+        runtime.stop_macro("parent").unwrap();
     }
 
     #[test]
@@ -3061,8 +4614,10 @@ mod tests {
         let _ = start_and_ack_focus(&runtime, &receiver, start);
 
         let child_focus = next_browser_actions(&receiver);
-        assert_eq!(child_focus.len(), 1);
-        assert_eq!(child_focus[0].role_id, "r3");
+        crate::v1_case!("macro-eb326b83fb4c", {
+            assert_eq!(child_focus.len(), 1);
+            assert_eq!(child_focus[0].role_id, "r3");
+        });
         runtime
             .dispatch_results(success_results(child_focus))
             .unwrap();
@@ -3088,7 +4643,9 @@ mod tests {
             .map(|action| action.role_id.as_str())
             .collect::<Vec<_>>();
         parent_roles.sort_unstable();
-        assert_eq!(parent_roles, ["r1", "r2"]);
+        crate::v1_case!("macro-38b2cd5ed223", {
+            assert_eq!(parent_roles, ["r1", "r2"]);
+        });
         runtime
             .dispatch_results(success_results(parent_holds))
             .unwrap();
@@ -3099,16 +4656,348 @@ mod tests {
     }
 
     #[test]
-    fn triggered_child_keeps_its_configured_loop_after_parent_completion() {
+    fn v1_supports_nested_synchronous_macro_calls_in_child_first_order() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let macro_c = MacroDefinition {
+            id: "c".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "C".to_owned(),
+            role_ids: vec!["r3".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Key {
+                id: "key-c".to_owned(),
+                code: "KeyC".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            }],
+        };
+        let macro_b = MacroDefinition {
+            id: "b".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "B".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![
+                MacroStepDefinition::Macro {
+                    id: "call-c".to_owned(),
+                    macro_id: "c".to_owned(),
+                    call_mode: Some("wait".to_owned()),
+                },
+                MacroStepDefinition::Key {
+                    id: "key-b".to_owned(),
+                    code: "KeyB".to_owned(),
+                    modifiers: None,
+                    action: Some("tap".to_owned()),
+                    label: None,
+                },
+            ],
+        };
+        let mut start = request(vec![
+            MacroStepDefinition::Macro {
+                id: "call-b".to_owned(),
+                macro_id: "b".to_owned(),
+                call_mode: Some("wait".to_owned()),
+            },
+            MacroStepDefinition::Key {
+                id: "key-a".to_owned(),
+                code: "KeyA".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            },
+        ]);
+        start.macros[0].id = "a".to_owned();
+        start.macros[0].name = "A".to_owned();
+        start.macro_id = "a".to_owned();
+        start.macros.extend([macro_b, macro_c]);
+        start
+            .active_role_ids
+            .extend(["r2".to_owned(), "r3".to_owned()]);
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+
+        let mut held_codes = Vec::new();
+        while held_codes.len() < 3 {
+            let actions = next_browser_actions(&receiver);
+            for action in &actions {
+                if let BrowserAction::Key { code, phase, .. } = &action.action
+                    && phase == "hold"
+                {
+                    held_codes.push(code.clone().unwrap());
+                }
+            }
+            runtime.dispatch_results(success_results(actions)).unwrap();
+        }
+        crate::v1_case!("macro-f82be3dab72b", {
+            assert_eq!(held_codes, ["KeyC", "KeyB", "KeyA"]);
+        });
+        let final_release = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(final_release))
+            .unwrap();
+    }
+
+    #[test]
+    fn v1_propagates_a_synchronous_child_action_failure_to_parent_and_child() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
         }));
         let mut start = request(vec![MacroStepDefinition::Macro {
-            id: "trigger-child".to_owned(),
+            id: "call-child".to_owned(),
             macro_id: "child".to_owned(),
-            call_mode: Some("trigger".to_owned()),
+            call_mode: Some("wait".to_owned()),
         }]);
+        start.macros.push(MacroDefinition {
+            id: "child".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Child".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Key {
+                id: "fail".to_owned(),
+                code: "KeyF".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            }],
+        });
+        start.active_role_ids.push("r2".to_owned());
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+        let child_focus = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(child_focus))
+            .unwrap();
+        let child_hold = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(vec![BrowserActionResult {
+                request_id: child_hold[0].request_id.clone(),
+                ok: false,
+                value_json: None,
+                error_code: Some("TARGET_DETACHED".to_owned()),
+                error_message: Some("child target detached".to_owned()),
+            }])
+            .unwrap();
+        let release = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(release)).unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let statuses = loop {
+            let statuses = runtime.statuses().unwrap();
+            if statuses.iter().any(|status| {
+                status.macro_id == "m1"
+                    && status.state == "failed"
+                    && status.error.as_deref() == Some("child target detached")
+            }) && statuses.iter().any(|status| {
+                status.macro_id == "child"
+                    && status.state == "failed"
+                    && status.error.as_deref() == Some("child target detached")
+            }) {
+                break statuses;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child failure statuses did not settle: {statuses:?}"
+            );
+            thread::yield_now();
+        };
+        crate::v1_case!("macro-d2ba69fd3f80", {
+            let mut failed = statuses
+                .iter()
+                .filter(|status| status.state == "failed")
+                .map(|status| (status.macro_id.as_str(), status.error.as_deref()))
+                .collect::<Vec<_>>();
+            failed.sort_unstable();
+            assert_eq!(
+                failed,
+                [
+                    ("child", Some("child target detached")),
+                    ("m1", Some("child target detached")),
+                ]
+            );
+        });
+        runtime.stop_macro("m1").unwrap();
+        runtime.stop_macro("child").unwrap();
+    }
+
+    #[test]
+    fn v1_parent_stop_keeps_an_unrelated_invocation_running() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let parent = MacroDefinition {
+            id: "parent".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Parent".to_owned(),
+            role_ids: vec!["r1".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Macro {
+                id: "call-child".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("wait".to_owned()),
+            }],
+        };
+        let child = MacroDefinition {
+            id: "child".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Child".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Delay {
+                id: "child-wait".to_owned(),
+                ms: 60_000,
+            }],
+        };
+        let unrelated = MacroDefinition {
+            id: "unrelated".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Unrelated".to_owned(),
+            role_ids: vec!["r3".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Delay {
+                id: "unrelated-wait".to_owned(),
+                ms: 60_000,
+            }],
+        };
+        let base = MacroStartRequest {
+            macros: vec![parent, child, unrelated],
+            settings: MacroRuntimeSettings {
+                startup_delay_ms: 0,
+                key_hold_ms: 0,
+                post_input_delay_ms: 0,
+                default_loop_delay_ms: 0,
+            },
+            macro_id: "unrelated".to_owned(),
+            source_role_id: None,
+            active_role_ids: vec!["r1".to_owned(), "r2".to_owned(), "r3".to_owned()],
+        };
+        let _ = start_and_ack_focus(&runtime, &receiver, base.clone());
+        let _ = start_and_ack_focus(
+            &runtime,
+            &receiver,
+            MacroStartRequest {
+                macro_id: "parent".to_owned(),
+                ..base
+            },
+        );
+        let child_focus = next_browser_actions(&receiver);
+        assert_eq!(child_focus[0].role_id, "r2");
+        runtime
+            .dispatch_results(success_results(child_focus))
+            .unwrap();
+        runtime.stop_macro("parent").unwrap();
+        crate::v1_case!("macro-001e95906647", {
+            assert_eq!(
+                runtime
+                    .statuses()
+                    .unwrap()
+                    .iter()
+                    .map(|status| (status.macro_id.as_str(), status.state.as_str()))
+                    .collect::<Vec<_>>(),
+                [("unrelated", "running")]
+            );
+        });
+        runtime.stop_macro("unrelated").unwrap();
+    }
+
+    #[test]
+    fn v1_calls_a_run_once_child_on_every_parent_loop_iteration() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![MacroStepDefinition::Macro {
+            id: "call-child".to_owned(),
+            macro_id: "child".to_owned(),
+            call_mode: Some("wait".to_owned()),
+        }]);
+        start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1 };
+        start.macros.push(MacroDefinition {
+            id: "child".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Child".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Key {
+                id: "child-key".to_owned(),
+                code: "KeyB".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            }],
+        });
+        start.active_role_ids.push("r2".to_owned());
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+        let mut child_holds = 0;
+        for iteration in 0..2 {
+            for expected in ["focus", "hold", "release"] {
+                let action = next_browser_actions(&receiver);
+                assert!(match (&action[0].action, expected) {
+                    (BrowserAction::Focus, "focus") => true,
+                    (BrowserAction::Key { phase, .. }, phase_expected) => {
+                        phase == phase_expected
+                    }
+                    _ => false,
+                });
+                if expected == "hold" {
+                    child_holds += 1;
+                }
+                runtime.dispatch_results(success_results(action)).unwrap();
+            }
+            let loop_wait = next_wait(&waits);
+            assert_eq!(loop_wait.duration_ms, 1);
+            if iteration == 0 {
+                loop_wait.release.send(()).unwrap();
+            } else {
+                crate::v1_case!("macro-0fa4ce544d0c", {
+                    assert_eq!(child_holds, 2);
+                });
+                runtime.stop_macro("m1").unwrap();
+                drop(loop_wait);
+            }
+        }
+    }
+
+    #[test]
+    fn triggered_child_keeps_its_configured_loop_after_parent_completion() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![
+            MacroStepDefinition::Macro {
+                id: "trigger-child".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("trigger".to_owned()),
+            },
+            MacroStepDefinition::Delay {
+                id: "wait-before-duplicate".to_owned(),
+                ms: 20,
+            },
+            MacroStepDefinition::Macro {
+                id: "duplicate-trigger".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("trigger".to_owned()),
+            },
+        ]);
         start.macros.push(MacroDefinition {
             id: "child".to_owned(),
             enabled: true,
@@ -3132,17 +5021,39 @@ mod tests {
             let batch = next_browser_actions(&receiver);
             runtime.dispatch_results(success_results(batch)).unwrap();
         }
-        let wait_started = std::time::Instant::now();
-        loop {
-            let statuses = runtime.statuses().unwrap();
-            if statuses.iter().any(|status| status.macro_id == "child")
-                && statuses.iter().all(|status| status.macro_id != "m1")
-            {
-                break;
+        crate::v1_case!("macro-8c8fc482c2e2", {
+            let wait_started = std::time::Instant::now();
+            loop {
+                let statuses = runtime.statuses().unwrap();
+                if statuses.iter().any(|status| status.macro_id == "child")
+                    && statuses.iter().all(|status| status.macro_id != "m1")
+                {
+                    break;
+                }
+                assert!(wait_started.elapsed() < Duration::from_secs(2));
+                thread::yield_now();
             }
-            assert!(wait_started.elapsed() < Duration::from_secs(2));
-            thread::yield_now();
-        }
+        });
+        crate::v1_case!("macro-ec61e5be8676", {
+            assert!(
+                runtime
+                    .statuses()
+                    .unwrap()
+                    .iter()
+                    .any(|status| status.macro_id == "child" && status.state == "running")
+            );
+        });
+        crate::v1_case!("macro-eec4f34f9c73", {
+            assert_eq!(
+                runtime
+                    .statuses()
+                    .unwrap()
+                    .iter()
+                    .filter(|status| status.macro_id == "child")
+                    .count(),
+                1
+            );
+        });
         runtime.stop_macro("child").unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
     }
@@ -3194,17 +5105,352 @@ mod tests {
         let stopping_runtime = runtime.clone();
         let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         let release = next_browser_actions(&receiver);
-        assert_eq!(release.len(), 1);
-        assert!(matches!(
-            release[0].action,
-            BrowserAction::Key {
-                ref phase,
-                ..
-            } if phase == "release"
-        ));
+        crate::v1_case!("macro-2560b69ef571", {
+            assert_eq!(release.len(), 1);
+            assert!(matches!(
+                release[0].action,
+                BrowserAction::Key {
+                    ref phase,
+                    ..
+                } if phase == "release"
+            ));
+        });
+        crate::v1_case!("macro-76ed0b007727", {
+            assert_eq!(release[0].role_id, "r2");
+            assert!(matches!(
+                release[0].action,
+                BrowserAction::Key {
+                    ref code,
+                    ref phase,
+                    ..
+                } if code.as_deref() == Some("KeyW") && phase == "release"
+            ));
+        });
         runtime.dispatch_results(success_results(release)).unwrap();
         stop.join().unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
+    }
+
+    #[test]
+    fn v1_stops_a_triggered_child_when_the_parent_role_closes() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let _ = start_and_ack_focus(&runtime, &receiver, triggered_delay_request());
+        let child_focus = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(child_focus))
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !runtime
+            .statuses()
+            .unwrap()
+            .iter()
+            .any(|status| status.macro_id == "child" && status.state == "running")
+        {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        runtime.stop_role("r1").unwrap();
+        crate::v1_case!("macro-a0b20c487fd2", {
+            assert!(runtime.statuses().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn v1_parent_stop_waits_for_a_pending_triggered_child_focus_result() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let _ = start_and_ack_focus(&runtime, &receiver, triggered_delay_request());
+        let child_focus = next_browser_actions(&receiver);
+
+        let stopping_runtime = runtime.clone();
+        let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
+        thread::sleep(Duration::from_millis(25));
+        crate::v1_case!("macro-ae0a2bf9063f", {
+            assert!(!stop.is_finished());
+        });
+        runtime
+            .dispatch_results(success_results(child_focus))
+            .unwrap();
+        stop.join().unwrap();
+        assert!(runtime.statuses().unwrap().is_empty());
+    }
+
+    #[test]
+    fn v1_keeps_the_parent_running_when_a_triggered_child_fails() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = triggered_delay_request();
+        start.macros[1].steps = vec![MacroStepDefinition::Key {
+            id: "fail".to_owned(),
+            code: "KeyF".to_owned(),
+            modifiers: None,
+            action: Some("tap".to_owned()),
+            label: None,
+        }];
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+        let parent_wait = next_wait(&waits);
+        assert_eq!(parent_wait.role_id, "r1");
+        let child_focus = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(child_focus))
+            .unwrap();
+        let child_hold = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(vec![BrowserActionResult {
+                request_id: child_hold[0].request_id.clone(),
+                ok: false,
+                value_json: None,
+                error_code: Some("CHILD_FAILED".to_owned()),
+                error_message: Some("child failed".to_owned()),
+            }])
+            .unwrap();
+        let release = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(release)).unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let statuses = runtime.statuses().unwrap();
+            if statuses.iter().any(|status| {
+                status.macro_id == "child"
+                    && status.state == "failed"
+                    && status.error.as_deref() == Some("child failed")
+            }) {
+                crate::v1_case!("macro-adc24e3c31d8", {
+                    assert!(
+                        statuses
+                            .iter()
+                            .any(|status| { status.macro_id == "m1" && status.state == "running" })
+                    );
+                });
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        runtime.stop_macro("m1").unwrap();
+        drop(parent_wait);
+        assert!(runtime.statuses().unwrap().iter().any(|status| {
+            status.macro_id == "child"
+                && status.state == "failed"
+                && status.error.as_deref() == Some("child failed")
+        }));
+        runtime.stop_macro("child").unwrap();
+    }
+
+    #[test]
+    fn v1_stops_an_active_triggered_child_when_the_parent_fails() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![
+            MacroStepDefinition::Macro {
+                id: "trigger-child".to_owned(),
+                macro_id: "child".to_owned(),
+                call_mode: Some("trigger".to_owned()),
+            },
+            MacroStepDefinition::Key {
+                id: "parent-fail".to_owned(),
+                code: "KeyF".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            },
+        ]);
+        start.macros.push(MacroDefinition {
+            id: "child".to_owned(),
+            enabled: true,
+            activation_mode: Some("toggle".to_owned()),
+            name: "Held child".to_owned(),
+            role_ids: vec!["r2".to_owned()],
+            trigger: None,
+            repeat: MacroRepeat::Once,
+            steps: vec![MacroStepDefinition::Key {
+                id: "held".to_owned(),
+                code: "KeyW".to_owned(),
+                modifiers: None,
+                action: Some("hold_until_stop".to_owned()),
+                label: None,
+            }],
+        });
+        start.active_role_ids.push("r2".to_owned());
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+
+        let mut parent_hold = None;
+        let mut child_held = false;
+        while parent_hold.is_none() || !child_held {
+            let actions = next_browser_actions(&receiver);
+            for action in actions {
+                match (&action.role_id[..], &action.action) {
+                    ("r1", BrowserAction::Key { phase, .. }) if phase == "hold" => {
+                        parent_hold = Some(action);
+                    }
+                    ("r2", BrowserAction::Key { phase, .. }) if phase == "hold" => {
+                        child_held = true;
+                        runtime
+                            .dispatch_results(success_results(vec![action]))
+                            .unwrap();
+                    }
+                    ("r2", BrowserAction::Focus) => {
+                        runtime
+                            .dispatch_results(success_results(vec![action]))
+                            .unwrap();
+                    }
+                    (_, action) => panic!("unexpected pre-failure action: {action:?}"),
+                }
+            }
+        }
+        let parent_hold = parent_hold.unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !runtime
+            .statuses()
+            .unwrap()
+            .iter()
+            .any(|status| status.macro_id == "child" && status.iteration.unwrap_or_default() > 0)
+        {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        runtime
+            .dispatch_results(vec![BrowserActionResult {
+                request_id: parent_hold.request_id,
+                ok: false,
+                value_json: None,
+                error_code: Some("PARENT_FAILED".to_owned()),
+                error_message: Some("parent failed".to_owned()),
+            }])
+            .unwrap();
+        let parent_release = next_browser_actions(&receiver);
+        assert_eq!(parent_release[0].role_id, "r1");
+        runtime
+            .dispatch_results(success_results(parent_release))
+            .unwrap();
+        let child_release = loop {
+            match receiver.recv_timeout(Duration::from_millis(250)) {
+                Ok(events) => {
+                    if let Some(actions) = events.into_iter().find_map(|event| match event {
+                        CoreEvent::BrowserActions { actions } => Some(actions),
+                        _ => None,
+                    }) {
+                        break actions;
+                    }
+                }
+                Err(error) => panic!(
+                    "missing child release after parent failure ({error:?}): {:?}",
+                    runtime.statuses().unwrap()
+                ),
+            }
+        };
+        assert_eq!(child_release[0].role_id, "r2");
+        runtime
+            .dispatch_results(success_results(child_release))
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let statuses = runtime.statuses().unwrap();
+            if statuses.len() == 1 && statuses[0].macro_id == "m1" && statuses[0].state == "failed"
+            {
+                crate::v1_case!("macro-abdc8a9f5ddf", {
+                    assert_eq!(statuses[0].error.as_deref(), Some("parent failed"));
+                    assert!(statuses.iter().all(|status| status.macro_id != "child"));
+                });
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "triggered child did not stop with failed parent: {statuses:?}"
+            );
+            thread::yield_now();
+        }
+        runtime.stop_macro("m1").unwrap();
+    }
+
+    #[test]
+    fn v1_continues_the_parent_when_a_triggered_child_cannot_start() {
+        for (child_enabled, child_active, case_id) in [
+            (false, true, "macro-4f6ff4a65685"),
+            (true, false, "macro-16bfa0b6fc25"),
+        ] {
+            let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+            let runtime = MacroRuntime::new(Arc::new(move |batch| {
+                let _ = events.send(batch);
+            }));
+            let mut start = request(vec![
+                MacroStepDefinition::Macro {
+                    id: "trigger-child".to_owned(),
+                    macro_id: "child".to_owned(),
+                    call_mode: Some("trigger".to_owned()),
+                },
+                MacroStepDefinition::Key {
+                    id: "after".to_owned(),
+                    code: "KeyC".to_owned(),
+                    modifiers: None,
+                    action: Some("tap".to_owned()),
+                    label: None,
+                },
+            ]);
+            start.macros.push(MacroDefinition {
+                id: "child".to_owned(),
+                enabled: child_enabled,
+                activation_mode: Some("toggle".to_owned()),
+                name: "Child".to_owned(),
+                role_ids: vec!["r2".to_owned()],
+                trigger: None,
+                repeat: MacroRepeat::Once,
+                steps: vec![],
+            });
+            if child_active {
+                start.active_role_ids.push("r2".to_owned());
+            }
+            let _ = start_and_ack_focus(&runtime, &receiver, start);
+            let parent_hold = next_browser_actions(&receiver);
+            assert!(matches!(
+                parent_hold[0].action,
+                BrowserAction::Key {
+                    ref code,
+                    ref phase,
+                    ..
+                } if code.as_deref() == Some("KeyC") && phase == "hold"
+            ));
+            runtime
+                .dispatch_results(success_results(parent_hold))
+                .unwrap();
+            let parent_release = next_browser_actions(&receiver);
+            runtime
+                .dispatch_results(success_results(parent_release))
+                .unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while runtime
+                .statuses()
+                .unwrap()
+                .iter()
+                .any(|status| status.macro_id == "m1")
+            {
+                assert!(std::time::Instant::now() < deadline);
+                thread::yield_now();
+            }
+            match case_id {
+                "macro-4f6ff4a65685" => {
+                    crate::v1_case!("macro-4f6ff4a65685", {
+                        assert!(runtime.statuses().unwrap().is_empty());
+                    });
+                }
+                "macro-16bfa0b6fc25" => {
+                    crate::v1_case!("macro-16bfa0b6fc25", {
+                        assert!(runtime.statuses().unwrap().is_empty());
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 
     #[test]
@@ -3271,18 +5517,20 @@ mod tests {
             assert!(wait_started.elapsed() < Duration::from_secs(2));
             thread::yield_now();
         };
-        assert_eq!(
-            parent.error.as_deref(),
-            Some("Cancelled because a called macro was stopped.")
-        );
-        while let Ok(events) = receiver.try_recv() {
-            assert!(
-                events
-                    .iter()
-                    .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
-                "parent dispatched its next step"
+        crate::v1_case!("macro-1d428d305b23", {
+            assert_eq!(
+                parent.error.as_deref(),
+                Some("Cancelled because a called macro was stopped.")
             );
-        }
+            while let Ok(events) = receiver.try_recv() {
+                assert!(
+                    events
+                        .iter()
+                        .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
+                    "parent dispatched its next step"
+                );
+            }
+        });
         runtime.stop_macro("m1").unwrap();
     }
 
@@ -3339,23 +5587,28 @@ mod tests {
             {
                 break statuses;
             }
-            assert!(wait_started.elapsed() < Duration::from_secs(2));
+            assert!(
+                wait_started.elapsed() < Duration::from_secs(2),
+                "statuses did not settle: {statuses:?}"
+            );
             thread::yield_now();
         };
-        assert_eq!(
-            statuses
-                .iter()
-                .map(|status| (
-                    status.role_id.as_str(),
-                    status.state.as_str(),
-                    status.error.as_deref(),
-                ))
-                .collect::<Vec<_>>(),
-            [
-                ("r1", "failed", Some("target detached")),
-                ("r2", "cancelled", Some(SIBLING_FAILURE_MESSAGE)),
-            ]
-        );
+        crate::v1_case!("macro-86fe57b6249c", {
+            assert_eq!(
+                statuses
+                    .iter()
+                    .map(|status| (
+                        status.role_id.as_str(),
+                        status.state.as_str(),
+                        status.error.as_deref(),
+                    ))
+                    .collect::<Vec<_>>(),
+                [
+                    ("r1", "failed", Some("target detached")),
+                    ("r2", "cancelled", Some(SIBLING_FAILURE_MESSAGE)),
+                ]
+            );
+        });
     }
 
     #[test]
@@ -3412,8 +5665,8 @@ mod tests {
         let starting_runtime = runtime.clone();
         let start = thread::spawn(move || starting_runtime.start(request(Vec::new())).unwrap());
         let focus = next_browser_actions(&receiver);
-        assert_eq!(synced.lock().unwrap().as_slice(), &[vec!["r1".to_owned()]]);
-        assert!(runtime.statuses().unwrap().is_empty());
+        let preflight_roles = synced.lock().unwrap().clone();
+        let status_was_hidden_during_preflight = runtime.statuses().unwrap().is_empty();
         runtime.dispatch_results(success_results(focus)).unwrap();
         let statuses = start.join().unwrap();
         assert_eq!(statuses.len(), 1);
@@ -3427,6 +5680,59 @@ mod tests {
             assert!(std::time::Instant::now() < deadline);
             thread::yield_now();
         }
+        crate::v1_case!("macro-61139813b60e", {
+            assert_eq!(preflight_roles, [vec!["r1".to_owned()]]);
+            assert!(status_was_hidden_during_preflight);
+            assert_eq!(
+                synced.lock().unwrap().last().unwrap(),
+                &Vec::<String>::new()
+            );
+        });
+    }
+
+    #[test]
+    fn v1_rechecks_focus_once_for_each_separate_macro_start() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut focus_count = 0;
+        for _ in 0..2 {
+            let (_, focus) = start_and_ack_focus(
+                &runtime,
+                &receiver,
+                request(vec![MacroStepDefinition::Key {
+                    id: "key".to_owned(),
+                    code: "KeyA".to_owned(),
+                    modifiers: None,
+                    action: Some("tap".to_owned()),
+                    label: None,
+                }]),
+            );
+            focus_count += focus
+                .iter()
+                .filter(|action| matches!(action.action, BrowserAction::Focus))
+                .count();
+            for expected_phase in ["hold", "release"] {
+                let action = next_browser_actions(&receiver);
+                assert!(matches!(
+                    action[0].action,
+                    BrowserAction::Key {
+                        ref phase,
+                        ..
+                    } if phase == expected_phase
+                ));
+                runtime.dispatch_results(success_results(action)).unwrap();
+            }
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while !runtime.statuses().unwrap().is_empty() {
+                assert!(std::time::Instant::now() < deadline);
+                thread::yield_now();
+            }
+        }
+        crate::v1_case!("macro-832559ff652f", {
+            assert_eq!(focus_count, 2);
+        });
     }
 
     #[test]
@@ -3466,7 +5772,9 @@ mod tests {
         let focus = next_browser_actions(&receiver);
         assert_eq!(focus.len(), 2);
         runtime.dispatch_results(success_results(focus)).unwrap();
-        assert_eq!(press.join().unwrap().len(), 2);
+        crate::v1_case!("macro-cfe1e21720c6", {
+            assert_eq!(press.join().unwrap().len(), 2);
+        });
 
         let holds = next_browser_action_count(&receiver, 2);
         assert_eq!(holds.len(), 2);
@@ -3481,14 +5789,182 @@ mod tests {
                 })
                 .unwrap();
         });
-        thread::yield_now();
+        let release_deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let control = runtime
+                .shared
+                .inner
+                .lock()
+                .unwrap()
+                .invocations
+                .values()
+                .next()
+                .cloned()
+                .unwrap();
+            if control.stop_after_first_iteration.load(Ordering::Acquire) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < release_deadline,
+                "release request did not reach the first-iteration barrier"
+            );
+            thread::yield_now();
+        }
         assert!(!release.is_finished());
+        let stopping_runtime = runtime.clone();
+        let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         runtime.dispatch_results(success_results(holds)).unwrap();
         let releases = next_browser_action_count(&receiver, 2);
-        assert_eq!(releases.len(), 2);
+        crate::v1_case!("macro-0ac489bf140b", {
+            assert_eq!(releases.len(), 2);
+        });
+        crate::v1_case!("macro-badb57de73cf", {
+            assert_eq!(
+                releases
+                    .iter()
+                    .filter(|action| matches!(
+                        action.action,
+                        BrowserAction::Key {
+                            ref phase,
+                            ..
+                        } if phase == "release"
+                    ))
+                    .count(),
+                2
+            );
+        });
         runtime.dispatch_results(success_results(releases)).unwrap();
         release.join().unwrap();
-        assert!(runtime.statuses().unwrap().is_empty());
+        stop.join().unwrap();
+        crate::v1_case!("macro-77cf800f4fc9", {
+            assert!(runtime.statuses().unwrap().is_empty());
+        });
+        crate::v1_case!("macro-f49ff2bd81d6", {
+            assert!(runtime.statuses().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn v1_immediate_release_interrupts_first_or_later_while_held_iterations() {
+        for (completed_iterations, press_id, case_id) in [
+            (0, "first-iteration", "macro-8b4e22c0e423"),
+            (1, "later-iteration", "macro-cefbad4638d2"),
+        ] {
+            let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+            let runtime = MacroRuntime::new(Arc::new(move |batch| {
+                let _ = events.send(batch);
+            }));
+            let mut start = request(vec![MacroStepDefinition::Key {
+                id: "key".to_owned(),
+                code: "Digit1".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+            }]);
+            start.macros[0].activation_mode = Some("while_held".to_owned());
+            start.macros[0].trigger = Some(crate::model::MacroTrigger {
+                code: "KeyQ".to_owned(),
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false,
+            });
+            start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };
+            start.source_role_id = Some("r1".to_owned());
+            let pressing_runtime = runtime.clone();
+            let press_id_for_start = press_id.to_owned();
+            let press = thread::spawn(move || {
+                pressing_runtime
+                    .press(MacroPressRequest {
+                        start,
+                        press_id: press_id_for_start,
+                    })
+                    .unwrap()
+            });
+            let focus = next_browser_actions(&receiver);
+            runtime.dispatch_results(success_results(focus)).unwrap();
+            press.join().unwrap();
+
+            for _ in 0..completed_iterations {
+                let hold = next_browser_actions(&receiver);
+                runtime.dispatch_results(success_results(hold)).unwrap();
+                let release = next_browser_actions(&receiver);
+                runtime.dispatch_results(success_results(release)).unwrap();
+            }
+            let in_flight_hold = next_browser_actions(&receiver);
+            let releasing_runtime = runtime.clone();
+            let press_id_for_release = press_id.to_owned();
+            let release = thread::spawn(move || {
+                releasing_runtime
+                    .release(MacroReleaseRequest {
+                        macro_id: "m1".to_owned(),
+                        source_role_id: "r1".to_owned(),
+                        press_id: press_id_for_release,
+                        mode: "immediate".to_owned(),
+                    })
+                    .unwrap();
+            });
+            thread::sleep(Duration::from_millis(25));
+            assert!(!release.is_finished());
+            runtime
+                .dispatch_results(success_results(in_flight_hold))
+                .unwrap();
+            let compensating_release = next_browser_actions(&receiver);
+            runtime
+                .dispatch_results(success_results(compensating_release))
+                .unwrap();
+            release.join().unwrap();
+            match case_id {
+                "macro-8b4e22c0e423" => {
+                    crate::v1_case!("macro-8b4e22c0e423", {
+                        assert!(runtime.statuses().unwrap().is_empty());
+                    });
+                }
+                "macro-cefbad4638d2" => {
+                    crate::v1_case!("macro-cefbad4638d2", {
+                        assert!(runtime.statuses().unwrap().is_empty());
+                        while let Ok(events) = receiver.try_recv() {
+                            assert!(events.iter().all(|event| {
+                                !matches!(event, CoreEvent::BrowserActions { .. })
+                            }));
+                        }
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn v1_zero_delay_loop_yields_without_blocking_the_runtime_caller() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![MacroStepDefinition::Delay {
+            id: "zero".to_owned(),
+            ms: 0,
+        }]);
+        start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+        let caller_progressed = Arc::new(AtomicBool::new(false));
+        let caller_progressed_output = Arc::clone(&caller_progressed);
+        let caller = thread::spawn(move || {
+            thread::yield_now();
+            caller_progressed_output.store(true, Ordering::Release);
+        });
+        caller.join().unwrap();
+        crate::v1_case!("macro-3c32b7b3055b", {
+            assert!(caller_progressed.load(Ordering::Acquire));
+            assert!(
+                runtime
+                    .statuses()
+                    .unwrap()
+                    .iter()
+                    .any(|status| status.state == "running")
+            );
+        });
+        runtime.stop_macro("m1").unwrap();
     }
 
     #[test]
@@ -3519,28 +5995,30 @@ mod tests {
         let hold = next_browser_actions(&receiver);
         runtime.dispatch_results(success_results(hold)).unwrap();
 
-        for (source_role_id, press_id) in [("r1", "press-other"), ("r2", "press-correct")] {
-            runtime
-                .release(MacroReleaseRequest {
-                    macro_id: "m1".to_owned(),
-                    source_role_id: source_role_id.to_owned(),
-                    press_id: press_id.to_owned(),
-                    mode: "immediate".to_owned(),
-                })
-                .unwrap();
-            assert_eq!(runtime.statuses().unwrap().len(), 1);
-            let deadline = std::time::Instant::now() + Duration::from_millis(25);
-            while std::time::Instant::now() < deadline {
-                if let Ok(events) = receiver.recv_timeout(Duration::from_millis(5)) {
-                    assert!(
-                        events
-                            .iter()
-                            .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
-                        "a mismatched release stopped the held invocation"
-                    );
+        crate::v1_case!("macro-e72e89468ae9", {
+            for (source_role_id, press_id) in [("r1", "press-other"), ("r2", "press-correct")] {
+                runtime
+                    .release(MacroReleaseRequest {
+                        macro_id: "m1".to_owned(),
+                        source_role_id: source_role_id.to_owned(),
+                        press_id: press_id.to_owned(),
+                        mode: "immediate".to_owned(),
+                    })
+                    .unwrap();
+                assert_eq!(runtime.statuses().unwrap().len(), 1);
+                let deadline = std::time::Instant::now() + Duration::from_millis(25);
+                while std::time::Instant::now() < deadline {
+                    if let Ok(events) = receiver.recv_timeout(Duration::from_millis(5)) {
+                        assert!(
+                            events
+                                .iter()
+                                .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
+                            "a mismatched release stopped the held invocation"
+                        );
+                    }
                 }
             }
-        }
+        });
 
         let releasing_runtime = runtime.clone();
         let release = thread::spawn(move || {
@@ -3596,19 +6074,25 @@ mod tests {
             .unwrap();
         runtime.dispatch_results(success_results(focus)).unwrap();
 
-        assert!(press.join().unwrap().unwrap().is_empty());
-        let deadline = std::time::Instant::now() + Duration::from_millis(100);
-        while std::time::Instant::now() < deadline {
-            if let Ok(events) = receiver.recv_timeout(Duration::from_millis(5)) {
-                assert!(
-                    events
-                        .iter()
-                        .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
-                    "an input action escaped after the immediate release"
-                );
+        crate::v1_case!("macro-ec0ed215114c", {
+            assert!(press.join().unwrap().unwrap().is_empty());
+            let deadline = std::time::Instant::now() + Duration::from_millis(100);
+            while std::time::Instant::now() < deadline {
+                if let Ok(events) = receiver.recv_timeout(Duration::from_millis(5)) {
+                    assert!(
+                        events
+                            .iter()
+                            .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
+                        "an input action escaped after the immediate release"
+                    );
+                }
             }
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !runtime.statuses().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
         }
-        assert!(runtime.statuses().unwrap().is_empty());
     }
 
     #[test]
@@ -3645,6 +6129,7 @@ mod tests {
         let focus = next_browser_actions(&receiver);
         runtime.dispatch_results(success_results(focus)).unwrap();
         assert_eq!(press.join().unwrap().unwrap().len(), 1);
+        let mut phases = Vec::new();
         for expected_phase in ["hold", "release"] {
             let action = next_browser_actions(&receiver);
             assert!(matches!(
@@ -3654,6 +6139,7 @@ mod tests {
                     ..
                 } if phase == expected_phase
             ));
+            phases.push(expected_phase);
             runtime.dispatch_results(success_results(action)).unwrap();
         }
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
@@ -3661,14 +6147,60 @@ mod tests {
             assert!(std::time::Instant::now() < deadline);
             thread::yield_now();
         }
-        while let Ok(events) = receiver.try_recv() {
-            assert!(
-                events
-                    .iter()
-                    .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
-                "the early release allowed a second iteration"
-            );
+        crate::v1_case!("macro-e00157ddebea", {
+            assert_eq!(phases, ["hold", "release"]);
+            while let Ok(events) = receiver.try_recv() {
+                assert!(
+                    events
+                        .iter()
+                        .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
+                    "the early release allowed a second iteration"
+                );
+            }
+        });
+    }
+
+    fn drive_timed_tap(
+        runtime: &MacroRuntime,
+        events: &mpsc::Receiver<Vec<CoreEvent>>,
+        waits: &mpsc::Receiver<ManualWait>,
+        request: MacroStartRequest,
+    ) -> Vec<u32> {
+        let _ = start_and_ack_focus(runtime, events, request);
+        let mut durations = Vec::new();
+
+        let startup = next_wait(waits);
+        durations.push(startup.duration_ms);
+        startup.release.send(()).unwrap();
+
+        let hold = next_browser_actions(events);
+        assert!(matches!(
+            hold[0].action,
+            BrowserAction::Key { ref phase, .. } if phase == "hold"
+        ));
+        runtime.dispatch_results(success_results(hold)).unwrap();
+
+        let key_hold = next_wait(waits);
+        durations.push(key_hold.duration_ms);
+        key_hold.release.send(()).unwrap();
+
+        let release = next_browser_actions(events);
+        assert!(matches!(
+            release[0].action,
+            BrowserAction::Key { ref phase, .. } if phase == "release"
+        ));
+        runtime.dispatch_results(success_results(release)).unwrap();
+
+        let post_input = next_wait(waits);
+        durations.push(post_input.duration_ms);
+        post_input.release.send(()).unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !runtime.statuses().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
         }
+        durations
     }
 
     fn success_results(actions: Vec<BrowserActionRequest>) -> Vec<BrowserActionResult> {
@@ -3722,17 +6254,40 @@ mod tests {
         actions
     }
 
-    fn wait_for_last_click(runtime: &MacroRuntime, role_id: &str, sequence: u32, step_id: &str) {
+    fn assert_no_browser_actions(receiver: &mpsc::Receiver<Vec<CoreEvent>>, duration: Duration) {
+        let started = std::time::Instant::now();
+        while started.elapsed() < duration {
+            let remaining = duration.saturating_sub(started.elapsed());
+            let Ok(events) = receiver.recv_timeout(remaining) else {
+                break;
+            };
+            assert!(
+                events
+                    .iter()
+                    .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
+                "an input action escaped its per-role sequence"
+            );
+        }
+    }
+
+    fn wait_for_last_click(
+        runtime: &MacroRuntime,
+        role_id: &str,
+        sequence: u32,
+        step_id: &str,
+    ) -> MacroLastClick {
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         loop {
-            if runtime.statuses().unwrap().iter().any(|status| {
-                status.role_id == role_id
-                    && status
-                        .last_click
-                        .as_ref()
-                        .is_some_and(|click| click.sequence == sequence && click.step_id == step_id)
-            }) {
-                return;
+            if let Some(click) = runtime
+                .statuses()
+                .unwrap()
+                .iter()
+                .find(|status| status.role_id == role_id)
+                .and_then(|status| status.last_click.as_ref())
+                .filter(|click| click.sequence == sequence && click.step_id == step_id)
+                .cloned()
+            {
+                return click;
             }
             assert!(std::time::Instant::now() < deadline);
             thread::yield_now();

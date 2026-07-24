@@ -25,6 +25,7 @@ const IMPORT_COMMITTED_MARKER: &str = "chrome-profile-import-transaction.committ
 const LOCK_FILES: &[&str] = &["SingletonCookie", "SingletonLock", "SingletonSocket"];
 const MAX_PENDING_IMPORTS: usize = 8;
 const PENDING_TTL: Duration = Duration::from_secs(15 * 60);
+pub(crate) const PREVIEW_JOURNAL_KIND: &str = "chrome_profile_preview_v1";
 
 #[derive(Debug, Clone)]
 struct PendingImport {
@@ -145,6 +146,39 @@ impl ChromeProfileImportRuntime {
                 replacement_name: None,
             }],
         })
+    }
+
+    pub fn restore_preview(
+        &mut self,
+        source_user_data_dir: PathBuf,
+        preview: ChromeProfileImportPreviewRecord,
+        age: Duration,
+    ) -> CoreResult<bool> {
+        ensure_safe_component(&preview.import_id)?;
+        if age > PENDING_TTL
+            || !source_user_data_dir.is_absolute()
+            || !source_user_data_dir.is_dir()
+            || preview.profiles.is_empty()
+            || LOCK_FILES
+                .iter()
+                .any(|name| source_user_data_dir.join(name).exists())
+        {
+            return Ok(false);
+        }
+        self.pending
+            .retain(|pending| pending.import_id != preview.import_id);
+        while self.pending.len() >= MAX_PENDING_IMPORTS {
+            self.pending.pop_front();
+        }
+        let now = Instant::now();
+        self.pending.push_back(PendingImport {
+            created_at: now.checked_sub(age).unwrap_or(now),
+            import_id: preview.import_id,
+            profiles: preview.profiles,
+            source_user_data_dir,
+            prepared: None,
+        });
+        Ok(true)
     }
 
     pub fn prepare(
@@ -756,9 +790,21 @@ mod tests {
 
     #[test]
     fn preview_rejects_active_chrome_lock_markers() {
+        crate::v1_case!("portable-profile-187dda5e86fe", {
+            assert_active_chrome_marker("SingletonCookie");
+        });
+        crate::v1_case!("portable-profile-f90a239d4f87", {
+            assert_active_chrome_marker("SingletonLock");
+        });
+        crate::v1_case!("portable-profile-f91ae782ed90", {
+            assert_active_chrome_marker("SingletonSocket");
+        });
+    }
+
+    fn assert_active_chrome_marker(marker: &str) {
         let directory = tempdir().unwrap();
         let source = source_fixture(directory.path());
-        fs::write(source.join("SingletonLock"), b"locked").unwrap();
+        fs::write(source.join(marker), b"locked").unwrap();
         let mut runtime = ChromeProfileImportRuntime::new(directory.path().join("app"));
         let error = runtime.preview(source.to_str().unwrap()).unwrap_err();
         assert!(matches!(
@@ -768,5 +814,122 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn preserves_v1_profile_name_scoping_and_overwrite_rollback() {
+        crate::v1_case!("portable-profile-a9ad15c22e4c", {
+            let directory = tempdir().unwrap();
+            let source = directory.path().join("Chrome User Data");
+            fs::create_dir_all(source.join("Default")).unwrap();
+            fs::create_dir_all(source.join("Profile 1")).unwrap();
+            fs::write(
+                source.join("Local State"),
+                json!({"profile":{"info_cache":{
+                    "Default":{"name":"Same"},
+                    "Profile 1":{"name":"same"}
+                }}})
+                .to_string(),
+            )
+            .unwrap();
+            let mut runtime = ChromeProfileImportRuntime::new(directory.path().join("app"));
+            let preview = runtime.preview(source.to_str().unwrap()).unwrap();
+            let state = snapshot();
+            let error = runtime
+                .prepare(
+                    &preview.import_id,
+                    vec!["Default".to_owned(), "Profile 1".to_owned()],
+                    "g1",
+                    true,
+                    &state.games,
+                    &state.roles,
+                )
+                .unwrap_err();
+            assert_eq!(error.code(), "ROLE_NAME_CONFLICT");
+            assert!(state.roles.is_empty());
+        });
+
+        crate::v1_case!("portable-profile-5706959a5202", {
+            let directory = tempdir().unwrap();
+            let source = source_fixture(directory.path());
+            let mut runtime = ChromeProfileImportRuntime::new(directory.path().join("app"));
+            let preview = runtime.preview(source.to_str().unwrap()).unwrap();
+            let state: CoreStateSnapshotRecord = serde_json::from_value(json!({
+                "games": [
+                    {"id":"g1","source":"custom","name":"Game 1","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"},
+                    {"id":"g2","source":"custom","name":"Game 2","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}
+                ],
+                "roles": [
+                    {"id":"other-role","gameId":"g2","name":"Aron","launchUrl":"https://example.test/play","notes":"","browserSessionSource":"embedded","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}
+                ],
+                "launchWorkspaces":[],"macros":[],"compatibilityReports":[]
+            }))
+            .unwrap();
+            let prepared = runtime
+                .prepare(
+                    &preview.import_id,
+                    vec!["Default".to_owned()],
+                    "g1",
+                    true,
+                    &state.games,
+                    &state.roles,
+                )
+                .unwrap();
+            assert!(prepared.overwritten_role_ids.is_empty());
+            let committed = runtime
+                .commit_files(&preview.import_id, state.roles)
+                .unwrap();
+            assert!(committed.roles.iter().any(|role| {
+                role.game_id == "g1"
+                    && role.name == "Aron"
+                    && role.browser_session_source.as_deref() == Some("chrome-profile")
+            }));
+            assert!(
+                committed
+                    .roles
+                    .iter()
+                    .any(|role| { role.game_id == "g2" && role.name == "Aron" })
+            );
+        });
+
+        crate::v1_case!("portable-profile-34ff536cbd71", {
+            let directory = tempdir().unwrap();
+            let source = source_fixture(directory.path());
+            let user_data = directory.path().join("app");
+            let browser = user_data.join("roles/existing/browser");
+            fs::create_dir_all(&browser).unwrap();
+            fs::write(browser.join("original.txt"), b"keep").unwrap();
+            let mut runtime = ChromeProfileImportRuntime::new(user_data);
+            let preview = runtime.preview(source.to_str().unwrap()).unwrap();
+            let state: CoreStateSnapshotRecord = serde_json::from_value(json!({
+                "games":[{"id":"g1","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
+                "roles":[{"id":"existing","gameId":"g1","name":"Aron","launchUrl":"https://example.test/play","notes":"Original","browserSessionSource":"embedded","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
+                "launchWorkspaces":[],"macros":[],"compatibilityReports":[]
+            }))
+            .unwrap();
+            let original = state.roles[0].clone();
+            runtime
+                .prepare(
+                    &preview.import_id,
+                    vec!["Default".to_owned()],
+                    "g1",
+                    true,
+                    &state.games,
+                    &state.roles,
+                )
+                .unwrap();
+            runtime
+                .commit_files(&preview.import_id, state.roles)
+                .unwrap();
+            let rollback_roles = runtime.rollback_roles(&preview.import_id).unwrap();
+            runtime.finish_rollback(&preview.import_id).unwrap();
+            assert_eq!(rollback_roles[0].id, original.id);
+            assert_eq!(rollback_roles[0].notes, "Original");
+            assert_eq!(
+                rollback_roles[0].browser_session_source.as_deref(),
+                Some("embedded")
+            );
+            assert_eq!(fs::read(browser.join("original.txt")).unwrap(), b"keep");
+        });
     }
 }

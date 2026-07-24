@@ -302,7 +302,6 @@ export class MemoryStateRepository {
       browserLaunchMode: input.browserLaunchMode ?? "inherit",
       browserZoomMode: input.browserZoomMode ?? "adaptive",
       browserZoomPercent: input.browserZoomPercent ?? getDefaultWorkspaceBrowserZoomPercent(template),
-      resourcePolicy: input.resourcePolicy ?? { mode: "adaptive" },
       ...(input.targetDisplay ? { targetDisplay: structuredClone(input.targetDisplay) } : {}),
       slots: defaults.map((slot, index) => ({ ...slot, ...structuredClone(input.slots?.[index] ?? {}) })),
       createdAt: timestamp,

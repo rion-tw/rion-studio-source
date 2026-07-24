@@ -14,28 +14,60 @@ type OverlayCoreClient = Pick<AppCoreClient, "invoke">;
 
 export type MacroOverlayRequest = MacroOverlayRequestRecord;
 
+interface OverlayRefreshState {
+  generation: number;
+  inFlight: boolean;
+  trailing: boolean;
+}
+
+const OVERLAY_REFRESH_STATE = Symbol("rionStudioOverlayRefreshState");
+type RefreshTrackedWebContents = WebContents & {
+  [OVERLAY_REFRESH_STATE]?: OverlayRefreshState;
+};
+
 export class MacroOverlayInjector {
   private readonly installedContents = new Set<WebContents>();
   private readonly initializedContents = new WeakSet<WebContents>();
   private readonly contentRoleIds = new WeakMap<WebContents, string>();
+  private disposed = false;
   private language: AppLanguage | undefined;
 
   constructor(private readonly core: OverlayCoreClient) {}
 
   async install(role: Role, webContents: WebContents): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
     this.trackInstalledContents(role.id, webContents);
 
     if (!this.initializedContents.has(webContents)) {
       this.initializedContents.add(webContents);
       webContents.on("did-finish-load", () => {
-        void this.installContents(webContents);
+        if (!this.disposed) {
+          void this.installContents(webContents);
+        }
       });
     }
 
     await this.installContents(webContents);
   }
 
+  async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
+    const contents = [...this.installedContents];
+    contents.forEach((webContents) => this.invalidateQueuedRefresh(webContents));
+    this.installedContents.clear();
+    await Promise.allSettled(contents.map(async (webContents) => {
+      if (webContents.isDestroyed()) return;
+      await webContents.executeJavaScript(
+        "void window.__rionStudioMacroOverlay?.dispose?.()"
+      );
+    }));
+  }
+
   refreshInstalledOverlays(roleIds?: string | string[]): void {
+    if (this.disposed) return;
     const selectedRoleIds = roleIds === undefined
       ? undefined
       : new Set(Array.isArray(roleIds) ? roleIds : [roleIds]);
@@ -46,7 +78,7 @@ export class MacroOverlayInjector {
       ) {
         return;
       }
-      void this.refreshContentsOverlay(webContents);
+      this.scheduleContentsRefresh(webContents);
     });
   }
 
@@ -101,36 +133,87 @@ export class MacroOverlayInjector {
 
     webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
       if (isMainFrame) {
+        this.invalidateQueuedRefresh(webContents);
         void this.core.invoke({ type: "macroReleaseRole", roleId });
+      }
+    });
+    webContents.on("did-fail-load", (_event, _errorCode, _errorDescription, _url, isMainFrame) => {
+      if (isMainFrame) {
+        this.invalidateQueuedRefresh(webContents);
       }
     });
 
     webContents.once("destroyed", () => {
+      this.invalidateQueuedRefresh(webContents);
       this.installedContents.delete(webContents);
       void this.core.invoke({ type: "macroReleaseRole", roleId });
     });
   }
 
-  private async refreshContentsOverlay(webContents: WebContents): Promise<void> {
-    if (webContents.isDestroyed() || !this.installedContents.has(webContents)) {
+  private invalidateQueuedRefresh(webContents: WebContents): void {
+    const trackedContents = webContents as RefreshTrackedWebContents;
+    const state = trackedContents[OVERLAY_REFRESH_STATE];
+    if (!state) {
       return;
     }
-    try {
-      await webContents.executeJavaScript("void window.__rionStudioMacroOverlay?.refresh?.()");
-    } catch (error) {
-      if (!isBenignFrameInstallError(error)) {
-        console.warn("Failed to refresh Rion Studio macro overlay.", {
-          error,
-          roleId: this.contentRoleIds.get(webContents)
-        });
-      }
+    state.generation += 1;
+    state.trailing = false;
+  }
 
-      this.installedContents.delete(webContents);
+  private scheduleContentsRefresh(webContents: WebContents): void {
+    const trackedContents = webContents as RefreshTrackedWebContents;
+    let state = trackedContents[OVERLAY_REFRESH_STATE];
+    if (!state) {
+      state = { generation: 0, inFlight: false, trailing: false };
+      trackedContents[OVERLAY_REFRESH_STATE] = state;
+    }
+    if (state.inFlight) {
+      state.trailing = true;
+      return;
+    }
+    state.inFlight = true;
+    void this.runContentsRefresh(webContents, state);
+  }
+
+  private async runContentsRefresh(
+    webContents: WebContents,
+    state: OverlayRefreshState
+  ): Promise<void> {
+    const generation = state.generation;
+    try {
+      do {
+        state.trailing = false;
+        if (
+          generation !== state.generation ||
+          webContents.isDestroyed() ||
+          !this.installedContents.has(webContents)
+        ) {
+          break;
+        }
+        try {
+          await webContents.executeJavaScript("void window.__rionStudioMacroOverlay?.refresh?.()");
+        } catch (error) {
+          if (!isBenignFrameInstallError(error)) {
+            console.warn("Failed to refresh Rion Studio macro overlay.", {
+              error,
+              roleId: this.contentRoleIds.get(webContents)
+            });
+          }
+          this.installedContents.delete(webContents);
+          state.trailing = false;
+          break;
+        }
+      } while (state.trailing && generation === state.generation);
+    } finally {
+      state.inFlight = false;
+      if (state.trailing && generation === state.generation) {
+        this.scheduleContentsRefresh(webContents);
+      }
     }
   }
 
   private async installContents(webContents: WebContents): Promise<void> {
-    if (webContents.isDestroyed()) {
+    if (this.disposed || webContents.isDestroyed()) {
       return;
     }
 

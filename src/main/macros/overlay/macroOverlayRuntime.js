@@ -178,7 +178,6 @@
   let isInstalled = false;
   let isOpenRequestPending = false;
   let refreshInFlight = null;
-  let reconciliationTimer = undefined;
   let refreshQueued = false;
   let resourceElement = null;
   let root = null;
@@ -596,6 +595,18 @@
     state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
     state.macroBadgePosition = normalizeMacroBadgePosition(nextState?.macroBadgePosition);
     state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
+    const activeMacroIds = new Set(state.macros.map((macro) => String(macro.id)));
+    macroIterationTimings.forEach((_value, macroId) => {
+      if (!activeMacroIds.has(macroId)) macroIterationTimings.delete(macroId);
+    });
+    seenClickStatusEvents.forEach((_value, key) => {
+      const macroId = String(key).slice(String(key).indexOf(":") + 1);
+      if (!activeMacroIds.has(macroId)) seenClickStatusEvents.delete(key);
+    });
+    retainedClickStatuses.forEach((_value, key) => {
+      const macroId = String(key).slice(String(key).indexOf(":") + 1);
+      if (!activeMacroIds.has(macroId)) retainedClickStatuses.delete(key);
+    });
     state.resourceState = nextState?.resourceState;
     state.cpuThrottleRate = nextState?.cpuThrottleRate || 1;
     if (Array.isArray(nextState?.statuses)) {
@@ -669,10 +680,6 @@
 
   function isRunning(macroId) {
     return state.statuses.some((status) => status.macroId === macroId && status.state === "running");
-  }
-
-  function isStopping(macroId) {
-    return state.statuses.some((status) => status.macroId === macroId && status.state === "stopping");
   }
 
   function getRunningBadgeMacros() {
@@ -778,6 +785,13 @@
       });
 
     const markers = [...markersByPosition.values()];
+    const activeMarkerKeys = new Set(markers.map((marker) => marker.key));
+    clickMarkerEvents.forEach((_value, key) => {
+      if (!activeMarkerKeys.has(key)) clickMarkerEvents.delete(key);
+    });
+    clickMarkerFlashStates.forEach((_value, key) => {
+      if (!activeMarkerKeys.has(key)) clickMarkerFlashStates.delete(key);
+    });
     const nextMarkup = markers.map((marker) => {
       const eventKey = marker.sources
         .map((source) => source.eventKey)
@@ -1360,7 +1374,7 @@
       runAction("press", macro.id, { pressId }, true);
       return;
     }
-    runAction(isRunning(macro.id) || isStopping(macro.id) ? "stop" : "start", macro.id);
+    runAction("toggle", macro.id, undefined, true);
   }
 
   function handleKeyUp(event) {
@@ -1412,32 +1426,10 @@
       reportGameInputContext(false);
       releaseActiveHeldShortcuts();
       stopCoordinateMeasurement();
-      cancelReconciliation();
       return;
     }
     scheduleGameInputContextRefresh();
     void refresh();
-    scheduleReconciliation();
-  }
-
-  function cancelReconciliation() {
-    if (reconciliationTimer !== undefined) {
-      clearTimeout(reconciliationTimer);
-      reconciliationTimer = undefined;
-    }
-  }
-
-  function scheduleReconciliation() {
-    cancelReconciliation();
-    if (isDisposed || document.visibilityState === "hidden") return;
-    reconciliationTimer = setTimeout(() => {
-      reconciliationTimer = undefined;
-      removeLegacyHosts();
-      if (!shouldRenderUi()) {
-        removeHost(hostId);
-      }
-      void refresh().finally(scheduleReconciliation);
-    }, 30000);
   }
 
   function dispose() {
@@ -1462,13 +1454,22 @@
     document.removeEventListener("pointerlockchange", refreshGameInputContext, true);
     document.removeEventListener("visibilitychange", handleVisibilityChange, true);
 
-    cancelReconciliation();
     if (clickStatusRetentionTimer !== undefined) {
       clearTimeout(clickStatusRetentionTimer);
       clickStatusRetentionTimer = undefined;
     }
     retainedClickStatuses.clear();
     seenClickStatusEvents.clear();
+    activeHeldShortcuts.clear();
+    clickMarkerEvents.clear();
+    clickMarkerFlashStates.clear();
+    macroIterationTimings.clear();
+    pendingMacroActions.clear();
+    macroActionTails.clear();
+    latestCoreStatuses = [];
+    state.macros = [];
+    state.statuses = [];
+    suppressedShortcutEvents = [];
 
     removeHost(hostId);
     if (window[controllerKey]?.version === scriptVersion) {
@@ -1497,8 +1498,6 @@
     document.addEventListener("focusout", handleGameSurfaceFocusOut, true);
     document.addEventListener("pointerlockchange", refreshGameInputContext, true);
     document.addEventListener("visibilitychange", handleVisibilityChange, true);
-    scheduleReconciliation();
-
     window[controllerKey] = {
       clearSuppressedShortcut,
       dispose,

@@ -125,36 +125,48 @@ fn run_worker(receiver: Receiver<Request>, output_path: Option<PathBuf>) {
 
 struct Metrics {
     browser_result_count: u64,
+    cdn_plan_count: u64,
     cdp: LatencySampler,
     cdp_count: u64,
     core_event_batch_count: u64,
     core_effects: CoreEffectMetricsRecord,
     ipc_command: LatencySampler,
+    layout_pass_count: u64,
     macro_schedule_to_dispatch: LatencySampler,
+    main_event_loop_delay: LatencySampler,
+    menu_refresh_count: u64,
     napi: LatencySampler,
     napi_count: u64,
     process_launch_count: u64,
     scheduled_wait_count: u64,
     started_at: String,
     tab_activation: LatencySampler,
+    runtime_publish_count: u64,
+    workspace_launch: LatencySampler,
 }
 
 impl Metrics {
     fn new() -> Self {
         Self {
             browser_result_count: 0,
+            cdn_plan_count: 0,
             cdp: LatencySampler::default(),
             cdp_count: 0,
             core_event_batch_count: 0,
             core_effects: CoreEffectMetricsRecord::default(),
             ipc_command: LatencySampler::default(),
+            layout_pass_count: 0,
             macro_schedule_to_dispatch: LatencySampler::default(),
+            main_event_loop_delay: LatencySampler::default(),
+            menu_refresh_count: 0,
             napi: LatencySampler::default(),
             napi_count: 0,
             process_launch_count: 0,
             scheduled_wait_count: 0,
             started_at: Utc::now().to_rfc3339(),
             tab_activation: LatencySampler::default(),
+            runtime_publish_count: 0,
+            workspace_launch: LatencySampler::default(),
         }
     }
 
@@ -176,6 +188,16 @@ impl Metrics {
                     self.tab_activation.record(duration);
                 }
             }
+            TelemetryMetric::WorkspaceLaunch => {
+                if let Some(duration) = sample.duration_ms {
+                    self.workspace_launch.record(duration);
+                }
+            }
+            TelemetryMetric::MainEventLoopDelay => {
+                if let Some(duration) = sample.duration_ms {
+                    self.main_event_loop_delay.record(duration);
+                }
+            }
             TelemetryMetric::Cdp => {
                 self.cdp_count = self.cdp_count.saturating_add(count);
                 if let Some(duration) = sample.duration_ms {
@@ -194,12 +216,25 @@ impl Metrics {
             TelemetryMetric::ScheduledWait => {
                 self.scheduled_wait_count = self.scheduled_wait_count.saturating_add(count);
             }
+            TelemetryMetric::LayoutPass => {
+                self.layout_pass_count = self.layout_pass_count.saturating_add(count);
+            }
+            TelemetryMetric::RuntimePublish => {
+                self.runtime_publish_count = self.runtime_publish_count.saturating_add(count);
+            }
+            TelemetryMetric::MenuRefresh => {
+                self.menu_refresh_count = self.menu_refresh_count.saturating_add(count);
+            }
+            TelemetryMetric::CdnPlan => {
+                self.cdn_plan_count = self.cdn_plan_count.saturating_add(count);
+            }
         }
     }
 
     fn snapshot(&self) -> PerformanceTelemetryRecord {
         PerformanceTelemetryRecord {
             browser_result_count: self.browser_result_count,
+            cdn_plan_count: self.cdn_plan_count,
             cdp: CountedLatencySummaryRecord {
                 message_count: self.cdp_count,
                 latency: self.cdp.summary(),
@@ -207,7 +242,10 @@ impl Metrics {
             core_event_batch_count: self.core_event_batch_count,
             core_effects: self.core_effects.clone(),
             ipc_command: self.ipc_command.summary(),
+            layout_pass_count: self.layout_pass_count,
             macro_schedule_to_dispatch: self.macro_schedule_to_dispatch.summary(),
+            main_event_loop_delay: self.main_event_loop_delay.summary(),
+            menu_refresh_count: self.menu_refresh_count,
             napi: NapiLatencySummaryRecord {
                 call_count: self.napi_count,
                 latency: self.napi.summary(),
@@ -216,6 +254,8 @@ impl Metrics {
             scheduled_wait_count: self.scheduled_wait_count,
             started_at: self.started_at.clone(),
             tab_activation: self.tab_activation.summary(),
+            runtime_publish_count: self.runtime_publish_count,
+            workspace_launch: self.workspace_launch.summary(),
         }
     }
 }
@@ -290,6 +330,21 @@ mod tests {
             duration_ms: Some(5.0),
             count: 1,
         });
+        worker.record(TelemetrySampleRecord {
+            metric: TelemetryMetric::WorkspaceLaunch,
+            duration_ms: Some(125.0),
+            count: 1,
+        });
+        worker.record(TelemetrySampleRecord {
+            metric: TelemetryMetric::MainEventLoopDelay,
+            duration_ms: Some(12.0),
+            count: 1,
+        });
+        worker.record(TelemetrySampleRecord {
+            metric: TelemetryMetric::LayoutPass,
+            duration_ms: None,
+            count: 2,
+        });
         worker.record_napi(2.0);
         worker.record_core_effects(CoreEffectMetricsRecord {
             peak_pending_effect_count: 3,
@@ -299,6 +354,9 @@ mod tests {
         });
         let snapshot = worker.snapshot().unwrap();
         assert_eq!(snapshot.ipc_command.p95_ms, 5.0);
+        assert_eq!(snapshot.workspace_launch.p95_ms, 125.0);
+        assert_eq!(snapshot.main_event_loop_delay.p95_ms, 12.0);
+        assert_eq!(snapshot.layout_pass_count, 2);
         assert_eq!(snapshot.napi.call_count, 1);
         assert_eq!(snapshot.core_effects.peak_pending_effect_count, 3);
         assert_eq!(snapshot.core_effects.launch_effect_count, 7);

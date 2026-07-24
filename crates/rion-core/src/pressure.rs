@@ -215,45 +215,71 @@ mod tests {
 
     #[test]
     fn enters_after_three_cpu_samples_and_exits_after_five_healthy_samples() {
-        let mut evaluator = PressureEvaluator::default();
-        let constrained = SystemPressureSample {
-            cpu_ratio: Some(0.9),
-            memory_available_ratio: Some(0.5),
-        };
-        assert_eq!(evaluator.evaluate(constrained), None);
-        assert_eq!(evaluator.evaluate(constrained), None);
-        assert_eq!(
-            evaluator.evaluate(constrained).unwrap().level,
-            PressureLevel::Constrained
-        );
-        let healthy = SystemPressureSample {
-            cpu_ratio: Some(0.2),
-            memory_available_ratio: Some(0.5),
-        };
-        for _ in 0..4 {
-            assert_eq!(evaluator.evaluate(healthy), None);
-        }
-        assert_eq!(
-            evaluator.evaluate(healthy).unwrap().level,
-            PressureLevel::Normal
-        );
+        crate::v1_case!("resource-platform-d0472c874e98", {
+            let mut evaluator = PressureEvaluator::default();
+            let constrained = SystemPressureSample {
+                cpu_ratio: Some(0.9),
+                memory_available_ratio: Some(0.5),
+            };
+            assert_eq!(evaluator.evaluate(constrained), None);
+            assert_eq!(evaluator.evaluate(constrained), None);
+            assert_eq!(
+                evaluator.evaluate(constrained),
+                Some(SystemPressureSnapshot {
+                    level: PressureLevel::Constrained,
+                    reason: "cpu".to_owned(),
+                })
+            );
+            let healthy = SystemPressureSample {
+                cpu_ratio: Some(0.2),
+                memory_available_ratio: Some(0.5),
+            };
+            for _ in 0..4 {
+                assert_eq!(evaluator.evaluate(healthy), None);
+                assert_eq!(evaluator.snapshot.level, PressureLevel::Constrained);
+            }
+            assert_eq!(
+                evaluator.evaluate(healthy),
+                Some(SystemPressureSnapshot {
+                    level: PressureLevel::Normal,
+                    reason: "baseline".to_owned(),
+                })
+            );
+        });
     }
 
     #[test]
     fn thermal_signal_enters_immediately() {
-        let mut evaluator = PressureEvaluator {
-            thermal_state: "serious".to_owned(),
-            ..PressureEvaluator::default()
-        };
-        assert_eq!(
-            evaluator
-                .evaluate(SystemPressureSample {
+        crate::v1_case!("resource-platform-9256c88b0721", {
+            let mut memory = PressureEvaluator::default();
+            let low_memory = SystemPressureSample {
+                cpu_ratio: None,
+                memory_available_ratio: Some(0.05),
+            };
+            assert_eq!(memory.evaluate(low_memory), None);
+            assert_eq!(memory.evaluate(low_memory), None);
+            assert_eq!(
+                memory.evaluate(low_memory),
+                Some(SystemPressureSnapshot {
+                    level: PressureLevel::Constrained,
+                    reason: "memory".to_owned(),
+                })
+            );
+
+            let mut thermal = PressureEvaluator {
+                thermal_state: "serious".to_owned(),
+                ..PressureEvaluator::default()
+            };
+            assert_eq!(
+                thermal.evaluate(SystemPressureSample {
                     cpu_ratio: None,
                     memory_available_ratio: Some(0.5),
+                }),
+                Some(SystemPressureSnapshot {
+                    level: PressureLevel::Constrained,
+                    reason: "thermal".to_owned(),
                 })
-                .unwrap()
-                .reason,
-            "thermal"
-        );
+            );
+        });
     }
 }

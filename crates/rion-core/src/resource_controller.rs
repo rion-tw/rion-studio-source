@@ -229,7 +229,6 @@ mod tests {
         let operation = thread::spawn(move || {
             invoking.invoke(ResourceRuntimeCommand::ActivateWorkspace {
                 workspace_id: "workspace-1".to_owned(),
-                policy_mode: "adaptive".to_owned(),
                 targets: vec![ResourceRuntimeTargetRecord {
                     role_id: "role-1".to_owned(),
                     runtime_mode: "embedded".to_owned(),

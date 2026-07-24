@@ -62,7 +62,6 @@ export class ElectronBrowserActionAdapter {
   ): Promise<unknown> {
     switch (action.type) {
       case "focus":
-        await target.focus();
         await target.ensureInputFocus();
         return undefined;
       case "key": {

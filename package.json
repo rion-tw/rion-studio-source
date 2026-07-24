@@ -11,6 +11,7 @@
     "verify:rust": "node scripts/verifyRustCore.mjs",
     "verify:v1-parity": "node scripts/verifyV1Parity.mjs",
     "verify:v1-parity:write": "node scripts/verifyV1Parity.mjs --write-report",
+    "sync:v1-parity": "node scripts/syncV1ParityEvidence.mjs",
     "test:rust": "cargo test --workspace --all-targets",
     "lint:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings",
     "generate:rust-types": "cargo test -p rion-core export_bindings",

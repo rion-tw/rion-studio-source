@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
+import { v1Case } from "./helpers/v1Parity";
 
 describe("private and public release workflows", () => {
   it("keeps App credentials out of candidate jobs and calls publication after verification", async () => {
@@ -53,6 +54,11 @@ describe("private and public release workflows", () => {
     expect(workflow).toContain("Build unpacked application");
     expect(workflow).toContain("Verify packaged Rust Node-API core");
     expect(workflow).toContain("verifyPackagedRustCore.mjs");
+    v1Case("platform-effect-lifecycle-80bc80cb3517", () => {
+      expect(workflow).toContain("workflow_call:");
+      expect(workflow).toContain("ref: ${{ inputs.ref || github.ref }}");
+      expect(workflow).toContain("runs-on: ubuntu-latest");
+    });
   });
 
   it("keeps platform packaging behind the Ubuntu gate and enables macOS compiler caching", async () => {

@@ -41,6 +41,21 @@ mod system_fonts;
 mod telemetry;
 mod windows_graphics_events;
 
+#[cfg(test)]
+macro_rules! v1_case {
+    ($id:expr, $assertions:block) => {{
+        let v1_case_id: &str = $id;
+        assert!(
+            !v1_case_id.is_empty(),
+            "v1 parity case identifiers must not be empty"
+        );
+        $assertions
+    }};
+}
+
+#[cfg(test)]
+pub(crate) use v1_case;
+
 pub use app::AppCore;
 pub use bootstrap_settings::read_plan as read_bootstrap_plan;
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
@@ -96,9 +111,9 @@ pub use model::{
     StateCompatibilityReportRecord, StateGameRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
     StateNormalizedRectRecord, StatePixelBoundsRecord, StateResolutionRecord, StateRoleRecord,
     StateWebGraphicsRecord, StateWorkspaceDisplayFingerprintRecord,
-    StateWorkspaceDisplayTargetRecord, StateWorkspaceResourcePolicyRecord,
-    StateWorkspaceSlotRecord, SystemFontFamilyRecord, SystemPressureSnapshot, TelemetryMetric,
-    TelemetrySampleRecord, WindowsGraphicsEventCollectionRecord, WindowsGraphicsEventRecord,
+    StateWorkspaceDisplayTargetRecord, StateWorkspaceSlotRecord, SystemFontFamilyRecord,
+    SystemPressureSnapshot, TelemetryMetric, TelemetrySampleRecord,
+    WindowsGraphicsEventCollectionRecord, WindowsGraphicsEventRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceCreateRequest,
     WorkspaceDisplayInfoRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -288,7 +303,6 @@ mod generated_contract_tests {
                 "export type { StateWebGraphicsRecord } from \"./StateWebGraphicsRecord\";\n",
                 "export type { StateWorkspaceDisplayFingerprintRecord } from \"./StateWorkspaceDisplayFingerprintRecord\";\n",
                 "export type { StateWorkspaceDisplayTargetRecord } from \"./StateWorkspaceDisplayTargetRecord\";\n",
-                "export type { StateWorkspaceResourcePolicyRecord } from \"./StateWorkspaceResourcePolicyRecord\";\n",
                 "export type { StateWorkspaceSlotRecord } from \"./StateWorkspaceSlotRecord\";\n",
                 "export type { SystemPressureSnapshot } from \"./SystemPressureSnapshot\";\n",
                 "export type { SystemFontFamilyRecord } from \"./SystemFontFamilyRecord\";\n",

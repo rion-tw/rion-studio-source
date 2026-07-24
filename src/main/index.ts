@@ -21,6 +21,7 @@ import {
 import { ChromeProfileImportManager } from "./browser/ChromeProfileImportManager";
 import { ElectronProfileEffectAdapter } from "./browser/ElectronProfileEffectAdapter";
 import { EmbeddedRuntimeDiagnostics } from "./browser/EmbeddedRuntimeDiagnostics";
+import { resolveExternalPhysicalBounds } from "./browser/externalPhysicalBounds";
 import { RustSystemPressureMonitor } from "./browser/RustSystemPressureMonitor";
 import { AppCoreClient, readBootstrapPlan } from "./core/nativeCore";
 import { ElectronBrowserActionAdapter } from "./core/ElectronBrowserActionAdapter";
@@ -127,6 +128,7 @@ let latestExternalFreezeReportedAt: Date | undefined;
 let appQuickMenu: AppQuickMenu | null = null;
 let applicationMenu: ApplicationMenuController | null = null;
 let runtimeTabMenu: RuntimeTabMenuController | null = null;
+let macroOverlayInjector: MacroOverlayInjector | null = null;
 let windowsTray: Tray | null = null;
 let pendingMacroPageRequest: MacroPageRequest | null = null;
 let pendingWorkspaceLaunchRequest: PendingWorkspaceLaunchRequest | null = null;
@@ -489,7 +491,6 @@ async function initializeApplication(): Promise<void> {
     broadcastWorkspacesChanged(await workspaceStore.listWorkspaces());
   };
   const macroStore = new MacroStore(userDataDir, coreClient);
-  const macroOverlayRef: { current?: MacroOverlayInjector } = {};
   const macroSettingsStore = new MacroSettingsStore(userDataDir, coreClient);
   const legalAcceptanceStore = new LegalAcceptanceStore(userDataDir, { core: coreClient });
   const gameBrowserSettingsStore = new GameBrowserSettingsStore(userDataDir, coreClient);
@@ -502,7 +503,7 @@ async function initializeApplication(): Promise<void> {
   const cdnCompatibilityManager = new CdnCompatibilityManager({
     core: coreClient,
     handles: electronEffectHandles,
-    matchCdnUrl: (url: string) => coreClient.matchCdnUrl(url)
+    recordPlan: () => coreClient.recordCdnPlan()
   });
   const gameCompatibilityManager = new GameCompatibilityManager({
     applyCdnCompatibility: async (session) => {
@@ -589,6 +590,8 @@ async function initializeApplication(): Promise<void> {
     runtimeTabsPreloadPath: join(__dirname, "../preload/runtime-tabs.cjs"),
     recordTabActivationLatency: (durationMs) =>
       coreClient.recordTabActivationLatency(durationMs),
+    recordLayoutPass: (count) => coreClient.recordLayoutPass(count),
+    recordRuntimePublish: (count) => coreClient.recordRuntimePublish(count),
     adaptiveZoomResolver: (viewportWidth, currentPercent) =>
       coreClient.invoke({
         type: "layoutAdaptiveZoom",
@@ -615,7 +618,6 @@ async function initializeApplication(): Promise<void> {
       );
     },
     getLaunchWorkArea: () => getMainWindowDisplayWorkArea(),
-    getCursorScreenPoint: () => screen.getCursorScreenPoint(),
     getDefaultLaunchTarget: () => {
       const display = getMainWindowDisplay();
       return { displayId: display.id, workArea: display.workArea };
@@ -696,9 +698,11 @@ async function initializeApplication(): Promise<void> {
             };
           }
           case "externalResolvePhysicalBounds":
-            return process.platform === "win32"
-              ? screen.dipToScreenRect(null, action.bounds)
-              : action.bounds;
+            return resolveExternalPhysicalBounds(
+              process.platform,
+              action.bounds,
+              (window, bounds) => screen.dipToScreenRect(window, bounds)
+            );
           case "externalOverlaySource":
             return MACRO_OVERLAY_SCRIPT;
         }
@@ -855,18 +859,63 @@ async function initializeApplication(): Promise<void> {
         : dialog.showOpenDialog(options)
   });
   const macroOverlay = new MacroOverlayInjector(coreClient);
-  macroOverlayRef.current = macroOverlay;
+  macroOverlayInjector = macroOverlay;
   runtimeManager.setMacroOverlayInstaller((role, page) => macroOverlay.install(role, page));
+  const loggedMacroLifecycle = new Map<string, {
+    error?: string;
+    macroId: string;
+    roleId: string;
+    state: string;
+  }>();
   macroManager.on("change", (statuses) => {
-    logService.info("macro", "macro_status_changed", "Macro runtime status changed.", {
-      statuses: statuses.map((status) => ({
-        error: status.error,
-        iteration: status.iteration,
+    const next = new Map<string, {
+      error?: string;
+      macroId: string;
+      roleId: string;
+      state: string;
+    }>();
+    for (const status of statuses) {
+      const key = `${status.roleId}\u0000${status.macroId}`;
+      const lifecycle = {
+        ...(status.error === undefined ? {} : { error: status.error }),
         macroId: status.macroId,
         roleId: status.roleId,
         state: status.state
-      }))
-    });
+      };
+      next.set(key, lifecycle);
+      const previous = loggedMacroLifecycle.get(key);
+      if (previous?.state === lifecycle.state && previous.error === lifecycle.error) continue;
+      const context = {
+        error: lifecycle.error,
+        macroId: lifecycle.macroId,
+        roleId: lifecycle.roleId,
+        state: lifecycle.state
+      };
+      if (lifecycle.state === "failed" || lifecycle.state === "cancelled") {
+        logService.warn(
+          "macro",
+          "macro_lifecycle_terminal",
+          "Macro runtime reached a terminal state.",
+          context
+        );
+      } else {
+        logService.info(
+          "macro",
+          "macro_lifecycle_changed",
+          "Macro runtime lifecycle changed.",
+          context
+        );
+      }
+    }
+    for (const [key, previous] of loggedMacroLifecycle) {
+      if (next.has(key)) continue;
+      logService.info("macro", "macro_lifecycle_stopped", "Macro runtime stopped.", {
+        macroId: previous.macroId,
+        roleId: previous.roleId
+      });
+    }
+    loggedMacroLifecycle.clear();
+    next.forEach((value, key) => loggedMacroLifecycle.set(key, value));
   });
   runtimeManager.on("change", (statuses) => {
     logService.info("browser", "role_status_changed", "Browser role status changed.", {
@@ -893,6 +942,26 @@ async function initializeApplication(): Promise<void> {
     gameCompatibilityManager,
     getDefaultWorkspaceDisplayId: () => getMainWindowDisplay().id,
     getWorkspaceDisplays: () => getWorkspaceDisplayInfos(),
+    ...(coreClient.performanceTelemetryEnabled
+      ? {
+          recordLaunchTelemetry: (trace: {
+            durationMs: number;
+            eventLoopMaxMs: number;
+            eventLoopP95Ms: number;
+          }) => {
+            coreClient.recordWorkspaceLaunchTelemetry(
+              trace.durationMs,
+              trace.eventLoopP95Ms
+            );
+            logService.info(
+              "browser",
+              "workspace_launch_trace",
+              "Workspace launch performance trace completed.",
+              trace
+            );
+          }
+        }
+      : {}),
     roleStore,
     workspaceStore
   });
@@ -1058,6 +1127,7 @@ async function initializeApplication(): Promise<void> {
       includeQuit: process.platform === "win32",
       onWorkspaceDisplaySelectionRequired: requestWorkspaceDisplaySelection,
       openApp: showMainWindow,
+      recordRefresh: () => coreClient.recordMenuRefresh(),
       ...(process.platform === "win32" ? { quitApp: () => app.quit() } : {}),
       setMenu: setQuickMenu
     });
@@ -1352,6 +1422,7 @@ app.on("before-quit", (event) => {
     const actionAdapter = electronBrowserActionAdapter;
     const effectExecutor = electronEffectExecutor;
     const unsubscribeEffects = electronEffectUnsubscribe;
+    const macroOverlay = macroOverlayInjector;
 
     try {
       await manager?.stopAll();
@@ -1385,6 +1456,7 @@ app.on("before-quit", (event) => {
         );
       }
       unsubscribeEffects?.();
+      await macroOverlay?.dispose();
       await actionAdapter?.shutdown().catch((error) => {
         logService.error(
           "macro",
@@ -1397,6 +1469,7 @@ app.on("before-quit", (event) => {
       if (electronEffectUnsubscribe === unsubscribeEffects) electronEffectUnsubscribe = null;
       if (electronEffectExecutor === effectExecutor) electronEffectExecutor = null;
       if (electronBrowserActionAdapter === actionAdapter) electronBrowserActionAdapter = null;
+      if (macroOverlayInjector === macroOverlay) macroOverlayInjector = null;
       if (appCoreClient === coreClient) appCoreClient = null;
       app.quit();
     }

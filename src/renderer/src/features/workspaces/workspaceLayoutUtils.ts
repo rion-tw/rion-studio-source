@@ -8,7 +8,6 @@ import type { WorkspaceDisplayInfo } from "../../../../shared/types";
 import {
   DEFAULT_WORKSPACE_TEMPLATE,
   DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
-  DEFAULT_WORKSPACE_RESOURCE_POLICY,
   getDefaultWorkspaceBrowserZoomPercent,
   getDefaultWorkspaceRects,
   getWorkspaceTemplateSlotCount,
@@ -119,7 +118,6 @@ export function createEmptyWorkspaceForm(workspaces: LaunchWorkspace[], t: Trans
     browserLaunchMode: "inherit",
     browserZoomMode: DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE,
     browserZoomPercent: getDefaultWorkspaceBrowserZoomPercent(DEFAULT_WORKSPACE_TEMPLATE),
-    resourcePolicy: { ...DEFAULT_WORKSPACE_RESOURCE_POLICY },
     slots: applyWorkspaceTemplate([], DEFAULT_WORKSPACE_TEMPLATE)
   };
 }
@@ -142,7 +140,6 @@ export function createWorkspaceFormState(
     browserLaunchMode: workspace.browserLaunchMode,
     browserZoomMode: workspace.browserZoomMode,
     browserZoomPercent: workspace.browserZoomPercent,
-    resourcePolicy: { ...workspace.resourcePolicy },
     ...(targetDisplay === undefined ? {} : { targetDisplay }),
     slots: workspace.slots
   };

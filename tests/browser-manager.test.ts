@@ -4,18 +4,23 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   BrowserGameLoadError,
-  BrowserManager,
-  type BrowserManagerOptions,
-  BrowserWorkspaceDisplayOccupiedError,
+  ElectronBrowserRuntime,
+  type ElectronBrowserRuntimeOptions,
+  type BrowserWorkspaceLaunchItem,
   classifyNativeZoomShortcut,
   classifyRuntimeTabSwitchShortcut,
   createRoleSessionPartition,
   isExpectedNativeZoomResult,
   normalizedRectToPixelBounds
-} from "../src/main/browser/BrowserManager";
+} from "../src/main/browser/ElectronBrowserRuntime";
 import { WORKSPACE_RESIZE_INDICATOR_CHANNEL } from "../src/shared/internalIpc";
 import type {
+  BrowserRuntimeSnapshot,
+  CoreCommand,
+  CoreEffectAction,
   LayoutRoleInput,
+  ResourceRuntimeCommand,
+  ResourceRuntimeTargetRecord,
   WorkspaceDividerDescriptor,
   WorkspaceDividerResizeInput,
   WorkspaceDividerResizeOutput,
@@ -23,7 +28,6 @@ import type {
   WorkspaceLayoutOutput
 } from "../src/shared/generated";
 import type {
-  BrowserLaunchMode,
   LaunchWorkspace,
   PixelBounds,
   Role,
@@ -42,8 +46,16 @@ import {
   normalizeTestWorkspaceRects,
   resolveTestAdaptiveZoom
 } from "./helpers/workspaceLayoutState";
+import { v1Case } from "./helpers/v1Parity";
 
 type AnyMock = Mock;
+
+interface DividerTestEvent {
+  pointerId: number;
+  preventDefault: () => void;
+  screenX: number;
+  type: string;
+}
 
 const role: Role = {
   id: "role-1",
@@ -63,7 +75,6 @@ const workspace: LaunchWorkspace = {
   name: "Party",
   template: "two_columns",
   browserZoomPercent: 90,
-  resourcePolicy: { mode: "unrestricted" },
   slots: [
     { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
     { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
@@ -150,7 +161,7 @@ const persistedLayoutDividerCases: Array<[WorkspaceLayoutTemplate, PixelBounds[]
   ]]
 ];
 
-describe("BrowserManager game host windows", () => {
+describe("ElectronBrowserRuntime game host windows", () => {
   it("creates a persistent isolated partition for each role", () => {
     expect(createRoleSessionPartition("role:one/two")).toBe("persist:rion-role-role-one-two");
   });
@@ -170,6 +181,19 @@ describe("BrowserManager game host windows", () => {
         .toBeLessThan(harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]);
       expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
       expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-68b3526e056a"
+          : "browser-workspace-323a842fef44",
+        () => {
+          expect(applyBrowserProxy).toHaveBeenCalledOnce();
+          expect(applyCdnCompatibility).toHaveBeenCalledOnce();
+          expect(applyCdnCompatibility.mock.invocationCallOrder[0])
+            .toBeLessThan(harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]);
+          expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+          expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
+        }
+      );
     }
   );
 
@@ -212,6 +236,17 @@ describe("BrowserManager game host windows", () => {
       await harness.manager.stopRuntimeTab(runtimeTab.id);
       await expect(launch).resolves.toBeNull();
       expect(harness.manager.listStatuses()).toEqual([]);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-adf3bbaca440"
+          : "browser-workspace-80cad119482f",
+        () => {
+          expect(runtimeTab).toMatchObject({ hidden: false, active: true });
+          expect(harness.hosts[0].show).toHaveBeenCalledOnce();
+          expect(destroyed).toBe(true);
+          expect(harness.manager.listStatuses()).toEqual([]);
+        }
+      );
     }
   );
 
@@ -248,6 +283,17 @@ describe("BrowserManager game host windows", () => {
       expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
         { active: true, hidden: false, sourceId: role.id }
       ]);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-4cb5bcad4a14"
+          : "browser-workspace-98fba36a7d38",
+        () => {
+          expect(harness.manager.listEmbeddedRuntimeState().tabs).toMatchObject([
+            { active: true, hidden: false, sourceId: role.id }
+          ]);
+          expect(harness.views[0].webContents.loadURL).toHaveBeenCalledOnce();
+        }
+      );
     }
   );
 
@@ -289,6 +335,18 @@ describe("BrowserManager game host windows", () => {
         expect.objectContaining({ roleId: role.id, state: "running" }),
         expect.objectContaining({ roleId: secondRole.id, state: "running" })
       ]);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-7b9e9324691b"
+          : "browser-workspace-1a45b9a5a642",
+        () => {
+          expect(harness.hosts[0].show).toHaveBeenCalledOnce();
+          expect(harness.manager.listStatuses()).toEqual([
+            expect.objectContaining({ roleId: role.id, state: "running" }),
+            expect.objectContaining({ roleId: secondRole.id, state: "running" })
+          ]);
+        }
+      );
     }
   );
 
@@ -312,78 +370,42 @@ describe("BrowserManager game host windows", () => {
     await expect(harness.manager.stop(role.id)).resolves.toBeUndefined();
   });
 
-  it("serializes role deletion after active work and rejects stale queued work", async () => {
+  it("stops roles from the authoritative Rust status query when the event cache is stale", async () => {
     const harness = createHarness();
-    const events: string[] = [];
-    let releaseActiveOperation!: () => void;
-    let markActiveOperationStarted!: () => void;
-    const activeOperationStarted = new Promise<void>((resolve) => {
-      markActiveOperationStarted = resolve;
+    await Promise.resolve();
+    expect(harness.manager.listStatuses()).toEqual([]);
+    const tabId = harness.browserRuntimeState.invokeBrowserRuntime({
+      type: "createTab",
+      sourceId: role.id,
+      name: role.name,
+      displayId: 1,
+      tabType: "role",
+      roleIds: [role.id]
+    }).createdTabId!;
+    harness.browserRuntimeState.invokeBrowserRuntime({
+      type: "roleTransition",
+      roleId: role.id,
+      runtime: "embedded",
+      tabId,
+      state: "launching"
     });
-    const activeOperationGate = new Promise<void>((resolve) => {
-      releaseActiveOperation = resolve;
+    harness.browserRuntimeState.invokeBrowserRuntime({
+      type: "roleTransition",
+      roleId: role.id,
+      runtime: "embedded",
+      tabId,
+      state: "running",
+      launchedAt: new Date().toISOString()
     });
+    const invoke = vi.fn(async () => undefined);
+    harness.browserRuntimeState.setTypedInvoker(invoke);
 
-    const activeOperation = harness.manager.runRoleOperation([role.id], async () => {
-      events.push("active:start");
-      markActiveOperationStarted();
-      await activeOperationGate;
-      events.push("active:end");
-    });
-    await activeOperationStarted;
+    await harness.manager.stopAll();
 
-    const deletion = harness.manager.stopRoleAndRunMutation(role.id, async () => {
-      events.push("delete");
+    expect(invoke).toHaveBeenCalledWith({
+      type: "browserRoleStop",
+      roleId: role.id
     });
-    const staleOperation = harness.manager.runRoleOperation([role.id], async () => {
-      events.push("stale");
-    });
-
-    expect(events).toEqual(["active:start"]);
-    releaseActiveOperation();
-
-    await activeOperation;
-    await deletion;
-    await expect(staleOperation).rejects.toThrow("Role not found.");
-    expect(events).toEqual(["active:start", "active:end", "delete"]);
-  });
-
-  it("rejects work queued before a recoverable mutation but allows fresh work afterward", async () => {
-    const harness = createHarness();
-    const events: string[] = [];
-    let releaseActiveOperation!: () => void;
-    let markActiveOperationStarted!: () => void;
-    const activeOperationStarted = new Promise<void>((resolve) => {
-      markActiveOperationStarted = resolve;
-    });
-    const activeOperationGate = new Promise<void>((resolve) => {
-      releaseActiveOperation = resolve;
-    });
-
-    const activeOperation = harness.manager.runRoleOperation([role.id], async () => {
-      events.push("active:start");
-      markActiveOperationStarted();
-      await activeOperationGate;
-      events.push("active:end");
-    });
-    await activeOperationStarted;
-
-    const mutation = harness.manager.stopRoleAndRunRecoverableMutation(role.id, async () => {
-      events.push("clear");
-    });
-    const staleOperation = harness.manager.runRoleOperation([role.id], async () => {
-      events.push("stale");
-    });
-    releaseActiveOperation();
-
-    await activeOperation;
-    await mutation;
-    await expect(staleOperation).rejects.toThrow("Role data changed while the operation was queued.");
-    await expect(harness.manager.runRoleOperation([role.id], async () => {
-      events.push("fresh");
-      return "ready";
-    })).resolves.toBe("ready");
-    expect(events).toEqual(["active:start", "active:end", "clear", "fresh"]);
   });
 
   it.each([
@@ -454,6 +476,24 @@ describe("BrowserManager game host windows", () => {
         kind: "game",
         roleId: role.id
       }, harness.views[0].webContents);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-0585aa1b7a39"
+          : "browser-workspace-74b6e4ce8055",
+        () => {
+          expect(harness.createHostWindow).toHaveBeenCalledWith(
+            expect.objectContaining({ frame: true, show: false, ...materialOptions })
+          );
+          expect(harness.views[0].setBounds).toHaveBeenCalledWith({
+            x: 0,
+            y: 0,
+            width: 1200,
+            height: 800
+          });
+          expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(role.launchUrl);
+          expect(harness.hosts[0].show).toHaveBeenCalledOnce();
+        }
+      );
     }
   );
 
@@ -481,6 +521,17 @@ describe("BrowserManager game host windows", () => {
       expect(firstView.webContents.focus).not.toHaveBeenCalled();
       expect(firstView.webContents.executeJavaScript).not.toHaveBeenCalled();
       expect(secondView.webContents.executeJavaScript).not.toHaveBeenCalled();
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-becd0c0e6603"
+          : "browser-workspace-2476cbdf7ddb",
+        () => {
+          expect(secondView.webContents.focus).toHaveBeenCalledOnce();
+          expect(firstView.webContents.focus).not.toHaveBeenCalled();
+          expect(firstView.webContents.executeJavaScript).not.toHaveBeenCalled();
+          expect(secondView.webContents.executeJavaScript).not.toHaveBeenCalled();
+        }
+      );
     }
   );
 
@@ -547,6 +598,19 @@ describe("BrowserManager game host windows", () => {
         audible: false,
         audioMuted: false
       });
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-1f8900aaa15a"
+          : "browser-workspace-e38d1abb9000",
+        () => {
+          expect(gameWebContents.setAudioMuted).toHaveBeenNthCalledWith(1, true);
+          expect(gameWebContents.setAudioMuted).toHaveBeenLastCalledWith(false);
+          expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({
+            audible: false,
+            audioMuted: false
+          });
+        }
+      );
     }
   );
 
@@ -579,6 +643,17 @@ describe("BrowserManager game host windows", () => {
 
       const newPopup = createOAuthPopup(harness.views[1], harness.views);
       expect(newPopup.webContents.setAudioMuted).toHaveBeenCalledWith(true);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-d08cac3d3f7d"
+          : "browser-workspace-6b680bb8734e",
+        () => {
+          expect(harness.views[0].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+          expect(harness.views[1].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+          expect(popup.webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+          expect(newPopup.webContents.setAudioMuted).toHaveBeenCalledWith(true);
+        }
+      );
     }
   );
 
@@ -1367,9 +1442,9 @@ describe("BrowserManager game host windows", () => {
     expect(harness.createTabbedHostWindow).toHaveBeenCalledTimes(1);
     expect(harness.views[0].view.setVisible).toHaveBeenLastCalledWith(false);
     expect(harness.views[1].view.setVisible).toHaveBeenLastCalledWith(true);
-    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+    expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
       "Emulation.setCPUThrottlingRate",
-      expect.anything()
+      { rate: 2 }
     );
 
     await harness.manager.showRuntimeTab(firstTab.id);
@@ -1379,6 +1454,12 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[1].webContents.loadURL).toHaveBeenCalledTimes(1);
 
     harness.manager.reorderRuntimeTab(secondTab.id, firstTab.id);
+    await vi.waitFor(() => {
+      expect(harness.manager.listEmbeddedRuntimeState().tabs.map((tab) => tab.id)).toEqual([
+        secondTab.id,
+        firstTab.id
+      ]);
+    });
     expect(harness.manager.listEmbeddedRuntimeState().tabs.map((tab) => tab.id)).toEqual([
       secondTab.id,
       firstTab.id
@@ -1459,11 +1540,27 @@ describe("BrowserManager game host windows", () => {
         expect.objectContaining({ active: true, id: secondTab.id }),
         expect.objectContaining({ hidden: true, id: firstTab.id })
       ]));
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-3702d1aea9ee"
+          : "browser-workspace-87c65787a1f3",
+        () => {
+          expect(nextEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(previousEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(oneVisibleTabEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ active: true, id: secondTab.id }),
+              expect.objectContaining({ hidden: true, id: firstTab.id })
+            ])
+          );
+        }
+      );
     }
   );
 
   it.each(["darwin", "win32"] as const)(
-    "applies consecutive runtime tab shortcuts immediately without refocusing the window on %s",
+    "orders consecutive runtime tab shortcuts in Rust without refocusing the window on %s",
     async (platform) => {
       const harness = createHarness({
         defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
@@ -1507,6 +1604,14 @@ describe("BrowserManager game host windows", () => {
         type: "keyDown"
       });
 
+      await vi.waitFor(() => {
+        expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(
+          firstViewFocusCalls + 1
+        );
+        expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(
+          secondViewFocusCalls + 1
+        );
+      });
       expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
         expect.objectContaining({ active: false, id: firstTab.id }),
         expect.objectContaining({ active: true, id: secondTab.id }),
@@ -1539,6 +1644,14 @@ describe("BrowserManager game host windows", () => {
         type: "keyDown"
       });
 
+      await vi.waitFor(() => {
+        expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(
+          firstViewFocusCalls + 2
+        );
+        expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(
+          thirdViewFocusCalls + 1
+        );
+      });
       expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(expect.arrayContaining([
         expect.objectContaining({ active: false, id: firstTab.id }),
         expect.objectContaining({ active: false, id: secondTab.id }),
@@ -1549,15 +1662,28 @@ describe("BrowserManager game host windows", () => {
       expect(harness.views[0].webContents.focus).toHaveBeenCalledTimes(firstViewFocusCalls + 2);
       expect(harness.views[1].webContents.focus).toHaveBeenCalledTimes(secondViewFocusCalls + 1);
       expect(harness.views[2].webContents.focus).toHaveBeenCalledTimes(thirdViewFocusCalls + 1);
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-f1eb2035ac59"
+          : "browser-workspace-2bbe60d17f9d",
+        () => {
+          expect(harness.manager.listEmbeddedRuntimeState().tabs).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ active: false, id: firstTab.id }),
+              expect.objectContaining({ active: false, id: secondTab.id }),
+              expect.objectContaining({ active: true, id: thirdTab.id })
+            ])
+          );
+          expect(harness.hosts[0].focus).toHaveBeenCalledTimes(windowFocusCalls);
+        }
+      );
     }
   );
 
   it("overlays macOS fullscreen chrome without relaying out or reloading the game", async () => {
     vi.useFakeTimers();
-    let cursor = { x: 100, y: 120 };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      getCursorScreenPoint: () => cursor,
       platform: "darwin",
       useTabbedHostWindow: true,
       workspaceDisplays: runtimeDisplays
@@ -1599,26 +1725,13 @@ describe("BrowserManager game host windows", () => {
     expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
     expect(harness.views[0].webContents.loadURL).toHaveBeenCalledTimes(1);
 
-    cursor = { x: 100, y: 24 };
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(11, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 0
     }));
 
-    cursor = { x: 100, y: 68 };
     harness.manager.handleRuntimeToolbarPointer(11, false);
-    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 40,
-      y: 0
-    }));
-    cursor = { x: 100, y: 120 };
-    await vi.advanceTimersByTimeAsync(49);
-    expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
-      height: 40,
-      y: 0
-    }));
-    await vi.advanceTimersByTimeAsync(1);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 2,
       y: 0
@@ -1656,6 +1769,20 @@ describe("BrowserManager game host windows", () => {
         height: 40
       });
       expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+      const caseId = {
+        24: "browser-workspace-afd704ddddba",
+        30: "browser-workspace-b839fe3129c1",
+        38: "browser-workspace-4b6fa7f40ee5"
+      }[safeArea]!;
+      v1Case(caseId, () => {
+        expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith({
+          x: 0,
+          y: 0,
+          width: 1200,
+          height: 40
+        });
+        expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+      });
       harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
     }
   );
@@ -1688,6 +1815,20 @@ describe("BrowserManager game host windows", () => {
         height: 40
       });
       expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+      const caseId = {
+        24: "browser-workspace-df82c8ac9176",
+        30: "browser-workspace-8e058324104c",
+        38: "browser-workspace-bec19daf196c"
+      }[safeArea]!;
+      v1Case(caseId, () => {
+        expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith({
+          x: 0,
+          y: safeArea,
+          width: 1200,
+          height: 40
+        });
+        expect(harness.views[0].setBounds).toHaveBeenCalledTimes(gameBoundsCalls);
+      });
       harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
     }
   );
@@ -1723,7 +1864,6 @@ describe("BrowserManager game host windows", () => {
 
   it("uses a 30 DIP fallback when macOS never reports a menu-bar height", async () => {
     vi.useFakeTimers();
-    let cursor = { x: 100, y: 100 };
     const display: WorkspaceDisplayInfo = {
       ...runtimeDisplays[0],
       bounds: { x: 0, y: 0, width: 1200, height: 800 },
@@ -1731,7 +1871,6 @@ describe("BrowserManager game host windows", () => {
     };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: display.id, workArea: display.workArea },
-      getCursorScreenPoint: () => cursor,
       platform: "darwin",
       useTabbedHostWindow: true,
       workspaceDisplays: [display]
@@ -1751,8 +1890,7 @@ describe("BrowserManager game host windows", () => {
       y: 0
     }));
 
-    cursor = { x: 100, y: 0 };
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(display.id, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 30
@@ -1959,7 +2097,7 @@ describe("BrowserManager game host windows", () => {
     vi.useRealTimers();
   });
 
-  it("monitors fullscreen chrome independently on negative-coordinate displays", async () => {
+  it("handles fullscreen hot-zone events independently on multiple displays", async () => {
     vi.useFakeTimers();
     const displays: WorkspaceDisplayInfo[] = [
       {
@@ -1971,10 +2109,8 @@ describe("BrowserManager game host windows", () => {
       { ...runtimeDisplays[1], id: 44, bounds: { x: 0, y: 0, width: 1200, height: 800 },
         workArea: { x: 0, y: 0, width: 1200, height: 800 } }
     ];
-    let cursor = { x: -600, y: 0 };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 33, workArea: displays[0].workArea },
-      getCursorScreenPoint: () => cursor,
       platform: "darwin",
       useTabbedHostWindow: true,
       workspaceDisplays: displays
@@ -1986,14 +2122,13 @@ describe("BrowserManager game host windows", () => {
     harness.manager.handleRuntimeWindowControl(33, "toggleFullscreen");
     harness.manager.handleRuntimeWindowControl(44, "toggleFullscreen");
 
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(33, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 30
     }));
     expect(harness.chromeViews[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 2 }));
-    cursor = { x: 600, y: 0 };
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(44, true);
     expect(harness.chromeViews[1].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 30
@@ -2003,9 +2138,8 @@ describe("BrowserManager game host windows", () => {
     vi.useRealTimers();
   });
 
-  it("clears auto-hidden menu-bar monitoring before hiding a native-fullscreen host", async () => {
+  it("ignores fullscreen hot-zone events after hiding a native-fullscreen host", async () => {
     vi.useFakeTimers();
-    let cursor = { x: 100, y: 0 };
     const display: WorkspaceDisplayInfo = {
       ...runtimeDisplays[0],
       bounds: { x: 0, y: 0, width: 1200, height: 800 },
@@ -2013,14 +2147,13 @@ describe("BrowserManager game host windows", () => {
     };
     const harness = createHarness({
       defaultLaunchTarget: { displayId: display.id, workArea: display.workArea },
-      getCursorScreenPoint: () => cursor,
       platform: "darwin",
       useTabbedHostWindow: true,
       workspaceDisplays: [display]
     });
     await harness.manager.launch(role);
     harness.manager.handleRuntimeWindowControl(display.id, "toggleFullscreen");
-    await vi.advanceTimersByTimeAsync(50);
+    harness.manager.handleRuntimeToolbarPointer(display.id, true);
     expect(harness.chromeViews[0].setBounds).toHaveBeenLastCalledWith(expect.objectContaining({
       height: 40,
       y: 30
@@ -2028,7 +2161,7 @@ describe("BrowserManager game host windows", () => {
 
     harness.manager.handleRuntimeWindowControl(display.id, "close");
     const chromeBoundsCalls = harness.chromeViews[0].setBounds.mock.calls.length;
-    cursor = { x: 100, y: 100 };
+    harness.manager.handleRuntimeToolbarPointer(display.id, true);
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(harness.hosts[0].setFullScreen).toHaveBeenLastCalledWith(false);
@@ -2215,6 +2348,7 @@ describe("BrowserManager game host windows", () => {
     const primaryTabId = sourceState.tabs.find((tab) => tab.sourceId === role.id)!.id;
 
     harness.manager.handleDisplayRemoved(22, 11);
+    await vi.waitFor(() => expect(harness.hosts[1].close).toHaveBeenCalledTimes(1));
 
     const merged = harness.manager.listEmbeddedRuntimeState();
     expect(merged.windows).toMatchObject([{ displayId: 11, activeTabId: primaryTabId, tabCount: 2 }]);
@@ -2299,220 +2433,6 @@ describe("BrowserManager game host windows", () => {
     expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to external Chrome compatibility mode in auto mode when embedded game load fails", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
-      loadUrlHandlers: [
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        }
-      ]
-    });
-
-    const status = await harness.manager.launch(role);
-
-    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
-      notice:
-        "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
-      workArea: { x: 100, y: 50, width: 1200, height: 800 },
-      zoomFactor: 1
-    });
-    expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external", state: "running" });
-    expect(harness.manager.listStatuses()).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
-  });
-
-  it("keeps the selected work area when a workspace falls back to external Chrome", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const secondRole = createRole("role-2", "Alt");
-    const target = {
-      displayId: -22,
-      workArea: { x: -984, y: -200, width: 984, height: 1280 }
-    };
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
-      getWorkspaceAppearanceSettings: () => ({ background: "black", gap: 16 }),
-      loadUrlHandlers: [
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        },
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        }
-      ]
-    });
-
-    const launchItems = [
-      { role, rect: workspace.slots[0].rect },
-      { role: secondRole, rect: workspace.slots[1].rect }
-    ];
-    await harness.manager.launchWorkspace(
-      workspace,
-      launchItems,
-      target
-    );
-
-    expect(harness.createHostWindow).toHaveBeenCalledWith(expect.objectContaining(target.workArea));
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
-      workspace,
-      launchItems,
-      expect.objectContaining({ workArea: target.workArea })
-    );
-    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
-      { workspaceId: workspace.id, workspaceName: workspace.name, displayId: -22 }
-    ]);
-  });
-
-  it("does not fall back to external Chrome in embedded-only mode", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("embedded"),
-      loadUrlHandlers: [
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        }
-      ]
-    });
-
-    await expect(harness.manager.launch(role)).rejects.toThrow(BrowserGameLoadError);
-
-    expect(externalChromeManager.launch).not.toHaveBeenCalled();
-  });
-
-  it("launches external Chrome directly in external mode without creating embedded views", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const getBrowserLaunchMode = vi.fn().mockResolvedValue("external");
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode
-    });
-
-    const status = await harness.manager.launch(role);
-
-    expect(getBrowserLaunchMode).toHaveBeenCalledWith(role);
-    expect(harness.createHostWindow).not.toHaveBeenCalled();
-    expect(harness.createView).not.toHaveBeenCalled();
-    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
-      notice: undefined,
-      workArea: { x: 100, y: 50, width: 1200, height: 800 },
-      zoomFactor: 1
-    });
-    expect(status).toMatchObject({ roleId: role.id, runtimeMode: "external" });
-  });
-
-  it("delegates external freeze capture and single-role recovery to the external Chrome manager", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("external")
-    });
-    const recoveredStatus = { ...externalChromeManager.listStatuses()[0], pageHealth: "healthy" as const };
-    externalChromeManager.recover.mockResolvedValue(recoveredStatus);
-
-    await expect(harness.manager.captureExternalRoleDiagnostics(role.id)).resolves.toEqual({ roleId: role.id });
-    await expect(harness.manager.recoverExternalRole(role.id)).resolves.toEqual(recoveredStatus);
-
-    expect(externalChromeManager.captureDiagnostics).toHaveBeenCalledWith(role.id);
-    expect(externalChromeManager.recover).toHaveBeenCalledWith(role.id);
-  });
-
-  it("uses an explicitly selected display work area for a direct external launch", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const target = {
-      displayId: 22,
-      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
-    };
-    const harness = createHarness({
-      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("external")
-    });
-
-    await harness.manager.launch(role, { target });
-
-    expect(externalChromeManager.launch).toHaveBeenCalledWith(role, {
-      notice: undefined,
-      workArea: target.workArea,
-      zoomFactor: 1
-    });
-  });
-
-  it("ignores the embedded workspace gap in explicit external mode on every platform", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const getBrowserLaunchMode = vi.fn().mockResolvedValue("embedded");
-    const getWorkspaceAppearanceSettings = vi.fn(() => ({ background: "black" as const, gap: 16 as const }));
-    const secondRole = createRole("role-2", "Alt");
-    const adaptiveWorkspace = { ...workspace, browserZoomMode: "adaptive" as const };
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode,
-      getWorkspaceAppearanceSettings
-    });
-    const launchItems = [
-      { role, rect: workspace.slots[0].rect },
-      { role: secondRole, rect: workspace.slots[1].rect }
-    ];
-
-    await harness.manager.launchWorkspace(
-      adaptiveWorkspace,
-      launchItems,
-      undefined,
-      "external"
-    );
-
-    expect(getBrowserLaunchMode).not.toHaveBeenCalled();
-    expect(getWorkspaceAppearanceSettings).not.toHaveBeenCalled();
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
-      adaptiveWorkspace,
-      launchItems,
-      expect.objectContaining({
-        notice: undefined,
-        zoomFactor: 0.9,
-        zoomMode: "adaptive"
-      })
-    );
-  });
-
-  it("leaves external Chrome resource scheduling entirely to Chrome", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const secondRole = createRole("role-2", "Alt");
-    const firstTarget = createExternalResourceTarget();
-    const secondTarget = createExternalResourceTarget();
-    const statuses = [
-      { roleId: role.id, runtimeMode: "external" as const, state: "running" as const },
-      { roleId: secondRole.id, runtimeMode: "external" as const, state: "running" as const }
-    ];
-    externalChromeManager.getAutomationSession.mockImplementation((roleId: string) => ({
-      role: roleId === role.id ? role : secondRole,
-      target: roleId === role.id ? firstTarget.target : secondTarget.target
-    }));
-    externalChromeManager.launchWorkspace.mockResolvedValue(statuses);
-    externalChromeManager.listStatuses.mockReturnValue(statuses);
-    const harness = createHarness({ externalChromeManager });
-    const priorityWorkspace: LaunchWorkspace = {
-      ...workspace,
-      resourcePolicy: { mode: "adaptive" }
-    };
-
-    const result = await harness.manager.launchWorkspace(
-      priorityWorkspace,
-      [
-        { role, rect: priorityWorkspace.slots[0].rect },
-        { role: secondRole, rect: priorityWorkspace.slots[1].rect }
-      ],
-      undefined,
-      "external"
-    );
-
-    expect(result).toEqual(statuses);
-    expect(externalChromeManager.getAutomationSession).not.toHaveBeenCalled();
-    expect(firstTarget.setRate).not.toHaveBeenCalled();
-    expect(secondTarget.setRate).not.toHaveBeenCalled();
-  });
-
   it("applies browser font preferences before creating a new role view", async () => {
     const applyBrowserFonts = vi.fn().mockResolvedValue(undefined);
     const harness = createHarness({ applyBrowserFonts });
@@ -2523,6 +2443,18 @@ describe("BrowserManager game host windows", () => {
     expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
       harness.createView.mock.invocationCallOrder[0]
     );
+    expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.views[0].webContents.loadURL.mock.invocationCallOrder[0]
+    );
+    v1Case("browser-workspace-074d6b7f91fa", () => {
+      expect(applyBrowserFonts).toHaveBeenCalledWith(
+        role,
+        createRoleSessionPartition(role.id)
+      );
+      expect(applyBrowserFonts.mock.invocationCallOrder[0]).toBeLessThan(
+        harness.createView.mock.invocationCallOrder[0]
+      );
+    });
   });
 
   it("applies browser proxy settings before loading the game page", async () => {
@@ -2657,6 +2589,17 @@ describe("BrowserManager game host windows", () => {
       await harness.views[0].webContents.loadURL("https://accounts.example.net/redirect");
 
       expect(harness.views[0].webContents.getZoomFactor()).toBe(browserZoomPercent / 100);
+      const caseId = {
+        25: "browser-workspace-f288ec9f3e41",
+        90: "browser-workspace-5935bacd1051",
+        125: "browser-workspace-3019794f93b7"
+      }[browserZoomPercent];
+      v1Case(caseId, () => {
+        expect(harness.views[0].webContents.getZoomFactor()).toBe(browserZoomPercent / 100);
+        expect(harness.views[0].webContents.loadURL).toHaveBeenCalledWith(
+          "https://accounts.example.net/redirect"
+        );
+      });
     }
   );
 
@@ -2716,6 +2659,23 @@ describe("BrowserManager game host windows", () => {
         shift: true
       }, platform)).toBeUndefined();
     }
+    const caseId = ({
+      "darwin:Equal": "browser-workspace-3ba42c388c15",
+      "darwin:NumpadSubtract": "browser-workspace-4bbcc3605a5c",
+      "darwin:Digit0": "browser-workspace-ead7ec740aab",
+      "win32:NumpadAdd": "browser-workspace-19acd98432da",
+      "win32:Minus": "browser-workspace-0ca1210d6eef",
+      "win32:Numpad0": "browser-workspace-f2f0e81d61c8"
+    } as Record<string, string>)[`${platform}:${modifiers.code}`]!;
+    v1Case(caseId, () => {
+      expect(classifyNativeZoomShortcut({
+        alt: false,
+        isComposing: false,
+        key: modifiers.code,
+        type: "keyDown",
+        ...modifiers
+      }, platform)).toBe(expected);
+    });
   });
 
   it.each([
@@ -2738,6 +2698,14 @@ describe("BrowserManager game host windows", () => {
     expect(classifyRuntimeTabSwitchShortcut({ ...input, control: false })).toBeUndefined();
     expect(classifyRuntimeTabSwitchShortcut({ ...input, meta: true })).toBeUndefined();
     expect(classifyRuntimeTabSwitchShortcut({ ...input, type: "keyUp" })).toBeUndefined();
+    v1Case(
+      shift ? "browser-workspace-7f991a0d8f29" : "browser-workspace-c978143f30b8",
+      () => {
+        expect(classifyRuntimeTabSwitchShortcut(input)).toBe(expected);
+        expect(classifyRuntimeTabSwitchShortcut({ ...input, alt: true })).toBeUndefined();
+        expect(classifyRuntimeTabSwitchShortcut({ ...input, type: "keyUp" })).toBeUndefined();
+      }
+    );
   });
 
   it.each([
@@ -2753,6 +2721,19 @@ describe("BrowserManager game host windows", () => {
     "validates native zoom result %s from %s to %s",
     (action, previousPercent, nextPercent, expected) => {
       expect(isExpectedNativeZoomResult(action, previousPercent, nextPercent)).toBe(expected);
+      const caseId = ({
+        "in:90:100": "browser-workspace-889b5c73962c",
+        "in:90:90": "browser-workspace-0e9f68cb0180",
+        "in:300:300": "browser-workspace-140e8f7adf23",
+        "out:90:80": "browser-workspace-a885357bb42b",
+        "out:90:100": "browser-workspace-18902d65009b",
+        "out:50:50": "browser-workspace-687f83dcb393",
+        "reset:90:100": "browser-workspace-d6db27cb5ba6",
+        "reset:90:90": "browser-workspace-87b82c305dcc"
+      } as Record<string, string>)[`${action}:${previousPercent}:${nextPercent}`]!;
+      v1Case(caseId, () => {
+        expect(isExpectedNativeZoomResult(action, previousPercent, nextPercent)).toBe(expected);
+      });
     }
   );
 
@@ -2844,6 +2825,21 @@ describe("BrowserManager game host windows", () => {
         harness.hosts[0].contentBounds.width = 700;
         harness.hosts[0].emit("resize");
         expect(webContents.getZoomFactor()).toBe(secondZoomFactor);
+        v1Case(
+          platform === "darwin"
+            ? "browser-workspace-7fad93d9b2f7"
+            : "browser-workspace-5ac6e4515a71",
+          () => {
+            expect(performNativeZoom).toHaveBeenCalledTimes(2);
+            expect(persistWorkspaceRoleZoom).toHaveBeenCalledOnce();
+            expect(persistWorkspaceRoleZoom).toHaveBeenCalledWith(
+              workspace.id,
+              role.id,
+              Math.round(secondZoomFactor * 100)
+            );
+            expect(webContents.getZoomFactor()).toBe(secondZoomFactor);
+          }
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -3002,7 +2998,7 @@ describe("BrowserManager game host windows", () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      const performNativeZoom = vi.fn<NonNullable<BrowserManagerOptions["performNativeZoom"]>>(
+      const performNativeZoom = vi.fn<NonNullable<ElectronBrowserRuntimeOptions["performNativeZoom"]>>(
         () => true
       );
       const persistWorkspaceRoleZoom = vi.fn().mockResolvedValue(undefined);
@@ -3129,35 +3125,67 @@ describe("BrowserManager game host windows", () => {
   it("keeps every role in the visible adaptive workspace at full speed", async () => {
     const harness = createHarness({ platform: "win32" });
     const secondRole = createRole("role-2", "Alt");
-    const priorityWorkspace: LaunchWorkspace = {
-      ...workspace,
-      resourcePolicy: { mode: "adaptive" }
-    };
+    const priorityWorkspace: LaunchWorkspace = { ...workspace };
 
     const statuses = await harness.manager.launchWorkspace(priorityWorkspace, [
       { role, rect: priorityWorkspace.slots[0].rect },
       { role: secondRole, rect: priorityWorkspace.slots[1].rect }
     ]);
 
-    expect(statuses).toEqual(expect.arrayContaining([
-      expect.objectContaining({ roleId: role.id }),
-      expect.objectContaining({ roleId: secondRole.id })
-    ]));
-    expect(statuses.every((status) => status.resourceState === undefined)).toBe(true);
-    expect(harness.views[0].webContents.focus).toHaveBeenCalledOnce();
-    expect(harness.views[1].webContents.focus).not.toHaveBeenCalled();
-    expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
-      "Emulation.setCPUThrottlingRate",
-      expect.anything()
-    );
-    expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
-      "Emulation.setCPUThrottlingRate",
-      expect.anything()
-    );
+    v1Case("resource-platform-46bfa38c2810", () => {
+      expect(statuses).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roleId: role.id }),
+        expect.objectContaining({ roleId: secondRole.id })
+      ]));
+      expect(statuses.every((status) => status.resourceState === undefined)).toBe(true);
+      expect(harness.views[0].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+      expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        expect.anything()
+      );
+    });
+    v1Case("resource-platform-458efe9621a6", () => {
+      expect(harness.views[0].webContents.focus).toHaveBeenCalledOnce();
+      expect(harness.views[1].webContents.focus).not.toHaveBeenCalled();
+    });
 
     harness.views[1].webContents.emit("focus");
     await Promise.resolve();
     expect(harness.manager.listStatuses().every((status) => status.resourceState === undefined)).toBe(true);
+  });
+
+  it("throttles inactive single-role tabs with the global adaptive policy", async () => {
+    const harness = createHarness({
+      defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+      platform: "win32",
+      useTabbedHostWindow: true,
+      workspaceDisplays: runtimeDisplays
+    });
+    const secondRole = createRole("role-2", "Alt");
+
+    await harness.manager.launch(role);
+    await harness.manager.launch(secondRole);
+
+    v1Case("browser-workspace-8855d2f20327", () => {
+      expect(harness.views[0].debuggerApi.sendCommand).toHaveBeenCalledWith(
+        "Emulation.setCPUThrottlingRate",
+        { rate: 2 }
+      );
+      expect(harness.manager.listStatuses().find((status) => status.roleId === role.id)).toMatchObject({
+        resourceState: "throttled",
+        cpuThrottleRate: 2,
+        resourceReason: "runtime_tab_background"
+      });
+    });
+    expect(harness.views[1].debuggerApi.sendCommand).not.toHaveBeenCalledWith(
+      "Emulation.setCPUThrottlingRate",
+      expect.anything()
+    );
+    expect(harness.manager.listStatuses().find((status) => status.roleId === secondRole.id)?.resourceState)
+      .toBeUndefined();
   });
 
   it("throttles only inactive adaptive runtime tabs and releases before showing them", async () => {
@@ -3169,14 +3197,12 @@ describe("BrowserManager game host windows", () => {
     });
     const firstWorkspace: LaunchWorkspace = {
       ...workspace,
-      id: "adaptive-tab-1",
-      resourcePolicy: { mode: "adaptive" }
+      id: "adaptive-tab-1"
     };
     const secondRole = createRole("role-2", "Alt");
     const secondWorkspace: LaunchWorkspace = {
       ...workspace,
-      id: "adaptive-tab-2",
-      resourcePolicy: { mode: "adaptive" }
+      id: "adaptive-tab-2"
     };
 
     await harness.manager.launchWorkspace(firstWorkspace, [
@@ -3252,8 +3278,7 @@ describe("BrowserManager game host windows", () => {
     const thirdRole = createRole("role-3", "Third");
     const thirdWorkspace: LaunchWorkspace = {
       ...workspace,
-      id: "adaptive-tab-3",
-      resourcePolicy: { mode: "adaptive" }
+      id: "adaptive-tab-3"
     };
     await harness.manager.launchWorkspace(thirdWorkspace, [
       { role: thirdRole, rect: { x: 0, y: 0, width: 1, height: 1 } }
@@ -3278,18 +3303,7 @@ describe("BrowserManager game host windows", () => {
       .toMatchObject({ active: true, displayId: 11, hidden: false });
   });
 
-  it.each([
-    {
-      name: "an unrestricted workspace",
-      resourcePolicy: { mode: "unrestricted" as const },
-      pressureLevel: "normal" as const
-    },
-    {
-      name: "an adaptive workspace under constrained system pressure",
-      resourcePolicy: { mode: "adaptive" as const },
-      pressureLevel: "constrained" as const
-    }
-  ])("launches every role concurrently for $name", async ({ resourcePolicy, pressureLevel }) => {
+  it("launches every role concurrently with automatic resource management", async () => {
     const started: number[] = [];
     const releases: Array<() => void> = [];
     const loadUrlHandlers = Array.from({ length: 4 }, (_, index) => async () => {
@@ -3298,18 +3312,11 @@ describe("BrowserManager game host windows", () => {
         releases[index] = resolve;
       });
     });
-    const resourcePressureMonitor: NonNullable<BrowserManagerOptions["resourcePressureMonitor"]> = {
-      getSnapshot: () => ({
-        level: pressureLevel,
-        reason: pressureLevel === "constrained" ? "cpu" : "baseline"
-      }),
-      on: vi.fn()
-    };
-    const harness = createHarness({ loadUrlHandlers, resourcePressureMonitor });
+    const harness = createHarness({ loadUrlHandlers });
     const rects = getDefaultWorkspaceRects("quad");
     const roles = Array.from({ length: 4 }, (_, index) => createRole(`role-${index + 1}`, `Role ${index + 1}`));
     const launch = harness.manager.launchWorkspace(
-      { ...workspace, resourcePolicy },
+      workspace,
       roles.map((item, index) => ({ role: item, rect: rects[index] }))
     );
 
@@ -3317,124 +3324,82 @@ describe("BrowserManager game host windows", () => {
     releases.forEach((release) => release());
 
     await expect(launch).resolves.toHaveLength(4);
+    v1Case("browser-workspace-af651bceaeb9", () => {
+      expect(started).toEqual([0, 1, 2, 3]);
+      expect(harness.manager.listStatuses()).toHaveLength(4);
+    });
   });
 
-  it("waits for every concurrent embedded launch before falling back atomically", async () => {
-    let finishFirstLaunch!: () => void;
-    let secondLaunchStarted = false;
-    const externalChromeManager = createExternalChromeManager();
-    const secondRole = createRole("role-2", "Alt");
+  it("waits for every concurrent embedded load before reporting workspace failure", async () => {
+    let releaseFirst!: () => void;
+    let secondStarted = false;
+    const firstLoad = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
     const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
       loadUrlHandlers: [
-        () => new Promise<void>((resolve) => {
-          finishFirstLaunch = resolve;
-        }),
+        () => firstLoad,
         async () => {
-          secondLaunchStarted = true;
-          throw new Error("ERR_FAILED (-2) loading the second role");
+          secondStarted = true;
+          throw new Error("second role failed");
         }
       ]
     });
-
+    const secondRole = createRole("role-2", "Alt");
+    let settled = false;
     const launch = harness.manager.launchWorkspace(workspace, [
       { role, rect: workspace.slots[0].rect },
       { role: secondRole, rect: workspace.slots[1].rect }
-    ]);
-
-    await vi.waitFor(() => expect(secondLaunchStarted).toBe(true));
-    expect(externalChromeManager.launchWorkspace).not.toHaveBeenCalled();
-    finishFirstLaunch();
-
-    await expect(launch).resolves.toEqual([
-      expect.objectContaining({ runtimeMode: "external" })
-    ]);
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledTimes(1);
-    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back a workspace to external Chrome compatibility mode after embedded game load failure", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const secondRole = createRole("role-2", "Alt");
-    const harness = createHarness({
-      externalChromeManager,
-      getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
-      loadUrlHandlers: [
-        async () => undefined,
-        async () => {
-          throw new Error("ERR_FAILED (-2) loading 'https://universe.flyff.com/play'");
-        }
-      ]
+    ]).finally(() => {
+      settled = true;
     });
-    const target = {
-      displayId: 22,
-      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
-    };
 
-    const statuses = await harness.manager.launchWorkspace(
-      workspace,
-      [
-        { role, rect: workspace.slots[0].rect },
-        { role: secondRole, rect: workspace.slots[1].rect }
-      ],
-      target
-    );
+    await vi.waitFor(() => expect(secondStarted).toBe(true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    releaseFirst();
+    await expect(launch).rejects.toBeInstanceOf(BrowserGameLoadError);
 
-    expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledWith(
-      workspace,
-      [
-        { role, rect: workspace.slots[0].rect },
-        { role: secondRole, rect: workspace.slots[1].rect }
-      ],
-      {
-        notice:
-          "Embedded game view failed to load. Rion Studio switched to external Chrome compatibility mode for accelerator support.",
-        workArea: target.workArea,
-        zoomMode: "fixed",
-        zoomFactor: 0.9
-      }
-    );
-    expect(statuses).toEqual([expect.objectContaining({ runtimeMode: "external" })]);
-    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
-      { workspaceId: workspace.id, workspaceName: workspace.name, displayId: target.displayId }
-    ]);
+    v1Case("browser-workspace-89d17e35538d", () => {
+      expect(secondStarted).toBe(true);
+      expect(settled).toBe(true);
+      expect(harness.hosts[0].close).toHaveBeenCalledOnce();
+      expect(harness.manager.listStatuses()).toEqual([]);
+    });
   });
 
   it.each(["darwin", "win32"] as const)(
-    "hides a %s host closed during launch and still performs auto compatibility fallback",
+    "hides a %s host closed during a failing workspace launch",
     async (platform) => {
       let rejectLoad!: (error: Error) => void;
-      const externalChromeManager = createExternalChromeManager();
-      externalChromeManager.hasWorkspace.mockReturnValue(false);
-      externalChromeManager.listStatuses.mockReturnValue([]);
       const harness = createHarness({
-        externalChromeManager,
-        getBrowserLaunchMode: vi.fn().mockResolvedValue("auto"),
         loadUrlHandlers: [
-          () =>
-            new Promise<void>((_resolve, reject) => {
-              rejectLoad = reject;
-            })
+          () => new Promise<void>((_resolve, reject) => {
+            rejectLoad = reject;
+          })
         ],
         platform
       });
-      const launchPromise = harness.manager.launchWorkspace(workspace, [
+      const launch = harness.manager.launchWorkspace(workspace, [
         { role, rect: { x: 0, y: 0, width: 1, height: 1 } }
       ]);
-
       await vi.waitFor(() => expect(rejectLoad).toBeTypeOf("function"));
       const closeEvent = { preventDefault: vi.fn() };
-      harness.hosts[0].emit("close", closeEvent);
-      rejectLoad(new Error("ERR_FAILED (-2) because the view was closed"));
 
-      await expect(launchPromise).resolves.toEqual([
-        expect.objectContaining({ roleId: role.id, runtimeMode: "external", state: "running" })
-      ]);
-      expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
-      expect(harness.hosts[0].hide).toHaveBeenCalled();
-      expect(externalChromeManager.launchWorkspace).toHaveBeenCalledTimes(1);
+      harness.hosts[0].emit("close", closeEvent);
+      rejectLoad(new Error("view closed during load"));
+      await expect(launch).rejects.toBeInstanceOf(BrowserGameLoadError);
+
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-682b219b6d10"
+          : "browser-workspace-42a9d8ab83ad",
+        () => {
+          expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(harness.hosts[0].hide).toHaveBeenCalled();
+          expect(harness.manager.listStatuses()).toEqual([]);
+        }
+      );
     }
   );
 
@@ -3464,8 +3429,14 @@ describe("BrowserManager game host windows", () => {
     expect(dividerHtml).toContain("background:transparent");
     expect(dividerHtml).not.toContain("class=\"line\"");
     expect(dividerHtml).toContain("cursor:col-resize");
+    expect(dividerHtml).toContain("touch-action:none");
     expect(dividerHtml).not.toContain("body.dragging");
     expect(dividerHtml).toContain("setDragging(true)");
+    expect(dividerHtml).toContain('addEventListener("pointermove"');
+    expect(dividerHtml).toContain("{passive:true}");
+    expect(dividerHtml).toContain("requestAnimationFrame(flushMove)");
+    expect(dividerHtml).toContain("flushMove();setDragging(false);end()");
+    expect(dividerHtml).toContain("const reset=()=>{cancelMove()");
     expect(dividerHtml).toContain('addEventListener("dblclick"');
     expect(dividerHtml).toContain('phase:"reset"');
   });
@@ -3480,6 +3451,87 @@ describe("BrowserManager game host windows", () => {
 
     expect(harness.views[2].view.setBackgroundColor).toHaveBeenCalledWith("#00000000");
     expect(harness.views[2].view.setBackgroundBlur).not.toHaveBeenCalled();
+  });
+
+  it("coalesces divider moves, flushes pointerup, and cancels reset work", async () => {
+    const harness = createHarness();
+    await harness.manager.launchWorkspace(workspace, [
+      { role, rect: workspace.slots[0].rect },
+      { role: createRole("role-2", "Alt"), rect: workspace.slots[1].rect }
+    ]);
+    const dividerUrl = vi.mocked(harness.views[2].webContents.loadURL).mock.calls[0][0];
+    const dividerHtml = decodeURIComponent(dividerUrl.split(",", 2)[1]);
+    const frames = new Map<number, FrameRequestCallback>();
+    const sendPointer = vi.fn();
+    const cancelFrame = vi.fn((frameId: number) => frames.delete(frameId));
+    const listeners = new Map<string, {
+      listener: (event: DividerTestEvent) => void;
+      options?: AddEventListenerOptions | boolean;
+    }>();
+    let nextFrameId = 1;
+    const script = dividerHtml.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    if (!script) throw new Error("Expected generated divider script.");
+    const installDivider = new Function(
+      "window",
+      "document",
+      "addEventListener",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      script
+    ) as (
+      dividerWindow: { rionStudioDivider: { sendPointer: (payload: unknown) => void } },
+      dividerDocument: { body: { setPointerCapture: (pointerId: number) => void } },
+      addListener: (
+        type: string,
+        listener: (event: DividerTestEvent) => void,
+        options?: AddEventListenerOptions | boolean
+      ) => void,
+      requestFrame: (callback: FrameRequestCallback) => number,
+      cancelScheduledFrame: (frameId: number) => void
+    ) => void;
+    installDivider(
+      { rionStudioDivider: { sendPointer } },
+      { body: { setPointerCapture: vi.fn() } },
+      (type, listener, options) => listeners.set(type, { listener, options }),
+      (callback) => {
+        const frameId = nextFrameId++;
+        frames.set(frameId, callback);
+        return frameId;
+      },
+      cancelFrame
+    );
+    const dispatch = (type: string, screenX: number): boolean => {
+      const preventDefault = vi.fn();
+      listeners.get(type)?.listener({ preventDefault, screenX, type, pointerId: 1 });
+      return !preventDefault.mock.calls.length;
+    };
+
+    expect(listeners.get("pointermove")?.options).toEqual({ passive: true });
+    expect(dispatch("pointerdown", 100)).toBe(false);
+    dispatch("pointermove", 120);
+    dispatch("pointermove", 140);
+    expect(frames.size).toBe(1);
+    expect(sendPointer).toHaveBeenCalledTimes(1);
+
+    runAnimationFrame(frames, 1);
+    expect(sendPointer).toHaveBeenLastCalledWith({ phase: "move", screenPosition: 140 });
+
+    dispatch("pointermove", 160);
+    dispatch("pointerup", 180);
+    expect(cancelFrame).toHaveBeenCalledWith(2);
+    expect(frames.size).toBe(0);
+    expect(sendPointer.mock.calls.slice(-2)).toEqual([
+      [{ phase: "move", screenPosition: 180 }],
+      [{ phase: "end" }]
+    ]);
+
+    dispatch("pointerdown", 200);
+    dispatch("pointermove", 230);
+    expect(frames.has(3)).toBe(true);
+    expect(dispatch("dblclick", 230)).toBe(false);
+    expect(cancelFrame).toHaveBeenCalledWith(3);
+    expect(frames.size).toBe(0);
+    expect(sendPointer).toHaveBeenLastCalledWith({ phase: "reset" });
   });
 
   it("uses a one-pixel gap with a solid black workspace background", async () => {
@@ -3637,7 +3689,7 @@ describe("BrowserManager game host windows", () => {
   });
 
   it("uses the Rust workspace layout decision as the Electron object adapter boundary", async () => {
-    const workspaceLayoutResolver = vi.fn(() => ({
+    const workspaceLayoutResolver = vi.fn(async () => ({
       dividers: [{ bounds: { x: 490, y: 0, width: 20, height: 800 }, index: 0 }],
       roles: [
         { bounds: { x: 0, y: 0, width: 490, height: 800 }, roleId: role.id },
@@ -3732,6 +3784,24 @@ describe("BrowserManager game host windows", () => {
         .map((view) => view.view.getBounds());
       expect(dividerBounds).toHaveLength(expectedDividerBounds.length);
       expect(dividerBounds).toEqual(expect.arrayContaining(expectedDividerBounds));
+      const caseId = ({
+        single: "browser-workspace-930306bbcd8d",
+        two_columns: "browser-workspace-2ace2b258565",
+        three_columns: "browser-workspace-186a683fc2ba",
+        main_left_stack_right: "browser-workspace-356c619b93d1",
+        main_right_stack_left: "browser-workspace-c112ef604a75",
+        main_center_side_stacks: "browser-workspace-aad1d0b35db3",
+        three_top_two_bottom: "browser-workspace-73c9e64971cb",
+        two_top_three_bottom: "browser-workspace-6c0e0d9dd9cc",
+        quad: "browser-workspace-4dcb867cdda3",
+        four_columns: "browser-workspace-465b721df9d6",
+        six_grid: "browser-workspace-0f4355309e0a",
+        eight_grid: "browser-workspace-0cf07f76f758"
+      } as Record<string, string>)[template]!;
+      v1Case(caseId, () => {
+        expect(dividerBounds).toHaveLength(expectedDividerBounds.length);
+        expect(dividerBounds).toEqual(expect.arrayContaining(expectedDividerBounds));
+      });
     }
   );
 
@@ -3775,6 +3845,21 @@ describe("BrowserManager game host windows", () => {
         { x: secondColumnEnd - 2, y: 0, width: 4, height },
         { x: 0, y: firstRowEnd - 2, width, height: 4 }
       ]));
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-d8f506fd5278"
+          : "browser-workspace-0b240ba8ff6f",
+        () => {
+          expect(harness.views.slice(0, 6).map((view) => view.view.getBounds()))
+            .toEqual(expectedSessionBounds);
+          expect(harness.views.slice(6).map((view) => view.view.getBounds()))
+            .toEqual(expect.arrayContaining([
+              { x: firstColumnEnd - 2, y: 0, width: 4, height },
+              { x: secondColumnEnd - 2, y: 0, width: 4, height },
+              { x: 0, y: firstRowEnd - 2, width, height: 4 }
+            ]));
+        }
+      );
     }
   );
 
@@ -3867,6 +3952,24 @@ describe("BrowserManager game host windows", () => {
         template === "three_top_two_bottom"
           ? { x: 898, y: 0, width: 4, height: 480 }
           : { x: 898, y: 480, width: 4, height: 320 }
+      );
+      v1Case(
+        template === "three_top_two_bottom"
+          ? "browser-workspace-dc742dfec033"
+          : "browser-workspace-62d4bfbdd2db",
+        () => {
+          expect(horizontalDivider.view.getBounds()).toEqual({
+            x: 0,
+            y: 478,
+            width: 1200,
+            height: 4
+          });
+          expect(verticalDivider.view.getBounds()).toEqual(
+            template === "three_top_two_bottom"
+              ? { x: 898, y: 0, width: 4, height: 480 }
+              : { x: 898, y: 480, width: 4, height: 320 }
+          );
+        }
       );
     }
   );
@@ -4059,44 +4162,6 @@ describe("BrowserManager game host windows", () => {
     });
   });
 
-  it("reserves a target display only for an external Chrome workspace", async () => {
-    const externalChromeManager = createExternalChromeManager();
-    const harness = createHarness({ externalChromeManager, getBrowserLaunchMode: () => "external" });
-    const target = {
-      displayId: 22,
-      workArea: { x: 1200, y: 24, width: 1920, height: 1040 }
-    };
-    const firstLaunch = harness.manager.launchWorkspace(
-      workspace,
-      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
-      target
-    );
-
-    await vi.waitFor(() => {
-      expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([
-        { workspaceId: workspace.id, workspaceName: workspace.name, displayId: 22 }
-      ]);
-    });
-    const secondWorkspace = { ...workspace, id: "workspace-2", name: "Second" };
-    await expect(
-      harness.manager.launchWorkspace(
-        secondWorkspace,
-        [{ role: createRole("role-3", "Third"), rect: { x: 0, y: 0, width: 1, height: 1 } }],
-        target
-      )
-    ).rejects.toBeInstanceOf(BrowserWorkspaceDisplayOccupiedError);
-    expect(harness.createHostWindow).not.toHaveBeenCalled();
-
-    await firstLaunch;
-    expect(harness.createHostWindow).not.toHaveBeenCalled();
-    expect(externalChromeManager.launchWorkspace).toHaveBeenCalledTimes(1);
-
-    externalChromeManager.hasWorkspace.mockReturnValue(false);
-    await harness.manager.stopWorkspace(workspace.id);
-    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
-    expect(harness.manager.listWorkspaceRuntimeStatuses()).toEqual([]);
-  });
-
   it("releases a target display when workspace navigation fails", async () => {
     const harness = createHarness({
       loadUrlHandlers: [vi.fn().mockRejectedValue(new Error("navigation failed"))]
@@ -4109,44 +4174,6 @@ describe("BrowserManager game host windows", () => {
         { displayId: 11, workArea: { x: 0, y: 24, width: 1200, height: 776 } }
       )
     ).rejects.toBeInstanceOf(BrowserGameLoadError);
-    expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
-  });
-
-  it("releases an external workspace display when its last Chrome session exits", async () => {
-    const changes = new EventEmitter();
-    let workspaceActive = false;
-    const status = { roleId: role.id, runtimeMode: "external" as const, state: "running" as const };
-    const externalChromeManager = {
-      getAutomationSession: vi.fn(() => undefined),
-      hasSession: vi.fn(() => false),
-      hasWorkspace: vi.fn(() => workspaceActive),
-      launch: vi.fn().mockResolvedValue(status),
-      launchWorkspace: vi.fn(async () => {
-        workspaceActive = true;
-        changes.emit("change", [status]);
-        return [status];
-      }),
-      listStatuses: vi.fn(() => (workspaceActive ? [status] : [])),
-      on: changes.on.bind(changes),
-      setBeforeRoleStop: vi.fn(),
-      setMacroOverlayInstaller: vi.fn(),
-      stop: vi.fn().mockResolvedValue(undefined),
-      stopWorkspace: vi.fn().mockResolvedValue(undefined)
-    };
-    const harness = createHarness({
-      externalChromeManager: externalChromeManager as never,
-      getBrowserLaunchMode: () => "external"
-    });
-
-    await harness.manager.launchWorkspace(
-      workspace,
-      [{ role, rect: { x: 0, y: 0, width: 1, height: 1 } }],
-      { displayId: 22, workArea: { x: 1200, y: 0, width: 1920, height: 1040 } }
-    );
-    expect(harness.manager.listWorkspaceDisplayReservations()).toHaveLength(1);
-
-    workspaceActive = false;
-    changes.emit("change", []);
     expect(harness.manager.listWorkspaceDisplayReservations()).toEqual([]);
   });
 
@@ -4178,9 +4205,7 @@ describe("BrowserManager game host windows", () => {
       ]);
 
     expect(harness.views[0].webContents.session.cookies.get).not.toHaveBeenCalled();
-    expect(harness.views[0].webContents.executeJavaScript).not.toHaveBeenCalled();
     expect(harness.views[1].webContents.session.cookies.get).not.toHaveBeenCalled();
-    expect(harness.views[1].webContents.executeJavaScript).not.toHaveBeenCalled();
   });
 
   it("stops the actual launched host by workspace id", async () => {
@@ -4193,7 +4218,7 @@ describe("BrowserManager game host windows", () => {
 
     await harness.manager.stopWorkspace(workspace.id);
 
-    expect(harness.beforeRolesStop).toHaveBeenCalledWith(["role-1", "role-2"]);
+    expect(harness.beforeRolesStop).not.toHaveBeenCalled();
     expect(harness.hosts[0].close).toHaveBeenCalledTimes(1);
     expect(harness.manager.listStatuses()).toEqual([]);
   });
@@ -4202,7 +4227,7 @@ describe("BrowserManager game host windows", () => {
     ["macOS native chrome", { platform: "darwin", useMacNativeChrome: true }],
     ["macOS HTML fallback", { platform: "darwin", useTabbedHostWindow: true }],
     ["Windows HTML chrome", { platform: "win32", useTabbedHostWindow: true }]
-  ] as const)("hides a display host on system close without stopping its roles on %s", async (_name, options) => {
+  ] as const)("hides a display host on system close without stopping its roles on %s", async (name, options) => {
     const harness = createHarness(options);
     await harness.manager.launch(role);
     const event = { preventDefault: vi.fn() };
@@ -4215,6 +4240,19 @@ describe("BrowserManager game host windows", () => {
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
     expect(harness.hosts[0].hide).toHaveBeenCalledTimes(1);
     expect(harness.beforeRolesStop).not.toHaveBeenCalled();
+    const caseId = {
+      "macOS native chrome": "browser-workspace-fa75912a292c",
+      "macOS HTML fallback": "browser-workspace-8dcdbe109c2f",
+      "Windows HTML chrome": "browser-workspace-f0a8dbde711c"
+    }[name];
+    v1Case(caseId, () => {
+      expect(harness.manager.listStatuses()).toEqual([
+        expect.objectContaining({ roleId: role.id, state: "running" })
+      ]);
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
+      expect(harness.beforeRolesStop).not.toHaveBeenCalled();
+    });
   });
 
   it.each(["darwin", "win32"] as const)(
@@ -4230,7 +4268,7 @@ describe("BrowserManager game host windows", () => {
 
       await harness.manager.stopRuntimeTab(tab.id);
 
-      expect(harness.beforeRolesStop).toHaveBeenCalledWith([role.id]);
+      expect(harness.beforeRolesStop).not.toHaveBeenCalled();
       expect(harness.views[0].webContents.close).toHaveBeenCalledOnce();
       expect(harness.hosts[0].close).toHaveBeenCalledOnce();
       expect(harness.manager.listStatuses()).toEqual([]);
@@ -4238,6 +4276,20 @@ describe("BrowserManager game host windows", () => {
         tabs: [],
         windows: []
       });
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-b4596ee467b5"
+          : "browser-workspace-5e94d5625e01",
+        () => {
+          expect(harness.views[0].webContents.close).toHaveBeenCalledOnce();
+          expect(harness.hosts[0].close).toHaveBeenCalledOnce();
+          expect(harness.manager.listStatuses()).toEqual([]);
+          expect(harness.manager.listEmbeddedRuntimeState()).toMatchObject({
+            tabs: [],
+            windows: []
+          });
+        }
+      );
     }
   );
 
@@ -4253,6 +4305,7 @@ describe("BrowserManager game host windows", () => {
       type: "keyDown"
     });
 
+    await vi.waitFor(() => expect(harness.hosts[0].hide).toHaveBeenCalledTimes(1));
     expect(harness.hosts[0].hide).toHaveBeenCalledTimes(1);
     expect(harness.manager.listEmbeddedRuntimeState().tabs[0]).toMatchObject({ hidden: true });
     expect(harness.manager.listStatuses()).toEqual([
@@ -4305,8 +4358,20 @@ describe("BrowserManager game host windows", () => {
         meta: platform === "darwin",
         type: "keyDown"
       });
+      await vi.waitFor(() => expect(harness.hosts[0].hide).toHaveBeenCalledOnce());
       expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
       expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
+      v1Case(
+        platform === "darwin"
+          ? "browser-workspace-310227ef70a3"
+          : "browser-workspace-77373ff70243",
+        () => {
+          expect(webContents.setIgnoreMenuShortcuts).toHaveBeenCalledWith(true);
+          expect(webContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(false);
+          expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+          expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
+        }
+      );
     }
   );
 
@@ -4324,6 +4389,7 @@ describe("BrowserManager game host windows", () => {
       type: "keyDown"
     });
 
+    await vi.waitFor(() => expect(harness.hosts[0].hide).toHaveBeenCalledOnce());
     expect(gameWebContents.setIgnoreMenuShortcuts).toHaveBeenLastCalledWith(true);
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(harness.hosts[0].hide).toHaveBeenCalledOnce();
@@ -4425,11 +4491,24 @@ describe("normalizedRectToPixelBounds", () => {
       { x: 900, y: 400, width: 300, height: 400 }
     ]]
   ] as const)("maps %s without title or control-bar offsets", (template, expected) => {
-    expect(
-      getDefaultWorkspaceRects(template).map((rect) =>
-        normalizedRectToPixelBounds(rect, { x: 0, y: 0, width: 1200, height: 800 })
-      )
-    ).toEqual(expected);
+    const actual = getDefaultWorkspaceRects(template).map((rect) =>
+      normalizedRectToPixelBounds(rect, { x: 0, y: 0, width: 1200, height: 800 })
+    );
+    expect(actual).toEqual(expected);
+    const caseId = {
+      three_columns: "browser-workspace-2cc368780200",
+      main_left_stack_right: "browser-workspace-f500fa56e6a2",
+      main_right_stack_left: "browser-workspace-e303c7cf7ff7",
+      quad: "browser-workspace-e726b29ab04b",
+      four_columns: "browser-workspace-cfa845f242c2",
+      three_top_two_bottom: "browser-workspace-3998a3495cb6",
+      two_top_three_bottom: "browser-workspace-b75a0c498770",
+      six_grid: "browser-workspace-e4d2ccbeb3ce",
+      eight_grid: "browser-workspace-dda21739e52f"
+    }[template];
+    v1Case(caseId, () => {
+      expect(actual).toEqual(expected);
+    });
   });
 });
 
@@ -4631,8 +4710,6 @@ function createHarness(options: {
   applyBrowserFonts?: AnyMock;
   applyBrowserProxy?: AnyMock;
   deferFullscreenTransitions?: boolean;
-  externalChromeManager?: ReturnType<typeof createExternalChromeManager>;
-  getBrowserLaunchMode?: (role?: Role) => BrowserLaunchMode | Promise<BrowserLaunchMode>;
   getCursorScreenPoint?: () => { x: number; y: number };
   getRuntimeTabGameIcon?: (role: Role) => string | undefined | Promise<string | undefined>;
   getWorkspaceAppearanceSettings?: () =>
@@ -4640,16 +4717,15 @@ function createHarness(options: {
     | Promise<WorkspaceAppearanceSettings>;
   loadUrlHandlers?: Array<(url: string) => Promise<void>>;
   macNativeChromeError?: Error;
-  handleRuntimeTabAction?: BrowserManagerOptions["handleRuntimeTabAction"];
-  onEmbeddedWebContentsCreated?: BrowserManagerOptions["onEmbeddedWebContentsCreated"];
-  performNativeZoom?: BrowserManagerOptions["performNativeZoom"];
-  persistWorkspaceRoleZoom?: BrowserManagerOptions["persistWorkspaceRoleZoom"];
+  handleRuntimeTabAction?: ElectronBrowserRuntimeOptions["handleRuntimeTabAction"];
+  onEmbeddedWebContentsCreated?: ElectronBrowserRuntimeOptions["onEmbeddedWebContentsCreated"];
+  performNativeZoom?: ElectronBrowserRuntimeOptions["performNativeZoom"];
+  persistWorkspaceRoleZoom?: ElectronBrowserRuntimeOptions["persistWorkspaceRoleZoom"];
   platform?: NodeJS.Platform;
   prefersReducedTransparency?: () => boolean;
-  resourcePressureMonitor?: BrowserManagerOptions["resourcePressureMonitor"];
   defaultLaunchTarget?: { displayId: number; workArea: PixelBounds };
   workspaceDisplays?: WorkspaceDisplayInfo[];
-  workspaceLayoutResolver?: BrowserManagerOptions["workspaceLayoutResolver"];
+  workspaceLayoutResolver?: ElectronBrowserRuntimeOptions["workspaceLayoutResolver"];
   useTabbedHostWindow?: boolean;
   useMacNativeChrome?: boolean;
 } = {}) {
@@ -4657,7 +4733,7 @@ function createHarness(options: {
   const chromeViews: ReturnType<typeof createMockView>[] = [];
   const nativeChromeControllers: Array<{
     destroy: ReturnType<typeof vi.fn>;
-    emitAction: (action: Parameters<NonNullable<BrowserManagerOptions["handleRuntimeTabAction"]>>[2]) => void;
+    emitAction: (action: Parameters<NonNullable<ElectronBrowserRuntimeOptions["handleRuntimeTabAction"]>>[2]) => void;
     emitContentLayout: (layout: { heightInset: number; valid: boolean; yOffset: number }) => void;
     getContentLayout: ReturnType<typeof vi.fn>;
     prepareFullscreenTransition: ReturnType<typeof vi.fn>;
@@ -4736,8 +4812,9 @@ function createHarness(options: {
     return controller;
   });
   const beforeRolesStop = vi.fn().mockResolvedValue(undefined);
-  const manager = new BrowserManager({
-    browserRuntimeState: createBrowserRuntimeState(),
+  const browserRuntimeState = createBrowserRuntimeState();
+  const manager = new ElectronBrowserRuntime({
+    browserRuntimeState,
     adaptiveZoomResolver: resolveTestAdaptiveZoom,
     ...(options.applyCdnCompatibility ? { applyCdnCompatibility: options.applyCdnCompatibility } : {}),
     ...(options.applyBrowserFonts ? { applyBrowserFonts: options.applyBrowserFonts } : {}),
@@ -4750,11 +4827,8 @@ function createHarness(options: {
     dividerPreloadPath: "/app/out/preload/divider.cjs",
     embeddedKeyRuntime: createEmbeddedKeyRuntimeState(),
     embeddedPreloadPath: "/app/out/preload/embedded.cjs",
-    normalizeWorkspaceRects: normalizeTestWorkspaceRects,
     runtimeTabsPageUrl: "data:text/html,runtime-tabs",
     runtimeTabsPreloadPath: "/app/out/preload/runtime-tabs.cjs",
-    ...(options.externalChromeManager ? { externalChromeManager: options.externalChromeManager as never } : {}),
-    ...(options.getBrowserLaunchMode ? { getBrowserLaunchMode: options.getBrowserLaunchMode } : {}),
     ...(options.getCursorScreenPoint ? { getCursorScreenPoint: options.getCursorScreenPoint } : {}),
     ...(options.getRuntimeTabGameIcon
       ? { getRuntimeTabGameIcon: options.getRuntimeTabGameIcon }
@@ -4781,17 +4855,553 @@ function createHarness(options: {
     ...(options.prefersReducedTransparency
       ? { prefersReducedTransparency: options.prefersReducedTransparency }
       : {}),
-    ...(options.resourcePressureMonitor
-      ? { resourcePressureMonitor: options.resourcePressureMonitor }
-      : {}),
     workspaceDividerResolver: resolveTestWorkspaceDividers,
     workspaceDividerResizeResolver: resizeTestWorkspaceDivider,
     workspaceLayoutResolver: options.workspaceLayoutResolver ?? resolveTestWorkspaceLayout
   });
+  const seededRoles = new Map<string, Role>();
+  const seededWorkspaces = new Map<string, {
+    items: BrowserWorkspaceLaunchItem[];
+    workspace: Pick<
+      LaunchWorkspace,
+      "browserZoomMode" | "browserZoomPercent" | "id" | "name" | "template"
+    >;
+  }>();
+  const executeEmbedded = (action: CoreEffectAction): Promise<unknown> =>
+    manager.executeEmbeddedEffect(
+      action as Parameters<ElectronBrowserRuntime["executeEmbeddedEffect"]>[0]
+    );
+  const applyResourceCommand = async (command: ResourceRuntimeCommand): Promise<void> => {
+    let result = browserRuntimeState.invokeResourceRuntimeForTest(command);
+    if (result.effects.length === 0) {
+      browserRuntimeState.publishStatuses();
+      return;
+    }
+    const effectResult = await executeEmbedded({
+      type: "embeddedApplyResourceEffects",
+      effects: result.effects
+    }) as { unavailableRoleIds?: string[] };
+    if ((effectResult.unavailableRoleIds?.length ?? 0) === 0) {
+      browserRuntimeState.publishStatuses();
+      return;
+    }
+    result = browserRuntimeState.invokeResourceRuntimeForTest({
+      type: "setUnavailableRoleIds",
+      roleIds: effectResult.unavailableRoleIds ?? []
+    });
+    if (result.effects.length > 0) {
+      await executeEmbedded({
+        type: "embeddedApplyResourceEffects",
+        effects: result.effects
+      });
+    }
+    browserRuntimeState.publishStatuses();
+  };
+  const applyRuntime = async (
+    snapshot: BrowserRuntimeSnapshot,
+    target?: { displayId: number; workArea: PixelBounds },
+    revealDisplayIds: number[] = [],
+    focusTabId?: string,
+    focusWindowDisplayIds: number[] = []
+  ): Promise<BrowserRuntimeSnapshot> => {
+    const activeTabIds = new Set(snapshot.displays.flatMap((display) =>
+      display.activeTabId ? [display.activeTabId] : []
+    ));
+    await applyResourceCommand({
+      type: "setHiddenWorkspaceIds",
+      workspaceIds: snapshot.tabs
+        .filter((tab) => tab.hidden || !activeTabIds.has(tab.id))
+        .map((tab) => tab.id)
+    });
+    await executeEmbedded({
+      type: "embeddedApplyRuntime",
+      snapshot,
+      target,
+      revealDisplayIds,
+      focusWindowDisplayIds,
+      focusTabId
+    });
+    return snapshot;
+  };
+  const removeRoleRuntime = (roleId: string): void => {
+    const runtime = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+    const roleRuntime = runtime.roles.find((candidate) => candidate.roleId === roleId);
+    if (!roleRuntime) return;
+    browserRuntimeState.invokeBrowserRuntime({ type: "removeRole", roleId });
+    const tab = roleRuntime.tabId
+      ? runtime.tabs.find((candidate) => candidate.id === roleRuntime.tabId)
+      : undefined;
+    if (tab && tab.roleIds.length <= 1) {
+      browserRuntimeState.invokeBrowserRuntime({ type: "removeTab", tabId: tab.id });
+      if (roleRuntime.workspaceId) {
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "removeWorkspace",
+          workspaceId: roleRuntime.workspaceId
+        });
+      }
+    }
+  };
+  browserRuntimeState.setTypedInvoker(async (command: CoreCommand) => {
+    if (command.type === "browserRoleLaunch") {
+      command = {
+        type: "embeddedRoleLaunch",
+        roleId: command.roleId,
+        target: command.target,
+        ...(command.zoomFactor === undefined ? {} : { zoomFactor: command.zoomFactor })
+      };
+    } else if (command.type === "browserWorkspaceLaunch") {
+      command = {
+        type: "embeddedWorkspaceLaunch",
+        workspaceId: command.workspaceId,
+        target: command.target
+      };
+    } else if (command.type === "browserRoleStop") {
+      command = { type: "embeddedRoleStop", roleId: command.roleId };
+    } else if (command.type === "browserWorkspaceStop") {
+      command = { type: "embeddedWorkspaceStop", workspaceId: command.workspaceId };
+    }
+    switch (command.type) {
+      case "embeddedRoleLaunch": {
+        const seededRole = seededRoles.get(command.roleId);
+        if (!seededRole) throw new Error(`Role not found: ${command.roleId}`);
+        const current = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const running = current.roles.find((candidate) => candidate.roleId === command.roleId);
+        if (running?.tabId) {
+          const activated = browserRuntimeState.invokeBrowserRuntime({
+            type: "activateTab",
+            tabId: running.tabId
+          }).snapshot;
+          await applyRuntime(
+            activated,
+            undefined,
+            [command.target.displayId],
+            undefined,
+            [command.target.displayId]
+          );
+          await executeEmbedded({
+            type: "embeddedFocusRole",
+            roleId: command.roleId,
+            zoomFactor: command.zoomFactor ?? 1
+          });
+          return [{
+            launchedAt: running.launchedAt ?? new Date().toISOString(),
+            roleId: command.roleId,
+            runtimeMode: "embedded",
+            state: "running"
+          }];
+        }
+        const created = browserRuntimeState.invokeBrowserRuntime({
+          type: "createTab",
+          sourceId: seededRole.id,
+          name: seededRole.name,
+          displayId: command.target.displayId,
+          tabType: "role",
+          roleIds: [seededRole.id]
+        });
+        const tabId = created.createdTabId!;
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "roleTransition",
+          roleId: seededRole.id,
+          runtime: "embedded",
+          tabId,
+          state: "launching"
+        });
+        const activated = browserRuntimeState.invokeBrowserRuntime({
+          type: "activateTab",
+          tabId
+        }).snapshot;
+        try {
+          await executeEmbedded({
+            type: "embeddedCreateTab",
+            tab: {
+              tabId,
+              sourceId: seededRole.id,
+              name: seededRole.name,
+              workspaceAppearance: options.getWorkspaceAppearanceSettings
+                ? await options.getWorkspaceAppearanceSettings()
+                : { background: "material", gap: 4 },
+              target: command.target,
+              roles: [{
+                role: seededRole,
+                rect: { x: 0, y: 0, width: 1, height: 1 },
+                zoomFactor: command.zoomFactor ?? 1,
+                zoomMode: "fixed"
+              }]
+            }
+          });
+          await applyRuntime(
+            activated,
+            command.target,
+            [command.target.displayId],
+            undefined,
+            [command.target.displayId]
+          );
+          await executeEmbedded({
+            type: "embeddedConfigureRoleSessions",
+            roleIds: [seededRole.id]
+          });
+          await executeEmbedded({
+            type: "embeddedLoadRoles",
+            roles: [{
+              roleId: seededRole.id,
+              url: seededRole.launchUrl,
+              zoomFactor: command.zoomFactor ?? 1
+            }]
+          });
+          await executeEmbedded({
+            type: "embeddedInstallOverlays",
+            roleIds: [seededRole.id]
+          });
+          const targets = await executeEmbedded({
+            type: "embeddedActivateResources",
+            tabId,
+            roleIds: [seededRole.id]
+          }) as ResourceRuntimeTargetRecord[];
+          await applyResourceCommand({
+            type: "activateWorkspace",
+            workspaceId: tabId,
+            targets
+          });
+        } catch (error) {
+          await executeEmbedded({ type: "embeddedDestroyTab", tabId });
+          removeRoleRuntime(seededRole.id);
+          await applyRuntime(
+            browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot,
+            undefined,
+            [command.target.displayId]
+          );
+          throw error;
+        }
+        const launchedAt = new Date().toISOString();
+        const runningSnapshot = browserRuntimeState.invokeBrowserRuntime({
+          type: "roleTransition",
+          roleId: seededRole.id,
+          runtime: "embedded",
+          tabId,
+          state: "running",
+          launchedAt
+        }).snapshot;
+        await applyRuntime(runningSnapshot);
+        return [{ launchedAt, roleId: seededRole.id, runtimeMode: "embedded", state: "running" }];
+      }
+      case "embeddedWorkspaceLaunch": {
+        const seeded = seededWorkspaces.get(command.workspaceId);
+        if (!seeded) throw new Error(`Workspace not found: ${command.workspaceId}`);
+        const roleIds = seeded.items.map(({ role }) => role.id);
+        const current = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const runningRoleIds = current.roles
+          .filter(({ roleId }) => roleIds.includes(roleId))
+          .map(({ roleId }) => roleId);
+        if (runningRoleIds.length > 0) {
+          throw Object.assign(new Error("One or more roles are already running."), {
+            code: "ROLE_ALREADY_RUNNING",
+            roleNames: runningRoleIds.map(
+              (roleId) => seededRoles.get(roleId)?.name ?? roleId
+            )
+          });
+        }
+        browserRuntimeState.invokeBrowserRuntime({
+          type: "beginWorkspace",
+          workspaceId: seeded.workspace.id,
+          name: seeded.workspace.name,
+          displayId: command.target.displayId,
+          roleIds
+        });
+        const created = browserRuntimeState.invokeBrowserRuntime({
+          type: "createTab",
+          sourceId: seeded.workspace.id,
+          name: seeded.workspace.name,
+          displayId: command.target.displayId,
+          tabType: "workspace",
+          workspaceId: seeded.workspace.id,
+          roleIds
+        });
+        const tabId = created.createdTabId!;
+        for (const roleId of roleIds) {
+          browserRuntimeState.invokeBrowserRuntime({
+            type: "roleTransition",
+            roleId,
+            runtime: "embedded",
+            workspaceId: seeded.workspace.id,
+            tabId,
+            state: "launching"
+          });
+        }
+        const activated = browserRuntimeState.invokeBrowserRuntime({
+          type: "activateTab",
+          tabId
+        }).snapshot;
+        try {
+          await executeEmbedded({
+            type: "embeddedCreateTab",
+            tab: {
+              tabId,
+              sourceId: seeded.workspace.id,
+              name: seeded.workspace.name,
+              workspaceId: seeded.workspace.id,
+              workspaceTemplate: seeded.workspace.template,
+              workspaceAppearance: options.getWorkspaceAppearanceSettings
+                ? await options.getWorkspaceAppearanceSettings()
+                : { background: "material", gap: 4 },
+              target: command.target,
+              roles: seeded.items.map((item) => ({
+                role: item.role,
+                rect: item.rect,
+                zoomFactor: (
+                  item.browserZoomPercent ?? seeded.workspace.browserZoomPercent
+                ) / 100,
+                zoomMode: item.browserZoomPercent === undefined
+                  ? seeded.workspace.browserZoomMode
+                  : "fixed"
+              }))
+            }
+          });
+          await applyRuntime(
+            activated,
+            command.target,
+            [command.target.displayId],
+            undefined,
+            [command.target.displayId]
+          );
+          await executeEmbedded({
+            type: "embeddedConfigureRoleSessions",
+            roleIds
+          });
+          await executeEmbedded({
+            type: "embeddedLoadRoles",
+            roles: seeded.items.map((item) => ({
+              roleId: item.role.id,
+              url: item.role.launchUrl,
+              zoomFactor: (
+                item.browserZoomPercent ?? seeded.workspace.browserZoomPercent
+              ) / 100
+            }))
+          });
+          await executeEmbedded({
+            type: "embeddedInstallOverlays",
+            roleIds
+          });
+          const targets = await executeEmbedded({
+            type: "embeddedActivateResources",
+            tabId,
+            roleIds
+          }) as ResourceRuntimeTargetRecord[];
+          await applyResourceCommand({
+            type: "activateWorkspace",
+            workspaceId: tabId,
+            targets
+          });
+        } catch (error) {
+          await executeEmbedded({ type: "embeddedDestroyTab", tabId });
+          roleIds.forEach(removeRoleRuntime);
+          browserRuntimeState.invokeBrowserRuntime({
+            type: "removeWorkspace",
+            workspaceId: seeded.workspace.id
+          });
+          await applyRuntime(
+            browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot,
+            undefined,
+            [command.target.displayId]
+          );
+          throw error;
+        }
+        const launchedAt = new Date().toISOString();
+        for (const roleId of roleIds) {
+          browserRuntimeState.invokeBrowserRuntime({
+            type: "roleTransition",
+            roleId,
+            runtime: "embedded",
+            workspaceId: seeded.workspace.id,
+            tabId,
+            state: "running",
+            launchedAt
+          });
+        }
+        const runningSnapshot = browserRuntimeState.invokeBrowserRuntime({
+          type: "setWorkspaceState",
+          workspaceId: seeded.workspace.id,
+          state: "running"
+        }).snapshot;
+        await applyRuntime(runningSnapshot);
+        return roleIds.map((roleId) => ({
+          launchedAt,
+          roleId,
+          runtimeMode: "embedded",
+          state: "running"
+        }));
+      }
+      case "embeddedRoleStop": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const roleRuntime = snapshot.roles.find(({ roleId }) => roleId === command.roleId);
+        if (!roleRuntime?.tabId) return { stopped: true };
+        const tab = snapshot.tabs.find(({ id }) => id === roleRuntime.tabId);
+        if ((tab?.roleIds.length ?? 1) <= 1) {
+          const display = tab
+            ? snapshot.displays.find(({ displayId }) => displayId === tab.displayId)
+            : undefined;
+          const nextActiveTabId = display?.tabIds.find(
+            (tabId) => tabId !== roleRuntime.tabId &&
+              !snapshot.tabs.find(({ id }) => id === tabId)?.hidden
+          );
+          await executeEmbedded({
+            type: "embeddedDestroyTab",
+            tabId: roleRuntime.tabId,
+            nextActiveTabId
+          });
+        } else {
+          await executeEmbedded({ type: "embeddedDestroyRole", roleId: command.roleId });
+        }
+        removeRoleRuntime(command.roleId);
+        await applyRuntime(
+          browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot
+        );
+        return { stopped: true };
+      }
+      case "embeddedWorkspaceStop": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const runtime = snapshot.workspaces.find(
+          ({ workspaceId }) => workspaceId === command.workspaceId
+        );
+        if (!runtime?.tabId) return { stopped: true };
+        const tab = snapshot.tabs.find(({ id }) => id === runtime.tabId);
+        const display = tab
+          ? snapshot.displays.find(({ displayId }) => displayId === tab.displayId)
+          : undefined;
+        const nextActiveTabId = display?.tabIds.find(
+          (tabId) => tabId !== runtime.tabId &&
+            !snapshot.tabs.find(({ id }) => id === tabId)?.hidden
+        );
+        if (nextActiveTabId) {
+          await applyResourceCommand({
+            type: "prepareWorkspaceForeground",
+            workspaceId: nextActiveTabId
+          });
+        }
+        await executeEmbedded({
+          type: "embeddedDestroyTab",
+          tabId: runtime.tabId,
+          nextActiveTabId
+        });
+        runtime.roleIds.forEach(removeRoleRuntime);
+        const stoppedSnapshot = browserRuntimeState.invokeBrowserRuntime({
+          type: "removeWorkspace",
+          workspaceId: command.workspaceId
+        }).snapshot;
+        await applyRuntime(stoppedSnapshot);
+        return { stopped: true };
+      }
+      case "embeddedWindowsShow": {
+        const current = browserRuntimeState.invokeBrowserRuntime({ type: "snapshot" }).snapshot;
+        const displayIds = command.displayId === undefined
+          ? current.displays.map(({ displayId }) => displayId)
+          : [command.displayId];
+        let snapshot = current;
+        for (const displayId of displayIds) {
+          snapshot = browserRuntimeState.invokeBrowserRuntime({
+            type: "showDisplay",
+            displayId
+          }).snapshot;
+        }
+        return applyRuntime(snapshot, undefined, displayIds, undefined, displayIds);
+      }
+      case "embeddedTabActivate": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({
+          type: "activateTab",
+          tabId: command.tabId
+        }).snapshot;
+        const displayId = snapshot.tabs.find(({ id }) => id === command.tabId)!.displayId;
+        return applyRuntime(
+          snapshot,
+          undefined,
+          [displayId],
+          command.tabId,
+          [displayId]
+        );
+      }
+      case "embeddedTabActivateAdjacent": {
+        const snapshot = browserRuntimeState.invokeBrowserRuntime({
+          type: "activateAdjacentTab",
+          displayId: command.displayId,
+          direction: command.direction
+        }).snapshot;
+        const activeTabId = snapshot.displays.find(
+          ({ displayId }) => displayId === command.displayId
+        )?.activeTabId;
+        return applyRuntime(snapshot, undefined, [command.displayId], activeTabId);
+      }
+      case "embeddedTabHide":
+        return applyRuntime(browserRuntimeState.invokeBrowserRuntime({
+          type: "hideTab",
+          tabId: command.tabId
+        }).snapshot);
+      case "embeddedTabReorder":
+        return applyRuntime(browserRuntimeState.invokeBrowserRuntime({
+          type: "reorderTab",
+          tabId: command.tabId,
+          ...(command.beforeTabId ? { beforeTabId: command.beforeTabId } : {})
+        }).snapshot);
+      case "embeddedTabMove":
+        return applyRuntime(browserRuntimeState.invokeBrowserRuntime({
+          type: "moveTab",
+          tabId: command.tabId,
+          displayId: command.target.displayId
+        }).snapshot, command.target, [command.target.displayId], command.tabId, [
+          command.target.displayId
+        ]);
+      case "embeddedDisplayRemove":
+        return applyRuntime(browserRuntimeState.invokeBrowserRuntime({
+          type: "moveDisplayTabs",
+          sourceDisplayId: command.displayId,
+          targetDisplayId: command.fallback.displayId
+        }).snapshot, command.fallback, [command.fallback.displayId]);
+      case "resourceActivateWorkspace":
+        await applyResourceCommand({
+          type: "activateWorkspace",
+          workspaceId: command.workspaceId,
+          targets: command.targets
+        });
+        return { activated: true };
+      case "resourceDeactivateWorkspace":
+        await applyResourceCommand({
+          type: "deactivateWorkspace",
+          workspaceId: command.workspaceId
+        });
+        return { deactivated: true };
+      case "resourceRefreshTarget":
+        await applyResourceCommand({
+          type: "refreshTarget",
+          workspaceId: command.workspaceId,
+          roleId: command.roleId,
+          processId: command.processId
+        });
+        return { refreshed: true };
+      default:
+        throw new Error(`Unexpected typed command in ElectronBrowserRuntime test: ${command.type}`);
+    }
+  });
+  const launch = manager.launch.bind(manager);
+  manager.launch = ((launchRole, launchOptions) => {
+    seededRoles.set(launchRole.id, launchRole);
+    return launch(launchRole, launchOptions);
+  }) as ElectronBrowserRuntime["launch"];
+  const launchWorkspace = manager.launchWorkspace.bind(manager);
+  manager.launchWorkspace = ((launchWorkspaceRecord, items, target, launchMode) => {
+    items.forEach(({ role: itemRole }) => seededRoles.set(itemRole.id, itemRole));
+    const normalizedRects = normalizeTestWorkspaceRects(items.map(({ rect }) => rect));
+    seededWorkspaces.set(launchWorkspaceRecord.id, {
+      items: items.map((item, index) => ({
+        ...item,
+        rect: normalizedRects[index]
+      })),
+      workspace: launchWorkspaceRecord
+    });
+    return launchWorkspace(launchWorkspaceRecord, items, target, launchMode);
+  }) as ElectronBrowserRuntime["launchWorkspace"];
   manager.setBeforeRolesStop(beforeRolesStop);
 
   return {
     beforeRolesStop,
+    browserRuntimeState,
     chromeViews,
     createHostWindow,
     createMacRuntimeTabsController,
@@ -4802,59 +5412,6 @@ function createHarness(options: {
     manager,
     nativeChromeControllers,
     views
-  };
-}
-
-function createExternalChromeManager() {
-  const status = {
-    roleId: role.id,
-    runtimeMode: "external" as const,
-    state: "running" as const
-  };
-
-  return {
-    captureDiagnostics: vi.fn().mockResolvedValue({ roleId: role.id }),
-    getAutomationSession: vi.fn((
-      _roleId: string
-    ): { role: Role; target: ReturnType<typeof createExternalResourceTarget>["target"] } | undefined => undefined),
-    hasSession: vi.fn(() => false),
-    hasWorkspace: vi.fn(() => true),
-    launch: vi.fn().mockResolvedValue(status),
-    launchWorkspace: vi.fn().mockResolvedValue([status]),
-    listDiagnostics: vi.fn(() => [{ roleId: role.id }]),
-    listStatuses: vi.fn(() => [status]),
-    on: vi.fn(),
-    recover: vi.fn().mockResolvedValue(status),
-    setBeforeRoleStop: vi.fn(),
-    setMacroOverlayInstaller: vi.fn(),
-    stop: vi.fn().mockResolvedValue(undefined),
-    stopWorkspace: vi.fn().mockResolvedValue(undefined)
-  };
-}
-
-function createExternalResourceTarget() {
-  const focusListeners = new Set<() => void>();
-  const setRate = vi.fn().mockResolvedValue(undefined);
-  const target = {
-    close: vi.fn(),
-    dispatchClick: vi.fn().mockResolvedValue(undefined),
-    dispatchKey: vi.fn().mockResolvedValue(undefined),
-    evaluate: vi.fn().mockResolvedValue(undefined),
-    focus: vi.fn().mockResolvedValue(undefined),
-    installMacroOverlay: vi.fn().mockResolvedValue(undefined),
-    onDisconnect: vi.fn(() => () => undefined),
-    onFocus: vi.fn((listener: () => void) => {
-      focusListeners.add(listener);
-      return () => focusListeners.delete(listener);
-    }),
-    releaseThrottle: vi.fn().mockResolvedValue(undefined),
-    setCpuThrottleRate: setRate,
-    setWindowBounds: vi.fn().mockResolvedValue(undefined)
-  };
-  return {
-    emitFocus: () => focusListeners.forEach((listener) => listener()),
-    setRate,
-    target
   };
 }
 
@@ -4930,7 +5487,7 @@ function createMockBrowserHost(deferFullscreenTransitions = false) {
 }
 
 function createMockNativeZoomPerformer() {
-  const perform: NonNullable<BrowserManagerOptions["performNativeZoom"]> = (
+  const perform: NonNullable<ElectronBrowserRuntimeOptions["performNativeZoom"]> = (
     action,
     _window,
     targetWebContents
@@ -5040,4 +5597,13 @@ function createOAuthPopup(
   const response = handler();
   response.createWindow({ webPreferences: { javascript: true } });
   return views[popupIndex];
+}
+
+function runAnimationFrame(
+  frames: Map<number, FrameRequestCallback>,
+  frameId: number
+): void {
+  const callback = frames.get(frameId);
+  frames.delete(frameId);
+  callback?.(frameId * 16);
 }

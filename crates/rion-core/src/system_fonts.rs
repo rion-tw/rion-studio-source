@@ -68,30 +68,39 @@ mod tests {
 
     #[test]
     fn normalizes_sorts_and_deduplicates_names() {
-        assert_eq!(
-            normalize(vec![
-                "  Zed  Sans ".to_owned(),
-                "arial".to_owned(),
-                "Arial".to_owned(),
-                "bad\0font".to_owned(),
-            ]),
-            vec![
-                SystemFontFamilyRecord {
-                    family: "arial".to_owned(),
-                    label: "arial".to_owned(),
-                },
-                SystemFontFamilyRecord {
-                    family: "Zed Sans".to_owned(),
-                    label: "Zed Sans".to_owned(),
-                },
-            ]
-        );
+        crate::v1_case!("resource-platform-fd00e9748bbd", {
+            assert_eq!(
+                normalize(vec![
+                    " Helvetica ".to_owned(),
+                    "Arial".to_owned(),
+                    "helvetica".to_owned(),
+                    "Bad\0Font".to_owned(),
+                    "Courier New".to_owned(),
+                ]),
+                vec![
+                    SystemFontFamilyRecord {
+                        family: "Arial".to_owned(),
+                        label: "Arial".to_owned(),
+                    },
+                    SystemFontFamilyRecord {
+                        family: "Courier New".to_owned(),
+                        label: "Courier New".to_owned(),
+                    },
+                    SystemFontFamilyRecord {
+                        family: "Helvetica".to_owned(),
+                        label: "Helvetica".to_owned(),
+                    },
+                ]
+            );
+        });
     }
 
     #[test]
     fn supplies_a_bounded_cross_platform_fallback() {
-        let fonts = normalize_or_fallback(Vec::new());
-        assert!(fonts.iter().any(|font| font.family == "Arial"));
-        assert!(fonts.iter().any(|font| font.family == "Microsoft JhengHei"));
+        crate::v1_case!("resource-platform-edc69e2cbf43", {
+            let fonts = normalize_or_fallback(Vec::new());
+            assert!(fonts.iter().any(|font| font.family == "Arial"));
+            assert!(fonts.iter().any(|font| font.family == "Noto Sans Math"));
+        });
     }
 }

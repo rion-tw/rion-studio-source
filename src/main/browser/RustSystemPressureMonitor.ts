@@ -55,11 +55,14 @@ export class RustSystemPressureMonitor extends EventEmitter<{
   }
 
   setSpeedLimit(limit: number): void {
-    this.core.updateSystemPressureSignals({ speedLimit: Number.isFinite(limit) ? limit : 100 });
+    void this.core.invoke({
+      type: "systemPressureUpdate",
+      speedLimit: Number.isFinite(limit) ? limit : 100
+    });
   }
 
   setThermalState(state: "unknown" | "nominal" | "fair" | "serious" | "critical"): void {
-    this.core.updateSystemPressureSignals({ thermalState: state });
+    void this.core.invoke({ type: "systemPressureUpdate", thermalState: state });
   }
 }
 

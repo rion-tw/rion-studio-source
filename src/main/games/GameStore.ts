@@ -1,10 +1,10 @@
 import type {
+  BulkDeleteResult,
   CreateGameInput,
   Game,
   UpdateGameInput
 } from "../../shared/types";
-import type { RoleStore } from "../roles/RoleStore";
-import type { StateRepository } from "../core/RustStateRepository";
+import type { AppCoreClient } from "../core/nativeCore";
 
 export class GameStoreError extends Error {
   constructor(
@@ -27,48 +27,69 @@ export class GameStoreError extends Error {
 export class GameStore {
   constructor(
     _userDataDir: string,
-    private readonly roleStore: Pick<RoleStore, "assignGameIds" | "listRoles">,
-    private readonly stateRepository: StateRepository
+    private readonly core: Pick<AppCoreClient, "invoke">
   ) {}
 
   listGames(): Promise<Game[]> {
-    return this.repository().listGames();
+    return this.core.invoke({ type: "gamesList" });
   }
 
   getGame(id: string): Promise<Game> {
-    return this.repository().getGame(id);
+    return this.core.invoke({ type: "gameGet", id });
   }
 
   createGame(input: CreateGameInput): Promise<Game> {
-    return this.repository().createGame(input);
+    return this.core.invoke({
+      type: "gameCreate",
+      input: {
+        name: input.name,
+        defaultLaunchUrl: input.defaultLaunchUrl,
+        ...(typeof input.iconImageDataUrl === "string"
+          ? { iconImageDataUrl: input.iconImageDataUrl }
+          : {}),
+        ...(typeof input.coverImageDataUrl === "string"
+          ? { coverImageDataUrl: input.coverImageDataUrl }
+          : {}),
+        ...(input.browserLaunchMode === undefined
+          ? {}
+          : { browserLaunchMode: input.browserLaunchMode })
+      }
+    });
   }
 
   updateGame(id: string, input: UpdateGameInput): Promise<Game> {
-    return this.repository().updateGame(id, input);
+    return this.core.invoke({
+      type: "gameUpdate",
+      id,
+      input: {
+        ...(input.name === undefined ? {} : { name: input.name }),
+        ...(input.defaultLaunchUrl === undefined
+          ? {}
+          : { defaultLaunchUrl: input.defaultLaunchUrl }),
+        ...(typeof input.iconImageDataUrl === "string"
+          ? { iconImageDataUrl: input.iconImageDataUrl }
+          : {}),
+        setIconImageDataUrl: input.iconImageDataUrl !== undefined,
+        ...(typeof input.coverImageDataUrl === "string"
+          ? { coverImageDataUrl: input.coverImageDataUrl }
+          : {}),
+        setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
+        ...(input.browserLaunchMode === undefined
+          ? {}
+          : { browserLaunchMode: input.browserLaunchMode })
+      }
+    });
   }
 
   resetBuiltinGame(id: string): Promise<Game> {
-    return this.repository().resetBuiltinGame(id);
+    return this.core.invoke({ type: "gameResetBuiltin", id });
   }
 
   async deleteGame(id: string): Promise<void> {
-    try {
-      await this.repository().deleteGame(id);
-    } catch (error) {
-      if (getErrorCode(error) !== "GAME_IN_USE") throw error;
-      const assignedRoles = (await this.roleStore.listRoles()).filter((role) => role.gameId === id);
-      throw new GameStoreError("GAME_IN_USE", "Move or delete assigned roles before deleting this game.", {
-        roleCount: assignedRoles.length,
-        roleNames: assignedRoles.map((role) => role.name)
-      });
-    }
+    await this.core.invoke({ type: "gameDelete", id });
   }
 
-  private repository(): StateRepository {
-    return this.stateRepository;
+  deleteGames(ids: string[]): Promise<BulkDeleteResult> {
+    return this.core.invoke({ type: "gamesDelete", ids });
   }
-}
-
-function getErrorCode(error: unknown): string | undefined {
-  return error instanceof Error && "code" in error ? String(error.code) : undefined;
 }

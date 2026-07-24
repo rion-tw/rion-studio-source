@@ -158,6 +158,50 @@ describe("renderer status indicators", () => {
     expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("shows the latest macro failure reason in the macro row", () => {
+    const failed = {
+      roleId: "role-1",
+      macroId: "macro-1",
+      state: "failed" as const,
+      startedAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:01.000Z",
+      error: "Embedded browser target is unavailable."
+    };
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[macro()]}
+        macroStatuses={[failed]}
+        macroStatusByRun={new Map([["role-1:macro-1", failed]])}
+        query=""
+        roleFilterId=""
+        roles={[role()]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map([["role-1", { roleId: "role-1", state: "running" }]])}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    const failure = screen.getByText(
+      "Macro failed: Embedded browser target is unavailable."
+    );
+    expect(failure.parentElement?.title).toBe(
+      "Main role: Embedded browser target is unavailable."
+    );
+  });
+
   it("labels an unassigned macro and disables its start action with an assignment hint", () => {
     render(
       <MacrosRoute

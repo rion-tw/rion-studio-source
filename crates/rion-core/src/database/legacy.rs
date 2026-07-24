@@ -555,11 +555,6 @@ fn normalize_workspace(value: &Value, now: &str) -> CoreResult<Value> {
     if !matches!(zoom, 25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125) {
         return Err(invalid("legacy workspace browser zoom is invalid"));
     }
-    let resource_mode = source
-        .get("resourcePolicy")
-        .and_then(Value::as_object)
-        .and_then(|policy| policy.get("mode"))
-        .and_then(Value::as_str);
     let mut output = Map::new();
     output.insert(
         "id".to_owned(),
@@ -585,10 +580,6 @@ fn normalize_workspace(value: &Value, now: &str) -> CoreResult<Value> {
         ),
     );
     output.insert("browserZoomPercent".to_owned(), json!(zoom));
-    output.insert(
-        "resourcePolicy".to_owned(),
-        json!({ "mode": if resource_mode == Some("unrestricted") { "unrestricted" } else { "adaptive" } }),
-    );
     if let Some(target) = normalize_target_display(source)? {
         output.insert("targetDisplay".to_owned(), target);
     }
@@ -688,18 +679,24 @@ fn normalize_macro(value: &Value, now: &str) -> CoreResult<Value> {
         .collect::<CoreResult<Vec<_>>>()?;
     let mut unique_roles = HashSet::new();
     role_ids.retain(|id| unique_roles.insert(id.clone()));
-    let activation_mode = source
+    let mut activation_mode = source
         .get("activationMode")
         .and_then(Value::as_str)
         .unwrap_or("toggle");
     if !matches!(activation_mode, "toggle" | "while_held") {
         return Err(invalid("legacy macro activation mode is invalid"));
     }
-    let trigger = source
+    let mut trigger = source
         .get("trigger")
         .filter(|value| !value.is_null())
         .map(normalize_trigger)
         .transpose()?;
+    if trigger.as_ref().is_some_and(is_reserved_macro_trigger) {
+        trigger = None;
+        if activation_mode == "while_held" {
+            activation_mode = "toggle";
+        }
+    }
     if activation_mode == "while_held" && trigger.is_none() {
         return Err(invalid("legacy while-held macro requires a trigger"));
     }
@@ -867,17 +864,23 @@ fn normalize_macro_step(value: &Value, ids: &mut HashSet<String>) -> CoreResult<
             }
             if unit == "px" {
                 step.insert("unit".to_owned(), json!("px"));
-                step.insert("xPx".to_owned(), json!(finite_number(source, "xPx")?));
-                step.insert("yPx".to_owned(), json!(finite_number(source, "yPx")?));
+                step.insert(
+                    "xPx".to_owned(),
+                    json!(finite_number(source, "xPx")?.round()),
+                );
+                step.insert(
+                    "yPx".to_owned(),
+                    json!(finite_number(source, "yPx")?.round()),
+                );
                 Ok(Value::Object(step))
             } else if unit == "percent" {
                 step.insert(
                     "xPercent".to_owned(),
-                    json!(finite_number(source, "xPercent")?),
+                    json!(normalize_macro_percent(source, "xPercent")?),
                 );
                 step.insert(
                     "yPercent".to_owned(),
-                    json!(finite_number(source, "yPercent")?),
+                    json!(normalize_macro_percent(source, "yPercent")?),
                 );
                 Ok(Value::Object(step))
             } else {
@@ -915,6 +918,33 @@ fn normalize_trigger(value: &Value) -> CoreResult<Value> {
         "shift": source.get("shift").and_then(Value::as_bool).unwrap_or(false),
         "meta": source.get("meta").and_then(Value::as_bool).unwrap_or(false)
     }))
+}
+
+fn is_reserved_macro_trigger(value: &Value) -> bool {
+    let Some(trigger) = value.as_object() else {
+        return false;
+    };
+    let code = trigger.get("code").and_then(Value::as_str).unwrap_or("");
+    let ctrl = trigger
+        .get("ctrl")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let alt = trigger.get("alt").and_then(Value::as_bool).unwrap_or(false);
+    let shift = trigger
+        .get("shift")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let meta = trigger
+        .get("meta")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let overlay = code == "KeyM" && ctrl && shift && !alt && !meta;
+    let tab_switch = code == "Tab" && ctrl && !alt && !meta;
+    let primary_only = !alt && ctrl != meta;
+    let zoom = primary_only
+        && (matches!(code, "Equal" | "Plus" | "NumpadAdd")
+            || (!shift && matches!(code, "Minus" | "NumpadSubtract" | "Digit0" | "Numpad0")));
+    overlay || tab_switch || zoom
 }
 
 fn normalize_browser_settings(value: Option<Map<String, Value>>) -> Value {
@@ -1291,6 +1321,14 @@ fn finite_number(object: &Map<String, Value>, key: &str) -> CoreResult<f64> {
         .ok_or_else(|| invalid(format!("legacy {key} is invalid")))
 }
 
+fn normalize_macro_percent(object: &Map<String, Value>, key: &str) -> CoreResult<f64> {
+    let value = finite_number(object, key)?;
+    if !(-100.0..=100.0).contains(&value) {
+        return Err(invalid(format!("legacy {key} is invalid")));
+    }
+    Ok((value * 100.0).round() / 100.0)
+}
+
 fn unique_name(base: &str, used: &mut HashSet<String>) -> String {
     for index in 1..=10_000 {
         let candidate = if index == 1 {
@@ -1491,6 +1529,1014 @@ mod tests {
         )
         .unwrap();
         assert!(build_snapshot(directory.path()).is_err());
+    }
+
+    #[test]
+    fn legacy_scalar_and_background_activity_migrations_match_v1() {
+        crate::v1_case!("state-migration-4c4b53674424", {
+            let settings = normalize_browser_settings(Some(
+                json!({
+                    "fonts":{"mode":"default","families":{}},
+                    "graphics":{"mode":"automatic"},
+                    "launchMode":"auto"
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ));
+            assert_eq!(
+                settings["workspace"],
+                json!({"background":"material","gap":4})
+            );
+        });
+
+        crate::v1_case!("state-migration-7fbe9235593b", {
+            assert_eq!(
+                normalize_runtime_preferences(None),
+                json!({"alwaysShowToolbarInFullScreen":false})
+            );
+            assert_eq!(
+                normalize_runtime_preferences(Some(
+                    json!({"alwaysShowToolbarInFullScreen":"yes"})
+                        .as_object()
+                        .unwrap()
+                        .clone()
+                )),
+                json!({"alwaysShowToolbarInFullScreen":false})
+            );
+            assert_eq!(
+                normalize_runtime_preferences(Some(
+                    json!({"alwaysShowToolbarInFullScreen":true})
+                        .as_object()
+                        .unwrap()
+                        .clone()
+                )),
+                json!({"alwaysShowToolbarInFullScreen":true})
+            );
+        });
+
+        crate::v1_case!("state-migration-edf454eef094", {
+            let directory = tempdir().unwrap();
+            fs::write(
+                directory.path().join("games.json"),
+                r#"{"games":[{"id":"g1","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","windowWidth":1280,"windowHeight":720,"launchPreset":"legacy","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}]}"#,
+            )
+            .unwrap();
+            fs::write(
+                directory.path().join("roles.json"),
+                r#"{"roles":[{"id":"r1","gameId":"g1","name":"Role","launchUrl":"https://example.test/play","launchPreset":"legacy","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}]}"#,
+            )
+            .unwrap();
+            let first = build_snapshot(directory.path()).unwrap();
+            let second = build_snapshot(directory.path()).unwrap();
+            for collection in ["games", "roles"] {
+                assert!(
+                    first[collection][0].get("launchPreset").is_none(),
+                    "{collection} launch preset was not removed"
+                );
+                assert_eq!(first[collection][0], second[collection][0]);
+            }
+        });
+
+        crate::v1_case!("state-migration-1600a563ad57", {
+            let directory = tempdir().unwrap();
+            let invalid = r#"{"games":[{"id":"g1","name":"Invalid URL","defaultLaunchUrl":"not-a-url","launchPreset":"legacy"}]}"#;
+            fs::write(directory.path().join("games.json"), invalid).unwrap();
+            assert!(build_snapshot(directory.path()).is_err());
+            assert_eq!(
+                fs::read_to_string(directory.path().join("games.json")).unwrap(),
+                invalid
+            );
+            fs::write(directory.path().join("games.json"), r#"{"games":[]}"#).unwrap();
+            let retry = build_snapshot(directory.path()).unwrap();
+            assert!(retry["games"].as_array().unwrap().len() >= BUILTIN_GAMES.len());
+        });
+    }
+
+    #[test]
+    fn legacy_game_migrations_match_v1() {
+        crate::v1_case!("state-migration-4ade1c3ece0b", {
+            let directory = tempdir().unwrap();
+            let seeded = build_snapshot(directory.path()).unwrap();
+            assert_eq!(
+                seeded["games"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|game| game["id"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                vec!["builtin-flyff-universe", "builtin-feifei-infinite-universe"]
+            );
+            assert!(
+                seeded["games"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|game| game["source"] == "builtin")
+            );
+
+            let flyff = seeded["games"][0].clone();
+            fs::write(
+                directory.path().join("games.json"),
+                json!({
+                    "games": [
+                        {
+                            "id": "tampered",
+                            "source": "custom",
+                            "builtinKey": flyff["builtinKey"],
+                            "name": "Tampered",
+                            "defaultLaunchUrl": flyff["defaultLaunchUrl"],
+                            "browserLaunchMode": flyff["browserLaunchMode"],
+                            "iconImageDataUrl": "data:image/png;base64,QQ==",
+                            "coverImageDataUrl": "data:image/webp;base64,QQ==",
+                            "createdAt": flyff["createdAt"],
+                            "updatedAt": flyff["updatedAt"]
+                        },
+                        seeded["games"][1].clone()
+                    ]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let repaired = build_snapshot(directory.path()).unwrap();
+            assert_eq!(repaired["games"][0]["id"], json!("builtin-flyff-universe"));
+            assert_eq!(repaired["games"][0]["name"], json!("Flyff Universe"));
+            assert_eq!(repaired["games"][0]["source"], json!("builtin"));
+            assert!(repaired["games"][0].get("iconImageDataUrl").is_none());
+            assert!(repaired["games"][0].get("coverImageDataUrl").is_none());
+        });
+
+        crate::v1_case!("state-migration-80142638feba", {
+            let directory = tempdir().unwrap();
+            let timestamp = "2026-07-10T00:00:00.000Z";
+            fs::write(
+                directory.path().join("games.json"),
+                json!({
+                    "games": [{
+                        "id": "game-1",
+                        "source": "custom",
+                        "name": "Performance defaults",
+                        "defaultLaunchUrl": "https://example.test/performance",
+                        "browserLaunchMode": "inherit",
+                        "roleDefaults": {
+                            "windowWidth": 1280,
+                            "windowHeight": 720,
+                            "launchPreset": "performance"
+                        },
+                        "createdAt": timestamp,
+                        "updatedAt": timestamp
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let game = build_snapshot(directory.path()).unwrap()["games"][0].clone();
+            assert_eq!(game["createdAt"], timestamp);
+            assert_eq!(game["updatedAt"], timestamp);
+            assert!(game.get("roleDefaults").is_none());
+            assert!(!game.to_string().contains("launchPreset"));
+        });
+
+        crate::v1_case!("state-migration-e921eee58933", {
+            let directory = tempdir().unwrap();
+            fs::write(
+                directory.path().join("games.json"),
+                json!({
+                    "games": [{
+                        "id": "game-1",
+                        "source": "custom",
+                        "name": "Legacy login URL",
+                        "defaultLaunchUrl": "https://example.test/game",
+                        "loginUrl": "https://example.test/login",
+                        "createdAt": "2026-07-10T00:00:00.000Z",
+                        "updatedAt": "2026-07-10T00:00:00.000Z"
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let snapshot = build_snapshot(directory.path()).unwrap();
+            assert_eq!(
+                snapshot["games"][0]["defaultLaunchUrl"],
+                "https://example.test/game"
+            );
+            assert!(snapshot["games"][0].get("loginUrl").is_none());
+            assert!(!snapshot.to_string().contains("loginUrl"));
+        });
+
+        crate::v1_case!("state-migration-37540089443b", {
+            let directory = tempdir().unwrap();
+            fs::write(
+                directory.path().join("games.json"),
+                json!({
+                    "games": [{
+                        "id": "game-1",
+                        "source": "custom",
+                        "name": "Invalid stored defaults",
+                        "defaultLaunchUrl": "https://example.test/invalid",
+                        "roleDefaults": {
+                            "windowWidth": 100,
+                            "windowHeight": 900,
+                            "launchPreset": "turbo"
+                        },
+                        "createdAt": "2026-07-10T00:00:00.000Z",
+                        "updatedAt": "2026-07-10T00:00:00.000Z"
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let snapshot = build_snapshot(directory.path()).unwrap();
+            assert_eq!(snapshot["games"][0]["name"], "Invalid stored defaults");
+            assert!(snapshot["games"][0].get("roleDefaults").is_none());
+            assert!(!snapshot.to_string().contains("launchPreset"));
+        });
+
+        crate::v1_case!("state-migration-d5f293f55a7f", {
+            let directory = tempdir().unwrap();
+            let timestamp = "2026-07-10T00:00:00.000Z";
+            fs::write(
+                directory.path().join("roles.json"),
+                json!({
+                    "roles": [
+                        {
+                            "id": "known",
+                            "gameId": "legacy-missing",
+                            "name": "Known",
+                            "launchUrl": "https://universe.flyff.com/play",
+                            "browserSessionSource": "chrome-profile",
+                            "createdAt": timestamp,
+                            "updatedAt": timestamp
+                        },
+                        {
+                            "id": "unknown",
+                            "gameId": "legacy-missing",
+                            "name": "Unknown",
+                            "launchUrl": "https://example.test/game",
+                            "createdAt": timestamp,
+                            "updatedAt": timestamp
+                        }
+                    ]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let first = build_snapshot(directory.path()).unwrap();
+            let known = first["roles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|role| role["id"] == "known")
+                .unwrap();
+            let unknown = first["roles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|role| role["id"] == "unknown")
+                .unwrap();
+            assert_eq!(known["gameId"], "builtin-flyff-universe");
+            assert_eq!(known["browserSessionSource"], "chrome-profile");
+            assert_eq!(known["createdAt"], timestamp);
+            assert_eq!(known["updatedAt"], timestamp);
+            let unknown_game_id = unknown["gameId"].as_str().unwrap();
+            assert!(first["games"].as_array().unwrap().iter().any(|game| {
+                game["id"] == unknown_game_id
+                    && game["defaultLaunchUrl"] == "https://example.test/game"
+            }));
+
+            let mut connection = Connection::open_in_memory().unwrap();
+            state::create_schema(&connection, false).unwrap();
+            state::import_legacy_files(&mut connection, directory.path()).unwrap();
+            let persisted_once = state::read_snapshot(&connection).unwrap();
+            let persisted_twice = state::read_snapshot(&connection).unwrap();
+            assert_eq!(persisted_once, persisted_twice);
+        });
+
+        crate::v1_case!("state-migration-c3c8bb15306d", {
+            let directory = tempdir().unwrap();
+            fs::write(
+                directory.path().join("roles.json"),
+                json!({
+                    "roles": [
+                        {
+                            "id": "role-1",
+                            "gameId": "legacy-missing",
+                            "name": "One",
+                            "launchUrl": "https://example.test/game"
+                        },
+                        {
+                            "id": "role-2",
+                            "gameId": "legacy-missing",
+                            "name": "Two",
+                            "launchUrl": "https://example.test/game"
+                        }
+                    ]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let snapshot = build_snapshot(directory.path()).unwrap();
+            assert_eq!(
+                snapshot["roles"][0]["gameId"],
+                snapshot["roles"][1]["gameId"]
+            );
+            assert_eq!(
+                snapshot["games"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|game| game["source"] == "custom")
+                    .count(),
+                1
+            );
+        });
+
+        crate::v1_case!("state-migration-ace933e7226a", {
+            let directory = tempdir().unwrap();
+            fs::write(
+                directory.path().join("games.json"),
+                json!({
+                    "games": [{
+                        "id": "recovered-game",
+                        "source": "custom",
+                        "name": "example.test",
+                        "defaultLaunchUrl": "https://example.test/game?server=one",
+                        "createdAt": "2026-07-10T00:00:00.000Z",
+                        "updatedAt": "2026-07-10T00:00:00.000Z"
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            fs::write(
+                directory.path().join("roles.json"),
+                json!({
+                    "roles": [{
+                        "id": "role-1",
+                        "gameId": "legacy-missing",
+                        "name": "Interrupted",
+                        "launchUrl": "https://example.test/game?server=one"
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let snapshot = build_snapshot(directory.path()).unwrap();
+            assert_eq!(
+                snapshot["games"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|game| game["source"] == "custom")
+                    .count(),
+                1
+            );
+            assert_eq!(snapshot["roles"][0]["gameId"], "recovered-game");
+        });
+
+        crate::v1_case!("state-migration-25a2c4d1eb9f", {
+            let directory = tempdir().unwrap();
+            fs::write(
+                directory.path().join("roles.json"),
+                json!({
+                    "roles": [
+                        {
+                            "id": "role-1",
+                            "gameId": "legacy-missing",
+                            "name": "One",
+                            "launchUrl": "https://same.test/play?server=one"
+                        },
+                        {
+                            "id": "role-2",
+                            "gameId": "legacy-missing",
+                            "name": "Two",
+                            "launchUrl": "https://same.test/play?server=two"
+                        }
+                    ]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let snapshot = build_snapshot(directory.path()).unwrap();
+            assert_eq!(
+                snapshot["games"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|game| game["source"] == "custom")
+                    .map(|game| game["name"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                vec!["same.test", "same.test 2"]
+            );
+        });
+    }
+
+    #[test]
+    fn legacy_workspace_migrations_match_v1() {
+        crate::v1_case!("state-migration-749347c7f1df", {
+            let directory = tempdir().unwrap();
+            let timestamp = "2026-07-10T00:00:00.000Z";
+            fs::write(
+                directory.path().join("launch-workspaces.json"),
+                json!({
+                    "schemaVersion": 6,
+                    "workspaces": [{
+                        "id": "workspace-v6",
+                        "name": "Version six",
+                        "template": "two_columns",
+                        "browserLaunchMode": "inherit",
+                        "browserZoomMode": "adaptive",
+                        "browserZoomPercent": 100,
+                        "resourcePolicy": {"mode": "adaptive"},
+                        "slots": [
+                            {"id": "slot-1", "roleId": "role-1"},
+                            {"id": "slot-2"}
+                        ],
+                        "createdAt": timestamp,
+                        "updatedAt": timestamp
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let workspace =
+                build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
+            assert!(workspace["slots"][0].get("browserZoomPercent").is_none());
+            assert!(
+                workspace["slots"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|slot| slot.get("browserZoomPercent").is_none())
+            );
+        });
+
+        crate::v1_case!("state-migration-cef697ad01ce", {
+            let directory = tempdir().unwrap();
+            fs::write(
+                directory.path().join("launch-workspaces.json"),
+                json!({
+                    "workspaces": [{
+                        "id": "workspace-1",
+                        "name": "Legacy",
+                        "template": "quad",
+                        "slots": [
+                            {"id": "a", "roleId": "role-1"},
+                            {"id": "b"},
+                            {"id": "c"},
+                            {"id": "d"}
+                        ],
+                        "createdAt": "2026-07-10T00:00:00.000Z",
+                        "updatedAt": "2026-07-10T00:00:00.000Z"
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let workspace =
+                build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
+            assert_eq!(workspace["browserLaunchMode"], "inherit");
+            assert_eq!(workspace["browserZoomMode"], "adaptive");
+            assert_eq!(workspace["browserZoomPercent"], 100);
+            assert!(workspace.get("resourcePolicy").is_none());
+            assert_eq!(
+                workspace["slots"],
+                json!([
+                    {"id":"a","roleId":"role-1","rect":{"x":0.0,"y":0.0,"width":0.5,"height":0.5}},
+                    {"id":"b","rect":{"x":0.5,"y":0.0,"width":0.5,"height":0.5}},
+                    {"id":"c","rect":{"x":0.0,"y":0.5,"width":0.5,"height":0.5}},
+                    {"id":"d","rect":{"x":0.5,"y":0.5,"width":0.5,"height":0.5}}
+                ])
+            );
+        });
+
+        crate::v1_case!("state-migration-6ec9344f6e1a", {
+            let directory = tempdir().unwrap();
+            let timestamp = "2026-07-10T00:00:00.000Z";
+            fs::write(
+                directory.path().join("launch-workspaces.json"),
+                json!({
+                    "schemaVersion": 5,
+                    "workspaces": [
+                        {
+                            "id": "workspace-unrestricted",
+                            "name": "Legacy unrestricted",
+                            "template": "two_columns",
+                            "resourcePolicy": {
+                                "mode": "unrestricted",
+                                "backgroundCpuThrottleRate": 4
+                            },
+                            "slots": [{"roleId":"role-1"},{"roleId":"role-2"}],
+                            "createdAt": timestamp,
+                            "updatedAt": timestamp
+                        },
+                        {
+                            "id": "workspace-priority",
+                            "name": "Legacy priority",
+                            "template": "two_columns",
+                            "resourcePolicy": {
+                                "mode": "primary_priority",
+                                "backgroundCpuThrottleRate": 4,
+                                "primaryRoleId": "role-2"
+                            },
+                            "slots": [{"roleId":"role-1"},{"roleId":"role-2"}],
+                            "createdAt": timestamp,
+                            "updatedAt": timestamp
+                        }
+                    ]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let workspaces = build_snapshot(directory.path()).unwrap()["launchWorkspaces"]
+                .as_array()
+                .unwrap()
+                .clone();
+            assert!(workspaces[0].get("resourcePolicy").is_none());
+            assert_eq!(workspaces[0]["createdAt"], timestamp);
+            assert_eq!(workspaces[0]["updatedAt"], timestamp);
+            assert!(workspaces[1].get("resourcePolicy").is_none());
+            assert!(!workspaces[1].to_string().contains("primaryRoleId"));
+        });
+
+        crate::v1_case!("state-migration-4437431055b4", {
+            let directory = tempdir().unwrap();
+            fs::write(
+                directory.path().join("launch-workspaces.json"),
+                json!({
+                    "workspaces": [{
+                        "id": "workspace-1",
+                        "name": "Legacy",
+                        "template": "two_columns",
+                        "slots": [
+                            {"id":"left","profileId":" role-1 "},
+                            {"id":"right","roleId":"role-2","profileId":"role-old"}
+                        ]
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let workspace =
+                build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
+            assert_eq!(workspace["slots"][0]["roleId"], "role-1");
+            assert_eq!(workspace["slots"][1]["roleId"], "role-2");
+            assert!(!workspace.to_string().contains("profileId"));
+        });
+
+        crate::v1_case!("state-migration-ef3f8f924303", {
+            let directory = tempdir().unwrap();
+            let timestamp_created = "2026-07-10T00:00:00.000Z";
+            let timestamp_updated = "2026-07-11T00:00:00.000Z";
+            fs::write(
+                directory.path().join("launch-workspaces.json"),
+                json!({
+                    "workspaces": [{
+                        "id": "workspace-centered",
+                        "name": "Centered main",
+                        "template": "main_center_side_stacks",
+                        "browserZoomPercent": 80,
+                        "targetDisplayId": 22,
+                        "slots": [
+                            {"id":"main","roleId":"role-1","rect":{"x":0.25,"y":0,"width":0.5,"height":1}},
+                            {"id":"left-top","roleId":"role-2","rect":{"x":0,"y":0,"width":0.25,"height":0.5}},
+                            {"id":"left-bottom","roleId":"role-3","rect":{"x":0,"y":0.5,"width":0.25,"height":0.5}},
+                            {"id":"right-top","roleId":"role-4","rect":{"x":0.75,"y":0,"width":0.25,"height":0.5}},
+                            {"id":"right-bottom","roleId":"role-5","rect":{"x":0.75,"y":0.5,"width":0.25,"height":0.5}}
+                        ],
+                        "createdAt": timestamp_created,
+                        "updatedAt": timestamp_updated
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let workspace =
+                build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
+            assert_eq!(workspace["id"], "workspace-centered");
+            assert_eq!(workspace["name"], "Centered main");
+            assert_eq!(workspace["browserZoomPercent"], 80);
+            assert_eq!(workspace["targetDisplay"], json!({"id":22}));
+            assert_eq!(workspace["createdAt"], timestamp_created);
+            assert_eq!(workspace["updatedAt"], timestamp_updated);
+            assert_eq!(
+                workspace["slots"],
+                json!([
+                    {"id":"main","roleId":"role-1","rect":{"x":0.3,"y":0,"width":0.4,"height":1}},
+                    {"id":"left-top","roleId":"role-2","rect":{"x":0,"y":0,"width":0.3,"height":0.5}},
+                    {"id":"left-bottom","roleId":"role-3","rect":{"x":0,"y":0.5,"width":0.3,"height":0.5}},
+                    {"id":"right-top","roleId":"role-4","rect":{"x":0.7,"y":0,"width":0.3,"height":0.5}},
+                    {"id":"right-bottom","roleId":"role-5","rect":{"x":0.7,"y":0.5,"width":0.3,"height":0.5}}
+                ])
+            );
+        });
+
+        crate::v1_case!("state-migration-ad27c5f187be", {
+            let directory = tempdir().unwrap();
+            let custom_rects = json!([
+                {"x":0.2,"y":0,"width":0.5,"height":1},
+                {"x":0,"y":0,"width":0.2,"height":0.6},
+                {"x":0,"y":0.6,"width":0.2,"height":0.4},
+                {"x":0.7,"y":0,"width":0.3,"height":0.6},
+                {"x":0.7,"y":0.6,"width":0.3,"height":0.4}
+            ]);
+            fs::write(
+                directory.path().join("launch-workspaces.json"),
+                json!({
+                    "workspaces": [{
+                        "id": "workspace-custom-centered",
+                        "name": "Custom centered main",
+                        "template": "main_center_side_stacks",
+                        "browserZoomPercent": 80,
+                        "slots": custom_rects
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .enumerate()
+                            .map(|(index, rect)| json!({"id":format!("slot-{index}"),"rect":rect}))
+                            .collect::<Vec<_>>()
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let workspace =
+                build_snapshot(directory.path()).unwrap()["launchWorkspaces"][0].clone();
+            assert_eq!(
+                workspace["slots"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|slot| {
+                        ["x", "y", "width", "height"].map(|key| slot["rect"][key].as_f64().unwrap())
+                    })
+                    .collect::<Vec<_>>(),
+                custom_rects
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|rect| {
+                        ["x", "y", "width", "height"].map(|key| rect[key].as_f64().unwrap())
+                    })
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(workspace["browserLaunchMode"], "inherit");
+        });
+    }
+
+    #[test]
+    fn legacy_macro_migrations_match_v1() {
+        crate::v1_case!("state-migration-330d634635d8", {
+            let macro_record = normalize_macro(
+                &json!({
+                    "id": "macro-1",
+                    "name": "Legacy",
+                    "roleIds": [" role-1 ", "role-2"],
+                    "repeat": {"type":"once"},
+                    "steps": [
+                        {"id":"","type":"key","code":"Tab","label":" Tab "},
+                        {"id":"","type":"click","xPercent":50.123,"yPercent":49.987}
+                    ],
+                    "createdAt": "2026-07-10T00:00:00.000Z",
+                    "updatedAt": "2026-07-10T00:00:00.000Z"
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            assert_eq!(macro_record["roleIds"], json!(["role-1", "role-2"]));
+            assert_eq!(macro_record["steps"][0]["code"], "Tab");
+            assert_eq!(macro_record["steps"][0]["label"], "Tab");
+            assert_eq!(macro_record["steps"][1]["xPercent"], 50.12);
+            assert_eq!(macro_record["steps"][1]["yPercent"], 49.99);
+            assert!(!macro_record["steps"][0]["id"].as_str().unwrap().is_empty());
+            assert!(!macro_record["steps"][1]["id"].as_str().unwrap().is_empty());
+            assert_ne!(
+                macro_record["steps"][0]["id"],
+                macro_record["steps"][1]["id"]
+            );
+        });
+
+        crate::v1_case!("state-migration-9aa9fd4d4c0a", {
+            let first = normalize_macro(
+                &json!({
+                    "id":"macro-1","name":"Legacy","profileId":" role-1 ",
+                    "steps":[{"id":"step-1","type":"key","code":"F1"}]
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            let second = normalize_macro(
+                &json!({
+                    "id":"macro-2","name":"Modern wins","roleId":"role-2",
+                    "profileId":"role-old",
+                    "steps":[{"id":"step-2","type":"key","code":"F2"}]
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            assert_eq!(first["roleIds"], json!(["role-1"]));
+            assert_eq!(second["roleIds"], json!(["role-2"]));
+            assert!(!first.to_string().contains("profileId"));
+            assert!(!second.to_string().contains("roleId\":"));
+        });
+
+        crate::v1_case!("state-migration-fca48eef5ec1", {
+            let macro_record = normalize_macro(
+                &json!({
+                    "id":"macro-1","name":"Modern","roleIds":["role-1"],
+                    "steps":[{"id":"step-1","type":"key","code":"F1"}]
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            assert_eq!(macro_record["id"], "macro-1");
+            assert_eq!(macro_record["roleIds"], json!(["role-1"]));
+        });
+
+        for (case_id, trigger) in [
+            (
+                "state-migration-f289d74f5ef5",
+                json!({"code":"Equal","ctrl":true,"alt":false,"shift":true,"meta":false}),
+            ),
+            (
+                "state-migration-bd9960594932",
+                json!({"code":"Tab","ctrl":true,"alt":false,"shift":true,"meta":false}),
+            ),
+        ] {
+            let macro_record = normalize_macro(
+                &json!({
+                    "id":"legacy-reserved-trigger",
+                    "enabled":true,
+                    "activationMode":"while_held",
+                    "name":"Legacy reserved trigger",
+                    "roleIds":["role-1"],
+                    "trigger":trigger,
+                    "repeat":{"type":"loop","intervalMs":100},
+                    "steps":[{"id":"step-1","type":"key","code":"F2","action":"hold_until_stop"}],
+                    "createdAt":"2026-07-10T00:00:00.000Z",
+                    "updatedAt":"2026-07-10T00:00:00.000Z"
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            match case_id {
+                "state-migration-f289d74f5ef5" => {
+                    crate::v1_case!("state-migration-f289d74f5ef5", {
+                        assert_eq!(macro_record["activationMode"], "toggle");
+                        assert!(macro_record.get("trigger").is_none());
+                        assert_eq!(macro_record["name"], "Legacy reserved trigger");
+                        assert_eq!(
+                            macro_record["steps"][0],
+                            json!({
+                                "id":"step-1",
+                                "type":"key",
+                                "code":"F2",
+                                "action":"hold_until_stop"
+                            })
+                        );
+                    });
+                }
+                _ => {
+                    crate::v1_case!("state-migration-bd9960594932", {
+                        assert_eq!(macro_record["activationMode"], "toggle");
+                        assert!(macro_record.get("trigger").is_none());
+                        assert_eq!(macro_record["name"], "Legacy reserved trigger");
+                        assert_eq!(
+                            macro_record["steps"][0],
+                            json!({
+                                "id":"step-1",
+                                "type":"key",
+                                "code":"F2",
+                                "action":"hold_until_stop"
+                            })
+                        );
+                    });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_role_migrations_match_v1() {
+        crate::v1_case!("state-migration-0bfa8ffd1f93", {
+            let timestamp = "2026-07-10T00:00:00.000Z";
+            let role = normalize_role(
+                &json!({
+                    "id":"role-1","gameId":"game-1","name":"Legacy",
+                    "launchUrl":"https://example.test/play",
+                    "launchPreset":"performance",
+                    "createdAt":timestamp,"updatedAt":timestamp
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            assert_eq!(role["createdAt"], timestamp);
+            assert_eq!(role["updatedAt"], timestamp);
+            assert!(role.get("launchPreset").is_none());
+        });
+
+        crate::v1_case!("state-migration-a1863c15e3cc", {
+            let role = normalize_role(
+                &json!({
+                    "id":"role-1","gameId":"game-1","name":"Invalid stored preset",
+                    "launchUrl":"https://example.test/play","launchPreset":"turbo"
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            assert_eq!(role["name"], "Invalid stored preset");
+            assert!(role.get("launchPreset").is_none());
+        });
+
+        crate::v1_case!("state-migration-cc8cc31f4273", {
+            let role = normalize_role(
+                &json!({
+                    "id":"role-1","gameId":"game-1","name":"Imported",
+                    "launchUrl":"https://example.test/play",
+                    "preferredBrowserLaunchMode":"external"
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            assert_eq!(role["browserSessionSource"], "embedded");
+            assert!(role.get("preferredBrowserLaunchMode").is_none());
+        });
+
+        crate::v1_case!("state-migration-55b9548e1a9d", {
+            let role = normalize_role(
+                &json!({
+                    "id":"role-1","name":"Legacy",
+                    "launchUrl":"https://example.com/play",
+                    "windowWidth":1280,"windowHeight":720,
+                    "notes":"","launchPreset":"performance",
+                    "authState":"authenticated","loginProvider":"google",
+                    "lastAuthCheckAt":"2026-07-10T00:00:00.000Z",
+                    "lastSuccessfulLoginAt":"2026-07-10T00:00:00.000Z"
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            assert_eq!(role["id"], "role-1");
+            assert_eq!(role["launchUrl"], "https://example.com/play");
+            for field in [
+                "loginProvider",
+                "windowWidth",
+                "windowHeight",
+                "authState",
+                "lastAuthCheckAt",
+                "lastSuccessfulLoginAt",
+            ] {
+                assert!(role.get(field).is_none(), "{field} was not removed");
+            }
+        });
+
+        crate::v1_case!("state-migration-76598d90b2ca", {
+            let role = normalize_role(
+                &json!({
+                    "id":"role-1","name":"Legacy",
+                    "gameUrl":"https://legacy.example/play",
+                    "windowWidth":1280,"windowHeight":720,
+                    "notes":"","launchPreset":"performance",
+                    "authState":"authenticated"
+                }),
+                "2026-07-24T00:00:00.000Z",
+            )
+            .unwrap();
+            assert_eq!(role["launchUrl"], "https://legacy.example/play");
+            assert!(role.get("gameUrl").is_none());
+        });
+
+        crate::v1_case!("state-migration-72abd0443a48", {
+            let directory = tempdir().unwrap();
+            fs::create_dir_all(directory.path().join("profiles/role-1/browser")).unwrap();
+            fs::write(
+                directory.path().join("profiles/role-1/browser/session.txt"),
+                "ok",
+            )
+            .unwrap();
+            fs::write(
+                directory.path().join("profiles.json"),
+                json!({
+                    "profiles": [{
+                        "id":"role-1","name":"Legacy",
+                        "launchUrl":"https://example.com/play",
+                        "windowWidth":1280,"windowHeight":720,
+                        "notes":"","launchPreset":"performance",
+                        "authState":"authenticated",
+                        "createdAt":"2026-07-10T00:00:00.000Z",
+                        "updatedAt":"2026-07-10T00:00:00.000Z"
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let snapshot = build_snapshot(directory.path()).unwrap();
+            assert_eq!(snapshot["roles"][0]["id"], "role-1");
+            assert_eq!(snapshot["roles"][0]["name"], "Legacy");
+            migrate_role_directories(directory.path(), snapshot["roles"].as_array().unwrap())
+                .unwrap();
+            assert!(
+                directory
+                    .path()
+                    .join("roles/role-1/browser/session.txt")
+                    .is_file()
+            );
+            assert!(
+                !directory
+                    .path()
+                    .join("profiles/role-1/browser/session.txt")
+                    .exists()
+            );
+        });
+
+        crate::v1_case!("state-migration-7e292a80d980", {
+            let directory = tempdir().unwrap();
+            fs::create_dir_all(directory.path().join("roles/role-1/browser")).unwrap();
+            fs::write(
+                directory.path().join("roles/role-1/browser/current.txt"),
+                "current",
+            )
+            .unwrap();
+            for role_id in ["role-1", "role-2"] {
+                fs::create_dir_all(
+                    directory
+                        .path()
+                        .join("profiles")
+                        .join(role_id)
+                        .join("browser"),
+                )
+                .unwrap();
+                fs::write(
+                    directory
+                        .path()
+                        .join("profiles")
+                        .join(role_id)
+                        .join("browser/legacy.txt"),
+                    "legacy",
+                )
+                .unwrap();
+            }
+            let roles = vec![
+                json!({"id":"role-1","name":"Current"}),
+                json!({"id":"role-2","name":"Legacy"}),
+            ];
+            migrate_role_directories(directory.path(), &roles).unwrap();
+            assert!(
+                directory
+                    .path()
+                    .join("roles/role-1/browser/current.txt")
+                    .is_file()
+            );
+            assert!(
+                !directory
+                    .path()
+                    .join("roles/role-1/browser/legacy.txt")
+                    .exists()
+            );
+            assert!(
+                directory
+                    .path()
+                    .join("profiles/role-1/browser/legacy.txt")
+                    .is_file()
+            );
+            assert!(
+                directory
+                    .path()
+                    .join("roles/role-2/browser/legacy.txt")
+                    .is_file()
+            );
+        });
+    }
+
+    #[test]
+    fn removes_legacy_login_observations_from_compatibility_reports() {
+        let directory = tempdir().unwrap();
+        fs::write(
+            directory.path().join("game-compatibility.json"),
+            json!({
+                "reports": [{
+                    "gameId": "builtin-flyff-universe",
+                    "observations": {
+                        "lastAuthFailureAt": "2026-07-15T00:00:00.000Z",
+                        "lastAuthSuccessAt": "2026-07-15T00:01:00.000Z",
+                        "lastEmbeddedLaunchAt": "2026-07-15T00:02:00.000Z"
+                    }
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let snapshot = build_snapshot(directory.path()).unwrap();
+        let observations = &snapshot["compatibilityReports"][0]["observations"];
+        crate::v1_case!("browser-workspace-df5ebcde1ab5", {
+            assert_eq!(
+                observations["lastEmbeddedLaunchAt"],
+                "2026-07-15T00:02:00.000Z"
+            );
+            assert!(observations.get("lastAuthSuccessAt").is_none());
+            assert!(observations.get("lastAuthFailureAt").is_none());
+        });
     }
 
     #[test]

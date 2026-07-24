@@ -61,11 +61,42 @@ jobs:
       - name: Test
         run: pnpm run test
 
+      - name: Verify v1 Rust surface behavior parity
+        run: pnpm run verify:v1-parity
+
       - name: Lint
         run: pnpm run lint
 
       - name: Build app
         run: pnpm exec electron-vite build
+
+  rust-concurrency-sanitizer:
+    name: Linux Rust sanitizer and concurrency soak
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install nightly Rust sanitizer toolchain
+        run: rustup toolchain install nightly --profile minimal --component rust-src
+
+      - name: Run macro runtime under AddressSanitizer
+        run: cargo +nightly test -p rion-core --lib macro_runtime::tests --target x86_64-unknown-linux-gnu
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          RUSTFLAGS: -Zsanitizer=address
+
+      - name: Repeat race-sensitive macro and health tests
+        shell: bash
+        run: |
+          for iteration in $(seq 1 20); do
+            echo "Concurrency soak iteration ${iteration}/20"
+            cargo test -p rion-core --lib one_thousand_start_stop_cycles_drain_authoritative_runtime_state -- --test-threads=8
+            cargo test -p rion-core --lib atomic_toggle_converges_without_a_phantom_invocation -- --test-threads=8
+            cargo test -p rion-core --lib external_health_lane_does_not_block_a_later_deadline_macro_effect -- --test-threads=8
+          done
 
   platform-package-smoke:
     name: ${{ matrix.name }} package smoke

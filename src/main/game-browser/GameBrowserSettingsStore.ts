@@ -1,11 +1,11 @@
 import type { GameBrowserSettings } from "../../shared/types";
-import type { StateRepository } from "../core/RustStateRepository";
+import type { AppCoreClient } from "../core/nativeCore";
 
 export class GameBrowserSettingsStore {
-  constructor(_userDataDir: string, private readonly stateRepository: StateRepository) {}
+  constructor(_userDataDir: string, private readonly core: Pick<AppCoreClient, "invoke">) {}
 
   async getSettings(): Promise<GameBrowserSettings> {
-    const settings = await this.stateRepository.getGameBrowserSettings();
+    const settings = await this.core.invoke({ type: "gameBrowserSettingsGet" });
     return structuredClone(settings);
   }
 
@@ -13,7 +13,7 @@ export class GameBrowserSettingsStore {
     settings: GameBrowserSettings,
     _publishCache = true
   ): Promise<GameBrowserSettings> {
-    const normalized = await this.stateRepository.replaceGameBrowserSettings(settings);
+    const normalized = await this.core.invoke({ type: "gameBrowserSettingsReplace", settings });
     return structuredClone(normalized);
   }
 

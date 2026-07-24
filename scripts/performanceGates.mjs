@@ -31,8 +31,30 @@ export function comparePerformanceSummaries(current, baseline) {
     ),
     ipcCommandP95RegressionPercent: latencyRegression("ipcCommand"),
     macroScheduleToDispatchP95RegressionPercent: latencyRegression("macroScheduleToDispatch"),
+    mainEventLoopP95Ms: current.runtimeTelemetry?.mainEventLoopDelay?.p95Ms,
     rssGrowthPercent: current.nonRendererRssGrowthPercent,
-    tabActivationP95RegressionPercent: latencyRegression("tabActivation")
+    rendererRafP95RegressionPercent: latencyRegression("rendererRaf"),
+    tabActivationP95RegressionPercent: latencyRegression("tabActivation"),
+    workspaceLaunchP95RegressionPercent: latencyRegression("workspaceLaunch")
+  };
+  const coreEffects = current.runtimeTelemetry?.coreEffects;
+  const napi = current.runtimeTelemetry?.napi;
+  const diagnostics = {
+    effectQueuePeak: coreEffects?.peakPendingEffectCount,
+    effectQueueCapacity: coreEffects?.pendingEffectCapacity,
+    effectAckP95Ms: coreEffects?.effectAckLatency?.p95Ms,
+    launchEffectCount: coreEffects?.launchEffectCount,
+    launchOperationCount: coreEffects?.launchOperationCount,
+    effectsPerLaunch:
+      coreEffects?.launchOperationCount > 0
+        ? coreEffects.launchEffectCount / coreEffects.launchOperationCount
+        : 0,
+    napiCallCount: napi?.callCount,
+    napiP95Ms: napi?.p95Ms,
+    cdnPlanCount: current.runtimeTelemetry?.cdnPlanCount,
+    layoutPassCount: current.runtimeTelemetry?.layoutPassCount,
+    menuRefreshCount: current.runtimeTelemetry?.menuRefreshCount,
+    runtimePublishCount: current.runtimeTelemetry?.runtimePublishCount
   };
   const latencyGates = [
     gates.ipcCommandP95RegressionPercent,
@@ -41,6 +63,7 @@ export function comparePerformanceSummaries(current, baseline) {
   ];
   return {
     gates,
+    diagnostics,
     missingTelemetryMetrics,
     passed:
       gates.nonRendererCpuImprovementPercent >= 30 &&
@@ -49,6 +72,11 @@ export function comparePerformanceSummaries(current, baseline) {
       gates.treeRssImprovementPercent >= 5 &&
       missingTelemetryMetrics.length === 0 &&
       latencyGates.every((regression) => Number.isFinite(regression) && regression <= 5) &&
+      (!Number.isFinite(gates.workspaceLaunchP95RegressionPercent) ||
+        gates.workspaceLaunchP95RegressionPercent <= 5) &&
+      (!Number.isFinite(gates.rendererRafP95RegressionPercent) ||
+        gates.rendererRafP95RegressionPercent <= 5) &&
+      (!Number.isFinite(gates.mainEventLoopP95Ms) || gates.mainEventLoopP95Ms <= 16.7) &&
       gates.rssGrowthPercent <= 5
   };
 }
@@ -72,6 +100,50 @@ export function aggregatePerformanceSummaries(summaries) {
       }];
     })
   );
+  for (const metric of ["workspaceLaunch", "mainEventLoopDelay", "rendererRaf"]) {
+    const samples = summaries.map((summary) => summary.runtimeTelemetry?.[metric]);
+    if (samples.every(hasSamples)) {
+      runtimeTelemetry[metric] = aggregateLatency(samples);
+    }
+  }
+  for (const metric of [
+    "cdnPlanCount",
+    "layoutPassCount",
+    "menuRefreshCount",
+    "runtimePublishCount"
+  ]) {
+    const samples = summaries.map((summary) => summary.runtimeTelemetry?.[metric]);
+    if (samples.every(Number.isFinite)) {
+      runtimeTelemetry[metric] = median(samples);
+    }
+  }
+  const coreEffectSamples = summaries.map((summary) => summary.runtimeTelemetry?.coreEffects);
+  if (coreEffectSamples.every(hasCoreEffectMetrics)) {
+    const value = (key) => median(coreEffectSamples.map((sample) => sample[key]));
+    const launchOperationCount = value("launchOperationCount");
+    const launchEffectCount = value("launchEffectCount");
+    runtimeTelemetry.coreEffects = {
+      acknowledgedEffectCount: value("acknowledgedEffectCount"),
+      activeOperationCount: value("activeOperationCount"),
+      effectAckLatency: aggregateLatency(
+        coreEffectSamples.map((sample) => sample.effectAckLatency)
+      ),
+      emittedEffectCount: value("emittedEffectCount"),
+      launchEffectCount,
+      launchOperationCount,
+      operationCapacity: value("operationCapacity"),
+      peakPendingEffectCount: value("peakPendingEffectCount"),
+      pendingEffectCapacity: value("pendingEffectCapacity"),
+      pendingEffectCount: value("pendingEffectCount")
+    };
+  }
+  const napiSamples = summaries.map((summary) => summary.runtimeTelemetry?.napi);
+  if (napiSamples.every(hasCountedLatency)) {
+    runtimeTelemetry.napi = {
+      ...aggregateLatency(napiSamples),
+      callCount: median(napiSamples.map((sample) => sample.callCount))
+    };
+  }
   return {
     medianNonRendererCpuPercent: value("medianNonRendererCpuPercent"),
     medianNonRendererRssBytes: value("medianNonRendererRssBytes"),
@@ -83,6 +155,39 @@ export function aggregatePerformanceSummaries(summaries) {
     runtimeTelemetry,
     sampleCount: summaries.reduce((count, summary) => count + (summary.sampleCount ?? 0), 0)
   };
+}
+
+function aggregateLatency(samples) {
+  return {
+    maxMs: median(samples.map((sample) => sample.maxMs)),
+    p50Ms: median(samples.map((sample) => sample.p50Ms)),
+    p95Ms: median(samples.map((sample) => sample.p95Ms)),
+    sampleCount: samples.reduce((count, sample) => count + sample.sampleCount, 0)
+  };
+}
+
+function hasCoreEffectMetrics(metrics) {
+  return metrics && [
+    "acknowledgedEffectCount",
+    "activeOperationCount",
+    "emittedEffectCount",
+    "launchEffectCount",
+    "launchOperationCount",
+    "operationCapacity",
+    "peakPendingEffectCount",
+    "pendingEffectCapacity",
+    "pendingEffectCount"
+  ].every((key) => Number.isFinite(metrics[key])) &&
+    hasLatencyShape(metrics.effectAckLatency);
+}
+
+function hasCountedLatency(metric) {
+  return Number.isFinite(metric?.callCount) && hasLatencyShape(metric);
+}
+
+function hasLatencyShape(metric) {
+  return metric && Number.isFinite(metric.maxMs) && Number.isFinite(metric.p50Ms) &&
+    Number.isFinite(metric.p95Ms) && Number.isSafeInteger(metric.sampleCount);
 }
 
 function hasSamples(metric) {

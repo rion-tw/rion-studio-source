@@ -1,8 +1,8 @@
-# Rust core architecture and release gates
+# Rust core architecture and 2.1 release gates
 
 Rion Studio keeps Electron, Chromium, React, preload and native UI integration. The
 required `rion-core.node` addon owns portable application state, SQLite, log storage,
-macro timing, system pressure sampling, resource policy, CDN matching, external Chrome
+macro timing, system pressure sampling, adaptive resource management, CDN matching, external Chrome
 process supervision and its DevTools HTTP/WebSocket transport. Renderer code never
 loads the addon directly.
 
@@ -20,8 +20,77 @@ loads the addon directly.
   migration backup and is not updated after migration.
 
 Missing or incompatible addons are fatal startup errors. Persistence never silently
-falls back to JSON. Rion Studio 2.0 has no TypeScript runtime-core fallback: runtime
+falls back to JSON. Rion Studio has no TypeScript runtime-core fallback: runtime
 decisions and side effects must have exactly one production implementation.
+
+## Global adaptive resources
+
+All embedded Rion runtime tabs use one adaptive policy. Visible tabs and roles running
+macros remain at full speed. Hidden tabs use 2x CPU throttling under normal pressure and
+4x throttling when the system is constrained. This applies equally to workspace tabs
+and standalone role tabs; external Chrome sessions remain outside this mechanism.
+
+The former per-workspace adaptive/unrestricted setting is intentionally removed from
+workspace persistence, command/effect contracts, portable exports, and the editor.
+SQLite migration strips stored values, while legacy JSON, recovery journals, and
+portable schema versions 1–6 continue to load and ignore the obsolete field.
+
+## 2.1 command and effect boundary
+
+The production `NativeAppCore` object exposes only `invoke`,
+`subscribeCoreEvents`, `dispatchCoreEffectResults`, `matchCdnUrl`, and
+`shutdown`. Bootstrap reads remain a module-level call before the core is
+created. Commands, results, events, effects, and errors are generated from Rust.
+
+Rust operations read their authoritative inputs from SQLite, obtain operation
+leases, emit typed Electron effects, and wait for acknowledgements without
+holding a SQLite connection or global mutex. TypeScript owns the Electron handle
+registry and applies only Electron-specific effects. It does not maintain a
+parallel operation queue or runtime snapshot.
+
+The operation actor exposes release metrics through `coreEffectMetrics`:
+current and peak queue depth, effect capacity, active operations, emitted and
+acknowledged effect counts, acknowledgement p50/p95/max, and embedded-launch
+operation/effect counts. `telemetrySnapshot` separately reports NAPI call count
+and bridge latency.
+
+## Background macro focus decision
+
+Macro `Focus` actions are input preflight, not operating-system focus requests.
+For embedded roles Electron verifies the page/iframe input target through the
+role's serialized automation lane without calling `webContents.focus()`.
+External Chrome follows the equivalent CDP-only path. Explicit user actions
+such as selecting a runtime tab or reopening an existing role retain their
+native focus behavior.
+
+This is an intentional v1 behavior correction: a macro remains bound to the
+role IDs captured by Rust at invocation start while the user clicks or switches
+other game windows. Key, click, held-key recovery and debugger-detach recovery
+share one per-role lane; different roles remain concurrent. Focus/blur/detach
+reassertions are single-flight with one trailing pass, and disposal aborts and
+drains the lane before releasing input and debugger leases.
+
+The alternative evidence is covered by the Electron automation-target tests
+(background preflight, key/click ordering, focus recovery and async disposal),
+the Rust cancellation/late-result tests, and the overlay atomic-toggle tests.
+Regular runtime-tab focus parity remains covered separately for macOS and
+Windows.
+
+## Launch and presentation backpressure
+
+Workspace creation keeps page loading concurrent, but yields between short
+Electron view-creation batches. Layout is one single-flight, generation-checked
+pass per host; role/runtime events, runtime chrome, quick menus and overlays use
+dedupe or one trailing refresh. Rust returns a normalized CDN rewrite plan once
+per session and Electron compiles it locally, so `webRequest` does not cross
+Node-API per request.
+
+Macro lifecycle status batches are reliable across both the Rust subscriber
+queue and Node-API bridge. Iteration and click presentation batches are
+latest-wins and limited to four per second; they are not written to the normal
+lifecycle log. Synchronous child barriers are removed after every participating
+role leaves the iteration, role lock registries hold weak references, and stop
+or shutdown joins invocation workers after cancellation.
 
 ## 2.0 migration and downgrade boundary
 
@@ -66,7 +135,9 @@ pnpm run package
 `verify:rust` loads the release addon, creates and queries both databases, supervises
 a child process and exercises a loopback DevTools HTTP/WebSocket fixture. CI repeats
 the addon and unpacked-package smoke tests on macOS arm64 and Windows x64. macOS CI
-also runs the AppKit runtime-tabs native tests.
+also runs the AppKit runtime-tabs native tests. Linux CI runs the macro runtime under
+AddressSanitizer and repeats the 1,000-cycle start/stop, atomic-toggle and external
+health priority tests twenty times.
 
 ## Performance protocol
 
@@ -95,10 +166,13 @@ pnpm run performance:measure -- \
   --telemetry=/tmp/rion-telemetry.json
 ```
 
-The harness samples the complete process tree and the non-renderer host subset, records
-CPU/RSS medians and steady-state RSS growth, and can compare against a prior result via
-`--baseline=...`. After collecting exactly three baseline and three candidate runs for a
-scenario, aggregate the medians and enforce every gate with:
+The harness samples the complete process tree and the non-renderer host subset,
+records CPU/RSS medians and steady-state RSS growth, and can compare against a
+prior result via `--baseline=...`. Capture `coreEffectMetrics` and
+`telemetrySnapshot` before and after every launch so the report also includes
+peak effect queue depth, effect acknowledgement p95, effects per launch, and
+NAPI call count. After collecting exactly three baseline and three candidate
+runs for a scenario, aggregate the medians and enforce every gate with:
 
 ```bash
 pnpm run performance:aggregate -- \
@@ -116,5 +190,12 @@ CPU throttling, and macro roles always remain unthrottled.
 
 Required gates are: host CPU -30%, host RSS -20%, nine-role process-tree CPU -10%,
 process-tree RSS -5%, relevant p95 command/tab/macro dispatch regression no worse than
-5%, and steady-state host RSS growth no more than 5%. A subsystem that misses its gate
-must be optimized and revalidated before release.
+5%, nine-role workspace launch and fixture rAF p95 regression no worse than 5%,
+workspace-launch main event-loop p95 no more than 16.7 ms, and steady-state host
+RSS growth no more than 5%. Launch telemetry also records layout passes, runtime
+publishes, quick-menu refreshes and CDN plans so per-role fanout regressions are
+visible. The deterministic fixture exposes
+`globalThis.__rionPerformanceSnapshot()` for renderer rAF attribution. A
+subsystem that misses its gate must be optimized and revalidated before release;
+when main event-loop timing passes but rAF does not, the report must attribute
+the remaining regression to renderer/GPU concurrent-load pressure.

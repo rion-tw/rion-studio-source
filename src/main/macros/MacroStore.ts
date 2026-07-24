@@ -4,7 +4,8 @@ import type {
   Macro,
   UpdateMacroInput
 } from "../../shared/types";
-import type { StateRepository } from "../core/RustStateRepository";
+import { toMacroCreateInput, toMacroUpdateInput } from "../core/domainInputs";
+import type { AppCoreClient } from "../core/nativeCore";
 
 export class MacroStoreError extends Error {
   constructor(
@@ -21,38 +22,38 @@ export class MacroStoreError extends Error {
 export class MacroStore {
   constructor(
     _userDataDir: string,
-    private readonly stateRepository: StateRepository
+    private readonly core: Pick<AppCoreClient, "invoke">
   ) {}
 
   listMacros(): Promise<Macro[]> {
-    return this.repository().listMacros();
+    return this.core.invoke({ type: "macrosList" });
   }
 
   getMacro(id: string): Promise<Macro> {
-    return this.repository().getMacro(id);
+    return this.core.invoke({ type: "macroGet", id });
   }
 
   createMacro(input: CreateMacroInput): Promise<Macro> {
-    return this.repository().createMacro(input);
+    return this.core.invoke({ type: "macroCreate", input: toMacroCreateInput(input) });
   }
 
   updateMacro(id: string, input: UpdateMacroInput): Promise<Macro> {
-    return this.repository().updateMacro(id, input);
+    return this.core.invoke({
+      type: "macroUpdate",
+      id,
+      input: toMacroUpdateInput(input)
+    });
   }
 
   deleteMacro(id: string): Promise<void> {
-    return this.repository().deleteMacro(id);
+    return this.core.invoke({ type: "macroDelete", id }).then(() => undefined);
   }
 
   deleteMacros(ids: string[]): Promise<BulkDeleteResult> {
-    return this.repository().deleteMacros(ids);
+    return this.core.invoke({ type: "macrosDelete", ids });
   }
 
   clearRoleAssignment(roleId: string): Promise<void> {
-    return this.repository().clearMacroRole(roleId);
-  }
-
-  private repository(): StateRepository {
-    return this.stateRepository;
+    return this.core.invoke({ type: "macrosClearRole", roleId }).then(() => undefined);
   }
 }

@@ -1,4 +1,8 @@
-import type { EmbeddedKeyEffectRecord } from "../../src/shared/generated";
+import type {
+  CoreCommand,
+  CoreCommandResult,
+  EmbeddedKeyEffectRecord
+} from "../../src/shared/generated";
 import type { EmbeddedKeyRuntimeClient } from "../../src/main/core/nativeCore";
 
 type HeldCodes = Map<string, Set<string>>;
@@ -68,26 +72,28 @@ export function createEmbeddedKeyRuntimeState(): EmbeddedKeyRuntimeClient {
   };
 
   return {
-    clearEmbeddedKeys(roleId) {
-      heldByRole.delete(roleId);
-      for (const [id, transition] of pending) {
-        if (transition.roleId === roleId) pending.delete(id);
-      }
-    },
-    completeEmbeddedKeyTransition(transitionId, succeeded) {
-      const transition = pending.get(transitionId);
-      if (!transition) throw new Error("Embedded key transition was not found.");
-      pending.delete(transitionId);
-      if (!succeeded) {
-        if (transition.before.size === 0) heldByRole.delete(transition.roleId);
-        else heldByRole.set(transition.roleId, cloneHeld(transition.before));
-      }
-    },
-    hasEmbeddedHeldKeys(roleId) {
-      return (heldByRole.get(roleId)?.size ?? 0) > 0;
-    },
-    prepareEmbeddedKeyTransition(roleId, phase, code, modifierCodes, ownerId) {
-      const held = cloneHeld(heldByRole.get(roleId) ?? new Map());
+    async invoke<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
+      let result: unknown;
+      if (command.type === "embeddedKeysClear") {
+        heldByRole.delete(command.roleId);
+        for (const [id, transition] of pending) {
+          if (transition.roleId === command.roleId) pending.delete(id);
+        }
+        result = null;
+      } else if (command.type === "embeddedKeyComplete") {
+        const transition = pending.get(command.transitionId);
+        if (!transition) throw new Error("Embedded key transition was not found.");
+        pending.delete(command.transitionId);
+        if (!command.succeeded) {
+          if (transition.before.size === 0) heldByRole.delete(transition.roleId);
+          else heldByRole.set(transition.roleId, cloneHeld(transition.before));
+        }
+        result = null;
+      } else if (command.type === "embeddedKeysHeld") {
+        result = (heldByRole.get(command.roleId)?.size ?? 0) > 0;
+      } else if (command.type === "embeddedKeyPrepare") {
+        const { roleId, phase, code, modifierCodes, ownerId } = command;
+        const held = cloneHeld(heldByRole.get(roleId) ?? new Map());
       const before = cloneHeld(held);
       const effects = phase === "release"
         ? release(held, code, modifierCodes, ownerId)
@@ -114,22 +120,27 @@ export function createEmbeddedKeyRuntimeState(): EmbeddedKeyRuntimeClient {
       else heldByRole.set(roleId, held);
       const transitionId = `transition-${++sequence}`;
       pending.set(transitionId, { before, roleId });
-      return { transitionId, effects, hasHeldKeys: held.size > 0 };
-    },
-    reassertEmbeddedKeys(roleId) {
-      const held = heldByRole.get(roleId) ?? new Map();
-      const active = activeCodes(held);
-      const effects = [...held.keys()]
-        .sort((left, right) => Number(isModifier(right)) - Number(isModifier(left)) || left.localeCompare(right))
-        .map((code): EmbeddedKeyEffectRecord => ({
-          phase: "rawKeyDown",
-          code,
-          activeCodesBefore: active,
-          activeCodes: active,
-          autoRepeat: false,
-          suppressShortcut: !isModifier(code)
-        }));
-      return { effects, hasHeldKeys: held.size > 0 };
+        result = { transitionId, effects, hasHeldKeys: held.size > 0 };
+      } else if (command.type === "embeddedKeysReassert") {
+        const held = heldByRole.get(command.roleId) ?? new Map();
+        const active = activeCodes(held);
+        const effects = [...held.keys()]
+          .sort((left, right) =>
+            Number(isModifier(right)) - Number(isModifier(left)) || left.localeCompare(right)
+          )
+          .map((code): EmbeddedKeyEffectRecord => ({
+            phase: "rawKeyDown",
+            code,
+            activeCodesBefore: active,
+            activeCodes: active,
+            autoRepeat: false,
+            suppressShortcut: !isModifier(code)
+          }));
+        result = { effects, hasHeldKeys: held.size > 0 };
+      } else {
+        throw new Error(`Unsupported embedded-key test command: ${command.type}`);
+      }
+      return result as CoreCommandResult<C>;
     }
   };
 }

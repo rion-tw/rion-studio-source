@@ -1,4 +1,5 @@
 import type {
+  BulkDeleteResult,
   CreateRoleInput,
   ReorderItemsInput,
   Role,
@@ -6,7 +7,6 @@ import type {
   RolePaths,
   UpdateRoleInput
 } from "../../shared/types";
-import type { StateRepository } from "../core/RustStateRepository";
 import type { AppCoreClient } from "../core/nativeCore";
 
 export class RoleStoreError extends Error {
@@ -20,57 +20,90 @@ export class RoleStoreError extends Error {
 export class RoleStore {
   constructor(
     _userDataDir: string,
-    private readonly stateRepository: StateRepository,
-    private readonly core: Pick<AppCoreClient, "invoke" | "resolveRolePaths">
+    private readonly core: Pick<AppCoreClient, "invoke">
   ) {}
 
   listRoles(): Promise<Role[]> {
-    return this.repository().listRoles();
+    return this.core.invoke({ type: "rolesList" });
   }
 
   getRole(id: string): Promise<Role> {
-    return this.repository().getRole(id);
+    return this.core.invoke({ type: "roleGet", id });
   }
 
   async createRole(input: CreateRoleInput): Promise<Role> {
-    return this.repository().createRole(input);
+    return this.core.invoke({
+      type: "roleCreate",
+      input: {
+        gameId: input.gameId,
+        name: input.name,
+        ...(input.launchUrl === undefined ? {} : { launchUrl: input.launchUrl }),
+        ...(input.notes === undefined ? {} : { notes: input.notes }),
+        ...(typeof input.coverImageDataUrl === "string"
+          ? { coverImageDataUrl: input.coverImageDataUrl }
+          : {}),
+        ...(typeof input.coverImageDominantColor === "string"
+          ? { coverImageDominantColor: input.coverImageDominantColor }
+          : {})
+      }
+    });
   }
 
   updateRole(id: string, input: UpdateRoleInput): Promise<Role> {
-    return this.repository().updateRole(id, input);
+    return this.core.invoke({
+      type: "roleUpdate",
+      id,
+      input: {
+        ...(input.gameId === undefined ? {} : { gameId: input.gameId }),
+        ...(input.name === undefined ? {} : { name: input.name }),
+        ...(input.launchUrl === undefined ? {} : { launchUrl: input.launchUrl }),
+        ...(input.notes === undefined ? {} : { notes: input.notes }),
+        ...(typeof input.coverImageDataUrl === "string"
+          ? { coverImageDataUrl: input.coverImageDataUrl }
+          : {}),
+        setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
+        ...(typeof input.coverImageDominantColor === "string"
+          ? { coverImageDominantColor: input.coverImageDominantColor }
+          : {}),
+        setCoverImageDominantColor: input.coverImageDominantColor !== undefined
+      }
+    });
   }
 
   reorderRoles(input: ReorderItemsInput): Promise<Role[]> {
-    return this.repository().reorderRoles(input.orderedIds);
+    return this.core.invoke({ type: "roleReorder", orderedIds: input.orderedIds });
   }
 
   async deleteRole(id: string): Promise<void> {
-    await this.repository().deleteRole(id);
+    await this.core.invoke({ type: "roleDelete", id });
+  }
+
+  deleteRoles(ids: string[]): Promise<BulkDeleteResult> {
+    return this.core.invoke({ type: "rolesDelete", ids });
   }
 
   updateBrowserSessionSource(id: string, source: RoleBrowserSessionSource): Promise<Role> {
-    return this.repository().setRoleBrowserSessionSource(id, source);
+    return this.core.invoke({ type: "roleSetBrowserSessionSource", id, source });
   }
 
   assignGameIds(assignments: ReadonlyMap<string, string>): Promise<Role[]> {
-    return this.repository().assignRoleGameIds(assignments);
+    return this.core.invoke({
+      type: "roleAssignGameIds",
+      assignments: [...assignments].map(([roleId, gameId]) => ({ roleId, gameId }))
+    });
   }
 
-  getRolePaths(id: string): RolePaths {
-    return this.core.resolveRolePaths(id);
+  getRolePaths(id: string): Promise<RolePaths> {
+    return this.core.invoke({ type: "rolePathsResolve", id });
   }
 
   async ensureBrowserUserDataDir(id: string): Promise<string> {
-    const paths = await this.core.invoke<RolePaths>({ type: "roleBrowserDirectoryEnsure", id });
+    const paths = await this.core.invoke({ type: "roleBrowserDirectoryEnsure", id });
     return paths.browserUserDataDir;
   }
 
   async resetBrowserUserDataDir(id: string): Promise<string> {
-    const paths = await this.core.invoke<RolePaths>({ type: "roleBrowserDirectoryReset", id });
+    const paths = await this.core.invoke({ type: "roleBrowserDirectoryReset", id });
     return paths.browserUserDataDir;
-  }
-
-  private repository(): StateRepository {
-    return this.stateRepository;
   }
 }

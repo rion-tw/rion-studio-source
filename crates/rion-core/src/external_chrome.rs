@@ -86,6 +86,55 @@ pub struct ExternalChromeCdpSession {
 }
 
 impl ExternalChromeCdpSession {
+    #[cfg(test)]
+    pub(crate) fn test_session(
+        response_delay: Duration,
+        responded: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        Self::test_session_with_observer(response_delay, move || {
+            responded.store(true, std::sync::atomic::Ordering::Release);
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_session_with_observer(
+        response_delay: Duration,
+        on_response: impl Fn() + Send + 'static,
+    ) -> Self {
+        Self::test_session_with_handler(move |_, _| {
+            std::thread::sleep(response_delay);
+            on_response();
+            Ok(json!({}))
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_session_with_handler(
+        handler: impl Fn(&str, Option<&Value>) -> CoreResult<Value> + Send + 'static,
+    ) -> Self {
+        let (commands, mut command_receiver) = mpsc::channel(MAX_COMMAND_QUEUE);
+        let (_event_sender, events) = bounded(MAX_EVENT_QUEUE);
+        std::thread::spawn(move || {
+            while let Some(command) = command_receiver.blocking_recv() {
+                match command {
+                    CdpCommand::Send {
+                        method,
+                        params,
+                        response,
+                        ..
+                    } => {
+                        let _ = response.send(handler(&method, params.as_ref()));
+                    }
+                    CdpCommand::Close => break,
+                }
+            }
+        });
+        Self {
+            commands,
+            events: Mutex::new(Some(events)),
+        }
+    }
+
     pub(crate) async fn connect(
         browser_user_data_dir: PathBuf,
         launch_url: String,
@@ -202,27 +251,21 @@ async fn run_cdp_connection(
     let mut next_id = 1_u64;
     let mut pending = HashMap::<u64, PendingRequest>::new();
     let mut expiry = tokio::time::interval(Duration::from_millis(100));
+    let mut main_frame_id = None;
+    let mut frame_tree_request_id = None;
     if let Some(cdn) = cdn {
-        let enable = json!({
-            "id":next_id,
-            "method":"Fetch.enable",
-            "params":{
-                "patterns":cdn.patterns.iter().map(|url_pattern| json!({
-                    "requestStage":"Request",
-                    "urlPattern":url_pattern
-                })).collect::<Vec<_>>()
-            }
-        });
-        next_id += 1;
+        let (frame_tree, enable, reload) = create_cdn_startup_requests(next_id, cdn);
+        frame_tree_request_id = Some(next_id);
+        next_id += 3;
+        if let Err(error) = writer
+            .send(Message::Text(frame_tree.to_string().into()))
+            .await
+        {
+            return Some(error.to_string());
+        }
         if let Err(error) = writer.send(Message::Text(enable.to_string().into())).await {
             return Some(error.to_string());
         }
-        let reload = json!({
-            "id":next_id,
-            "method":"Page.reload",
-            "params":{"ignoreCache":true}
-        });
-        next_id += 1;
         if let Err(error) = writer.send(Message::Text(reload.to_string().into())).await {
             return Some(error.to_string());
         }
@@ -261,7 +304,17 @@ async fn run_cdp_connection(
             },
             message = reader.next() => match message {
                 Some(Ok(Message::Text(text))) => {
-                    if let Some(payload) = create_cdn_continue_request(&text, cdn, next_id) {
+                    update_main_frame_id(
+                        &text,
+                        frame_tree_request_id,
+                        &mut main_frame_id,
+                    );
+                    if let Some(payload) = create_cdn_continue_request(
+                        &text,
+                        cdn,
+                        main_frame_id.as_deref(),
+                        next_id,
+                    ) {
                         next_id = next_id.wrapping_add(1).max(1);
                         if let Err(error) = writer.send(Message::Text(payload.to_string().into())).await {
                             break error.to_string();
@@ -271,7 +324,17 @@ async fn run_cdp_connection(
                 },
                 Some(Ok(Message::Binary(bytes))) => {
                     if let Ok(text) = std::str::from_utf8(&bytes) {
-                        if let Some(payload) = create_cdn_continue_request(text, cdn, next_id) {
+                        update_main_frame_id(
+                            text,
+                            frame_tree_request_id,
+                            &mut main_frame_id,
+                        );
+                        if let Some(payload) = create_cdn_continue_request(
+                            text,
+                            cdn,
+                            main_frame_id.as_deref(),
+                            next_id,
+                        ) {
                             next_id = next_id.wrapping_add(1).max(1);
                             if let Err(error) = writer.send(Message::Text(payload.to_string().into())).await {
                                 break error.to_string();
@@ -301,12 +364,43 @@ async fn run_cdp_connection(
     Some(disconnect_message)
 }
 
+fn create_cdn_enable_request(id: u64, cdn: &CdnRequestRewriter) -> Value {
+    json!({
+        "id":id,
+        "method":"Fetch.enable",
+        "params":{
+            "patterns":cdn.patterns.iter().map(|url_pattern| json!({
+                "requestStage":"Request",
+                "urlPattern":url_pattern
+            })).collect::<Vec<_>>()
+        }
+    })
+}
+
+fn create_cdn_startup_requests(first_id: u64, cdn: &CdnRequestRewriter) -> (Value, Value, Value) {
+    (
+        json!({
+            "id":first_id,
+            "method":"Page.getFrameTree",
+            "params":{}
+        }),
+        create_cdn_enable_request(first_id + 1, cdn),
+        json!({
+            "id":first_id + 2,
+            "method":"Page.reload",
+            "params":{"ignoreCache":true}
+        }),
+    )
+}
+
 async fn connect_devtools_socket(
     browser_user_data_dir: &Path,
     launch_url: &str,
     deadline: Instant,
 ) -> CoreResult<CdpSocket> {
+    let target_discovery_timeout = deadline.saturating_duration_since(Instant::now());
     let port = wait_for_devtools_port(browser_user_data_dir, deadline).await?;
+    let deadline = target_discovery_deadline(Instant::now(), target_discovery_timeout);
     let websocket_url = loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -340,9 +434,14 @@ async fn connect_devtools_socket(
     Ok(socket)
 }
 
+fn target_discovery_deadline(port_available_at: Instant, timeout: Duration) -> Instant {
+    port_available_at + timeout
+}
+
 fn create_cdn_continue_request(
     text: &str,
     cdn: Option<&CdnRequestRewriter>,
+    main_frame_id: Option<&str>,
     id: u64,
 ) -> Option<Value> {
     let cdn = cdn?;
@@ -354,7 +453,12 @@ fn create_cdn_continue_request(
     let request_id = params.get("requestId")?.as_str()?;
     let url = params.get("request")?.get("url")?.as_str()?;
     let is_document = params.get("resourceType").and_then(Value::as_str) == Some("Document");
-    let rewritten = (!is_document).then(|| (cdn.rewrite)(url)).flatten();
+    let frame_id = params.get("frameId").and_then(Value::as_str);
+    let is_main_frame_document =
+        is_document && (frame_id.is_none() || frame_id == main_frame_id || main_frame_id.is_none());
+    let rewritten = (!is_main_frame_document)
+        .then(|| (cdn.rewrite)(url))
+        .flatten();
     let mut request = json!({"requestId":request_id});
     if let Some(rewritten) = rewritten {
         request["url"] = Value::String(rewritten);
@@ -364,6 +468,34 @@ fn create_cdn_continue_request(
         "method":"Fetch.continueRequest",
         "params":request
     }))
+}
+
+fn update_main_frame_id(
+    text: &str,
+    frame_tree_request_id: Option<u64>,
+    main_frame_id: &mut Option<String>,
+) {
+    let Ok(payload) = serde_json::from_str::<Value>(text) else {
+        return;
+    };
+    if payload.get("id").and_then(Value::as_u64) == frame_tree_request_id {
+        if let Some(frame_id) = payload
+            .pointer("/result/frameTree/frame/id")
+            .and_then(Value::as_str)
+        {
+            *main_frame_id = Some(frame_id.to_owned());
+        }
+        return;
+    }
+    if payload.get("method").and_then(Value::as_str) == Some("Page.frameNavigated")
+        && payload
+            .pointer("/params/frame/parentId")
+            .and_then(Value::as_str)
+            .is_none()
+        && let Some(frame_id) = payload.pointer("/params/frame/id").and_then(Value::as_str)
+    {
+        *main_frame_id = Some(frame_id.to_owned());
+    }
 }
 
 fn handle_cdp_message(
@@ -668,7 +800,10 @@ mod tests {
     fn continues_every_paused_request_and_rewrites_only_subresources() {
         let cdn = CdnRequestRewriter {
             patterns: vec!["https://source.test/*".to_owned()],
-            rewrite: Arc::new(|url| Some(url.replace("source.test", "mirror.test"))),
+            rewrite: Arc::new(|url| {
+                url.contains("source.test")
+                    .then(|| url.replace("source.test", "mirror.test"))
+            }),
         };
         let script = json!({
             "method":"Fetch.requestPaused",
@@ -677,9 +812,29 @@ mod tests {
                 "request":{"url":"https://source.test/app.js"}
             }
         });
-        let rewritten = create_cdn_continue_request(&script.to_string(), Some(&cdn), 7).unwrap();
+        let rewritten =
+            create_cdn_continue_request(&script.to_string(), Some(&cdn), Some("main"), 7).unwrap();
         assert_eq!(rewritten["method"], "Fetch.continueRequest");
         assert_eq!(rewritten["params"]["url"], "https://mirror.test/app.js");
+        let unmatched = json!({
+            "method":"Fetch.requestPaused",
+            "params":{
+                "frameId":"child",
+                "requestId":"request-unmatched","resourceType":"XHR",
+                "request":{"url":"https://unmatched.test/api"}
+            }
+        });
+        let continued_unmatched =
+            create_cdn_continue_request(&unmatched.to_string(), Some(&cdn), Some("main"), 8)
+                .unwrap();
+        crate::v1_case!("external-chrome-cdn-fc3b467d4c74", {
+            assert_eq!(rewritten["params"]["requestId"], "request-1");
+            assert_eq!(rewritten["params"]["url"], "https://mirror.test/app.js");
+            assert_eq!(
+                continued_unmatched["params"],
+                json!({"requestId":"request-unmatched"})
+            );
+        });
 
         let document = json!({
             "method":"Fetch.requestPaused",
@@ -688,8 +843,105 @@ mod tests {
                 "request":{"url":"https://source.test/play"}
             }
         });
-        let continued = create_cdn_continue_request(&document.to_string(), Some(&cdn), 8).unwrap();
+        let continued =
+            create_cdn_continue_request(&document.to_string(), Some(&cdn), Some("main"), 9)
+                .unwrap();
         assert!(continued["params"].get("url").is_none());
+    }
+
+    #[test]
+    fn gives_target_discovery_a_full_timeout_after_the_port_appears() {
+        let startup = Instant::now();
+        let timeout = Duration::from_secs(10);
+        let port_available = startup + Duration::from_millis(9_500);
+        let deadline = target_discovery_deadline(port_available, timeout);
+
+        crate::v1_case!("external-chrome-cdn-4e1a8d548c9a", {
+            assert_eq!(
+                deadline.saturating_duration_since(startup),
+                Duration::from_millis(19_500)
+            );
+            assert!(startup + Duration::from_millis(10_500) < deadline);
+        });
+    }
+
+    #[test]
+    fn rewrites_subframe_documents_but_preserves_the_main_document() {
+        let cdn = CdnRequestRewriter {
+            patterns: vec!["https://www.google.com/*".to_owned()],
+            rewrite: Arc::new(|url| Some(url.replace("www.google.com", "www.recaptcha.net"))),
+        };
+        let paused = |request_id: &str, frame_id: &str| {
+            json!({
+                "method":"Fetch.requestPaused",
+                "params":{
+                    "frameId":frame_id,
+                    "request":{"url":"https://www.google.com/recaptcha/api2/anchor?k=test"},
+                    "requestId":request_id,
+                    "resourceType":"Document"
+                }
+            })
+            .to_string()
+        };
+        let main = create_cdn_continue_request(
+            &paused("main-document", "main"),
+            Some(&cdn),
+            Some("main"),
+            1,
+        )
+        .unwrap();
+        let child = create_cdn_continue_request(
+            &paused("sub-document", "child"),
+            Some(&cdn),
+            Some("main"),
+            2,
+        )
+        .unwrap();
+
+        crate::v1_case!("external-chrome-cdn-06aaeade5bad", {
+            assert!(main["params"].get("url").is_none());
+            assert_eq!(
+                child["params"]["url"],
+                "https://www.recaptcha.net/recaptcha/api2/anchor?k=test"
+            );
+        });
+    }
+
+    #[test]
+    fn enables_all_eight_cdn_hosts_at_the_cdp_request_stage() {
+        let matcher = crate::cdn::CdnMatcher::bundled().unwrap();
+        let cdn = CdnRequestRewriter {
+            patterns: matcher.request_patterns(),
+            rewrite: Arc::new(|_| None),
+        };
+        let command = create_cdn_enable_request(1, &cdn);
+        let patterns = command["params"]["patterns"].as_array().unwrap();
+
+        crate::v1_case!("external-chrome-cdn-3d19f2bdf5a7", {
+            assert_eq!(patterns.len(), 8);
+            assert!(patterns.iter().any(|pattern| {
+                pattern
+                    == &json!({
+                        "requestStage": "Request",
+                        "urlPattern": "https://www.google.com/*"
+                    })
+            }));
+            assert!(
+                patterns
+                    .iter()
+                    .all(|pattern| pattern["requestStage"] == "Request")
+            );
+        });
+        let (frame_tree, enable, reload) = create_cdn_startup_requests(41, &cdn);
+        crate::v1_case!("external-chrome-cdn-f8e035478c76", {
+            assert_eq!(frame_tree["id"], 41);
+            assert_eq!(frame_tree["method"], "Page.getFrameTree");
+            assert_eq!(enable["id"], 42);
+            assert_eq!(enable["method"], "Fetch.enable");
+            assert_eq!(reload["id"], 43);
+            assert_eq!(reload["method"], "Page.reload");
+            assert_eq!(reload["params"]["ignoreCache"], true);
+        });
     }
 
     #[test]

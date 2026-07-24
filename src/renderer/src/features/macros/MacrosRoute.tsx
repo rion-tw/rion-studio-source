@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  CircleAlert,
   Copy,
   Keyboard,
   Loader2,
@@ -329,6 +330,12 @@ function MacrosRoute({
                       >
                         <span className="block truncate">{macro.name}</span>
                       </button>
+                      <MacroFailureMessage
+                        macro={macro}
+                        macroStatusByRun={macroStatusByRun}
+                        roleById={roleById}
+                        t={t}
+                      />
                     </td>
                     <td className="max-w-[240px] px-4 py-2 align-middle">
                       <MacroRoleBadge
@@ -410,6 +417,35 @@ interface MacroSortHeaderProps {
   sort: MacroListSortState;
   sortKey: MacroListSortKey;
   t: Translator;
+}
+
+function MacroFailureMessage({
+  macro,
+  macroStatusByRun,
+  roleById,
+  t
+}: {
+  macro: Macro;
+  macroStatusByRun: Map<string, MacroRunStatus>;
+  roleById: Map<string, Role>;
+  t: Translator;
+}): JSX.Element | null {
+  const failed = macro.roleIds
+    .map((roleId) => macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
+    .find((status) => status?.state === "failed");
+  if (!failed) return null;
+  const roleName = roleById.get(failed.roleId)?.name ?? failed.roleId;
+  const message = failed.error ?? t("macros.status.failed");
+
+  return (
+    <span
+      className="mt-0.5 flex max-w-full items-center gap-1 text-[11px] leading-4 text-destructive"
+      title={`${roleName}: ${message}`}
+    >
+      <CircleAlert aria-hidden="true" className="shrink-0" size={12} />
+      <span className="truncate">{t("macros.status.failed")}: {message}</span>
+    </span>
+  );
 }
 
 function MacroSortHeader({ label, onSort, sort, sortKey, t }: MacroSortHeaderProps): JSX.Element {
@@ -559,19 +595,39 @@ function MacroActionMenu({
           ? belowTop
           : Math.max(viewportPadding, triggerBounds.top - menuHeight - menuGap);
 
-      setMenuPosition({ left, top });
+      setMenuPosition((current) =>
+        current?.left === left && current.top === top
+          ? current
+          : { left, top }
+      );
+    }
+
+    let frameId: number | undefined;
+    function scheduleMenuPositionUpdate(): void {
+      if (frameId !== undefined) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = undefined;
+        updateMenuPosition();
+      });
     }
 
     updateMenuPosition();
-    const frameId = window.requestAnimationFrame(updateMenuPosition);
+    scheduleMenuPositionUpdate();
 
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
+    window.addEventListener("resize", scheduleMenuPositionUpdate);
+    window.addEventListener("scroll", scheduleMenuPositionUpdate, {
+      capture: true,
+      passive: true
+    });
 
     return () => {
-      window.cancelAnimationFrame(frameId);
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
+      if (frameId !== undefined) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("resize", scheduleMenuPositionUpdate);
+      window.removeEventListener("scroll", scheduleMenuPositionUpdate, true);
     };
   }, [isOpen]);
 

@@ -141,10 +141,12 @@ mod tests {
         let mut encrypted = b"v10".to_vec();
         encrypted.extend(ciphertext);
 
-        assert_eq!(
-            decrypt_mac_cookie_payload(&encrypted, &key).unwrap(),
-            b"cookie-value"
-        );
+        crate::v1_case!("portable-profile-3227bd16b554", {
+            assert_eq!(
+                decrypt_mac_cookie_payload(&encrypted, &key).unwrap(),
+                b"cookie-value"
+            );
+        });
     }
 
     #[test]

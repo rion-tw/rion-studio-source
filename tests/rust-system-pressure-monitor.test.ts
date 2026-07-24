@@ -12,7 +12,7 @@ describe("RustSystemPressureMonitor", () => {
         listener = next;
         return unsubscribe;
       }),
-      updateSystemPressureSignals: vi.fn()
+      invoke: vi.fn()
     };
     const monitor = new RustSystemPressureMonitor(core as never);
     const onChange = vi.fn();
@@ -30,16 +30,19 @@ describe("RustSystemPressureMonitor", () => {
   });
 
   it("passes Electron power signals to the native worker", () => {
-    const updateSystemPressureSignals = vi.fn();
+    const invoke = vi.fn().mockResolvedValue(null);
     const monitor = new RustSystemPressureMonitor({
       subscribe: vi.fn(() => vi.fn()),
-      updateSystemPressureSignals
+      invoke
     } as never);
 
     monitor.setSpeedLimit(70);
     monitor.setThermalState("critical");
 
-    expect(updateSystemPressureSignals).toHaveBeenNthCalledWith(1, { speedLimit: 70 });
-    expect(updateSystemPressureSignals).toHaveBeenNthCalledWith(2, { thermalState: "critical" });
+    expect(invoke).toHaveBeenNthCalledWith(1, { type: "systemPressureUpdate", speedLimit: 70 });
+    expect(invoke).toHaveBeenNthCalledWith(2, {
+      type: "systemPressureUpdate",
+      thermalState: "critical"
+    });
   });
 });

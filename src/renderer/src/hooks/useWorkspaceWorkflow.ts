@@ -59,7 +59,6 @@ export function useWorkspaceWorkflow({
         browserLaunchMode: form.browserLaunchMode,
         browserZoomMode: form.browserZoomMode,
         browserZoomPercent: form.browserZoomPercent,
-        resourcePolicy: form.resourcePolicy,
         targetDisplay: form.targetDisplay ?? null,
         slots: form.slots
       };
@@ -163,7 +162,6 @@ export function useWorkspaceWorkflow({
         browserLaunchMode: workspace.browserLaunchMode,
         browserZoomMode: workspace.browserZoomMode,
         browserZoomPercent: workspace.browserZoomPercent,
-        resourcePolicy: workspace.resourcePolicy,
         targetDisplay: workspace.targetDisplay
           ? cloneWorkspaceDisplayTarget(workspace.targetDisplay)
           : null,

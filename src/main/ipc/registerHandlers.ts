@@ -9,8 +9,6 @@ import type {
   AppUpdateStatus,
   EmbeddedRuntimeState,
   BulkDeleteInput,
-  BulkDeleteResult,
-  BulkDeleteSkippedItem,
   ChromeProfileImportInput,
   CreateGameInput,
   CreateLaunchWorkspaceInput,
@@ -25,6 +23,7 @@ import type {
   PortableExportInput,
   PortableImportInput,
   ReorderItemsInput,
+  Role,
   RoleStatus,
   UpdateLaunchWorkspaceInput,
   UpdateGameInput,
@@ -44,9 +43,8 @@ import {
 import {
   BrowserLaunchCancelledError,
   EXTERNAL_COMPAT_NOTICE,
-  type BrowserManager
-} from "../browser/BrowserManager";
-import type { RoleBrowserDataManager } from "../browser/RoleBrowserDataManager";
+  type ElectronBrowserRuntime
+} from "../browser/ElectronBrowserRuntime";
 import type { ChromeProfileImportManager } from "../browser/ChromeProfileImportManager";
 import type { GameBrowserSettingsStore } from "../game-browser/GameBrowserSettingsStore";
 import type { RustSystemFontService } from "../game-browser/RustSystemFontService";
@@ -54,10 +52,6 @@ import type { GameCompatibilityManager } from "../games/GameCompatibilityManager
 import type { GameStore } from "../games/GameStore";
 import type { LegalAcceptanceStore } from "../legal/LegalAcceptanceStore";
 import type { MacroRuntimeManager } from "../macros/MacroRuntimeManager";
-import {
-  isMacroOverlayRequest,
-  type MacroOverlayRequest
-} from "../macros/MacroOverlayInjector";
 import type { MacroStore } from "../macros/MacroStore";
 import type { MacroSettingsStore } from "../macros/MacroSettingsStore";
 import type { PortableDataManager } from "../portable/PortableDataManager";
@@ -73,10 +67,13 @@ interface RegisterIpcHandlersOptions {
   macroStore?: MacroStore;
   macroSettingsStore?: Pick<MacroSettingsStore, "getSettings" | "updateSettings">;
   gameBrowserSettingsStore?: Pick<GameBrowserSettingsStore, "getSettings" | "updateSettings">;
-  gameStore?: Pick<GameStore, "createGame" | "deleteGame" | "getGame" | "listGames" | "resetBuiltinGame" | "updateGame">;
+  gameStore?: Pick<
+    GameStore,
+    "createGame" | "deleteGame" | "deleteGames" | "getGame" | "listGames" | "resetBuiltinGame" | "updateGame"
+  >;
   gameCompatibilityManager?: Pick<
     GameCompatibilityManager,
-    "cancelCheck" | "deleteGame" | "listReports" | "listStatuses" | "on" | "recordObservation" | "runCheck"
+    "cancelCheck" | "listReports" | "listStatuses" | "on" | "recordObservation" | "runCheck"
   >;
   systemFontService?: Pick<RustSystemFontService, "listFonts">;
   updateManager?: AppUpdateManager;
@@ -84,20 +81,19 @@ interface RegisterIpcHandlersOptions {
   consumePendingWorkspaceLaunchRequest?: () => PendingWorkspaceLaunchRequest | null;
   onGameBrowserSettingsChanged?: () => void;
   onMacrosChanged?: () => void;
-  onMacroOverlayRequest?: (webContents: WebContents, request: MacroOverlayRequest) => Promise<unknown>;
+  onMacroOverlayRequest?: (webContents: WebContents, request: unknown) => Promise<unknown>;
   onOverlayLanguageChanged?: (language: AppLanguage) => void;
   onLegalAccepted?: () => void;
   onRendererReady?: (senderId: number, state: AppRendererReadyState) => void;
   recordIpcCommandLatency?: (channel: string, durationMs: number) => void;
   onRolesChanged?: () => void;
   onWorkspacesChanged?: () => void;
-  roleBrowserDataManager?: Pick<RoleBrowserDataManager, "clear">;
+  clearRoleBrowserData?: (roleId: string) => Promise<Role>;
   chromeProfileImportManager?: Pick<
     ChromeProfileImportManager,
     "applyImport" | "closeChrome" | "discardImport" | "previewImport"
   >;
   workspaceLauncher?: Pick<WorkspaceLaunchCoordinator, "launch">;
-  withDataMutation?: <T>(operation: () => Promise<T>) => Promise<T>;
   getDefaultWorkspaceDisplayId?: () => number;
   getWorkspaceDisplays?: () => WorkspaceDisplayInfo[];
   portableDataManager?: Pick<
@@ -124,7 +120,7 @@ interface RegisterIpcHandlersOptions {
 export function registerIpcHandlers(
   roleStore: RoleStore,
   workspaceStore: LaunchWorkspaceStore,
-  browserManager: BrowserManager,
+  browserManager: ElectronBrowserRuntime,
   options: RegisterIpcHandlersOptions = {}
 ): void {
   const handle = <Arguments extends unknown[], Result>(
@@ -174,12 +170,14 @@ export function registerIpcHandlers(
   });
 
   handle(IPC_CHANNELS.appSnapshot, async () => {
-    const [games, gameCompatibilityReports, roles, launchWorkspaces, macros] = await Promise.all([
+    const [games, gameCompatibilityReports, roles, launchWorkspaces, macros, macroStatuses] =
+      await Promise.all([
       options.gameStore?.listGames() ?? Promise.resolve([]),
       options.gameCompatibilityManager?.listReports() ?? Promise.resolve([]),
       roleStore.listRoles(),
       workspaceStore.listWorkspaces(),
-      options.macroStore?.listMacros() ?? Promise.resolve([])
+      options.macroStore?.listMacros() ?? Promise.resolve([]),
+      options.macroManager?.listStatuses() ?? Promise.resolve([])
     ]);
 
     return {
@@ -192,7 +190,7 @@ export function registerIpcHandlers(
       launchWorkspaces,
       workspaceDisplays: getWorkspaceDisplays(options),
       macros,
-      macroStatuses: options.macroManager?.listStatuses() ?? []
+      macroStatuses
     };
   });
 
@@ -252,7 +250,7 @@ export function registerIpcHandlers(
   );
   handle(IPC_CHANNELS.gamesDeleteMany, (_event, input: BulkDeleteInput) =>
     runDataMutation(options, async () => {
-      const result = await runBulkDelete(input, (id) => deleteGameRecord(options, id));
+      const result = await requireGameStore(options).deleteGames(normalizeBulkDeleteIds(input));
       if (result.deletedIds.length > 0) {
         await broadcastGamesChange(options);
       }
@@ -323,8 +321,8 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.macrosConsumePageRequest, () => options.consumePendingMacroPageRequest?.() ?? null);
 
-  handle(IPC_CHANNELS.macrosOverlayRequest, (event, request: MacroOverlayRequest) => {
-    if (!options.onMacroOverlayRequest || !isMacroOverlayRequest(request)) {
+  handle(IPC_CHANNELS.macrosOverlayRequest, (event, request: unknown) => {
+    if (!options.onMacroOverlayRequest) {
       throw new Error("Macro overlay request is invalid.");
     }
 
@@ -493,7 +491,7 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.logsSetLevel, async (_event, level: LogLevel) => {
     if (!options.logService || !LOG_LEVELS.includes(level)) throw new Error("Invalid log level.");
-    options.logService.setLevel(level);
+    await options.logService.setLevel(level);
     return options.logService.getStatus();
   });
 
@@ -572,16 +570,7 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.rolesUpdate, (_event, id: string, input: UpdateRoleInput) =>
     runDataMutation(options, async () => {
-      const current = await roleStore.getRole(id);
-      if (input.gameId !== undefined && options.gameStore) {
-        await options.gameStore.getGame(input.gameId);
-      }
-      const sessionIdentityChanged =
-        (input.gameId !== undefined && input.gameId !== current.gameId) ||
-        (input.launchUrl !== undefined && new URL(input.launchUrl).toString() !== current.launchUrl);
-      const role = sessionIdentityChanged
-        ? await browserManager.stopRoleAndRunMutation(id, () => roleStore.updateRole(id, input))
-        : await roleStore.updateRole(id, input);
+      const role = await roleStore.updateRole(id, input);
       options.onRolesChanged?.();
       return role;
     })
@@ -597,13 +586,7 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.rolesDelete, (_event, id: string) =>
     runDataMutation(options, async () => {
-      await deleteRoleRecord(
-        roleStore,
-        workspaceStore,
-        browserManager,
-        options.macroStore,
-        id
-      );
+      await roleStore.deleteRole(id);
       options.onRolesChanged?.();
       options.onWorkspacesChanged?.();
       options.onMacrosChanged?.();
@@ -611,15 +594,7 @@ export function registerIpcHandlers(
   );
   handle(IPC_CHANNELS.rolesDeleteMany, (_event, input: BulkDeleteInput) =>
     runDataMutation(options, async () => {
-      const result = await runBulkDelete(input, (id) =>
-        deleteRoleRecord(
-          roleStore,
-          workspaceStore,
-          browserManager,
-          options.macroStore,
-          id
-        )
-      );
+      const result = await roleStore.deleteRoles(normalizeBulkDeleteIds(input));
       if (result.deletedIds.length > 0) {
         options.onRolesChanged?.();
         options.onWorkspacesChanged?.();
@@ -631,7 +606,10 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.rolesClearBrowserData, (_event, id: string) =>
     runDataMutation(options, async () => {
-      const role = await requireRoleBrowserDataManager(options).clear(id);
+      if (!options.clearRoleBrowserData) {
+        throw new Error("Role browser data clearing is not available.");
+      }
+      const role = await options.clearRoleBrowserData(id);
       options.onRolesChanged?.();
       return role;
     })
@@ -681,12 +659,7 @@ export function registerIpcHandlers(
   handle(IPC_CHANNELS.workspacesCreate, (_event, input: CreateLaunchWorkspaceInput) =>
     runDataMutation(options, async () => {
       const normalizedInput = reconcileWorkspaceInputTargetDisplay(input, getWorkspaceDisplays(options));
-      const workspace = await runWithExistingRoles(
-        getWorkspaceInputRoleIds(normalizedInput),
-        roleStore,
-        browserManager,
-        () => workspaceStore.createWorkspace(normalizedInput)
-      );
+      const workspace = await workspaceStore.createWorkspace(normalizedInput);
       options.onWorkspacesChanged?.();
       return workspace;
     })
@@ -696,12 +669,7 @@ export function registerIpcHandlers(
     IPC_CHANNELS.workspacesUpdate,
     (_event, id: string, input: UpdateLaunchWorkspaceInput) => runDataMutation(options, async () => {
       const normalizedInput = reconcileWorkspaceInputTargetDisplay(input, getWorkspaceDisplays(options));
-      const workspace = await runWithExistingRoles(
-        getWorkspaceInputRoleIds(normalizedInput),
-        roleStore,
-        browserManager,
-        () => workspaceStore.updateWorkspace(id, normalizedInput)
-      );
+      const workspace = await workspaceStore.updateWorkspace(id, normalizedInput);
       options.onWorkspacesChanged?.();
       return workspace;
     })
@@ -717,15 +685,13 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.workspacesDelete, (_event, id: string) =>
     runDataMutation(options, async () => {
-      await deleteWorkspaceRecord(workspaceStore, browserManager, id);
+      await workspaceStore.deleteWorkspace(id);
       options.onWorkspacesChanged?.();
     })
   );
   handle(IPC_CHANNELS.workspacesDeleteMany, (_event, input: BulkDeleteInput) =>
     runDataMutation(options, async () => {
-      const result = await runBulkDelete(input, (id) =>
-        deleteWorkspaceRecord(workspaceStore, browserManager, id)
-      );
+      const result = await workspaceStore.deleteWorkspaces(normalizeBulkDeleteIds(input));
       if (result.deletedIds.length > 0) {
         options.onWorkspacesChanged?.();
       }
@@ -758,12 +724,7 @@ export function registerIpcHandlers(
 
     handle(IPC_CHANNELS.macrosCreate, (_event, input: CreateMacroInput) =>
       runDataMutation(options, async () => {
-        const macro = await runWithExistingRoles(
-          getMacroInputRoleIds(input),
-          roleStore,
-          browserManager,
-          () => macroStore.createMacro(input)
-        );
+        const macro = await macroStore.createMacro(input);
         options.onMacrosChanged?.();
         return macro;
       })
@@ -771,14 +732,7 @@ export function registerIpcHandlers(
 
     handle(IPC_CHANNELS.macrosUpdate, (_event, id: string, input: UpdateMacroInput) =>
       runDataMutation(options, async () => {
-        const macro = await runWithExistingRoles(
-          getMacroInputRoleIds(input),
-          roleStore,
-          browserManager,
-          () => (input.enabled === false
-            ? macroManager.stopAndRunMutation(id, () => macroStore.updateMacro(id, input))
-            : macroManager.runStoppedMutation(id, () => macroStore.updateMacro(id, input)))
-        );
+        const macro = await macroStore.updateMacro(id, input);
         options.onMacrosChanged?.();
         return macro;
       })
@@ -786,14 +740,14 @@ export function registerIpcHandlers(
 
     handle(IPC_CHANNELS.macrosDelete, (_event, id: string) =>
       runDataMutation(options, async () => {
-        await deleteMacroRecord(macroStore, macroManager, id);
+        await macroStore.deleteMacro(id);
         options.onMacrosChanged?.();
       })
     );
     handle(IPC_CHANNELS.macrosDeleteMany, (_event, input: BulkDeleteInput) =>
       runDataMutation(options, async () => {
         const ids = normalizeBulkDeleteIds(input);
-        const result = await macroManager.stopAndRunMutations(ids, () => macroStore.deleteMacros(ids));
+        const result = await macroStore.deleteMacros(ids);
         if (result.deletedIds.length > 0) {
           options.onMacrosChanged?.();
         }
@@ -825,7 +779,7 @@ function runDataMutation<T>(
   operation: () => Promise<T>
 ): Promise<T> {
   const startedAt = Date.now();
-  const result = options.withDataMutation?.(operation) ?? operation();
+  const result = operation();
   return result.then((value) => {
     options.logService?.info("ipc", "data_mutation_completed", "An IPC data mutation completed.", {
       durationMs: Date.now() - startedAt
@@ -841,66 +795,6 @@ function runDataMutation<T>(
 
 async function deleteGameRecord(options: RegisterIpcHandlersOptions, id: string): Promise<void> {
   await requireGameStore(options).deleteGame(id);
-  await options.gameCompatibilityManager?.deleteGame(id);
-}
-
-function requireRoleBrowserDataManager(
-  options: RegisterIpcHandlersOptions
-): Pick<RoleBrowserDataManager, "clear"> {
-  if (!options.roleBrowserDataManager) {
-    throw new Error("Role browser data clearing is not available.");
-  }
-  return options.roleBrowserDataManager;
-}
-
-async function deleteRoleRecord(
-  roleStore: RoleStore,
-  workspaceStore: LaunchWorkspaceStore,
-  browserManager: BrowserManager,
-  macroStore: MacroStore | undefined,
-  id: string
-): Promise<void> {
-  await browserManager.stopRoleAndRunMutation(id, async () => {
-    await roleStore.deleteRole(id);
-    await workspaceStore.clearRole(id);
-    await macroStore?.clearRoleAssignment(id);
-  });
-}
-
-async function deleteWorkspaceRecord(
-  workspaceStore: LaunchWorkspaceStore,
-  browserManager: BrowserManager,
-  id: string
-): Promise<void> {
-  await browserManager.stopWorkspace(id);
-  await workspaceStore.deleteWorkspace(id);
-}
-
-async function deleteMacroRecord(
-  macroStore: MacroStore,
-  macroManager: MacroRuntimeManager,
-  id: string
-): Promise<void> {
-  await macroManager.stopAndRunMutation(id, () => macroStore.deleteMacro(id));
-}
-
-async function runBulkDelete(
-  input: BulkDeleteInput,
-  operation: (id: string) => Promise<void>
-): Promise<BulkDeleteResult> {
-  const ids = normalizeBulkDeleteIds(input);
-  const result: BulkDeleteResult = { deletedIds: [], skipped: [] };
-
-  for (const id of ids) {
-    try {
-      await operation(id);
-      result.deletedIds.push(id);
-    } catch (error) {
-      result.skipped.push(classifyBulkDeleteError(id, error));
-    }
-  }
-
-  return result;
 }
 
 function normalizeBulkDeleteIds(input: BulkDeleteInput): string[] {
@@ -921,64 +815,6 @@ function normalizeBulkDeleteIds(input: BulkDeleteInput): string[] {
     }
   }
   return ids;
-}
-
-function classifyBulkDeleteError(id: string, error: unknown): BulkDeleteSkippedItem {
-  const code = readErrorCode(error);
-  const message = error instanceof Error ? error.message : String(error);
-  const details = error && typeof error === "object" && "details" in error
-    ? error.details as { relatedNames?: unknown; roleNames?: unknown }
-    : undefined;
-  const rawRelatedNames = details?.relatedNames ?? details?.roleNames;
-  const relatedNames = Array.isArray(rawRelatedNames)
-    ? rawRelatedNames.filter((name): name is string => typeof name === "string")
-    : undefined;
-
-  if (code === "GAME_BUILTIN_DELETE_FORBIDDEN") {
-    return { id, reason: "protected" };
-  }
-  if (code === "GAME_IN_USE" || code === "MACRO_IN_USE") {
-    return { id, reason: "in_use", ...(relatedNames?.length ? { relatedNames } : {}) };
-  }
-  if (code.endsWith("_NOT_FOUND") || /not found/i.test(message)) {
-    return { id, reason: "not_found" };
-  }
-  if (/busy|in progress|launching|stopping/i.test(message)) {
-    return { id, reason: "busy" };
-  }
-  return { id, reason: "failed" };
-}
-
-async function runWithExistingRoles<T>(
-  roleIds: string[],
-  roleStore: RoleStore,
-  browserManager: BrowserManager,
-  operation: () => Promise<T>
-): Promise<T> {
-  const uniqueRoleIds = [...new Set(roleIds)];
-
-  return browserManager.runRoleOperation(uniqueRoleIds, async () => {
-    await Promise.all(uniqueRoleIds.map((roleId) => roleStore.getRole(roleId)));
-    return operation();
-  });
-}
-
-function getWorkspaceInputRoleIds(input: CreateLaunchWorkspaceInput | UpdateLaunchWorkspaceInput): string[] {
-  if (!Array.isArray(input?.slots)) {
-    return [];
-  }
-
-  return input.slots.flatMap((slot) =>
-    slot && typeof slot.roleId === "string" && slot.roleId ? [slot.roleId] : []
-  );
-}
-
-function getMacroInputRoleIds(input: CreateMacroInput | UpdateMacroInput): string[] {
-  if (!Array.isArray(input?.roleIds)) {
-    return [];
-  }
-
-  return input.roleIds.filter((roleId): roleId is string => typeof roleId === "string" && Boolean(roleId));
 }
 
 function isAppRendererReadyState(value: unknown): value is AppRendererReadyState {

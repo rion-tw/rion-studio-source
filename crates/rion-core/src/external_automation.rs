@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
+    sync::{Arc, OnceLock, RwLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -18,6 +18,10 @@ use crate::{
 
 const MAX_PENDING_ACTIONS: usize = 512;
 const DIAGNOSTIC_REQUEST_TIMEOUT: Duration = Duration::from_secs(4);
+type PartitionedActions = (
+    Vec<(BrowserActionRequest, Arc<ExternalTarget>)>,
+    Vec<BrowserActionRequest>,
+);
 
 #[derive(Default)]
 struct InputState {
@@ -26,7 +30,9 @@ struct InputState {
 
 struct ExternalTarget {
     cdp: Arc<ExternalChromeCdpSession>,
+    execution_context_ids: RwLock<HashSet<i64>>,
     input: Mutex<InputState>,
+    input_sequence: Mutex<()>,
     platform: String,
 }
 
@@ -59,7 +65,9 @@ impl ExternalAutomationRuntime {
             role_id,
             Arc::new(ExternalTarget {
                 cdp,
+                execution_context_ids: RwLock::new(HashSet::new()),
                 input: Mutex::new(InputState::default()),
+                input_sequence: Mutex::new(()),
                 platform: self.platform.clone(),
             }),
         ) {
@@ -138,7 +146,13 @@ impl ExternalAutomationRuntime {
 
     pub async fn diagnostics(&self, role_id: &str) -> CoreResult<Value> {
         let target = self.target(role_id)?;
-        let (metrics, page, window) = tokio::join!(
+        let (browser, metrics, page, window) = tokio::join!(
+            target.cdp.send(
+                "Browser.getVersion".to_owned(),
+                None,
+                Some(DIAGNOSTIC_REQUEST_TIMEOUT),
+                None
+            ),
             target.cdp.send(
                 "Performance.getMetrics".to_owned(),
                 None,
@@ -162,6 +176,13 @@ impl ExternalAutomationRuntime {
             )
         );
         let mut errors = Vec::new();
+        let browser = match browser {
+            Ok(value) => Some(value),
+            Err(error) => {
+                errors.push(format_diagnostic_error("Browser.getVersion", &error));
+                None
+            }
+        };
         let performance_metrics = match metrics {
             Ok(value) => value
                 .get("metrics")
@@ -180,7 +201,7 @@ impl ExternalAutomationRuntime {
                 .filter(|items| !items.is_empty())
                 .map(Value::Object),
             Err(error) => {
-                errors.push(format!("Performance.getMetrics: {error}"));
+                errors.push(format_diagnostic_error("Performance.getMetrics", &error));
                 None
             }
         };
@@ -190,19 +211,23 @@ impl ExternalAutomationRuntime {
                 .and_then(|result| result.get("value"))
                 .cloned(),
             Err(error) => {
-                errors.push(format!("Runtime.evaluate: {error}"));
+                errors.push(format_diagnostic_error("Runtime.evaluate", &error));
                 None
             }
         };
         let window = match window {
             Ok(value) => value.get("bounds").cloned(),
             Err(error) => {
-                errors.push(format!("Browser.getWindowForTarget: {error}"));
+                errors.push(format_diagnostic_error(
+                    "Browser.getWindowForTarget",
+                    &error,
+                ));
                 None
             }
         };
         Ok(json!({
             "capturedAt": chrono::Utc::now().to_rfc3339(),
+            "browser":browser,
             "cdp":{"consecutiveEvaluateFailures":0},
             "performanceMetrics":performance_metrics,
             "page":page,
@@ -216,31 +241,56 @@ impl ExternalAutomationRuntime {
         serde_json::from_str(&value).map_err(|error| CoreError::Internal(error.to_string()))
     }
 
+    pub fn role_ids(&self) -> CoreResult<Vec<String>> {
+        let mut role_ids = self
+            .targets
+            .read()
+            .map_err(|_| CoreError::Internal("external target lock poisoned".to_owned()))?
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        role_ids.sort();
+        Ok(role_ids)
+    }
+
+    pub async fn refresh_overlay(&self, role_id: &str) -> CoreResult<()> {
+        let target = self.target(role_id)?;
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            target.cdp.send(
+                "Runtime.evaluate".to_owned(),
+                Some(json!({
+                    "expression":"void window.__rionStudioMacroOverlay?.refresh?.()"
+                })),
+                None,
+                None,
+            ),
+        )
+        .await
+        .map_err(|_| {
+            CoreError::ExternalChrome("external overlay refresh timed out".to_owned())
+        })??;
+        Ok(())
+    }
+
+    pub async fn handle_notification(
+        &self,
+        role_id: &str,
+        method: &str,
+        params: Option<&Value>,
+    ) -> CoreResult<()> {
+        self.target(role_id)?
+            .handle_notification(method, params)
+            .await
+    }
+
     pub async fn dispatch(
         &self,
         actions: Vec<BrowserActionRequest>,
     ) -> CoreResult<ExternalBrowserActionDispatch> {
-        let targets = self
-            .targets
-            .read()
-            .map_err(|_| CoreError::Internal("external target lock poisoned".to_owned()))?
-            .clone();
-        let mut unhandled = Vec::new();
+        let (actions, unhandled) = self.partition_actions(actions)?;
         let mut tasks = Vec::new();
-        for action in actions {
-            let Some(target) = targets.get(&action.role_id).cloned() else {
-                unhandled.push(action);
-                continue;
-            };
-            if matches!(
-                action.action,
-                BrowserAction::Cookies { .. }
-                    | BrowserAction::Session { .. }
-                    | BrowserAction::Debugger { .. }
-            ) {
-                unhandled.push(action);
-                continue;
-            }
+        for (action, target) in actions {
             let pending = Arc::clone(&self.pending);
             tasks.push(async move {
                 let Ok(_permit) = pending.try_acquire_owned() else {
@@ -257,6 +307,47 @@ impl ExternalAutomationRuntime {
             results: join_all(tasks).await,
             unhandled,
         })
+    }
+
+    pub fn split_actions(
+        &self,
+        actions: Vec<BrowserActionRequest>,
+    ) -> CoreResult<(Vec<BrowserActionRequest>, Vec<BrowserActionRequest>)> {
+        let (handled, unhandled) = self.partition_actions(actions)?;
+        Ok((
+            handled.into_iter().map(|(action, _)| action).collect(),
+            unhandled,
+        ))
+    }
+
+    fn partition_actions(
+        &self,
+        actions: Vec<BrowserActionRequest>,
+    ) -> CoreResult<PartitionedActions> {
+        let targets = self
+            .targets
+            .read()
+            .map_err(|_| CoreError::Internal("external target lock poisoned".to_owned()))?
+            .clone();
+        let mut unhandled = Vec::new();
+        let mut handled = Vec::new();
+        for action in actions {
+            let Some(target) = targets.get(&action.role_id).cloned() else {
+                unhandled.push(action);
+                continue;
+            };
+            if matches!(
+                action.action,
+                BrowserAction::Cookies { .. }
+                    | BrowserAction::Session { .. }
+                    | BrowserAction::Debugger { .. }
+            ) {
+                unhandled.push(action);
+                continue;
+            }
+            handled.push((action, target));
+        }
+        Ok((handled, unhandled))
     }
 
     pub fn shutdown(&self) {
@@ -292,32 +383,36 @@ impl ExternalTarget {
             );
         }
         let result = match request.action {
-            BrowserAction::Focus => self.focus().await.map(|_| None),
+            BrowserAction::Focus => self.ensure_input_focus().await.map(|_| None),
             BrowserAction::Key {
                 phase,
                 key,
                 code,
                 modifiers,
                 owner_id,
-            } => self
-                .key(
+            } => {
+                let _sequence = self.input_sequence.lock().await;
+                self.key(
                     &phase,
                     code.as_deref().unwrap_or(&key),
                     &modifiers,
                     &owner_id,
                 )
                 .await
-                .map(|_| None),
+                .map(|_| None)
+            }
             BrowserAction::Click {
                 anchor,
                 unit,
                 x,
                 y,
                 button,
-            } => self
-                .click(anchor.as_deref(), &unit, x, y, &button)
-                .await
-                .map(|_| None),
+            } => {
+                let _sequence = self.input_sequence.lock().await;
+                self.click(anchor.as_deref(), &unit, x, y, &button)
+                    .await
+                    .map(|_| None)
+            }
             BrowserAction::Evaluate { source } => self.evaluate(&source).await.map(Some),
             BrowserAction::Cookies { .. }
             | BrowserAction::Session { .. }
@@ -339,14 +434,136 @@ impl ExternalTarget {
         self.cdp
             .send("Page.bringToFront".to_owned(), None, None, None)
             .await?;
+        let _ = self
+            .cdp
+            .send(
+                "Runtime.evaluate".to_owned(),
+                Some(json!({"expression":external_focus_source(true)})),
+                None,
+                None,
+            )
+            .await;
+        Ok(())
+    }
+
+    async fn ensure_input_focus(&self) -> CoreResult<()> {
         self.cdp
             .send(
                 "Runtime.evaluate".to_owned(),
-                Some(json!({"expression":"globalThis.focus?.(); document.activeElement?.focus?.();"})),
+                Some(json!({
+                    "expression":external_focus_source(false),
+                    "awaitPromise":true,
+                    "returnByValue":true
+                })),
                 None,
                 None,
             )
             .await?;
+        Ok(())
+    }
+
+    async fn handle_notification(&self, method: &str, params: Option<&Value>) -> CoreResult<()> {
+        match method {
+            "Runtime.executionContextCreated" => {
+                if let Some(context_id) = params
+                    .and_then(|value| value.pointer("/context/id"))
+                    .and_then(Value::as_i64)
+                {
+                    self.execution_context_ids
+                        .write()
+                        .map_err(|_| {
+                            CoreError::Internal(
+                                "external execution context lock poisoned".to_owned(),
+                            )
+                        })?
+                        .insert(context_id);
+                }
+            }
+            "Runtime.executionContextDestroyed" => {
+                if let Some(context_id) = params
+                    .and_then(|value| value.get("executionContextId"))
+                    .and_then(Value::as_i64)
+                {
+                    self.execution_context_ids
+                        .write()
+                        .map_err(|_| {
+                            CoreError::Internal(
+                                "external execution context lock poisoned".to_owned(),
+                            )
+                        })?
+                        .remove(&context_id);
+                }
+            }
+            "Runtime.executionContextsCleared" => {
+                self.execution_context_ids
+                    .write()
+                    .map_err(|_| {
+                        CoreError::Internal("external execution context lock poisoned".to_owned())
+                    })?
+                    .clear();
+            }
+            "Page.lifecycleEvent"
+                if params
+                    .and_then(|value| value.get("name"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| matches!(name, "frozen" | "resumed")) =>
+            {
+                self.reassert_held_keys().await?;
+            }
+            "Runtime.bindingCalled"
+                if params
+                    .and_then(|value| value.get("name"))
+                    .and_then(Value::as_str)
+                    == Some("rionStudioExternalDiagnostics") =>
+            {
+                let should_reassert = params
+                    .and_then(|value| value.get("payload"))
+                    .and_then(Value::as_str)
+                    .and_then(|payload| serde_json::from_str::<Value>(payload).ok())
+                    .and_then(|payload| {
+                        payload
+                            .get("event")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
+                    .is_some_and(|event| {
+                        matches!(
+                            event.as_str(),
+                            "blur"
+                                | "focus"
+                                | "pagehide"
+                                | "pageshow"
+                                | "visibilitychange"
+                                | "freeze"
+                                | "resume"
+                        )
+                    });
+                if should_reassert {
+                    self.reassert_held_keys().await?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn reassert_held_keys(&self) -> CoreResult<()> {
+        let _sequence = self.input_sequence.lock().await;
+        let input = self.input.lock().await;
+        if input.held_key_owners.is_empty() {
+            return Ok(());
+        }
+        for code in input.held_key_owners.keys() {
+            if !is_modifier(code) {
+                self.set_shortcut_suppression(code, "keydown", true).await;
+            }
+            let result =
+                send_key(&self.cdp, "rawKeyDown", code, &input.held_key_owners, false).await;
+            if !is_modifier(code) {
+                self.set_shortcut_suppression(code, "keydown", false).await;
+            }
+            result?;
+        }
         Ok(())
     }
 
@@ -361,10 +578,18 @@ impl ExternalTarget {
         let modifier_codes = resolve_modifier_codes(modifiers, &self.platform);
         match phase {
             "hold" => {
+                let mut acquired = Vec::new();
                 for current in modifier_codes
                     .iter()
                     .chain(std::iter::once(&code.to_owned()))
                 {
+                    if input
+                        .held_key_owners
+                        .get(current)
+                        .is_some_and(|owners| owners.contains(owner_id))
+                    {
+                        continue;
+                    }
                     let existing = input
                         .held_key_owners
                         .get(current)
@@ -374,8 +599,35 @@ impl ExternalTarget {
                         .entry(current.clone())
                         .or_default()
                         .insert(owner_id.to_owned());
+                    acquired.push(current.clone());
                     if !existing {
-                        send_key(&self.cdp, "rawKeyDown", current, &input.held_key_owners).await?;
+                        if current == code {
+                            self.set_shortcut_suppression(code, "keydown", true).await;
+                        }
+                        let result = send_key(
+                            &self.cdp,
+                            "rawKeyDown",
+                            current,
+                            &input.held_key_owners,
+                            false,
+                        )
+                        .await;
+                        if current == code {
+                            self.set_shortcut_suppression(code, "keydown", false).await;
+                        }
+                        if let Err(error) = result {
+                            for acquired_code in acquired.into_iter().rev() {
+                                let _ = self
+                                    .release_owned_key(
+                                        &mut input,
+                                        &acquired_code,
+                                        owner_id,
+                                        acquired_code == code,
+                                    )
+                                    .await;
+                            }
+                            return Err(error);
+                        }
                     }
                 }
             }
@@ -383,33 +635,37 @@ impl ExternalTarget {
                 for current in
                     std::iter::once(code.to_owned()).chain(modifier_codes.into_iter().rev())
                 {
-                    let should_release =
-                        if let Some(owners) = input.held_key_owners.get_mut(&current) {
-                            owners.remove(owner_id);
-                            owners.is_empty()
-                        } else {
-                            false
-                        };
-                    if should_release {
-                        input.held_key_owners.remove(&current);
-                        send_key(&self.cdp, "keyUp", &current, &input.held_key_owners).await?;
-                    }
+                    self.release_owned_key(&mut input, &current, owner_id, current == code)
+                        .await?;
                 }
             }
             "tap" => {
                 let mut active = input.held_key_owners.clone();
+                let mut temporary_modifiers = Vec::new();
                 for modifier in &modifier_codes {
                     if !active.contains_key(modifier) {
                         active.insert(modifier.clone(), HashSet::new());
-                        send_key(&self.cdp, "rawKeyDown", modifier, &active).await?;
+                        temporary_modifiers.push(modifier.clone());
+                        send_key(&self.cdp, "rawKeyDown", modifier, &active, false).await?;
                     }
                 }
-                send_key(&self.cdp, "rawKeyDown", code, &active).await?;
-                send_key(&self.cdp, "keyUp", code, &active).await?;
-                for modifier in modifier_codes.into_iter().rev() {
+                self.set_shortcut_suppression(code, "keydown", true).await;
+                let code_was_held = active.contains_key(code);
+                send_key(&self.cdp, "rawKeyDown", code, &active, code_was_held).await?;
+                self.set_shortcut_suppression(code, "keydown", false).await;
+                if !code_was_held {
+                    self.set_shortcut_suppression(code, "keyup", true).await;
+                    if let Err(error) = send_key(&self.cdp, "keyUp", code, &active, false).await {
+                        let _ = send_key(&self.cdp, "keyUp", code, &active, false).await;
+                        self.set_shortcut_suppression(code, "keyup", false).await;
+                        return Err(error);
+                    }
+                    self.set_shortcut_suppression(code, "keyup", false).await;
+                }
+                for modifier in temporary_modifiers.into_iter().rev() {
                     if !input.held_key_owners.contains_key(&modifier) {
                         active.remove(&modifier);
-                        send_key(&self.cdp, "keyUp", &modifier, &active).await?;
+                        send_key(&self.cdp, "keyUp", &modifier, &active, false).await?;
                     }
                 }
             }
@@ -421,6 +677,84 @@ impl ExternalTarget {
             }
         }
         Ok(())
+    }
+
+    async fn release_owned_key(
+        &self,
+        input: &mut InputState,
+        code: &str,
+        owner_id: &str,
+        suppress_shortcut: bool,
+    ) -> CoreResult<()> {
+        let Some(owners) = input.held_key_owners.get_mut(code) else {
+            return Ok(());
+        };
+        if !owners.remove(owner_id) {
+            return Ok(());
+        }
+        if !owners.is_empty() {
+            return Ok(());
+        }
+        let mut owners = input.held_key_owners.remove(code).unwrap_or_default();
+        if suppress_shortcut {
+            self.set_shortcut_suppression(code, "keyup", true).await;
+        }
+        let first = send_key(&self.cdp, "keyUp", code, &input.held_key_owners, false).await;
+        let result = match first {
+            Ok(()) => Ok(()),
+            Err(first_error) => send_key(&self.cdp, "keyUp", code, &input.held_key_owners, false)
+                .await
+                .map_err(|_| first_error),
+        };
+        if suppress_shortcut {
+            self.set_shortcut_suppression(code, "keyup", false).await;
+        }
+        if result.is_err() {
+            owners.insert(owner_id.to_owned());
+            input.held_key_owners.insert(code.to_owned(), owners);
+        }
+        result
+    }
+
+    async fn set_shortcut_suppression(&self, code: &str, phase: &str, enabled: bool) {
+        let method = if enabled {
+            "suppressNextShortcut"
+        } else {
+            "clearSuppressedShortcut"
+        };
+        let expression = format!(
+            "window[\"__rionStudioMacroOverlay\"]?.{method}?.({code}, {phase})",
+            code = serde_json::to_string(code).unwrap_or_else(|_| "\"\"".to_owned()),
+            phase = serde_json::to_string(phase).unwrap_or_else(|_| "\"keydown\"".to_owned()),
+        );
+        let context_ids = self
+            .execution_context_ids
+            .read()
+            .map(|ids| ids.iter().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
+        if context_ids.is_empty() {
+            let _ = self
+                .cdp
+                .send(
+                    "Runtime.evaluate".to_owned(),
+                    Some(json!({"expression":expression})),
+                    None,
+                    None,
+                )
+                .await;
+            return;
+        }
+        for context_id in context_ids {
+            let _ = self
+                .cdp
+                .send(
+                    "Runtime.evaluate".to_owned(),
+                    Some(json!({"expression":expression,"contextId":context_id})),
+                    None,
+                    None,
+                )
+                .await;
+        }
     }
 
     async fn click(
@@ -528,6 +862,53 @@ fn failure(request_id: String, code: &str, message: &str) -> BrowserActionResult
     }
 }
 
+fn format_diagnostic_error(method: &str, error: &CoreError) -> String {
+    let message = redact_diagnostic_message(&error.to_string());
+    let mut formatted = format!("{method}: {message}");
+    if formatted.chars().count() > 256 {
+        formatted = formatted.chars().take(256).collect();
+    }
+    formatted
+}
+
+fn redact_diagnostic_message(message: &str) -> String {
+    static URL: OnceLock<regex::Regex> = OnceLock::new();
+    static WINDOWS_PATH: OnceLock<regex::Regex> = OnceLock::new();
+    static UNIX_PATH: OnceLock<regex::Regex> = OnceLock::new();
+    let message = URL
+        .get_or_init(|| regex::Regex::new(r#"(?i)\bhttps?://[^\s"']+"#).unwrap())
+        .replace_all(message, "<URL>");
+    let message = WINDOWS_PATH
+        .get_or_init(|| {
+            regex::Regex::new(r#"(?:[A-Za-z]:)?[\\](?:[^\s"'\\]+[\\])+[^\s"'\\]*"#).unwrap()
+        })
+        .replace_all(&message, "<PATH>");
+    UNIX_PATH
+        .get_or_init(|| regex::Regex::new(r#"/(?:[^\s"'/]+/)+[^\s"']*"#).unwrap())
+        .replace_all(&message, "<PATH>")
+        .into_owned()
+}
+
+fn external_focus_source(allow_body_fallback: bool) -> String {
+    format!(
+        r#"(() => {{
+  const visible = (element) => {{
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+  }};
+  const target = [...document.querySelectorAll("canvas, iframe")]
+    .filter(visible)
+    .sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0] || ({allow_body_fallback} ? document.body : null);
+  if (!(target instanceof HTMLElement)) return false;
+  if (document.activeElement === target) return true;
+  if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+  try {{ target.focus({{ preventScroll: true }}); }} catch {{ target.focus(); }}
+  return document.activeElement === target;
+}})()"#
+    )
+}
+
 fn epoch_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -558,10 +939,14 @@ async fn send_key(
     event_type: &str,
     code: &str,
     active: &HashMap<String, HashSet<String>>,
+    auto_repeat: bool,
 ) -> CoreResult<()> {
     let modifiers = modifier_mask(active.keys().map(String::as_str));
     let (key, virtual_key, location) = key_descriptor(code, modifiers);
     let mut params = json!({"type":event_type,"code":code,"key":key});
+    if auto_repeat {
+        params["autoRepeat"] = json!(true);
+    }
     if modifiers > 0 {
         params["modifiers"] = json!(modifiers);
     }
@@ -705,6 +1090,13 @@ fn special_key(code: &str, shift: bool) -> Option<&'static str> {
 }
 
 fn virtual_key(code: &str) -> Option<u32> {
+    if let Some(function) = code
+        .strip_prefix('F')
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| (1..=12).contains(value))
+    {
+        return Some(111 + function);
+    }
     Some(match code {
         "AltLeft" | "AltRight" => 18,
         "ControlLeft" | "ControlRight" => 17,
@@ -720,6 +1112,17 @@ fn virtual_key(code: &str) -> Option<u32> {
         "ArrowUp" => 38,
         "ArrowRight" => 39,
         "ArrowDown" => 40,
+        "Semicolon" => 186,
+        "Equal" => 187,
+        "Comma" => 188,
+        "Minus" => 189,
+        "Period" => 190,
+        "Slash" => 191,
+        "Backquote" => 192,
+        "BracketLeft" => 219,
+        "Backslash" => 220,
+        "BracketRight" => 221,
+        "Quote" => 222,
         "NumpadMultiply" => 106,
         "NumpadAdd" => 107,
         "NumpadSubtract" => 109,
@@ -758,6 +1161,8 @@ fn domain(code: &'static str, message: &str) -> CoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex as StdMutex;
+
     use super::*;
 
     #[test]
@@ -777,6 +1182,31 @@ mod tests {
             ("Control".to_owned(), Some(17), Some(2))
         );
         assert_eq!(key_descriptor("Digit1", 8).0, "!");
+        crate::v1_case!("external-chrome-cdn-6974e84181fb", {
+            let codes = resolve_modifier_codes(&["primary".to_owned()], "darwin");
+            assert_eq!(codes, ["MetaLeft"]);
+            assert_eq!(modifier_mask(codes.iter().map(String::as_str)), 4);
+        });
+        crate::v1_case!("external-chrome-cdn-9dd9d097e59b", {
+            let codes = resolve_modifier_codes(&["primary".to_owned()], "win32");
+            assert_eq!(codes, ["ControlLeft"]);
+            assert_eq!(modifier_mask(codes.iter().map(String::as_str)), 2);
+        });
+        crate::v1_case!("external-chrome-cdn-0ce0cce42c01", {
+            assert_eq!(key_descriptor("F2", 0), ("F2".to_owned(), Some(113), None));
+            assert_eq!(
+                key_descriptor("Minus", 0),
+                ("-".to_owned(), Some(189), None)
+            );
+            assert_eq!(
+                key_descriptor("Slash", 8),
+                ("?".to_owned(), Some(191), None)
+            );
+            assert_eq!(
+                key_descriptor("Custom1", 0),
+                ("Custom1".to_owned(), None, None)
+            );
+        });
     }
 
     #[test]
@@ -788,5 +1218,759 @@ mod tests {
             anchor_base(Some("outside")).unwrap_err().code(),
             "BROWSER_CLICK_ANCHOR_INVALID"
         );
+    }
+
+    #[tokio::test]
+    async fn preserves_physical_key_combinations_and_held_owner_reference_counts() {
+        crate::v1_case!("external-chrome-cdn-2a775aca1edd", {
+            let (target, calls) = recording_target("linux");
+            target.key("tap", "KeyQ", &[], "tap").await.unwrap();
+            assert_eq!(
+                input_params(&calls),
+                [
+                    json!({"type":"rawKeyDown","code":"KeyQ","key":"q","windowsVirtualKeyCode":81}),
+                    json!({"type":"keyUp","code":"KeyQ","key":"q","windowsVirtualKeyCode":81}),
+                ]
+            );
+            assert!(
+                !methods(&calls)
+                    .iter()
+                    .any(|method| method == "Page.bringToFront")
+            );
+            assert!(!expressions(&calls).contains("querySelectorAll(\"canvas, iframe\")"));
+        });
+
+        crate::v1_case!("external-chrome-cdn-b6a9e8e42ba4", {
+            let (target, calls) = recording_target("linux");
+            target.key("hold", "Digit1", &[], "owner").await.unwrap();
+            target.key("tap", "Digit1", &[], "tap").await.unwrap();
+            target.key("release", "Digit1", &[], "owner").await.unwrap();
+            assert_eq!(
+                input_params(&calls),
+                [
+                    json!({"type":"rawKeyDown","code":"Digit1","key":"1","windowsVirtualKeyCode":49}),
+                    json!({"type":"rawKeyDown","code":"Digit1","key":"1","windowsVirtualKeyCode":49,"autoRepeat":true}),
+                    json!({"type":"keyUp","code":"Digit1","key":"1","windowsVirtualKeyCode":49}),
+                ]
+            );
+            assert!(
+                !methods(&calls)
+                    .iter()
+                    .any(|method| method == "Page.bringToFront")
+            );
+        });
+
+        crate::v1_case!("external-chrome-cdn-bafa7d7e2b88", {
+            let (target, calls) = recording_target("win32");
+            target
+                .key(
+                    "tap",
+                    "KeyK",
+                    &["ctrl".to_owned(), "shift".to_owned()],
+                    "tap",
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                input_params(&calls),
+                [
+                    json!({"type":"rawKeyDown","code":"ControlLeft","key":"Control","windowsVirtualKeyCode":17,"location":1,"modifiers":2}),
+                    json!({"type":"rawKeyDown","code":"ShiftLeft","key":"Shift","windowsVirtualKeyCode":16,"location":1,"modifiers":10}),
+                    json!({"type":"rawKeyDown","code":"KeyK","key":"K","windowsVirtualKeyCode":75,"modifiers":10}),
+                    json!({"type":"keyUp","code":"KeyK","key":"K","windowsVirtualKeyCode":75,"modifiers":10}),
+                    json!({"type":"keyUp","code":"ShiftLeft","key":"Shift","windowsVirtualKeyCode":16,"location":1,"modifiers":2}),
+                    json!({"type":"keyUp","code":"ControlLeft","key":"Control","windowsVirtualKeyCode":17,"location":1}),
+                ]
+            );
+        });
+
+        crate::v1_case!("external-chrome-cdn-1c8e16b12f08", {
+            let (target, calls) = recording_target("win32");
+            let modifiers = ["ctrl".to_owned()];
+            target
+                .key("hold", "KeyK", &modifiers, "owner-1")
+                .await
+                .unwrap();
+            target
+                .key("hold", "KeyL", &modifiers, "owner-2")
+                .await
+                .unwrap();
+            target
+                .key("release", "KeyK", &modifiers, "owner-1")
+                .await
+                .unwrap();
+            target
+                .key("release", "KeyL", &modifiers, "owner-2")
+                .await
+                .unwrap();
+            assert_eq!(
+                input_types_and_codes(&calls),
+                [
+                    ("rawKeyDown".to_owned(), "ControlLeft".to_owned()),
+                    ("rawKeyDown".to_owned(), "KeyK".to_owned()),
+                    ("rawKeyDown".to_owned(), "KeyL".to_owned()),
+                    ("keyUp".to_owned(), "KeyK".to_owned()),
+                    ("keyUp".to_owned(), "KeyL".to_owned()),
+                    ("keyUp".to_owned(), "ControlLeft".to_owned()),
+                ]
+            );
+        });
+
+        crate::v1_case!("external-chrome-cdn-d068fda7e200", {
+            let (target, calls) = recording_target("linux");
+            target.key("hold", "KeyW", &[], "owner-1").await.unwrap();
+            target.key("hold", "KeyW", &[], "owner-2").await.unwrap();
+            target.key("release", "KeyW", &[], "owner-1").await.unwrap();
+            target.key("tap", "KeyW", &[], "tap").await.unwrap();
+            target.key("release", "KeyW", &[], "owner-2").await.unwrap();
+            assert_eq!(
+                input_params(&calls),
+                [
+                    json!({"type":"rawKeyDown","code":"KeyW","key":"w","windowsVirtualKeyCode":87}),
+                    json!({"type":"rawKeyDown","code":"KeyW","key":"w","windowsVirtualKeyCode":87,"autoRepeat":true}),
+                    json!({"type":"keyUp","code":"KeyW","key":"w","windowsVirtualKeyCode":87}),
+                ]
+            );
+        });
+    }
+
+    #[tokio::test]
+    async fn reasserts_only_currently_held_keys_for_page_lifecycle_events() {
+        let (target, calls) = recording_target("win32");
+        target.key("hold", "KeyW", &[], "owner").await.unwrap();
+        for event in ["blur", "visibilitychange", "focus", "pageshow"] {
+            let payload = json!({
+                "name":"rionStudioExternalDiagnostics",
+                "payload":json!({"event":event}).to_string()
+            });
+            target
+                .handle_notification("Runtime.bindingCalled", Some(&payload))
+                .await
+                .unwrap();
+        }
+        crate::v1_case!("external-chrome-cdn-458946352d1c", {
+            assert_eq!(key_down_count(&calls, "KeyW"), 5);
+            assert!(
+                !methods(&calls)
+                    .iter()
+                    .any(|method| method == "Page.bringToFront")
+            );
+        });
+
+        let lifecycle = json!({"name":"resumed"});
+        target
+            .handle_notification("Page.lifecycleEvent", Some(&lifecycle))
+            .await
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-af93c98e1613", {
+            assert_eq!(key_down_count(&calls, "KeyW"), 6);
+        });
+        target.key("release", "KeyW", &[], "owner").await.unwrap();
+        target
+            .handle_notification("Page.lifecycleEvent", Some(&lifecycle))
+            .await
+            .unwrap();
+        assert_eq!(key_down_count(&calls, "KeyW"), 6);
+        assert_eq!(key_up_count(&calls, "KeyW"), 1);
+    }
+
+    #[tokio::test]
+    async fn suppresses_shortcuts_in_every_execution_context_and_separates_focus_intents() {
+        let (target, calls) = recording_target("linux");
+        for context_id in [7, 8] {
+            let params = json!({"context":{"id":context_id}});
+            target
+                .handle_notification("Runtime.executionContextCreated", Some(&params))
+                .await
+                .unwrap();
+        }
+        target.key("tap", "F2", &[], "tap").await.unwrap();
+        crate::v1_case!("external-chrome-cdn-b7779dea84de", {
+            let calls = calls.lock().unwrap();
+            for context_id in [7, 8] {
+                assert!(calls.iter().any(|(method, params)| {
+                    method == "Runtime.evaluate"
+                        && params.as_ref().and_then(|value| value.get("contextId"))
+                            == Some(&json!(context_id))
+                        && params
+                            .as_ref()
+                            .and_then(|value| value.get("expression"))
+                            .and_then(Value::as_str)
+                            .is_some_and(|source| {
+                                source.contains("suppressNextShortcut") && source.contains("\"F2\"")
+                            })
+                }));
+            }
+        });
+
+        target.ensure_input_focus().await.unwrap();
+        crate::v1_case!("external-chrome-cdn-595bc637c8d8", {
+            assert!(
+                !methods(&calls)
+                    .iter()
+                    .any(|method| method == "Page.bringToFront")
+            );
+            assert!(expressions(&calls).contains("querySelectorAll(\"canvas, iframe\")"));
+            assert!(expressions(&calls).contains("(false ? document.body : null)"));
+        });
+        target.focus().await.unwrap();
+        crate::v1_case!("external-chrome-cdn-090947a66406", {
+            assert_eq!(
+                methods(&calls)
+                    .iter()
+                    .filter(|method| method.as_str() == "Page.bringToFront")
+                    .count(),
+                1
+            );
+            assert!(expressions(&calls).contains("(true ? document.body : null)"));
+        });
+        crate::v1_case!("external-chrome-cdn-ed0bb1aa2cde", {
+            assert!(
+                methods(&calls)
+                    .iter()
+                    .any(|method| method == "Page.bringToFront")
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-dabd24bf5abf", {
+            assert!(
+                !methods(&calls)
+                    .iter()
+                    .any(|method| method == "Target.setAutoAttach")
+            );
+            assert!(
+                !methods(&calls)
+                    .iter()
+                    .any(|method| method == "Emulation.setCPUThrottlingRate")
+            );
+            assert!(!calls.lock().unwrap().iter().any(|(method, params)| {
+                method == "Runtime.addBinding"
+                    && params.as_ref().and_then(|value| value.get("name"))
+                        == Some(&json!("rionStudioWindowFocus"))
+            }));
+        });
+    }
+
+    #[tokio::test]
+    async fn collects_bounded_redacted_diagnostics_without_page_content() {
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let cdp = Arc::new(ExternalChromeCdpSession::test_session_with_handler(
+            move |method, params| {
+                output
+                    .lock()
+                    .unwrap()
+                    .push((method.to_owned(), params.cloned()));
+                Ok(match method {
+                    "Browser.getVersion" => {
+                        json!({"product":"Chrome/596.36","protocolVersion":"1.3"})
+                    }
+                    "Performance.getMetrics" => json!({
+                        "metrics":[
+                            {"name":"TaskDuration","value":12.5},
+                            {"name":"JSHeapUsedSize","value":2048}
+                        ]
+                    }),
+                    "Runtime.evaluate" => json!({"result":{"value":{
+                        "fullscreen":true,
+                        "hasFocus":true,
+                        "hidden":false,
+                        "monotonicMs":123.4,
+                        "visibilityState":"visible"
+                    }}}),
+                    "Browser.getWindowForTarget" => json!({
+                        "windowId":1,
+                        "bounds":{"height":1440,"width":2560,"windowState":"fullscreen"}
+                    }),
+                    _ => json!({}),
+                })
+            },
+        ));
+        let runtime = ExternalAutomationRuntime::new("linux".to_owned());
+        runtime.register("role-1".to_owned(), cdp).unwrap();
+        let diagnostics = runtime.diagnostics("role-1").await.unwrap();
+        crate::v1_case!("external-chrome-cdn-25cb43eedd32", {
+            assert_eq!(diagnostics["performanceMetrics"]["TaskDuration"], 12.5);
+            assert_eq!(
+                diagnostics["performanceMetrics"]["JSHeapUsedSize"].as_f64(),
+                Some(2048.0)
+            );
+            assert_eq!(diagnostics["page"]["fullscreen"], true);
+            assert_eq!(diagnostics["window"]["windowState"], "fullscreen");
+            assert!(!diagnostics.to_string().contains("https://"));
+            assert!(!expressions(&calls).contains("document.body.inner"));
+        });
+        crate::v1_case!("external-chrome-cdn-eb69bf979e3f", {
+            assert_eq!(diagnostics["browser"]["product"], "Chrome/596.36");
+            assert_eq!(diagnostics["cdp"]["consecutiveEvaluateFailures"], 0);
+            assert!(
+                methods(&calls)
+                    .iter()
+                    .any(|method| method == "Performance.getMetrics")
+            );
+            assert!(
+                methods(&calls)
+                    .iter()
+                    .any(|method| method == "Browser.getWindowForTarget")
+            );
+        });
+
+        crate::v1_case!("external-chrome-cdn-11953eb9d48b", {
+            let redacted = redact_diagnostic_message(
+                r#"https://game.example.test failed while reading C:\profiles\role-1\browser and /Users/test/profile/Default"#,
+            );
+            assert!(!redacted.contains("https://"));
+            assert!(!redacted.contains("game.example.test"));
+            assert!(!redacted.contains(r"C:\profiles"));
+            assert!(!redacted.contains("/Users/test"));
+            assert!(redacted.contains("<URL>"));
+            assert!(redacted.contains("<PATH>"));
+        });
+    }
+
+    #[tokio::test]
+    async fn rolls_back_failed_holds_and_retries_key_release() {
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let failed_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handler_failed_down = Arc::clone(&failed_down);
+        let target = make_target(
+            Arc::new(ExternalChromeCdpSession::test_session_with_handler(
+                move |method, params| {
+                    output
+                        .lock()
+                        .unwrap()
+                        .push((method.to_owned(), params.cloned()));
+                    if method == "Input.dispatchKeyEvent"
+                        && params
+                            .and_then(|value| value.get("type"))
+                            .and_then(Value::as_str)
+                            == Some("rawKeyDown")
+                        && params
+                            .and_then(|value| value.get("code"))
+                            .and_then(Value::as_str)
+                            == Some("KeyW")
+                        && !handler_failed_down.swap(true, std::sync::atomic::Ordering::SeqCst)
+                    {
+                        return Err(CoreError::ExternalChrome("cancelled keyDown".to_owned()));
+                    }
+                    Ok(json!({"result":{"value":true}}))
+                },
+            )),
+            "linux",
+        );
+        let error = target
+            .key("hold", "KeyW", &["shift".to_owned()], "owner")
+            .await
+            .unwrap_err();
+        crate::v1_case!("external-chrome-cdn-bb00d21a344e", {
+            assert!(error.to_string().contains("cancelled keyDown"));
+            assert_eq!(
+                input_types_and_codes(&calls),
+                [
+                    ("rawKeyDown".to_owned(), "ShiftLeft".to_owned()),
+                    ("rawKeyDown".to_owned(), "KeyW".to_owned()),
+                    ("keyUp".to_owned(), "KeyW".to_owned()),
+                    ("keyUp".to_owned(), "ShiftLeft".to_owned()),
+                ]
+            );
+            assert!(target.input.lock().await.held_key_owners.is_empty());
+        });
+
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let key_up_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let handler_key_up_calls = Arc::clone(&key_up_calls);
+        let target = make_target(
+            Arc::new(ExternalChromeCdpSession::test_session_with_handler(
+                move |method, params| {
+                    output
+                        .lock()
+                        .unwrap()
+                        .push((method.to_owned(), params.cloned()));
+                    if method == "Input.dispatchKeyEvent"
+                        && params
+                            .and_then(|value| value.get("type"))
+                            .and_then(Value::as_str)
+                            == Some("keyUp")
+                        && handler_key_up_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                            == 0
+                    {
+                        return Err(CoreError::ExternalChrome("keyUp timed out".to_owned()));
+                    }
+                    Ok(json!({"result":{"value":true}}))
+                },
+            )),
+            "linux",
+        );
+        let error = target.key("tap", "F2", &[], "tap").await.unwrap_err();
+        crate::v1_case!("external-chrome-cdn-ce346e3e7fde", {
+            assert!(error.to_string().contains("keyUp timed out"));
+            assert_eq!(key_up_calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        });
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn resolves_clicks_in_css_viewport_without_focus_and_serializes_pairs() {
+        let (target, calls) = recording_target("linux");
+        target
+            .click(None, "percent", 25.0, 75.0, "left")
+            .await
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-91ff4d243176", {
+            assert_eq!(
+                mouse_params(&calls),
+                [
+                    json!({"type":"mousePressed","button":"left","clickCount":1,"x":320.0,"y":540.0}),
+                    json!({"type":"mouseReleased","button":"left","clickCount":1,"x":320.0,"y":540.0}),
+                ]
+            );
+        });
+        target
+            .click(Some("bottom-right"), "px", -24.0, -32.0, "left")
+            .await
+            .unwrap();
+        target
+            .click(Some("bottom-right"), "percent", -10.0, -10.0, "left")
+            .await
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-0415dea1f374", {
+            let pressed = mouse_params(&calls)
+                .into_iter()
+                .filter(|params| params["type"] == "mousePressed")
+                .collect::<Vec<_>>();
+            assert_eq!(
+                (pressed[1]["x"].as_f64(), pressed[1]["y"].as_f64()),
+                (Some(1256.0), Some(688.0))
+            );
+            assert_eq!(
+                (pressed[2]["x"].as_f64(), pressed[2]["y"].as_f64()),
+                (Some(1152.0), Some(648.0))
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-4ae20a942120", {
+            assert!(
+                !methods(&calls)
+                    .iter()
+                    .any(|method| method == "Page.bringToFront")
+            );
+            assert!(
+                calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|(method, _)| method != "Runtime.evaluate")
+            );
+        });
+
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let (first_pressed, first_pressed_receiver) = std::sync::mpsc::channel();
+        let (release_first, release_first_receiver) = std::sync::mpsc::channel();
+        let cdp = Arc::new(ExternalChromeCdpSession::test_session_with_handler(
+            move |method, params| {
+                output
+                    .lock()
+                    .unwrap()
+                    .push((method.to_owned(), params.cloned()));
+                if method == "Input.dispatchMouseEvent"
+                    && params
+                        .and_then(|value| value.get("type"))
+                        .and_then(Value::as_str)
+                        == Some("mousePressed")
+                    && params
+                        .and_then(|value| value.get("x"))
+                        .and_then(Value::as_f64)
+                        == Some(10.0)
+                {
+                    let _ = first_pressed.send(());
+                    let _ = release_first_receiver.recv();
+                }
+                Ok(match method {
+                    "Page.getLayoutMetrics" => {
+                        json!({"cssVisualViewport":{"clientWidth":100.0,"clientHeight":100.0}})
+                    }
+                    _ => json!({}),
+                })
+            },
+        ));
+        let target = Arc::new(make_target(cdp, "linux"));
+        let first_target = Arc::clone(&target);
+        let first = tokio::spawn(async move {
+            first_target
+                .execute(action_request(
+                    "first",
+                    BrowserAction::Click {
+                        anchor: None,
+                        unit: "percent".to_owned(),
+                        x: 10.0,
+                        y: 10.0,
+                        button: "left".to_owned(),
+                    },
+                ))
+                .await
+        });
+        first_pressed_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        let second_target = Arc::clone(&target);
+        let second = tokio::spawn(async move {
+            second_target
+                .execute(action_request(
+                    "second",
+                    BrowserAction::Click {
+                        anchor: None,
+                        unit: "percent".to_owned(),
+                        x: 90.0,
+                        y: 90.0,
+                        button: "left".to_owned(),
+                    },
+                ))
+                .await
+        });
+        tokio::task::yield_now().await;
+        assert!(!mouse_params(&calls).iter().any(|params| {
+            params["type"] == "mousePressed" && params["x"].as_f64() == Some(90.0)
+        }));
+        release_first.send(()).unwrap();
+        assert!(first.await.unwrap().ok);
+        assert!(second.await.unwrap().ok);
+        crate::v1_case!("external-chrome-cdn-8febda3da9ca", {
+            assert_eq!(
+                mouse_params(&calls)
+                    .iter()
+                    .map(|params| (
+                        params["type"].as_str().unwrap().to_owned(),
+                        params["x"].as_f64().unwrap() as i32,
+                    ))
+                    .collect::<Vec<_>>(),
+                [
+                    ("mousePressed".to_owned(), 10),
+                    ("mouseReleased".to_owned(), 10),
+                    ("mousePressed".to_owned(), 90),
+                    ("mouseReleased".to_owned(), 90),
+                ]
+            );
+        });
+    }
+
+    #[tokio::test]
+    async fn repeated_input_stays_physical_and_window_bounds_are_exact() {
+        let (target, calls) = recording_target("linux");
+        for _ in 0..50 {
+            target.key("tap", "Digit1", &[], "tap").await.unwrap();
+            target
+                .click(None, "percent", 50.0, 50.0, "left")
+                .await
+                .unwrap();
+        }
+        crate::v1_case!("external-chrome-cdn-9ce15c25cd97", {
+            assert_eq!(input_params(&calls).len(), 100);
+            assert_eq!(mouse_params(&calls).len(), 100);
+            let evaluated = expressions(&calls);
+            assert!(!evaluated.contains("document.activeElement"));
+            assert!(!evaluated.contains(".focus("));
+            assert!(!evaluated.contains("querySelectorAll(\"canvas, iframe\")"));
+            assert!(
+                !methods(&calls)
+                    .iter()
+                    .any(|method| method == "Page.bringToFront")
+            );
+        });
+
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let cdp = Arc::new(ExternalChromeCdpSession::test_session_with_handler(
+            move |method, params| {
+                output
+                    .lock()
+                    .unwrap()
+                    .push((method.to_owned(), params.cloned()));
+                Ok(if method == "Browser.getWindowForTarget" {
+                    json!({"windowId":42,"bounds":{"windowState":"maximized"}})
+                } else {
+                    json!({})
+                })
+            },
+        ));
+        let runtime = ExternalAutomationRuntime::new("linux".to_owned());
+        runtime.register("role-1".to_owned(), cdp).unwrap();
+        runtime
+            .set_window_bounds(
+                "role-1",
+                crate::model::StatePixelBoundsRecord {
+                    x: -1280,
+                    y: -120,
+                    width: 800,
+                    height: 900,
+                },
+            )
+            .await
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-dd54876492b8", {
+            assert_eq!(
+                calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|(method, _)| method.starts_with("Browser."))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                [
+                    ("Browser.getWindowForTarget".to_owned(), None),
+                    (
+                        "Browser.setWindowBounds".to_owned(),
+                        Some(json!({"windowId":42,"bounds":{"windowState":"normal"}}))
+                    ),
+                    (
+                        "Browser.setWindowBounds".to_owned(),
+                        Some(
+                            json!({"windowId":42,"bounds":{"left":-1280,"top":-120,"width":800,"height":900}})
+                        )
+                    ),
+                ]
+            );
+        });
+        crate::v1_case!("external-chrome-cdn-aacbc8a2ed2c", {
+            let browser_calls = calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(method, _)| method.starts_with("Browser."))
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(browser_calls[0].0, "Browser.getWindowForTarget");
+            assert_eq!(
+                browser_calls[1].1.as_ref().unwrap()["bounds"]["windowState"],
+                "normal"
+            );
+            assert_eq!(
+                browser_calls[2].1.as_ref().unwrap()["bounds"],
+                json!({"left":-1280,"top":-120,"width":800,"height":900})
+            );
+        });
+    }
+
+    fn make_target(cdp: Arc<ExternalChromeCdpSession>, platform: &str) -> ExternalTarget {
+        ExternalTarget {
+            cdp,
+            execution_context_ids: RwLock::new(HashSet::new()),
+            input: Mutex::new(InputState::default()),
+            input_sequence: Mutex::new(()),
+            platform: platform.to_owned(),
+        }
+    }
+
+    type RecordedCalls = Arc<StdMutex<Vec<(String, Option<Value>)>>>;
+
+    fn recording_target(platform: &str) -> (ExternalTarget, RecordedCalls) {
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let output = Arc::clone(&calls);
+        let cdp = Arc::new(ExternalChromeCdpSession::test_session_with_handler(
+            move |method, params| {
+                output
+                    .lock()
+                    .unwrap()
+                    .push((method.to_owned(), params.cloned()));
+                Ok(match method {
+                    "Page.getLayoutMetrics" => {
+                        json!({"cssVisualViewport":{"clientWidth":1280.0,"clientHeight":720.0}})
+                    }
+                    "Browser.getWindowForTarget" => {
+                        json!({"windowId":42,"bounds":{"windowState":"normal"}})
+                    }
+                    "Runtime.evaluate" => json!({"result":{"value":true}}),
+                    _ => json!({}),
+                })
+            },
+        ));
+        (make_target(cdp, platform), calls)
+    }
+
+    fn input_params(calls: &RecordedCalls) -> Vec<Value> {
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(method, params)| {
+                (method == "Input.dispatchKeyEvent")
+                    .then(|| params.clone())
+                    .flatten()
+            })
+            .collect()
+    }
+
+    fn mouse_params(calls: &RecordedCalls) -> Vec<Value> {
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(method, params)| {
+                (method == "Input.dispatchMouseEvent")
+                    .then(|| params.clone())
+                    .flatten()
+            })
+            .collect()
+    }
+
+    fn action_request(request_id: &str, action: BrowserAction) -> BrowserActionRequest {
+        BrowserActionRequest {
+            request_id: request_id.to_owned(),
+            role_id: "role-1".to_owned(),
+            origin: "macro".to_owned(),
+            scheduled_at_ms: epoch_millis(),
+            deadline_ms: epoch_millis().saturating_add(10_000),
+            action,
+        }
+    }
+
+    fn input_types_and_codes(calls: &RecordedCalls) -> Vec<(String, String)> {
+        input_params(calls)
+            .into_iter()
+            .filter_map(|params| {
+                Some((
+                    params.get("type")?.as_str()?.to_owned(),
+                    params.get("code")?.as_str()?.to_owned(),
+                ))
+            })
+            .collect()
+    }
+
+    fn methods(calls: &RecordedCalls) -> Vec<String> {
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(method, _)| method.clone())
+            .collect()
+    }
+
+    fn expressions(calls: &RecordedCalls) -> String {
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(method, params)| {
+                (method == "Runtime.evaluate")
+                    .then(|| params.as_ref()?.get("expression")?.as_str())
+                    .flatten()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn key_down_count(calls: &RecordedCalls, code: &str) -> usize {
+        input_params(calls)
+            .iter()
+            .filter(|params| {
+                params["type"] == "rawKeyDown" && params["code"].as_str() == Some(code)
+            })
+            .count()
+    }
+
+    fn key_up_count(calls: &RecordedCalls, code: &str) -> usize {
+        input_params(calls)
+            .iter()
+            .filter(|params| params["type"] == "keyUp" && params["code"].as_str() == Some(code))
+            .count()
     }
 }

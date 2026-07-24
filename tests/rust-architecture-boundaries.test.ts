@@ -46,7 +46,7 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps workspace reservations and role operation ordering in Rust", async () => {
-    const manager = await readSource("src/main/browser/BrowserManager.ts");
+    const manager = await readSource("src/main/browser/ElectronBrowserRuntime.ts");
     const runtime = await readSource("crates/rion-core/src/browser_runtime.rs");
     const operations = await readSource("crates/rion-core/src/browser_operations.rs");
 
@@ -63,14 +63,13 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps workspace geometry, divider resize, and adaptive zoom decisions in Rust", async () => {
-    const [manager, externalManager, layout, sharedLayout] = await Promise.all([
-      readSource("src/main/browser/BrowserManager.ts"),
-      readSource("src/main/browser/ExternalChromeManager.ts"),
+    const [manager, layout, sharedLayout] = await Promise.all([
+      readSource("src/main/browser/ElectronBrowserRuntime.ts"),
       readSource("crates/rion-core/src/layout.rs"),
       readSource("src/shared/workspaceLayout.ts")
     ]);
 
-    for (const source of [manager, externalManager, sharedLayout]) {
+    for (const source of [manager, sharedLayout]) {
       expect(source).not.toContain("getAdaptiveWorkspaceBrowserZoomPercent");
       expect(source).not.toContain("normalizeWorkspaceRectEdges");
     }
@@ -83,53 +82,62 @@ describe("Rust production architecture boundaries", () => {
     expect(layout).toContain("pub fn resize_divider");
   });
 
-  it("keeps CDN URL matching in Rust and the Electron webRequest layer primitive-only", async () => {
+  it("resolves the CDN rewrite plan in Rust and keeps request matching local to Electron", async () => {
     const [manager, matcher] = await Promise.all([
       readSource("src/main/game-browser/CdnCompatibilityManager.ts"),
       readSource("crates/rion-core/src/cdn.rs")
     ]);
 
-    expect(manager).not.toContain("new RegExp");
     expect(manager).not.toContain("rewriteCdnCompatibilityUrl");
-    expect(manager).not.toContain("compiledRules");
-    expect(manager).toContain("this.rewriteUrl(details.url)");
+    expect(manager).not.toContain("inFlightDetections");
+    expect(manager).not.toContain("DetectionCacheEntry");
+    expect(manager).not.toContain("setTimeout");
+    expect(manager).toContain('type: "cdnResolveSession"');
+    expect(manager).toContain("createLocalCdnMatcher(resolution.rewriteRules)");
+    expect(manager).toContain("matchCdnUrl(details.url)");
+    expect(manager).not.toContain("this.options.matchCdnUrl");
+    expect(matcher).toContain("pub fn bundled()");
     expect(matcher).toContain("pub fn rewrite(&self");
+    expect(matcher).toContain("pub fn rewrite_plan(&self)");
   });
 
   it("routes external macro actions through the Rust CDP executor", async () => {
-    const [adapter, external, overlay] = await Promise.all([
+    const [adapter, external, core] = await Promise.all([
       readSource("src/main/core/ElectronBrowserActionAdapter.ts"),
       readSource("crates/rion-core/src/external_automation.rs"),
-      readSource("src/main/browser/ExternalChromeAutomationTarget.ts")
+      readSource("crates/rion-core/src/app.rs")
     ]);
 
-    expect(adapter).toContain("dispatchExternalBrowserActions");
+    expect(adapter).toContain("executeEffect");
+    expect(adapter).not.toContain("dispatchExternalBrowserActions");
     expect(external).toContain("held_key_owners");
     expect(external).toContain("Input.dispatchKeyEvent");
     expect(external).toContain("Input.dispatchMouseEvent");
-    expect(overlay).not.toContain("Input.dispatchKeyEvent");
-    expect(overlay).not.toContain("Input.dispatchMouseEvent");
-    expect(overlay).not.toContain("Fetch.enable");
-    expect(overlay).not.toContain("waitForDevToolsPort");
-    expect(overlay).not.toContain("heldKeyOwners");
+    expect(core).not.toContain("CoreEffectAction::ExternalOverlayRequest");
+    expect(core).toContain("handle_overlay_request(role_id, &request_json, None)");
+    expect(core).toContain("handle_external_cdp_event");
   });
 
   it("keeps portable parsing, pending sessions, planning, and persistence out of TypeScript", async () => {
     const manager = await readSource("src/main/portable/PortableDataManager.ts");
-    const repository = await readSource("src/main/core/RustStateRepository.ts");
 
     expect(manager).not.toContain("pendingImport");
     expect(manager).not.toContain("parsePortableData");
     expect(manager).not.toContain("buildImportPlan");
     expect(manager).not.toContain("writeJsonFileAtomically");
+    expect(manager).not.toContain("node:fs");
+    expect(manager).not.toContain("readFile");
+    expect(manager).not.toContain("writeFile");
     expect(manager).not.toContain("setInterval");
-    expect(repository).not.toContain("replaceMany");
+    expect(manager).toContain('type: "portableExportTo"');
+    expect(manager).toContain('type: "portablePreviewFile"');
   });
 
   it("keeps Chrome profile discovery, pending state, file saga, and recovery out of TypeScript", async () => {
-    const [manager, sessionImporter] = await Promise.all([
+    const [manager, effectAdapter, core] = await Promise.all([
       readSource("src/main/browser/ChromeProfileImportManager.ts"),
-      readSource("src/main/browser/ChromeProfileSessionImporter.ts")
+      readSource("src/main/browser/ElectronProfileEffectAdapter.ts"),
+      readSource("crates/rion-core/src/app.rs")
     ]);
 
     expect(manager).not.toContain("node:fs");
@@ -137,23 +145,25 @@ describe("Rust production architecture boundaries", () => {
     expect(manager).not.toContain("copyDirectory");
     expect(manager).not.toContain("writeJsonFileAtomically");
     expect(manager).not.toContain("recoverChromeProfileImport");
-    expect(sessionImporter).not.toContain("node:fs");
-    expect(sessionImporter).not.toContain("node:sqlite");
-    expect(sessionImporter).not.toContain("node:crypto");
-    expect(sessionImporter).not.toContain("node:child_process");
-    expect(sessionImporter).toContain("readCookies:");
+    expect(manager).toContain('type: "chromeProfileApply"');
+    expect(manager).not.toContain('"chromeProfilePrepare"');
+    expect(manager).not.toContain('"chromeProfileCommit"');
+    expect(manager).not.toContain('"chromeProfileRollback"');
+    expect(effectAdapter).not.toContain("node:fs");
+    expect(effectAdapter).toContain("cookies.set");
+    expect(core).toContain("apply_chrome_profile_import");
+    expect(core).toContain("rollback_chrome_profile_import");
   });
 
   it("does not keep a JavaScript state snapshot cache or stringify diff", async () => {
-    const [repository, database] = await Promise.all([
-      readSource("src/main/core/RustStateRepository.ts"),
+    const [client, database] = await Promise.all([
+      readSource("src/main/core/nativeCore.ts"),
       readSource("crates/rion-core/src/database/state.rs")
     ]);
 
-    expect(repository).not.toContain("cachedSnapshot");
-    expect(repository).not.toContain("JSON.stringify");
-    expect(repository).not.toContain("private tail");
-    expect(repository).not.toContain("private serialize");
+    expect(client).not.toContain("cachedSnapshot");
+    expect(client).not.toContain("private tail");
+    expect(client).not.toContain("private serialize");
     const ordinaryMutation = database.slice(
       database.indexOf("fn apply_domain_mutation"),
       database.indexOf("fn validate_workspace_role_references")
@@ -161,6 +171,24 @@ describe("Rust production architecture boundaries", () => {
     expect(ordinaryMutation).not.toContain("read_snapshot");
     expect(ordinaryMutation).not.toContain("snapshot_hash");
     expect(database).toContain("fn read_typed_collection");
+  });
+
+  it("keeps runtime-aware mutations, bulk classification, and rollback journals in Rust", async () => {
+    const [handlers, app, database] = await Promise.all([
+      readSource("src/main/ipc/registerHandlers.ts"),
+      readSource("crates/rion-core/src/app.rs"),
+      readSource("crates/rion-core/src/database/state.rs")
+    ]);
+
+    expect(handlers).not.toContain("runWithExistingRoles");
+    expect(handlers).not.toContain("runBulkDelete");
+    expect(handlers).not.toContain("withDataMutation");
+    expect(handlers).not.toContain("stopAndRunMutation");
+    expect(app).toContain("delete_role_saga");
+    expect(app).toContain("quarantine");
+    expect(database).toContain("operation_journal");
+    expect(database).toContain("StateMutation::GamesDelete");
+    expect(database).toContain("StateMutation::WorkspacesDelete");
   });
 
   it("does not expose the removed TypeScript runtime fallback switch", async () => {
@@ -171,26 +199,36 @@ describe("Rust production architecture boundaries", () => {
     expect(main).not.toContain("rust_subsystem_fallback_active");
   });
 
-  it("keeps production log persistence and batching out of TypeScript", async () => {
-    const logging = await readSource("src/main/logging/LogService.ts");
+  it("keeps log identity, filtering, redaction, persistence and batching in Rust", async () => {
+    const [adapter, capture, persistence] = await Promise.all([
+      readSource("src/main/logging/LogService.ts"),
+      readSource("crates/rion-core/src/log_capture.rs"),
+      readSource("crates/rion-core/src/database/logs.rs")
+    ]);
 
-    expect(logging).not.toContain("useFileFallback");
-    expect(logging).not.toContain("writeFileEntry");
-    expect(logging).not.toContain("setTimeout");
-    expect(logging).not.toContain("appendFile");
+    expect(adapter).not.toContain("randomUUID");
+    expect(adapter).not.toContain("private sequence");
+    expect(adapter).not.toContain("currentLevel");
+    expect(adapter).not.toContain("pendingEntries");
+    expect(adapter).not.toContain("sanitizeText");
+    expect(adapter).not.toContain("node:fs");
+    expect(adapter).toContain('type: "logsCapture"');
+    expect(capture).toContain("CAPTURE_QUEUE_CAPACITY");
+    expect(capture).toContain("sanitize_value");
+    expect(persistence).toContain("BATCH_INTERVAL");
+    expect(persistence).toContain("BATCH_MAX_ENTRIES");
   });
 
   it("keeps external Chrome health scheduling and probes out of TypeScript", async () => {
-    const [manager, target] = await Promise.all([
-      readSource("src/main/browser/ExternalChromeManager.ts"),
-      readSource("src/main/browser/ExternalChromeAutomationTarget.ts")
+    const [main, health] = await Promise.all([
+      readSource("src/main/index.ts"),
+      readSource("crates/rion-core/src/external_health.rs")
     ]);
 
-    expect(manager).not.toContain("setInterval");
-    expect(manager).not.toContain("checkPageHealth");
-    expect(manager).not.toContain("probeCdpRoundTrip");
-    expect(manager).not.toContain("EXTERNAL_HEARTBEAT_STALL_MS");
-    expect(target).not.toContain("window.setInterval");
+    expect(main).not.toContain("RustExternalChromeHealthMonitor");
+    expect(main).not.toContain("externalChromeManager.handleSuspend");
+    expect(health).toContain("PROBE_INTERVAL");
+    expect(health).toContain("ExternalHealthChanged");
   });
 
   it("keeps embedded runtime diagnostics event-driven", async () => {
@@ -207,42 +245,38 @@ describe("Rust production architecture boundaries", () => {
     expect(diagnostics).toContain('contents.on("responsive"');
   });
 
-  it("keeps resource policy state and pressure sampling in Rust", async () => {
-    const [coordinator, runtime, pressure] = await Promise.all([
-      readSource("src/main/browser/WorkspaceResourceCoordinator.ts"),
+  it("keeps adaptive resource state and pressure sampling in Rust", async () => {
+    const [controller, runtime, browser, pressure] = await Promise.all([
+      readSource("crates/rion-core/src/resource_controller.rs"),
       readSource("crates/rion-core/src/resource_runtime.rs"),
+      readSource("src/main/browser/ElectronBrowserRuntime.ts"),
       readSource("src/main/browser/RustSystemPressureMonitor.ts")
     ]);
 
-    expect(coordinator).not.toContain("hiddenRuntimeTabIds");
-    expect(coordinator).not.toContain("macroRoleIds");
-    expect(coordinator).not.toContain("pressureSnapshot");
-    expect(coordinator).not.toContain("roleStatuses");
-    expect(coordinator).not.toContain("resolveCpuThrottle");
-    expect(coordinator).toContain("invokeResourceRuntime");
+    expect(browser).not.toContain("WorkspaceResourceCoordinator");
+    expect(browser).not.toContain("resourcePressureMonitor");
+    expect(controller).toContain("struct ResourceController");
+    expect(controller).toContain("EmbeddedApplyResourceEffects");
+    expect(controller).toContain("ResourceRuntimeCommand");
     expect(runtime).toContain("struct ResourceRuntime");
     expect(pressure).not.toContain("setInterval");
   });
 
   it("keeps external Chrome process, CDP, and session authority in Rust", async () => {
-    const [manager, main, automation, sessions, processes, addon] = await Promise.all([
-      readSource("src/main/browser/ExternalChromeManager.ts"),
+    const [main, app, automation, sessions, processes, addon] = await Promise.all([
       readSource("src/main/index.ts"),
+      readSource("crates/rion-core/src/app.rs"),
       readSource("crates/rion-core/src/external_chrome.rs"),
       readSource("crates/rion-core/src/external_sessions.rs"),
       readSource("crates/rion-core/src/external_processes.rs"),
       readSource("crates/rion-node/src/lib.rs")
     ]);
 
-    expect(manager).not.toContain('from "node:child_process"');
-    expect(manager).not.toContain('from "node:fs');
-    expect(manager).not.toContain("private readonly sessions");
-    expect(manager).not.toContain("findExecutable ??");
-    expect(manager).not.toContain("spawnChrome ??");
-    expect(manager).not.toContain("connectAutomation ??");
-    expect(main).toContain("captureExternalChromeDiagnostics");
-    expect(main).toContain("focusExternalChrome");
-    expect(main).toContain("setExternalChromeWindowBounds");
+    expect(main).not.toContain("ExternalChromeManager");
+    expect(main).not.toContain("connectExternalChromeAutomation");
+    expect(app).toContain("launch_external_session");
+    expect(app).toContain("launch_external_workspace");
+    expect(app).toContain("recover_external_role");
     expect(automation).toContain("Fetch.requestPaused");
     expect(automation).toContain("RECONNECT_TIMEOUT");
     expect(automation).toContain("connect_devtools_socket");
@@ -268,7 +302,8 @@ describe("Rust production architecture boundaries", () => {
     expect(runtime).toContain("stop_role_matching");
     expect(target).not.toContain("macroInvocations");
     expect(target).not.toContain("heldKeyOwners");
-    expect(target).toContain("prepareEmbeddedKeyTransition");
+    expect(target).toContain('type: "embeddedKeyPrepare"');
+    expect(target).not.toContain("prepareEmbeddedKeyTransition");
     expect(embeddedInput).toContain("struct EmbeddedInputRuntime");
     expect(embeddedInput).toContain("pending_role_ids");
     expect(embeddedInput).toContain("apply_release");
@@ -314,17 +349,52 @@ describe("Rust production architecture boundaries", () => {
   });
 
   it("keeps Windows graphics event-log access and parsing in Rust", async () => {
-    const [adapter, platform, parser] = await Promise.all([
-      readSource("src/main/browser/RustWindowsGraphicsEventCollector.ts"),
+    const [main, platform, parser] = await Promise.all([
+      readSource("src/main/index.ts"),
       readSource("crates/rion-platform/src/windows_events.rs"),
       readSource("crates/rion-core/src/windows_graphics_events.rs")
     ]);
 
-    expect(adapter).not.toContain("node:child_process");
-    expect(adapter).not.toContain("wevtutil");
-    expect(adapter).toContain('type: "windowsGraphicsEventsCollect"');
+    expect(main).not.toContain("RustWindowsGraphicsEventCollector");
+    expect(main).toContain('type: "windowsGraphicsEventsCollect"');
     expect(platform).toContain('Command::new("wevtutil")');
     expect(parser).toContain("fn parse");
+  });
+
+  it("keeps diagnostic ZIP, telemetry timers and system process control in Rust", async () => {
+    const [main, native, diagnostics, telemetry, platform] = await Promise.all([
+      readSource("src/main/index.ts"),
+      readSource("src/main/core/nativeCore.ts"),
+      readSource("crates/rion-core/src/diagnostics.rs"),
+      readSource("crates/rion-core/src/telemetry.rs"),
+      readSource("crates/rion-platform/src/system.rs")
+    ]);
+
+    expect(main).not.toContain("node:fs");
+    expect(main).not.toContain("node:os");
+    expect(main).not.toContain("performanceTelemetryTimer");
+    expect(main).not.toContain("writeZip");
+    expect(main).toContain('type: "diagnosticsExport"');
+    expect(native).not.toContain("class PerformanceMetrics");
+    expect(diagnostics).toContain("atomic_replace_file");
+    expect(telemetry).toContain("WRITE_INTERVAL");
+    expect(platform).toContain("request_graceful_chrome_quit");
+  });
+
+  it("keeps macro lifecycle delivery reliable while presentation events stay bounded", async () => {
+    const [main, native, core, runtime] = await Promise.all([
+      readSource("src/main/index.ts"),
+      readSource("crates/rion-node/src/lib.rs"),
+      readSource("crates/rion-core/src/app.rs"),
+      readSource("crates/rion-core/src/macro_runtime.rs")
+    ]);
+
+    expect(main).not.toContain("iteration: status.iteration");
+    expect(main).toContain("macro_lifecycle_stopped");
+    expect(native).toContain("CoreEvent::MacroStatuses { reliable: true, .. }");
+    expect(core).toContain("CoreEvent::MacroStatuses { reliable: true, .. }");
+    expect(runtime).toContain("PRESENTATION_STATUS_MIN_INTERVAL");
+    expect(runtime).toContain("emit_statuses(shared, false)");
   });
 
   it("keeps scalar production metadata stores free of filesystem persistence", async () => {
@@ -370,7 +440,7 @@ describe("Rust production architecture boundaries", () => {
     expect(roleStore).not.toContain("writeFile");
     expect(roleStore).not.toContain("writeJsonFileAtomically");
     expect(roleStore).not.toContain("cachedFile");
-    expect(roleStore).toContain("this.core.resolveRolePaths(id)");
+    expect(roleStore).toContain('type: "rolePathsResolve"');
   });
 
   it("keeps compatibility decisions and run state in Rust", async () => {
@@ -380,9 +450,58 @@ describe("Rust production architecture boundaries", () => {
     expect(manager).not.toContain("createHash");
     expect(manager).not.toContain("configurationFingerprint");
     expect(manager).not.toContain("activeChecks");
-    expect(manager).toContain('type: "compatibilityPrepare"');
-    expect(manager).toContain('type: "compatibilityComplete"');
+    expect(manager).toContain('type: "compatibilityRun"');
+    expect(manager).not.toContain('type: "compatibilityPrepare"');
+    expect(manager).not.toContain('type: "compatibilityComplete"');
+    expect(manager).not.toContain("setTimeout");
     expect(runtime).toContain("configuration_fingerprint");
     expect(runtime).toContain("cancel_requested");
+    expect(runtime).toContain("effect_operation_id");
+  });
+
+  it("keeps graphics normalization, switch selection, and report assembly in Rust", async () => {
+    const [adapter, graphics, bootstrap] = await Promise.all([
+      readSource("src/main/game-browser/GraphicsDiagnosticsService.ts"),
+      readSource("crates/rion-core/src/graphics_diagnostics.rs"),
+      readSource("crates/rion-core/src/bootstrap_settings.rs")
+    ]);
+
+    expect(adapter).not.toContain("normalizeAvailability");
+    expect(adapter).not.toContain("readGpuDevice");
+    expect(adapter).not.toContain("getGraphicsSwitches");
+    expect(adapter).toContain('type: "graphicsDiagnosticsAssemble"');
+    expect(graphics).toContain("normalize_web_graphics");
+    expect(graphics).toContain("GraphicsDiagnosticsRecord");
+    expect(bootstrap).toContain("fn graphics_switches");
+  });
+
+  it("keeps overlay projection, request validation, refresh ordering, and external CDP in Rust", async () => {
+    const [adapter, overlay, core, page] = await Promise.all([
+      readSource("src/main/macros/MacroOverlayInjector.ts"),
+      readSource("crates/rion-core/src/overlay.rs"),
+      readSource("crates/rion-core/src/app.rs"),
+      readSource("src/main/macros/overlay/macroOverlayRuntime.js")
+    ]);
+
+    for (const forbidden of [
+      "externalRefreshStates",
+      "contentRefreshStates",
+      "pendingClickStatuses",
+      "previousMacroStatuses",
+      "previousRolePresentation",
+      "findUnassignedMacroDependency",
+      "listStatuses",
+      "setTimeout"
+    ]) {
+      expect(adapter).not.toContain(forbidden);
+    }
+    expect(adapter).toContain('type: "overlayRequest"');
+    expect(overlay).toContain("struct OverlayProjection");
+    expect(overlay).toContain("REFRESH_MIN_INTERVAL");
+    expect(core).toContain("handle_overlay_request");
+    expect(core).toContain("OverlayCopyCoordinate");
+    expect(core).toContain("OverlayOpenMacroPage");
+    expect(page).toContain("retainedClickStatuses");
+    expect(page).toContain("clickStatusRetentionTimer");
   });
 });

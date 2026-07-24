@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -86,6 +86,8 @@ describe("workspace editor role picker layout", () => {
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();
     expect(screen.queryByText("96%")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Resource mode" })).toBeNull();
+    expect(screen.queryByText("Unrestricted")).toBeNull();
     expect(workspaceHelps).toHaveLength(3);
     expect(workspaceHelps[0].getAttribute("data-workspace-help")).toBe("editing");
     expect(workspaceHelps[1].getAttribute("data-workspace-help")).toBe("launch");
@@ -101,6 +103,7 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[2].textContent).toContain("Ctrl +/−/0 on Windows");
     expect(workspaceHelps[2].textContent).toContain("saved to this workspace automatically");
     expect(workspaceHelps[2].textContent).toContain("restored the next time the role launches");
+    expect(workspaceHelps[2].textContent).toContain("inactive embedded tabs");
     expect(workspaceHelps[2].textContent).toContain("roles running a macro stay at full speed");
     workspaceHelps.forEach((workspaceHelp) => {
       expect(workspaceHelp.querySelector("svg")).toBeNull();
@@ -138,6 +141,90 @@ describe("workspace editor role picker layout", () => {
     fireEvent.click(roleButtons[2]);
 
     expect(roleButtons[2].textContent).toContain("S1");
+  });
+
+  it("coalesces workspace resize moves, flushes the latest point, and cancels pending work", async () => {
+    let nextFrameId = 1;
+    const frames = new Map<number, FrameRequestCallback>();
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const frameId = nextFrameId++;
+      frames.set(frameId, callback);
+      return frameId;
+    });
+    const cancelFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((frameId) => {
+      frames.delete(frameId);
+    });
+    const addEventListener = vi.spyOn(window, "addEventListener");
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/workspaces/:id/edit",
+          element: (
+            <WorkspaceEditorRoute
+              games={[game()]}
+              isSaving={false}
+              roles={[role(1), role(2)]}
+              statusByRole={new Map()}
+              t={t}
+              workspaceDisplays={[]}
+              workspaces={[workspace()]}
+              onSave={onSave}
+            />
+          )
+        }
+      ],
+      { initialEntries: ["/workspaces/workspace-1/edit"] }
+    );
+
+    const { container, unmount } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+    const preview = container.querySelector<HTMLElement>("[data-workspace-layout-preview]");
+    const resizeHandle = screen.getByRole("button", { name: "Resize column divider 1" });
+    if (!preview) throw new Error("Expected workspace preview.");
+    setBounds(preview, 0, 0, 1000, 500);
+
+    expect(resizeHandle.className).toContain("touch-none");
+    fireEvent.pointerDown(resizeHandle, { button: 0, clientX: 500, clientY: 250, pointerId: 7 });
+    fireEvent.pointerMove(window, { clientX: 600, clientY: 250, pointerId: 7 });
+    fireEvent.pointerMove(window, { clientX: 700, clientY: 250, pointerId: 7 });
+
+    expect(requestFrame).toHaveBeenCalledOnce();
+    expect(addEventListener.mock.calls.some(([eventName, _listener, options]) =>
+      eventName === "pointermove" &&
+      typeof options === "object" &&
+      options !== null &&
+      options.passive === true
+    )).toBe(true);
+    const firstFrame = frames.get(1);
+    frames.delete(1);
+    act(() => firstFrame?.(0));
+
+    const firstSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='0']");
+    expect(firstSlot?.parentElement?.style.width).toBe("70%");
+
+    fireEvent.pointerMove(window, { clientX: 800, clientY: 250, pointerId: 7 });
+    expect(requestFrame).toHaveBeenCalledTimes(2);
+    fireEvent.pointerUp(window, { clientX: 800, clientY: 250, pointerId: 7 });
+    expect(cancelFrame).toHaveBeenCalledWith(2);
+    expect(frames.size).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    const savedWidths = onSave.mock.calls[0][0].slots
+      .map((slot: LaunchWorkspace["slots"][number]) => slot.rect.width);
+    expect(savedWidths[0]).toBeCloseTo(0.8);
+    expect(savedWidths[1]).toBeCloseTo(0.2);
+
+    fireEvent.pointerDown(resizeHandle, { button: 0, clientX: 800, clientY: 250, pointerId: 8 });
+    fireEvent.pointerMove(window, { clientX: 650, clientY: 250, pointerId: 8 });
+    expect(frames.has(3)).toBe(true);
+    unmount();
+    expect(cancelFrame).toHaveBeenCalledWith(3);
+    expect(frames.size).toBe(0);
   });
 
   it("shows the complete workspace help when creating a workspace", () => {
@@ -212,7 +299,6 @@ function workspace(): LaunchWorkspace {
     browserLaunchMode: "inherit",
     browserZoomMode: "adaptive",
     browserZoomPercent: 100,
-    resourcePolicy: { mode: "adaptive" },
     slots: [
       { id: "slot-1", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
       { id: "slot-2", roleId: "role-2", rect: { x: 0.5, y: 0, width: 0.5, height: 1 } }
@@ -220,4 +306,21 @@ function workspace(): LaunchWorkspace {
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z"
   };
+}
+
+function setBounds(element: HTMLElement, left: number, top: number, width: number, height: number): void {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      bottom: top + height,
+      height,
+      left,
+      right: left + width,
+      top,
+      width,
+      x: left,
+      y: top,
+      toJSON: () => ({})
+    })
+  });
 }

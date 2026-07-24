@@ -6,22 +6,29 @@ import type {
   BrowserProxySettingsRecord,
   ChromeProfileEntryRecord,
   ChromeProfileImportPreviewRecord,
+  ChromeProfileImportProgressRecord,
   ChromeProfileImportRequest,
   ChromeProfileImportResultRecord,
   ChromeProfileImportWarningRecord,
   CompatibilityRunPhase,
   CompatibilityRunStatusRecord,
+  DiagnosticExportResultRecord,
+  ExternalGraphicsDiagnosticsRecord,
   GameCreateRequest,
   GameBrowserSettingsRecord,
   GameUpdateRequest,
+  GraphicsDeviceDiagnosticsRecord,
+  GraphicsDiagnosticsRecord,
   LegalAcceptDocumentsInputRecord,
   LegalAcceptanceStatusRecord,
   LegalDocumentVersionsRecord,
   LogEntry as RustLogEntry,
   LogErrorDetails as RustLogErrorDetails,
   LogLevel as RustLogLevel,
+  LogPageRecord,
   LogQuery as RustLogQuery,
   LogSource as RustLogSource,
+  LogStorageStatusRecord,
   MacroCreateRequest,
   MacroBadgePositionRecord,
   MacroRepeat as RustMacroRepeat,
@@ -31,6 +38,7 @@ import type {
   MacroUpdateRequest,
   PortableDataRecord,
   PortableDataSelectionRecord,
+  PortableExportResultRecord,
   PortableGameRecord,
   PortableImportOperationsRecord,
   PortableImportOperationSummaryRecord,
@@ -57,7 +65,6 @@ import type {
   StateRoleRecord,
   StateWorkspaceDisplayFingerprintRecord,
   StateWorkspaceDisplayTargetRecord,
-  StateWorkspaceResourcePolicyRecord,
   StateWorkspaceSlotRecord,
   StateWebGraphicsRecord,
   SystemFontFamilyRecord,
@@ -243,7 +250,6 @@ export type NormalizedRect = StateNormalizedRectRecord;
 
 export type LaunchWorkspaceSlot = StateWorkspaceSlotRecord;
 
-export type WorkspaceResourceMode = "unrestricted" | "adaptive";
 export type WorkspaceCpuThrottleRate = 2 | 4;
 export type WorkspacePressureLevel = "normal" | "constrained";
 export type WorkspaceResourceReason =
@@ -260,8 +266,6 @@ export type WorkspaceResourceState =
   | "macro_override"
   | "shared_process"
   | "unavailable";
-
-export type WorkspaceResourcePolicy = StateWorkspaceResourcePolicyRecord;
 
 export type PixelBounds = StatePixelBoundsRecord;
 
@@ -373,43 +377,11 @@ export type WebGraphicsAvailability = "available" | "unavailable" | "unknown";
 
 export type WebGraphicsDiagnostics = StateWebGraphicsRecord;
 
-export interface GraphicsDeviceDiagnostics {
-  active?: boolean;
-  deviceId?: number;
-  deviceString?: string;
-  driverVendor?: string;
-  driverVersion?: string;
-  vendorId?: number;
-  vendorString?: string;
-}
+export type GraphicsDeviceDiagnostics = GraphicsDeviceDiagnosticsRecord;
 
-export interface ExternalGraphicsDiagnostics {
-  error?: string;
-  probe?: WebGraphicsDiagnostics;
-  roleId: string;
-  roleName: string;
-  state: "ready" | "unavailable";
-}
+export type ExternalGraphicsDiagnostics = ExternalGraphicsDiagnosticsRecord;
 
-export interface GraphicsDiagnostics {
-  appliedSettings: BrowserGraphicsSettings;
-  appliedSwitches: string[];
-  collectedAt: string;
-  embedded: WebGraphicsDiagnostics;
-  externalRoles: ExternalGraphicsDiagnostics[];
-  featureStatus: Record<string, string>;
-  gpuDevice?: GraphicsDeviceDiagnostics;
-  gpuInfoReady: boolean;
-  hardwareAccelerationEnabled: boolean | null;
-  platform: string;
-  restartRequired: boolean;
-  savedSettings: BrowserGraphicsSettings;
-  versions: {
-    chromium: string;
-    electron: string;
-    node: string;
-  };
-}
+export type GraphicsDiagnostics = GraphicsDiagnosticsRecord;
 
 export type GameCompatibilityRunPhase = CompatibilityRunPhase;
 
@@ -469,15 +441,7 @@ export type PortableMacro = PortableMacroRecord;
 export type RionPortableDataV6 = PortableDataRecord;
 export type RionPortableData = PortableDataRecord;
 
-export interface PortableExportResult {
-  filePath: string;
-  gameCount: number;
-  roleCount: number;
-  workspaceCount: number;
-  macroCount: number;
-  preferencesIncluded: boolean;
-  selection: PortableDataSelection;
-}
+export type PortableExportResult = PortableExportResultRecord;
 
 export type PortableImportWarningCode = PortableImportWarningRecord["code"];
 
@@ -497,14 +461,7 @@ export type ChromeProfileImportInput = ChromeProfileImportRequest;
 
 export type ChromeProfileImportResult = ChromeProfileImportResultRecord;
 
-export interface ChromeProfileImportProgress {
-  completedProfileCount: number;
-  currentProfileId?: string;
-  currentProfileName?: string;
-  importId: string;
-  phase: "preparing" | "importing" | "completed";
-  totalProfileCount: number;
-}
+export type ChromeProfileImportProgress = ChromeProfileImportProgressRecord;
 
 export type AppUpdateState =
   | "unsupported"
@@ -553,21 +510,9 @@ export type LogEntry = RustLogEntry;
 
 export type LogQuery = RustLogQuery;
 
-export interface LogPage {
-  entries: LogEntry[];
-  nextCursor?: string;
-}
+export type LogPage = LogPageRecord;
 
-export interface LogStorageStatus {
-  currentLevel: LogLevel;
-  fileCount: number;
-  totalBytes: number;
-  oldestTimestamp?: string;
-  newestTimestamp?: string;
-  retentionDays: number;
-  maxBytes: number;
-  directory: string;
-}
+export type LogStorageStatus = LogStorageStatusRecord;
 
 export interface RendererLogEvent {
   event: "renderer_error" | "unhandled_rejection";
@@ -575,7 +520,4 @@ export interface RendererLogEvent {
   stack?: string;
 }
 
-export interface DiagnosticExportResult {
-  filePath: string;
-  logFileCount: number;
-}
+export type DiagnosticExportResult = DiagnosticExportResultRecord;

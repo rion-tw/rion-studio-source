@@ -27,7 +27,6 @@ const workspace: LaunchWorkspace = {
   browserLaunchMode: "inherit",
   browserZoomMode: "fixed",
   browserZoomPercent: 90,
-  resourcePolicy: { mode: "unrestricted" },
   slots: [{ id: "slot-1", roleId: role.id, rect: { x: 0, y: 0, width: 1, height: 1 } }],
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z"
@@ -110,6 +109,42 @@ describe("AppQuickMenu", () => {
     await vi.waitFor(() => expect(stopWorkspace).toHaveBeenCalledWith(workspace.id));
     expect(workspaceLauncher.launch).not.toHaveBeenCalled();
   });
+
+  it("keeps refresh single-flight and performs exactly one trailing refresh", async () => {
+    const firstRoles = createDeferred<Role[]>();
+    const listRoles = vi.fn()
+      .mockImplementationOnce(() => firstRoles.promise)
+      .mockResolvedValue([role]);
+    const setMenu = vi.fn();
+    const menu = new AppQuickMenu({
+      browserManager: {
+        launch: vi.fn(),
+        listEmbeddedRuntimeState: vi.fn(() => ({ windows: [], tabs: [] })),
+        listStatuses: vi.fn(() => []),
+        listWorkspaceRuntimeStatuses: vi.fn(() => []),
+        stopAll: vi.fn(),
+        stopWorkspace: vi.fn(),
+        showEmbeddedRuntimeWindows: vi.fn()
+      },
+      canUseApp: vi.fn().mockResolvedValue(true),
+      includeQuit: false,
+      onWorkspaceDisplaySelectionRequired: vi.fn(),
+      openApp: vi.fn(),
+      roleStore: { getRole: vi.fn().mockResolvedValue(role), listRoles },
+      setMenu,
+      workspaceLauncher: { launch: vi.fn() },
+      workspaceStore: { listWorkspaces: vi.fn().mockResolvedValue([workspace]) }
+    });
+
+    menu.scheduleRefresh();
+    await vi.waitFor(() => expect(listRoles).toHaveBeenCalledOnce());
+    for (let index = 0; index < 20; index += 1) menu.scheduleRefresh();
+    expect(listRoles).toHaveBeenCalledOnce();
+
+    firstRoles.resolve([role]);
+    await vi.waitFor(() => expect(listRoles).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(setMenu).toHaveBeenCalledTimes(2));
+  });
 });
 
 function getSubmenu(template: MenuItemConstructorOptions[], label: string): MenuItemConstructorOptions[] {
@@ -128,4 +163,12 @@ function createDisplay(): WorkspaceDisplayLaunchOption {
     isInternal: true,
     occupiedByWorkspace: { id: "workspace-2", name: "Raid" }
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
 }

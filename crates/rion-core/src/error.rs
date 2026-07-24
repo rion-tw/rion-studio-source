@@ -1,10 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
 
 #[derive(Debug, Error)]
 pub enum CoreError {
-    #[error("invalid core input: {0}")]
+    #[error("{0}")]
     InvalidInput(String),
     #[error("{message}")]
     Domain { code: &'static str, message: String },
@@ -22,12 +22,14 @@ pub enum CoreError {
     Platform(String),
     #[error("external Chrome failed: {0}")]
     ExternalChrome(String),
+    #[error("{message}")]
+    Effect { code: String, message: String },
     #[error("internal core failure: {0}")]
     Internal(String),
 }
 
 impl CoreError {
-    pub fn code(&self) -> &'static str {
+    pub fn code(&self) -> &str {
         match self {
             Self::InvalidInput(_) => "CORE_INPUT_INVALID",
             Self::Domain { code, .. } => code,
@@ -38,6 +40,7 @@ impl CoreError {
             Self::WaitCancelled => "CORE_WAIT_CANCELLED",
             Self::Platform(_) => "CORE_PLATFORM_FAILED",
             Self::ExternalChrome(_) => "CORE_EXTERNAL_CHROME_FAILED",
+            Self::Effect { code, .. } => code,
             Self::Internal(_) => "CORE_INTERNAL_FAILED",
         }
     }
@@ -56,7 +59,7 @@ impl From<rusqlite::Error> for CoreError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct CoreErrorPayload {

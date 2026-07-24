@@ -4,8 +4,7 @@ import type {
   WorkspaceBrowserZoomMode,
   WorkspaceBrowserZoomPercent,
   WorkspaceSlotBrowserZoomPercent,
-  WorkspaceLayoutTemplate,
-  WorkspaceResourcePolicy
+  WorkspaceLayoutTemplate
 } from "./types";
 
 export const MAX_WORKSPACE_SLOTS = 9;
@@ -15,9 +14,6 @@ export const DEFAULT_WORKSPACE_BROWSER_ZOOM_MODE: WorkspaceBrowserZoomMode = "ad
 export const DEFAULT_WORKSPACE_BROWSER_ZOOM_PERCENT: WorkspaceBrowserZoomPercent = 100;
 export const MIN_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 50;
 export const MAX_WORKSPACE_SLOT_BROWSER_ZOOM_PERCENT = 300;
-export const DEFAULT_WORKSPACE_RESOURCE_POLICY: WorkspaceResourcePolicy = {
-  mode: "adaptive"
-};
 export const workspaceBrowserZoomPercents: WorkspaceBrowserZoomPercent[] = [
   25,
   33,

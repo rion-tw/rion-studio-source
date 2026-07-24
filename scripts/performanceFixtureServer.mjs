@@ -36,7 +36,9 @@ function fixtureHtml(role, work) {
 const role=${role};const work=${work};const canvas=document.querySelector("#stage");const context=canvas.getContext("2d",{alpha:false});
 let frame=0;let seed=(0x9e3779b9^role)>>>0;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296};
 const points=Array.from({length:240},()=>({x:random()*1280,y:random()*720,vx:(random()-.5)*1.4,vy:(random()-.5)*1.4}));
-function draw(){frame++;let checksum=role;for(let index=0;index<work;index++)checksum=(Math.imul(checksum^index,2654435761)+frame)>>>0;
+const frameIntervals=[];let previousFrameAt;
+globalThis.__rionPerformanceSnapshot=()=>{const sorted=[...frameIntervals].sort((a,b)=>a-b);const percentile=(p)=>sorted[Math.min(sorted.length-1,Math.max(0,Math.ceil(sorted.length*p)-1))]??0;return{frameCount:frame,raf:{maxMs:sorted.at(-1)??0,p50Ms:percentile(.5),p95Ms:percentile(.95),sampleCount:sorted.length}}};
+function draw(frameAt){if(previousFrameAt!==undefined){if(frameIntervals.length>=1024)frameIntervals.shift();frameIntervals.push(Math.max(0,frameAt-previousFrameAt))}previousFrameAt=frameAt;frame++;let checksum=role;for(let index=0;index<work;index++)checksum=(Math.imul(checksum^index,2654435761)+frame)>>>0;
 context.fillStyle="#10131a";context.fillRect(0,0,1280,720);context.fillStyle="hsl("+((checksum%360)+role*17)+" 70% 58%)";
 for(const point of points){point.x=(point.x+point.vx+1280)%1280;point.y=(point.y+point.vy+720)%720;context.fillRect(point.x,point.y,2,2)}
 document.querySelector("output").value="role "+role+" · frame "+frame+" · "+checksum;requestAnimationFrame(draw)}

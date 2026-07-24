@@ -5,7 +5,6 @@ import type {
 } from "../../src/shared/generated";
 
 interface Workspace {
-  policyMode: "unrestricted" | "adaptive";
   targets: Map<string, ResourceRuntimeTargetRecord>;
 }
 
@@ -23,7 +22,7 @@ export function createResourceRuntimeState() {
     }));
     const statuses: ResourceRuntimeResult["statuses"] = [];
     for (const [workspaceId, workspace] of workspaces) {
-      if (workspace.policyMode === "unrestricted" || !hidden.has(workspaceId)) {
+      if (!hidden.has(workspaceId)) {
         effects.push(...[...workspace.targets.keys()].map((roleId) => ({
           roleIds: [roleId], cpuThrottleRate: 1 as const, release: true
         })));
@@ -74,7 +73,6 @@ export function createResourceRuntimeState() {
           const previous = workspaces.get(command.workspaceId);
           if (previous) released.push(...previous.targets.keys());
           workspaces.set(command.workspaceId, {
-            policyMode: command.policyMode,
             targets: new Map(command.targets.map((target) => [target.roleId, { ...target }]))
           });
           break;

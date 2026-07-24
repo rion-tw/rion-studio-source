@@ -76,7 +76,6 @@ describe("renderer workspace layout helpers", () => {
         name: "Party",
         template: "three_columns",
         browserZoomPercent: 125,
-        resourcePolicy: { mode: "unrestricted" },
         targetDisplay: { id: 22 },
         slots: applyWorkspaceTemplate([], "three_columns"),
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -105,7 +104,6 @@ describe("renderer workspace layout helpers", () => {
       name: "Solo",
       template: "single",
       browserZoomPercent: 100,
-      resourcePolicy: { mode: "adaptive" },
       slots,
       createdAt: "2026-07-10T00:00:00.000Z",
       updatedAt: "2026-07-10T00:00:00.000Z"

@@ -1,150 +1,131 @@
 import type { Session } from "electron";
 
-import type { BrowserProxySettings, GameBrowserSettings } from "../../shared/types";
-import rulesDocument from "./cdnCompatibilityRules.json";
-
-const AUTO_DETECTION_TIMEOUT_MS = 1_500;
-const AUTO_DETECTION_CACHE_MS = 10 * 60 * 1_000;
-const GOOGLE_CANARY_URL = "https://www.google.com/recaptcha/api.js?render=explicit";
-
-export interface CdnCompatibilityRule {
-  id: string;
-  regexFilter: string;
-  regexSubstitution: string;
-  sourceHost: string;
-}
-
-interface DetectionCacheEntry {
-  enabled: boolean;
-  expiresAt: number;
-}
-
-export interface CdnCompatibilityManagerOptions {
-  detectionTimeoutMs?: number;
-  getSettings: () => Promise<GameBrowserSettings>;
-  now?: () => number;
-  rewriteUrl: (url: string) => string | undefined;
-}
+import type {
+  CdnResolutionRecord,
+  CdnRule,
+  CoreEffectRequest,
+  CoreJsonValue
+} from "../../shared/generated";
+import type { AppCoreClient } from "../core/nativeCore";
+import {
+  ElectronHandleRegistry,
+  type CdnCoreEffectAction,
+  type ElectronEffectHandle,
+  type ElectronSessionEffectHandle
+} from "../core/ElectronEffectExecutor";
 
 export const CDN_COMPATIBILITY_EXTERNAL_NOTICE =
   "China CDN compatibility mode is active in external Chrome.";
 export const CDN_COMPATIBILITY_UNAVAILABLE_NOTICE =
   "China CDN compatibility mode could not be prepared. The game opened with its original resource URLs.";
 
-const rules = rulesDocument.rules as CdnCompatibilityRule[];
-const requestFilter = {
-  urls: [...new Set(rules.map((rule) => `https://${rule.sourceHost}/*`))]
+export type CdnCoreEffect = CoreEffectRequest & {
+  action: CdnCoreEffectAction;
 };
 
-export class CdnCompatibilityManager {
-  private readonly cache = new Map<string, DetectionCacheEntry>();
-  private readonly inFlightDetections = new Map<string, Promise<boolean>>();
-  private readonly detectionTimeoutMs: number;
-  private readonly now: () => number;
-  private readonly rewriteUrl: (url: string) => string | undefined;
+export interface CdnCompatibilityManagerOptions {
+  core: Pick<AppCoreClient, "invoke">;
+  createDeadlineSignal?: (deadlineMs: number) => AbortSignal;
+  handles: ElectronHandleRegistry;
+  recordPlan?: () => void;
+}
 
-  constructor(private readonly options: CdnCompatibilityManagerOptions) {
-    this.detectionTimeoutMs = options.detectionTimeoutMs ?? AUTO_DETECTION_TIMEOUT_MS;
-    this.now = options.now ?? Date.now;
-    this.rewriteUrl = options.rewriteUrl;
-  }
+/**
+ * Electron session adapter for the Rust-owned CDN policy. Rust owns settings,
+ * cache keys, TTL, in-flight deduplication, probe deadlines, and request rules.
+ */
+export class CdnCompatibilityManager {
+  private nextSessionHandleId = 1;
+
+  constructor(private readonly options: CdnCompatibilityManagerOptions) {}
 
   async applyToSession(session: Session): Promise<boolean> {
     session.webRequest.onBeforeRequest(null);
-    const enabled = await this.resolveEnabled(session);
+    const resolution = await this.resolve(session);
+    if (!resolution.enabled) return false;
+    const matchCdnUrl = createLocalCdnMatcher(resolution.rewriteRules);
+    this.options.recordPlan?.();
 
-    if (!enabled) {
-      return false;
-    }
-
-    session.webRequest.onBeforeRequest(requestFilter, (details, callback) => {
-      const redirectURL =
-        details.resourceType === "mainFrame" ? undefined : this.rewriteUrl(details.url);
-      callback(redirectURL ? { redirectURL } : {});
-    });
+    session.webRequest.onBeforeRequest(
+      { urls: resolution.requestPatterns },
+      (details, callback) => {
+        const redirectURL = details.resourceType === "mainFrame"
+          ? undefined
+          : matchCdnUrl(details.url);
+        callback(redirectURL ? { redirectURL } : {});
+      }
+    );
     return true;
   }
 
-  resolveForSession(session: Session): Promise<boolean> {
-    return this.resolveEnabled(session);
+  async resolveForSession(session: Session): Promise<boolean> {
+    return (await this.resolve(session)).enabled;
   }
 
-  private async resolveEnabled(session: Session): Promise<boolean> {
-    const settings = await this.options.getSettings();
-    const mode = settings.network.cdnCompatibility.mode;
-    if (mode === "off") {
-      return false;
-    }
-    if (mode === "on") {
-      return true;
-    }
-
-    const cacheKey = createDetectionCacheKey(settings.network.proxy);
-    const cached = this.cache.get(cacheKey);
-    const now = this.now();
-    if (cached && cached.expiresAt > now) {
-      return cached.enabled;
-    }
-
-    const inFlight = this.inFlightDetections.get(cacheKey);
-    if (inFlight) {
-      return inFlight;
-    }
-
-    const detection = detectRestrictedGoogleAccess(session, this.detectionTimeoutMs)
-      .then((enabled) => {
-        this.cache.set(cacheKey, {
-          enabled,
-          expiresAt: this.now() + AUTO_DETECTION_CACHE_MS
-        });
-        return enabled;
-      })
-      .finally(() => {
-        if (this.inFlightDetections.get(cacheKey) === detection) {
-          this.inFlightDetections.delete(cacheKey);
-        }
-      });
-    this.inFlightDetections.set(cacheKey, detection);
-    return detection;
-  }
-}
-
-export function getCdnCompatibilityRules(): CdnCompatibilityRule[] {
-  return rules.map((rule) => ({ ...rule }));
-}
-
-export function createCdnCompatibilityRequestPatterns(): Array<{
-  requestStage: "Request";
-  urlPattern: string;
-}> {
-  return requestFilter.urls.map((urlPattern) => ({ requestStage: "Request", urlPattern }));
-}
-
-async function detectRestrictedGoogleAccess(session: Session, timeoutMs: number): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const googleAvailable = await canFetch(session, GOOGLE_CANARY_URL, controller.signal);
-    return !googleAvailable;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function canFetch(session: Session, url: string, signal: AbortSignal): Promise<boolean> {
-  try {
-    const response = await session.fetch(url, {
+  async executeEffect(effect: CdnCoreEffect): Promise<CoreJsonValue> {
+    const session = requireFetchSession(this.options.handles.require(effect.target.handleId));
+    const createDeadlineSignal =
+      this.options.createDeadlineSignal ?? ((deadlineMs) => AbortSignal.timeout(deadlineMs));
+    const response = await session.fetch(effect.action.url, {
       cache: "no-store",
       credentials: "omit",
-      signal
+      signal: createDeadlineSignal(Math.max(1, effect.deadlineMs))
     });
-    return response.ok;
-  } catch {
-    return false;
+    return { available: response.ok };
+  }
+
+  private async resolve(session: Session): Promise<CdnResolutionRecord> {
+    const handleId = `cdn-session-${this.nextSessionHandleId++}`;
+    this.options.handles.register(handleId, session as unknown as ElectronEffectHandle);
+    try {
+      return await this.options.core.invoke({
+        type: "cdnResolveSession",
+        sessionHandleId: handleId
+      });
+    } finally {
+      this.options.handles.unregister(handleId);
+    }
   }
 }
 
-function createDetectionCacheKey(proxy: BrowserProxySettings): string {
-  return `${proxy.mode}:${proxy.server}`;
+interface CompiledCdnRule {
+  matcher: RegExp;
+  sourceHost: string;
+  substitution: string;
+}
+
+function createLocalCdnMatcher(rules: CdnRule[]): (url: string) => string | undefined {
+  const compiledRules: CompiledCdnRule[] = rules.map((rule) => ({
+    matcher: new RegExp(rule.regexFilter),
+    sourceHost: rule.sourceHost.toLowerCase(),
+    substitution: rule.regexSubstitution.replace(
+      /\\([0-9]+)/g,
+      (_match, index: string) => `$${index}`
+    )
+  }));
+  return (url) => {
+    let host: string;
+    try {
+      host = new URL(url).hostname.toLowerCase();
+    } catch {
+      return undefined;
+    }
+    for (const rule of compiledRules) {
+      if (host !== rule.sourceHost || !rule.matcher.test(url)) continue;
+      const rewritten = url.replace(rule.matcher, rule.substitution);
+      if (rewritten !== url) return rewritten;
+    }
+    return undefined;
+  };
+}
+
+function requireFetchSession(
+  handle: ElectronEffectHandle
+): ElectronSessionEffectHandle & Pick<Session, "fetch"> {
+  if (!("fetch" in handle) || typeof handle.fetch !== "function") {
+    throw Object.assign(new Error("The CDN effect target is not an Electron session."), {
+      code: "ELECTRON_EFFECT_TARGET_TYPE"
+    });
+  }
+  return handle as ElectronSessionEffectHandle & Pick<Session, "fetch">;
 }

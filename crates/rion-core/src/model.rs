@@ -10,6 +10,8 @@ pub struct AppCoreOptions {
     pub user_data_dir: String,
     pub platform: String,
     pub app_version: String,
+    #[serde(default)]
+    pub performance_telemetry_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -39,6 +41,9 @@ pub enum CoreCommand {
     GameDelete {
         id: String,
     },
+    GamesDelete {
+        ids: Vec<String>,
+    },
     RolesList,
     RoleGet {
         id: String,
@@ -57,10 +62,20 @@ pub enum CoreCommand {
     RoleDelete {
         id: String,
     },
+    RolesDelete {
+        ids: Vec<String>,
+    },
+    RoleBrowserDataClear {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
     RoleBrowserDirectoryEnsure {
         id: String,
     },
     RoleBrowserDirectoryReset {
+        id: String,
+    },
+    RolePathsResolve {
         id: String,
     },
     RoleSetBrowserSessionSource {
@@ -88,6 +103,9 @@ pub enum CoreCommand {
     },
     WorkspaceDelete {
         id: String,
+    },
+    WorkspacesDelete {
+        ids: Vec<String>,
     },
     WorkspaceClearRole {
         #[ts(rename = "roleId")]
@@ -159,6 +177,11 @@ pub enum CoreCommand {
     CompatibilityReportsCurrent {
         versions: CompatibilityVersionRecord,
     },
+    CompatibilityRun {
+        #[ts(rename = "gameId")]
+        game_id: String,
+        versions: CompatibilityVersionRecord,
+    },
     GameBrowserSettingsGet,
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,
@@ -199,6 +222,13 @@ pub enum CoreCommand {
         preferences: Option<PortablePreferencesRecord>,
         selection: PortableDataSelectionRecord,
     },
+    PortableExportTo {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        preferences: Option<PortablePreferencesRecord>,
+        selection: PortableDataSelectionRecord,
+    },
     PortablePreview {
         #[serde(rename = "rawJson")]
         #[ts(rename = "rawJson")]
@@ -206,6 +236,9 @@ pub enum CoreCommand {
         #[serde(rename = "filePath")]
         #[ts(rename = "filePath")]
         file_path: String,
+    },
+    PortablePreviewFile {
+        path: String,
     },
     PortableApply {
         #[serde(rename = "importId")]
@@ -220,11 +253,30 @@ pub enum CoreCommand {
         #[ts(rename = "importId")]
         import_id: String,
     },
-    CdnReplaceRules {
-        rules: Vec<CdnRule>,
+    CdnResolveSession {
+        #[ts(rename = "sessionHandleId")]
+        session_handle_id: String,
     },
-    CdnRewriteUrl {
-        url: String,
+    GraphicsDiagnosticsAssemble {
+        #[ts(rename = "appliedSettings")]
+        applied_settings: BrowserGraphicsSettingsRecord,
+        #[ts(rename = "embeddedRawJson")]
+        embedded_raw_json: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "embeddedError")]
+        embedded_error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "gpuInfoRawJson")]
+        gpu_info_raw_json: Option<String>,
+        #[ts(rename = "featureStatusRawJson")]
+        feature_status_raw_json: String,
+        #[ts(rename = "gpuInfoReady")]
+        gpu_info_ready: bool,
+        #[serde(default)]
+        #[ts(type = "boolean | null", rename = "hardwareAccelerationEnabled")]
+        hardware_acceleration_enabled: Option<bool>,
+        platform: String,
+        versions: GraphicsVersionRecord,
     },
     ResourceResolve {
         input: ResourcePolicyInput,
@@ -232,8 +284,63 @@ pub enum CoreCommand {
     LayoutResolve {
         input: WorkspaceLayoutInput,
     },
-    LogsAppend {
-        entries: Vec<LogEntry>,
+    LayoutNormalizeRects {
+        rects: Vec<LayoutRect>,
+    },
+    LayoutCreateDividers {
+        roles: Vec<LayoutRoleInput>,
+    },
+    LayoutResizeDivider {
+        input: WorkspaceDividerResizeInput,
+    },
+    LayoutAdaptiveZoom {
+        #[ts(rename = "viewportWidth")]
+        viewport_width: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "currentPercent")]
+        current_percent: Option<u32>,
+    },
+    EmbeddedKeyPrepare {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "\"hold\" | \"release\" | \"tap\"")]
+        phase: String,
+        code: String,
+        #[ts(rename = "modifierCodes")]
+        modifier_codes: Vec<String>,
+        #[ts(rename = "ownerId")]
+        owner_id: String,
+    },
+    EmbeddedKeyComplete {
+        #[ts(rename = "transitionId")]
+        transition_id: String,
+        succeeded: bool,
+    },
+    EmbeddedKeysReassert {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    EmbeddedKeysHeld {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    EmbeddedKeysClear {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    SystemPressureUpdate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "speedLimit")]
+        speed_limit: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "thermalState")]
+        thermal_state: Option<String>,
+    },
+    LogsCapture {
+        entries: Vec<LogCaptureRecord>,
+    },
+    LogsSetLevel {
+        level: LogLevel,
     },
     LogsQuery {
         query: LogQuery,
@@ -242,6 +349,28 @@ pub enum CoreCommand {
     LogsStatus,
     LogsExportTo {
         path: String,
+    },
+    DiagnosticsExport {
+        path: String,
+        snapshot: ElectronDiagnosticsSnapshotRecord,
+    },
+    TelemetryRecord {
+        sample: TelemetrySampleRecord,
+    },
+    TelemetrySnapshot,
+    SystemChromeClose,
+    OverlayRequest {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "requestJson")]
+        request_json: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        language: Option<String>,
+    },
+    OverlayLanguageSet {
+        #[ts(type = "\"en\" | \"zh-TW\" | \"zh-CN\" | \"ja\"")]
+        language: String,
     },
     MacroStart {
         request: MacroInvocationRequest,
@@ -259,8 +388,8 @@ pub enum CoreCommand {
     MacroStopForRole {
         #[ts(rename = "macroId")]
         macro_id: String,
-        #[ts(rename = "roleId")]
-        role_id: String,
+        #[ts(rename = "sourceRoleId")]
+        source_role_id: String,
     },
     MacroStopRole {
         #[ts(rename = "roleId")]
@@ -271,15 +400,23 @@ pub enum CoreCommand {
         role_id: String,
     },
     MacroStatuses,
-    MacroMutationAcquire {
-        #[ts(rename = "macroIds")]
-        macro_ids: Vec<String>,
-        #[ts(rename = "stopActive")]
-        stop_active: bool,
+    ResourceActivateWorkspace {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        targets: Vec<ResourceRuntimeTargetRecord>,
     },
-    MacroMutationRelease {
-        #[ts(rename = "leaseId")]
-        lease_id: String,
+    ResourceDeactivateWorkspace {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+    },
+    ResourceRefreshTarget {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "processId")]
+        process_id: Option<u32>,
     },
     ExternalHealthRegister {
         #[ts(rename = "roleId")]
@@ -324,6 +461,16 @@ pub enum CoreCommand {
         #[ts(rename = "consentAccepted")]
         consent_accepted: bool,
     },
+    ChromeProfileApply {
+        #[ts(rename = "importId")]
+        import_id: String,
+        #[ts(rename = "profileIds")]
+        profile_ids: Vec<String>,
+        #[ts(rename = "gameId")]
+        game_id: String,
+        #[ts(rename = "consentAccepted")]
+        consent_accepted: bool,
+    },
     ChromeProfileCommit {
         #[ts(rename = "importId")]
         import_id: String,
@@ -344,6 +491,144 @@ pub enum CoreCommand {
         #[ts(rename = "browserUserDataDir")]
         browser_user_data_dir: String,
     },
+    OperationCancel {
+        #[ts(rename = "operationId")]
+        operation_id: String,
+    },
+    CoreEffectMetrics,
+    EmbeddedRoleLaunch {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        target: EmbeddedLaunchTargetRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "zoomFactor")]
+        zoom_factor: Option<f64>,
+    },
+    EmbeddedWorkspaceLaunch {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        target: EmbeddedLaunchTargetRecord,
+    },
+    EmbeddedRoleStop {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    EmbeddedWorkspaceStop {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+    },
+    EmbeddedWindowsShow {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "displayId", type = "number")]
+        display_id: Option<i64>,
+    },
+    EmbeddedTabActivate {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+    },
+    EmbeddedTabActivateAdjacent {
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+        #[ts(type = "\"next\" | \"previous\"")]
+        direction: String,
+    },
+    EmbeddedTabHide {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+    },
+    EmbeddedTabReorder {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "beforeTabId")]
+        before_tab_id: Option<String>,
+    },
+    EmbeddedTabMove {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        target: EmbeddedLaunchTargetRecord,
+    },
+    EmbeddedDisplayRemove {
+        #[ts(rename = "displayId")]
+        #[ts(type = "number")]
+        display_id: i64,
+        fallback: EmbeddedLaunchTargetRecord,
+    },
+    BrowserRoleLaunch {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        target: EmbeddedLaunchTargetRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "zoomFactor")]
+        zoom_factor: Option<f64>,
+    },
+    BrowserWorkspaceLaunch {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+        target: EmbeddedLaunchTargetRecord,
+    },
+    BrowserRoleStop {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    BrowserWorkspaceStop {
+        #[ts(rename = "workspaceId")]
+        workspace_id: String,
+    },
+    BrowserExternalRecover {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    BrowserStatuses,
+    BrowserWorkspaceStatuses,
+    BrowserRuntimeSnapshot,
+    BrowserRuntimeSuspend {
+        suspended: bool,
+    },
+    ExternalDiagnosticsCapture {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    ExternalDiagnosticsList,
+}
+
+impl CoreCommand {
+    pub fn requires_async_dispatch(&self) -> bool {
+        matches!(
+            self,
+            Self::GameDelete { .. }
+                | Self::GamesDelete { .. }
+                | Self::RoleUpdate { .. }
+                | Self::RoleDelete { .. }
+                | Self::RolesDelete { .. }
+                | Self::RoleBrowserDataClear { .. }
+                | Self::WorkspaceCreate { .. }
+                | Self::WorkspaceUpdate { .. }
+                | Self::WorkspaceDelete { .. }
+                | Self::WorkspacesDelete { .. }
+                | Self::MacroCreate { .. }
+                | Self::MacroUpdate { .. }
+                | Self::MacroDelete { .. }
+                | Self::MacrosDelete { .. }
+                | Self::ChromeProfileApply { .. }
+                | Self::CompatibilityRun { .. }
+                | Self::CdnResolveSession { .. }
+                | Self::GraphicsDiagnosticsAssemble { .. }
+                | Self::DiagnosticsExport { .. }
+                | Self::SystemChromeClose
+                | Self::OverlayRequest { .. }
+                | Self::BrowserRoleLaunch { .. }
+                | Self::BrowserWorkspaceLaunch { .. }
+                | Self::BrowserRoleStop { .. }
+                | Self::BrowserWorkspaceStop { .. }
+                | Self::BrowserExternalRecover { .. }
+                | Self::ExternalDiagnosticsCapture { .. }
+                | Self::ResourceActivateWorkspace { .. }
+                | Self::ResourceDeactivateWorkspace { .. }
+                | Self::ResourceRefreshTarget { .. }
+        )
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -466,7 +751,6 @@ pub struct PortableLaunchWorkspaceRecord {
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: f64,
-    pub resource_policy: StateWorkspaceResourcePolicyRecord,
     pub slots: Vec<StateWorkspaceSlotRecord>,
 }
 
@@ -610,6 +894,19 @@ pub struct PortableImportResultRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PortableExportResultRecord {
+    pub file_path: String,
+    pub game_count: u32,
+    pub role_count: u32,
+    pub workspace_count: u32,
+    pub macro_count: u32,
+    pub preferences_included: bool,
+    pub selection: PortableDataSelectionRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ChromeProfileEntryRecord {
     pub id: String,
     pub directory_name: String,
@@ -660,6 +957,23 @@ pub struct ChromeProfileImportRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ChromeProfileImportResultRecord {
     pub roles: Vec<StateRoleRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromeProfileImportProgressRecord {
+    pub completed_profile_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub current_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub current_profile_name: Option<String>,
+    pub import_id: String,
+    #[ts(type = "\"preparing\" | \"importing\" | \"completed\"")]
+    pub phase: String,
+    pub total_profile_count: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -828,9 +1142,6 @@ pub struct WorkspaceCreateRequest {
     #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -863,9 +1174,6 @@ pub struct WorkspaceUpdateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional = nullable)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
@@ -1057,9 +1365,6 @@ pub struct WorkspaceCreateInputRecord {
     pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -1085,9 +1390,6 @@ pub struct WorkspaceUpdateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_zoom_percent: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub resource_policy: Option<StateWorkspaceResourcePolicyRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
@@ -1246,6 +1548,26 @@ pub enum StateCollection {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BulkDeleteSkippedItemRecord {
+    pub id: String,
+    #[ts(type = "\"protected\" | \"in_use\" | \"not_found\" | \"busy\" | \"failed\"")]
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub related_names: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BulkDeleteResultRecord {
+    pub deleted_ids: Vec<String>,
+    pub skipped: Vec<BulkDeleteSkippedItemRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateGameRecord {
     pub id: String,
     #[ts(type = "\"builtin\" | \"custom\"")]
@@ -1305,20 +1627,12 @@ pub struct StateLaunchWorkspaceRecord {
     pub browser_zoom_mode: String,
     #[ts(type = "25 | 33 | 50 | 67 | 75 | 80 | 90 | 100 | 110 | 125")]
     pub browser_zoom_percent: f64,
-    pub resource_policy: StateWorkspaceResourcePolicyRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub target_display: Option<StateWorkspaceDisplayTargetRecord>,
     pub slots: Vec<StateWorkspaceSlotRecord>,
     pub created_at: String,
     pub updated_at: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct StateWorkspaceResourcePolicyRecord {
-    #[ts(type = "\"unrestricted\" | \"adaptive\"")]
-    pub mode: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1544,6 +1858,107 @@ pub struct CompatibilityCheckPlanRecord {
     pub started_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ChromiumSwitchRecord {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BootstrapPlanRecord {
+    pub applied_graphics_settings: BrowserGraphicsSettingsRecord,
+    pub switches: Vec<ChromiumSwitchRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CdnResolutionRecord {
+    pub enabled: bool,
+    pub request_patterns: Vec<String>,
+    pub rewrite_rules: Vec<CdnRule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GraphicsVersionRecord {
+    pub chromium: String,
+    pub electron: String,
+    pub node: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GraphicsDeviceDiagnosticsRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub device_id: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub device_string: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub driver_vendor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub driver_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub vendor_id: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub vendor_string: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalGraphicsDiagnosticsRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub probe: Option<StateWebGraphicsRecord>,
+    pub role_id: String,
+    pub role_name: String,
+    #[ts(type = "\"ready\" | \"unavailable\"")]
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GraphicsDiagnosticsRecord {
+    pub applied_settings: BrowserGraphicsSettingsRecord,
+    pub applied_switches: Vec<String>,
+    pub collected_at: String,
+    pub embedded: StateWebGraphicsRecord,
+    pub external_roles: Vec<ExternalGraphicsDiagnosticsRecord>,
+    pub feature_status: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub gpu_device: Option<GraphicsDeviceDiagnosticsRecord>,
+    pub gpu_info_ready: bool,
+    #[ts(type = "boolean | null")]
+    pub hardware_acceleration_enabled: Option<bool>,
+    pub platform: String,
+    pub restart_required: bool,
+    pub saved_settings: BrowserGraphicsSettingsRecord,
+    pub versions: GraphicsVersionRecord,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(
     tag = "kind",
@@ -1615,16 +2030,37 @@ pub enum CoreEvent {
     StateChanged {
         #[ts(type = "number")]
         revision: u64,
+        changed_collections: Vec<StateCollection>,
     },
     LogsChanged,
+    LogEntriesCaptured {
+        entries: Vec<LogEntry>,
+    },
     PressureChanged {
         snapshot: SystemPressureSnapshot,
     },
     BrowserActions {
         actions: Vec<BrowserActionRequest>,
     },
+    CoreEffects {
+        effects: Vec<CoreEffectRequest>,
+    },
+    ChromeProfileImportProgress {
+        progress: ChromeProfileImportProgressRecord,
+    },
+    BrowserStatuses {
+        statuses: Vec<BrowserRoleStatusRecord>,
+    },
     MacroStatuses {
+        reliable: bool,
         statuses: Vec<MacroRunStatus>,
+    },
+    ResourceStatuses {
+        statuses: Vec<ResourceRuntimeStatusRecord>,
+    },
+    OverlayChanged {
+        #[ts(rename = "roleIds")]
+        role_ids: Vec<String>,
     },
     CompatibilityStatuses {
         statuses: Vec<CompatibilityRunStatusRecord>,
@@ -1928,8 +2364,6 @@ pub struct SystemPressureSnapshot {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ResourcePolicyInput {
-    #[ts(type = "\"unrestricted\" | \"adaptive\"")]
-    pub policy_mode: String,
     pub workspace_hidden: bool,
     pub macro_active: bool,
     pub shares_process_with_macro: bool,
@@ -1961,8 +2395,6 @@ pub enum ResourceRuntimeCommand {
     Snapshot,
     ActivateWorkspace {
         workspace_id: String,
-        #[ts(type = "\"unrestricted\" | \"adaptive\"")]
-        policy_mode: String,
         targets: Vec<ResourceRuntimeTargetRecord>,
     },
     DeactivateWorkspace {
@@ -2524,6 +2956,22 @@ pub struct LogErrorDetails {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LogCaptureRecord {
+    pub level: LogLevel,
+    pub source: LogSource,
+    pub event: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, rename = "contextRawJson")]
+    pub context_raw_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<LogErrorDetails>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct LogEntry {
     pub id: String,
     pub timestamp: String,
@@ -2561,6 +3009,173 @@ pub struct LogQuery {
     pub cursor: Option<String>,
     #[ts(optional)]
     pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LogPageRecord {
+    pub entries: Vec<LogEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LogStorageStatusRecord {
+    pub current_level: LogLevel,
+    #[ts(type = "number")]
+    pub file_count: u64,
+    #[ts(type = "number")]
+    pub total_bytes: u64,
+    pub oldest_timestamp: Option<String>,
+    pub newest_timestamp: Option<String>,
+    pub retention_days: u32,
+    #[ts(type = "number")]
+    pub max_bytes: u64,
+    pub directory: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct DiagnosticDisplayRecord {
+    pub bounds: StatePixelBoundsRecord,
+    pub resolution: StateResolutionRecord,
+    pub scale_factor: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ElectronDiagnosticsSnapshotRecord {
+    pub application_name: String,
+    pub application_version: String,
+    pub packaged: bool,
+    pub electron_version: String,
+    pub chromium_version: String,
+    pub node_version: String,
+    pub locale: String,
+    pub system_version: String,
+    pub displays: Vec<DiagnosticDisplayRecord>,
+    pub gpu_feature_status_raw_json: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub gpu_info_raw_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub external_freeze_reported_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct DiagnosticExportResultRecord {
+    pub file_path: String,
+    pub log_file_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum TelemetryMetric {
+    IpcCommand,
+    MacroScheduleToDispatch,
+    TabActivation,
+    WorkspaceLaunch,
+    MainEventLoopDelay,
+    RendererRaf,
+    Cdp,
+    CoreEventBatch,
+    BrowserResult,
+    ProcessLaunch,
+    ScheduledWait,
+    LayoutPass,
+    RuntimePublish,
+    MenuRefresh,
+    CdnPlan,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct TelemetrySampleRecord {
+    pub metric: TelemetryMetric,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub duration_ms: Option<f64>,
+    #[serde(default = "default_telemetry_count")]
+    pub count: u32,
+}
+
+fn default_telemetry_count() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct LatencySummaryRecord {
+    pub max_ms: f64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub sample_count: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CountedLatencySummaryRecord {
+    #[ts(type = "number")]
+    pub message_count: u64,
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub latency: LatencySummaryRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct NapiLatencySummaryRecord {
+    #[ts(type = "number")]
+    pub call_count: u64,
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub latency: LatencySummaryRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct PerformanceTelemetryRecord {
+    #[ts(type = "number")]
+    pub browser_result_count: u64,
+    #[ts(type = "number")]
+    pub cdn_plan_count: u64,
+    pub cdp: CountedLatencySummaryRecord,
+    #[ts(type = "number")]
+    pub core_event_batch_count: u64,
+    pub ipc_command: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub layout_pass_count: u64,
+    pub macro_schedule_to_dispatch: LatencySummaryRecord,
+    pub main_event_loop_delay: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub menu_refresh_count: u64,
+    pub napi: NapiLatencySummaryRecord,
+    pub core_effects: CoreEffectMetricsRecord,
+    #[ts(type = "number")]
+    pub process_launch_count: u64,
+    pub renderer_raf: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub scheduled_wait_count: u64,
+    pub started_at: String,
+    pub tab_activation: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub runtime_publish_count: u64,
+    pub workspace_launch: LatencySummaryRecord,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2666,6 +3281,372 @@ pub struct BrowserActionResult {
     pub value_json: Option<String>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectTarget {
+    #[ts(type = "\"app\" | \"window\" | \"view\" | \"webContents\" | \"session\"")]
+    pub kind: String,
+    pub handle_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum CoreEffectAction {
+    CreateWindow {
+        options_json: String,
+    },
+    CreateView {
+        options_json: String,
+    },
+    AttachView {
+        child_handle_id: String,
+    },
+    DetachView {
+        child_handle_id: String,
+    },
+    Destroy,
+    LoadUrl {
+        url: String,
+    },
+    SetBounds {
+        bounds: StatePixelBoundsRecord,
+    },
+    SetVisible {
+        visible: bool,
+    },
+    Focus,
+    Evaluate {
+        source: String,
+    },
+    DebuggerCommand {
+        method: String,
+        params_json: String,
+    },
+    SessionClearStorage {
+        storages: Vec<String>,
+    },
+    CookieSet {
+        cookie_json: String,
+    },
+    ChromeProfileApplySession {
+        role_id: String,
+        browser_user_data_dir: String,
+        cookies_json: String,
+    },
+    ChromeProfileClearSession {
+        role_id: String,
+        browser_user_data_dir: String,
+    },
+    RoleBrowserDataClearSession {
+        role_id: String,
+        browser_user_data_dir: String,
+        #[ts(type = "\"embedded\" | \"chrome-profile\"")]
+        session_source: String,
+    },
+    CompatibilityCreateWindow {
+        plan: CompatibilityCheckPlanRecord,
+    },
+    CompatibilityConfigureSession {
+        game_id: String,
+    },
+    CompatibilityLoadUrl {
+        game_id: String,
+        url: String,
+    },
+    CompatibilityProbeGraphics {
+        game_id: String,
+        source: String,
+    },
+    CompatibilityCleanupWindow {
+        game_id: String,
+    },
+    CdnProbeGoogle {
+        url: String,
+    },
+    SetAudioMuted {
+        muted: bool,
+    },
+    EmbeddedCreateTab {
+        tab: Box<EmbeddedTabEffectRecord>,
+    },
+    EmbeddedConfigureRoleSessions {
+        role_ids: Vec<String>,
+    },
+    EmbeddedLoadRoles {
+        roles: Vec<EmbeddedRoleLoadEffectRecord>,
+    },
+    EmbeddedInstallOverlays {
+        role_ids: Vec<String>,
+    },
+    EmbeddedActivateResources {
+        tab_id: String,
+        role_ids: Vec<String>,
+    },
+    EmbeddedApplyResourceEffects {
+        effects: Vec<ResourceRuntimeEffectRecord>,
+    },
+    EmbeddedFocusRole {
+        role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        zoom_factor: Option<f64>,
+    },
+    EmbeddedDestroyRole {
+        role_id: String,
+    },
+    EmbeddedDestroyTab {
+        tab_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next_active_tab_id: Option<String>,
+    },
+    EmbeddedApplyRuntime {
+        snapshot: BrowserRuntimeSnapshot,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        target: Option<EmbeddedLaunchTargetRecord>,
+        #[serde(default)]
+        #[ts(rename = "revealDisplayIds", type = "Array<number>")]
+        reveal_display_ids: Vec<i64>,
+        #[serde(default)]
+        #[ts(rename = "focusWindowDisplayIds", type = "Array<number>")]
+        focus_window_display_ids: Vec<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "focusTabId")]
+        focus_tab_id: Option<String>,
+    },
+    ExternalPrepareSession {
+        role_id: String,
+        #[ts(type = "\"auto\" | \"off\" | \"on\"")]
+        cdn_mode: String,
+    },
+    ExternalResolvePhysicalBounds {
+        bounds: StatePixelBoundsRecord,
+    },
+    ExternalOverlaySource {
+        role_id: String,
+    },
+    OverlayOpenMacroPage {
+        role_id: String,
+    },
+    OverlayCopyCoordinate {
+        coordinate: MacroCoordinateRecord,
+    },
+    BrowserAction {
+        request: Box<BrowserActionRequest>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectRequest {
+    pub effect_id: String,
+    pub operation_id: String,
+    pub target: CoreEffectTarget,
+    #[ts(type = "number")]
+    pub deadline_ms: u64,
+    pub action: CoreEffectAction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectResult {
+    pub effect_id: String,
+    pub operation_id: String,
+    pub ok: bool,
+    pub value_json: Option<String>,
+    pub error: Option<crate::error::CoreErrorPayload>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectDispatchReport {
+    pub accepted: Vec<String>,
+    pub duplicate: Vec<String>,
+    pub late: Vec<String>,
+    pub unknown: Vec<String>,
+    pub operation_mismatch: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreEffectMetricsRecord {
+    pub pending_effect_count: u32,
+    pub peak_pending_effect_count: u32,
+    pub active_operation_count: u32,
+    pub pending_effect_capacity: u32,
+    pub operation_capacity: u32,
+    #[ts(type = "number")]
+    pub emitted_effect_count: u64,
+    #[ts(type = "number")]
+    pub acknowledged_effect_count: u64,
+    pub effect_ack_latency: LatencySummaryRecord,
+    #[ts(type = "number")]
+    pub launch_operation_count: u64,
+    #[ts(type = "number")]
+    pub launch_effect_count: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct OperationCancelResultRecord {
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedLaunchTargetRecord {
+    #[ts(type = "number")]
+    pub display_id: i64,
+    pub work_area: StatePixelBoundsRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedRoleViewEffectRecord {
+    pub role: StateRoleRecord,
+    pub rect: StateNormalizedRectRecord,
+    pub zoom_factor: f64,
+    #[ts(type = "\"adaptive\" | \"fixed\"")]
+    pub zoom_mode: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedRoleLoadEffectRecord {
+    pub role_id: String,
+    pub url: String,
+    pub zoom_factor: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedTabEffectRecord {
+    pub tab_id: String,
+    pub source_id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_template: Option<String>,
+    pub workspace_appearance: WorkspaceAppearanceSettingsRecord,
+    pub target: EmbeddedLaunchTargetRecord,
+    pub roles: Vec<EmbeddedRoleViewEffectRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedLaunchResultRecord {
+    pub role_id: String,
+    #[ts(type = "\"running\"")]
+    pub state: String,
+    pub launched_at: String,
+    #[ts(type = "\"embedded\"")]
+    pub runtime_mode: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRoleStatusRecord {
+    pub role_id: String,
+    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launched_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notice: Option<String>,
+    #[ts(type = "\"embedded\" | \"external\"")]
+    pub runtime_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"ready\" | \"unavailable\"")]
+    pub automation_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
+    pub page_health: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"throttled\" | \"macro_override\" | \"shared_process\" | \"unavailable\""
+    )]
+    pub resource_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "1 | 2 | 4")]
+    pub cpu_throttle_rate: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"normal\" | \"constrained\"")]
+    pub resource_pressure_level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"runtime_tab_background\" | \"cpu\" | \"memory\" | \"thermal\" | \"macro\" | \"shared_process\" | \"unavailable\""
+    )]
+    pub resource_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserWorkspaceStatusRecord {
+    pub workspace_id: String,
+    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalPrepareSessionResultRecord {
+    pub cdn_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub proxy_server: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct ExternalChromeDiagnosticsRecord {
+    pub automation_state: String,
+    pub bounds: StatePixelBoundsRecord,
+    pub captured_at: String,
+    pub external_role_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"healthy\" | \"unresponsive\"")]
+    pub page_health: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub physical_bounds: Option<StatePixelBoundsRecord>,
+    pub role_id: String,
+    #[ts(type = "\"external\"")]
+    pub runtime_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_id: Option<String>,
+    pub zoom_factor: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub chrome_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2924,7 +3905,7 @@ pub struct MacroStartRequest {
     pub macros: Vec<MacroDefinition>,
     pub settings: MacroRuntimeSettings,
     pub macro_id: String,
-    pub role_id: Option<String>,
+    pub source_role_id: Option<String>,
     pub active_role_ids: Vec<String>,
 }
 
@@ -2933,8 +3914,7 @@ pub struct MacroStartRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroInvocationRequest {
     pub macro_id: String,
-    pub role_id: Option<String>,
-    pub active_role_ids: Vec<String>,
+    pub source_role_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2942,8 +3922,7 @@ pub struct MacroInvocationRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroPressInvocationRequest {
     pub macro_id: String,
-    pub role_id: String,
-    pub active_role_ids: Vec<String>,
+    pub source_role_id: String,
     pub press_id: String,
 }
 
@@ -2960,7 +3939,7 @@ pub struct MacroPressRequest {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroReleaseRequest {
     pub macro_id: String,
-    pub role_id: String,
+    pub source_role_id: String,
     pub press_id: String,
     pub mode: String,
 }
@@ -2987,11 +3966,107 @@ pub struct MacroLastClick {
     pub step_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum MacroOverlayRequestRecord {
+    GameInputContext {
+        active: bool,
+    },
+    List,
+    Open,
+    CopyCoordinate {
+        #[serde(flatten)]
+        coordinate: MacroCoordinateRecord,
+    },
+    Start {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+    },
+    Toggle {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+    },
+    Stop {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+    },
+    Press {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+        #[ts(rename = "pressId")]
+        press_id: String,
+    },
+    Release {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+        #[ts(rename = "pressId")]
+        press_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(
+            optional,
+            rename = "releaseMode",
+            type = "\"complete_first_iteration\" | \"immediate\""
+        )]
+        release_mode: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroCoordinateRecord {
+    pub x_percent: f64,
+    pub x_px: u32,
+    pub viewport_height_px: u32,
+    pub viewport_width_px: u32,
+    pub y_percent: f64,
+    pub y_px: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroOverlayStartSummaryRecord {
+    pub skipped_count: u32,
+    pub started_count: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroOverlayViewModelRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "1 | 2 | 4")]
+    pub cpu_throttle_rate: Option<u8>,
+    #[serde(default)]
+    pub detached: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"en\" | \"zh-TW\" | \"zh-CN\" | \"ja\"")]
+    pub language: Option<String>,
+    pub macro_badge_position: MacroBadgePositionRecord,
+    pub macros: Vec<MacroDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(
+        optional,
+        type = "\"throttled\" | \"macro_override\" | \"shared_process\" | \"unavailable\""
+    )]
+    pub resource_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub start_summary: Option<MacroOverlayStartSummaryRecord>,
+    pub statuses: Vec<MacroRunStatus>,
+}
+
 #[cfg(test)]
 mod command_tests {
     use serde_json::json;
 
-    use super::{CoreCommand, CoreEvent};
+    use super::{CoreCommand, CoreEvent, StateCollection};
 
     #[test]
     fn enum_fields_use_the_generated_camel_case_contract() {
@@ -3009,5 +4084,43 @@ mod command_tests {
         .unwrap();
         assert_eq!(event["roleId"], "role-1");
         assert!(event.get("role_id").is_none());
+
+        let state_changed = serde_json::to_value(CoreEvent::StateChanged {
+            revision: 4,
+            changed_collections: vec![StateCollection::Roles, StateCollection::LaunchWorkspaces],
+        })
+        .unwrap();
+        assert_eq!(
+            state_changed["changedCollections"],
+            json!(["roles", "launchWorkspaces"])
+        );
+    }
+
+    #[test]
+    fn resource_effect_commands_use_the_async_dispatcher() {
+        for command in [
+            json!({
+                "type": "resourceActivateWorkspace",
+                "workspaceId": "workspace-1",
+                "targets": []
+            }),
+            json!({
+                "type": "resourceDeactivateWorkspace",
+                "workspaceId": "workspace-1"
+            }),
+            json!({
+                "type": "resourceRefreshTarget",
+                "workspaceId": "workspace-1",
+                "roleId": "role-1",
+                "processId": 42
+            }),
+        ] {
+            assert!(
+                serde_json::from_value::<CoreCommand>(command)
+                    .unwrap()
+                    .requires_async_dispatch()
+            );
+        }
+        assert!(!CoreCommand::BrowserStatuses.requires_async_dispatch());
     }
 }

@@ -67,11 +67,13 @@ impl ExternalProcessRuntime {
             .name(format!("rion-external-exit-{pid}"))
             .spawn(move || {
                 let Ok(event) = events.recv() else { return };
-                let is_current = entries
-                    .lock()
-                    .ok()
-                    .and_then(|entries| entries.get(&role_id).map(|entry| entry.generation))
-                    == Some(generation);
+                let is_current = entries.lock().ok().is_some_and(|mut entries| {
+                    if entries.get(&role_id).map(|entry| entry.generation) != Some(generation) {
+                        return false;
+                    }
+                    entries.remove(&role_id);
+                    true
+                });
                 if is_current {
                     on_exit(role_id, event);
                 }
@@ -150,6 +152,28 @@ mod tests {
         assert_eq!(role_id, "role-1");
         assert_eq!(event.exit_code, Some(expected_exit_code));
         assert!(!event.terminated);
+        assert!(!runtime.terminate("role-1").unwrap());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn terminates_role_and_workspace_processes() {
+        let runtime = ExternalProcessRuntime::new(Arc::new(|_, _| {}));
+        let (executable, arguments) = long_running_fixture();
+        let first = runtime
+            .launch("role-1".to_owned(), &executable, &arguments)
+            .unwrap();
+        let second = runtime
+            .launch("role-2".to_owned(), &executable, &arguments)
+            .unwrap();
+        crate::v1_case!("external-chrome-cdn-7851897949eb", {
+            assert!(first > 0);
+            assert!(second > 0);
+            assert!(runtime.terminate("role-1").unwrap());
+            assert!(!runtime.terminate("role-1").unwrap());
+            runtime.shutdown();
+            assert!(runtime.entries.lock().unwrap().is_empty());
+        });
     }
 
     #[cfg(unix)]
@@ -161,6 +185,14 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
+    fn long_running_fixture() -> (PathBuf, Vec<String>) {
+        (
+            PathBuf::from("/bin/sh"),
+            vec!["-c".to_owned(), "sleep 30".to_owned()],
+        )
+    }
+
     #[cfg(windows)]
     fn exit_fixture() -> (PathBuf, Vec<String>, i32) {
         let executable = PathBuf::from(std::env::var_os("WINDIR").expect("WINDIR is required"))
@@ -168,5 +200,16 @@ mod tests {
             .join("cmd.exe");
         assert!(executable.is_file());
         (executable, vec!["/C".to_owned(), "exit 7".to_owned()], 7)
+    }
+
+    #[cfg(windows)]
+    fn long_running_fixture() -> (PathBuf, Vec<String>) {
+        let executable = PathBuf::from(std::env::var_os("WINDIR").expect("WINDIR is required"))
+            .join("System32")
+            .join("cmd.exe");
+        (
+            executable,
+            vec!["/C".to_owned(), "ping -n 31 127.0.0.1 >NUL".to_owned()],
+        )
     }
 }

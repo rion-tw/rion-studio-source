@@ -10,13 +10,18 @@ type MessageListener = (method: string, params: unknown, sessionId: string) => v
 const sessions = new WeakMap<object, ElectronDebuggerSession>();
 
 export function getElectronDebuggerSession(
-  webContents: Pick<WebContents, "debugger">
+  webContents: Pick<WebContents, "debugger"> &
+    Partial<Pick<WebContents, "isDestroyed" | "once">>
 ): ElectronDebuggerSession {
   const existing = sessions.get(webContents);
   if (existing) return existing;
 
   const session = new ElectronDebuggerSession(webContents.debugger);
   sessions.set(webContents, session);
+  webContents.once?.("destroyed", () => {
+    session.dispose();
+    sessions.delete(webContents);
+  });
   return session;
 }
 
@@ -24,6 +29,7 @@ export class ElectronDebuggerSession {
   private readonly detachListeners = new Set<DetachListener>();
   private readonly messageListeners = new Set<MessageListener>();
   private activeLeaseCount = 0;
+  private disposed = false;
   private ownsAttachment = false;
 
   constructor(private readonly debuggerApi: Pick<Debugger, "attach" | "detach" | "isAttached" | "sendCommand" | "on" | "removeListener">) {
@@ -36,6 +42,9 @@ export class ElectronDebuggerSession {
   }
 
   async acquire(): Promise<ElectronDebuggerLease> {
+    if (this.disposed) {
+      throw new Error("Electron debugger session disposed.");
+    }
     if (!this.debuggerApi.isAttached()) {
       try {
         this.debuggerApi.attach("1.3");
@@ -71,9 +80,30 @@ export class ElectronDebuggerSession {
   }
 
   sendCommand<T = unknown>(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<T> {
+    if (this.disposed) {
+      return Promise.reject(new Error("Electron debugger session disposed."));
+    }
     return (sessionId === undefined
       ? this.debuggerApi.sendCommand(method, params)
       : this.debuggerApi.sendCommand(method, params, sessionId)) as Promise<T>;
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.detachListeners.clear();
+    this.messageListeners.clear();
+    this.debuggerApi.removeListener("detach", this.handleDetach);
+    this.debuggerApi.removeListener("message", this.handleMessage);
+    if (this.ownsAttachment && this.debuggerApi.isAttached()) {
+      try {
+        this.debuggerApi.detach();
+      } catch {
+        // The WebContents destruction path may detach the debugger first.
+      }
+    }
+    this.activeLeaseCount = 0;
+    this.ownsAttachment = false;
   }
 
   private readonly handleDetach = (_event: unknown, reason: string): void => {

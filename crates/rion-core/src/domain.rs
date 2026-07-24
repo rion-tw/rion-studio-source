@@ -33,7 +33,7 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             mode: "default".to_owned(),
             families: HashMap::new(),
         },
-        graphics: BrowserGraphicsSettingsRecord::aggressive_default(),
+        graphics: BrowserGraphicsSettingsRecord::recommended_default(),
         launch_mode: "auto".to_owned(),
         macro_badge_position: MacroBadgePositionRecord {
             horizontal_align: "center".to_owned(),

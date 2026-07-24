@@ -19,14 +19,7 @@ afterEach(cleanup);
 function createDiagnostics(): GraphicsDiagnostics {
   return {
     appliedSettings: DEFAULT_GAME_BROWSER_SETTINGS.graphics,
-    appliedSwitches: [
-      "--force-high-performance-gpu",
-      "--enable-gpu-rasterization",
-      "--ignore-gpu-blocklist",
-      "--enable-unsafe-webgpu",
-      "--disable-frame-rate-limit",
-      "--disable-gpu-vsync"
-    ],
+    appliedSwitches: ["--force-high-performance-gpu"],
     collectedAt: "2026-07-23T00:00:00.000Z",
     embedded: { webgl: "available", webgl2: "available", webgpu: "available" },
     externalRoles: [],
@@ -81,7 +74,7 @@ function renderGameSettings(
 }
 
 describe("flattened graphics settings", () => {
-  it("shows independent aggressive defaults and keeps background throttling fixed", async () => {
+  it("shows balanced game defaults and keeps background throttling fixed", async () => {
     renderGameSettings(async (settings) => settings);
 
     expect(
@@ -89,11 +82,25 @@ describe("flattened graphics settings", () => {
     ).toBe("checked");
     expect(
       screen.getByRole("switch", { name: "Force GPU rasterization" }).getAttribute("data-state")
-    ).toBe("checked");
+    ).toBe("unchecked");
     expect(
       screen.getByRole("switch", { name: "Frame-rate limiter" }).getAttribute("data-state")
-    ).toBe("unchecked");
-    expect((screen.getByRole("switch", { name: "VSync" }) as HTMLButtonElement).disabled).toBe(true);
+    ).toBe("checked");
+    expect(screen.getByRole("switch", { name: "VSync" }).getAttribute("data-state")).toBe("checked");
+    await waitFor(() =>
+      expect((screen.getByRole("switch", { name: "VSync" }) as HTMLButtonElement).disabled).toBe(
+        false
+      )
+    );
+    expect(
+      screen.getByRole("switch", { name: "GPU safety blocklist" }).getAttribute("data-state")
+    ).toBe("checked");
+    expect(screen.getByRole("switch", { name: "Unsafe WebGPU" }).getAttribute("data-state")).toBe(
+      "unchecked"
+    );
+    expect(
+      screen.getByRole("switch", { name: "GPU driver bug workarounds" }).getAttribute("data-state")
+    ).toBe("checked");
     expect(
       screen.getByText("Fixed on: occluded windows and hidden tabs continue using Chromium/Electron resource throttling.")
     ).toBeTruthy();
@@ -112,9 +119,9 @@ describe("flattened graphics settings", () => {
     await waitFor(() => expect(onGameBrowserSettingsChange).toHaveBeenCalledOnce());
     expect(onGameBrowserSettingsChange.mock.calls[0][0].graphics).toMatchObject({
       preferHighPerformanceGpu: false,
-      forceGpuRasterization: true,
-      frameRateLimitEnabled: false,
-      vsyncEnabled: false
+      forceGpuRasterization: false,
+      frameRateLimitEnabled: true,
+      vsyncEnabled: true
     });
     expect(screen.queryByText("Restart required")).toBeNull();
   });

@@ -22,6 +22,10 @@ portable format, updater format, IPC channels, and `window.rionStudio` API.
 
 - Existing browser directories and Electron session partitions are unchanged;
   the upgrade does not proactively clear cookies or login data.
+- Fresh installations start with the balanced game graphics profile: prefer the
+  high-performance GPU while retaining Chromium's frame limiter, VSync, GPU
+  blocklist, driver workarounds, automatic backend selection, and standard
+  WebGPU safety. Existing saved graphics settings are not migrated or reset.
 - SQLite remains the only production metadata write source. Existing migration
   backups remain read-only and are not deleted automatically.
 - Portable JSON remains the supported cross-version data transfer format and

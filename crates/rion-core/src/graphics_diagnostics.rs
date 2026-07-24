@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn assembles_cross_platform_switches_and_restart_comparison_in_rust() {
-        let mut applied = BrowserGraphicsSettingsRecord::aggressive_default();
+        let mut applied = BrowserGraphicsSettingsRecord::recommended_default();
         applied.backend.windows = "vulkan".to_owned();
         let diagnostics = assemble(GraphicsDiagnosticsInput {
             applied_settings: applied.clone(),

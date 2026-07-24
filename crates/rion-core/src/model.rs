@@ -2648,16 +2648,16 @@ pub struct BrowserGraphicsSettingsRecord {
 }
 
 impl BrowserGraphicsSettingsRecord {
-    pub fn aggressive_default() -> Self {
+    pub fn recommended_default() -> Self {
         Self {
             backend: BrowserGraphicsBackendSettingsRecord::default(),
             driver_bug_workarounds_enabled: true,
-            force_gpu_rasterization: true,
-            frame_rate_limit_enabled: false,
-            gpu_blocklist_enabled: false,
+            force_gpu_rasterization: false,
+            frame_rate_limit_enabled: true,
+            gpu_blocklist_enabled: true,
             prefer_high_performance_gpu: true,
-            unsafe_web_gpu_enabled: true,
-            vsync_enabled: false,
+            unsafe_web_gpu_enabled: false,
+            vsync_enabled: true,
         }
     }
 
@@ -2712,11 +2712,11 @@ impl<'de> Deserialize<'de> for BrowserGraphicsSettingsRecord {
             || input.unsafe_web_gpu_enabled.is_some()
             || input.vsync_enabled.is_some();
         let mut settings = if has_new_fields {
-            Self::aggressive_default()
+            Self::recommended_default()
         } else if let Some(mode) = input.mode.as_deref() {
             Self::from_legacy_mode(mode)
         } else {
-            Self::aggressive_default()
+            Self::recommended_default()
         };
 
         if let Some(value) = input.backend {

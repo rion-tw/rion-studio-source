@@ -3,7 +3,7 @@ name: Private Release Candidate
 on:
   workflow_run:
     workflows:
-      - Ubuntu CI
+      - CI
     types:
       - completed
     branches:
@@ -31,7 +31,7 @@ jobs:
     outputs:
       source_ref: ${{ steps.validate.outputs.source_ref }}
     steps:
-      - name: Validate successful Ubuntu CI run
+      - name: Validate successful CI run
         id: validate
         shell: bash
         env:

@@ -547,6 +547,7 @@
   "settings.graphicsForceGpuRasterizationDescription": "Requests GPU-backed page and Canvas rasterization. Flag: --enable-gpu-rasterization.",
   "settings.graphicsFrameRateLimit": "Frame-rate limiter",
   "settings.graphicsFrameRateLimitDescription": "When disabled, Chromium receives --disable-frame-rate-limit and may render above the display refresh rate.",
+  "settings.graphicsFrameRateLimitDescription.macos": "Always enabled on macOS because Chromium's unlimited-frame-rate flag can crash the GPU process.",
   "settings.graphicsVsync": "VSync",
   "settings.graphicsVsyncDescription": "When disabled, Chromium receives --disable-gpu-vsync; tearing and GPU use can increase.",
   "settings.graphicsVsyncRequiresFrameLimit": "VSync remains disabled while the frame-rate limiter is disabled.",

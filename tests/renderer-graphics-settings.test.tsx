@@ -16,7 +16,7 @@ const t: Translator = (key) => en[key] ?? key;
 
 afterEach(cleanup);
 
-function createDiagnostics(): GraphicsDiagnostics {
+function createDiagnostics(platform: GraphicsDiagnostics["platform"] = "win32"): GraphicsDiagnostics {
   return {
     appliedSettings: DEFAULT_GAME_BROWSER_SETTINGS.graphics,
     appliedSwitches: ["--force-high-performance-gpu"],
@@ -26,7 +26,7 @@ function createDiagnostics(): GraphicsDiagnostics {
     featureStatus: {},
     gpuInfoReady: true,
     hardwareAccelerationEnabled: true,
-    platform: "win32",
+    platform,
     restartRequired: false,
     savedSettings: DEFAULT_GAME_BROWSER_SETTINGS.graphics,
     versions: { chromium: "1", electron: "1", node: "1" }
@@ -34,13 +34,15 @@ function createDiagnostics(): GraphicsDiagnostics {
 }
 
 function renderGameSettings(
-  onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>
+  onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>,
+  platform: GraphicsDiagnostics["platform"] = "win32",
+  gameBrowserSettings: GameBrowserSettings = DEFAULT_GAME_BROWSER_SETTINGS
 ): void {
   render(
     <MemoryRouter initialEntries={["/settings?section=game"]}>
       <ConfirmationProvider>
         <SettingsView
-          gameBrowserSettings={DEFAULT_GAME_BROWSER_SETTINGS}
+          gameBrowserSettings={gameBrowserSettings}
           hasRunningRoles={false}
           language="en"
           macroSettings={DEFAULT_MACRO_SETTINGS}
@@ -52,7 +54,7 @@ function renderGameSettings(
           onGameBrowserSettingsChange={onGameBrowserSettingsChange}
           onInstallDownloadedUpdate={async () => undefined}
           onLanguageChange={() => undefined}
-          onLoadGraphicsDiagnostics={async () => createDiagnostics()}
+          onLoadGraphicsDiagnostics={async () => createDiagnostics(platform)}
           onLoadSystemFonts={async () => []}
           onMacroSettingsChange={async (settings) => settings}
           onOpenUpdateDownload={async () => undefined}
@@ -124,5 +126,42 @@ describe("flattened graphics settings", () => {
       vsyncEnabled: true
     });
     expect(screen.queryByText("Restart required")).toBeNull();
+  });
+
+  it("keeps the frame-rate limiter on while allowing VSync changes on macOS", async () => {
+    const onGameBrowserSettingsChange = vi.fn(async (settings: GameBrowserSettings) => settings);
+    renderGameSettings(onGameBrowserSettingsChange, "darwin", {
+      ...DEFAULT_GAME_BROWSER_SETTINGS,
+      graphics: {
+        ...DEFAULT_GAME_BROWSER_SETTINGS.graphics,
+        frameRateLimitEnabled: false,
+        vsyncEnabled: false
+      }
+    });
+
+    const frameRateLimit = screen.getByRole("switch", {
+      name: "Frame-rate limiter"
+    }) as HTMLButtonElement;
+    const vsync = screen.getByRole("switch", { name: "VSync" }) as HTMLButtonElement;
+
+    await waitFor(() => {
+      expect(frameRateLimit.disabled).toBe(true);
+      expect(frameRateLimit.getAttribute("data-state")).toBe("checked");
+      expect(vsync.disabled).toBe(false);
+      expect(vsync.getAttribute("data-state")).toBe("unchecked");
+    });
+    expect(
+      screen.getByText(
+        "Always enabled on macOS because Chromium's unlimited-frame-rate flag can crash the GPU process."
+      )
+    ).toBeTruthy();
+
+    fireEvent.click(vsync);
+
+    await waitFor(() => expect(onGameBrowserSettingsChange).toHaveBeenCalledOnce());
+    expect(onGameBrowserSettingsChange.mock.calls[0][0].graphics).toMatchObject({
+      frameRateLimitEnabled: true,
+      vsyncEnabled: true
+    });
   });
 });

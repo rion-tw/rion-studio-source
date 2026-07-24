@@ -206,6 +206,8 @@ function SettingsViewBase({
     isManualUpdate &&
     updateStatus?.state === "available" &&
     Boolean(updateStatus.downloadUrl ?? updateStatus.releasePageUrl);
+  const graphicsPlatform = resolveGraphicsPlatform(graphicsDiagnostics?.platform);
+  const isMacosGraphics = graphicsPlatform === "darwin";
   const pageTitle = t(settingsSectionTitleKeys[activeSection]);
   const pageDescription = t(settingsSectionDescriptionKeys[activeSection]);
   const portableExportAvailability = createPortableExportAvailability(portableDataCounts);
@@ -594,9 +596,16 @@ function SettingsViewBase({
                 }
               />
               <GraphicsCheckboxRow
-                checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.frameRateLimitEnabled}
-                description={t("settings.graphicsFrameRateLimitDescription")}
-                disabled={isGraphicsBusy}
+                checked={
+                  isMacosGraphics ||
+                  normalizeGameBrowserSettings(gameBrowserSettings).graphics.frameRateLimitEnabled
+                }
+                description={t(
+                  isMacosGraphics
+                    ? "settings.graphicsFrameRateLimitDescription.macos"
+                    : "settings.graphicsFrameRateLimitDescription"
+                )}
+                disabled={isGraphicsBusy || isMacosGraphics}
                 riskLabel={t("settings.graphicsRiskBadge")}
                 title={t("settings.graphicsFrameRateLimit")}
                 onCheckedChange={(checked) =>
@@ -610,18 +619,26 @@ function SettingsViewBase({
               <GraphicsCheckboxRow
                 checked={normalizeGameBrowserSettings(gameBrowserSettings).graphics.vsyncEnabled}
                 description={
+                  isMacosGraphics ||
                   normalizeGameBrowserSettings(gameBrowserSettings).graphics.frameRateLimitEnabled
                     ? t("settings.graphicsVsyncDescription")
                     : t("settings.graphicsVsyncRequiresFrameLimit")
                 }
                 disabled={
                   isGraphicsBusy ||
-                  !normalizeGameBrowserSettings(gameBrowserSettings).graphics.frameRateLimitEnabled
+                  (!isMacosGraphics &&
+                    !normalizeGameBrowserSettings(gameBrowserSettings).graphics.frameRateLimitEnabled)
                 }
                 riskLabel={t("settings.graphicsRiskBadge")}
                 title={t("settings.graphicsVsync")}
                 onCheckedChange={(checked) =>
-                  void handleGraphicsSettingsChange((graphics) => ({ ...graphics, vsyncEnabled: checked }))
+                  void handleGraphicsSettingsChange((graphics) => ({
+                    ...graphics,
+                    frameRateLimitEnabled: isMacosGraphics
+                      ? true
+                      : graphics.frameRateLimitEnabled,
+                    vsyncEnabled: checked
+                  }))
                 }
               />
             </SettingsSection>

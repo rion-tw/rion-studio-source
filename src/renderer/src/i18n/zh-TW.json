@@ -544,6 +544,7 @@
   "settings.graphicsForceGpuRasterizationDescription": "要求以 GPU 執行頁面與 Canvas 光柵化。參數：--enable-gpu-rasterization。",
   "settings.graphicsFrameRateLimit": "幀率限制器",
   "settings.graphicsFrameRateLimitDescription": "關閉時加入 --disable-frame-rate-limit，Chromium 可能以高於螢幕更新率的速度繪製。",
+  "settings.graphicsFrameRateLimitDescription.macos": "macOS 固定開啟；Chromium 的無幀率限制參數可能造成 GPU process 崩潰。",
   "settings.graphicsVsync": "垂直同步（VSync）",
   "settings.graphicsVsyncDescription": "關閉時加入 --disable-gpu-vsync，可能增加畫面撕裂與 GPU 用量。",
   "settings.graphicsVsyncRequiresFrameLimit": "幀率限制器關閉時，VSync 會固定維持關閉。",

@@ -990,7 +990,7 @@
   "settings.logsClearTitle": "Clear application logs?",
   "settings.logsClearDescription": "Existing local log history will be removed. A new entry will record that logs were cleared.",
   "settings.logsLevel": "Recording level",
-  "settings.logsLevelDescription": "Debug applies only until Rion Studio restarts.",
+  "settings.logsLevelDescription": "Your recording level is saved and restored when Rion Studio restarts.",
   "settings.logsViewer": "Log viewer",
   "settings.logsRefresh": "Refresh",
   "settings.logsSearch": "Search messages and context",

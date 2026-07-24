@@ -5544,6 +5544,7 @@ impl AppCore {
             },
             "logging": {
                 "currentLevel": logging.current_level,
+                "entryCount": logging.entry_count,
                 "fileCount": logging.file_count,
                 "totalBytes": logging.total_bytes,
                 "oldestTimestamp": logging.oldest_timestamp,

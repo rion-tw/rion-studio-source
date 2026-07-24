@@ -85,7 +85,7 @@ export function DiagnosticsSettingsSection({ t, onError }: { t: Translator; onEr
               <p className="text-[13px] font-semibold leading-5 text-foreground">{t("settings.logsStorage")}</p>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                 {status ? t("settings.logsStorageSummary")
-                  .replace("{files}", String(status.fileCount))
+                  .replace("{entries}", String(status.entryCount))
                   .replace("{size}", formatBytes(status.totalBytes))
                   .replace("{days}", String(status.retentionDays))
                   .replace("{limit}", formatBytes(status.maxBytes)) : t("settings.logsLoading")}

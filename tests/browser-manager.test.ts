@@ -1309,6 +1309,28 @@ describe("ElectronBrowserRuntime game host windows", () => {
     consoleError.mockRestore();
   });
 
+  it.each([
+    { platform: "darwin" as const, excluded: true },
+    { platform: "win32" as const, excluded: undefined }
+  ])(
+    "sets the shown-windows-menu exclusion only for $platform game hosts",
+    async ({ platform, excluded }) => {
+      const harness = createHarness({
+        defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },
+        platform,
+        useTabbedHostWindow: true,
+        workspaceDisplays: runtimeDisplays
+      });
+
+      await harness.manager.launch(role);
+
+      expect(
+        (harness.hosts[0] as { excludedFromShownWindowsMenu?: boolean })
+          .excludedFromShownWindowsMenu
+      ).toBe(excluded);
+    }
+  );
+
   it("keeps Windows native caption buttons and title-bar overlay", async () => {
     const harness = createHarness({
       defaultLaunchTarget: { displayId: 11, workArea: runtimeDisplays[0].workArea },

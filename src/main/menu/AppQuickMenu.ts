@@ -1,6 +1,9 @@
 import { Menu } from "electron";
 
-import type { PendingWorkspaceLaunchRequest } from "../../shared/types";
+import type {
+  PendingWorkspaceLaunchRequest,
+  WorkspaceDisplayInfo
+} from "../../shared/types";
 import type { ElectronBrowserRuntime } from "../browser/ElectronBrowserRuntime";
 import type { RoleStore } from "../roles/RoleStore";
 import type { LaunchWorkspaceStore } from "../workspaces/LaunchWorkspaceStore";
@@ -14,14 +17,17 @@ interface AppQuickMenuOptions {
       "showEmbeddedRuntimeWindows" | "stopAll" | "stopWorkspace"
   >;
   canUseApp: () => Promise<boolean>;
+  getWorkspaceDisplays: () => WorkspaceDisplayInfo[];
   includeQuit: boolean;
   logger?: Pick<Console, "error">;
   onWorkspaceDisplaySelectionRequired: (request: PendingWorkspaceLaunchRequest) => void;
   openApp: () => void;
+  platform: NodeJS.Platform;
   quitApp?: () => void;
   recordRefresh?: () => void;
   roleStore: Pick<RoleStore, "getRole" | "listRoles">;
   setMenu: (menu: Menu) => void;
+  systemVersion?: string;
   workspaceLauncher: Pick<WorkspaceLaunchCoordinator, "launch">;
   workspaceStore: Pick<LaunchWorkspaceStore, "listWorkspaces">;
 }
@@ -96,9 +102,12 @@ export class AppQuickMenu {
         {
           includeQuit: this.options.includeQuit,
           legalAccepted,
+          platform: this.options.platform,
           roles,
           runtimeWindows: this.options.browserManager.listEmbeddedRuntimeState().windows,
           statuses,
+          ...(this.options.systemVersion ? { systemVersion: this.options.systemVersion } : {}),
+          workspaceDisplays: this.options.getWorkspaceDisplays(),
           workspaces,
           workspaceStatuses
         },

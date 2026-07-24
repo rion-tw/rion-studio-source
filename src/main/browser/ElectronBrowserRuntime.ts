@@ -1392,6 +1392,9 @@ export class ElectronBrowserRuntime extends EventEmitter<ElectronBrowserRuntimeE
     }
     const useMacCustomChrome = platform === "darwin" &&
       !macNativeTabs && Boolean(this.options.createRuntimeChromeView);
+    if (platform === "darwin") {
+      window.excludedFromShownWindowsMenu = true;
+    }
     window.contentView.setBackgroundColor("#00000000");
     const displayHost: EmbeddedDisplayHost = {
       closing: false,

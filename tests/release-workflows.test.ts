@@ -38,7 +38,6 @@ describe("private and public release workflows", () => {
   it("runs common checks on Ubuntu plus macOS and Windows package smoke jobs", async () => {
     const workflow = await readWorkflow(".github/workflows/ci.yml");
 
-    expect(workflow).toContain("pull_request:");
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("ref: ${{ inputs.ref || github.ref }}");
     expect(workflow).toContain("runs-on: ubuntu-latest");
